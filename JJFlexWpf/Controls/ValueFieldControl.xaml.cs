@@ -538,11 +538,18 @@ public partial class ValueFieldControl : UserControl
             text += _value <= _min ? ", minimum" : ", maximum";
         }
 
+        // At a limit, repeat while the key is held. The repetition is the
+        // point: it is how the operator learns there is nowhere further to go
+        // and they can stop pressing. Spacing is handled centrally, so the
+        // repeats cannot chop one another.
+        bool atEnd = _value <= _min || _value >= _max;
+
         ScreenReaderOutput.Speak(
             text,
             Radios.Speech.SpeechIntent.Latest,
             VerbosityLevel.Terse,
-            coalesceKey: $"value-field:{_label}");
+            coalesceKey: $"value-field:{_label}",
+            repeatWhileHeld: atEnd);
     }
     /// Hide child TextBlock from UIA tree so NVDA reads only AutomationProperties.Name,
     /// not the TextBlock content as well (which causes double-speak).

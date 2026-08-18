@@ -200,6 +200,9 @@ namespace Radios
         {
             public string Message = string.Empty;
             public VerbosityLevel Level;
+
+            /// <summary>See the repeatWhileHeld parameter on Speak.</summary>
+            public bool RepeatWhileHeld;
             public System.Threading.Timer? Timer;
         }
 
@@ -224,11 +227,20 @@ namespace Radios
         /// A Latest call with no key cannot coalesce against anything, so it
         /// degrades to Interrupt rather than silently pretending to work.
         /// </param>
+        /// <param name="repeatWhileHeld">
+        /// Latest only. Normally an identical repeated value is dropped, since
+        /// saying the same thing twice tells the operator nothing. Set this
+        /// when the repetition IS the information - holding a key against the
+        /// end of a range, where "still at minimum" is how you learn you can
+        /// stop pressing. Repeats are still spaced by the minimum gap, so they
+        /// cannot chop each other.
+        /// </param>
         public static void Speak(
             string message,
             Speech.SpeechIntent intent,
             VerbosityLevel level = VerbosityLevel.Terse,
-            string? coalesceKey = null)
+            string? coalesceKey = null,
+            bool repeatWhileHeld = false)
         {
             if (string.IsNullOrEmpty(message)) return;
             if ((int)level > (int)CurrentVerbosity) return;
@@ -253,7 +265,7 @@ namespace Radios
                         Emit(message, interrupt: true);
                         return;
                     }
-                    Coalesce(coalesceKey!, message, level);
+                    Coalesce(coalesceKey!, message, level, repeatWhileHeld);
                     return;
 
                 case Speech.SpeechIntent.Queue:
@@ -285,7 +297,8 @@ namespace Radios
         /// Coalescing has to happen before emission: once text reaches a screen
         /// reader we cannot take it back.
         /// </summary>
-        private static void Coalesce(string key, string message, VerbosityLevel level)
+        private static void Coalesce(
+            string key, string message, VerbosityLevel level, bool repeatWhileHeld = false)
         {
             lock (_pendingLock)
             {
@@ -293,6 +306,14 @@ namespace Radios
                 {
                     existing.Message = message;
                     existing.Level = level;
+                    existing.RepeatWhileHeld = repeatWhileHeld;
+
+                    // A repeating entry must NOT have its timer pushed out by
+                    // each new keypress: the operator is holding the key, so
+                    // restarting the wait would defer the announcement for
+                    // exactly as long as they need to hear it.
+                    if (repeatWhileHeld) return;
+
                     try
                     {
                         existing.Timer?.Change(CoalesceMs, System.Threading.Timeout.Infinite);
@@ -322,7 +343,12 @@ namespace Radios
                 // Either mid-sweep, or too soon after our own last utterance to
                 // lead without clipping it. Both cases coalesce.
 
-                var entry = new PendingUtterance { Message = message, Level = level };
+                var entry = new PendingUtterance
+                {
+                    Message = message,
+                    Level = level,
+                    RepeatWhileHeld = repeatWhileHeld,
+                };
                 _pending[key] = entry;
                 entry.Timer = new System.Threading.Timer(
                     _ => FlushCoalesced(key), null, CoalesceMs, System.Threading.Timeout.Infinite);
@@ -341,7 +367,8 @@ namespace Radios
                 // sweep the settle would otherwise arrive while the lead
                 // utterance is still speaking and cut it off to repeat a value
                 // the operator has already heard.
-                if (_lastByKey.TryGetValue(key, out var last)
+                if (!entry.RepeatWhileHeld
+                    && _lastByKey.TryGetValue(key, out var last)
                     && string.Equals(last.Message, entry.Message, StringComparison.Ordinal))
                 {
                     entry.Timer?.Dispose();
