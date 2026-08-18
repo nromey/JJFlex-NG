@@ -143,21 +143,27 @@ namespace Radios
         /// cannot happen, because a sweep ends when a finger comes off a key.
         private const int CoalesceMs = 150;
 
-        /// <summary>Longest a Latest utterance may be held before it speaks anyway.</summary>
-        ///
-        /// So a long deliberate hold still gets occasional feedback instead of
-        /// silence. Comfortably longer than the debounce, so an ordinary
-        /// adjustment never hits it and only a sustained sweep does.
-        private const int MaxHoldMs = 700;
+        // A "speak anyway after N ms" ceiling used to live here, so a long hold
+        // got periodic feedback rather than silence. It was REMOVED on
+        // 2026-08-18 because it did not work by ear: a value announcement takes
+        // longer to speak than the ceiling allowed, so each periodic utterance
+        // was cut off by the next one, producing the clicks and ticks the
+        // operator reported while sweeping.
+        //
+        // The choice is between silence during a hold and speech that is
+        // audibly chopped. Silence is better: the operator is holding a key
+        // deliberately and knows the value is moving, whereas a click carries
+        // no information at all and sounds like a fault.
+        //
+        // If periodic feedback is wanted later it must be SHORT enough to
+        // finish - the bare number rather than the whole phrase - not the full
+        // announcement fired more often.
 
         private sealed class PendingUtterance
         {
             public string Message = string.Empty;
             public VerbosityLevel Level;
             public System.Threading.Timer? Timer;
-
-            /// <summary>When this key first had something waiting, for MaxHoldMs.</summary>
-            public DateTime FirstQueued;
         }
 
         private static readonly Dictionary<string, PendingUtterance> _pending =
@@ -235,32 +241,21 @@ namespace Radios
                     existing.Message = message;
                     existing.Level = level;
 
-                    // RESTART the wait, so the utterance lands when the operator
-                    // stops moving rather than on a fixed cadence while they are
-                    // still going. Unless this key has been held past MaxHoldMs,
-                    // in which case let the running timer fire so a long sweep
-                    // still gets some feedback.
-                    if ((DateTime.UtcNow - existing.FirstQueued).TotalMilliseconds < MaxHoldMs)
+                    // RESTART the wait, always. The utterance lands when the
+                    // operator stops moving, however long the sweep runs.
+                    try
                     {
-                        try
-                        {
-                            existing.Timer?.Change(CoalesceMs, System.Threading.Timeout.Infinite);
-                        }
-                        catch (ObjectDisposedException)
-                        {
-                            // Raced with its own flush; the next value starts a
-                            // fresh entry, so there is nothing to repair.
-                        }
+                        existing.Timer?.Change(CoalesceMs, System.Threading.Timeout.Infinite);
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Raced with its own flush; the next value starts a
+                        // fresh entry, so there is nothing to repair.
                     }
                     return;
                 }
 
-                var entry = new PendingUtterance
-                {
-                    Message = message,
-                    Level = level,
-                    FirstQueued = DateTime.UtcNow,
-                };
+                var entry = new PendingUtterance { Message = message, Level = level };
                 _pending[key] = entry;
                 entry.Timer = new System.Threading.Timer(
                     _ => FlushCoalesced(key), null, CoalesceMs, System.Threading.Timeout.Infinite);
