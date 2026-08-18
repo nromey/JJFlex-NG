@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows.Forms;
 using System.Xml.Serialization;
 
@@ -113,6 +113,7 @@ public enum CommandValues
     SpeakTXFilter,
     OpenAudioWorkshop,
     ShowContextHelp,
+    SpeakContextHelp,
     TuneToggle,
     ATUTune,
     ToggleMeters,

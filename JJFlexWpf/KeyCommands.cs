@@ -89,6 +89,9 @@ public class KeyCommands
             new(CommandValues.ShowContextHelp, KeyTypes.Command, ShowContextHelpHandler,
                 "Open help file", "Help file", false, FunctionGroups.Help, KeyScope.Global)
                 { Keywords = new[] { "help", "file", "chm", "documentation", "manual", "f1" }, ShortActionLabel = "open help file" },
+            new(CommandValues.SpeakContextHelp, KeyTypes.Command, SpeakContextHelpHandler,
+                "Explain the focused control", "Explain this", false, FunctionGroups.Help, KeyScope.Global)
+                { Keywords = new[] { "help", "explain", "context", "what", "this", "describe", "detail" }, ShortActionLabel = "explain this control" },
 
             // ── Routing / Scan ──
             new(CommandValues.ShowFreq, DisplayFreqHandler,
@@ -532,6 +535,50 @@ public class KeyCommands
 
     private void ShowHelpHandler() => _context.GetMainWindow()?.DisplayHelp();
     private void ShowContextHelpHandler() => HelpLauncher.ShowHelp();
+
+    /// <summary>
+    /// Ctrl+F1: explain the control that has focus.
+    ///
+    /// Reads the focused element's AutomationProperties.HelpText - the longer
+    /// explanation that used to live in its NAME and was therefore recited on
+    /// every single focus change. Moving those out on 2026-08-18 made Settings
+    /// far quieter and left the explanations parked with nothing to surface
+    /// them. This is what surfaces them.
+    ///
+    /// F1 keeps opening the help file, which is the Windows convention;
+    /// Ctrl+F1 is the usual context-sensitive companion. Noel's steer: "usually
+    /// f1 brings up help file, ctrl+f1 often will do context sensitive".
+    ///
+    /// Interrupts deliberately. This is a question the operator just asked, and
+    /// the answer supersedes whatever was being said when they asked it.
+    /// </summary>
+    private void SpeakContextHelpHandler()
+    {
+        var focused = System.Windows.Input.Keyboard.FocusedElement
+                      as System.Windows.DependencyObject;
+
+        // Walk up: focus often sits on an inner part (a ListBoxItem, a TextBox
+        // inside a composite) while the explanation belongs to the control the
+        // operator would say they are "on".
+        while (focused != null)
+        {
+            string help = System.Windows.Automation.AutomationProperties.GetHelpText(focused);
+            if (!string.IsNullOrWhiteSpace(help))
+            {
+                Radios.ScreenReaderOutput.Speak(
+                    help, Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical);
+                return;
+            }
+            focused = System.Windows.Media.VisualTreeHelper.GetParent(focused);
+        }
+
+        // Say so rather than doing nothing. A key that is silent half the time
+        // teaches the operator it is broken; a key that says "nothing here"
+        // teaches them where the explanations are.
+        Radios.ScreenReaderOutput.Speak(
+            "No extra explanation for this control. F1 opens the help file.",
+            Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical);
+    }
 
     #endregion
 
@@ -1173,6 +1220,7 @@ public class KeyCommands
     {
         // --- Global scope ---
         new(Keys.F1, CommandValues.ShowContextHelp, KeyScope.Global),
+        new(Keys.F1 | Keys.Control, CommandValues.SpeakContextHelp, KeyScope.Global),
         new(Keys.F12, CommandValues.StopCW, KeyScope.Global),
         new(Keys.L | Keys.Control, CommandValues.StationLookup, KeyScope.Global),
         new(Keys.None, CommandValues.GatherDebug, KeyScope.Global),

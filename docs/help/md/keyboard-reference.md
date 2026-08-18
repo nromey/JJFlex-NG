@@ -1,4 +1,4 @@
-# Keyboard Reference
+﻿# Keyboard Reference
 
 Welcome to your one-stop reference for every keyboard shortcut in JJ Flexible Radio Access. You can also press `Ctrl+/` at any time to open the Command Finder, which lets you search for commands by name. And here's the newest trick: while you're in the JJ Flexible Home, press `?` on any field and the app speaks the keys that work right there.
 
@@ -13,6 +13,7 @@ These keys work no matter where you are in the application — and "no matter wh
 | Key | Action |
 |-----|--------|
 | F1 | Open this help file |
+| Ctrl+F1 | Explain the control you are sitting on, when it has a longer explanation than its name |
 | Ctrl+/ | Open Command Finder (search all commands) |
 | Ctrl+J | The JJ key (press, release, then press a second key) |
 | Ctrl+Shift+M | Switch between Classic and Modern tuning mode |
@@ -68,7 +69,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
-One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `?`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's F1. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
+One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `?`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
 
 ### Volume mode — Ctrl+J, then V
 
