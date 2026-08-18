@@ -501,9 +501,18 @@ public partial class ValueFieldControl : UserControl
         }
     }
 
-    /// <summary>Rate limit for the end-stop tone; key repeat is far faster.</summary>
+    /// <summary>How often the end-stop tone repeats while the key is held.</summary>
+    ///
+    /// 500 ms reads as a periodic "still here". The first attempt used 250 ms,
+    /// which at four a second reads as a BUZZ rather than a repeat - a
+    /// continuous texture the ear stops parsing as a signal. Set by ear on
+    /// 2026-08-18.
+    ///
+    /// It has to repeat at all: a single tone on arrival is indistinguishable
+    /// from the tone of a quick tap, and says nothing about the state the
+    /// operator is now stuck in. The repetition IS the "you can stop pressing".
     private static DateTime _lastEndStop = DateTime.MinValue;
-    private const int EndStopThrottleMs = 250;
+    private const int EndStopThrottleMs = 500;
 
     /// <summary>Low for the bottom of the range, high for the top.</summary>
     private const int EndStopLowHz = 320;
