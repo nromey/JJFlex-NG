@@ -865,7 +865,28 @@ Module globals
         If BootTrace Then
             RotateBootTraceIfNeeded()
             TraceArchiveBootMaintenance()
+            ' Boot trace level, overridable per launch:
+            '   set JJFLEX_BOOT_TRACE_LEVEL=Verbose
+            '
+            ' Info is right for every day. Verbose adds every spoken utterance
+            ' ("ScreenReaderOutput: Spoke '...'") and other high-frequency
+            ' detail, which is what you need to answer "what exactly did it
+            ' say" - and which the Help > Tracing dialog CANNOT give you,
+            ' because reaching that dialog means startup and connect have
+            ' already happened. Noel hit exactly that wall on 2026-08-17
+            ' chasing a stray SmartLink announcement that fires during connect.
+            '
+            ' Unrecognised values fall back to Info rather than failing: a
+            ' typo in an environment variable must not cost someone their
+            ' trace file.
             Dim bootLevel As TraceLevel = TraceLevel.Info
+            Dim lvlRaw As String = Environment.GetEnvironmentVariable("JJFLEX_BOOT_TRACE_LEVEL")
+            If Not String.IsNullOrWhiteSpace(lvlRaw) Then
+                Dim parsed As TraceLevel
+                If [Enum].TryParse(Of TraceLevel)(lvlRaw.Trim(), ignoreCase:=True, result:=parsed) Then
+                    bootLevel = parsed
+                End If
+            End If
             Tracing.TheSwitch.Level = bootLevel
             Tracing.TraceFile = BootTraceFileName
             Tracing.On = True
