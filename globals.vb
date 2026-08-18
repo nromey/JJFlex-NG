@@ -3239,6 +3239,38 @@ RadioConnected:
             Return False
         End If
 
+        ' The exit is now certain - the unsaved-QSO prompt above is the only
+        ' thing that can cancel it - so this is the first safe point to say so.
+        Try
+            ' Let any in-flight CW finish its character. Tearing the audio stack
+            ' down mid-element truncated it audibly, and a half-sent character
+            ' is worse than a slightly slower exit: the operator cannot tell a
+            ' clipped exit from a crash. Bounded, so a wedged audio device can
+            ' never stop the application closing.
+            WpfMainWindow?.WaitForCwIdle(1500)
+
+            ' Say goodbye and WAIT for it. A queued utterance does not survive
+            ' process exit - the same reason the greeting had to move to launch.
+            ' SpeakAndWait estimates the duration from the text and is itself
+            ' capped, so this cannot hang either.
+            '
+            ' There was never an exit announcement before today: RequestShutdown
+            ' held nothing but trace lines, and the "Disconnecting from X" line
+            ' that sounds like it should cover this belongs to SelectRadio, the
+            ' SWITCH-radios path. The application simply closed in silence.
+            Dim radioName As String = Nothing
+            If RigControl IsNot Nothing Then radioName = RigControl.RadioNickname
+
+            If Not String.IsNullOrWhiteSpace(radioName) Then
+                Radios.ScreenReaderOutput.SpeakAndWait("Disconnecting from " & radioName & ", goodbye")
+            Else
+                Radios.ScreenReaderOutput.SpeakAndWait("Closing JJ Flexible, goodbye")
+            End If
+        Catch ex As Exception
+            ' Never let the farewell stop the exit.
+            Tracing.TraceLine("ExitApplication:farewell " & ex.Message, TraceLevel.Warning)
+        End Try
+
         Try
             LogEntry.Close()
             Logs.Done()

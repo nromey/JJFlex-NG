@@ -1785,7 +1785,16 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>CW Morse code notification engine for connection/status events.</summary>
-    private readonly MorseNotifier _morseNotifier = new(new EarconCwOutput());
+    // Static so the field initializer below can reference it: C# forbids an
+    // instance field initializer touching another instance field.
+    private static readonly EarconCwOutput _cwOutput = new();
+    private readonly MorseNotifier _morseNotifier = new(_cwOutput);
+
+    /// <summary>
+    /// Let any in-flight CW finish before teardown, up to a bounded wait.
+    /// Called from the VB exit sequence, which owns the shutdown order.
+    /// </summary>
+    public bool WaitForCwIdle(int maxWaitMs) => _cwOutput.WaitForIdle(maxWaitMs);
 
     /// <summary>
     /// Expose FreqOutHandlers for Settings dialog tuning step access.

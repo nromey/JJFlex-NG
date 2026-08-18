@@ -551,10 +551,17 @@ public partial class ValueFieldControl : UserControl
         // delay after release".
         AnnounceValue(atLimit: true);
 
-        // Earcons off: the deferred phrase above is the whole signal. Better a
-        // late announcement than none.
-        if (!EarconPlayer.EarconsEnabled) return;
-
+        // ALWAYS sounds, even with earcons switched off.
+        //
+        // The earcons setting silences decoration - confirmation chirps, arrival
+        // tones, the pleasant furniture. This is not that. While the key is held
+        // it is the ONLY signal that the value has stopped moving, because the
+        // spoken phrase is deliberately deferred until release. Gating it would
+        // mean an operator who turned off decorative sounds silently lost the
+        // one piece of information they cannot get any other way.
+        //
+        // Noel's call, on exactly that reasoning: end stops are accessibility,
+        // not flavour.
         var now = DateTime.UtcNow;
         if ((now - _lastEndStop).TotalMilliseconds < EndStopThrottleMs) return;
         _lastEndStop = now;

@@ -56,6 +56,36 @@ namespace JJFlexWpf
 
         private IDisposable? _currentHandle;
         private readonly object _lock = new();
+        private int _outstanding;
+
+        /// <summary>
+        /// True while a sequence is playing OR waiting to play.
+        ///
+        /// Exists so shutdown can let a character finish instead of cutting it
+        /// mid-element. Tearing the audio stack down while CW was keying
+        /// truncated it audibly - reported 2026-08-18 - and a half-sent
+        /// character is worse than a slightly slower exit, because an operator
+        /// cannot tell a clipped exit from a crash.
+        /// </summary>
+        public bool IsBusy => System.Threading.Volatile.Read(ref _outstanding) > 0;
+
+        /// <summary>
+        /// Wait for in-flight CW to drain, up to <paramref name="maxWaitMs"/>.
+        /// Returns true when it drained, false when the deadline won.
+        ///
+        /// Bounded on purpose: a wedged audio device must never be able to stop
+        /// the application closing. A truncated character is a papercut; an
+        /// exit that hangs is a support call.
+        /// </summary>
+        public bool WaitForIdle(int maxWaitMs)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(maxWaitMs);
+            while (IsBusy && DateTime.UtcNow < deadline)
+            {
+                System.Threading.Thread.Sleep(20);
+            }
+            return !IsBusy;
+        }
 
         public EarconCwOutput()
         {
@@ -75,9 +105,11 @@ namespace JJFlexWpf
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var item = new QueuedSequence(elements, sidetoneHz, volume, riseFallMs, ct, tcs);
 
+            System.Threading.Interlocked.Increment(ref _outstanding);
             if (!_queue.Writer.TryWrite(item))
             {
                 // Writer is completed (we're being disposed) — treat as cancelled.
+                System.Threading.Interlocked.Decrement(ref _outstanding);
                 tcs.TrySetCanceled();
             }
             return tcs.Task;
@@ -117,7 +149,18 @@ namespace JJFlexWpf
             {
                 await foreach (var item in _queue.Reader.ReadAllAsync(_shutdown.Token).ConfigureAwait(false))
                 {
-                    await PlayOne(item).ConfigureAwait(false);
+                    try
+                    {
+                        await PlayOne(item).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        // Single decrement point. PlayOne has several early
+                        // returns; counting here means none of them can leak a
+                        // permanently-busy output that would make shutdown wait
+                        // out its full deadline every time.
+                        System.Threading.Interlocked.Decrement(ref _outstanding);
+                    }
                 }
             }
             catch (OperationCanceledException) { /* shutdown */ }
