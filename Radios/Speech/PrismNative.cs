@@ -63,12 +63,37 @@ namespace Radios.Speech
         SupportsResume = 1UL << 9,
     }
 
-    /// <summary>A single version byte (PRISM_CONFIG_VERSION). Returned by value
-    /// from prism_config_init, passed by pointer to prism_init.</summary>
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    /// <summary>
+    /// Mirrors PrismConfig in prism.h. Returned BY VALUE from
+    /// prism_config_init and passed by pointer to prism_init.
+    ///
+    /// **This must match the C layout exactly, field for field.** It was
+    /// declared as a single `byte Version` with Pack = 1 — copied from CAMM,
+    /// whose binding was written against an older Prism where that was true.
+    /// The struct has since grown to roughly 48 bytes on x64, and a struct that
+    /// size is returned through a hidden pointer rather than in a register. The
+    /// runtime, believing it was one byte, wrote the return value into stack it
+    /// did not own: access violation 0xC0000005 inside prism_config_init, on
+    /// the very first call, before any managed code could catch it. A native
+    /// crash is not catchable, so the app simply vanished on launch.
+    ///
+    /// NO Pack attribute: the C struct uses default alignment, so this one must
+    /// too. Forcing Pack = 1 would silently shift every field after `version`.
+    ///
+    /// If Prism's config struct changes again, this crashes the same way. Check
+    /// it against include/prism.h whenever the pinned commit moves.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
     internal struct PrismConfig
     {
         public byte Version;
+        public IntPtr Registry;
+        public IntPtr AvailabilityCallback;
+        public IntPtr AvailabilityUserdata;
+        public uint AvailabilityPollIntervalMs;
+        public uint AvailabilityDebounceSamples;
+        public uint AvailabilityBackoffMaxMs;
+        [MarshalAs(UnmanagedType.U1)] public bool AvailabilityAutoPowerManage;
     }
 
     internal static class PrismNative
