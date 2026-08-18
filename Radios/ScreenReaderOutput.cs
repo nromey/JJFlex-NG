@@ -129,19 +129,35 @@ namespace Radios
         // application keeps working while call sites migrate deliberately.
         // Mapping is deliberately asymmetric and documented at the overload.
 
-        /// <summary>How long a Latest utterance waits to be superseded.</summary>
+        /// <summary>Quiet period after the LAST change before a Latest utterance speaks.</summary>
         ///
-        /// Long enough to swallow a key-repeat burst (Windows repeats at
-        /// roughly 30 a second, so ~33 ms apart), short enough that a single
-        /// deliberate press does not feel laggy. Riding a control emits one
-        /// utterance per settle, not one per step.
-        private const int CoalesceMs = 120;
+        /// A debounce, not a throttle - the timer restarts on every new value,
+        /// so a sweep speaks once when the operator stops rather than at a
+        /// fixed cadence while they are still moving.
+        ///
+        /// The first attempt got this wrong and it was audible: a fixed 120 ms
+        /// window that did NOT restart fired every 120 ms during a hold, each
+        /// utterance cutting off the last after about one phoneme. Reported
+        /// 2026-08-18 as "r r r r r RF gain 5". The comment justifying it
+        /// claimed restarting would "defer the announcement forever" - which
+        /// cannot happen, because a sweep ends when a finger comes off a key.
+        private const int CoalesceMs = 150;
+
+        /// <summary>Longest a Latest utterance may be held before it speaks anyway.</summary>
+        ///
+        /// So a long deliberate hold still gets occasional feedback instead of
+        /// silence. Comfortably longer than the debounce, so an ordinary
+        /// adjustment never hits it and only a sustained sweep does.
+        private const int MaxHoldMs = 700;
 
         private sealed class PendingUtterance
         {
             public string Message = string.Empty;
             public VerbosityLevel Level;
             public System.Threading.Timer? Timer;
+
+            /// <summary>When this key first had something waiting, for MaxHoldMs.</summary>
+            public DateTime FirstQueued;
         }
 
         private static readonly Dictionary<string, PendingUtterance> _pending =
@@ -216,15 +232,35 @@ namespace Radios
             {
                 if (_pending.TryGetValue(key, out var existing))
                 {
-                    // Same key already waiting - overwrite the words and let the
-                    // running timer carry on. Restarting it on every step would
-                    // let a continuous sweep defer the announcement forever.
                     existing.Message = message;
                     existing.Level = level;
+
+                    // RESTART the wait, so the utterance lands when the operator
+                    // stops moving rather than on a fixed cadence while they are
+                    // still going. Unless this key has been held past MaxHoldMs,
+                    // in which case let the running timer fire so a long sweep
+                    // still gets some feedback.
+                    if ((DateTime.UtcNow - existing.FirstQueued).TotalMilliseconds < MaxHoldMs)
+                    {
+                        try
+                        {
+                            existing.Timer?.Change(CoalesceMs, System.Threading.Timeout.Infinite);
+                        }
+                        catch (ObjectDisposedException)
+                        {
+                            // Raced with its own flush; the next value starts a
+                            // fresh entry, so there is nothing to repair.
+                        }
+                    }
                     return;
                 }
 
-                var entry = new PendingUtterance { Message = message, Level = level };
+                var entry = new PendingUtterance
+                {
+                    Message = message,
+                    Level = level,
+                    FirstQueued = DateTime.UtcNow,
+                };
                 _pending[key] = entry;
                 entry.Timer = new System.Threading.Timer(
                     _ => FlushCoalesced(key), null, CoalesceMs, System.Threading.Timeout.Infinite);
