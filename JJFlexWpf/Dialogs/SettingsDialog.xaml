@@ -32,7 +32,24 @@
             <!-- PTT Tab -->
             <TabItem Header="PTT" AutomationProperties.Name="Push to talk settings">
                 <StackPanel Margin="8">
-                    <Grid>
+                    <!-- Field labels ending in ":" are controls:DecorativeText, not TextBlock.
+
+     Every one of them sits above a control that carries its own, fuller
+     AutomationProperties.Name - "Speed (WPM):" labels a box named "CW
+     notification speed, 10 to 60 words per minute". A screen reader reads
+     static text as dialog BODY when the dialog opens, so each label was heard
+     once on open and again on focus, and the on-open copy is the less useful
+     of the two.
+
+     DecorativeText keeps them on screen for a sighted operator and removes them
+     from the UIA tree. Verified before changing: all 27 had a named control, and
+     NONE were the only identification for their field. A label whose control has
+     no Name must stay a plain TextBlock - it is the only thing naming that
+     field. Checked 2026-08-18.
+
+     Section headings ("Meter Tones", "Braille Display") are deliberately NOT
+     decorated: they name a GROUP, and nothing else conveys that grouping. -->
+<Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="120"/>
@@ -45,35 +62,35 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="0" Grid.Column="0"
                                    Text="Timeout (seconds):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttTimeoutBox" Grid.Row="0" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="PTT timeout in seconds, 10 to 900"/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="1" Grid.Column="0"
                                    Text="First warning (seconds before timeout):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttWarning1Box" Grid.Row="1" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="First warning, seconds before timeout"/>
 
-                        <TextBlock Grid.Row="2" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="2" Grid.Column="0"
                                    Text="Second warning (seconds before timeout):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttWarning2Box" Grid.Row="2" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="Second warning, seconds before timeout"/>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="3" Grid.Column="0"
                                    Text="Final warning (seconds before timeout):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttOhCrapBox" Grid.Row="3" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="Final warning, seconds before timeout"/>
 
-                        <TextBlock Grid.Row="4" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="4" Grid.Column="0"
                                    Text="ALC auto-release (seconds, 0=off):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PttAlcBox" Grid.Row="4" Grid.Column="1"
@@ -106,14 +123,14 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="0" Grid.Column="0"
                                    Text="Coarse step default:"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <ComboBox x:Name="CoarseStepCombo" Grid.Row="0" Grid.Column="1"
                                   Style="{StaticResource DialogComboBox}"
                                   AutomationProperties.Name="Default coarse tuning step"/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="1" Grid.Column="0"
                                    Text="Fine step default:"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <ComboBox x:Name="FineStepCombo" Grid.Row="1" Grid.Column="1"
@@ -127,7 +144,7 @@
                               AutomationProperties.Name="Enable band memory"/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <TextBlock Text="Frequency speech units:" VerticalAlignment="Center"
+                        <controls:DecorativeText Text="Frequency speech units:" VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="FreqUnitsCombo" Width="120"
                                   Style="{StaticResource DialogComboBox}"
@@ -152,7 +169,7 @@
                               Unchecked="TuneDebounceCheckbox_Changed"/>
 
                     <StackPanel x:Name="DebounceDelayPanel" Orientation="Horizontal" Margin="20,8,0,0">
-                        <TextBlock Text="Debounce delay (ms):" VerticalAlignment="Center"
+                        <controls:DecorativeText Text="Debounce delay (ms):" VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <TextBox x:Name="DebounceDelayBox" Width="60"
                                  Style="{StaticResource DialogTextBox}"
@@ -173,7 +190,7 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="0" Grid.Column="0"
                                    Text="License class:"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <ComboBox x:Name="LicenseClassCombo" Grid.Row="0" Grid.Column="1"
@@ -193,7 +210,7 @@
                     <Separator Margin="0,12,0,8"/>
 
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
-                        <TextBlock Text="Country:" VerticalAlignment="Center"
+                        <controls:DecorativeText Text="Country:" VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="CountryCombo" Width="120"
                                   Style="{StaticResource DialogComboBox}"
@@ -346,7 +363,7 @@
                         Margin="0,0,0,8"
                         AutomationProperties.Name="Alert volume, 0 to 100"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Alert device:"
+                        <controls:DecorativeText Text="Alert device:"
                                    VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="EarconDeviceCombo" Width="200"
@@ -366,13 +383,13 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="0" Grid.Column="0"
                                    Text="Sidetone frequency (Hz):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="CwSidetoneBox" Grid.Row="0" Grid.Column="1"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="CW sidetone frequency, 400 to 1200 hertz"/>
-                        <TextBlock Grid.Row="1" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="1" Grid.Column="0"
                                    Text="Speed (WPM):"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="CwSpeedBox" Grid.Row="1" Grid.Column="1"
@@ -393,7 +410,7 @@
                         Margin="0,0,0,8"
                         AutomationProperties.Name="Meter tone volume, 0 to 100"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Meter device:"
+                        <controls:DecorativeText Text="Meter device:"
                                    VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="MeterDeviceCombo" Width="200"
@@ -401,7 +418,7 @@
                                   AutomationProperties.Name="Meter tone audio output device"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Preset:"
+                        <controls:DecorativeText Text="Preset:"
                                    VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="MeterPresetCombo" Width="150"
@@ -423,7 +440,7 @@
                     <TextBlock Text="Frequency Entry" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Typing sound:"
+                        <controls:DecorativeText Text="Typing sound:"
                                    VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="TypingSoundCombo" Width="180"
@@ -441,7 +458,7 @@
                               Margin="0,0,0,8"
                               AutomationProperties.Name="Enable braille status line on home position"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Display cells:"
+                        <controls:DecorativeText Text="Display cells:"
                                    VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="BrailleCellsCombo" Width="80"
@@ -498,7 +515,7 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="0" Grid.Column="0"
                                    Text="Port (TCP and UDP):"
                                    x:Name="PortForwardTcpLabel"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
@@ -507,7 +524,7 @@
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="Port number, 1024 to 65535, applied to TCP and UDP"
                                  TextChanged="PortForwardTcpBox_TextChanged"/>
-                        <TextBlock Grid.Row="1" Grid.Column="0"
+                        <controls:DecorativeText Grid.Row="1" Grid.Column="0"
                                    Text="UDP port:"
                                    Style="{StaticResource DialogLabel}" Margin="0,4,8,4"/>
                         <TextBox x:Name="PortForwardUdpBox" Grid.Row="1" Grid.Column="1"
@@ -709,14 +726,14 @@
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                Text="Settings for each individual radio, remembered by serial number. Editable any time, connected or not. Radios appear here after you connect to them once, or type a serial number directly."/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Radio:" VerticalAlignment="Center"
+                        <controls:DecorativeText Text="Radio:" VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="RadioProfilePicker" Width="280" IsEditable="True"
                                   AutomationProperties.Name="Radio to configure. Choose from known radios or type a serial number."
                                   SelectionChanged="RadioProfilePicker_SelectionChanged"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <TextBlock Text="Radio name:" VerticalAlignment="Center"
+                        <controls:DecorativeText Text="Radio name:" VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <TextBox x:Name="RadioProfileNicknameBox" Width="280"
                                  Style="{StaticResource DialogTextBox}"
@@ -758,7 +775,7 @@
                                 </StackPanel>
                             </RadioButton>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,4">
-                                <TextBlock Text="Fixed hole-punch port (blank = new one each time):"
+                                <controls:DecorativeText Text="Fixed hole-punch port (blank = new one each time):"
                                            VerticalAlignment="Center"
                                            Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                                 <TextBox x:Name="RadioProfilePunchPortBox" Width="90"
@@ -813,7 +830,7 @@
                                  it unreachable. This saves the intent with no radio
                                  present and applies it at the next connection. -->
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                <TextBlock Text="REM ON remote power jack when connecting:"
+                                <controls:DecorativeText Text="REM ON remote power jack when connecting:"
                                            VerticalAlignment="Center"
                                            Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                                 <ComboBox x:Name="RadioProfileRemOnCombo" MinWidth="220"
@@ -898,7 +915,7 @@
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="While you are here, give the radio a name. The name lives in the radio itself and is what shows in the radio list and on SmartLink — an unnamed radio shows as Unknown and is easy to pick by mistake."/>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                <TextBlock Text="Radio name:" VerticalAlignment="Center"
+                                <controls:DecorativeText Text="Radio name:" VerticalAlignment="Center"
                                            Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                                 <TextBox x:Name="SetupRadioNameBox"
                                          Width="220" VerticalAlignment="Center"
@@ -1096,7 +1113,7 @@
                     <TextBlock Text="Speech" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Speech verbosity:"
+                        <controls:DecorativeText Text="Speech verbosity:"
                                    VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="SpeechVerbosityCombo" Width="120"
@@ -1109,7 +1126,7 @@
                          Ctrl+J, K mic check. Default is plain English plus
                          dBFS — what always shipped. -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                        <TextBlock Text="Mic audio readout:"
+                        <controls:DecorativeText Text="Mic audio readout:"
                                    VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                         <ComboBox x:Name="MicVerdictOutputCombo" Width="220"

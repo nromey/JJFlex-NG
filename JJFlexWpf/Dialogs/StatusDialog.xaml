@@ -29,7 +29,12 @@
              reach it. Its own tab stop below the status list; arrow through
              the lines. The label is a heading for sighted layout; the card's
              list carries its own accessible name for screen readers. -->
-        <TextBlock Grid.Row="1" Text="Network identity" Margin="4,8,4,0"
+        <!-- Decorative: the card below carries AutomationProperties.Name
+             ="Network identity" itself, so a plain TextBlock here was the same
+             words twice - once as dialog body text on open, once when focus
+             reached the card. Sighted layout keeps the heading; the screen
+             reader stops hearing it doubled. -->
+        <controls:DecorativeText Grid.Row="1" Text="Network identity" Margin="4,8,4,0"
                    FontWeight="Bold"/>
         <controls:NetworkIdentityCard x:Name="IdentityCard" Grid.Row="2"
                  Margin="4,2,4,0" MaxHeight="150"/>
