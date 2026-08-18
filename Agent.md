@@ -1,4 +1,4 @@
-# Agent Summary
+﻿# Agent Summary
 
 This document captures the current state of JJ-Flex repository and active work.
 
@@ -8,6 +8,177 @@ This document captures the current state of JJ-Flex repository and active work.
 *This header claimed work lived on `track/flexlib-4220` with main 305 commits behind until 2026-08-12 — a day after the merge made that false. It is the same drift documented in `memory/project_description_drift_pattern.md`; check `git rev-parse --abbrev-ref HEAD` rather than trusting this line.*
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-08-17 — THE DAY THE APP STARTED TALKING OVER ITSELF, AND WE HEARD IT
+
+*38 commits, 90 files, +12,870/−2,232 (net +10,638) on `honest-tx-audio`,
+all pushed. **The ten-track merge landed.** Then the day turned into an
+accessibility archaeology dig that ended with Tolk deleted and Prism
+speaking.*
+
+**Theme: almost every defect found today was the same defect — something
+happened, or failed to happen, and nothing said so.** Eight costumes, one
+bug. And the day's most useful instrument turned out to be a text file:
+the ear catches what is *jarring*, a transcript catches what is
+*incorrect*, and tonight those were different sets.
+
+### The merge, done twice
+
+All ten `bsr/track-*` branches merged, build clean after every one. First
+pass was a batch run; Noel called it back to redo slowly and deliberately.
+That was right — the careful pass found that the batch had silently
+**dropped Track C entirely** (a reset discarded nine merges and A went
+onto the bare base), which would have shipped a `RemOnOnConnectModes` that
+existed on a branch and nowhere else. **A green build proves internal
+consistency, not completeness**; the check that caught it was asserting a
+known symbol from each track is present in the merged tree.
+
+Two real conflicts across ten branches. The nickname one needed
+understanding rather than a side: A split the operator's CHOSEN name from
+the radio's BROADCAST name, C rebuilt the save path so edits survive a tab
+switch, and git matched unrelated braces. Taking C's structure and
+re-applying A's four substitutions was the only correct move — and it
+exposed something neither track could see alone: C's "silent mirror
+refresh" is safe ONLY because A's split exists. Under the old single-field
+model that line would quietly destroy a chosen name.
+
+### Dependencies: all 21 current, and the argument I lost
+
+Noel: *"we're already in test now, and I'd rather get us up to scratch."*
+He was right and I was wrong to want to defer. SharpCompress CVE cleared
+(LZMA round-trip verified, not just built). Five framework references
+**deleted** rather than upgraded — net10 already supplies them.
+**NAudio 3.0**, 13 providers migrated to `Span<float>`, six breaking
+changes, verified by ear. WebView2 1,650 builds forward.
+
+**Analyzers upgraded BEFORE the triage, on his argument**, which was the
+better call: new rules are fixed detection, not noise, and triaging
+against analyzers about to be replaced is wasted work. It immediately
+found the OAuth `state` parameter built from `new Random()` — a rule Sonar
+10.18 could not see.
+
+### Warnings: 3,455 → 992, and it is now readable
+
+110 rules silenced explicitly, one line each with its site count, grouped
+with stated reasons — NOT a blanket category setting, because a decision
+nobody can audit is the thing the exercise exists to prevent. Verified by
+diffing before/after: exactly 110 codes gone, all intended, zero
+collateral, every keep-list rule still firing.
+
+`MA0060` driven to zero: twelve ignored `TryParse` results. **In every
+case the fallback was already correct** — the defect was that nothing said
+it had been used. Safe and silent are not the same word.
+
+### AuthForm deleted, and Tolk after it
+
+`AuthForm` was labelled a fallback and nothing could reach it. Three
+analyzer rules pointed at one dead file, including an OAuth state from
+`new Random()`. 322 lines gone. **Description drift wearing a safety
+label** is the hardest kind to challenge.
+
+Then Tolk, on Noel's call: it does not respect queuing, it is
+unmaintained, and it is a shim that needs four native DLLs per
+architecture. Keeping it as a fallback was the tempting middle path and
+was worse than either alternative — **a fallback nobody exercises is
+untested code that runs only in emergencies**, and because Tolk's queuing
+DIFFERS, falling back silently would hand the operator a subtly broken
+experience with nothing to explain it.
+
+His framing of why Prism fits: *a radio UI behaves like a game, not a
+form.* Buttons cause rapid state changes; announcements arrive faster than
+they can be spoken.
+
+**Removing the fallback paid twice within the hour.** It exposed (1) the
+DLL resolver was never registered for `Radios.dll`, so Prism could never
+have loaded — the fallback made a completely non-functional integration
+look like success — and (2) `PrismConfig` was a stale one-byte struct
+copied from CAMM. Prism's has grown to ~48 bytes, returned via hidden
+pointer; the runtime wrote into stack it did not own. **Access violation,
+uncatchable, app vanished on launch.** My error specifically: I read
+`prism.h` for the braille signature but trusted CAMM's C# for the struct.
+*Reading a reference implementation is not verifying against the header.*
+
+`Speech: backend=Prism, reader=NVDA, speech=True, braille=True`
+
+### The verbose trace, and three inaudible defects
+
+Noel: *"turning on trace to verbose and starting after it happens won't
+work"* — correct, and a real hole: Help > Tracing is downstream of
+startup. `JJFLEX_BOOT_TRACE_LEVEL` now overrides from the first line.
+
+The transcript showed eight utterances. He had heard about two. Three were
+plainly wrong:
+
+- **"Connection attempt cancelled" on a SUCCESSFUL connect** — and not
+  merely noise. `CloseForm()` called `Close()` without marking the close
+  as ours; WinForms reports a programmatic close as `UserClosing`, so
+  every successful connect spoke a cancellation, set `e.Cancel`, **and
+  invoked the cancel callback.**
+- **"Connecting to Unknown"** for a radio picked by name. `DisplayText`
+  guarded the "Unknown" sentinel; `RowName` did not — two readers of one
+  field, one informed.
+- **"Connecting to SmartLink… Connected"** on a deliberately local
+  connect: the background account session narrating its own plumbing.
+
+### The finding that shapes tomorrow
+
+**261 of 703 speech call sites pass `interrupt: true`.** The stomping is
+ours, not the backend's. `interrupt` is a *mechanism* pretending to be an
+*intent* — every caller had to answer a question about global state that
+no local call site can answer.
+
+Noel's split: **a series wants the queue, an action wants the interrupt.**
+Three behaviours needed, not two — Interrupt, Queue, and Latest (a pending
+utterance of the same kind is REPLACED, so riding a slider does not recite
+ten stale values). Migration needs no call-site churn: map the existing
+bool onto the enum and migrate deliberately.
+
+### Owed tomorrow
+
+1. **Run the Fable agent first** (task #86) categorising all 261
+   `interrupt: true` sites before writing the handler.
+2. **Then re-test connect and the meter dialogs** — Noel: *"I suspect I'll
+   hear stuff I've never heard."* Tonight's three were inaudible for
+   exactly this reason.
+3. **Meters and connect at the radio remain the gate** before Don sees a
+   build. The ten-track merge is still only compile-and-launch verified.
+4. **Civ VI is now mismatched** — its `PrismNative.cs` carries the same
+   stale one-byte `PrismConfig`, and today's `prism.dll` was copied into
+   its `prism-dist` at Noel's request. Same eight-field fix.
+
+### Cross-surface activity
+
+- **Memory:** 3 files touched — `MEMORY.md` compacted, plus new entries
+  for Prism (scheduled for the Connect implementation) and Jim-era
+  lookup code being on death row.
+- **prism repo:** 4 commits today (Noel's fast-forward); built x64 + x86
+  from `9ae0ece`, pinned in `build-native/prism-pinned-commit.txt`.
+- **Freight Fate:** 16 unpushed, 1 dirty — no activity today. Unchanged.
+- **Civ VI Access:** 45 unpushed, 2 dirty — includes the refreshed
+  `prism-dist`. Pushing both remains Noel's call.
+- **jjf-data:** quiet. No worktree activity beyond the ten track branches.
+
+### Rigmeter snapshot — end of 2026-08-17
+
+Combined **1,203 files, 294,757 lines** — authored 1,014 files / 239,090
+lines; vendor 189 files / 55,667 lines. Largest: docs 63,800 · JJFlexWpf
+62,993 · main_app 36,643 · Radios 33,538.
+
+Today: **38 commits, 90 files, +12,870/−2,232, net +10,638**, one author.
+Unlike yesterday this figure INCLUDES the ten tracks' code, which landed
+in the merge.
+
+*Caveat: rigmeter still cannot fetch tokei ("could not resolve a download
+URL"), so code-vs-comment split is unavailable for a second day. The
+queued fix — cache tokei rather than re-fetching — is now also a
+correctness gap, not just convenience.*
+
+*Memory index compacted 18.5 KB → 17.0 KB, all 203 links intact, zero
+broken. Still above the 16 KB seal threshold: the remaining bulk is
+filenames, which cannot shrink without dropping entries. Flagged rather
+than gutted.*
+
+---
 
 ## END-OF-DAY SEAL — 2026-08-16 — TEN TRACKS, AND THE RADIO HAD BEEN TALKING ALL ALONG
 
