@@ -437,7 +437,20 @@ public partial class ValueFieldControl : UserControl
     private void AdjustValue(int delta)
     {
         int newValue = Math.Clamp(_value + delta, _min, _max);
-        if (newValue == _value) return;
+
+        if (newValue == _value)
+        {
+            // Already at a limit, so the press changed nothing. Say so rather
+            // than going silent: holding an arrow down to zero used to end in
+            // no announcement at all, because the last utterance belonged to
+            // the last value that actually CHANGED and the operator kept
+            // pressing past it. Reported 2026-08-18.
+            //
+            // Coalesced under the same key as ordinary adjustment, so holding
+            // at the limit says it once rather than once per repeat.
+            if (!_suppressEvents) AnnounceValue(atLimit: true);
+            return;
+        }
 
         _value = newValue;
         UpdateVisual();
@@ -445,33 +458,18 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-
-            // LATEST, keyed per field. Holding an arrow key sweeps this value
-            // many times a second; interrupting on every step produced a
-            // stutter of half-spoken numbers and never finished saying the one
-            // the operator actually stopped on. Coalescing keeps only the
-            // value they settled on.
-            //
-            // Keyed by label so two different fields adjusted in quick
-            // succession do not silence each other - only the SAME field
-            // supersedes itself.
-            //
-            // This control has 48 field declarations across four hosts
-            // (ScreenFieldsPanel, Audio Workshop, Noise Profiles, Audio
-            // Levels), so this one change covers every adjustable value in the
-            // application.
-            ScreenReaderOutput.Speak(
-                $"{_label} {FormatValue(_value)}{UnitSuffix}",
-                Radios.Speech.SpeechIntent.Latest,
-                VerbosityLevel.Terse,
-                coalesceKey: $"value-field:{_label}");
+            AnnounceValue(atLimit: false);
         }
     }
 
     private void SetValue(int newValue)
     {
         newValue = Math.Clamp(newValue, _min, _max);
-        if (newValue == _value) return;
+        if (newValue == _value)
+        {
+            if (!_suppressEvents) AnnounceValue(atLimit: true);
+            return;
+        }
 
         _value = newValue;
         UpdateVisual();
@@ -479,30 +477,45 @@ public partial class ValueFieldControl : UserControl
         if (!_suppressEvents)
         {
             ValueChanged?.Invoke(this, _value);
-
-            // LATEST, keyed per field. Holding an arrow key sweeps this value
-            // many times a second; interrupting on every step produced a
-            // stutter of half-spoken numbers and never finished saying the one
-            // the operator actually stopped on. Coalescing keeps only the
-            // value they settled on.
-            //
-            // Keyed by label so two different fields adjusted in quick
-            // succession do not silence each other - only the SAME field
-            // supersedes itself.
-            //
-            // This control has 48 field declarations across four hosts
-            // (ScreenFieldsPanel, Audio Workshop, Noise Profiles, Audio
-            // Levels), so this one change covers every adjustable value in the
-            // application.
-            ScreenReaderOutput.Speak(
-                $"{_label} {FormatValue(_value)}{UnitSuffix}",
-                Radios.Speech.SpeechIntent.Latest,
-                VerbosityLevel.Terse,
-                coalesceKey: $"value-field:{_label}");
+            AnnounceValue(atLimit: false);
         }
     }
 
     /// <summary>
+    /// Speak the current value, coalesced per field.
+    ///
+    /// LATEST, keyed by label. Holding an arrow key sweeps the value many times
+    /// a second; announcing every step produced a stutter of half-spoken
+    /// numbers and never finished saying the one the operator stopped on. The
+    /// coalescer waits for the sweep to stop and says only where it landed.
+    ///
+    /// Keyed by label so two different fields adjusted in quick succession do
+    /// not silence each other - only the SAME field supersedes itself.
+    ///
+    /// This control has 48 field declarations across four hosts
+    /// (ScreenFieldsPanel, Audio Workshop, Noise Profiles, Audio Levels), so
+    /// this covers every adjustable value in the application.
+    /// </summary>
+    /// <param name="atLimit">
+    /// True when the operator pressed against an end of the range and nothing
+    /// moved. Worth saying: at the limit the value alone is ambiguous - "zero
+    /// watts" sounds identical whether it just arrived there or has been stuck
+    /// there for a second of held key.
+    /// </param>
+    private void AnnounceValue(bool atLimit)
+    {
+        string text = $"{_label} {FormatValue(_value)}{UnitSuffix}";
+        if (atLimit)
+        {
+            text += _value <= _min ? ", minimum" : ", maximum";
+        }
+
+        ScreenReaderOutput.Speak(
+            text,
+            Radios.Speech.SpeechIntent.Latest,
+            VerbosityLevel.Terse,
+            coalesceKey: $"value-field:{_label}");
+    }
     /// Hide child TextBlock from UIA tree so NVDA reads only AutomationProperties.Name,
     /// not the TextBlock content as well (which causes double-speak).
     /// </summary>

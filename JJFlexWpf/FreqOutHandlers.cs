@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -1223,7 +1223,11 @@ public class FreqOutHandlers
         int newVal = Math.Clamp(current + delta, FlexBase.MinGain, FlexBase.MaxGain);
         Rig.SetVFOGain(vfo, newVal);
         // interrupt=true to cut off NVDA's TextBox content change reading
-        Radios.ScreenReaderOutput.Speak($"Volume {newVal}", VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(
+                $"Volume {newVal}",
+                Radios.Speech.SpeechIntent.Latest,
+                VerbosityLevel.Terse,
+                coalesceKey: "slice-volume");
     }
 
     private void AdjustPan(int vfo, int delta)

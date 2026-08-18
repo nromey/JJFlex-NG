@@ -646,7 +646,14 @@ public class KeyCommands
         if (rig == null) return; // dispatcher already announced "no radio connected"
         int newVal = Math.Clamp(getter(rig) + delta, 0, 100);
         setter(rig, newVal);
-        Radios.ScreenReaderOutput.Speak($"{label} {newVal}", Radios.VerbosityLevel.Terse, true);
+
+        // LATEST, keyed by the gain's own label, so holding the key speaks
+        // where it landed rather than every value on the way.
+        Radios.ScreenReaderOutput.Speak(
+            $"{label} {newVal}",
+            Radios.Speech.SpeechIntent.Latest,
+            Radios.VerbosityLevel.Terse,
+            coalesceKey: $"gain:{label}");
     }
 
     #endregion
@@ -718,7 +725,14 @@ public class KeyCommands
             msg = $"S 9 plus {smeter - 9} dB";
         else
             msg = $"S {smeter}";
-        Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);
+
+        // LATEST: an S-meter reading superseded by a newer one has no value -
+        // the operator wants the signal now, not a recital of the last five.
+        Radios.ScreenReaderOutput.Speak(
+            msg,
+            Radios.Speech.SpeechIntent.Latest,
+            Radios.VerbosityLevel.Terse,
+            coalesceKey: "smeter");
     }
 
     private void ToggleMeterTonesHandler()
@@ -2990,7 +3004,18 @@ public class KeyCommands
                 return;
         }
         EarconPlayer.ConfirmTone();
-        Radios.ScreenReaderOutput.Speak(announce, Radios.VerbosityLevel.Terse, true);
+        // LATEST, keyed per target. This one line announces every Ctrl+J volume
+        // target, and every one of them is ridden with a held key - which under
+        // the old interrupt flag meant a stutter of half-spoken levels that
+        // never finished saying where the operator stopped.
+        //
+        // Keyed by target so switching from headphone to mic level does not
+        // silence the headphone reading the operator was still waiting on.
+        Radios.ScreenReaderOutput.Speak(
+            announce,
+            Radios.Speech.SpeechIntent.Latest,
+            Radios.VerbosityLevel.Terse,
+            coalesceKey: $"volume:{target}");
     }
 
     private void AdjustVolumeTarget(Radios.FlexBase rig, int direction)
