@@ -1146,6 +1146,7 @@ public class NativeMenuBar : IDisposable
             AddWired(radio, "Disconnect", DisconnectAndSaySo);
         else
             AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
+        AddWired(radio, "Radio Rescue", ShowRadioRescue);
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
         AddWired(radio, "MultiFlex Clients", () => _window.ShowMultiFlexDialog());
         AddChecked(radio, "Auto-Connect Enabled",
@@ -1861,6 +1862,46 @@ public class NativeMenuBar : IDisposable
             await System.Threading.Tasks.Task.Delay(500);
             Radios.ScreenReaderOutput.Speak(message, level, interrupt: true);
         });
+    }
+
+    /// <summary>
+    /// Radio ▸ Radio Rescue — Noel's name, and his reason: the rescue page
+    /// arrives on its own three minutes after the radio goes, and nobody should
+    /// have to wait that out when they already know the session is over.
+    ///
+    /// <para>Present on EVERY radio in every state rather than appearing only
+    /// while disconnected, which is the same rule as the gated items below: an
+    /// item that comes and goes teaches the operator nothing, while one that is
+    /// always there and explains itself teaches them what it is for. It also
+    /// makes the item discoverable BEFORE the day they need it, which is the
+    /// only day exploring a menu is expensive.</para>
+    /// </summary>
+    private void ShowRadioRescue()
+    {
+        if (Rig != null && Rig.IsConnected)
+        {
+            // Never tear down a working session from a menu item whose name
+            // sounds helpful. Explain instead, and name the radio so the
+            // operator can tell this is a real connection and not a stale claim.
+            string name = NonEmpty(Rig.RadioNickname) ?? "your radio";
+            SpeakAfterMenuClose(
+                $"Radio Rescue is the no-radio version of Home. You are connected to {name}, "
+                + "so there is nothing to rescue. Disconnect first if you want that page.");
+            return;
+        }
+
+        if (_window.InRescueMode)
+        {
+            _window.FocusHome();
+            SpeakAfterMenuClose("Radio Rescue is already showing.");
+            return;
+        }
+
+        // The operator asked for it, so the lead is short — they do not need to
+        // be told why they are here. Focus goes through FocusHome, the funnel
+        // that is correct with no radio; the page's own name carries the rest.
+        _window.EnterRescueMode("Radio Rescue.");
+        _window.FocusHome();
     }
 
     /// <summary>

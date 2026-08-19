@@ -978,16 +978,173 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void ExitRescueMode()
     {
+        CancelRescueCountdown();
         if (!_rescueMode) return;
         _rescueMode = false;
         Tracing.TraceLine("Rescue Home: radio arrived — restoring the full page", TraceLevel.Info);
+
+        // Sprint 31 Track R — the reverse transition, and it has a real bug in
+        // it. Read BEFORE anything collapses: if the operator's focus is sitting
+        // on a rescue button and that button is about to disappear, WPF hands
+        // focus to whatever happens to be next, which is the "keyboard stopped
+        // working" failure FocusHome exists to prevent, arriving from the other
+        // direction.
+        bool pageHadFocus = RescuePanel.IsKeyboardFocusWithin;
 
         RescuePanel.Visibility = Visibility.Collapsed;
         // ContentArea is the one panel the mode builders never touch; its
         // children carry their own CW-mode visibility rules from there.
         ContentArea.Visibility = Visibility.Visible;
         ApplyUIMode(ActiveUIMode);
+
+        // Reset the page's name so a lead that was never heard cannot outlive
+        // the situation that produced it and greet the operator next time.
+        RescuePanel.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, RescuePanelBaseName);
+
+        if (!pageHadFocus) return;
+
+        // The operator was standing ON the page when the radio came back. Put
+        // them on the frequency display, which is where Home keeps focus once
+        // there is a radio.
+        FreqOut.FocusDisplay();
+
+        // Speech is correct in THIS branch specifically, and the guard above is
+        // what makes it correct. pageHadFocus can only be true when no window
+        // took focus away — an auto-reconnect, not an operator-driven connect —
+        // so there is no window change to flush it. On an operator-driven
+        // connect the picker holds focus, this branch does not run, and the
+        // connect flow's own "Connected to X" is the announcement.
+        //
+        // Deferred to Background so it lands after WPF has finished the focus
+        // change and the screen reader has read where focus went, rather than
+        // racing it.
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+            Radios.ScreenReaderOutput.Speak(
+                "Radio back. Home restored.", VerbosityLevel.Critical, interrupt: false));
     }
+
+    #region Mid-session rescue — Sprint 31 Track R
+
+    /// <summary>
+    /// How long Home tolerates having no radio before it becomes the rescue
+    /// page. Noel's number, and the delay is the design rather than a detail:
+    /// a momentary drop that recovers on its own must not tear the operator's
+    /// context away, and three minutes is long enough that the session is
+    /// genuinely over. Radio ▸ Radio Rescue exists so nobody has to wait it out.
+    /// </summary>
+    private static readonly TimeSpan RescueGracePeriod = TimeSpan.FromMinutes(3);
+
+    /// <summary>
+    /// The page's resting accessible name. A rescue arrival temporarily
+    /// replaces it with itself plus a lead; the first focus into the page
+    /// consumes the lead and puts this back.
+    /// </summary>
+    private const string RescuePanelBaseName = "Home, no radio connected";
+
+    private DispatcherTimer? _rescueGraceTimer;
+
+    /// <summary>
+    /// Home has no radio: start the countdown to the rescue page.
+    ///
+    /// <para>Called from <see cref="RestoreNoRadioShell"/>, which is the single
+    /// point where Home becomes a no-radio Home however the radio went away —
+    /// operator disconnect, unexpected drop, or a failed reconnect. One rule
+    /// for all three, because from Home's point of view they are the same
+    /// state, and two descriptions of "no radio" is the whole reason this work
+    /// exists.</para>
+    /// </summary>
+    private void BeginRescueCountdown()
+    {
+        if (_rescueMode) return;
+
+        _rescueGraceTimer ??= new DispatcherTimer(DispatcherPriority.Normal)
+        {
+            Interval = RescueGracePeriod
+        };
+        _rescueGraceTimer.Tick -= RescueGraceTimer_Tick;
+        _rescueGraceTimer.Tick += RescueGraceTimer_Tick;
+        _rescueGraceTimer.Stop();   // restart the full three minutes
+        _rescueGraceTimer.Start();
+        Tracing.TraceLine(
+            $"Rescue Home: no radio on Home — rescue page in {RescueGracePeriod.TotalMinutes} minutes unless one arrives",
+            TraceLevel.Info);
+    }
+
+    private void CancelRescueCountdown()
+    {
+        if (_rescueGraceTimer == null || !_rescueGraceTimer.IsEnabled) return;
+        _rescueGraceTimer.Stop();
+        Tracing.TraceLine("Rescue Home: radio arrived inside the grace period — countdown cancelled",
+            TraceLevel.Info);
+    }
+
+    private void RescueGraceTimer_Tick(object? sender, EventArgs e)
+    {
+        _rescueGraceTimer?.Stop();
+        // Re-check rather than trust the timer: a radio may have arrived
+        // between the last tick scheduling and now.
+        if (RigControl != null) return;
+        EnterRescueMode("The radio has been gone for three minutes.");
+    }
+
+    /// <summary>
+    /// Become the rescue page mid-session, carrying <paramref name="lead"/> to
+    /// whoever arrives on the page.
+    ///
+    /// <para>THE CONSTRAINT, and why this does not simply speak: everything the
+    /// operator must hear is carried BY the arriving surface, never spoken
+    /// ahead of it. For a window that means the title. This is a panel inside a
+    /// window that never changes, so the equivalent carrier is the panel's own
+    /// accessible name — which a screen reader reads when focus enters the
+    /// group, as part of the same announcement that names the button focus
+    /// landed on. Nothing is queued, so nothing can be flushed.</para>
+    ///
+    /// <para>The lead is consumed once, on first focus into the page, exactly
+    /// like globals.PendingDisconnectLead. That gives the behaviour that makes
+    /// this correct rather than merely tidy: if the page arrives while a dialog
+    /// is up, the lead is not lost and not spoken into a surface that cannot
+    /// hold it — it WAITS for the operator to arrive, however long that
+    /// takes.</para>
+    /// </summary>
+    public void EnterRescueMode(string lead)
+    {
+        if (_rescueMode || RigControl != null) return;
+        _rescueMode = true;
+        Tracing.TraceLine($"Rescue Home: entering mid-session — {lead}", TraceLevel.Info);
+
+        RescuePanel.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, lead + " " + RescuePanelBaseName);
+        RescuePanel.GotKeyboardFocus -= RescuePanel_GotKeyboardFocus;
+        RescuePanel.GotKeyboardFocus += RescuePanel_GotKeyboardFocus;
+
+        // The durable carrier, and the same line globals.vb writes when startup
+        // finishes with no radio — so both routes into this page describe it
+        // identically, which is the defect this task set out to close. A
+        // successful connect replaces the whole title through UpdateTitleBar,
+        // so it cannot go stale.
+        UpdateTitleBar?.Invoke("JJ Flexible Radio Access — no radio connected");
+
+        ApplyRescueVisibility();
+
+        // Only take focus if Home already had it. A dialog, the radio picker or
+        // the Audio Workshop may be in front, and yanking focus out of what the
+        // operator is doing to announce that a radio is still missing would be
+        // a worse offence than the silence it replaces. The lead keeps until
+        // they come back.
+        if (IsKeyboardFocusWithin) FocusRescuePage();
+    }
+
+    /// <summary>
+    /// Consume the arrival lead. Read once, then the page goes back to its
+    /// resting name so the operator does not hear the story of how they got
+    /// here every time focus re-enters the page.
+    /// </summary>
+    private void RescuePanel_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        RescuePanel.GotKeyboardFocus -= RescuePanel_GotKeyboardFocus;
+        RescuePanel.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, RescuePanelBaseName);
+    }
+
+    #endregion
 
     /// <summary>
     /// Put keyboard focus on the rescue page. Returns false when the page is
@@ -2136,6 +2293,14 @@ public partial class MainWindow : UserControl
             // radio-lost case ever adopts the rescue page (Sprint 30 Track A
             // deliberately scoped that OUT; today this is always FreqOut).
             FocusHome();
+
+            // Sprint 31 Track R — it adopted it. This shell is the interim
+            // state now, not the destination: three minutes from here, with no
+            // radio back, Home becomes the rescue page and the two routes to
+            // "no radio" stop describing it differently. A reconnect inside the
+            // grace period cancels the countdown through ExitRescueMode, so a
+            // momentary drop never costs the operator their context.
+            BeginRescueCountdown();
         }
         catch (System.Exception ex)
         {
