@@ -2304,13 +2304,13 @@ def git_blame_authors(repo_root: Path, relpath: str) -> Dict[str, int]:
     every file present in the commit that CREATED the destination file —
     not just files that commit touched — which is a much bigger haystack
     per blamed line. Measured on this repo (567 code files, repo-wide):
-    plain blame ~15s, -w -C ~25s. -w -C -C was still running after 5+
-    minutes (10x+ slower, still climbing) for a case this codebase's
-    migration doesn't need: the .NET 10 move was same-commit renames, which
-    plain -C already resolves. -C -C earns its keep when a file is
-    reintroduced as a copy in a commit that doesn't also touch the
-    original — not what happened here. Re-evaluate if a future migration
-    does that."""
+    plain blame 15s, -w -C 25s, -w -C -C 11m03s — about 27x slower than
+    single -C for a further Noel-to-Jim shift of ~300 lines out of 155,970
+    (single -C: 114,713/41,225; doubled: 114,412/41,558). Not worth it here:
+    the .NET 10 move was same-commit renames, which plain -C already
+    resolves. -C -C earns its keep when a file is reintroduced as a copy in
+    a commit that doesn't also touch the original — not what happened here.
+    Re-evaluate if a future migration does that."""
     out = git_run(repo_root, "blame", "--line-porcelain", "-w", "-C", "--", relpath)
     if not out:
         return {}

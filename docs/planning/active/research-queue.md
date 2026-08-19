@@ -236,8 +236,19 @@ sentence.
 - **#59 — four slices on connect, one in FM, that the operator did not create.**
   Establish whether they were pre-existing on the radio before calling it a
   regression.
-- **#41 — rigmeter: blame-based provenance.** NOT started.
-- **#42 — extract rigmeter into its own repository.** NOT started.
+- **#41 — CLOSED 2026-08-18 (Sprint 30 Track G).** `git_blame_authors()` now
+  passes `-w -C`; the encoding bug silently truncating blame output on
+  non-ASCII author/commit-subject bytes is also fixed. Repo-wide authors
+  totals moved from 111,775/40,426 (Noel/Jim) to 114,745/41,225 once both
+  fixes and the isolated flag effects are folded in — see the commit message
+  on `sprint30/track-g` for the full isolated-effect breakdown. `-C -C` was
+  measured and rejected: 10x+ slower for no benefit on this codebase's
+  same-commit-rename migration shape.
+- **#42 — CLOSED 2026-08-18 (Sprint 30 Track G).** Rigmeter now lives at
+  `C:\dev\rigmeter` as its own git repository (not pushed — that's Noel's
+  call). `tools/rigmeter/` is deleted from this repo. CLAUDE.md step 4a needs
+  a manual path update (Track G can't edit CLAUDE.md); see the track's
+  completion report for the exact replacement text.
 
 ---
 
