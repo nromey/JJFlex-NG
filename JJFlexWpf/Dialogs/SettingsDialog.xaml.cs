@@ -315,6 +315,10 @@ namespace JJFlexWpf.Dialogs
             PortForwardTcpLabel.Text = "Port (TCP and UDP):";
             NetworkCurrentStateText.Text = "No radio connected.";
 
+            // Task #102 — path learning (Network tab, bottom). Commits live
+            // rather than on OK/Apply; see SettingsDialog.PathLearning.cs.
+            LoadPathLearningSettings();
+
             // Sprint 29 Track D — Updates tab.
             LoadUpdaterSettingsIntoUi();
 

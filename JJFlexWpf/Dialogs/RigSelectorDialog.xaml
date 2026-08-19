@@ -68,6 +68,18 @@
                          path combo - no sync problem. -->
                     <MenuItem x:Name="DefaultPathMenuItem" Header="Default Connection Path"
                               AutomationProperties.Name="Default connection path for selected radio"/>
+                    <!-- Task #102, door one of two: the per-radio reset. The
+                         other is the Network tab in Settings, which does it for
+                         every radio at once. Sits next to the path items
+                         because it undoes what they describe — the "learned"
+                         wording on the Automatic item is exactly what this
+                         takes back. Enabled only when there is something to
+                         forget, so it never promises an action it cannot
+                         perform. -->
+                    <MenuItem x:Name="ForgetLearnedPathMenuItem"
+                              Header="Forget the Learned Connection Path"
+                              Click="ForgetLearnedPathMenuItem_Click"
+                              AutomationProperties.Name="Forget the learned connection path for selected radio"/>
                     <Separator/>
                     <MenuItem x:Name="FavoriteMenuItem" Header="Add to Favorites"
                               Click="FavoriteMenuItem_Click"
@@ -121,14 +133,16 @@
                  second utterance follows an arrow press. The long-form
                  explanation is on JJFlexHelp.Text, reachable with Ctrl+F1 and
                  silent otherwise — never HelpText, which NVDA reads aloud as
-                 the control's description on every single focus. -->
+                 the control's description on every single focus. That text is
+                 SET IN CODE (SyncPathAffordance), not here, because its last
+                 sentence reports whether path learning is currently switched
+                 on; two copies of it would be two copies to drift. -->
             <Label x:Name="PathLabel" Content="Connection _path" Padding="0,0,0,2"
                    Target="{Binding ElementName=PathCombo}"/>
             <ComboBox x:Name="PathCombo" MinWidth="230" Height="24" Margin="0,0,0,8"
                       IsEnabled="False"
                       AutomationProperties.Name="Connection path"
                       AutomationProperties.AcceleratorKey="Alt+P"
-                      local:JJFlexHelp.Text="Which way JJ Flexible tries to reach this radio, and in what order. It is saved with the radio, so it travels with the radio rather than with your account. Automatic means the local network first and SmartLink after it. The two explicit orders are your own choice, and a choice always outranks anything JJ Flexible has worked out for itself: if the option reads 'learned', that is a suggestion from your own connection history, and picking either explicit order replaces it for good."
                       SelectionChanged="PathCombo_SelectionChanged"/>
             <!-- The Remote button is gone (2026-08-15 decision): Connect
                  honours each radio's stored path preference and opens

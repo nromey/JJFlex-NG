@@ -515,6 +515,18 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The config root actually in use, self-healed exactly as the per-radio
+        /// load and save paths do it.
+        ///
+        /// <para>Exists so that other app-level stores under this root
+        /// (<see cref="ConnectPathLearningConfig"/>) read and write the SAME
+        /// directory these methods do. Two stores resolving the root two
+        /// different ways is the failure that looks like success: the save
+        /// reports fine and lands somewhere nothing reads.</para>
+        /// </summary>
+        public static string? ResolvedBaseDirectory => ResolveBaseDirectory();
+
         /// <summary>Load via the app-wide <see cref="BaseDirectory"/>.</summary>
         public static RadioConfig LoadForRadio(string radioId)
         {

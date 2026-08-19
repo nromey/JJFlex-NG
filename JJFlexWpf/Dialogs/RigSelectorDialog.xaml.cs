@@ -65,7 +65,7 @@ namespace JJFlexWpf.Dialogs
         /// <summary>
         /// What this radio's connection history suggests, or null when it
         /// suggests nothing (task #79). Filled in once per row from
-        /// <see cref="Radios.ConnectPathPolicy.LearnForRadio"/> — read from
+        /// <see cref="Radios.ConnectPathPolicy.LearnForRadioUsingSettings"/> — read from
         /// disk when the row is built, never per list refresh.
         ///
         /// <para>A PREFILL and nothing more. <see cref="EffectiveChain"/>
@@ -996,7 +996,9 @@ namespace JJFlexWpf.Dialogs
             {
                 if (_learnedPaths.TryGetValue(serial, out var cached)) return cached;
             }
-            var learned = ConnectPathPolicy.LearnForRadio(serial);
+            // ...UsingSettings, so the operator's own threshold applies and the
+            // off switch actually switches it off (task #102).
+            var learned = ConnectPathPolicy.LearnForRadioUsingSettings(serial);
             lock (_learnedPaths) { _learnedPaths[serial] = learned; }
             return learned;
         }
@@ -1735,6 +1737,7 @@ namespace JJFlexWpf.Dialogs
                     PathCombo.IsEnabled = false;
                     System.Windows.Automation.AutomationProperties.SetName(
                         PathCombo, "Connection path, no radio selected");
+                    JJFlexHelp.SetText(PathCombo, PathComboHelp + " " + DescribeLearningState());
                     return;
                 }
 
@@ -1767,11 +1770,47 @@ namespace JJFlexWpf.Dialogs
                 // paid once.
                 System.Windows.Automation.AutomationProperties.SetName(
                     PathCombo, "Connection path");
+
+                // The Ctrl+F1 explanation, composed here rather than in XAML
+                // because its last sentence has to report the CURRENT learning
+                // setting — including the off state, which is the one most
+                // easily left unsaid (task #102). On-demand, so a sentence
+                // about a setting most operators never touch costs nothing on
+                // focus.
+                JJFlexHelp.SetText(PathCombo, PathComboHelp + " " + DescribeLearningState());
             }
             finally
             {
                 _suppressPathComboEvent = false;
             }
+        }
+
+        private const string PathComboHelp =
+            "Which way JJ Flexible tries to reach this radio, and in what order. It is saved "
+            + "with the radio, so it travels with the radio rather than with your account. "
+            + "Automatic means the local network first and SmartLink after it. The two explicit "
+            + "orders are your own choice, and a choice always outranks anything JJ Flexible has "
+            + "worked out for itself: if the option reads 'learned', that is a suggestion from "
+            + "this radio's own connection history, and picking either explicit order replaces it "
+            + "for good.";
+
+        /// <summary>
+        /// Where path learning currently stands, in one sentence, honest about
+        /// the OFF state. Says where to change it, because the setting lives in
+        /// Settings and the question gets asked here.
+        /// </summary>
+        private static string DescribeLearningState()
+        {
+            var cfg = ConnectPathLearningConfig.Current;
+            return cfg.LearnFromHistory
+                ? $"Right now JJ Flexible does take that hint, after {cfg.TrendThreshold} connects "
+                  + "in a row the same way. Change it, or switch it off, under Learning Your "
+                  + "Connection Path on the Network tab in Settings. To make it forget what it has "
+                  + "learned about this one radio, press Shift F10 here and choose Forget the "
+                  + "Learned Connection Path."
+                : "Right now JJ Flexible does not take that hint at all — learning is switched off "
+                  + "under Learning Your Connection Path on the Network tab in Settings, so no "
+                  + "option here will ever read 'learned'.";
         }
 
         private void PathCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1942,8 +1981,96 @@ namespace JJFlexWpf.Dialogs
                 _remoteListLive
                     ? "Refresh Remote List. Reconnects to SmartLink and looks again, picking up radios that came online since."
                     : "Show this account's SmartLink radios");
+            // Task #102: only offer to forget something there is something to
+            // forget. An always-enabled item that answers "there was nothing
+            // learned for this radio" is an item that teaches the operator to
+            // stop trusting it.
+            bool hasLearned = radio?.LearnedPath.HasValue == true;
+            ForgetLearnedPathMenuItem.IsEnabled = hasLearned;
+            System.Windows.Automation.AutomationProperties.SetName(ForgetLearnedPathMenuItem,
+                hasLearned
+                    ? "Forget the learned connection path for selected radio"
+                    : "Forget the learned connection path. Nothing has been learned for this radio.");
+
             BuildPreferredAccountSubmenu(radio);
             BuildDefaultPathSubmenu(radio);
+        }
+
+        /// <summary>
+        /// Forget what this radio's history taught (task #102), door one of
+        /// two — Settings does every radio at once.
+        ///
+        /// <para><b>What it clears, and why there is no smaller option:</b> the
+        /// radio's connection history ring. A learned path is not stored
+        /// anywhere; <see cref="ConnectPathPolicy"/> derives it from that ring
+        /// each time it is asked. "Forget the conclusion but keep the evidence"
+        /// would leave the conclusion to be re-derived within milliseconds, so
+        /// offering it would be offering a lie. The confirmation says so, and
+        /// names the diagnostic value that goes with it.</para>
+        /// </summary>
+        private void ForgetLearnedPathMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var radio = GetSelectedRadio();
+            if (radio == null)
+            {
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                RadiosBox.Focus();
+                return;
+            }
+
+            var rowName = RowName(radio);
+            var confirm = new ConfirmActionDialog(
+                "Forget the Learned Connection Path",
+                $"JJ Flexible worked out how {rowName} usually connects by reading that radio's own "
+                + "connection history. There is nowhere else it is written down, so forgetting what "
+                + "was learned means clearing that history.",
+                new[]
+                {
+                    "This radio loses its record of the last ten connection attempts: which way each "
+                    + "one went, whether it worked, and how long it took.",
+                    "Your own choice of connection path for this radio is NOT touched. Only what "
+                    + "JJ Flexible worked out on its own goes away.",
+                    "It starts learning again from the next connection.",
+                },
+                question: $"Clear the connection history for {rowName}?",
+                yesLabel: "_Forget it",
+                noLabel: "_Keep it")
+            {
+                Owner = this,
+            };
+
+            if (confirm.ShowDialog() != true)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke("Nothing was cleared.", true);
+                FocusRadioList();
+                return;
+            }
+
+            if (!ConnectionHistory.Clear(radio.Serial))
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    "The connection history could not be cleared, so this radio may still follow "
+                    + "its old habit. Your trace file has the reason.", true);
+                FocusRadioList();
+                return;
+            }
+
+            // Drop the memo as well as the file. It is cached for the life of
+            // this dialog precisely so a LAN radio's once-a-second announcement
+            // does not re-read a JSON file — which also means a stale entry
+            // here would keep the row saying "learned" over a store that no
+            // longer says anything.
+            lock (_learnedPaths) { _learnedPaths.Remove(radio.Serial); }
+            radio.LearnedPath = null;
+            _pathAffordanceKey = "";
+            SyncPathAffordance();
+
+            _callbacks.ScreenReaderSpeak?.Invoke(
+                $"{rowName} connection history cleared. Learning starts again from the next connection.",
+                true);
+            RefreshRadiosList();
+            ReselectBySerial(radio.Serial);
+            FocusRadioList();
         }
 
         /// <summary>
