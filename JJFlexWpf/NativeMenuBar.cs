@@ -2043,6 +2043,21 @@ public class NativeMenuBar : IDisposable
         // be told why they are here. Focus goes through FocusHome, the funnel
         // that is correct with no radio; the page's own name carries the rest.
         _window.EnterRescueMode("Radio Rescue.");
+
+        if (!_window.InRescueMode)
+        {
+            // EnterRescueMode declines while a rig object still exists, and one
+            // survives a cancelled picker without ever having connected — the
+            // exact state Track A documented in SelectRadio. Rather than let an
+            // item the operator deliberately chose do nothing at all, say so.
+            // Silence here would be the same defect this sprint is closing,
+            // committed by the fix for it.
+            SpeakAfterMenuClose(
+                "Radio Rescue is not available while a radio connection is still being set up. "
+                + "Try again in a moment.");
+            return;
+        }
+
         _window.FocusHome();
     }
 
