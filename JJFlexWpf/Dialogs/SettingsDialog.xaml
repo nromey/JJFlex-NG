@@ -1428,6 +1428,30 @@
                                Text="Diagnostic log state is not available."
                                AutomationProperties.Name="Diagnostic log status"/>
 
+                    <!-- Sprint 31 Track Q (#100) — the count that makes the
+                         Problems list discoverable without knowing the chord.
+                         First group on the tab on purpose: when an operator
+                         comes to this tab it is almost always because something
+                         has already gone wrong, and this is the answer to
+                         "what?". -->
+                    <GroupBox Header="Problems this session" Margin="0,0,0,8"
+                              AutomationProperties.Name="Problems this session">
+                        <StackPanel Margin="4">
+                            <TextBlock x:Name="DiagProblemCountText"
+                                       TextWrapping="Wrap" Margin="0,4,0,6"
+                                       Text="No problems recorded this session."
+                                       AutomationProperties.Name="Problems recorded this session"/>
+                            <Button x:Name="DiagShowProblemsButton"
+                                    Content="Show recorded problems..."
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
+                                    AutomationProperties.Name="Show recorded problems"
+                   local:JJFlexHelp.Text="Opens the list of everything that has gone wrong since JJ Flex started, newest first, with the time and what each one means. Control J then Control R opens the same list from anywhere. The list empties when you close JJ Flex; the diagnostic log is the record that keeps."
+                                    Click="DiagShowProblemsButton_Click"/>
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="When something fails, JJ Flex plays a short sound and says so once, without opening anything or taking you away from what you were doing. It is recorded either way, so missing that announcement costs you nothing — press Control J then Control R whenever you want to read what happened."/>
+                        </StackPanel>
+                    </GroupBox>
+
                     <GroupBox Header="Diagnostic log" Margin="0,0,0,8"
                               AutomationProperties.Name="Diagnostic log">
                         <StackPanel Margin="4">

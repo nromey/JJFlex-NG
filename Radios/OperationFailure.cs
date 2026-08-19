@@ -58,31 +58,34 @@ namespace Radios
         /// One short clause naming what did not happen, in the operator's terms
         /// and in the past tense — "Your radio profile could not be saved".
         ///
-        /// It ends up in the offer WINDOW'S TITLE, which is load-bearing: a
-        /// screen reader flushes its speech queue when a window opens, so an
-        /// utterance spoken just before is destroyed. The arriving window has to
-        /// carry its own context. Keep this short enough to be a title and
-        /// specific enough to stand alone.
+        /// This is SPOKEN, once, the moment the failure happens, followed by
+        /// "Press Control J then Control R for details" — so keep it short
+        /// enough to be heard in one breath and specific enough to stand alone.
+        /// It is also the first half of the entry in the Problems list.
         /// </summary>
         public string What { get; }
 
         /// <summary>
-        /// A sentence or two of consequence and next step. Read as dialog body,
-        /// after the title, when the window opens.
+        /// A sentence or two of consequence and next step. Not spoken at the
+        /// moment of failure — it is the second half of the Problems list entry,
+        /// read when the operator asks with Ctrl+J, Ctrl+R. That split is the
+        /// point: the announcement stays short enough not to be a burden, and
+        /// the explanation stays available for as long as the app is running.
         /// </summary>
         public string Detail { get; }
     }
 
     /// <summary>
-    /// Where failures worth a diagnostic offer are announced.
+    /// Where failures worth telling the operator about are reported.
     ///
     /// This type has no UI and lives in Radios so that anything — the config
-    /// layer, the connect flow, the audio path — can report without knowing a
-    /// window exists. JJFlexWpf.DiagnosticOffer subscribes and owns every
-    /// judgement about whether the operator is actually interrupted.
+    /// layer, the connect flow, the audio path — can report without knowing
+    /// what happens next. JJFlexWpf.DiagnosticOffer subscribes, records every
+    /// report in the Problems list, and owns every judgement about whether the
+    /// operator hears about it.
     ///
     /// The split is the point. Reporting a failure must be cheap enough that
-    /// nobody hesitates to do it; deciding to interrupt somebody must be
+    /// nobody hesitates to do it; deciding to say something out loud must be
     /// expensive enough that it is done in exactly one place, with the whole
     /// policy visible at once.
     /// </summary>

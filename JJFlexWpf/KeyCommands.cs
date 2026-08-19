@@ -2860,6 +2860,21 @@ public class KeyCommands
                 ToggleDetailedCaptureFromChord();
                 break;
 
+            // Ctrl+R = Recorded problems: read everything that has gone wrong
+            // this session. The other half of Ctrl+D — that one starts
+            // recording evidence, this one reads what already went wrong.
+            //
+            // Ctrl+R rather than plain R (On-Radio Neural NR since the DSP
+            // controls track) or Shift+R (its PC namesake), which makes Ctrl+R
+            // the only free R in the layer anyway.
+            //
+            // Works with no radio connected on purpose: a connect that failed
+            // is the commonest reason to press this, and by definition there is
+            // no radio when it happens.
+            case Keys.R | Keys.Control:
+                ShowRecordedProblemsFromChord();
+                break;
+
             // Log Stats (moved from Ctrl+Shift+T)
             case Keys.L:
                 _context.LogStats();
@@ -3420,6 +3435,39 @@ public class KeyCommands
         if (DiagnosticsBridge.Capturing()) EarconPlayer.FeatureOffTone();
         else EarconPlayer.FeatureOnTone();
         DiagnosticsBridge.ToggleCapture("Ctrl+J Ctrl+D");
+    }
+
+    /// <summary>
+    /// Ctrl+J, Ctrl+R — read the problems recorded this session.
+    ///
+    /// This chord is the whole reason the failure-moment window could be
+    /// deleted (#100). A failure now announces itself once, quietly, over the
+    /// top of nothing — and if the operator misses that announcement, this key
+    /// is how they ask what they missed. Noel's objection to Windows toast was
+    /// never that it is quiet; it is that it is EPHEMERAL, so the answer is
+    /// retrievability, not volume.
+    ///
+    /// An empty list opens no window and says so. A window whose entire content
+    /// is "nothing to see" is a window the operator has to close for no reason —
+    /// and opening one would flush the speech queue to deliver less information
+    /// than the sentence it destroyed.
+    /// </summary>
+    private void ShowRecordedProblemsFromChord()
+    {
+        try
+        {
+            var mw = _context.GetMainWindow();
+            if (mw != null)
+                mw.Dispatcher.Invoke(() => Dialogs.ProblemsDialog.ShowOrSpeakEmpty());
+            else
+                Dialogs.ProblemsDialog.ShowOrSpeakEmpty();
+        }
+        catch
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak("The problems list could not be opened.",
+                Radios.VerbosityLevel.Critical);
+        }
     }
 
     private void LeaderKeyHelp()

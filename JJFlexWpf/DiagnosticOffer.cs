@@ -6,17 +6,33 @@ using Radios;
 namespace JJFlexWpf
 {
     /// <summary>
-    /// Decides whether a failure is worth interrupting the operator for, and
-    /// offers them the diagnostic log when it is.
+    /// Decides whether a failure is worth telling the operator about, records
+    /// every one that is, and announces the first of each kind.
     ///
-    /// This is the whole policy, in one place, on purpose. An offer that fires
-    /// at the wrong moments trains the operator to dismiss it — permanently and
-    /// invisibly — and an offer that fails to fire is worse than no offer at
-    /// all, because by then the operator believes a safety net exists. Neither
-    /// mistake shows up in a diff, so the reasoning is written down beside the
-    /// rules rather than left to be reconstructed.
+    /// NOTHING HERE OPENS A WINDOW ANY MORE. Sprint 31 (#100) replaced the
+    /// failure-moment dialog with an earcon, one short spoken line, and a
+    /// Problems list that persists for the session (see ProblemLog). Noel
+    /// rejected the interaction model — "I worry that a window popping up might
+    /// confuse the user", plus the deeper worry that he misses Windows
+    /// notifications and then has no way to ask what he missed. The technical
+    /// reason that settles it independently: a screen reader flushes its speech
+    /// queue when a window opens, so a window that appears ON a failure destroys
+    /// the sentence explaining the failure. The connect path is the proof — it
+    /// speaks "Connection failed" and its advice one line before reporting, and
+    /// the old dialog ate it.
     ///
-    /// WHAT IS OFFERED ON, and why each one earns an interruption:
+    /// The classification below is unchanged and is the valuable half. What
+    /// changed is only how the operator meets it.
+    ///
+    /// WHY THIS IS SAFE RATHER THAN A COMPROMISE, and the reason the case for
+    /// interrupting collapses once you see it: the diagnostic log is written
+    /// either way. The offer was never a safety net — it was a convenience that
+    /// saved hunting later. Miss the announcement, ignore it, or quit the app
+    /// entirely, and the evidence is still on disk and still exportable from
+    /// Settings, Diagnostics. Nothing is lost by not interrupting.
+    ///
+    /// WHAT IS RECORDED AND ANNOUNCED, and why each one earns the operator's
+    /// attention:
     ///
     ///   SettingNotSaved — the operator changed something, it did not reach
     ///     disk, and they will not find out until the next launch, when the
@@ -32,21 +48,23 @@ namespace JJFlexWpf
     ///   AudioUnavailable — the operator hears nothing. There is no visual cue
     ///     to fall back on and no way to inspect device negotiation from the UI.
     ///
-    ///   ReportingFailed — the pipeline itself broke. The offer IS the fallback
-    ///     here: if the bundle would not build, the raw log is what is left.
+    ///   ReportingFailed — the pipeline itself broke. The record IS the fallback
+    ///     here: if the bundle would not build, knowing that is what is left.
     ///
-    /// WHAT IS DELIBERATELY NOT OFFERED ON:
+    /// WHAT IS DELIBERATELY NOT SURFACED:
     ///
     ///   Crashes. CrashReporter already shows a bundle prompt with a full
-    ///     manifest and an upload choice. A second offer at the same moment
-    ///     would be two windows deep at the worst possible time.
+    ///     manifest and an upload choice. A second surface at the same moment
+    ///     competes with the one that can actually act.
     ///
     ///   "No radios found" and an empty discovery. Not a failure — an ordinary
     ///     state with an obvious next action.
     ///
     ///   Login and token rejections. The operator's own next action fixes them,
     ///     and the log carries their SmartLink email and JWT fragments, so
-    ///     offering to export raises the privacy cost with no diagnostic gain.
+    ///     pointing at the log raises the privacy cost with no diagnostic gain.
+    ///     This exclusion is on PRIVACY grounds and must survive any future
+    ///     loosening of the rest of the policy.
     ///
     ///   Anything a retry absorbed. A failure that recovered is not a failure
     ///     the operator needs to act on.
@@ -56,28 +74,36 @@ namespace JJFlexWpf
     ///
     ///   Firmware download failures. Re-downloadable by definition.
     ///
-    /// WHEN IT STAYS QUIET even for a kind it would otherwise offer on:
-    ///   - while transmitting (never take the operator off the air)
-    ///   - once per kind per session, and at most twice per session overall
-    ///   - never after the operator has answered "Not now" even once
-    ///   - never when the diagnostic log is off; there is nothing to offer
-    ///   - never before the UI exists, or after shutdown has begun
+    /// WHAT THE LIMITS ARE NOW, and what changed:
+    ///   - EVERY qualifying failure is RECORDED. No per-kind limit, no session
+    ///     cap, no "the operator said not now so stop". Those rules existed to
+    ///     stop a modal window becoming a nuisance; with nothing stealing focus
+    ///     there is nothing to be a nuisance about, and discarding a failure
+    ///     because a similar one already happened throws away the repetition
+    ///     that is often the whole diagnosis.
+    ///   - The FIRST failure of each kind is announced; later ones of that kind
+    ///     are not. Four announcements in a session, maximum, each one genuinely
+    ///     new information. Anyone who missed one loses nothing: the list holds
+    ///     everything and Ctrl+J, Ctrl+R reads it.
+    ///   - Never announced while transmitting — never take the operator off the
+    ///     air. It is still recorded, which is the repair: the old policy
+    ///     dropped mid-transmit failures on the floor entirely.
+    ///   - Never announced after shutdown has begun. Still recorded, in case
+    ///     shutdown is what is failing.
+    ///   - Announced whether or not the diagnostic log is running. The old
+    ///     policy went silent with the log off, which is precisely when the
+    ///     operator has the least evidence and most needs to be told. The
+    ///     announcement makes no promise about a log, so it is honest either
+    ///     way.
+    ///
+    /// NAME: still "DiagnosticOffer" because it is still the one place the
+    /// judgement lives, and renaming it would churn call sites in three files
+    /// for no behavioural gain. It offers a way in rather than a window now.
     /// </summary>
     public static class DiagnosticOffer
     {
-        /// <summary>
-        /// Total offers allowed in one session, across all kinds. Two is a
-        /// judgement, not a measurement: one is enough to establish the safety
-        /// net exists, a second covers a genuinely different failure, and a
-        /// third starts to feel like nagging — which is how an offer stops being
-        /// read at all.
-        /// </summary>
-        private const int MaxOffersPerSession = 2;
-
-        private static readonly HashSet<FailureKind> _offered = new();
+        private static readonly HashSet<FailureKind> _announced = new();
         private static readonly object _gate = new();
-        private static int _offerCount;
-        private static bool _declinedForSession;
         private static bool _installed;
         private static bool _shuttingDown;
         private static Dispatcher? _ui;
@@ -87,8 +113,8 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Subscribe to failure reports. Called once at startup, on the UI
-        /// thread, so the dispatcher captured here is the one that can show a
-        /// window. Idempotent.
+        /// thread, so the dispatcher captured here is the one that owns the
+        /// speech and earcon channels. Idempotent.
         /// </summary>
         public static void Install()
         {
@@ -103,107 +129,84 @@ namespace JJFlexWpf
 
         /// <summary>
         /// Called when the app begins shutting down. After this, failures are
-        /// still traced but never open a window — a modal fighting a teardown is
-        /// how an app ends up with no exit path at all.
+        /// still traced and still recorded, but nothing is spoken — speech
+        /// racing a teardown arrives after the operator has stopped listening.
         /// </summary>
         public static void BeginShutdown() => _shuttingDown = true;
 
-        /// <summary>Test and diagnostic hook: forget this session's offer history.</summary>
+        /// <summary>Test and diagnostic hook: forget what has already been announced.</summary>
         public static void ResetSessionState()
         {
-            lock (_gate)
-            {
-                _offered.Clear();
-                _offerCount = 0;
-                _declinedForSession = false;
-            }
+            lock (_gate) { _announced.Clear(); }
         }
 
         private static void OnFailureReported(object? sender, OperationFailureEventArgs e)
         {
             try
             {
-                if (!ShouldOffer(e.Kind)) return;
+                // RECORD FIRST, unconditionally, before any judgement about
+                // whether to speak. Everything below can decide to stay quiet;
+                // none of it may decide to forget.
+                ProblemLog.Record(e.Kind, e.What, e.Detail);
 
+                if (!ShouldAnnounce(e.Kind)) return;
+
+                // Marshal to the UI thread when we have one. Failures are
+                // reported from wherever they happen — config writes, connect
+                // steps, audio callbacks. BeginInvoke, not Invoke: blocking a
+                // failing code path on the UI thread is how a failure becomes a
+                // hang. With no dispatcher (bridge never wired) announce inline
+                // rather than silently swallowing it.
                 var ui = _ui;
-                if (ui == null) return;
-
-                // Marshal to the UI thread. Failures are reported from wherever
-                // they happen — config writes, connect steps, audio callbacks —
-                // and none of those is guaranteed to be a thread that can show a
-                // window. BeginInvoke, not Invoke: blocking a failing code path
-                // on a modal dialog is how a failure becomes a hang.
-                ui.BeginInvoke(new Action(() => ShowOffer(e)));
+                if (ui == null) Announce(e);
+                else ui.BeginInvoke(new Action(() => Announce(e)));
             }
-            catch { /* an offer that cannot be made must not become a second failure */ }
+            catch { /* an announcement that cannot be made must not become a second failure */ }
         }
 
-        private static bool ShouldOffer(FailureKind kind)
+        private static bool ShouldAnnounce(FailureKind kind)
         {
             if (_shuttingDown) return false;
 
-            // Nothing to offer if nothing is being recorded — but a running
-            // capture counts even when the standing log is switched off. That
-            // combination is the operator deliberately hunting something, which
-            // is the LAST moment to decide there is no evidence worth offering.
-            try
-            {
-                if (DiagnosticsBridge.KeepLog?.Invoke() == false && !DiagnosticsBridge.Capturing())
-                    return false;
-            }
-            catch { }
-            try { if (string.IsNullOrEmpty(DiagnosticsBridge.LiveLogPath?.Invoke())) return false; }
-            catch { return false; }
-
-            // Never take the operator off the air. A modal stealing focus mid
-            // transmission is worse than any diagnostic is worth.
+            // Never take the operator off the air.
             try { if (IsTransmitting?.Invoke() == true) return false; }
             catch { }
 
             lock (_gate)
             {
-                if (_declinedForSession) return false;
-                if (_offerCount >= MaxOffersPerSession) return false;
-                if (!_offered.Add(kind)) return false;
-                _offerCount++;
-                return true;
+                // First of each kind only. Add returns false when the kind is
+                // already present, which is the whole rule.
+                return _announced.Add(kind);
             }
         }
 
-        private static void ShowOffer(OperationFailureEventArgs e)
+        private static void Announce(OperationFailureEventArgs e)
         {
             try
             {
-                string logPath = "";
-                try { logPath = DiagnosticsBridge.LiveLogPath?.Invoke() ?? ""; } catch { }
+                // Earcon first, so the operator knows something landed even
+                // before the sentence starts.
+                EarconPlayer.ProblemRecordedTone();
 
-                // The title carries the failure. Do NOT speak first and then
-                // open the window: the screen reader flushes its queue on the
-                // window change and the announcement is destroyed, whether it
-                // was queued or interrupting. This was tried three ways on
-                // 2026-08-18 for the disconnect announcement and the operator
-                // heard the new window's title and nothing else, every time.
-                string title = string.IsNullOrEmpty(e.What)
-                    ? "Something went wrong. Save the diagnostic log?"
-                    : $"{e.What}. Save the diagnostic log?";
-
-                var dlg = new Dialogs.DiagnosticOfferDialog(title, e.Detail, logPath);
-                dlg.ShowDialog();
-
-                if (dlg.Declined)
-                {
-                    lock (_gate) { _declinedForSession = true; }
-                    JJTrace.Tracing.TraceLine(
-                        "DiagnosticOffer: operator declined; no further offers this session",
-                        System.Diagnostics.TraceLevel.Info);
-                }
+                // QUEUED, never interrupting. This is the entire point of the
+                // redesign: the failing code path has usually just spoken its
+                // own message — the connect path says "Connection failed" and
+                // its advice one line before reporting — and interrupting that
+                // destroys the explanation to announce that an explanation
+                // exists. A failure notice is the SECOND half of a series, not
+                // a supersession of one.
+                string what = string.IsNullOrEmpty(e.What) ? "Something went wrong" : e.What;
+                Radios.ScreenReaderOutput.Speak(
+                    $"{what}. Press Control J then Control R for details.",
+                    Radios.Speech.SpeechIntent.Queue,
+                    Radios.VerbosityLevel.Critical);
             }
             catch (Exception ex)
             {
                 try
                 {
                     JJTrace.Tracing.TraceLine(
-                        "DiagnosticOffer.ShowOffer failed: " + ex.Message,
+                        "DiagnosticOffer.Announce failed: " + ex.Message,
                         System.Diagnostics.TraceLevel.Warning);
                 }
                 catch { }

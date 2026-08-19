@@ -755,6 +755,31 @@ namespace JJFlexWpf
             PlayToneSequence(new[] { (900, 50), (0, 30), (600, 50) }, 0.25f);
         }
 
+        /// <summary>
+        /// Two notes falling a minor third — a problem was recorded and can be
+        /// read with Ctrl+J, Ctrl+R (Sprint 31, #100).
+        ///
+        /// Family: CommandsAndConfirmations, which is where the app's general
+        /// "here is what just happened" feedback lives, including
+        /// LeaderInvalidTone. None of the five categories is a natural home for
+        /// "something went wrong" and inventing a sixth would buy one earcon a
+        /// switch of its own — the categories exist precisely so that does not
+        /// happen. The cost is honest and worth stating: an operator who has
+        /// switched this family off hears no earcon for a problem. They still
+        /// get the spoken line, and the Problems list still holds everything.
+        ///
+        /// Deliberately calm rather than alarming. Nothing here is urgent —
+        /// the failure has already happened, the log already has it, and the
+        /// list will still be there in an hour. Pitched below FeatureOffTone
+        /// (700 down to 500) and slower, so the two cannot be confused: this is
+        /// not a toggle answering back.
+        /// </summary>
+        public static void ProblemRecordedTone()
+        {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            PlayToneSequence(new[] { (440, 90), (0, 50), (370, 130) }, 0.28f);
+        }
+
         /// <summary>Low buzz — invalid leader key.</summary>
         public static void LeaderInvalidTone()
         {

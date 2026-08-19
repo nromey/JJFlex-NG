@@ -575,8 +575,10 @@ namespace Radios
             // that forgets is the one that fails silently.
             //
             // Deliberately kind-level rather than per-setting: DiagnosticOffer
-            // shows at most one offer per kind per session, so a settings pass
-            // that fails on six fields asks once, not six times.
+            // announces at most one problem per kind per session, so a settings
+            // pass that fails on six fields speaks once, not six times. All six
+            // are still recorded in the Problems list — the cap is on speech,
+            // never on what is kept.
             OperationFailure.Report(
                 FailureKind.SettingNotSaved,
                 "A radio setting could not be saved",

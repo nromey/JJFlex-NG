@@ -348,6 +348,17 @@ public static class KeyInventory
             "Start or stop a detailed capture of what the app is doing",
             new[] { "capture", "detailed", "diagnostic", "diagnostics", "trace", "tracing", "log",
                     "record", "bug", "problem", "report", "verbose", "leader" }, "Global", "General"),
+        // Sprint 31 Track Q (#100). Ctrl+R for "Recorded problems", parked
+        // beside Ctrl+D so the two diagnostics chords live together: Ctrl+D
+        // starts recording evidence, Ctrl+R reads what has already gone wrong.
+        // Plain R is On-Radio Neural NR and Shift+R is its PC namesake, so
+        // Ctrl+R is the only free R in the layer — and Ctrl+D and Ctrl+F are
+        // the precedent for a Ctrl-modified follow-on key.
+        new("Leader", "Leader key", "Ctrl+J, Ctrl+R",
+            "Read the problems recorded this session",
+            new[] { "problem", "problems", "recorded", "failure", "failed", "error", "errors",
+                    "wrong", "issue", "issues", "went", "missed", "notification", "diagnostic",
+                    "diagnostics", "history", "leader" }, "Global", "General"),
         new("Leader", "Leader key", "Ctrl+J, L", "Speak log statistics",
             new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
         new("Leader", "Leader key", "Ctrl+J, M", "Open the memories dialog",

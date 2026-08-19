@@ -1,0 +1,74 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ProblemsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:JJFlexWpf"
+    Title="Problems recorded this session"
+    Width="620" SizeToContent="Height"
+    ResizeMode="NoResize">
+    <!-- The Title is written by the caller and carries the count on purpose. A
+         screen reader flushes its speech queue when a window opens, so anything
+         spoken just before this appears is destroyed — the arriving window has
+         to announce itself. That is the same rule that killed the failure-
+         moment dialog this window replaces; the difference is that this window
+         opens because the operator ASKED, so there is nothing in flight worth
+         protecting.
+
+         A Grid, not the usual DockPanel with the buttons docked Bottom. In that
+         layout the buttons are declared first and therefore come first in the
+         tab order, which is tolerable for a dialog you answer and wrong for one
+         you read. Here the reading comes first in both the layout and the tab
+         order, and the buttons follow it. -->
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="LeadText" Grid.Row="0"
+                   TextWrapping="Wrap" Margin="0,0,0,10"
+                   AutomationProperties.Name="About this list"/>
+
+        <!-- Everything about one problem lives on its own list item: time, what
+             failed, and what it means. A detail pane beside the list would be a
+             second thing to find, and a screen reader reads the item on
+             arrival — so a split design would make arrowing the list say only
+             that a problem exists. One arrow press, the whole story. -->
+        <ListBox x:Name="ProblemList" Grid.Row="1"
+                 Height="220" Margin="0,0,0,10"
+                 HorizontalContentAlignment="Stretch"
+                 AutomationProperties.Name="Problems, newest first"
+                 local:JJFlexHelp.Text="Every problem JJ Flex noticed since it started, newest first. Each line gives the time, what failed, and what it means for you. The list empties when you close JJ Flex — the diagnostic log is the record that keeps."
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <TextBlock x:Name="LogText" Grid.Row="2"
+                   TextWrapping="Wrap" Margin="0,0,0,10"
+                   AutomationProperties.Name="Where the details are"/>
+
+        <StackPanel Grid.Row="3" Style="{StaticResource ButtonPanel}">
+            <Button x:Name="SaveButton" Content="Save the diagnostic log..."
+                    Style="{StaticResource OkButton}"
+                    AutomationProperties.Name="Save the diagnostic log"
+                    local:JJFlexHelp.Text="Saves a copy of the running diagnostic log wherever you choose. It holds far more than this list does — every step the app took around each of these problems. Nothing is sent anywhere."
+                    Click="SaveButton_Click"/>
+            <Button x:Name="CopyButton" Content="Copy these problems"
+                    Style="{StaticResource DialogButton}"
+                    AutomationProperties.Name="Copy these problems"
+                    local:JJFlexHelp.Text="Puts this whole list on the clipboard as plain text, in the same order and the same words you just heard, ready to paste into a message."
+                    Click="CopyButton_Click"/>
+            <!-- IsCancel so Escape and the button do the same thing. -->
+            <Button x:Name="CloseButton" Content="Close"
+                    Style="{StaticResource CancelButton}"
+                    IsCancel="True"
+                    AutomationProperties.Name="Close"
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+    </Grid>
+</local:JJFlexDialog>
