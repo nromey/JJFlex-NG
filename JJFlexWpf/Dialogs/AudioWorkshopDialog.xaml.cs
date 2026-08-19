@@ -1727,6 +1727,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             GroupName = "MicProfileRadioHalf",
         };
 
+        // Marked as somebody else's radio, which changes two things below: the
+        // create-on-radio option is not offered, and the conservative choice
+        // becomes the default (#94).
+        bool notMyRadio = haveRig
+            && RadioConfig.LoadForRadio(_rig!.SelectedRadioSerial).Ownership
+               == RadioOwnership.SomeoneElses;
+
         if (haveRig)
         {
             if (!string.IsNullOrEmpty(radioProfileName))
@@ -1744,8 +1751,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     + "this app always agree.");
                 panel.Children.Add(referenceOption);
             }
-            else if (RadioConfig.LoadForRadio(_rig!.SelectedRadioSerial ?? "").Ownership
-                     == RadioOwnership.SomeoneElses)
+            else if (notMyRadio)
             {
                 // Marked as somebody else's: the option is not offered at all
                 // (#94 — writing to the radio is surfaced only on radios the
@@ -1793,16 +1799,26 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 Content = "Snapshot the radio's TX settings into this profile",
                 Margin = new Thickness(0, 2, 0, 2),
                 GroupName = "MicProfileRadioHalf",
-                IsChecked = referenceOption == null,
+                // Snapshotting writes nothing to the radio — it copies the
+                // radio's values into OUR file. But a stored-values binding is
+                // applied back to the radio later, and bindings are ungated by
+                // design, so on a radio the operator has told us is not theirs
+                // it should not be the answer they get by pressing OK without
+                // reading. Still offered; just not pre-chosen.
+                IsChecked = referenceOption == null && !notMyRadio,
             };
             JJFlexHelp.SetText(snapshotOption,
                 "Copies mic gain, EQ, compander, processor and filter values "
-                + "into the profile file. The shape used for radios that have "
-                + "no profile system of their own; on a Flex, referencing is "
-                + "usually the better choice.");
+                + "into the profile file. Nothing is written to the radio by "
+                + "saving — but applying this profile later would set those "
+                + "values on the radio, so on a radio that is not yours the "
+                + "computer-settings-only choice is the safe one. The shape "
+                + "used for radios that have no profile system of their own; "
+                + "on a Flex, referencing is usually the better choice.");
             panel.Children.Add(snapshotOption);
         }
-        else
+
+        if (!haveRig || (referenceOption == null && notMyRadio))
         {
             pcOnlyOption.IsChecked = true;
         }
