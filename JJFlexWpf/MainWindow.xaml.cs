@@ -1053,7 +1053,10 @@ public partial class MainWindow : UserControl
 
     private void RescueHelpButton_Click(object sender, RoutedEventArgs e)
     {
-        HelpLauncher.ShowHelp();
+        // Open at the page that describes THIS page, not the help file's
+        // front door — the operator pressing Help here is asking about the
+        // room they are standing in.
+        HelpLauncher.ShowHelp("RescueHome");
     }
 
     private void RescueExitButton_Click(object sender, RoutedEventArgs e)

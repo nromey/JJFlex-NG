@@ -241,6 +241,22 @@
     <param name="Name" value="version info">
     <param name="Local" value="pages\about-dialog.htm">
   </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="diagnostic log">
+    <param name="Local" value="pages\diagnostic-log.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="detailed capture">
+    <param name="Local" value="pages\diagnostic-log.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="problem report">
+    <param name="Local" value="pages\diagnostic-log.htm">
+  </OBJECT>
+  <LI><OBJECT type="text/sitemap">
+    <param name="Name" value="no radio connected">
+    <param name="Local" value="pages\home-no-radio.htm">
+  </OBJECT>
 </UL>
 </BODY>
 </HTML>

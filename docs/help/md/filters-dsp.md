@@ -61,3 +61,5 @@ To hear the current TX filter width, press `Ctrl+J`, then `F`. To hear the curre
 ## Feature Availability
 
 Not all DSP features are available on every radio model. Some require specific hardware, specific firmware, or a particular software license tier. The Feature Availability tab in JJ Flexible Radio Access shows you which features your radio supports, and explains why any greyed-out features are not available.
+
+The menus tell you too, right where the feature would have been. When a gated feature family cannot be offered on your radio — advanced noise reduction without its subscription, or diversity on a single-receiver model — the menu no longer just leaves a hole. In its place sits an item like **"Advanced noise reduction unavailable"** or **"Diversity unavailable"**: select it and it speaks exactly which gate is shut and, where one exists, points you at the equivalent that runs on your computer instead. A feature you cannot have is only useful news alongside the one you can.

@@ -8,6 +8,10 @@ It does not choose which sound device your audio goes to. That lives in Settings
 
 Press `Ctrl+Shift+W` from anywhere in the application. You can also find it in the Command Finder (`Ctrl+/`) by searching for "workshop". The window is non-modal, so you can leave it open while you operate.
 
+### No radio? Still useful
+
+The Workshop opens happily with no radio connected — it is on the no-radio Home page's own short menu for exactly that reason. The microphone check and everything in the This Computer section work fully offline, so you can prove a headset before you ever connect. The radio-side controls — mic gain, boost, bias, the compander, processor, filters, and monitor — disable themselves and step out of the tab order until a radio arrives, so nothing in here will claim to have changed a rig that was not listening.
+
 When the workshop opens, focus is already on **Start Audio Check** — if you're set up, or you've just loaded a preset, Enter starts a test with zero navigation. One `Tab` forward from that button is the live mic reading, and one more is Mic Gain — the three stops a running check actually uses, sitting together on purpose (more below).
 
 ### Workshop keys
@@ -61,7 +65,7 @@ Right after This Computer. A microphone profile is built around the microphone r
 
 Each profile carries two halves:
 
-- **The computer half** — which Windows device the mic is, its input level, and its boost. This half always belongs to JJ Flexible; a radio has nowhere to keep it.
+- **The computer half** — which Windows device the mic is, its input level, its boost, and your PC Cleanup settings (the noise reduction and noise gate that tidy the room before the radio hears it). This half always belongs to JJ Flexible; a radio has nowhere to keep it.
 - **The radio half, per radio** — and here is the part worth understanding. Flex radios keep their own mic profiles, on the radio itself, shared with SmartSDR and every other client. So on a Flex, your microphone profile simply **names which of the radio's own mic profiles to load** — nothing is copied, so there is nothing to drift out of date and nothing fighting other programs over the same settings. On a radio with no profile system of its own (a road that is being paved for other makes), the profile carries the actual values instead.
 
 Pick a profile and press **Apply Profile**, and both halves go into effect — with plain words about anything that could not happen. If the radio does not have the referenced mic profile, JJ Flexible says so and leaves the radio alone; it never guesses at a substitute and never creates profiles on a radio behind your back. If your computer is using a different microphone than the profile was made with, it says that too, and leaves the Windows level where it is rather than moving it for the wrong mic.

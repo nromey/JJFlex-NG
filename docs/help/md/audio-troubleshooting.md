@@ -120,6 +120,15 @@ is behaving strangely and everything looks fine, MME may be the reason you
 cannot see the problem — switch to WASAPI and read what the device list says
 about that device's rate.
 
+One rescue worth knowing about: some devices are locked to 44.1 kHz — a rate
+radio audio cannot use — and under WASAPI they used to be simply unusable. Now,
+when a device refuses every rate JJ Flexible can work with, it asks Windows to
+convert as a last resort, and the device opens anyway. Every device that can
+run without conversion still does, and when the rescue engages, the diagnostic
+log says plainly that Windows is resampling and how to get native audio back
+(set the device to 48000 Hz in Windows Sound settings). Honesty preserved,
+device usable.
+
 The old behaviour, for anyone comparing notes with an earlier version: JJ
 Flexible used to fold every copy of a device into one row and pick a driver
 model for you. That is what this control replaces, and it is why the device
@@ -165,11 +174,13 @@ A few more things worth knowing:
   the radio is carried by the Opus codec, which works at 48, 24, 16, 12 or 8
   kHz — and notably not at 44.1 kHz, which is what a good number of sound
   devices sit at by default. When you are on WASAPI, JJ Flexible can see the
-  real rate and marks any device that cannot carry radio audio. There are two
-  fixes and either is fine: set the device to 48000 Hz in Windows Sound
-  settings, or switch the audio system to MME, which converts the rate for you.
-  You will not see this warning under MME, because under MME the rate JJ
-  Flexible is told is not the rate your hardware is running at.
+  real rate and marks any device that cannot carry radio audio. The cleanest
+  fix is to set the device to 48000 Hz in Windows Sound settings; switching
+  the audio system to MME also works, since MME converts the rate for you.
+  And if you do neither, the device still opens: JJ Flexible falls back to
+  asking Windows to convert, as a last resort, rather than leaving the device
+  unusable. You will not see the rate warning under MME, because under MME the
+  rate JJ Flexible is told is not the rate your hardware is running at.
 - **The device list is a snapshot.** If you plug something in while the dialog
   is open, press the **Refresh device list** button.
 
@@ -207,6 +218,14 @@ tells you the whole story — *Good*, *Hot*, *Clipping*, *Quiet*, *Very quiet*,
 *Faint*, *Nothing* — followed by what to do about it and the number in dBFS.
 The leading word is there so you can stop listening as soon as you have what
 you needed.
+
+While you are adjusting, keep the order of the two gain stages in mind:
+**capture first, sculpt second.** When your microphone comes through this
+computer, the level Windows captures it at is stage one, and everything the
+radio does to it — mic gain, compander, processor — is stage two. Get a clean,
+Good-verdict capture at the Windows input level before you reach for the
+radio's knobs; no amount of stage-two sculpting can repair audio that arrived
+clipped or faint at stage one.
 
 Three answers mean three different things, and the check tells them apart:
 
@@ -270,3 +289,11 @@ does not choose sound devices, so it is not where to go for a silent receiver.
 - If you hear nothing at all over SmartLink, work down this page from the top.
   The connected-state rung and the "through this computer" rung between them
   account for most of it.
+
+## When You Need to Send Me the Evidence
+
+If an audio problem will not yield to this page, capture it happening: press
+`Ctrl+J`, then `Ctrl+D`, make the problem occur, and press the chord again to
+stop. The capture saves as its own session you can export and send. The full
+story is on the Diagnostic Log help page, and the controls live under Settings
+on the Diagnostics tab.
