@@ -961,6 +961,44 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Why the antenna tuner cannot be offered on this radio, or null when it
+    /// can.
+    ///
+    /// <para>ATU is a HARDWARE gate rather than a licence gate, which is why
+    /// Track A left it — but the asymmetry AdvancedNrGateMessage encodes still
+    /// governs the wording, and it bites harder here than it looks. FlexLib's
+    /// ATUPresent and ATUEnabled are plain bools that start false, so "the
+    /// radio said no tuner" and "the radio has not said anything yet" are the
+    /// SAME value. We therefore never assert that the radio has no tuner. What
+    /// we can say truthfully in every case is that it has not reported one, and
+    /// then name the likeliest reason without claiming it about this
+    /// radio.</para>
+    ///
+    /// <para>The one genuinely distinguishable case gets its own rung: a tuner
+    /// the radio reported as fitted but not allowed. Both halves of that came
+    /// from the radio, so stating it claims nothing we were not told.</para>
+    /// </summary>
+    private string? AtuGateMessage()
+    {
+        var rig = Rig;
+        if (rig == null) return "No radio connected.";
+
+        if (rig.HasATU) return null;
+
+        if (rig.ATUHardwarePresent)
+        {
+            return "Your radio reports that it has an antenna tuner fitted, but that the tuner "
+                 + "is not currently allowed to be used. Nothing on this computer can change "
+                 + "that — it is set on the radio itself.";
+        }
+
+        return "This radio has not reported an antenna tuner, so the tuner controls and ATU "
+             + "Tune are not offered. On some models the tuner is an optional part that may "
+             + "never have been fitted. Tuning your antenna is then a job for an external "
+             + "tuner, and Tools, Feature Availability lists what this radio did report.";
+    }
+
+    /// <summary>
     /// Build receiver controls (AGC, Squelch, RF Gain) — shared between menus.
     /// </summary>
     private void BuildReceiverItems(IntPtr parent)
@@ -1420,14 +1458,26 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna — RX/TX select, ATU (if present), Diversity (always).
+            // Antenna — RX/TX select, ATU (always), Diversity (always).
             // QB Track I: mnemonic N ("Audio" owns first-letter A), so
             // exploration by accelerator reaches it directly.
             var antSub = AddSubmenu(slice, "A&ntenna");
             BuildAntennaSelectItems(antSub);
-            if (Rig.HasATU)
+            AddSep(antSub);
+            // Sprint 31 Track R — the last silent absence in this submenu. The
+            // four ATU items used to vanish whole on a radio without a tuner,
+            // and from the keyboard "missing" and "not for this radio" feel
+            // identical while only one of them is true. Same treatment Track A
+            // gave Diversity directly below.
+            string? atuGate = AtuGateMessage();
+            if (atuGate != null)
             {
-                AddSep(antSub);
+                AddWired(antSub, "Antenna tuner unavailable", () =>
+                    SpeakAfterMenuClose(AtuGateMessage()
+                        ?? "The antenna tuner is available — reopen this menu."));
+            }
+            else
+            {
                 BuildATUItems(antSub);
                 AddSep(antSub);
                 AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());

@@ -615,6 +615,19 @@ namespace Radios
         /// </summary>
         public bool HasATU => theRadio?.ATUEnabled == true;
 
+        /// <summary>
+        /// True when the radio reported an ATU as physically FITTED, which is a
+        /// different question from <see cref="HasATU"/> ("allowed to be used").
+        ///
+        /// <para>Sprint 31 Track R. The radio parses atu_present separately from
+        /// the enable flag, and the two disagree in a real case worth telling
+        /// the operator about: a tuner that exists but is switched off. Note
+        /// that both are plain bools starting false, so a false here means
+        /// "not reported", NOT "proven absent" — callers must not claim
+        /// otherwise.</para>
+        /// </summary>
+        public bool ATUHardwarePresent => theRadio?.ATUPresent == true;
+
         // --- SmartLink manual port forwarding (Sprint 27 preview) ---
 
         /// <summary>
