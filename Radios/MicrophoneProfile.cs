@@ -87,6 +87,19 @@ public class MicrophoneProfile
     /// The result's message is spoken-ready and always names what happened —
     /// including, plainly, what did not.
     /// </summary>
+    /// <remarks>
+    /// <b>Deliberately NOT gated on <see cref="RadioOwnership"/>, ratified
+    /// 2026-08-19 (#94).</b> This is the one place the ownership flag looks
+    /// like it belongs and does not. A binding exists here only because the
+    /// operator made one, for THIS radio, earlier — the binding IS the consent,
+    /// and re-asking for it would break working setups on the day the flag
+    /// shipped, on every radio nobody has answered the question about. What
+    /// ownership gates is CREATING radio-side state that does not exist yet:
+    /// the Workshop's save dialog and the silent-transmit repair, not here. A
+    /// radio with no binding already gets nothing applied to it, which is the
+    /// guest rule doing its own job one layer up. Do not "fix" this by adding
+    /// a check.
+    /// </remarks>
     public MicProfileApplyResult ApplyRadioHalf(FlexBase? rig, string radioId)
     {
         if (rig == null)

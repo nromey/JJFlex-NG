@@ -1,11 +1,12 @@
 # Mic Profile Ownership
 
-Track B, Sprint 30 (2026-08-18), for task #94. This is a design document, not a
-spec that has been ratified — its open questions are routed to
-`docs/planning/for-noel/2026-08-18-mic-profile-ownership-questions.md`, and the
-one thing everything here gates on (the ownership flag) is deliberately NOT
-implemented. Task #94's full evidence trail lives in the task body; this doc is
-the design conclusion built on it.
+Track B, Sprint 30 (2026-08-18), for task #94. Task #94's full evidence trail
+lives in the task body; this doc is the design conclusion built on it.
+
+**Status: RATIFIED 2026-08-19 by Noel, and built in Sprint 31 Track S.** The
+sections below are kept as written, because the reasoning is the durable part.
+What shipped, and the three places it deliberately differs, are recorded at the
+bottom under "What shipped".
 
 ## The two axes, untangled
 
@@ -132,3 +133,57 @@ answer it. This matters beyond ownership: if registration IS exclusive, then
 registering a friend's radio would silently EVICT them — a hazard in its own
 right, and something the app should refuse to do without warning. Folded into
 the #95 bench-day item.
+
+## What shipped (Sprint 31 Track S, 2026-08-19)
+
+**The flag.** `RadioConfig.RadioOwnership` — `Unset` / `Mine` /
+`SomeoneElses`, serial-keyed, appended to the per-radio config beside
+`SmartLinkIntent` and `RemOnOnConnect`. Absent from an older config.xml it
+deserialises to `Unset`, so an upgrade never arms a write. Three states rather
+than a boolean for the same reason `SmartLinkIntents` has three: "never asked"
+and "asked, and the answer was no" are different, and only the first may raise
+the question. `MayCreateRadioSideState` is the single accessor everything else
+gates on; `SuggestOwnership(operatorAccount)` proposes a pre-selection and can
+never propose `SomeoneElses`.
+
+**Two surfaces, as ratified.** A standing field on Settings → Radios → "Whose
+radio is this", with no cascade and no challenge; and `RadioOwnershipDialog`,
+asked at the moment an action needs the answer. The dialog has three outcomes,
+not two: Escape and "Not now" record nothing, because backing out of an
+unexpected question is not a statement that the radio belongs to someone else.
+
+**Bindings are not gated**, and the reasoning is now a `<remarks>` block on
+`MicrophoneProfile.ApplyRadioHalf` saying so, since that is the one place a
+later reader would "fix" by adding a check.
+
+### Three deliberate differences from the text above
+
+1. **The auto-select does not run at connect, on any radio — not even one
+   marked `Mine`.** The design says "on a radio marked mine: apply silently",
+   and Sprint 31 Track S was instructed instead to ship the announcement only
+   and leave `diag/don-audio-708` unapplied. That instruction was followed, and
+   it holds up on its own: the flag is `Unset` on every existing install, so a
+   connect-time write would fire on no radio at all on day one, and the first
+   operator to answer "mine" would be the first person ever to run an untested
+   silent write to shared state during connect. The mechanism instead ships
+   behind a press. **One decision is outstanding for Noel** — whether an owned
+   radio should get the connect-time version. It is a small change, in
+   `FlexBase.CheckMicProfileForSilentTx`, and it should be made on purpose
+   rather than inherited.
+
+2. **The repair is offered on every radio, not only on owned ones**, matching
+   the design's own "say it and offer it… one keystroke for the operator who is
+   allowed". Ownership changes how much is asked before the write, never
+   whether the offer exists: `Mine` runs on the press with a receipt, `Unset`
+   asks whose radio it is first, `SomeoneElses` confirms with the shared-state
+   consequence named. That last case is deliberate — ownership is a declaration
+   of intent, so it must not become a lock an operator cannot deliberately
+   step over on their own equipment.
+
+3. **The Settings field never pre-populates from a guess**, unlike the
+   no-physical-access checkbox two groups below it, which pre-populates and
+   says it did. The asymmetry that justifies pre-checking there does not hold
+   here: guessing "reachable" wrong only costs a suppressed warning, while
+   guessing "mine" wrong pre-arms writes to a radio that is not the operator's.
+   The suggestion has a home — a sentence in the ask dialog that says out loud
+   that it is a guess.

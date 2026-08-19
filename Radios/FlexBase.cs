@@ -11456,6 +11456,174 @@ namespace Radios
             return true;
         }
 
+        // ── The silent-transmit check (Sprint 31 Track S, task #99) ──
+        //
+        // A radio whose mic-profile SELECTION is empty has no transmit-audio
+        // DSP chain, so audio sent from this computer modulates nothing:
+        // SC_MIC pins at -120 and the operator keys up into silence. It was
+        // pcap-diffed against SmartSDR on the same 8600 on 2026-08-10 — every
+        // command matched except the mic profile, "Default" there and empty
+        // here. SmartSDR never lands in this state because it keeps "Default"
+        // selected; JJ Flex could, because loading the JJRadioDefault GLOBAL
+        // profile carries no mic profile with it.
+        //
+        // **This surface ANNOUNCES. It never writes.** ProfileMICSelection is
+        // shared radio state — every client connected to the radio sees the
+        // change, and an empty selection on somebody else's radio may be their
+        // deliberate arrangement. Whether JJ Flex may repair it is the
+        // ownership question (RadioConfig.RadioOwnership); saying the failure
+        // out loud needs no permission from anyone.
+        //
+        // Why it stayed invisible for so long: a correctly set-up radio cannot
+        // detect it. Noel's own 8600 has a mic profile selected, so his working
+        // rig is blind to the whole class of bug — which is precisely the
+        // argument for announcing rather than waiting to reproduce it.
+
+        /// <summary>
+        /// True when this radio has answered its profile subscription and
+        /// reports NO mic profile loaded — the silent-transmit failure.
+        /// </summary>
+        /// <remarks>
+        /// A non-empty <c>ProfileMICList</c> is required, and it is doing real
+        /// work: it is positive proof that the radio has answered, so a slow
+        /// subscription can never be mistaken for the failure. A radio that
+        /// reports no mic profiles at all is a genuinely different (and
+        /// unverified) state — traced, never announced.
+        /// </remarks>
+        public bool MicProfileSelectionEmpty
+        {
+            get
+            {
+                var radio = theRadio;
+                return radio != null
+                    && IsConnected
+                    && radio.ProfileMICList != null
+                    && radio.ProfileMICList.Count > 0
+                    && string.IsNullOrEmpty(radio.ProfileMICSelection);
+            }
+        }
+
+        /// <summary>
+        /// The mic profile this radio would most likely want if the operator
+        /// asks for the empty selection to be filled: "Default" when the radio
+        /// offers it (what SmartSDR keeps selected), otherwise the first one it
+        /// lists. Empty string when there is nothing to pick. Naming the
+        /// candidate is READ-ONLY; nothing here selects it.
+        /// </summary>
+        public string SuggestedMicProfileName
+        {
+            get
+            {
+                var radio = theRadio;
+                var list = radio?.ProfileMICList;
+                if (list == null || list.Count == 0) return "";
+                return list.Contains("Default") ? "Default" : list[0];
+            }
+        }
+
+        /// <summary>
+        /// The connect-time spoken form, sized to the operator's verbosity.
+        /// Spoken at Critical so it survives "speech off" — an operator who
+        /// cannot be heard on the air is the enum's own definition of a
+        /// safety message — which is exactly why the off-level form is the
+        /// shortest one that still carries the consequence.
+        /// </summary>
+        public static string SilentTxSpokenWarning(VerbosityLevel verbosity) => verbosity switch
+        {
+            VerbosityLevel.Critical =>
+                "No mic profile on this radio. Transmit audio from this computer will not go out.",
+            VerbosityLevel.Terse =>
+                "This radio has no mic profile selected, so transmit audio from this computer "
+                + "will not go out. Nothing you did caused it.",
+            _ =>
+                "Heads up: this radio has no mic profile selected. Until one is loaded, transmit "
+                + "audio from this computer will not go out — you would key up and nobody would "
+                + "hear you. Nothing you did caused it, and receive is unaffected. The Audio "
+                + "Workshop has the details.",
+        };
+
+        /// <summary>
+        /// The re-readable form, for a status line the operator can arrow
+        /// through at their own pace. Null when there is nothing wrong — the
+        /// caller shows the line only when this returns text, so a healthy
+        /// radio never grows a warning it has to dismiss.
+        /// </summary>
+        public string? SilentTxMicProfileAdvisory()
+        {
+            if (!MicProfileSelectionEmpty) return null;
+            string pick = SuggestedMicProfileName;
+            return "This radio has no mic profile selected. A mic profile is the radio's own "
+                 + "transmit-audio chain, and without one loaded, audio sent from this computer "
+                 + "has nothing to travel through — you would key up and nobody would hear you. "
+                 + "Receiving is unaffected, and nothing you did caused it: a radio arrives this "
+                 + "way from the factory, and loading a global profile that carries no mic "
+                 + "profile leaves it this way too."
+                 + (string.IsNullOrEmpty(pick)
+                        ? ""
+                        : $" This radio offers a mic profile named {pick}.");
+        }
+
+        /// <summary>
+        /// Run the check and, when the failure is present, say so once. Called
+        /// from <see cref="GetProfileInfo"/>, which is the only moment the app
+        /// reliably knows the radio's profile answers have landed.
+        /// </summary>
+        /// <remarks>
+        /// The waits are ordered so that a healthy radio pays almost nothing:
+        /// the first returns as soon as the profile list arrives (already true
+        /// by this point on every radio observed), and the second returns the
+        /// instant a selection is seen. Only the genuine failure case waits out
+        /// the full settle window, and on that radio the wait is worth it.
+        /// </remarks>
+        private void CheckMicProfileForSilentTx()
+        {
+            if (theRadio == null) return;
+
+            if (!await(() => theRadio != null && theRadio.ProfileMICList != null
+                             && theRadio.ProfileMICList.Count > 0, 1500))
+            {
+                // Either the subscription has not answered or this radio truly
+                // lists no mic profiles. Both are unverified states and neither
+                // is the pcap-confirmed failure, so this is for the trace file
+                // and no further.
+                Tracing.TraceLine(
+                    "SilentTxCheck: no mic profiles reported within the settle window — "
+                    + "not announcing (this is not the confirmed empty-selection failure).",
+                    TraceLevel.Warning);
+                return;
+            }
+
+            // A selection arriving at any point inside the window means the
+            // radio is healthy; only a window that expires still empty is the
+            // failure.
+            if (await(() => theRadio == null
+                            || !string.IsNullOrEmpty(theRadio.ProfileMICSelection), 1500))
+            {
+                return;
+            }
+
+            var radio = theRadio;
+            if (radio == null) return;
+
+            Tracing.TraceLine(
+                "SilentTxCheck: mic profile selection is EMPTY. Transmit audio from this "
+                + "computer will not modulate. Radio offers: "
+                + string.Join(", ", radio.ProfileMICList)
+                + ". ANNOUNCING ONLY — nothing is written to the radio (Sprint 31 Track S, "
+                + "#99). Repair is operator-initiated and ownership-gated.",
+                TraceLevel.Warning);
+
+            if (SuppressSpeech) return;
+
+            // Queued, not interrupting: this is the tail of the connect series,
+            // and cutting off "Connected to ..." to deliver it would cost the
+            // operator the message they were actually waiting for.
+            ScreenReaderOutput.Speak(
+                SilentTxSpokenWarning(ScreenReaderOutput.CurrentVerbosity),
+                Speech.SpeechIntent.Queue,
+                VerbosityLevel.Critical);
+        }
+
         /// <summary>
         /// Save a global profile.
         /// </summary>
@@ -13502,6 +13670,14 @@ namespace Radios
 
             crnt = GetProfilesByType(ProfileTypes.mic, GetDefaultProfiles());
             if (crnt.Count > 0) SelectProfile(crnt[0]);
+
+            // The silent-transmit check (#99). This is where branch
+            // diag/don-audio-708 SELECTED a profile when the selection came up
+            // empty. That write is correct on your own radio and is an
+            // unauthorised change to shared state on anyone else's, so what
+            // ships here is the half that needs nobody's permission: say the
+            // failure out loud. See CheckMicProfileForSilentTx.
+            CheckMicProfileForSilentTx();
 
             // Allocate any free slices.
             if (MyNumSlices < initialFreeSlices)
