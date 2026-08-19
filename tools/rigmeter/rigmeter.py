@@ -1277,11 +1277,21 @@ def hot_files_in_span(repo_root: Path, sha_a: str, sha_b: str, top_n: int = 10) 
 # --- Git helpers -----------------------------------------------------------
 
 def git_run(repo_root: Path, *args: str) -> str:
-    """Run `git -C <repo> args`, return stdout text. Returns '' on failure."""
+    """Run `git -C <repo> args`, return stdout text. Returns '' on failure.
+
+    Explicit UTF-8 decoding with byte-replacement: git output (author names,
+    commit subjects) can carry raw non-ASCII bytes that aren't valid in the
+    Windows console codepage (cp1252). Without this, Python's default text
+    decoding throws UnicodeDecodeError inside subprocess's internal reader
+    thread — invisible to the try/except below since it's a different
+    thread — spraying tracebacks to stderr on every run. errors="replace"
+    keeps this a screen-reader-quiet, deterministic decode instead.
+    """
     try:
         result = subprocess.run(
             ["git", "-C", str(repo_root)] + list(args),
             capture_output=True, text=True, timeout=120,
+            encoding="utf-8", errors="replace",
         )
         return result.stdout
     except Exception:
@@ -2281,8 +2291,27 @@ def normalize_author(raw_name: str) -> str:
 
 def git_blame_authors(repo_root: Path, relpath: str) -> Dict[str, int]:
     """Return {author: line_count} for one file via git blame --line-porcelain.
-    Empty dict on any failure (e.g. binary file, deleted file)."""
-    out = git_run(repo_root, "blame", "--line-porcelain", "--", relpath)
+    Empty dict on any failure (e.g. binary file, deleted file).
+
+    -w ignores whitespace-only changes so a reformatting pass (e.g. the
+    whole-tree .NET 10 migration) doesn't reassign lines to whoever ran the
+    formatter. -C detects lines moved or copied from other files: a single
+    -C looks for copy sources among files touched in the SAME commit as
+    the blamed line, which is exactly the shape a `git mv`-driven migration
+    takes (old and new paths both change in one commit).
+
+    We use a single -C, not the doubled -C -C. -C -C additionally searches
+    every file present in the commit that CREATED the destination file —
+    not just files that commit touched — which is a much bigger haystack
+    per blamed line. Measured on this repo (567 code files, repo-wide):
+    plain blame ~15s, -w -C ~25s. -w -C -C was still running after 5+
+    minutes (10x+ slower, still climbing) for a case this codebase's
+    migration doesn't need: the .NET 10 move was same-commit renames, which
+    plain -C already resolves. -C -C earns its keep when a file is
+    reintroduced as a copy in a commit that doesn't also touch the
+    original — not what happened here. Re-evaluate if a future migration
+    does that."""
+    out = git_run(repo_root, "blame", "--line-porcelain", "-w", "-C", "--", relpath)
     if not out:
         return {}
     counts: Dict[str, int] = {}
