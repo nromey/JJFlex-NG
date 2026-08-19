@@ -635,66 +635,20 @@ namespace JJFlexWpf.Dialogs
                 if (!RadiosBox.IsKeyboardFocusWithin) return;
 
                 e.Handled = true;
-                bool got = FocusExpanderHeader(IdentityExpander);
+                // Focus the Expander's HEADER, not the Expander itself.
+                //
+                // Found by Noel at the keyboard 2026-08-19, immediately after
+                // the Shift+Tab restore above started working: landing on the
+                // expander was SILENT when collapsed, and Space did not toggle
+                // it (Enter did). One cause, two symptoms — see ExpanderFocus,
+                // which now owns the fix for every expander in the app. This
+                // dialog and ScreenFieldsPanel had each derived it separately
+                // without knowing about the other (task #105).
+                bool got = ExpanderFocus.FocusHeader(IdentityExpander);
                 JJTrace.Tracing.TraceLine(
                     $"RigSelector: Shift+Tab from list -> IdentityExpander focus={got}",
                     System.Diagnostics.TraceLevel.Info);
             };
-
-            // Focus an Expander's HEADER, not the Expander itself.
-            //
-            // Found by Noel at the keyboard 2026-08-19, immediately after the
-            // Shift+Tab restore above started working. Two symptoms, one cause:
-            //
-            //   - Landing on the expander was sometimes silent. He noticed it
-            //     was silent when COLLAPSED and spoke when expanded.
-            //   - Space did not toggle it open. Enter did.
-            //
-            // That pair is the diagnosis. An Expander's interactive part is a
-            // ToggleButton inside its control template, and a ToggleButton is
-            // what responds to Space. Expander.Focus() puts keyboard focus on
-            // the Expander CONTAINER — focusable, but not the interactive
-            // element — so Space had no ToggleButton to reach, and a screen
-            // reader had a bare container to describe, which is why it
-            // sometimes said nothing at all.
-            //
-            // Focusing the header ToggleButton fixes the announcement and the
-            // Space key together, because they were never two problems.
-            //
-            // The ToggleButton is found by walking the visual tree rather than
-            // by template part name ("HeaderSite" in the stock themes) — a
-            // restyle that renames the part would silently reintroduce exactly
-            // the bug this fixes, and silence is the failure mode we can least
-            // afford to reintroduce quietly. Falls back to the Expander itself
-            // so focus always lands somewhere real.
-            static bool FocusExpanderHeader(System.Windows.Controls.Expander expander)
-            {
-                if (expander == null) return false;
-
-                // ApplyTemplate so the header exists even on the very first
-                // focus, before the expander has ever been rendered.
-                expander.ApplyTemplate();
-
-                var toggle = FindDescendant<System.Windows.Controls.Primitives.ToggleButton>(expander);
-                if (toggle != null && toggle.Focus()) return true;
-
-                return expander.Focus();
-            }
-
-            static T FindDescendant<T>(System.Windows.DependencyObject root)
-                where T : System.Windows.DependencyObject
-            {
-                if (root == null) return null;
-                int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
-                for (int i = 0; i < count; i++)
-                {
-                    var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
-                    if (child is T hit) return hit;
-                    var deeper = FindDescendant<T>(child);
-                    if (deeper != null) return deeper;
-                }
-                return null;
-            }
 
             // Announce an empty list only after discovery has had a real chance.
             // Also force keyboard focus to the ListBox so Tab works even when empty.
