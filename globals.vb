@@ -3192,7 +3192,19 @@ RadioConnected:
     Friend Sub SelectRadio()
         Tracing.TraceLine("SelectRadio", TraceLevel.Info)
         Try
-            If RigControl IsNot Nothing Then
+            ' Sprint 30 Track A: the lead is only earned by a radio that was
+            ' actually CONNECTED. A cancelled picker leaves a live-but-unstarted
+            ' FlexBase behind (only the Abort path closes it), so this used to
+            ' hand the arriving picker "Disconnected from radio" for a radio the
+            ' operator had never reached. Harmless-looking, and a lie the
+            ' operator hears in the first sentence of the window they just
+            ' opened. Newly likely rather than newly possible: Connect is now the
+            ' first button on the rescue page, so the never-connected path is the
+            ' ORDINARY one instead of a corner of the Radio menu.
+            '
+            ' CloseTheRadio still runs either way - the stale object has to be
+            ' disposed before openTheRadio builds another one.
+            If RigControl IsNot Nothing AndAlso RigControl.IsConnected Then
                 Dim radioName = RigControl.RadioNickname
 
                 ' Do NOT speak here. Anything said at this moment is destroyed
@@ -3217,7 +3229,9 @@ RadioConnected:
                     RigControl.SuppressSpeech = True
                 Catch
                 End Try
+            End If
 
+            If RigControl IsNot Nothing Then
                 CloseTheRadio()
             End If
             openTheRadio(False)

@@ -946,6 +946,19 @@ public partial class MainWindow : UserControl
     {
         if (!_rescueMode) return;
 
+        // Logging mode outranks the rescue page, and must. The log is a
+        // logbook: entering QSOs, searching, importing and exporting all work
+        // perfectly well with no radio attached, and an operator who pressed
+        // Ctrl+Shift+L asked for that surface deliberately. Hiding it behind a
+        // page whose whole claim is "only what works offline" would make the
+        // page wrong about itself. Leaving Logging mode restores the page,
+        // because ApplyUIMode runs this again on the way back.
+        if (ActiveUIMode == UIMode.Logging)
+        {
+            RescuePanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         RescuePanel.Visibility = Visibility.Visible;
         RadioControlsPanel.Visibility = Visibility.Collapsed;
         FieldsPanel.Visibility = Visibility.Collapsed;
@@ -1861,8 +1874,8 @@ public partial class MainWindow : UserControl
 
                 string msg =
                     $"This radio is not registered to {account}, the SmartLink account you are " +
-                    "signed in with. Registering your radio lets you reach it over the internet " +
-                    "when you are away from your shack, and it tells Flex the radio is yours. " +
+                    "signed in with. Registering a radio lets that account reach it over the " +
+                    "internet when you are away from your shack. " +
                     "Flex requires you to be physically at the radio with a hand microphone or a " +
                     "CW key plugged in, to prove someone is really there.\n\n" +
                     (otherAccounts > 0
@@ -1927,14 +1940,23 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void ShowLocalOnlyOffer(string serial, string account, int otherAccounts)
     {
+        // Wording note, and it is a constraint rather than a preference:
+        // nothing here may imply that registration says whose radio this is.
+        // Track B established the counter-example on 2026-08-18 - an operator
+        // connected to somebody else's radio using that person's account, and
+        // a registration test would have called him the owner. Registration
+        // answers who has ACCESS. So this asks about the operator's USE ("do
+        // you operate it from away") and never about the radio's ownership,
+        // and what it stores is a local prompt preference on this machine,
+        // not a claim about the radio.
         string msg =
             "You are connected to this radio over your own network, and it is not registered " +
             $"with SmartLink under {account}. That is worth one question, and then this will " +
             "stop asking.\n\n" +
             "Registering a radio with SmartLink is how you reach it over the internet from " +
-            "somewhere else — a hotel, a friend's shack, the car. If this radio never leaves " +
-            "your house and you never operate it from away, you do not need it, and nothing " +
-            "about your local operating changes either way.\n\n" +
+            "somewhere else — a hotel, a friend's shack, the car. If you only ever " +
+            "operate this radio from where you are right now, you do not need it, and " +
+            "nothing about your local operating changes either way.\n\n" +
             "If you do want it later, Flex requires you to be at the radio with a hand " +
             "microphone or a CW key plugged in, to prove someone is really there. It all " +
             "happens right here in JJ Flexible Radio Access; SmartSDR is not required.\n\n" +
