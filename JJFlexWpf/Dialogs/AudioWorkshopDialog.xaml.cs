@@ -157,6 +157,22 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// operator's saved microphone profiles; refreshed on SetRig and after
     /// every save or delete.</summary>
     private CycleFieldControl? _micProfileControl;
+
+    /// <summary>
+    /// The silent-transmit warning (Sprint 31 Track S, #99), present only
+    /// while the radio reports an empty mic-profile selection. A read-only
+    /// TextBox rather than a label so it can be arrowed through and re-read —
+    /// the connect-time announcement is heard once and this is where it lives
+    /// afterwards. Collapsed on a healthy radio, so nobody whose transmit
+    /// audio works ever meets it.
+    /// </summary>
+    private TextBox? _silentTxNote;
+
+    /// <summary>The operator-initiated repair for the empty selection. Never
+    /// fires on its own; see <see cref="LoadMicProfileForSilentTx"/> for what
+    /// the ownership flag gates.</summary>
+    private Button? _silentTxFixButton;
+
     private CheckBox? _companderCheck;
     private ValueFieldControl? _companderLevelControl;
     private CheckBox? _processorCheck;
@@ -678,6 +694,8 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // The poll is dead now — leave the readings honest, not stale.
             UpdateMicReading();
             ResetMeterReadings("no radio connected");
+            // A warning about a radio that is gone is a warning about nothing.
+            UpdateSilentTxNote();
         }
     }
 
@@ -1295,6 +1313,35 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         AddSectionHeader(TxAudioContent, "Microphone Profiles");
 
+        // The silent-transmit warning (#99) leads the section, because when it
+        // applies it outranks everything below it: no microphone profile the
+        // operator applies here can produce transmit audio while the radio has
+        // no mic profile of its own loaded. Collapsed unless the radio reports
+        // that state, so a working setup never sees it.
+        _silentTxNote = new TextBox
+        {
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = true,
+            Margin = new Thickness(2),
+            MinWidth = 300,
+            Visibility = Visibility.Collapsed,
+        };
+        AutomationProperties.SetName(_silentTxNote, "Transmit audio warning");
+        JJFlexHelp.SetText(_silentTxNote,
+            "A Flex keeps its transmit-audio settings — mic gain, equaliser, "
+            + "compander, processor — in named mic profiles that live on the "
+            + "radio itself and are shared with every program connected to it. "
+            + "When none of them is loaded, the transmit chain is unconfigured, "
+            + "and audio arriving from this computer has nothing to travel "
+            + "through. It is not a fault in your microphone, your levels, or "
+            + "your network. A radio can come out of the box this way, and "
+            + "loading a global profile that was saved without a mic profile "
+            + "leaves it this way too. Other programs never show it because "
+            + "they keep a profile named Default selected at all times.");
+        AddToSection(TxAudioContent, _silentTxNote);
+
         _micProfileControl = MakeCycle("Microphone profile", new[] { NoMicProfilesOption });
         JJFlexHelp.SetText(_micProfileControl,
             "A saved setup for one microphone: its computer settings plus, per "
@@ -1325,6 +1372,42 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
         AddToSection(TxAudioContent, buttons);
         RefreshMicProfileOptions();
+    }
+
+    /// <summary>
+    /// Show or hide the silent-transmit warning to match what the radio is
+    /// reporting right now (#99). Announce-only: this method reads the radio
+    /// and writes nothing to it.
+    /// </summary>
+    /// <remarks>
+    /// Called from every poll, so the note appears the moment the radio's
+    /// answers land and disappears the moment a profile is loaded — including
+    /// when the operator loads one from SmartSDR on another screen. The text is
+    /// compared before it is assigned: reassigning identical text to a control
+    /// with an automation name is a UIA property change, and a live region
+    /// re-announcing the same warning every second is worse than no warning.
+    /// </remarks>
+    private void UpdateSilentTxNote()
+    {
+        if (_silentTxNote == null) return;
+
+        string? advisory = _rig?.SilentTxMicProfileAdvisory();
+        if (string.IsNullOrEmpty(advisory))
+        {
+            if (_silentTxNote.Visibility != Visibility.Collapsed)
+            {
+                _silentTxNote.Visibility = Visibility.Collapsed;
+                _silentTxNote.Text = "";
+            }
+            return;
+        }
+
+        if (_silentTxNote.Text != advisory)
+        {
+            _silentTxNote.Text = advisory;
+            AutomationProperties.SetName(_silentTxNote, advisory);
+        }
+        _silentTxNote.Visibility = Visibility.Visible;
     }
 
     /// <summary>
@@ -2938,6 +3021,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
             // Track I: PC Cleanup controls and status.
             PollTxCleanup();
+
+            // #99: the radio's mic-profile selection can go empty at any time
+            // (a global profile loaded from any client does it), so this is
+            // checked on every poll rather than once at open.
+            UpdateSilentTxNote();
         }
         finally
         {
