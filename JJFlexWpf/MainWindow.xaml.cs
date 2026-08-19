@@ -3434,6 +3434,9 @@ public partial class MainWindow : UserControl
             Radios.ScreenReaderOutput.PlayClientConnectedEarcon = () => EarconPlayer.PlayChirp(600, 900, 120, 0.2f);
             Radios.ScreenReaderOutput.PlayClientDisconnectedEarcon = () => EarconPlayer.PlayChirp(900, 600, 120, 0.2f);
 
+            // Warning alarm, for the radio layer's unprompted warnings (#111)
+            Radios.ScreenReaderOutput.PlayWarningAlarmEarcon = () => EarconPlayer.WarningAlarmTone();
+
             // Apply typing sound to FreqOutHandlers
             if (_freqOutHandlers != null)
             {

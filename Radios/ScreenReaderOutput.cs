@@ -905,5 +905,19 @@ namespace Radios
 
         /// <summary>Play descending chirp for client disconnected.</summary>
         public static Action? PlayClientDisconnectedEarcon { get; set; }
+
+        // ── Warning alarm (Sprint 31, #111) ──
+
+        /// <summary>
+        /// Play the warning alarm — the long harmonic 800 Hz tone that precedes
+        /// a spoken warning the operator did not ask for.
+        ///
+        /// An Action rather than a direct call because Radios sits below
+        /// JJFlexWpf in the project graph and cannot see EarconPlayer. Assigned
+        /// once at startup in MainWindow, next to the MultiFlex client earcons
+        /// that use the same inversion. Null-safe: unassigned means silence,
+        /// never a crash, which matters because the caller is on a connect path.
+        /// </summary>
+        public static Action? PlayWarningAlarmEarcon { get; set; }
     }
 }

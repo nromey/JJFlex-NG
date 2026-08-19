@@ -295,6 +295,7 @@ namespace JJFlexWpf.Dialogs
             EarconDialogsCheck.IsChecked = _audioConfig.EarconDialogsEnabled;
             EarconTuningCheck.IsChecked = _audioConfig.EarconTuningEnabled;
             EarconCommandsCheck.IsChecked = _audioConfig.EarconCommandsEnabled;
+            EarconWarningsCheck.IsChecked = _audioConfig.EarconWarningsEnabled;
 
             CwNotificationsCheck.IsChecked = _audioConfig.CwNotificationsEnabled;
             CwSidetoneBox.Text = _audioConfig.CwSidetoneHz.ToString();
@@ -1233,6 +1234,7 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.EarconDialogsEnabled = EarconDialogsCheck.IsChecked == true;
             _audioConfig.EarconTuningEnabled = EarconTuningCheck.IsChecked == true;
             _audioConfig.EarconCommandsEnabled = EarconCommandsCheck.IsChecked == true;
+            _audioConfig.EarconWarningsEnabled = EarconWarningsCheck.IsChecked == true;
             _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
             if (int.TryParse(CwSidetoneBox.Text, out int sidetone) && sidetone >= 400 && sidetone <= 1200)
                 _audioConfig.CwSidetoneHz = sidetone;

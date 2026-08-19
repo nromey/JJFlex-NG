@@ -259,7 +259,15 @@ namespace Radios.Tests
                 string msg = FlexBase.SilentTxSpokenWarning(level);
                 Assert.False(string.IsNullOrWhiteSpace(msg));
                 Assert.Contains("mic profile", msg, StringComparison.OrdinalIgnoreCase);
-                Assert.Contains("this computer", msg, StringComparison.OrdinalIgnoreCase);
+
+                // "your computer", not "this computer" — Noel's wording,
+                // 2026-08-19, and the phrase is load-bearing rather than
+                // decorative. Every form has to name the computer as the source
+                // of the audio, because an operator who hears only "no mic
+                // profile" has no way to know which end of the path is broken.
+                // This assertion went red when the wording changed and the test
+                // did not; that is the assertion doing its job.
+                Assert.Contains("your computer", msg, StringComparison.OrdinalIgnoreCase);
             }
         }
 

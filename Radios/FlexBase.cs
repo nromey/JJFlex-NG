@@ -11675,6 +11675,16 @@ namespace Radios
 
             if (SuppressSpeech) return;
 
+            // Alarm first, then the sentence — the same order DiagnosticOffer
+            // uses, and for the same reason: the tone tells the operator that
+            // what follows is not routine, so the sentence gets listened to
+            // rather than filed with the rest of the connect chatter. Not on
+            // the repair branch above: that one reports a fixed condition, and
+            // an alarm for something already handled teaches the operator to
+            // ignore alarms. Null when the WPF layer has not started — silence,
+            // not a crash, on a connect path.
+            ScreenReaderOutput.PlayWarningAlarmEarcon?.Invoke();
+
             // Queued, not interrupting: this is the tail of the connect series,
             // and cutting off "Connected to ..." to deliver it would cost the
             // operator the message they were actually waiting for.

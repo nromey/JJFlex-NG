@@ -63,11 +63,24 @@ namespace JJFlexWpf
             TuningAndFilters = 3,
             /// <summary>JJ-layer tones, feature on/off, mute-all, mode enter/exit, confirmations.</summary>
             CommandsAndConfirmations = 4,
+            /// <summary>
+            /// Something is wrong. The warning alarm, and the quieter
+            /// problem-recorded tone. Added Sprint 31 (#111) once there was a
+            /// second member — ProblemRecordedTone sat in
+            /// CommandsAndConfirmations precisely because a sixth category for
+            /// one earcon would have been a switch nobody needed.
+            ///
+            /// This is the one category worth thinking twice about switching
+            /// off. Everything else here answers a key the operator just
+            /// pressed; this fires when the app has something to say that
+            /// nobody asked for.
+            /// </summary>
+            Warnings = 5,
         }
 
         // One flag per EarconCategory value, all on by default. Persisted in
         // AudioOutputConfig alongside EarconsEnabled.
-        private static readonly bool[] _categoryEnabled = { true, true, true, true, true };
+        private static readonly bool[] _categoryEnabled = { true, true, true, true, true, true };
 
         /// <summary>Whether a category is individually enabled (master gate not considered).</summary>
         public static bool GetCategoryEnabled(EarconCategory category) =>
@@ -759,25 +772,47 @@ namespace JJFlexWpf
         /// Two notes falling a minor third — a problem was recorded and can be
         /// read with Ctrl+J, Ctrl+R (Sprint 31, #100).
         ///
-        /// Family: CommandsAndConfirmations, which is where the app's general
-        /// "here is what just happened" feedback lives, including
-        /// LeaderInvalidTone. None of the five categories is a natural home for
-        /// "something went wrong" and inventing a sixth would buy one earcon a
-        /// switch of its own — the categories exist precisely so that does not
-        /// happen. The cost is honest and worth stating: an operator who has
-        /// switched this family off hears no earcon for a problem. They still
-        /// get the spoken line, and the Problems list still holds everything.
+        /// Family: Warnings, alongside WarningAlarmTone. It lived in
+        /// CommandsAndConfirmations until Sprint 31 #111, for the honest reason
+        /// that a sixth category holding exactly one earcon is a switch nobody
+        /// needs. The alarm gave it a sibling, so the category now earns its
+        /// place and both "something is wrong" sounds answer to one switch.
         ///
-        /// Deliberately calm rather than alarming. Nothing here is urgent —
-        /// the failure has already happened, the log already has it, and the
-        /// list will still be there in an hour. Pitched below FeatureOffTone
-        /// (700 down to 500) and slower, so the two cannot be confused: this is
-        /// not a toggle answering back.
+        /// Deliberately calm rather than alarming, and that contrast is the
+        /// point now that the two share a family. Nothing here is urgent — the
+        /// failure has already happened, the log already has it, and the list
+        /// will still be there in an hour. WarningAlarmTone is for the other
+        /// kind: something is wrong *now* and the next thing you do depends on
+        /// knowing it.
         /// </summary>
         public static void ProblemRecordedTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!On(EarconCategory.Warnings)) return;
             PlayToneSequence(new[] { (440, 90), (0, 50), (370, 130) }, 0.28f);
+        }
+
+        /// <summary>
+        /// The warning alarm: 800 Hz for 750 ms with its 2nd and 3rd harmonics
+        /// stacked underneath at falling gain — Noel's specification, 2026-08-19.
+        ///
+        /// It is deliberately unlike every other earcon in the app, and the
+        /// difference is structural rather than a rearrangement of the same
+        /// parts. Everything else is one or more pure sines of 50 to 200 ms,
+        /// usually two of them, usually a third apart; put any two of those
+        /// side by side and an operator has to work to tell them apart. This is
+        /// a single sustained note, three to twelve times longer than anything
+        /// else here, and it has harmonics, so it has a timbre the rest of the
+        /// set does not. Nothing about it can be mistaken for a toggle
+        /// answering back.
+        ///
+        /// Long enough to be unmissable, short enough not to step on the speech
+        /// that follows it — which is the actual payload. The alarm's whole job
+        /// is to make sure the sentence after it gets listened to.
+        /// </summary>
+        public static void WarningAlarmTone()
+        {
+            if (!On(EarconCategory.Warnings)) return;
+            PlayAdditiveTone(800, 750, 0.30f, (2, 0.35f), (3, 0.18f));
         }
 
         /// <summary>Low buzz — invalid leader key.</summary>
@@ -1353,6 +1388,61 @@ namespace JJFlexWpf
             {
                 Trace.WriteLine($"EarconPlayer.PlayTonePanned failed: {ex.Message}");
                 FallbackBeep(frequencyHz, durationMs);
+            }
+        }
+
+        /// <summary>
+        /// One sustained note with harmonic partials stacked on it — a tone
+        /// with a timbre, rather than another pure sine. Partial gains are
+        /// fractions of the fundamental's and they sum, so the peak is
+        /// volume x (1 + sum of gains); keep the total under about 1.6.
+        ///
+        /// Every other earcon here is a pure sine, which is why they all sound
+        /// like relatives no matter how the pitches are arranged. Harmonics are
+        /// what make a sound read as an alarm instead of a confirmation.
+        /// </summary>
+        private static void PlayAdditiveTone(
+            int fundamentalHz, int durationMs, float volume,
+            params (int harmonic, float gain)[] partials)
+        {
+            if (AlertMixer == null) { FallbackBeep(fundamentalHz, durationMs); return; }
+            try
+            {
+                var monoFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, 1);
+                var stack = new MixingSampleProvider(monoFormat) { ReadFully = true };
+
+                stack.AddMixerInput((ISampleProvider)new SignalGenerator(SampleRate, 1)
+                {
+                    Type = SignalGeneratorType.Sin,
+                    Frequency = fundamentalHz,
+                    Gain = volume
+                });
+
+                foreach (var (harmonic, gain) in partials)
+                {
+                    stack.AddMixerInput((ISampleProvider)new SignalGenerator(SampleRate, 1)
+                    {
+                        Type = SignalGeneratorType.Sin,
+                        Frequency = fundamentalHz * harmonic,
+                        Gain = volume * gain
+                    });
+                }
+
+                var timed = stack.Take(TimeSpan.FromMilliseconds(durationMs));
+
+                // A three-quarter-second tone that starts and stops square
+                // clicks at both ends, and the click is the loudest part of it.
+                var faded = new FadeInOutSampleProvider(timed, true);
+                double edgeMs = Math.Min(durationMs / 10.0, 25);
+                faded.BeginFadeIn(edgeMs);
+                faded.BeginFadeOut(Math.Max(durationMs - edgeMs, 0));
+
+                AddToMixer(faded);
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.PlayAdditiveTone failed: {ex.Message}");
+                FallbackBeep(fundamentalHz, durationMs);
             }
         }
 

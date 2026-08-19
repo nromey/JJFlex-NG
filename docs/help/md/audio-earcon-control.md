@@ -19,13 +19,16 @@ The fast way to mute every earcon at once is through the JJ key. Press `Ctrl+J` 
 
 ## Turning Off Just Some of Them
 
-Under **Settings, then the Notifications tab, under Alert Sounds** you will find the master switch plus five category switches, so you can quiet the sounds you do not want and keep the ones you rely on:
+Under **Settings, then the Notifications tab, under Alert Sounds** you will find the master switch plus six category switches, so you can quiet the sounds you do not want and keep the ones you rely on:
 
 - **Connection sounds** — the counting tones while a connection is being made, and the double-beep when it lands.
 - **Transmit sounds** — transmit start and stop, the hard-kill warning, the tune carrier, and the antenna tuner's progress and verdict.
 - **Dialog and panel sounds** — the dings when a dialog opens or closes, and the sweeps when a Home panel expands or collapses.
 - **Tuning and filter sounds** — filter-edge clicks and sweeps, the band-boundary beep, and the frequency-entry ding.
 - **Command and confirmation sounds** — the JJ key layer's tones, feature on and off beeps, mute-all, and confirmations. Think twice before turning these off: without them the JJ key gives no sign it is listening.
+- **Warning sounds** — the warning alarm, and the quieter two-note tone that says a problem was recorded and is waiting in the Problems list. This is the one category worth leaving on. Every other sound here is the app answering a key you just pressed; these two fire when the app has something to tell you that you did not ask about — such as transmit audio that would not have gone out.
+
+The warning alarm is deliberately unlike anything else the app plays. It is a single long tone at 800 hertz with harmonics stacked on it, about three quarters of a second, where every other sound in the set is one or two short pure beeps. You should never have to work out whether you just heard a warning or a toggle. When you hear it, the sentence that follows is the part that matters — the tone exists to make sure you are listening for it.
 
 The master switch outranks the categories — master off means silence, whatever the categories say. And the quick mute is that same master switch, not a separate layer, so flipping either one flips both.
 

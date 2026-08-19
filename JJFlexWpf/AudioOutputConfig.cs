@@ -92,6 +92,13 @@ namespace JJFlexWpf
         public bool EarconTuningEnabled { get; set; } = true;
         /// <summary>JJ-layer tones, feature on/off, mute-all, mode enter/exit, confirmations.</summary>
         public bool EarconCommandsEnabled { get; set; } = true;
+        /// <summary>
+        /// The warning alarm and the problem-recorded tone (Sprint 31, #111).
+        /// Absent from an older audioConfig.xml, which deserializes to the
+        /// field initializer — so an operator upgrading gets warnings on, which
+        /// is the right default for the one category that speaks unprompted.
+        /// </summary>
+        public bool EarconWarningsEnabled { get; set; } = true;
 
         /// <summary>Frequency entry typing sound mode.</summary>
         public TypingSoundMode TypingSound { get; set; } = TypingSoundMode.Beep;
@@ -509,6 +516,7 @@ namespace JJFlexWpf
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.DialogsAndPanels, EarconDialogsEnabled);
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.TuningAndFilters, EarconTuningEnabled);
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations, EarconCommandsEnabled);
+            EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Warnings, EarconWarningsEnabled);
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
@@ -571,6 +579,7 @@ namespace JJFlexWpf
             EarconDialogsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.DialogsAndPanels);
             EarconTuningEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.TuningAndFilters);
             EarconCommandsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations);
+            EarconWarningsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.Warnings);
             MasterVolume = EarconPlayer.MasterVolume;
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);

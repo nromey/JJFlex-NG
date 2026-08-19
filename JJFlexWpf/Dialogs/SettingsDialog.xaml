@@ -1293,6 +1293,10 @@
                                   Content="Command and confirmation sounds" Margin="0,0,0,4"
                                   AutomationProperties.Name="Command and confirmation sounds"
                    local:JJFlexHelp.Text="The JJ key layer's tones, feature on and off beeps, mute-all, and confirmations. Worth keeping — without them the JJ key gives no sign it is listening."/>
+                        <CheckBox x:Name="EarconWarningsCheck"
+                                  Content="Warning sounds" Margin="0,0,0,4"
+                                  AutomationProperties.Name="Warning sounds"
+                   local:JJFlexHelp.Text="The warning alarm — a long 800 hertz tone with harmonics, deliberately unlike anything else the app plays — and the quieter two-note tone that says a problem was recorded. This is the one worth leaving on. Every other sound here answers a key you just pressed; these two fire when the app has something to tell you that you did not ask about, such as transmit audio that would not have gone out."/>
                     </StackPanel>
 
                     <Separator Margin="0,4,0,8"/>
