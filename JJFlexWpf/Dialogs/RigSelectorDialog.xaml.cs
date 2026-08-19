@@ -596,6 +596,106 @@ namespace JJFlexWpf.Dialogs
                 }
             };
 
+            // Shift+Tab out of the radio list, handled at the WINDOW.
+            //
+            // The list is TabNavigation="Once" — a navigation group — so WPF
+            // resolves Previous inside it, finds nothing before the list's
+            // contents, and stops instead of escaping to the window's Cycle.
+            // Focusing an item rather than the container did not help; nor did
+            // routing MoveFocus(Last) from the ListBox's own PreviewKeyDown,
+            // which is why this lives on the window, where the key cannot be
+            // swallowed by the group first.
+            //
+            // The destination is NAMED rather than navigated to. MoveFocus
+            // depends on the same tab-order resolution that is failing, so
+            // asking for "Last" is asking the broken thing for an answer.
+            // IdentityExpander is the final tab stop by construction — the last
+            // element in the Grid.
+            //
+            // *** THIS WAS DELETED ONCE. DO NOT DELETE IT AGAIN. ***
+            // Commit 808127d8 (2026-08-18) removed it, asserting "Shift+Tab
+            // from the radio list worked natively" and that Cycle on the window
+            // already wraps at both ends. That assertion was WRONG, and it was
+            // never tested — it was reasoning from the framework's documented
+            // behaviour rather than from a keypress. Noel confirmed at the
+            // keyboard on 2026-08-19: with this handler gone, Shift+Tab from
+            // the list does nothing and says nothing, while forward Tab works.
+            // Cycle does wrap at the window level; it never gets the chance,
+            // because the navigation group resolves the key first and stops.
+            //
+            // Restored 2026-08-19 as attempt five, and the only one grounded in
+            // an observation rather than a theory. If you are about to remove
+            // this because the framework "should" handle it: press the key
+            // first. See task #89.
+            PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key != System.Windows.Input.Key.Tab) return;
+                if ((System.Windows.Input.Keyboard.Modifiers
+                     & System.Windows.Input.ModifierKeys.Shift) == 0) return;
+                if (!RadiosBox.IsKeyboardFocusWithin) return;
+
+                e.Handled = true;
+                bool got = FocusExpanderHeader(IdentityExpander);
+                JJTrace.Tracing.TraceLine(
+                    $"RigSelector: Shift+Tab from list -> IdentityExpander focus={got}",
+                    System.Diagnostics.TraceLevel.Info);
+            };
+
+            // Focus an Expander's HEADER, not the Expander itself.
+            //
+            // Found by Noel at the keyboard 2026-08-19, immediately after the
+            // Shift+Tab restore above started working. Two symptoms, one cause:
+            //
+            //   - Landing on the expander was sometimes silent. He noticed it
+            //     was silent when COLLAPSED and spoke when expanded.
+            //   - Space did not toggle it open. Enter did.
+            //
+            // That pair is the diagnosis. An Expander's interactive part is a
+            // ToggleButton inside its control template, and a ToggleButton is
+            // what responds to Space. Expander.Focus() puts keyboard focus on
+            // the Expander CONTAINER — focusable, but not the interactive
+            // element — so Space had no ToggleButton to reach, and a screen
+            // reader had a bare container to describe, which is why it
+            // sometimes said nothing at all.
+            //
+            // Focusing the header ToggleButton fixes the announcement and the
+            // Space key together, because they were never two problems.
+            //
+            // The ToggleButton is found by walking the visual tree rather than
+            // by template part name ("HeaderSite" in the stock themes) — a
+            // restyle that renames the part would silently reintroduce exactly
+            // the bug this fixes, and silence is the failure mode we can least
+            // afford to reintroduce quietly. Falls back to the Expander itself
+            // so focus always lands somewhere real.
+            static bool FocusExpanderHeader(System.Windows.Controls.Expander expander)
+            {
+                if (expander == null) return false;
+
+                // ApplyTemplate so the header exists even on the very first
+                // focus, before the expander has ever been rendered.
+                expander.ApplyTemplate();
+
+                var toggle = FindDescendant<System.Windows.Controls.Primitives.ToggleButton>(expander);
+                if (toggle != null && toggle.Focus()) return true;
+
+                return expander.Focus();
+            }
+
+            static T FindDescendant<T>(System.Windows.DependencyObject root)
+                where T : System.Windows.DependencyObject
+            {
+                if (root == null) return null;
+                int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+                for (int i = 0; i < count; i++)
+                {
+                    var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+                    if (child is T hit) return hit;
+                    var deeper = FindDescendant<T>(child);
+                    if (deeper != null) return deeper;
+                }
+                return null;
+            }
+
             // Announce an empty list only after discovery has had a real chance.
             // Also force keyboard focus to the ListBox so Tab works even when empty.
             Loaded += async (_, _) =>
