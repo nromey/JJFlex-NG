@@ -60,16 +60,26 @@ namespace JJFlexWpf.Dialogs
             body.AppendLine();
             body.AppendLine();
             body.Append(
-                "Remove from the list only keeps all of it: the name you gave the radio, whether "
-                + "it is a favourite, its connection path and connection history, which SmartLink "
-                + "account it belongs to, whether you want it reachable from away at all, what it "
-                + "should do with the REM ON jack, and any microphone profile bound to it. Nothing "
-                + "is deleted. The radio simply stops appearing.");
+                // Noel, 2026-08-19: "keeps all of it" had no antecedent you were
+                // still holding - the previous paragraph ends on "everything you
+                // have set up for this radio", and by the time the reader reaches
+                // "it" the subject has become a button name. It also garden-paths:
+                // "Remove from the list only keeps..." parses first as "only
+                // keeps", as though something were being withheld. Naming the
+                // thing beats pointing at it, and quoting the label stops it
+                // reading as the sentence's verb.
+                "Choosing \"Remove from the list only\" keeps every setting you have for this "
+                + "radio: the name you gave it, whether it is a favourite, its connection path "
+                + "and connection history, which SmartLink account it belongs to, whether you "
+                + "want it reachable from away at all, what it should do with the REM ON jack, "
+                + "and any microphone profile bound to it. Nothing is deleted. The radio simply "
+                + "stops appearing.");
             body.AppendLine();
             body.AppendLine();
             body.Append(
-                "Remove the radio and its settings deletes every one of those, permanently and "
-                + "with no undo. The radio itself can come back the moment something sees it "
+                // Same treatment: "those" was doing the job "it" was doing above.
+                "Choosing \"Remove the radio and its settings\" deletes all of them, permanently "
+                + "and with no undo. The radio itself can come back the moment something sees it "
                 + "again — the settings cannot, and you would be setting it up from scratch.");
 
             if (isOnline)
