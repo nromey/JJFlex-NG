@@ -9,6 +9,232 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-18 — THE DAY SPEECH GOT AN INTENT, AND THE WINDOW GOT THE LAST WORD
+
+*26 commits, 41 files, +3,184/−210 (net +2,974) on `honest-tx-audio`, all
+pushed. Sprint 30 planned, audited, and launched: five background agents in
+flight at seal time. Working tree clean at `5429b2d3`.*
+
+**Theme: we stopped asking how loudly to say something and started asking
+where the user is standing when we say it.** Every hard bug today came from
+the same misconception — that an utterance belongs to the code that produces
+it. It does not. It belongs to the window that has focus when it arrives.
+
+### The mechanism: SpeechIntent, and the coalescer that took four tries
+
+The bool `interrupt` became a four-value intent — `Interrupt`, `Queue`,
+`Latest`, `Urgent` — behind a single `Emit` funnel so nothing can bypass
+suppression or history. Alongside it, a `SpeechTier` (`None`,
+`ScreenReader`, `UiaNotifications`, `Synthesiser`) and a Prism backend
+selector that can upgrade to UIA at runtime.
+
+The `Latest` coalescer was rebuilt four times. Throttle produced stutter. A
+hold ceiling chopped its own speech. Pure debounce produced clicks. What
+finally worked was **lead-then-settle** — speak the first value immediately,
+coalesce the rest, restart the timer — which is the shape tuning already had
+before any of this existed. Noel said so plainly: *"tuning didn't have a
+coalescer, but how we did tuning actually worked."* The design was in the
+codebase the whole time.
+
+**And the clicks were never our speech.** The root cause was NVDA reacting to
+our own UIA renames during value sweeps: the `ValueFieldControl.Value` setter
+does not speak, so I cleared it — and stopped one line short of noticing it
+*renames*, which makes NVDA speak. The fix is one line:
+`if (IsKeyboardFocusWithin) UpdateVisual(); else UpdateDisplay();`.
+Investigating whether a code path speaks is not the same as investigating
+whether the user hears something.
+
+### The finding that reframes the backlog: queues do not survive windows
+
+A screen reader **flushes its speech queue on any window change**. The
+disconnect announcement was tried as Interrupt, then Queue, then Interrupt
+again; every time the operator heard the new window's title and nothing else.
+The working pattern is to hand the utterance to the **arriving** window —
+`PendingDisconnectLead` plus a `lead` parameter folded into
+`DiscoveringRadiosWindow`'s `Title`.
+
+This invalidates part of the 429-site speech survey. The ~44 connect-cluster
+QUEUE conversions were classified without knowing the rule, and the connect
+sequence is nothing but window changes — so those verdicts are evidence of
+nothing. Task #93 now carries the re-survey, deliberately deferred until
+Rescue-Centre Home lands, because that work changes which window boundaries
+exist at all. Captured as `memory/project_speech_flushes_on_window_change.md`.
+
+### The change that achieved nothing, and how we found out
+
+Seventeen long explanations were moved out of `AutomationProperties.Name`
+into `HelpText` to stop them being recited on every focus change. **NVDA reads
+`HelpText` as the control's description on focus.** Same words, same moment,
+same cost, different slot. Ctrl+F1 was wired to read them and appeared to
+work, which disguised it completely — I reported it working on trace evidence
+that only proved the handler ran.
+
+Noel found it by tabbing onto the control. Task #91 now owns the real fix (a
+custom attached property UIA never surfaces) and blocks the entire help track.
+Captured as `memory/project_helptext_announced_on_focus.md`.
+
+### Also landed today
+
+- **Startup and shutdown became coherent.** A verbosity-laddered greeting, a
+  settling `DiscoveringRadiosWindow` before the picker (Noel: *"discovering
+  radios is perfect"*), a foreground grab moved to `OnContentRendered` because
+  `Loaded` fires before the window is visible, and an exit that says goodbye
+  and lets CW finish.
+- **End-stop earcons.** A tone at the top and bottom of a value sweep, always
+  sounded, repeating every 500 ms while held, with the words deferred until
+  release. Noel's design, and it works: *"the tones do repeat every 500 ms,
+  works great."*
+- **13 UIA-duplicate speech sites deleted, 27 labels and 2 headings made
+  decorative** — the app had been fighting the screen reader for the same words.
+- **A double `LocalRadios()` broke connect** and presented as a hang 56 seconds
+  later in untouched code. Only the trace's `apiInit:True` adjacency showed it.
+- **Version stamping made universal** — the About page had been reporting
+  4.1.16.0 regardless.
+
+### Sprint 30 — planned, audited, launched
+
+The day ended in planning because Noel asked for it: *"we should really do
+longer coding sessions mainly so that we can feel like we accomplished some
+things."* Fix-one-find-two was not converging.
+
+**The audit is the part worth remembering.** All 95 tasks were checked against
+the code at `972e1438`: **fourteen marked pending were already done**, eight
+were half done with a precise remainder, three had descriptions that would
+actively mislead. It deleted an entire planned track — Track C's five items
+turned out to be four shipped and one that belonged elsewhere. The drift is
+concentrated exactly where work has been heaviest, which is the argument for
+auditing before planning rather than after.
+
+Five background agents launched at seal time on `sprint30/track-{a,b,d,e,g}`
+in worktrees `../jjflex-30{a,b,d,e,g}`:
+
+- **A — Rescue Centre** (opus): limited offline Home, licence gating,
+  registration warning, #85, #79, and #90's real remainder
+- **B — Clean Signal** (fable): #12, #29, #17, plus the #44/#94 mic-profile
+  design pass, fenced out of `RadioConfig.cs`
+- **D — Front Door Diagnostics** (opus): the diagnostic-log surface, #78, #92,
+  the fictional `_isTracing`, the duplicate version assembler
+- **E — Help** (fable): #91 first and blocking, then coverage, #73, #39+#43, #55
+- **G — Rigmeter** (sonnet): #41's `-w -C` blame fix, #42 extraction
+
+Merge order G → B → A → D → E, each followed by a clean build and a
+symbol-presence check. **Track F (The Operator's Ear) is deliberately not
+spawned** — it is the sprint's only PERCEIVABLE track and runs live with
+Noel's ear on the integrated result.
+
+### Cross-surface activity
+
+- **JJFlex-NG (`honest-tx-audio`):** 26 commits, all pushed. Plan, audit and
+  speech survey filed to `docs/planning/agile/sprint30-*`.
+- **Five new worktrees**, instructions committed and branches pushed to origin.
+- **Memory:** two new entries (`project_speech_flushes_on_window_change`,
+  `project_helptext_announced_on_focus`) plus
+  `project_connect_nat_traversal_design` written earlier in the day. MEMORY.md
+  compacted and **13 previously-unindexed memory files given pointers** — they
+  had been unreachable from the index.
+- **Repo hygiene:** cleanup completed earlier — 12 worktrees down to 1 (now 6
+  with the sprint), 56 branches down to 6.
+- **External:** Margaret Gaffney's 6300 exercised the SmartLink hole punch for
+  the first time; our half is provably correct, her far end never opened.
+  Recorded in `memory/project_connect_nat_traversal_design.md`, which is also
+  where the Connect architecture answer landed — a Connect client on the
+  radio's own LAN removes the NAT problem rather than working around it.
+- **Freight Fate and Civ VI Access: no commits today.** Both still carry
+  unpushed work (16 and 45 commits respectively) on exactly one machine. NAS
+  mirroring covers durability; pushing is Noel's call.
+- **`jjf-data`, `jjflexible-connect`, `prism`:** clean, no activity.
+
+### Seal housekeeping
+
+- **Dropbox publish deliberately SKIPPED.** Noel's standing instruction:
+  *"Don't create a build for Don yet, we need to at least test meters and
+  connect."* Neither channel was written.
+- **Dependency vulnerability check: clean** across all 28 projects. The
+  SharpCompress advisory that prompted this step is gone.
+- **Backups:** memory (10 projects), private docs, and Claude state all to NAS.
+  **The `C:\dev` mirror was deferred** — five agents are actively writing to
+  `C:\dev\jjflex-30*`, so a mirror tonight would capture a torn snapshot and
+  contend for I/O with the fleet. All fleet work is pushed to origin per
+  commit, so nothing is at risk. Run it tomorrow after the merge train.
+- **MEMORY.md is 18.3 KB**, above the 16 KB seal target and below the 19.5 KB
+  warning line. It is now ~84 bytes per link across 217 links, so trimming has
+  hit its floor — the next reduction has to come from **merging sibling memory
+  files**, which is a consolidation job, not a seal-time trim.
+- **Two orphan directories** left from the worktree cleanup: `C:\dev\jjflex-base`
+  (a full tree, no `.git`) and `C:\dev\jjflex-bug-bundle` (empty). Not deleted
+  — deletion is irreversible and it is Noel's call.
+- **Small defect noticed:** rigmeter offers to download tokei and then fails to
+  resolve a URL, on every invocation. Harmless, noisy, worth a line to Track G.
+
+### Rigmeter snapshot — end of 2026-08-18
+
+Grand totals, authored: 1,023 files, 242,235 lines, 1,398,110 words,
+12,071,417 chars. Vendor: 189 files, 55,667 lines. Combined: 1,212 files,
+297,902 lines.
+
+Per-project, the large ones: JJFlexWpf 64,195 lines across 230 files; docs
+64,370 lines across 279 files; main_app 36,999 across 174; Radios 34,555
+across 88; tools 8,188 across 42; JJPortaudio 6,400 across 16; JJLogLib 5,807
+across 22. Vendor: FlexLib_API 50,575 lines across 134 files, PortAudioSharp
+3,966 across 36, P-Opus-master 1,126 across 19.
+
+Per-category, authored: code 155,941 lines across 567 files; docs 66,586 lines
+across 272 files; text_data 12,365 across 105; build 7,343 across 79.
+
+Language split of authored code: C# 122,997 lines (78.9%), VB 20,609 (13.2%),
+XAML 6,572 (4.2%), Python 5,763 (3.7%).
+
+Today's git activity: 26 commits, 41 unique files, +3,184/−210, net +2,974,
+all by JJ Flexbot. Note the figure understates the day — the sprint's five
+agents began work after this snapshot, on branches not yet merged.
+
+JSON snapshot written to
+`\\nas.macaw-jazz.ts.net\jjflex\historical\stats\2026-08-18-5429b2d3.json`.
+
+### CLAUDE.md drift — flagged, not edited
+
+Four stale spots surfaced today. Per the seal procedure these are flagged
+rather than corrected unilaterally, and the file's own history of being wrong
+four times argues for a deliberate pass rather than a late-night patch.
+
+- **Step 4a invokes rigmeter as `tools/rigmeter/rigmeter.py`.** Track G deletes
+  that path. The seal runs every dev day, so this one breaks a daily ritual the
+  moment G merges — G is delivering exact replacement text in its report.
+- **Phase 2 says "Track A stays in main repo: `C:\dev\JJFlex-NG`".** That
+  predates the background-agent launcher. When the orchestrator *is* the main
+  repo's session, leaving A there puts an agent and the orchestrator in the
+  same tree — the collision worktrees exist to prevent. Every track got a
+  worktree tonight.
+- **The trace-file section points at `TraceAdmin.vb` for Help → Tracing.** The
+  menu actually opens the WPF `TraceAdminDialog` (`NativeMenuBar.cs:1646-1667`);
+  the VB form is legacy and its toggle has no explicit `AccessibleName`.
+- **The no-ampersand accessibility guideline lacks the documented carve-out.**
+  Native Win32 menus render `&` as access keys and NVDA reads them cleanly —
+  explained at `NativeMenuBar.cs:952-954`, but the guideline reads as absolute.
+
+### Setup for tomorrow
+
+1. **Read the five track reports** as they arrive. Each ends with a "Needs
+   Noel" section; consolidate those before the merge train rather than during it.
+2. **Run the merge train: G → B → A → D → E.** Clean build after every merge,
+   plus a symbol-presence check per track — a conflict-free merge proves
+   nothing, as 2026-08-17 demonstrated.
+3. **Message Track E after A, B and D land** with the list of new controls. Its
+   final phase exists to sweep help onto them; an E that merges without that
+   message has done half its job.
+4. **Apply the CLAUDE.md edits agents cannot make** — at minimum Track G's
+   step-4a rigmeter paths, which break the daily seal the moment G merges.
+5. **Then Track F, live**, on a fresh branch off the integrated result, with
+   Noel driving NVDA. It is the only PERCEIVABLE track and the reason the
+   train was clearing the line.
+6. **Run `backup-dev-to-nas.ps1`** once the fleet is done and the worktrees
+   are quiet.
+7. **Open questions are batched** in section 7 of
+   `docs/planning/agile/sprint30-rescue-squelch-pileup.md` — rescue-page button
+   set, mid-session radio loss, licence-gating UX, the #79 threshold, earcon
+   mute persistence, and mic-profile ownership. Tracks proceeded on stated
+   assumptions; none of them blocked.
+
 ## END-OF-DAY SEAL — 2026-08-17 — THE DAY THE APP STARTED TALKING OVER ITSELF, AND WE HEARD IT
 
 *38 commits, 90 files, +12,870/−2,232 (net +10,638) on `honest-tx-audio`,

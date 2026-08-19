@@ -266,6 +266,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         BuildLiveMetersTab();
         BuildEarconExplorerTab();
 
+        // Every section exists now, so set radio-side availability for the rig
+        // we already have (or do not have). SetRig covers every change after
+        // this; without this line a Workshop opened while disconnected shows
+        // its radio controls enabled until the next connect or disconnect.
+        // It sits AFTER all three tab builders on purpose - it used to sit at
+        // the end of BuildTxAudioTab, which would have left the Live Meters
+        // sections un-gated because they enrol two builders later.
+        UpdateRadioControlAvailability();
+
         // Meter poll timer at ~2 Hz
         _meterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _meterTimer.Tick += MeterTimer_Tick;
@@ -581,22 +590,44 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// them.
     ///
     /// Only RADIO-side controls. The Workshop is deliberately usable offline -
-    /// PC Neural NR, the noise profiles, the test tone, the microphone check
-    /// and the TX EQ all process audio on this computer, and the mic check
+    /// PC Neural NR, the noise profiles, the microphone check and the PC
+    /// cleanup chain all process audio on this computer, and the mic check
     /// exists precisely so an operator can prove their input works WITHOUT
-    /// involving a radio.
+    /// involving a radio. (The TEST TONE is not in that set, despite an
+    /// earlier reading of this comment: arming it writes to the radio's own
+    /// transmit chain through rig.TxToneFrequency, so it is radio-side.)
+    ///
+    /// Sprint 30 Track A — this used to name five checkboxes and stop there,
+    /// which fixed half the problem. The radio-side VALUE controls were left
+    /// tabbable with handler-only guards, and ValueFieldControl cheerfully
+    /// speaks a changing value on every arrow key with no rig attached: the
+    /// same confident lie the checkbox fix killed, one control type over.
+    /// It now works from a registry that whole SECTIONS enrol in
+    /// (<see cref="AddRadioSection"/>) rather than an enumeration of controls,
+    /// so a control added to a radio-side section later inherits the rule
+    /// instead of quietly missing it. Disabling the GroupBox cascades to every
+    /// child without touching each child's own IsEnabled, so state a section
+    /// manages for its own reasons (the loopback button's model gate, the
+    /// tone's passband gate) survives untouched and reappears on connect.
     /// </summary>
     private void UpdateRadioControlAvailability()
     {
         bool live = _rig != null;
 
-        foreach (var box in new[] { _micBoostCheck, _micBiasCheck,
-                                    _companderCheck, _processorCheck,
-                                    _monitorCheck })
+        foreach (var element in _radioOnlyElements)
         {
-            if (box != null) box.IsEnabled = live;
+            element.IsEnabled = live;
         }
     }
+
+    /// <summary>
+    /// Everything that cannot act without a radio: whole sections enrolled by
+    /// <see cref="AddRadioSection"/>, plus the individual controls in sections
+    /// that are genuinely mixed (the Microphone section holds the radio's mic
+    /// source, gain, boost and bias alongside the Windows input level, which
+    /// is the PC's own and valid offline).
+    /// </summary>
+    private readonly List<UIElement> _radioOnlyElements = new();
 
     public void SetRig(FlexBase? rig)
     {
@@ -784,7 +815,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (!string.IsNullOrEmpty(choice) && choice[0] != '(')
                 _rig.MicSource = choice;
         };
-        AddToSection(TxAudioContent, _micSourceControl);
+        AddRadioControl(TxAudioContent, _micSourceControl);
 
         _micGainControl = MakeValue("Mic Gain", 0, 100, 1);
         _micGainControl.ValueChanged += (s, v) =>
@@ -795,7 +826,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Mic gain {v}", VerbosityLevel.Terse);
             }
         };
-        AddToSection(TxAudioContent, _micGainControl);
+        AddRadioControl(TxAudioContent, _micGainControl);
 
         // The PC-source stand-in for Mic Gain (Track PC Gain, 2026-08-13).
         // Hiding the jack controls on PC audio left a hole where the gain
@@ -839,12 +870,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _micBoostCheck = MakeToggle(MicBoostLabel);
         _micBoostCheck.Checked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, true);
         _micBoostCheck.Unchecked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, false);
-        AddToSection(TxAudioContent, _micBoostCheck);
+        AddRadioControl(TxAudioContent, _micBoostCheck);
 
         _micBiasCheck = MakeToggle(MicBiasLabel);
         _micBiasCheck.Checked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
         _micBiasCheck.Unchecked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, false);
-        AddToSection(TxAudioContent, _micBiasCheck);
+        AddRadioControl(TxAudioContent, _micBiasCheck);
 
         // Track I: PC Cleanup sits between the Microphone (capture) and the
         // radio's Processing (sculpt) because that is where it runs — the
@@ -853,7 +884,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         BuildTxCleanupSection();
 
         // Processing section
-        AddSectionHeader(TxAudioContent, "Processing");
+        AddRadioSection(TxAudioContent, "Processing");
 
         _companderCheck = MakeToggle("Compander");
         _companderCheck.Checked += (s, e) =>
@@ -909,7 +940,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AddToSection(TxAudioContent, _processorSettingControl);
 
         // TX Filter section
-        AddSectionHeader(TxAudioContent, "TX Filter");
+        AddRadioSection(TxAudioContent, "TX Filter");
 
         _txFilterLowControl = MakeValue("TX Filter Low", 0, 9950, 50);
         _txFilterLowControl.ValueChanged += (s, v) =>
@@ -949,7 +980,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // screen reader user knows which knob family they're on; in CW mode
         // today's behavior is unchanged (the CW monitor work is deferred
         // behind the CW pipeline rewrite).
-        _monitorHeader = AddSectionHeader(TxAudioContent, "TX Monitor");
+        _monitorHeader = AddRadioSection(TxAudioContent, "TX Monitor");
 
         _monitorCheck = MakeToggle("TX Monitor");
         _monitorCheck.Checked += (s, e) =>
@@ -998,12 +1029,6 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // Audio Check session — the "hear yourself" loop (QB Track G). Last,
         // because it keys the transmitter and proves everything above it.
         BuildAudioCheckSection();
-
-        // The toggles exist now, so set their availability for the rig we
-        // already have (or do not have). SetRig covers every change after
-        // this; without this line a Workshop opened while disconnected
-        // would show them enabled until the next connect or disconnect.
-        UpdateRadioControlAvailability();
     }
 
     /// <summary>
@@ -1560,6 +1585,17 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         var (name, hostApi) = ReadSavedPcInput();
         var capture = new MicCaptureSettings { DeviceName = name };
+
+        // The transmit cleanup chain (PC NR + gate), captured only while a
+        // chain is attached — detached, TxAudioConditioning answers with
+        // defaults that describe nothing, and recording those as this
+        // microphone's tuning would be the confident lie. Null means "not
+        // recorded", same contract as level -1 and boost unrecorded below.
+        // (Track B, 2026-08-18, #44 — until this line the cleanup knobs were
+        // session-only and every restart lost them.)
+        if (TxAudioConditioning.Conditioner != null)
+            capture.Conditioning = TxAudioConditioning.CaptureSettings();
+
         if (string.IsNullOrEmpty(name)) return capture;
 
         var level = WindowsMicLevel.TryFindByName(name, hostApi, out _);
@@ -1606,10 +1642,35 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             // A level tuned for one microphone means nothing on another —
             // moving the current device's level to the old device's number
-            // would be confidently wrong. Say it, do not do it.
+            // would be confidently wrong. Say it, do not do it. The same
+            // argument covers the cleanup chain below: a gate tuned for
+            // that microphone's room noise is not this microphone's gate.
             notes.Add($"It was made with {capture.DeviceName}; this computer is using "
-                + $"{currentName}, so the Windows input level was left alone.");
+                + $"{currentName}, so the Windows input level"
+                + (capture.Conditioning != null ? " and the transmit cleanup settings were" : " was")
+                + " left alone.");
             return string.Join(" ", notes);
+        }
+
+        // The transmit cleanup half (PC NR + gate). Applied to the live
+        // chain when one is attached; the chain only exists while a radio is
+        // connected, so with no radio the truth is "not now", said out loud
+        // rather than silently no-opped — TxAudioConditioning's setters
+        // swallow writes when detached, which is exactly the kind of
+        // confident silence this dialog exists to end.
+        // (Track B, 2026-08-18, #44.)
+        if (capture.Conditioning != null)
+        {
+            if (TxAudioConditioning.Conditioner != null)
+            {
+                TxAudioConditioning.ApplySettings(capture.Conditioning);
+                PollTxCleanup();
+            }
+            else
+            {
+                notes.Add("Its transmit cleanup settings need a connected radio, "
+                    + "so they were not applied.");
+            }
         }
 
         string targetName = !string.IsNullOrEmpty(currentName) ? currentName : capture.DeviceName;
@@ -1673,7 +1734,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     private void BuildAudioCheckSection()
     {
-        AddSectionHeader(TxAudioContent, "Audio Check");
+        AddRadioSection(TxAudioContent, "Audio Check");
 
         // Order here is Start button first, then the live reading —
         // reordered by the Threads Track (2026-08-12, from Noel's field
@@ -2323,7 +2384,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     private void BuildTestToneSection()
     {
-        AddSectionHeader(TxAudioContent, "Test Tone");
+        AddRadioSection(TxAudioContent, "Test Tone");
 
         _toneCheck = MakeToggle("Test tone instead of microphone");
         _toneCheck.Checked += (s, e) => ToneArmChanged(true);
@@ -3182,12 +3243,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     private void BuildLiveMetersTab()
     {
-        AddSectionHeader(LiveMetersContent, "Receiver");
+        AddRadioSection(LiveMetersContent, "Receiver");
 
         _sMeterBox = MakeMeterReading("S-Meter");
         AddToSection(LiveMetersContent, _sMeterBox);
 
-        AddSectionHeader(LiveMetersContent, "Transmit");
+        AddRadioSection(LiveMetersContent, "Transmit");
 
         _fwdPowerBox = MakeMeterReading("Forward Power");
         AddToSection(LiveMetersContent, _fwdPowerBox);
@@ -3204,7 +3265,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _ampAlcBox = MakeMeterReading("Amp ALC");
         AddToSection(LiveMetersContent, _ampAlcBox);
 
-        AddSectionHeader(LiveMetersContent, "Hardware");
+        AddRadioSection(LiveMetersContent, "Hardware");
 
         _paTempBox = MakeMeterReading("PA Temperature");
         AddToSection(LiveMetersContent, _paTempBox);
@@ -3750,6 +3811,37 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     private void AddToSection(StackPanel fallback, UIElement child)
     {
         (_section ?? fallback).Children.Add(child);
+    }
+
+    /// <summary>
+    /// Open a section whose every control needs a radio. Identical to
+    /// <see cref="AddSectionHeader"/> except that the GroupBox enrols in
+    /// <see cref="_radioOnlyElements"/>, so it disables — and drops out of the
+    /// tab order with everything inside it — whenever no rig is attached.
+    ///
+    /// <para>Enrolling the SECTION rather than each control is the whole
+    /// point: a control added to one of these sections a year from now is
+    /// covered on the day it is written, with nobody remembering to add it to
+    /// a list. That is the failure this replaces — five checkboxes were
+    /// enumerated and the four value controls beside them were not.</para>
+    /// </summary>
+    private GroupBox AddRadioSection(StackPanel parent, string text)
+    {
+        var group = AddSectionHeader(parent, text);
+        _radioOnlyElements.Add(group);
+        return group;
+    }
+
+    /// <summary>
+    /// Add a control that needs a radio to a section that also holds PC-side
+    /// controls. Only for genuinely mixed sections — anywhere the whole
+    /// section is radio-side, use <see cref="AddRadioSection"/> instead so
+    /// later additions are covered automatically.
+    /// </summary>
+    private void AddRadioControl(StackPanel fallback, UIElement child)
+    {
+        AddToSection(fallback, child);
+        _radioOnlyElements.Add(child);
     }
 
     private static CheckBox MakeToggle(string label)

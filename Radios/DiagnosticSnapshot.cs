@@ -192,6 +192,65 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The app's own support assemblies and the versions they report, in a
+        /// fixed order. Lives HERE because this class is the single assembler of
+        /// version strings, and the About page had grown a second one — twice
+        /// over, in fact: the HTML renderer and the plain-text renderer each
+        /// carried their own independent copy, both re-deriving FlexLib's
+        /// version behind this class's back. That is the exact failure the type
+        /// comment above forbids, in the component built to fight it.
+        ///
+        /// FlexLib is served from <see cref="FlexLibVersion"/> rather than
+        /// probed again, so the Components section and the library list cannot
+        /// disagree — including about the unstamped-0.0.0 warning, which a
+        /// second probe would silently render as a plausible-looking version.
+        /// </summary>
+        public IReadOnlyList<(string Name, string Version)> ComponentAssemblies
+        {
+            get { return _assemblies; }
+        }
+
+        private static readonly string[] ComponentAssemblyNames =
+        {
+            "FlexLib", "JJLogLib", "Radios", "RadioBoxes", "JJFlexWpf", "JJTrace"
+        };
+
+        private readonly List<(string Name, string Version)> _assemblies =
+            new List<(string, string)>();
+
+        private void CaptureComponentAssemblies()
+        {
+            foreach (string name in ComponentAssemblyNames)
+            {
+                if (string.Equals(name, "FlexLib", StringComparison.OrdinalIgnoreCase))
+                {
+                    // One probe, one answer. CaptureFlexLib already ran.
+                    _assemblies.Add((name, FlexLibVersion ?? "not available"));
+                    continue;
+                }
+
+                string version = "not available";
+                try
+                {
+                    Assembly asm = Assembly.Load(name);
+                    if (!string.IsNullOrEmpty(asm.Location) && File.Exists(asm.Location))
+                    {
+                        var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(asm.Location);
+                        version = fvi.ProductVersion ?? fvi.FileVersion ?? version;
+                    }
+                    if (version == "not available")
+                    {
+                        Version v = asm.GetName().Version;
+                        if (v != null) version = v.ToString();
+                    }
+                }
+                catch { /* an assembly that is not loaded reports itself honestly */ }
+
+                _assemblies.Add((name, version));
+            }
+        }
+
         private readonly List<DiagnosticItem> _items = new List<DiagnosticItem>();
 
         /// <summary>
@@ -225,6 +284,9 @@ namespace Radios
             s.CaptureEnvironment();
             s.CaptureTracing();
             s.CaptureAccessibility();
+            // After CaptureFlexLib, deliberately: the assembly list serves
+            // FlexLib's version from the probe that already ran.
+            s.CaptureComponentAssemblies();
 
             s.BuildItems();
             return s;

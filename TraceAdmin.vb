@@ -1,100 +1,47 @@
-﻿Imports JJTrace
+Imports JJTrace
 
+''' <summary>
+''' The Saved Diagnostic Logs window.
+'''
+''' Sprint 30 Track D repurposed this form. It used to be "Tracing", a two-tab
+''' window whose first tab started and stopped traces — a job that now belongs to
+''' Settings > Diagnostics, where it can be found. The second tab was an archive
+''' browser built in Sprint 29 Track H that NOTHING in the app ever instantiated:
+''' both menus routed Help > Tracing to the WPF dialog instead, so no tester
+''' could ever have reached it and its entire test checklist sat unticked.
+''' Opening this window from the Diagnostics tab is what makes it reachable.
+'''
+''' The TYPE keeps its old name so every partial and reference stays put. The
+''' window title is what the operator meets, and it now says what the window is.
+'''
+''' The browser itself lives in TraceAdmin.Browser.vb.
+''' </summary>
 Public Class TraceAdmin
-    Const defaultName As String = "JJRadioTrace.txt"
-    Const TraceLevelDefault As TraceLevel = TraceLevel.Info
-    Const mustHaveFile As String = "You must specify a file name."
-    Const mustSelect As String = "You must select a trace level."
-
-    Private Enum toggleStates
-        off
-        onn
-    End Enum
-    Private toggleText As String() = _
-        {"Start", "Stop"}
-    Private _toggleState As toggleStates = toggleStates.off
-    Private Function toggleState() As toggleStates
-        Dim rv As toggleStates = _toggleState
-        If rv = toggleStates.off Then
-            _toggleState = toggleStates.onn
-        Else
-            _toggleState = toggleStates.off
-        End If
-        setButton()
-        Return rv
-    End Function
-
-    Private Sub setButton()
-        ToggleButton.Text = toggleText(_toggleState)
-    End Sub
 
     Private Sub TraceAdmin_Load(sender As System.Object, e As System.EventArgs) Handles MyBase.Load
-        If FileNameBox.Text = vbNullString Then
-            FileNameBox.Text = My.Computer.FileSystem.SpecialDirectories.MyDocuments & "\" & defaultName
-        End If
-        setButton()
-        ' Set default trace level if not set.
-        If LevelListBox.SelectedIndex = -1 Then
-            LevelListBox.SelectedIndex = CType(TraceLevelDefault, Integer)
-        End If
-    End Sub
-
-    Private Function setLevel() As Boolean
-        Dim rv As Boolean
-        Dim id As Integer = LevelListBox.SelectedIndex
-        If id = -1 Then
-            MsgBox(mustSelect)
-            rv = False
-        Else
-            Tracing.TraceLine("Changing trace level to " & CType(id, TraceLevel).ToString)
-            Tracing.TheSwitch.Level = id
-            rv = True
-        End If
-        Return rv
-    End Function
-
-    Private Sub ToggleButton_Click(sender As System.Object, e As System.EventArgs) Handles ToggleButton.Click
-        DialogResult = System.Windows.Forms.DialogResult.None
-        toggleState()
-        If _toggleState = toggleStates.onn Then
-            ' check values
-            If FileNameBox.Text = vbNullString Then
-                MsgBox(mustHaveFile)
-                Return
-            End If
-            If Not setLevel() Then
-                MsgBox(setLevel)
-                Return
-            End If
-            ' Archive the prior session (boot or daily) before starting a user trace.
-            ' Idempotent: if no session active, this is a no-op.
-            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit, "User initiated new trace file via TraceAdmin")
-            Tracing.TraceFile = FileNameBox.Text
-            Tracing.On = True
-            BeginNewTraceSession()
-            LastUserTraceFile = FileNameBox.Text
-            Tracing.TraceLine("User-initiated trace, " & myAssembly.Location & " " & myVersion.ToString() & " " & Date.Now & " level=" & Tracing.TheSwitch.Level.ToString)
-            Tracing.TraceLine("tracing to " & Tracing.TraceFile)
-        Else
-            Tracing.TraceLine("Tracing off")
-            ' Archive the user trace before closing it.
-            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit, "User toggled tracing off via TraceAdmin")
-        End If
-        ' Exit the form
-        DialogResult = System.Windows.Forms.DialogResult.OK
+        ' The browser is the whole window now, so it initializes on load rather
+        ' than on a tab activation that can no longer happen.
+        InitializeArchiveBrowser()
+        _browserInitialized = True
     End Sub
 
     Private Sub CnclButton_Click(sender As System.Object, e As System.EventArgs) Handles CnclButton.Click
         DialogResult = System.Windows.Forms.DialogResult.Cancel
+        Close()
     End Sub
 
-    Private Sub BrowseButton_Click(sender As System.Object, e As System.EventArgs) Handles BrowseButton.Click
-        ' Note the actual TraceFile is set when the trace is started.
-        With OpenFileDialog
-            .FileName = FileNameBox.Text
-            If .ShowDialog = System.Windows.Forms.DialogResult.OK Then
-                FileNameBox.Text = .FileName
-            End If
-        End With
-    End Sub
+    ''' <summary>
+    ''' Escape closes, like every other dialog in the app. The Close button is
+    ''' already the CancelButton, which handles it; this is here so the rule
+    ''' survives anyone rearranging the buttons.
+    ''' </summary>
+    Protected Overrides Function ProcessCmdKey(ByRef msg As System.Windows.Forms.Message,
+                                               keyData As System.Windows.Forms.Keys) As Boolean
+        If keyData = System.Windows.Forms.Keys.Escape Then
+            DialogResult = System.Windows.Forms.DialogResult.Cancel
+            Close()
+            Return True
+        End If
+        Return MyBase.ProcessCmdKey(msg, keyData)
+    End Function
 End Class

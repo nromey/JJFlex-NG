@@ -820,6 +820,29 @@
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
                                        Style="{StaticResource DialogLabel}"
                                        Text="This is about geography, not the connection: a radio at your own house can prefer SmartLink and still be a short walk away. Checking it offers to set the safety net a truly unreachable radio needs — REM ON and the remote administration allowances below."/>
+                            <!-- Sprint 30 Track A: the local-only answer, made
+                                 visible and reversible. A connect offers this
+                                 once; this is where it lives afterwards. Three
+                                 states rather than a checkbox, because "not
+                                 local only" is genuinely two different answers
+                                 — never asked, and asked and answered no. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                                <controls:DecorativeText Text="Reaching this radio from away:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="RadioProfileSmartLinkIntentCombo" MinWidth="260"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Whether you want to reach this radio from away"
+                   AutomationProperties.HelpText="Local only silences every SmartLink registration prompt for this radio."
+                                          SelectionChanged="RadioProfileSmartLinkIntentCombo_SelectionChanged">
+                                    <ComboBoxItem Content="Ask me when it comes up"/>
+                                    <ComboBoxItem Content="I only use this radio here"/>
+                                    <ComboBoxItem Content="I want to reach it from away"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="Registering a radio with SmartLink is how you reach it over the internet from somewhere else. A radio that never leaves your house does not need it. Choosing I only use this radio here settles the question for this radio and stops it being raised on connect; nothing about your local operating changes either way."/>
                         </StackPanel>
                     </GroupBox>
                     <GroupBox Header="Remote administration" Margin="0,4,0,8"
@@ -1338,6 +1361,164 @@
                             Padding="12,4"
                             AutomationProperties.Name="Check for updates now"
                             Click="UpdateCheckNowButton_Click"/>
+                </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Sprint 30 Track D — Diagnostics tab. The configuration half of
+                 the diagnostic log surface ratified in
+                 docs/planning/active/diagnostic-log-surface.md. The archive half
+                 is the Saved Diagnostic Logs window, one button away.
+
+                 Two deliberate departures from the ratified text, both because
+                 the design predates the 2026-08-18 HelpText finding:
+
+                 1. The per-level explanations are VISIBLE static text, not
+                    AccessibleDescription. NVDA reads HelpText as the control's
+                    description on every focus, so an explanation parked there is
+                    recited every time the operator tabs past it. As body text it
+                    is read once when the tab opens and stays available.
+                 2. The folder measurement is on a button, not automatic. Walking
+                    a 2.2 GB tree on tab entry would stall the dialog, and a
+                    stall is indistinguishable from a hang to someone who cannot
+                    see a spinner. -->
+            <TabItem Header="Diagnostics"
+                     AutomationProperties.Name="Diagnostics, diagnostic log and problem reporting settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8"
+                            Loaded="DiagnosticsPanel_Loaded"
+                            IsVisibleChanged="DiagnosticsPanel_IsVisibleChanged">
+
+                    <!-- The one sentence that answers "what is being recorded,
+                         at what detail, and is a capture running" — the question
+                         the retired dialog could not answer at all. -->
+                    <TextBlock x:Name="DiagStatusText"
+                               TextWrapping="Wrap" FontWeight="SemiBold"
+                               Margin="0,0,0,10"
+                               Text="Diagnostic log state is not available."
+                               AutomationProperties.Name="Diagnostic log status"/>
+
+                    <GroupBox Header="Diagnostic log" Margin="0,0,0,8"
+                              AutomationProperties.Name="Diagnostic log">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="DiagKeepLogCheckbox"
+                                      Content="Keep a diagnostic log (recommended)"
+                                      Margin="0,4,0,8"
+                                      AutomationProperties.Name="Keep a diagnostic log, recommended"
+                                      Checked="DiagKeepLogCheckbox_Changed"
+                                      Unchecked="DiagKeepLogCheckbox_Changed"/>
+
+                            <TextBlock Text="Detail level" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                            <RadioButton x:Name="DiagDetailNormalRadio"
+                                         GroupName="DiagDetail"
+                                         Content="Normal (recommended)"
+                                         Margin="0,2,0,0"
+                                         AutomationProperties.Name="Normal detail, recommended"
+                                         Checked="DiagDetailRadio_Checked"/>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,6"
+                                       Text="Records connections, errors, and the actions you take. You will never notice the cost."/>
+                            <RadioButton x:Name="DiagDetailDetailedRadio"
+                                         GroupName="DiagDetail"
+                                         Content="Detailed"
+                                         Margin="0,2,0,0"
+                                         AutomationProperties.Name="Detailed"
+                                         Checked="DiagDetailRadio_Checked"/>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,8"
+                                       Text="Records nearly everything the app does. Files grow fast. Use it when the developer asks, or use a detailed capture instead."/>
+
+                            <TextBlock x:Name="DiagPathText"
+                                       TextWrapping="Wrap" Margin="0,4,0,6"
+                                       Text="The live log location is not available."
+                                       AutomationProperties.Name="Where the diagnostic log is kept"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="DiagCopyPathButton"
+                                        Content="Copy log file path"
+                                        Padding="12,4" Margin="0,0,8,0"
+                                        AutomationProperties.Name="Copy log file path"
+                                        Click="DiagCopyPathButton_Click"/>
+                                <Button x:Name="DiagOpenFolderButton"
+                                        Content="Open log folder"
+                                        Padding="12,4"
+                                        AutomationProperties.Name="Open log folder"
+                                        Click="DiagOpenFolderButton_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Detailed capture" Margin="0,0,0,8"
+                              AutomationProperties.Name="Detailed capture">
+                        <StackPanel Margin="4">
+                            <Button x:Name="DiagCaptureButton"
+                                    Content="Start detailed capture"
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,4,0,6"
+                                    AutomationProperties.Name="Start detailed capture"
+                                    Click="DiagCaptureButton_Click"/>
+                            <!-- Collapsed, not disabled: a disabled control stays
+                                 in the tab order and a hidden one does not, and
+                                 this button is meaningless until a capture has
+                                 actually produced something to export. -->
+                            <Button x:Name="DiagExportCaptureButton"
+                                    Content="Export this capture..."
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
+                                    Visibility="Collapsed"
+                                    AutomationProperties.Name="Export this capture"
+                                    Click="DiagExportCaptureButton_Click"/>
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="A capture records everything at maximum detail while you reproduce a problem, then saves it as its own session in Saved Diagnostic Logs. Control J then Control D starts and stops one from anywhere."/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Saved diagnostic logs" Margin="0,0,0,8"
+                              AutomationProperties.Name="Saved diagnostic logs">
+                        <StackPanel Margin="4">
+                            <Button x:Name="DiagBrowseButton"
+                                    Content="Browse saved logs..."
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,4,0,6"
+                                    AutomationProperties.Name="Browse saved logs"
+                                    Click="DiagBrowseButton_Click"/>
+                            <Button x:Name="DiagProblemReportButton"
+                                    Content="Save a problem report bundle..."
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
+                                    AutomationProperties.Name="Save a problem report bundle"
+                                    Click="DiagProblemReportButton_Click"/>
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="Each session is compressed and kept for 30 days, then removed automatically. Yesterday's sessions stay readable as plain text for one day."/>
+                            <TextBlock TextWrapping="Wrap"
+                                       AutomationProperties.Name="Privacy note"
+                                       Text="The diagnostic log stays on this computer. It can include your callsign, contacted callsigns, your SmartLink email, network addresses, and your radio's serial number. When you export a session or save a problem report, you are choosing to share whatever that session recorded — review it first if that matters to you. Nothing is ever sent automatically."/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="Disk space" Margin="0,0,0,8"
+                              AutomationProperties.Name="Disk space used by diagnostics">
+                        <StackPanel Margin="4">
+                            <TextBlock x:Name="DiagStorageText"
+                                       TextWrapping="Wrap" Margin="0,4,0,6"
+                                       Text="Choose Measure now to see what the settings folder is holding."
+                                       AutomationProperties.Name="Settings folder size"/>
+                            <TextBlock x:Name="DiagCrashText"
+                                       TextWrapping="Wrap" Margin="0,0,0,6"
+                                       Text="Crash reports have not been counted yet."
+                                       AutomationProperties.Name="Saved crash reports"/>
+                            <Button x:Name="DiagMeasureButton"
+                                    Content="Measure now"
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
+                                    AutomationProperties.Name="Measure the settings folder now"
+                                    Click="DiagMeasureButton_Click"/>
+                            <Button x:Name="DiagDeleteLooseButton"
+                                    Content="Delete loose log text files"
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
+                                    AutomationProperties.Name="Delete loose log text files"
+                                    Click="DiagDeleteLooseButton_Click"/>
+                            <Button x:Name="DiagDeleteSentCrashButton"
+                                    Content="Delete crash reports I have sent or dismissed"
+                                    HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
+                                    AutomationProperties.Name="Delete crash reports I have sent or dismissed"
+                                    Click="DiagDeleteSentCrashButton_Click"/>
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="Deleting loose log text does not touch the compressed sessions in Saved Diagnostic Logs, so nothing is lost. A crash report you have never sent or dismissed is never deleted automatically."/>
+                        </StackPanel>
+                    </GroupBox>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

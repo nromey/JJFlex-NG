@@ -1,0 +1,170 @@
+using System;
+using System.Collections.Generic;
+using JJTrace;
+
+namespace Radios
+{
+    /// <summary>
+    /// Which connection path to try first for a radio, and how a TREND in the
+    /// connection history is allowed to influence that (task #79).
+    ///
+    /// <para><b>The whole contract, and the reason this is a separate class:</b>
+    /// a learned value only ever PREFILLS. A stored explicit choice always
+    /// wins. That rule has an invisible failure mode — code that violates it
+    /// looks identical to code that honours it, right up to the evening an
+    /// operator's deliberate setting silently evaporates because the app had
+    /// been quietly disagreeing with them for three connects. You cannot see
+    /// it in a diff, so it lives in one small pure function that a test can
+    /// pin down, instead of inside a WPF property that no test can reach.</para>
+    ///
+    /// <para>The substrate already existed: <see cref="ConnectionHistory"/> has
+    /// recorded a ten-entry per-radio ring of timestamped path, outcome and
+    /// duration since it was written, with the policies it was anticipating
+    /// named in its own header as deliberately out of scope. Nothing read it
+    /// until now.</para>
+    /// </summary>
+    public static class ConnectPathPolicy
+    {
+        /// <summary>The outcome string <c>ConnectionHistory</c> records for a
+        /// connect that actually succeeded. Failures record a failure class
+        /// name instead, so anything that is not this is not a success.</summary>
+        public const string ConnectedOutcome = "connected";
+
+        /// <summary>
+        /// How many successful connects in a row on one path constitute a
+        /// trend worth prefilling.
+        ///
+        /// <para>Three, proposed and not yet ratified by the owner. The number
+        /// is a judgement about how much evidence outweighs inertia, and it is
+        /// bounded from above by the store: the ring holds ten ATTEMPTS, and a
+        /// chain-walking connect writes two of them (the leg that failed, then
+        /// the leg that worked), so a threshold much past four could never be
+        /// reached by a radio that falls back.</para>
+        /// </summary>
+        public const int TrendThreshold = 3;
+
+        /// <summary>
+        /// The path a radio's history recommends, or null when it recommends
+        /// nothing.
+        ///
+        /// <para>Reads the last <paramref name="threshold"/> SUCCESSFUL
+        /// connects and asks whether they all went the same way. Failures are
+        /// skipped rather than treated as trend-breaking, and that is a
+        /// deliberate choice rather than a convenience: a radio that is only
+        /// reachable over SmartLink records a failed local leg before every
+        /// single successful remote one, so a rule that reset on any failure
+        /// would learn nothing about exactly the radios with the strongest
+        /// habit.</para>
+        ///
+        /// <para>Never throws, never reads a file — hand it the history.</para>
+        /// </summary>
+        public static ConnectPathKind? LearnFrom(
+            IReadOnlyList<ConnectionAttemptRecord>? history, int threshold = TrendThreshold)
+        {
+            if (history == null || threshold <= 0) return null;
+
+            ConnectPathKind? candidate = null;
+            int matched = 0;
+
+            for (int i = history.Count - 1; i >= 0 && matched < threshold; i--)
+            {
+                var record = history[i];
+                if (record == null) continue;
+                if (!string.Equals(record.Outcome, ConnectedOutcome, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!Enum.TryParse<ConnectPathKind>(record.Path, ignoreCase: true, out var path))
+                {
+                    // A path this build does not know about — a newer version's
+                    // JJ Flexible Connect leg, say. It is a real success on a
+                    // real path, so it must not be skipped as though it never
+                    // happened; it simply cannot agree with anything we can
+                    // name, which ends the run.
+                    return null;
+                }
+
+                if (candidate == null) candidate = path;
+                else if (candidate != path) return null;
+
+                matched++;
+            }
+
+            return matched >= threshold ? candidate : null;
+        }
+
+        /// <summary>
+        /// The same question against the on-disk history for one radio.
+        /// Returns null on any IO trouble — a store we cannot read teaches us
+        /// nothing, which is not the same as teaching us "no".
+        /// </summary>
+        public static ConnectPathKind? LearnForRadio(string serial, int threshold = TrendThreshold)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(serial)) return null;
+                var learned = LearnFrom(ConnectionHistory.Load(serial), threshold);
+                if (learned != null)
+                {
+                    Tracing.TraceLine(
+                        $"ConnectPathPolicy: {serial} history suggests {learned} "
+                        + $"({threshold} successful connects in a row) — prefill only",
+                        System.Diagnostics.TraceLevel.Info);
+                }
+                return learned;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ConnectPathPolicy.LearnForRadio({serial}): {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The ordered chain a connect should walk.
+        ///
+        /// <para>Precedence, and the order is the contract:</para>
+        /// <list type="number">
+        /// <item>A stored explicit chain. The operator said so; nothing
+        /// outranks that, ever, however strong the trend disagreeing with
+        /// it.</item>
+        /// <item>A learned trend, as a prefill — it only orders a chain that
+        /// nobody has ordered.</item>
+        /// <item>The derived default: local first unless the radio's story is
+        /// remote.</item>
+        /// </list>
+        ///
+        /// <para>Every result carries BOTH paths, which is what makes
+        /// automatic fallback ordinary list-walking rather than special-case
+        /// logic. Only an operator-stored one-entry chain means "this path
+        /// only" — and note that a learned value can never produce one, by
+        /// construction. A trend is evidence about what usually works, never
+        /// permission to stop trying the other way.</para>
+        /// </summary>
+        public static List<ConnectPathKind> Resolve(
+            IReadOnlyList<ConnectPathKind>? storedChain,
+            ConnectPathKind? learned,
+            bool lanAvailable,
+            bool wanAvailable,
+            bool lastSeenRemote)
+        {
+            // 1. A choice. Returned as stored, length and all.
+            if (storedChain != null && storedChain.Count > 0)
+                return new List<ConnectPathKind>(storedChain);
+
+            // 2. A trend, prefilling an unordered chain.
+            if (learned == ConnectPathKind.SmartLink) return RemoteFirst();
+            if (learned == ConnectPathKind.Local) return LocalFirst();
+
+            // 3. The derived default — the historical behaviour, now explicit.
+            bool remoteStory = wanAvailable ? !lanAvailable : (!lanAvailable && lastSeenRemote);
+            return remoteStory ? RemoteFirst() : LocalFirst();
+        }
+
+        private static List<ConnectPathKind> LocalFirst() =>
+            new() { ConnectPathKind.Local, ConnectPathKind.SmartLink };
+
+        private static List<ConnectPathKind> RemoteFirst() =>
+            new() { ConnectPathKind.SmartLink, ConnectPathKind.Local };
+    }
+}

@@ -223,6 +223,69 @@
                          AutomationProperties.Name="Rig Fields Debug" />
             </Grid>
 
+            <!-- ═══ RESCUE HOME ═══ Sprint 30 Track A
+                 The page Home becomes when the app starts with no radio.
+                 It offers ONLY what genuinely works with nothing connected,
+                 which is why gating happens here rather than control by
+                 control: a button that is absent cannot lie, and a page that
+                 never offers a radio action can never grow one by accident.
+
+                 Row-spanning overlay rather than a sixth row, so entering and
+                 leaving rescue mode is one Visibility flip plus a re-apply of
+                 the UI mode — the connected layout is never rebuilt from
+                 memory of what it used to look like.
+
+                 Startup only, deliberately. A radio LOST mid-session does not
+                 bring this page back; see EnterRescueModeIfNoRadio. -->
+            <StackPanel Grid.Row="0" Grid.RowSpan="6" x:Name="RescuePanel"
+                        Visibility="Collapsed"
+                        Margin="16,12,16,12"
+                        AutomationProperties.Name="Home, no radio connected"
+                        AutomationProperties.AutomationId="RescueHome">
+
+                <!-- Decorative: the state is also carried by the panel name and
+                     by the shell window's title, which is what survives a
+                     screen reader flushing its queue on the way in here. -->
+                <TextBlock x:Name="RescueHeading" Text="No radio connected"
+                           FontSize="16" FontWeight="SemiBold"
+                           Margin="0,0,0,6" Focusable="False" />
+
+                <TextBlock x:Name="RescueBlurb" TextWrapping="Wrap"
+                           MaxWidth="620" HorizontalAlignment="Left"
+                           Margin="0,0,0,14" Focusable="False"
+                           Text="Connect goes looking for one. The rest of this page works without a radio, so nothing here can claim to have done something it could not do." />
+
+                <Button x:Name="RescueConnectButton" Content="Connect a radio"
+                        TabIndex="0" MinWidth="240" Padding="10,6"
+                        HorizontalAlignment="Left" Margin="0,0,0,6"
+                        AutomationProperties.Name="Connect a radio"
+                        Click="RescueConnectButton_Click" />
+
+                <Button x:Name="RescueSettingsButton" Content="Settings"
+                        TabIndex="1" MinWidth="240" Padding="10,6"
+                        HorizontalAlignment="Left" Margin="0,0,0,6"
+                        AutomationProperties.Name="Settings"
+                        Click="RescueSettingsButton_Click" />
+
+                <Button x:Name="RescueWorkshopButton" Content="Audio Workshop"
+                        TabIndex="2" MinWidth="240" Padding="10,6"
+                        HorizontalAlignment="Left" Margin="0,0,0,6"
+                        AutomationProperties.Name="Audio Workshop"
+                        Click="RescueWorkshopButton_Click" />
+
+                <Button x:Name="RescueHelpButton" Content="Help"
+                        TabIndex="3" MinWidth="240" Padding="10,6"
+                        HorizontalAlignment="Left" Margin="0,0,0,6"
+                        AutomationProperties.Name="Help"
+                        Click="RescueHelpButton_Click" />
+
+                <Button x:Name="RescueExitButton" Content="Exit"
+                        TabIndex="4" MinWidth="240" Padding="10,6"
+                        HorizontalAlignment="Left" Margin="0,0,0,6"
+                        AutomationProperties.Name="Exit"
+                        Click="RescueExitButton_Click" />
+            </StackPanel>
+
             <!-- Logging Mode Panel — Phase 8.8: Native WPF, no ElementHost!
                  Left column: RadioPaneControl (frequency, mode, tuning)
                  GridSplitter: drag to resize

@@ -321,8 +321,20 @@ public class NativeMenuBar : IDisposable
 
         // === Noise Reduction submenu ===
         var nrSub = AddSubmenu(parent, "Noise Reduction");
-        // NRF, NRS, RNN all require 8000-series/Aurora DSP hardware
-        if (Rig.NeuralNRHardwareSupported)
+        // NRF, NRS, RNN all require 8000-series/Aurora DSP hardware, and a
+        // subscription on top of it. Sprint 30 Track A: when either gate is
+        // shut the family used to be simply ABSENT, which reads exactly like a
+        // missing feature. Now one item stands in its place and says which
+        // gate it is — and, because a feature you cannot have is only useful
+        // news alongside the one you can, points at the PC-side equivalent.
+        string? nrGate = AdvancedNrGateMessage();
+        if (nrGate != null)
+        {
+            AddWired(nrSub, "Advanced noise reduction unavailable", () =>
+                SpeakAfterMenuClose(AdvancedNrGateMessage()
+                    ?? "Advanced noise reduction is available — reopen this menu."));
+        }
+        else
         {
             // "On-Radio" prefix (DSP controls track, 2026-08-11): these run in
             // the radio's own DSP and have PC-side namesakes two submenus
@@ -865,6 +877,14 @@ public class NativeMenuBar : IDisposable
 
     /// <summary>
     /// Build diversity items with proper feature gating.
+    ///
+    /// <para>Sprint 30 Track A — always builds SOMETHING. The caller used to
+    /// skip this whole method on a 1-SCU radio, so an operator on a 6400 or an
+    /// 8400 met a menu with no diversity in it at all and no way to find out
+    /// why. "Missing" and "not for this radio" feel identical from the
+    /// keyboard, and only one of them is true. Disabled-with-a-reason is the
+    /// house pattern (CLAUDE.md accessibility guidance) and it is what the
+    /// Feature Availability tab has always done in text.</para>
     /// </summary>
     private void BuildDiversityItems(IntPtr parent)
     {
@@ -878,16 +898,58 @@ public class NativeMenuBar : IDisposable
                 Rig.ToggleDiversity();
                 SpeakAfterMenuClose(Rig.DiversityOn ? "Diversity on" : "Diversity off");
             }, () => Rig?.DiversityOn == true);
+            return;
         }
-        else
+
+        // DiversityGateMessage is only empty when every gate passes, which is
+        // the DiversityReady branch above — so the fallback text is defence,
+        // not an expected path. Never leave the item wordless either way.
+        AddWired(parent, "Diversity unavailable", () =>
+            SpeakAfterMenuClose(
+                NonEmpty(Rig?.DiversityGateMessage) ?? "Diversity is not available on this radio right now."));
+    }
+
+    /// <summary>Trim-to-null helper for gate messages, so an empty string from
+    /// a radio that has not answered yet never becomes a wordless menu item.</summary>
+    private static string? NonEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    /// <summary>
+    /// Why the advanced noise-reduction family (RNN, NRS, NRF) cannot be
+    /// offered on this radio, or null when it can.
+    ///
+    /// <para>The ladder is deliberately asymmetric about what it does NOT
+    /// know. Hardware is a fact we hold locally, so "your model does not have
+    /// the DSP for it" is safe to state. A licence we have never been told
+    /// about is not evidence of anything — the radio may simply not have sent
+    /// its feature list yet — so an unreported licence leaves the controls in
+    /// place rather than declaring a subscribed feature missing. Only a
+    /// licence the radio positively reported as disabled produces a
+    /// subscription message, and then it is the radio's own wording.</para>
+    /// </summary>
+    private string? AdvancedNrGateMessage()
+    {
+        var rig = Rig;
+        if (rig == null) return "No radio connected.";
+
+        if (!rig.NeuralNRHardwareSupported)
         {
-            string gateMsg = Rig.DiversityGateMessage;
-            if (!string.IsNullOrEmpty(gateMsg))
-            {
-                AddWired(parent, "Diversity unavailable", () =>
-                    SpeakAfterMenuClose(Rig?.DiversityGateMessage ?? "Diversity unavailable"));
-            }
+            return "This radio model does not have the DSP hardware for the advanced "
+                 + "noise reduction family — RNN, spectral NR and the NR filter. Legacy NR "
+                 + "and the noise blankers above work on every model, and JJ Flex's own "
+                 + "PC-side noise reduction runs on this computer and works on every radio.";
         }
+
+        // Never reported: we do not know, so we do not say. The toggles stay.
+        if (!rig.NoiseReductionLicenseReported) return null;
+
+        if (!rig.NoiseReductionLicensed)
+        {
+            return "Your radio reports that the advanced noise reduction features are not "
+                 + "included in its current subscription. JJ Flex's own PC-side noise "
+                 + "reduction runs on this computer instead and needs no subscription.";
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1349,9 +1411,9 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna — RX/TX select, ATU (if present), Diversity (if hardware
-            // supports). QB Track I: mnemonic N ("Audio" owns first-letter A),
-            // so exploration by accelerator reaches it directly.
+            // Antenna — RX/TX select, ATU (if present), Diversity (always).
+            // QB Track I: mnemonic N ("Audio" owns first-letter A), so
+            // exploration by accelerator reaches it directly.
             var antSub = AddSubmenu(slice, "A&ntenna");
             BuildAntennaSelectItems(antSub);
             if (Rig.HasATU)
@@ -1361,7 +1423,11 @@ public class NativeMenuBar : IDisposable
                 AddSep(antSub);
                 AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
             }
-            if (Rig.DiversityHardwareSupported)
+            // Unconditional as of Sprint 30 Track A. The old
+            // DiversityHardwareSupported guard meant a 1-SCU radio got no
+            // diversity entry at all; BuildDiversityItems now explains itself
+            // instead, which is the difference between "not for this radio"
+            // and "this app forgot".
             {
                 AddSep(antSub);
                 BuildDiversityItems(antSub);
@@ -1442,6 +1508,12 @@ public class NativeMenuBar : IDisposable
         // so it gets a direct entry rather than making users know which tab
         // holds it. Same one-concept-two-doors pattern as Radio Setup.
         AddWired(tools, "Configure Radio", () => ShowSettingsDialog("Radios"));
+        // Sprint 30 Track D — the front door of the reporting pipeline, and the
+        // replacement for the retired Help > Tracing. Tools is the operations
+        // menu; there is no Operations menu in the native menu bar, which is
+        // why CLAUDE.md's long-standing "Operations > Tracing" pointer was
+        // wrong. Same deep-link pattern as Configure Radio.
+        AddWired(tools, "Diagnostics", () => ShowSettingsDialog("Diagnostics"));
         // Sprint 29 Track D — manual update check. Lives next to Settings
         // since the Updates settings tab is its preference home; this entry
         // is the single-action trigger for the same flow.
@@ -1643,28 +1715,11 @@ public class NativeMenuBar : IDisposable
         // Alphabetical / By Function duplicates opened the same dialog three
         // times over). Arrangement is a combo inside the surface now.
         AddWired(help, "Key Assignments", () => ShowKeysSurface(editable: false));
-        AddWired(help, "Tracing", () =>
-        {
-            var dialog = new Dialogs.TraceAdminDialog
-            {
-                InitialFilePath = Tracing.TraceFile ?? "",
-                DefaultLevel = (int)(Tracing.TheSwitch?.Level ?? System.Diagnostics.TraceLevel.Info),
-                StartTracing = (filePath, levelIndex) =>
-                {
-                    Tracing.On = false;
-                    Tracing.TraceFile = filePath;
-                    Tracing.TheSwitch.Level = (System.Diagnostics.TraceLevel)levelIndex;
-                    Tracing.On = true;
-                    Tracing.TraceLine($"User started tracing at level {Tracing.TheSwitch.Level}");
-                },
-                StopTracing = () =>
-                {
-                    Tracing.TraceLine("User stopped tracing");
-                    Tracing.On = false;
-                }
-            };
-            dialog.ShowDialog();
-        });
+        // Help > Tracing is GONE. It opened a dialog that could not tell you
+        // whether tracing was on, started traces the archive could not see, and
+        // wrote them to Documents where nothing rotates or bundles them. Its job
+        // is now Tools > Diagnostics, which deep-links to Settings >
+        // Diagnostics. See docs/planning/active/diagnostic-log-surface.md §2.
         AddSep(help);
         AddWired(help, "Earcon Explorer", () =>
             Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 2));
@@ -1685,7 +1740,12 @@ public class NativeMenuBar : IDisposable
             // home-arrival announcement via DisplayBox_GotKeyboardFocus,
             // restoring orientation cleanly. 2026-04-24 fix flagged by Noel
             // after Phase 8c-ii About dialog rework.
-            _window.FreqOut.FocusDisplay();
+            //
+            // Through FocusHome (Sprint 30 Track A): with no radio the
+            // frequency display is COLLAPSED behind the rescue page, and
+            // Focus() on a collapsed element quietly fails — which is the exact
+            // "focus lands nowhere" this comment was written to prevent.
+            _window.FocusHome();
         });
     }
 

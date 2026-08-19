@@ -88,7 +88,7 @@ public partial class MainWindow : UserControl
                 {
                     Radios.WindowActivation.EnsureForeground(
                         System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
-                    FreqOut?.FocusDisplay();
+                    FocusHome();
                 }
             }
             catch (System.Exception ex)
@@ -185,12 +185,12 @@ public partial class MainWindow : UserControl
         FreqOut.LostKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionBlurred();
 
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
-        FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
-        FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
+        FieldsPanel.EscapePressed += (s, e) => FocusHome();
+        FieldsPanel.ReturnFocusToFreqOut = () => FocusHome();
 
         // Wire MetersPanel Escape handler (Sprint 22 Phase 9)
-        MetersPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
-        MetersPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
+        MetersPanel.EscapePressed += (s, e) => FocusHome();
+        MetersPanel.ReturnFocusToFreqOut = () => FocusHome();
 
         // Wire CW notification delegates once at construction so they're available
         // during connect (AS fires on "Connecting to X", which happens BEFORE PowerOn).
@@ -392,8 +392,16 @@ public partial class MainWindow : UserControl
         // Fires whenever Home becomes visible, INCLUDING when the connect
         // dialog was cancelled and there is no radio at all, which is another
         // reason it cannot be a connect announcement.
+        // Sprint 30 Track A — the first moment "no radio" is a fact rather than
+        // "not yet": the connect flow ran synchronously during startup and has
+        // returned by the time the shell is shown. If it produced no radio,
+        // Home becomes the rescue page before anything below moves focus.
+        EnterRescueModeIfNoRadio();
+
         string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
-        string message = $"JJ Flexible Home, {modeName} tuning mode";
+        string message = _rescueMode
+            ? $"JJ Flexible Home, no radio connected, {modeName} tuning mode"
+            : $"JJ Flexible Home, {modeName} tuning mode";
 
         // Ordering policy (live find 2026-08-04): with a startup advisory on
         // screen, this line used to talk over the dialog — and worse, the
@@ -409,8 +417,9 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        // Focus FreqOut so cursor lands on the frequency display at startup
-        FreqOut.FocusDisplay();
+        // Land on the frequency display at startup — or on the rescue page's
+        // first button when there is no radio and the display is collapsed.
+        FocusHome();
         Radios.ScreenReaderOutput.Speak(
             message, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
     }
@@ -886,6 +895,174 @@ public partial class MainWindow : UserControl
 
     #endregion
 
+    #region Rescue Home — Sprint 30 Track A
+
+    /// <summary>
+    /// True while Home is the limited no-radio page.
+    ///
+    /// <para>The rescue page supersedes per-control gating on Home by
+    /// construction: instead of a full Home whose every control has to remember
+    /// to check for a radio, the page simply does not offer what cannot work.
+    /// A control that is absent cannot lie, and — the part that matters over
+    /// time — a control added to Home next year inherits the rule for free,
+    /// because it is not on this page at all.</para>
+    ///
+    /// <para>SCOPE: startup only. A radio lost mid-session does NOT bring this
+    /// page back. That case is a window transition during live operation, with
+    /// every screen-reader flush lesson applying, and it wants its own design
+    /// rather than a reuse of this one.</para>
+    /// </summary>
+    private bool _rescueMode;
+
+    /// <summary>True while Home is showing the limited no-radio page.</summary>
+    public bool InRescueMode => _rescueMode;
+
+    /// <summary>
+    /// Become the rescue page if the app finished starting up with no radio.
+    /// Called from <see cref="SpeakWelcome"/>, which is the first moment the
+    /// answer is knowable: the connect flow runs synchronously during startup,
+    /// so before it returns, "no radio" only means "not yet".
+    ///
+    /// <para>Idempotent, and one-way within a session — once a radio has
+    /// arrived, <see cref="ExitRescueMode"/> retires the page for good.</para>
+    /// </summary>
+    public void EnterRescueModeIfNoRadio()
+    {
+        if (_rescueMode || RigControl != null) return;
+        _rescueMode = true;
+        Tracing.TraceLine(
+            "Rescue Home: startup finished with no radio — showing the limited page",
+            TraceLevel.Info);
+        ApplyRescueVisibility();
+    }
+
+    /// <summary>
+    /// Hide everything on Home that needs a radio and show the rescue page.
+    /// Re-applied at the end of <see cref="ApplyUIMode"/> so a tuning-mode
+    /// switch made while disconnected cannot quietly un-hide the radio
+    /// controls behind the page.
+    /// </summary>
+    private void ApplyRescueVisibility()
+    {
+        if (!_rescueMode) return;
+
+        // Logging mode outranks the rescue page, and must. The log is a
+        // logbook: entering QSOs, searching, importing and exporting all work
+        // perfectly well with no radio attached, and an operator who pressed
+        // Ctrl+Shift+L asked for that surface deliberately. Hiding it behind a
+        // page whose whole claim is "only what works offline" would make the
+        // page wrong about itself. Leaving Logging mode restores the page,
+        // because ApplyUIMode runs this again on the way back.
+        if (ActiveUIMode == UIMode.Logging)
+        {
+            RescuePanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        RescuePanel.Visibility = Visibility.Visible;
+        RadioControlsPanel.Visibility = Visibility.Collapsed;
+        FieldsPanel.Visibility = Visibility.Collapsed;
+        MetersPanel.Visibility = Visibility.Collapsed;
+        PanadapterPanel.Visibility = Visibility.Collapsed;
+        ContentArea.Visibility = Visibility.Collapsed;
+        LoggingPanel.Visibility = Visibility.Collapsed;
+        StatusText.Text = "Ready — no radio connected";
+    }
+
+    /// <summary>
+    /// A radio arrived: retire the rescue page and hand Home back to the UI
+    /// mode. Restoring through <see cref="ApplyUIMode"/> rather than by
+    /// un-collapsing each panel means the connected layout is never rebuilt
+    /// from this method's memory of what it used to look like — the mode
+    /// builders stay the single source of truth for that.
+    /// </summary>
+    public void ExitRescueMode()
+    {
+        if (!_rescueMode) return;
+        _rescueMode = false;
+        Tracing.TraceLine("Rescue Home: radio arrived — restoring the full page", TraceLevel.Info);
+
+        RescuePanel.Visibility = Visibility.Collapsed;
+        // ContentArea is the one panel the mode builders never touch; its
+        // children carry their own CW-mode visibility rules from there.
+        ContentArea.Visibility = Visibility.Visible;
+        ApplyUIMode(ActiveUIMode);
+    }
+
+    /// <summary>
+    /// Put keyboard focus on the rescue page. Returns false when the page is
+    /// not up or refused focus, so callers can fall through to their normal
+    /// landing spot rather than leaving focus nowhere.
+    /// </summary>
+    public bool FocusRescuePage()
+    {
+        if (!_rescueMode || RescuePanel.Visibility != Visibility.Visible) return false;
+        return RescueConnectButton.Focus();
+    }
+
+    /// <summary>
+    /// Land keyboard focus wherever Home currently keeps it: the rescue page's
+    /// first button when the page is up, the frequency display otherwise.
+    ///
+    /// <para>Every "put the user back on Home" path goes through here. With no
+    /// radio the frequency display is COLLAPSED, and WPF's Focus() on a
+    /// collapsed element simply fails — focus then stays on a dismissed dialog
+    /// or falls to the ElementHost pane, which a screen reader reads as "pane"
+    /// and an operator experiences as the keyboard having stopped working.
+    /// That failure is invisible in a diff, which is exactly why it gets one
+    /// funnel instead of a check at each call site.</para>
+    /// </summary>
+    public void FocusHome()
+    {
+        if (FocusRescuePage()) return;
+        FreqOut.FocusDisplay();
+    }
+
+    private void RescueConnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        // No pre-announcement here, on purpose. The connect flow opens its own
+        // windows, and a screen reader flushes its queue at every window
+        // change — anything said now is destroyed before it is heard. The
+        // arriving window carries its own state (globals.PendingDisconnectLead
+        // is the same pattern from the other direction).
+        if (SelectRadioCallback == null)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                "Connecting is not available yet — the application is still starting up.",
+                VerbosityLevel.Critical, true);
+            return;
+        }
+        SelectRadioCallback.Invoke();
+    }
+
+    private void RescueSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Empty string, not a tab name: Settings opens on its default tab.
+        // SelectTabByHeader simply reports false for an unmatched header.
+        OpenSettingsCallback?.Invoke(string.Empty);
+    }
+
+    private void RescueWorkshopButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Deliberately on this page. The Workshop's "This Computer" section and
+        // its microphone check exist precisely so an operator can prove their
+        // input works with no radio in the picture; its radio-side sections
+        // disable themselves — see AudioWorkshopDialog.UpdateRadioControlAvailability.
+        Dialogs.AudioWorkshopDialog.ShowOrFocus(RigControl, 0);
+    }
+
+    private void RescueHelpButton_Click(object sender, RoutedEventArgs e)
+    {
+        HelpLauncher.ShowHelp();
+    }
+
+    private void RescueExitButton_Click(object sender, RoutedEventArgs e)
+    {
+        CloseShellCallback?.Invoke();
+    }
+
+    #endregion
+
     #region UI Mode Management — Phase 8.5
 
     /// <summary>
@@ -946,6 +1123,12 @@ public partial class MainWindow : UserControl
                 ShowLoggingUI();
                 break;
         }
+
+        // Rescue Home outranks the mode builders while it is up: every builder
+        // above un-collapses radio controls unconditionally, so without this a
+        // tuning-mode switch made with no radio would put the frequency display
+        // and the CW text boxes back into the tab order behind the page.
+        ApplyRescueVisibility();
     }
 
     /// <summary>
@@ -1101,8 +1284,9 @@ public partial class MainWindow : UserControl
 
         ApplyUIMode(LastNonLogMode);
 
-        // Focus FreqOut display (the primary control in Classic/Modern modes)
-        FreqOut.FocusDisplay();
+        // Focus FreqOut display (the primary control in Classic/Modern modes),
+        // or the rescue page when that is what Home currently is.
+        FocusHome();
 
         Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} tuning mode", VerbosityLevel.Terse);
     }
@@ -1196,9 +1380,15 @@ public partial class MainWindow : UserControl
         // Shift+M and Shift+, (multi-slice variants) are intentionally NOT in
         // this list — they're bound in KeyCommands (Radio scope) and the
         // DoCommand-layer guard at f8c64d57 already covers them.
+        //
+        // Sprint 30 Track A: the rescue page joins the gate. With no radio the
+        // frequency display is collapsed, so FreqOut can never hold focus and
+        // this guard would never fire again — these keys would go back to being
+        // silent in exactly the situation they were written for.
         if (RigControl == null
             && Keyboard.Modifiers == ModifierKeys.None
-            && FreqOut.IsKeyboardFocusWithin
+            && (FreqOut.IsKeyboardFocusWithin
+                || (_rescueMode && RescuePanel.IsKeyboardFocusWithin))
             && IsUniversalHomeKey(rawKey))
         {
             Radios.ScreenReaderOutput.SpeakNoRadioConnected();
@@ -1468,6 +1658,11 @@ public partial class MainWindow : UserControl
     {
         Tracing.TraceLine("MainWindow.OnRadioStarted", TraceLevel.Info);
 
+        // A radio is genuinely here now, which retires the rescue page. Done at
+        // Started rather than at power-on because everything below assumes the
+        // full Home layout exists, and the two are only milliseconds apart.
+        ExitRescueMode();
+
         SetupBoxes();
 
         // Wire memory dialog delegate
@@ -1515,7 +1710,7 @@ public partial class MainWindow : UserControl
             if (_welcomeFocusPending)
             {
                 _welcomeFocusPending = false;
-                try { FreqOut.FocusDisplay(); } catch { /* window may be closing */ }
+                try { FocusHome(); } catch { /* window may be closing */ }
             }
             foreach (var (message, level) in _deferredStartupSpeech)
             {
@@ -1579,6 +1774,20 @@ public partial class MainWindow : UserControl
         var rig = RigControl;
         if (rig == null) return;
 
+        // Sprint 30 Track A — an operator who has already said "I only use
+        // this radio here" is asked nothing further about SmartLink for it,
+        // on any connect, on any run. Not registering is a real answer, and
+        // an app that keeps raising it is treating a decision as an
+        // unfinished task. Checked before the server query so a local-only
+        // radio does not even generate the round trip.
+        if (SmartLinkIntentFor(rig) == Radios.SmartLinkIntents.LocalOnly)
+        {
+            Tracing.TraceLine(
+                "SuggestRegistration: radio is marked local-only — nothing to suggest",
+                TraceLevel.Info);
+            return;
+        }
+
         try
         {
             var result = await rig.QuerySmartLinkRegistrationAsync();
@@ -1641,12 +1850,32 @@ public partial class MainWindow : UserControl
             }
             catch { /* count stays 0; the simple advisory is still correct */ }
 
+            // Sprint 30 Track A — a LOCAL connect with no answer on record gets
+            // an OFFER, not a complaint. The old wording opened by telling an
+            // operator sitting three feet from their radio that it was "not
+            // registered", which frames a valid arrangement as a fault. The
+            // offer states the same fact, says plainly that not registering is
+            // a fine answer, and gives that answer a button so it can be
+            // recorded once and never raised again.
+            //
+            // A REMOTE connect keeps the original advisory: the operator is
+            // already using SmartLink, so registration is not hypothetical and
+            // "I only use this radio here" is not on the table.
+            bool localConnect = !rig.RemoteRig;
+            bool undecided = SmartLinkIntentFor(rig) == Radios.SmartLinkIntents.Undecided;
+
             await Dispatcher.BeginInvoke(() =>
             {
+                if (localConnect && undecided)
+                {
+                    ShowLocalOnlyOffer(serial, account, otherAccounts);
+                    return;
+                }
+
                 string msg =
                     $"This radio is not registered to {account}, the SmartLink account you are " +
-                    "signed in with. Registering your radio lets you reach it over the internet " +
-                    "when you are away from your shack, and it tells Flex the radio is yours. " +
+                    "signed in with. Registering a radio lets that account reach it over the " +
+                    "internet when you are away from your shack. " +
                     "Flex requires you to be physically at the radio with a hand microphone or a " +
                     "CW key plugged in, to prove someone is really there.\n\n" +
                     (otherAccounts > 0
@@ -1680,6 +1909,142 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// This radio's recorded SmartLink intent, or Undecided when there is no
+    /// serial to key it by. Reads the per-radio config each time rather than
+    /// caching: the operator can change it in Settings while connected, and a
+    /// cached copy would keep asking about a radio they just settled.
+    /// </summary>
+    private static Radios.SmartLinkIntents SmartLinkIntentFor(FlexBase rig)
+    {
+        try
+        {
+            string serial = rig.SelectedRadioSerial ?? string.Empty;
+            if (serial.Length == 0) return Radios.SmartLinkIntents.Undecided;
+            return Radios.RadioConfig.LoadForRadio(serial).SmartLinkIntent;
+        }
+        catch (Exception ex)
+        {
+            // An unreadable config must not silence an advisory that might
+            // genuinely help; Undecided is the state that still offers.
+            Tracing.TraceLine(
+                $"SmartLinkIntentFor: {ex.Message} — treating as undecided",
+                TraceLevel.Warning);
+            return Radios.SmartLinkIntents.Undecided;
+        }
+    }
+
+    /// <summary>
+    /// The local-only offer: this radio is not registered with SmartLink, here
+    /// is what registering would buy, and here is the button that says you do
+    /// not want it — once, permanently, per radio.
+    /// </summary>
+    private void ShowLocalOnlyOffer(string serial, string account, int otherAccounts)
+    {
+        // Wording note, and it is a constraint rather than a preference:
+        // nothing here may imply that registration says whose radio this is.
+        // Track B established the counter-example on 2026-08-18 - an operator
+        // connected to somebody else's radio using that person's account, and
+        // a registration test would have called him the owner. Registration
+        // answers who has ACCESS. So this asks about the operator's USE ("do
+        // you operate it from away") and never about the radio's ownership,
+        // and what it stores is a local prompt preference on this machine,
+        // not a claim about the radio.
+        string msg =
+            "You are connected to this radio over your own network, and it is not registered " +
+            $"with SmartLink under {account}. That is worth one question, and then this will " +
+            "stop asking.\n\n" +
+            "Registering a radio with SmartLink is how you reach it over the internet from " +
+            "somewhere else — a hotel, a friend's shack, the car. If you only ever " +
+            "operate this radio from where you are right now, you do not need it, and " +
+            "nothing about your local operating changes either way.\n\n" +
+            "If you do want it later, Flex requires you to be at the radio with a hand " +
+            "microphone or a CW key plugged in, to prove someone is really there. It all " +
+            "happens right here in JJ Flexible Radio Access; SmartSDR is not required.\n\n" +
+            (otherAccounts > 0
+                ? "One thing to check first: only the signed-in account was asked. If you " +
+                  "registered this radio under one of your other saved accounts, switch to " +
+                  "that account instead — the Manage Accounts button below opens the list.\n\n"
+                : "") +
+            "Choose I Only Use This Radio Here and the question is settled for this radio. " +
+            "Choose Open Radio Setup to register it now. Close leaves it open and you will " +
+            "be asked again on a future run.";
+
+        var actions = new List<Dialogs.AdvisoryDialog.AdvisoryAction>
+        {
+            new("_I only use this radio here", () => RecordSmartLinkIntent(
+                serial, Radios.SmartLinkIntents.LocalOnly)),
+            new("Open Radio _Setup", () =>
+            {
+                // Opening setup IS the answer to the question, so record it.
+                // Without this the offer would return on the next run for an
+                // operator who has plainly said they want SmartLink — and the
+                // registration reminder, which is help once the intent is
+                // known, would never take over from the offer.
+                RecordSmartLinkIntent(serial, Radios.SmartLinkIntents.WantsSmartLink, quiet: true);
+                OpenSettingsCallback?.Invoke("Radio Setup");
+            }),
+        };
+        if (otherAccounts > 0)
+            actions.Add(new("Manage _Accounts", ShowSmartLinkAccountManager));
+
+        // No suppressKey: the "don't show this again" checkbox would be a
+        // third, vaguer way to answer the same question the buttons answer
+        // precisely, and its answer would be stored somewhere else entirely.
+        // Close is the "not now" path and costs one more sighting.
+        Dialogs.AdvisoryDialog.Show("Reaching this radio from away", msg, null, actions.ToArray());
+    }
+
+    /// <summary>
+    /// Write the operator's SmartLink intent for one radio and, unless quiet,
+    /// hand them a receipt.
+    ///
+    /// <para>The receipt is its own window on purpose. The choice is made
+    /// inside a dialog that is closing, and a screen reader flushes its queue
+    /// as that window goes away — so an utterance spoken here would be
+    /// destroyed before it was heard. A window that ARRIVES carries its own
+    /// title, which is why the outcome is IN the title.</para>
+    ///
+    /// <para>It also has to be able to say the write failed. RadioConfig's own
+    /// contract is that a false return means the value did not reach disk but
+    /// the operator's choice still stands for the session — telling them
+    /// otherwise, or telling them nothing, is how a setting silently
+    /// evaporates overnight.</para>
+    /// </summary>
+    private void RecordSmartLinkIntent(string serial, Radios.SmartLinkIntents intent, bool quiet = false)
+    {
+        bool saved = false;
+        try
+        {
+            var cfg = Radios.RadioConfig.LoadForRadio(serial);
+            cfg.SmartLinkIntent = intent;
+            saved = cfg.SaveForRadio(serial);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"RecordSmartLinkIntent({serial}): {ex.Message}", TraceLevel.Error);
+        }
+
+        Tracing.TraceLine(
+            $"RecordSmartLinkIntent: {serial} -> {intent}, saved={saved}", TraceLevel.Info);
+
+        if (quiet) return;
+
+        string where =
+            "You can change this any time in Settings, on the Radios tab, under Reaching this radio.";
+        if (intent == Radios.SmartLinkIntents.LocalOnly)
+        {
+            Dialogs.AdvisoryDialog.Show(
+                saved ? "This radio is now local only" : "Local only, but it may not stick",
+                saved
+                    ? "Noted. Nothing about registering this radio with SmartLink will come up "
+                      + "again, on this run or any other.\n\n" + where
+                    : "Your choice is in effect for this session, but it could not be written to "
+                      + "disk, so it may not survive a restart. Your settings folder may be "
+                      + "locked or full; the trace file has the details.\n\n" + where);
+        }
+    }
+
+    /// <summary>
     /// Unwire event handlers when closing the radio.
     /// Called by VB-side CloseTheRadio().
     /// </summary>
@@ -1701,6 +2066,11 @@ public partial class MainWindow : UserControl
         FreqOut.Clear();
         _comboControls.Clear();
         _enableDisableControls.Clear();
+
+        // Forget the licence-gating verdict with the radio it described. The
+        // next radio may be a different model on a different subscription, and
+        // a stale signature would suppress the rebuild that tells the menus so.
+        _featureGateSignature = null;
 
         StatusText.Text = "Ready — no radio connected";
 
@@ -1736,7 +2106,11 @@ public partial class MainWindow : UserControl
             // changes — without this, focus that was inside FieldsPanel when
             // it Collapses gets routed by WPF to whatever the next visible
             // focusable element happens to be, which is screen-reader hostile.
-            FreqOut.FocusDisplay();
+            //
+            // Through FocusHome so this stays correct if the mid-session
+            // radio-lost case ever adopts the rescue page (Sprint 30 Track A
+            // deliberately scoped that OUT; today this is always FreqOut).
+            FocusHome();
         }
         catch (System.Exception ex)
         {
@@ -2376,6 +2750,38 @@ public partial class MainWindow : UserControl
         });
     }
 
+    /// <summary>
+    /// The last licence-gating verdict this window acted on, so an event that
+    /// changes nothing an operator can perceive costs nothing.
+    ///
+    /// <para>FlexLib raises FeatureLicenseChanged for EVERY property change on
+    /// the licence object, and the whole object is re-hooked on each radio
+    /// connect — so the event is far chattier than the handful of verdicts it
+    /// can actually move. Rebuilding the native menu bar on each one would
+    /// churn a Win32 HMENU that a screen reader may be reading at the time.
+    /// Null means no verdict has been recorded yet.</para>
+    /// </summary>
+    private string? _featureGateSignature;
+
+    /// <summary>
+    /// The licence-gated features changed their minds, so the surfaces that
+    /// gate on them get rebuilt.
+    ///
+    /// <para>This was a stub that only traced, with a comment promising a
+    /// "full implementation when WPF menus support advanced feature gating".
+    /// The menus have gated on licence state for a long time; what was missing
+    /// was anything to tell them the state had MOVED. So a subscription that
+    /// arrived seconds after connect — the ordinary case, since the radio
+    /// sends its feature list asynchronously — left the menu frozen at
+    /// whatever it decided during connect, and the operator's diversity or
+    /// advanced-NR entry stayed "unavailable" for a feature they had paid
+    /// for until the next reconnect.</para>
+    ///
+    /// <para>Deliberately silent. A licence verdict moving is a change to what
+    /// the menus offer, not an event the operator asked about, and it lands
+    /// during the connect storm where announcements are most damaging. The
+    /// Feature Availability tab is where the reasons are read on demand.</para>
+    /// </summary>
     private void FeatureLicenseChangedHandler(object? sender, EventArgs e)
     {
         if (!Dispatcher.CheckAccess())
@@ -2384,9 +2790,68 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        // Menu updates for Diversity/ESC availability
-        // Full implementation when WPF menus support advanced feature gating
-        Tracing.TraceLine("FeatureLicenseChanged", TraceLevel.Info);
+        var rig = RigControl;
+        if (rig == null)
+        {
+            _featureGateSignature = null;
+            return;
+        }
+
+        string signature;
+        try
+        {
+            // Every input a licence-gated menu decision reads. Hardware facts
+            // are in it too: they cannot change under a live radio, but they
+            // CAN differ from the last radio this window was connected to, and
+            // the menus must not inherit the previous rig's verdict.
+            signature = string.Join("|",
+                rig.DiversityHardwareSupported,
+                rig.DiversityReady,
+                rig.DiversityGateMessage,
+                rig.NeuralNRHardwareSupported,
+                rig.NoiseReductionLicenseReported,
+                rig.NoiseReductionLicensed);
+        }
+        catch (Exception ex)
+        {
+            // Reading gate state must never break the connection. Treat an
+            // unreadable verdict as "unchanged" — the menus keep what they
+            // have, which is the last state we could actually vouch for.
+            Tracing.TraceLine(
+                $"FeatureLicenseChanged: could not read gate state: {ex.Message}",
+                TraceLevel.Warning);
+            return;
+        }
+
+        if (signature == _featureGateSignature)
+        {
+            Tracing.TraceLine("FeatureLicenseChanged: no gating change", TraceLevel.Verbose);
+            return;
+        }
+
+        if (_featureGateSignature == null)
+        {
+            // First verdict for this radio. Traced in full and named as the
+            // open question it answers: does FeatureLicense populate at all on
+            // a purely LOCAL connect with no SmartLink account? Nothing in the
+            // code can settle that — the radio decides — so the trace from one
+            // local session does. Read it as: reported=False through an entire
+            // local session means it never populated, and every "unsubscribed"
+            // verdict in this app must therefore stay a "we were not told".
+            Tracing.TraceLine(
+                "FeatureLicenseChanged: first licence verdict for this radio — "
+                + $"connection={(RigControl?.RemoteRig == true ? "SmartLink" : "local")}, "
+                + $"nrLicenceReported={rig.NoiseReductionLicenseReported}, "
+                + $"nrLicenceEnabled={rig.NoiseReductionLicensed}, "
+                + $"diversityGate='{rig.DiversityGateMessage}'",
+                TraceLevel.Info);
+        }
+
+        Tracing.TraceLine(
+            $"FeatureLicenseChanged: gating moved to {signature} — rebuilding menus",
+            TraceLevel.Info);
+        _featureGateSignature = signature;
+        SetupOperationsMenu();
     }
 
     private void TransmitChangeHandler(object sender, bool transmit)
@@ -4302,7 +4767,7 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void gotoHome()
     {
-        FreqOut.FocusDisplay();
+        FocusHome();
     }
 
     /// <summary>

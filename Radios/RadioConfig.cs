@@ -109,6 +109,33 @@ namespace Radios
     }
 
     /// <summary>
+    /// Whether this radio is meant to be reachable from away (Sprint 30
+    /// Track A). An APP-side setting: nothing is written to the radio and
+    /// nothing is asked of SmartLink — it records what the OPERATOR intends
+    /// for this radio, which is the only place that answer exists.
+    ///
+    /// <para>It exists because a local connect used to produce a registration
+    /// complaint. Not registering is a perfectly good answer for a radio that
+    /// lives in the same room as the operator, and an app that keeps asking is
+    /// treating a valid choice as an unfinished task. Numeric values are
+    /// stable for saved configs.</para>
+    /// </summary>
+    public enum SmartLinkIntents
+    {
+        /// <summary>No answer yet. The default, and the only value that lets
+        /// the offer appear.</summary>
+        Undecided = 0,
+
+        /// <summary>"I only use this radio on my own network." Registration
+        /// advisories stay quiet for this radio, permanently.</summary>
+        LocalOnly = 1,
+
+        /// <summary>"I want to reach this radio from away." Registration help
+        /// stays on, because now it is help rather than nagging.</summary>
+        WantsSmartLink = 2,
+    }
+
+    /// <summary>
     /// How the Audio Check handles transmit power (Workshop Track,
     /// 2026-08-11). Numeric values are stable for saved configs.
     /// </summary>
@@ -257,6 +284,20 @@ namespace Radios
         /// </summary>
         public RemOnOnConnectModes RemOnOnConnect { get; set; }
             = RemOnOnConnectModes.LeaveAlone;
+
+        /// <summary>
+        /// Whether the operator wants this radio reachable from away (Sprint
+        /// 30 Track A). App-side and per-radio: one operator can have a shack
+        /// rig they will never register and a remote-base rig they must.
+        ///
+        /// <para>Default Undecided, so a config written before this shipped
+        /// behaves exactly as it did — the offer appears once and the answer
+        /// sticks from then on. LocalOnly is a real answer, not a deferral:
+        /// nothing about SmartLink registration is raised for this radio
+        /// again, on any connect, on any run.</para>
+        /// </summary>
+        public SmartLinkIntents SmartLinkIntent { get; set; }
+            = SmartLinkIntents.Undecided;
 
         // ---------------------------------------------------------------
         // Roster display metadata (queue-burn Track E, 2026-08-07).
@@ -526,6 +567,21 @@ namespace Radios
                 $"RadioConfig.SaveForRadio: {radioId} failed twice — the setting is "
                 + "live for this session but will not survive a restart.",
                 System.Diagnostics.TraceLevel.Error);
+
+            // Offer the operator the evidence, here rather than at the call
+            // sites. This is the same reasoning that put the retry here in the
+            // first place (#77): every caller shares the failure, so every
+            // caller would otherwise have to remember to report it, and the one
+            // that forgets is the one that fails silently.
+            //
+            // Deliberately kind-level rather than per-setting: DiagnosticOffer
+            // shows at most one offer per kind per session, so a settings pass
+            // that fails on six fields asks once, not six times.
+            OperationFailure.Report(
+                FailureKind.SettingNotSaved,
+                "A radio setting could not be saved",
+                "The change is in effect right now, but it will not be there the "
+                + "next time you start JJ Flex.");
             return false;
         }
 

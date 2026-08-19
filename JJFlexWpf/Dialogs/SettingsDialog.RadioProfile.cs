@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -47,6 +47,7 @@ namespace JJFlexWpf.Dialogs
             public bool NoPhysicalAccess;
             public bool NoPhysicalAccessTouched;
             public RemOnOnConnectModes RemOn;
+            public SmartLinkIntents SmartLinkIntent;
             public string NicknameText = "";
             /// <summary>What the nickname box was loaded with, so "dirty" means
             /// "the user changed it", not "the stored mirror disagrees with the
@@ -186,6 +187,8 @@ namespace JJFlexWpf.Dialogs
                 NoPhysicalAccess = RadioProfileNoPhysicalAccessCheck.IsChecked == true,
                 NoPhysicalAccessTouched = _currentProfileNoPhysTouched,
                 RemOn = (RemOnOnConnectModes)Math.Max(0, RadioProfileRemOnCombo.SelectedIndex),
+                SmartLinkIntent =
+                    (SmartLinkIntents)Math.Max(0, RadioProfileSmartLinkIntentCombo.SelectedIndex),
                 NicknameText = RadioProfileNicknameBox.Text?.Trim() ?? "",
                 LoadedNickname = _currentProfileLoadedNickname,
             };
@@ -210,6 +213,8 @@ namespace JJFlexWpf.Dialogs
                 RadioProfileAllowRemotePortCheck.IsChecked = stashed?.AllowRemotePort ?? cfg.AllowRemotePortChanges;
                 RadioProfileAllowRemoteFirmwareCheck.IsChecked = stashed?.AllowRemoteFirmware ?? cfg.AllowRemoteFirmwareUpdates;
                 RadioProfileRemOnCombo.SelectedIndex = (int)(stashed?.RemOn ?? cfg.RemOnOnConnect);
+                RadioProfileSmartLinkIntentCombo.SelectedIndex =
+                    (int)(stashed?.SmartLinkIntent ?? cfg.SmartLinkIntent);
 
                 // No-physical-access: an explicit choice loads as saved (or as
                 // stashed). Before any explicit choice, pre-populate from the
@@ -301,7 +306,16 @@ namespace JJFlexWpf.Dialogs
                 RemOnOnConnectModes.TurnOff => " REM ON turns off at connect.",
                 _ => "",
             };
-            return $"Profile: {mode}{port}.{waivers}{reach}{remOn}";
+            // Only the decided states speak. Undecided is the default on every
+            // radio nobody has answered for, and reciting "not answered yet"
+            // on each one would bury the radios that HAVE an answer.
+            string smartLink = cfg.SmartLinkIntent switch
+            {
+                SmartLinkIntents.LocalOnly => " Local only, no SmartLink prompts.",
+                SmartLinkIntents.WantsSmartLink => " Meant to be reachable from away.",
+                _ => "",
+            };
+            return $"Profile: {mode}{port}.{waivers}{reach}{remOn}{smartLink}";
         }
 
         private void RadioProfileMode_Checked(object sender, RoutedEventArgs e)
@@ -361,6 +375,27 @@ namespace JJFlexWpf.Dialogs
                 (int)RemOnOnConnectModes.TurnOff =>
                     "REM ON will be turned off when you connect.",
                 _ => "REM ON left as the radio has it.",
+            };
+            ScreenReaderOutput.Speak(what + " Press Apply or OK to keep it.",
+                VerbosityLevel.Terse, interrupt: true);
+        }
+
+        /// <summary>
+        /// The local-only answer, edited after the fact (Sprint 30 Track A).
+        /// A connect offers this question once; this is where the answer lives
+        /// afterwards, and where it can be taken back.
+        /// </summary>
+        private void RadioProfileSmartLinkIntentCombo_SelectionChanged(
+            object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressRadioProfileEvents) return;
+            string what = RadioProfileSmartLinkIntentCombo.SelectedIndex switch
+            {
+                (int)SmartLinkIntents.LocalOnly =>
+                    "Local only. Registering this radio with SmartLink will not be raised again.",
+                (int)SmartLinkIntents.WantsSmartLink =>
+                    "Meant to be reachable from away. Registration reminders stay on for this radio.",
+                _ => "You will be asked about reaching this radio from away when it next comes up.",
             };
             ScreenReaderOutput.Speak(what + " Press Apply or OK to keep it.",
                 VerbosityLevel.Terse, interrupt: true);
@@ -723,6 +758,21 @@ namespace JJFlexWpf.Dialogs
                     notesApplied.Add(edit.NoPhysicalAccess
                         ? $"{disp}: marked as operated remotely, no physical access."
                         : $"{disp}: marked as reachable in person.");
+                }
+
+                if (cfg.SmartLinkIntent != edit.SmartLinkIntent)
+                {
+                    cfg.SmartLinkIntent = edit.SmartLinkIntent;
+                    changed = true;
+                    notesApplied.Add(edit.SmartLinkIntent switch
+                    {
+                        SmartLinkIntents.LocalOnly =>
+                            $"{disp}: marked local only. Nothing about registering it with "
+                            + "SmartLink will come up again.",
+                        SmartLinkIntents.WantsSmartLink =>
+                            $"{disp}: marked as one you want to reach from away.",
+                        _ => $"{disp}: you will be asked about reaching it from away again.",
+                    });
                 }
 
                 if (cfg.RemOnOnConnect != edit.RemOn)

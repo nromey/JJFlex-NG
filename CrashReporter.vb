@@ -86,6 +86,27 @@ Module CrashReporter
     Private Const CrashFolderMaxBytes As Long = 2L * 1024 * 1024 * 1024
 
     ''' <summary>
+    ''' A crash report that has never been sent AND never been dismissed is not
+    ''' deleted by age or by the folder cap — the whole value of the crash
+    ''' reporter is having the dump when support asks for it, and a retention
+    ''' policy that eats the evidence defeats the feature it is protecting.
+    '''
+    ''' This is the one backstop on that rule: a report nobody acted on in three
+    ''' months is not something anyone is waiting for, and without SOME ceiling
+    ''' a machine whose upload prompt keeps failing grows without bound. When it
+    ''' fires it says so by name in the log, because deleting unresolved
+    ''' evidence should never happen quietly.
+    ''' </summary>
+    Private Const UnresolvedCrashGraceDays As Integer = 90
+
+    ''' <summary>
+    ''' Suffix of the sidecar that records what the operator decided about a
+    ''' bundle: "sent" or "dismissed". Its absence means "no verdict yet", which
+    ''' is the state <see cref="PruneCrashReports"/> protects.
+    ''' </summary>
+    Private Const VerdictSuffix As String = ".verdict"
+
+    ''' <summary>
     ''' Reused HttpClient for crash bundle uploads. Static-style instance per
     ''' the .NET HttpClient guidance — repeated New HttpClient() risks socket
     ''' exhaustion. One per Module is fine here since uploads are infrequent
@@ -375,46 +396,235 @@ Module CrashReporter
         End Try
     End Sub
 
+    ''' <summary>The folder crash artifacts live in.</summary>
+    Friend ReadOnly Property CrashReportDir As String
+        Get
+            Return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "JJFlexRadio", "Errors")
+        End Get
+    End Property
+
     ''' <summary>
-    ''' Retention for %AppData%\JJFlexRadio\Errors: delete crash artifacts older
-    ''' than CrashRetentionDays, and keep the folder under CrashFolderMaxBytes
-    ''' newest-first. The trace archive has pruned itself since Sprint 29; error
-    ''' dumps never did. Called at boot (TraceArchiveBootMaintenance) and after
-    ''' each SaveCrash. Never throws.
+    ''' Record what the operator decided about a bundle, so retention can tell
+    ''' "evidence support may still ask for" apart from "a copy of something
+    ''' already delivered". Best-effort: a missing sidecar simply means the
+    ''' bundle stays protected, which is the safe direction to fail in.
+    ''' </summary>
+    Private Sub RecordCrashVerdict(zipPath As String, verdict As String)
+        Try
+            If String.IsNullOrEmpty(zipPath) Then Return
+            File.WriteAllText(zipPath & VerdictSuffix,
+                $"{verdict} {DateTime.Now:yyyy-MM-dd HH:mm:ss zzz}{Environment.NewLine}")
+        Catch
+            ' Not recording a verdict costs disk space, never evidence.
+        End Try
+    End Sub
+
+    ''' <summary>True when the operator has sent or dismissed this bundle.</summary>
+    Private Function HasCrashVerdict(zipPath As String) As Boolean
+        Try
+            Return File.Exists(zipPath & VerdictSuffix)
+        Catch
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Retention for %AppData%\JJFlexRadio\Errors.
+    '''
+    ''' The design tension here must NOT be resolved by pruning hard: the crash
+    ''' reporter's entire value is having the dump when support asks for it, and
+    ''' a full-memory dump cannot be recreated after the fact. So the rule is
+    ''' "keep the most recent N, and never delete one the operator has not
+    ''' either sent or explicitly dismissed" — the same shape
+    ''' backup-claude-state-to-nas.ps1 uses with keep-last-12.
+    '''
+    ''' In order:
+    '''   1. the newest N bundles are kept unconditionally (N from
+    '''      DiagnosticsConfig.KeepCrashReports, default 3);
+    '''   2. beyond N, a bundle is removed only once it is past the age window
+    '''      or the folder cap AND the operator has recorded a verdict on it;
+    '''   3. an unresolved bundle survives all of that until it passes
+    '''      UnresolvedCrashGraceDays, and its removal is logged by name.
+    '''
+    ''' Loose .txt and .dmp files from older builds (before SaveCrash started
+    ''' deleting them after zipping) get the plain age sweep — the zip beside
+    ''' them holds the same content.
+    '''
+    ''' Called at boot (TraceArchiveBootMaintenance) and after each SaveCrash.
+    ''' Never throws.
     ''' </summary>
     Friend Sub PruneCrashReports()
         Try
-            Dim baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio", "Errors")
+            Dim baseDir = CrashReportDir
             If Not Directory.Exists(baseDir) Then Return
 
-            Dim files = Directory.GetFiles(baseDir, "JJFlexError-*") _
+            Dim keepNewest As Integer = 3
+            Try
+                keepNewest = Math.Max(1, DiagnosticsSettings.KeepCrashReports)
+            Catch
+                ' DiagnosticsSettings is populated in GetConfigInfo; a crash
+                ' before that still gets the sane default.
+            End Try
+
+            Dim removed As Integer = 0
+            Dim reclaimed As Long = 0
+            Dim cutoffUtc = DateTime.UtcNow.AddDays(-CrashRetentionDays)
+            Dim unresolvedCutoffUtc = DateTime.UtcNow.AddDays(-UnresolvedCrashGraceDays)
+
+            ' --- Bundles: the artifacts worth protecting. ---
+            Dim bundles = Directory.GetFiles(baseDir, "JJFlexError-*.zip") _
                 .Select(Function(p) New FileInfo(p)) _
                 .OrderByDescending(Function(fi) fi.LastWriteTimeUtc) _
                 .ToList()
 
-            Dim cutoffUtc = DateTime.UtcNow.AddDays(-CrashRetentionDays)
+            Dim index As Integer = 0
             Dim keptBytes As Long = 0
-            Dim removed As Integer = 0
-            For Each fi In files
-                If fi.LastWriteTimeUtc < cutoffUtc OrElse keptBytes + fi.Length > CrashFolderMaxBytes Then
+            For Each fi In bundles
+                index += 1
+                Dim resolved As Boolean = HasCrashVerdict(fi.FullName)
+                Dim overCap As Boolean = (keptBytes + fi.Length) > CrashFolderMaxBytes
+                Dim tooOld As Boolean = fi.LastWriteTimeUtc < cutoffUtc
+
+                Dim remove As Boolean = False
+                Dim why As String = ""
+                If index <= keepNewest Then
+                    ' Rule 1 — the recent ones stay no matter what.
+                    remove = False
+                ElseIf resolved AndAlso (tooOld OrElse overCap) Then
+                    remove = True
+                    why = If(tooOld, "past the age window", "over the folder cap")
+                ElseIf Not resolved AndAlso fi.LastWriteTimeUtc < unresolvedCutoffUtc Then
+                    remove = True
+                    why = $"never sent and never dismissed, and older than {UnresolvedCrashGraceDays} days"
+                End If
+
+                If remove Then
+                    Dim len As Long = fi.Length
                     Try
                         fi.Delete()
+                        Try
+                            If File.Exists(fi.FullName & VerdictSuffix) Then File.Delete(fi.FullName & VerdictSuffix)
+                        Catch
+                        End Try
                         removed += 1
+                        reclaimed += len
+                        If Not resolved Then
+                            ' Deleting unresolved evidence must never be quiet.
+                            Tracing.TraceLine(
+                                $"PruneCrashReports: removed UNRESOLVED crash report {fi.Name} ({why})",
+                                TraceLevel.Warning)
+                        End If
                     Catch
                         ' A locked or unreadable file just stays; the next prune retries.
+                        keptBytes += len
                     End Try
                 Else
                     keptBytes += fi.Length
                 End If
             Next
 
+            ' --- Loose leftovers from older builds: plain age sweep. ---
+            For Each path As String In Directory.GetFiles(baseDir, "JJFlexError-*")
+                If path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) Then Continue For
+                If path.EndsWith(VerdictSuffix, StringComparison.OrdinalIgnoreCase) Then Continue For
+                Try
+                    Dim fi As New FileInfo(path)
+                    If fi.LastWriteTimeUtc < cutoffUtc Then
+                        Dim len As Long = fi.Length
+                        fi.Delete()
+                        removed += 1
+                        reclaimed += len
+                    End If
+                Catch
+                End Try
+            Next
+
+            ' --- Orphan verdict sidecars whose bundle is gone. ---
+            For Each path As String In Directory.GetFiles(baseDir, "*" & VerdictSuffix)
+                Try
+                    Dim owner As String = path.Substring(0, path.Length - VerdictSuffix.Length)
+                    If Not File.Exists(owner) Then File.Delete(path)
+                Catch
+                End Try
+            Next
+
             If removed > 0 Then
-                Tracing.TraceLine($"PruneCrashReports: removed {removed} crash file(s), kept {keptBytes \ (1024 * 1024)} MB", TraceLevel.Info)
+                Tracing.TraceLine(
+                    $"PruneCrashReports: removed {removed} crash file(s), reclaimed {reclaimed \ (1024 * 1024)} MB, kept {keptBytes \ (1024 * 1024)} MB in {Math.Min(bundles.Count, keepNewest)}+ bundle(s)",
+                    TraceLevel.Info)
             End If
         Catch
             ' Housekeeping must never take the app down.
         End Try
     End Sub
+
+    ''' <summary>
+    ''' How many crash reports are on this machine and how many of them the
+    ''' operator has never acted on. The Diagnostics surface says this out loud,
+    ''' because nothing in the app has ever mentioned that these files exist.
+    ''' </summary>
+    Friend Function DescribeCrashReports() As String
+        Try
+            Dim baseDir = CrashReportDir
+            If Not Directory.Exists(baseDir) Then Return "No crash reports are saved on this computer."
+
+            Dim bundles = Directory.GetFiles(baseDir, "JJFlexError-*.zip")
+            If bundles.Length = 0 Then Return "No crash reports are saved on this computer."
+
+            Dim unresolved As Integer = 0
+            Dim total As Long = 0
+            For Each p As String In bundles
+                If Not HasCrashVerdict(p) Then unresolved += 1
+                Try : total += New FileInfo(p).Length : Catch : End Try
+            Next
+
+            Dim keepNewest As Integer = 3
+            Try : keepNewest = Math.Max(1, DiagnosticsSettings.KeepCrashReports) : Catch : End Try
+
+            Dim sizeText As String = DescribeBytes(total)
+            Dim head As String = $"{bundles.Length} crash {If(bundles.Length = 1, "report", "reports")} saved, about {sizeText}."
+            Dim tail As String =
+                $" The newest {keepNewest} are always kept, and a report you have never sent or dismissed is never removed automatically."
+            If unresolved > 0 Then
+                tail = $" {unresolved} {If(unresolved = 1, "has", "have")} not been sent or dismissed, so {If(unresolved = 1, "it is", "they are")} being kept for you." & tail
+            End If
+            Return head & tail
+        Catch
+            Return "The crash reports on this computer could not be counted."
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Remove every crash report the operator has already sent or dismissed.
+    ''' The manual counterpart to the automatic policy: an operator who has
+    ''' just sent a 500 MB bundle should be able to get the disk space back
+    ''' without waiting thirty days. Returns (filesRemoved, bytesFreed).
+    ''' </summary>
+    Friend Function DeleteResolvedCrashReports() As (Files As Integer, Bytes As Long)
+        Dim files As Integer = 0
+        Dim bytes As Long = 0
+        Try
+            Dim baseDir = CrashReportDir
+            If Not Directory.Exists(baseDir) Then Return (0, 0)
+            For Each p As String In Directory.GetFiles(baseDir, "JJFlexError-*.zip")
+                If Not HasCrashVerdict(p) Then Continue For
+                Try
+                    Dim len As Long = New FileInfo(p).Length
+                    File.Delete(p)
+                    Try : File.Delete(p & VerdictSuffix) : Catch : End Try
+                    files += 1
+                    bytes += len
+                Catch
+                End Try
+            Next
+            Tracing.TraceLine(
+                $"DeleteResolvedCrashReports: removed {files} report(s), {bytes} bytes", TraceLevel.Info)
+        Catch
+        End Try
+        Return (files, bytes)
+    End Function
 
     ''' <summary>
     ''' Returns the file paths of the most recent N trace archives, ordered
@@ -530,6 +740,11 @@ Module CrashReporter
                 Dim _ignored = UploadCrashBundleAsync(uploadPath, reduced, zipPath) _
                     .ContinueWith(Sub(t) DiscardUploadCopy(uploadPath, zipPath))
             Else
+                ' An explicit "no" is a verdict: the operator has decided about
+                ' this report, so retention may eventually reclaim it. Saying no
+                ' to sending is not the same as saying it may be deleted today —
+                ' the newest-N floor still protects it.
+                RecordCrashVerdict(zipPath, "dismissed")
                 Radios.ScreenReaderOutput.Speak(
                     "Crash report kept local. Not uploaded.",
                     Radios.VerbosityLevel.Critical, True)
@@ -742,6 +957,10 @@ Module CrashReporter
 
                         Using response As HttpResponseMessage = Await SharedHttpClient.PostAsync(CrashEndpoint, form)
                             If response.IsSuccessStatusCode Then
+                                ' It reached the receiver. From here on the local
+                                ' copy is a convenience, not the only copy, so
+                                ' retention is allowed to reclaim it eventually.
+                                RecordCrashVerdict(localBundlePath, "sent")
                                 If reduced Then
                                     ' The report DID get through — say so first.
                                     ' The dump staying behind is a detail, not a
