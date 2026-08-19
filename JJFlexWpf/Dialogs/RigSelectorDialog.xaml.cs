@@ -63,27 +63,35 @@ namespace JJFlexWpf.Dialogs
         public List<Radios.ConnectPathKind> PathChain { get; set; } = new();
 
         /// <summary>
-        /// The chain a connect actually walks: the operator's stored chain
-        /// when one exists, otherwise a derived default — local first when
-        /// the radio's story is local (the historical behaviour, now an
-        /// explicit default), SmartLink first when its story is remote.
-        /// The derived chain always carries both paths, which is what makes
-        /// automatic fallback ordinary list-walking instead of special-case
-        /// logic. Only an operator-stored one-entry chain means "this path
-        /// only".
+        /// What this radio's connection history suggests, or null when it
+        /// suggests nothing (task #79). Filled in once per row from
+        /// <see cref="Radios.ConnectPathPolicy.LearnForRadio"/> — read from
+        /// disk when the row is built, never per list refresh.
+        ///
+        /// <para>A PREFILL and nothing more. <see cref="EffectiveChain"/>
+        /// consults it only when <see cref="PathChain"/> is empty, so a stored
+        /// explicit choice is never influenced, reordered or overwritten by
+        /// it. That precedence is enforced in one place, and tested there:
+        /// see ConnectPathPolicy.Resolve.</para>
         /// </summary>
-        public List<Radios.ConnectPathKind> EffectiveChain
-        {
-            get
-            {
-                if (PathChain != null && PathChain.Count > 0)
-                    return PathChain;
-                bool remoteStory = WanAvailable ? !LanAvailable : (!LanAvailable && LastSeenRemote);
-                return remoteStory
-                    ? new List<Radios.ConnectPathKind> { Radios.ConnectPathKind.SmartLink, Radios.ConnectPathKind.Local }
-                    : new List<Radios.ConnectPathKind> { Radios.ConnectPathKind.Local, Radios.ConnectPathKind.SmartLink };
-            }
-        }
+        public Radios.ConnectPathKind? LearnedPath { get; set; }
+
+        /// <summary>True when the chain this row would walk was ordered by the
+        /// learned trend rather than by a stored choice or the plain default.
+        /// Drives the "learned" wording on the path affordance — a prefill the
+        /// operator cannot see is a prefill they cannot disagree with.</summary>
+        public bool ChainIsLearned =>
+            (PathChain == null || PathChain.Count == 0) && LearnedPath.HasValue;
+
+        /// <summary>
+        /// The chain a connect actually walks. The precedence — stored choice,
+        /// then learned trend, then derived default — lives in
+        /// <see cref="Radios.ConnectPathPolicy.Resolve"/> so it is testable
+        /// away from WPF; this property is only the row's view of it.
+        /// </summary>
+        public List<Radios.ConnectPathKind> EffectiveChain =>
+            Radios.ConnectPathPolicy.Resolve(
+                PathChain, LearnedPath, LanAvailable, WanAvailable, LastSeenRemote);
 
         /// <summary>
         /// The path a connect would take right now: the first chain entry
@@ -710,11 +718,27 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
+            // Ask the history what it suggests for each known radio BEFORE
+            // taking _radiosLock: this reads one JSON file per radio, and
+            // file IO under the list lock is what the discovery path is
+            // careful to avoid. Memoized, so a re-paint costs nothing.
+            var learnedBySerial = new Dictionary<string, ConnectPathKind?>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var k in known)
+            {
+                if (!string.IsNullOrWhiteSpace(k.Serial))
+                    learnedBySerial[k.Serial] = LearnedPathFor(k.Serial);
+            }
+
             bool changed = false;
             lock (_radiosLock)
             {
                 foreach (var k in known)
                 {
+                    ConnectPathKind? learned = null;
+                    if (!string.IsNullOrWhiteSpace(k.Serial))
+                        learnedBySerial.TryGetValue(k.Serial, out learned);
+
                     var existing = _radiosList.FirstOrDefault(
                         r => string.Equals(r.Serial, k.Serial, StringComparison.OrdinalIgnoreCase));
                     bool foreign = !string.IsNullOrWhiteSpace(k.ResolvedAccount)
@@ -732,6 +756,7 @@ namespace JJFlexWpf.Dialogs
                         existing.IsFavorite = k.IsFavorite;
                         existing.PreferredAccount = k.PreferredAccount;
                         existing.PathChain = k.PathChain ?? new List<ConnectPathKind>();
+                        existing.LearnedPath = learned;
                         existing.ForeignAccount = foreign;
                         changed = true;
                         continue;
@@ -745,6 +770,7 @@ namespace JJFlexWpf.Dialogs
                         ModelName = k.Model,
                         IsFavorite = k.IsFavorite,
                         PathChain = k.PathChain ?? new List<ConnectPathKind>(),
+                        LearnedPath = learned,
                         LastSeenRemote = k.LastSeenRemote,
                         LastSeenText = KnownRadioRoster.DescribeAge(k.LastSeenUtc),
                         LastSeenViaAccount = k.LastSeenViaAccount,
@@ -891,6 +917,37 @@ namespace JJFlexWpf.Dialogs
         }
 
         // ------------------------------------------------------------------
+        // Learned connection path (task #79)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Learned-path answers already worked out this picker session, keyed
+        /// by serial. A LAN radio re-announces itself about once a second, so
+        /// without a memo the trend lookup would re-read a JSON file per radio
+        /// per packet — and read it on the discovery thread at that.
+        ///
+        /// <para>Caching for the life of the dialog is safe because the input
+        /// only changes when a connect is recorded, and a connect closes this
+        /// dialog.</para>
+        /// </summary>
+        private readonly Dictionary<string, ConnectPathKind?> _learnedPaths
+            = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>What this radio's connection history suggests, memoized.
+        /// Null for an unknown serial, an unreadable store, or no trend.</summary>
+        private ConnectPathKind? LearnedPathFor(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return null;
+            lock (_learnedPaths)
+            {
+                if (_learnedPaths.TryGetValue(serial, out var cached)) return cached;
+            }
+            var learned = ConnectPathPolicy.LearnForRadio(serial);
+            lock (_learnedPaths) { _learnedPaths[serial] = learned; }
+            return learned;
+        }
+
+        // ------------------------------------------------------------------
         // Discovery
         // ------------------------------------------------------------------
 
@@ -902,6 +959,11 @@ namespace JJFlexWpf.Dialogs
                 radio.AutoConnect = _callbacks.AutoConnectDesired;
                 radio.LowBW = _callbacks.AutoConnectLowBW;
             }
+
+            // Ask the history what it suggests BEFORE taking _radiosLock. This
+            // runs on the discovery thread; the memo makes it one file read per
+            // radio per session, and the lock stays free of IO either way.
+            radio.LearnedPath = LearnedPathFor(radio.Serial);
 
             _anyLiveRadioSeen = true;
 
@@ -932,6 +994,7 @@ namespace JJFlexWpf.Dialogs
                     row.LowBW = radio.LowBW;
                     row.FromAccountCache = false;
                     row.RefreshInFlight = false;
+                    row.LearnedPath = radio.LearnedPath;
                     // Note what is deliberately NOT touched: UserLabel,
                     // IsFavorite, PreferredAccount, PathChain — the
                     // operator-owned facts a discovery event knows nothing
@@ -1564,9 +1627,13 @@ namespace JJFlexWpf.Dialogs
         private string PathKey()
         {
             var r = GetSelectedRadio();
+            // The learned value is part of the key because it changes the
+            // automatic option's WORDING. Leaving it out meant a row whose
+            // trend arrived after the combo was first built kept saying plain
+            // "Automatic" while walking the learned order.
             return r == null
                 ? "<none>"
-                : $"{r.Serial}|{string.Join(",", r.PathChain)}";
+                : $"{r.Serial}|{string.Join(",", r.PathChain)}|{r.LearnedPath}";
         }
 
         private string _pathAffordanceKey = "";
@@ -1600,7 +1667,18 @@ namespace JJFlexWpf.Dialogs
                     return;
                 }
 
-                PathCombo.Items.Add(PathAutomatic);
+                // Task #79: when the trend has prefilled the order, the
+                // automatic option SAYS SO. A prefill the operator cannot
+                // perceive is a prefill they cannot disagree with, which is
+                // how a learned value quietly becomes a decision nobody made.
+                // To reject it, pick one of the explicit orders below — those
+                // are stored choices and a stored choice always wins.
+                PathCombo.Items.Add(
+                    radio.ChainIsLearned
+                        ? (radio.LearnedPath == ConnectPathKind.SmartLink
+                            ? "Automatic, learned: SmartLink first"
+                            : "Automatic, learned: local network first")
+                        : PathAutomatic);
                 PathCombo.Items.Add(PathLocalFirst);
                 PathCombo.Items.Add(PathSmartLinkFirst);
                 PathCombo.SelectedIndex =

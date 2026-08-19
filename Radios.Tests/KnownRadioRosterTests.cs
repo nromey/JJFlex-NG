@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using Radios;
@@ -21,6 +21,7 @@ namespace Radios.Tests
     /// <see cref="KnownRadioRoster.CacheDirectory"/> are process-wide statics, so
     /// everything that touches them shares a collection and cannot race.</para>
     /// </summary>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class KnownRadioRosterTests : IDisposable
     {
         private readonly string _dir;
