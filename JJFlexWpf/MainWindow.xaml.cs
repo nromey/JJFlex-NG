@@ -1884,6 +1884,11 @@ public partial class MainWindow : UserControl
         _comboControls.Clear();
         _enableDisableControls.Clear();
 
+        // Forget the licence-gating verdict with the radio it described. The
+        // next radio may be a different model on a different subscription, and
+        // a stale signature would suppress the rebuild that tells the menus so.
+        _featureGateSignature = null;
+
         StatusText.Text = "Ready — no radio connected";
 
         // Restore the cold-start no-radio visual shell. Without this the
@@ -2562,6 +2567,38 @@ public partial class MainWindow : UserControl
         });
     }
 
+    /// <summary>
+    /// The last licence-gating verdict this window acted on, so an event that
+    /// changes nothing an operator can perceive costs nothing.
+    ///
+    /// <para>FlexLib raises FeatureLicenseChanged for EVERY property change on
+    /// the licence object, and the whole object is re-hooked on each radio
+    /// connect — so the event is far chattier than the handful of verdicts it
+    /// can actually move. Rebuilding the native menu bar on each one would
+    /// churn a Win32 HMENU that a screen reader may be reading at the time.
+    /// Null means no verdict has been recorded yet.</para>
+    /// </summary>
+    private string? _featureGateSignature;
+
+    /// <summary>
+    /// The licence-gated features changed their minds, so the surfaces that
+    /// gate on them get rebuilt.
+    ///
+    /// <para>This was a stub that only traced, with a comment promising a
+    /// "full implementation when WPF menus support advanced feature gating".
+    /// The menus have gated on licence state for a long time; what was missing
+    /// was anything to tell them the state had MOVED. So a subscription that
+    /// arrived seconds after connect — the ordinary case, since the radio
+    /// sends its feature list asynchronously — left the menu frozen at
+    /// whatever it decided during connect, and the operator's diversity or
+    /// advanced-NR entry stayed "unavailable" for a feature they had paid
+    /// for until the next reconnect.</para>
+    ///
+    /// <para>Deliberately silent. A licence verdict moving is a change to what
+    /// the menus offer, not an event the operator asked about, and it lands
+    /// during the connect storm where announcements are most damaging. The
+    /// Feature Availability tab is where the reasons are read on demand.</para>
+    /// </summary>
     private void FeatureLicenseChangedHandler(object? sender, EventArgs e)
     {
         if (!Dispatcher.CheckAccess())
@@ -2570,9 +2607,68 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        // Menu updates for Diversity/ESC availability
-        // Full implementation when WPF menus support advanced feature gating
-        Tracing.TraceLine("FeatureLicenseChanged", TraceLevel.Info);
+        var rig = RigControl;
+        if (rig == null)
+        {
+            _featureGateSignature = null;
+            return;
+        }
+
+        string signature;
+        try
+        {
+            // Every input a licence-gated menu decision reads. Hardware facts
+            // are in it too: they cannot change under a live radio, but they
+            // CAN differ from the last radio this window was connected to, and
+            // the menus must not inherit the previous rig's verdict.
+            signature = string.Join("|",
+                rig.DiversityHardwareSupported,
+                rig.DiversityReady,
+                rig.DiversityGateMessage,
+                rig.NeuralNRHardwareSupported,
+                rig.NoiseReductionLicenseReported,
+                rig.NoiseReductionLicensed);
+        }
+        catch (Exception ex)
+        {
+            // Reading gate state must never break the connection. Treat an
+            // unreadable verdict as "unchanged" — the menus keep what they
+            // have, which is the last state we could actually vouch for.
+            Tracing.TraceLine(
+                $"FeatureLicenseChanged: could not read gate state: {ex.Message}",
+                TraceLevel.Warning);
+            return;
+        }
+
+        if (signature == _featureGateSignature)
+        {
+            Tracing.TraceLine("FeatureLicenseChanged: no gating change", TraceLevel.Verbose);
+            return;
+        }
+
+        if (_featureGateSignature == null)
+        {
+            // First verdict for this radio. Traced in full and named as the
+            // open question it answers: does FeatureLicense populate at all on
+            // a purely LOCAL connect with no SmartLink account? Nothing in the
+            // code can settle that — the radio decides — so the trace from one
+            // local session does. Read it as: reported=False through an entire
+            // local session means it never populated, and every "unsubscribed"
+            // verdict in this app must therefore stay a "we were not told".
+            Tracing.TraceLine(
+                "FeatureLicenseChanged: first licence verdict for this radio — "
+                + $"connection={(RigControl?.RemoteRig == true ? "SmartLink" : "local")}, "
+                + $"nrLicenceReported={rig.NoiseReductionLicenseReported}, "
+                + $"nrLicenceEnabled={rig.NoiseReductionLicensed}, "
+                + $"diversityGate='{rig.DiversityGateMessage}'",
+                TraceLevel.Info);
+        }
+
+        Tracing.TraceLine(
+            $"FeatureLicenseChanged: gating moved to {signature} — rebuilding menus",
+            TraceLevel.Info);
+        _featureGateSignature = signature;
+        SetupOperationsMenu();
     }
 
     private void TransmitChangeHandler(object sender, bool transmit)
