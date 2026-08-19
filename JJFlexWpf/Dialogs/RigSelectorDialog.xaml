@@ -94,6 +94,18 @@
                     <MenuItem x:Name="PreferredAccountMenuItem" Header="Preferred Account"
                               AutomationProperties.Name="Preferred account for selected radio"/>
                     <Separator/>
+                    <!-- Task #98, door two of two — the other is the Delete key
+                         on the selected row, which is the one that matters most
+                         because it needs no menu hunting. Both open the same
+                         confirmation, where the SCOPE is chosen: off the list,
+                         or off the list and its settings with it. In its own
+                         group: a destructive item should not sit shoulder to
+                         shoulder with routine ones. -->
+                    <MenuItem x:Name="RemoveRadioMenuItem" Header="Remove Radio..."
+                              Click="RemoveRadioMenuItem_Click"
+                              InputGestureText="Delete"
+                              AutomationProperties.Name="Remove selected radio from the list"/>
+                    <Separator/>
                     <!-- List-scoped, needs no selection: the old Remote
                          button's list job lives here now that Connect opens
                          SmartLink by itself whenever a radio's chain asks. -->

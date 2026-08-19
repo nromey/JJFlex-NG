@@ -594,6 +594,23 @@ namespace JJFlexWpf.Dialogs
                     e.Handled = true;
                     OpenRadioContextMenuFromKeyboard();
                 }
+                // Task #98: Delete removes the selected radio. THE key, not
+                // just a menu item — the roster held five entries including two
+                // pieces of test junk, and the only way to be rid of any of
+                // them was to hand-edit AppData, which is not something a blind
+                // operator should ever be asked to do. Delete is where every
+                // list in Windows puts this, so it needs no menu hunting.
+                //
+                // Safe as a bare keypress because it opens a confirmation whose
+                // default scope deletes nothing, and because an accidental
+                // removal of a real radio is self-healing: a radio that is
+                // online gets re-discovered, settings and all.
+                else if (e.Key == System.Windows.Input.Key.Delete
+                         && GetSelectedRadio() is RadioListItem toRemove)
+                {
+                    e.Handled = true;
+                    RemoveRadio(toRemove);
+                }
             };
 
             // Shift+Tab out of the radio list, handled at the WINDOW.
@@ -1985,6 +2002,8 @@ namespace JJFlexWpf.Dialogs
             // forget. An always-enabled item that answers "there was nothing
             // learned for this radio" is an item that teaches the operator to
             // stop trusting it.
+            RemoveRadioMenuItem.IsEnabled = radio != null;
+
             bool hasLearned = radio?.LearnedPath.HasValue == true;
             ForgetLearnedPathMenuItem.IsEnabled = hasLearned;
             System.Windows.Automation.AutomationProperties.SetName(ForgetLearnedPathMenuItem,
@@ -2269,6 +2288,144 @@ namespace JJFlexWpf.Dialogs
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
             if (RadiosBox.IsKeyboardFocusWithin) FocusRadioList();
+        }
+
+        // ------------------------------------------------------------------
+        // Removing a radio (task #98)
+        // ------------------------------------------------------------------
+
+        private void RemoveRadioMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var radio = GetSelectedRadio();
+            if (radio == null)
+            {
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                RadiosBox.Focus();
+                return;
+            }
+            RemoveRadio(radio);
+        }
+
+        /// <summary>
+        /// Take a radio off the list, at a scope the operator chooses inside
+        /// the confirmation. Shared by the Delete key and the context menu —
+        /// two doors, one behaviour, by construction rather than by discipline.
+        /// </summary>
+        private void RemoveRadio(RadioListItem radio)
+        {
+            var rowName = RowName(radio);
+
+            // The radio you are USING is not removable. Deleting its settings
+            // out from under a live session would have the app writing per-radio
+            // state back to a directory it just deleted, and hiding a radio that
+            // is plainly on screen and connected is incoherent. Refuse and say
+            // what to do instead — a refusal with a route is help; a refusal
+            // without one is a wall.
+            var rig = _callbacks.GetCurrentRig?.Invoke();
+            bool connectedToThis = rig != null && rig.IsConnected
+                && (string.Equals(rig.ConnectedSerial, radio.Serial, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(rig.SelectedRadioSerial, radio.Serial, StringComparison.OrdinalIgnoreCase));
+            if (connectedToThis)
+            {
+                new MessageDialog
+                {
+                    Title = "Radio In Use",
+                    Message =
+                        $"You are connected to {rowName} right now, so it cannot be removed. "
+                        + "Disconnect from it first, then remove it.",
+                    Owner = this,
+                }.ShowDialog();
+                FocusRadioList();
+                return;
+            }
+
+            var dialog = new RemoveRadioDialog(rowName, radio.IsLive, radio.AutoConnect)
+            {
+                Owner = this,
+            };
+            if (dialog.ShowDialog() != true)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke($"{rowName} was not removed.", true);
+                FocusRadioList();
+                return;
+            }
+
+            bool deleteSettings = dialog.DeleteSettings;
+
+            // Auto-connect first, and whatever else happens. A startup that
+            // hunts for a radio the operator just removed is the app arguing
+            // with them once a day, and the roster row carrying the
+            // "[AutoConnect]" marker is about to disappear along with the only
+            // place that setting was visible.
+            if (radio.AutoConnect)
+            {
+                try
+                {
+                    _callbacks.SaveAutoConnectSettings(
+                        radio.Serial, radio.Name, radio.IsRemote, radio.LowBW, false);
+                    radio.AutoConnect = false;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine(
+                        $"RigSelector.RemoveRadio({radio.Serial}): clearing auto-connect: {ex.Message}",
+                        System.Diagnostics.TraceLevel.Warning);
+                }
+            }
+
+            bool ok = KnownRadioRoster.Remove(radio.Serial, deleteSettings);
+
+            // Drop the row whether or not the store cooperated: the operator
+            // asked, and refusing an intent because a file was locked hands our
+            // problem to them. What we owe is the truth about how long it will
+            // last, which the speech below tells them.
+            lock (_radiosLock)
+            {
+                _radiosList.RemoveAll(r =>
+                    string.Equals(r.Serial, radio.Serial, StringComparison.OrdinalIgnoreCase));
+            }
+            lock (_learnedPaths) { _learnedPaths.Remove(radio.Serial); }
+            // Let a fresh sighting re-record. That is what clears the hidden
+            // flag for a radio that turns out to still be there — without
+            // this, the once-per-session guard would suppress the very write
+            // that brings a live radio back.
+            lock (_sightingsRecorded) { _sightingsRecorded.Remove(radio.Serial); }
+            _pathAffordanceKey = "";
+            RefreshRadiosList();
+            SyncPathAffordance();
+
+            string speech;
+            if (!ok)
+            {
+                speech = $"{rowName} is off the list for now, but the change could not be written "
+                       + "to disk, so it will be back the next time you start. Your trace file has "
+                       + "the reason.";
+            }
+            else if (deleteSettings)
+            {
+                speech = $"{rowName} removed, along with everything set up for it.";
+            }
+            else if (radio.IsLive)
+            {
+                // Say it BEFORE it happens rather than letting the operator
+                // discover it. The dialog warned; this is the receipt matching
+                // the warning.
+                speech = $"{rowName} removed from the list, with its settings kept. It is reachable "
+                       + "right now, so discovery will list it again shortly.";
+            }
+            else
+            {
+                speech = $"{rowName} removed from the list. Its settings were kept, and it comes "
+                       + "back if this radio is ever seen again.";
+            }
+
+            _callbacks.ScreenReaderSpeak?.Invoke(speech, true);
+
+            // Land somewhere real. The row that had focus no longer exists, and
+            // WPF's fallback after a modal closes is the top of the tab order,
+            // which is not where the operator was.
+            if (RadiosBox.Items.Count > 0) FocusRadioList();
+            else RadiosBox.Focus();
         }
 
         private Action? _closeConnecting;
