@@ -189,29 +189,48 @@ public class MicCaptureSettings
     public float BoostDb { get; set; }
 
     /// <summary>
-    /// Noise gate settings for this microphone. Null until configured. The
-    /// gate lives HERE and not in app-wide config on purpose: a gate tuned
-    /// for a headset in a quiet room is wrong for a desk mic in a noisy one,
-    /// and actively wrong when operating someone else's radio. The gate
-    /// engine itself is transmit-conditioning work (Track I); this is its
-    /// home, waiting.
+    /// The transmit cleanup chain tuned for this microphone — PC noise
+    /// reduction and the noise gate. Null until a save has captured it from
+    /// a live chain (record-missing-as-missing, like the level and boost
+    /// above). It lives HERE and not in app-wide config on purpose: a gate
+    /// tuned for a headset in a quiet room is wrong for a desk mic in a
+    /// noisy one, and actively wrong when operating someone else's radio.
+    /// Track B 2026-08-18 (#44): this replaced a placeholder
+    /// NoiseGateSettings stub that nothing ever read or wrote, adopting the
+    /// full TxConditioningSettings payload Track I defined for exactly this
+    /// home — until now those knobs were session-only and every restart
+    /// lost them.
     /// </summary>
-    public NoiseGateSettings? Gate { get; set; }
+    public TxConditioningSettings? Conditioning { get; set; }
 }
 
 /// <summary>
-/// Noise gate parameters, per microphone. Defaults follow the plan's ratified
-/// shape: fast attack so word starts are not clipped, a hold that bridges
-/// gaps within a phrase, a bounded range rather than an infinite cut.
+/// The serializable shape of the TX conditioning knobs: PC noise reduction
+/// plus the noise gate. Carried per microphone in
+/// <see cref="MicCaptureSettings.Conditioning"/> — see the reasoning there.
+/// Defined in Radios so the profile model can hold it (Track I originally
+/// authored it in JJFlexWpf\TxAudioConditioning.cs with a note that it
+/// belongs in the microphone profile; moved here 2026-08-18, Track B, #44 —
+/// same name, same fields, new namespace). Defaults are the recommended
+/// settings; the gate's own timing defaults follow the ratified shape —
+/// fast attack so word starts are not clipped, a hold that bridges gaps
+/// within a phrase, a bounded range rather than an infinite cut.
 /// </summary>
-public class NoiseGateSettings
+public class TxConditioningSettings
 {
-    public bool Enabled { get; set; }
-    public int ThresholdDb { get; set; } = -45;
-    public int AttackMs { get; set; } = 8;      // 5–10 ms
-    public int HoldMs { get; set; } = 100;      // 50–150 ms
-    public int ReleaseMs { get; set; } = 200;   // 100–300 ms
-    public int RangeDb { get; set; } = 25;      // 20–30 dB, never infinite
+    /// <summary>Schema version for forward migration.</summary>
+    public int Version { get; set; } = 1;
+    public bool NrEnabled { get; set; }
+    public float NrStrength { get; set; } = 0.8f;
+    public bool GateEnabled { get; set; }
+    public bool AutoThreshold { get; set; } = true;
+    public float ThresholdMarginDb { get; set; } = 8f;
+    /// <summary>Only meaningful when AutoThreshold is false.</summary>
+    public float GateThresholdDb { get; set; } = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
+    public float GateAttackMs { get; set; } = 3f;
+    public float GateHoldMs { get; set; } = 150f;
+    public float GateReleaseMs { get; set; } = 200f;
+    public float GateRangeDb { get; set; } = 25f;
 }
 
 /// <summary>
