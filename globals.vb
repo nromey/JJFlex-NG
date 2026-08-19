@@ -3192,7 +3192,19 @@ RadioConnected:
     Friend Sub SelectRadio()
         Tracing.TraceLine("SelectRadio", TraceLevel.Info)
         Try
-            If RigControl IsNot Nothing Then
+            ' Sprint 30 Track A: the lead is only earned by a radio that was
+            ' actually CONNECTED. A cancelled picker leaves a live-but-unstarted
+            ' FlexBase behind (only the Abort path closes it), so this used to
+            ' hand the arriving picker "Disconnected from radio" for a radio the
+            ' operator had never reached. Harmless-looking, and a lie the
+            ' operator hears in the first sentence of the window they just
+            ' opened. Newly likely rather than newly possible: Connect is now the
+            ' first button on the rescue page, so the never-connected path is the
+            ' ORDINARY one instead of a corner of the Radio menu.
+            '
+            ' CloseTheRadio still runs either way - the stale object has to be
+            ' disposed before openTheRadio builds another one.
+            If RigControl IsNot Nothing AndAlso RigControl.IsConnected Then
                 Dim radioName = RigControl.RadioNickname
 
                 ' Do NOT speak here. Anything said at this moment is destroyed
@@ -3217,7 +3229,9 @@ RadioConnected:
                     RigControl.SuppressSpeech = True
                 Catch
                 End Try
+            End If
 
+            If RigControl IsNot Nothing Then
                 CloseTheRadio()
             End If
             openTheRadio(False)
@@ -3376,6 +3390,28 @@ RadioConnected:
         End If
 
         openTheRadio(True)
+
+        ' Sprint 30 Track A — the arriving window carries the state.
+        '
+        ' Startup finished with no radio, so Home is about to be the rescue
+        ' page. A screen reader FLUSHES its speech queue on every window
+        ' change, and the whole connect flow is window changes, so an
+        ' utterance made here would never survive to be heard. What DOES
+        ' survive is the title of the window that arrives, which is read on
+        ' arrival by definition. Set it once, here, where the title already
+        ' lives; a successful connect replaces the whole title through
+        ' MainWindow.UpdateTitleBar, so this can never go stale.
+        '
+        ' Tested against WpfMainWindow.RigControl, NOT the module-level
+        ' RigControl: a cancelled picker leaves the module's FlexBase object
+        ' alive (only the Abort path calls CloseTheRadio), while the window's
+        ' RigControl is assigned only on a connect that actually succeeded.
+        ' The window's copy is what "is a radio connected" means everywhere
+        ' else, including MainWindow.EnterRescueModeIfNoRadio.
+        If WpfMainWindow IsNot Nothing AndAlso WpfMainWindow.RigControl Is Nothing _
+           AndAlso AppShellForm IsNot Nothing Then
+            AppShellForm.Text &= " — no radio connected"
+        End If
 
         Tracing.TraceLine("InitializeApplication: complete", TraceLevel.Info)
     End Sub

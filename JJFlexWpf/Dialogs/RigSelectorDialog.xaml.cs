@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using JJTrace;
 using Radios;
 
 namespace JJFlexWpf.Dialogs
@@ -62,27 +63,35 @@ namespace JJFlexWpf.Dialogs
         public List<Radios.ConnectPathKind> PathChain { get; set; } = new();
 
         /// <summary>
-        /// The chain a connect actually walks: the operator's stored chain
-        /// when one exists, otherwise a derived default — local first when
-        /// the radio's story is local (the historical behaviour, now an
-        /// explicit default), SmartLink first when its story is remote.
-        /// The derived chain always carries both paths, which is what makes
-        /// automatic fallback ordinary list-walking instead of special-case
-        /// logic. Only an operator-stored one-entry chain means "this path
-        /// only".
+        /// What this radio's connection history suggests, or null when it
+        /// suggests nothing (task #79). Filled in once per row from
+        /// <see cref="Radios.ConnectPathPolicy.LearnForRadio"/> — read from
+        /// disk when the row is built, never per list refresh.
+        ///
+        /// <para>A PREFILL and nothing more. <see cref="EffectiveChain"/>
+        /// consults it only when <see cref="PathChain"/> is empty, so a stored
+        /// explicit choice is never influenced, reordered or overwritten by
+        /// it. That precedence is enforced in one place, and tested there:
+        /// see ConnectPathPolicy.Resolve.</para>
         /// </summary>
-        public List<Radios.ConnectPathKind> EffectiveChain
-        {
-            get
-            {
-                if (PathChain != null && PathChain.Count > 0)
-                    return PathChain;
-                bool remoteStory = WanAvailable ? !LanAvailable : (!LanAvailable && LastSeenRemote);
-                return remoteStory
-                    ? new List<Radios.ConnectPathKind> { Radios.ConnectPathKind.SmartLink, Radios.ConnectPathKind.Local }
-                    : new List<Radios.ConnectPathKind> { Radios.ConnectPathKind.Local, Radios.ConnectPathKind.SmartLink };
-            }
-        }
+        public Radios.ConnectPathKind? LearnedPath { get; set; }
+
+        /// <summary>True when the chain this row would walk was ordered by the
+        /// learned trend rather than by a stored choice or the plain default.
+        /// Drives the "learned" wording on the path affordance — a prefill the
+        /// operator cannot see is a prefill they cannot disagree with.</summary>
+        public bool ChainIsLearned =>
+            (PathChain == null || PathChain.Count == 0) && LearnedPath.HasValue;
+
+        /// <summary>
+        /// The chain a connect actually walks. The precedence — stored choice,
+        /// then learned trend, then derived default — lives in
+        /// <see cref="Radios.ConnectPathPolicy.Resolve"/> so it is testable
+        /// away from WPF; this property is only the row's view of it.
+        /// </summary>
+        public List<Radios.ConnectPathKind> EffectiveChain =>
+            Radios.ConnectPathPolicy.Resolve(
+                PathChain, LearnedPath, LanAvailable, WanAvailable, LastSeenRemote);
 
         /// <summary>
         /// The path a connect would take right now: the first chain entry
@@ -643,15 +652,35 @@ namespace JJFlexWpf.Dialogs
                 }
             };
 
-            // Remote-first startup: the account in use asked for Remote to
-            // begin immediately. Fire after Loaded so the window is up and
-            // announcing before the connecting window appears over it.
+            // Remote-first startup: the account in use asked, ONCE and in
+            // Settings, for the remote list to be fetched whenever this picker
+            // opens. That is a standing instruction, not a request made now —
+            // so the pass runs as background work and is treated as such.
+            //
+            // Task #85: this chain is why a purely LOCAL connect narrated
+            // SmartLink. It spoke "Starting remote radios for your account",
+            // then "Connecting to SmartLink as <email>", then put a window
+            // titled "Connecting to SmartLink..." over the radio list the
+            // operator had just arrived at. Every word of that is true and
+            // none of it was asked for at that moment.
+            //
+            // The window was the loudest of the three, and for a reason worth
+            // recording: an arriving window's title is announced by
+            // definition, while the two utterances immediately before it sat
+            // in a speech queue that the same window's arrival FLUSHES. So the
+            // one part of the chain guaranteed to be heard was the part
+            // nobody chose the wording of.
             if (callbacks.AutoStartRemote)
             {
                 Loaded += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    _callbacks.ScreenReaderSpeak?.Invoke("Starting remote radios for your account.", false);
-                    StartRemoteFlow();
+                    Tracing.TraceLine(
+                        "RigSelector: AutoStartRemote pass beginning — background, not operator-initiated (#85)",
+                        System.Diagnostics.TraceLevel.Info);
+                    Radios.ScreenReaderOutput.Speak(
+                        "Starting remote radios for your account.",
+                        Radios.VerbosityLevel.Diagnostic, false);
+                    StartRemoteFlow(operatorInitiated: false);
                 }), DispatcherPriority.Background);
             }
 
@@ -689,11 +718,27 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
+            // Ask the history what it suggests for each known radio BEFORE
+            // taking _radiosLock: this reads one JSON file per radio, and
+            // file IO under the list lock is what the discovery path is
+            // careful to avoid. Memoized, so a re-paint costs nothing.
+            var learnedBySerial = new Dictionary<string, ConnectPathKind?>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var k in known)
+            {
+                if (!string.IsNullOrWhiteSpace(k.Serial))
+                    learnedBySerial[k.Serial] = LearnedPathFor(k.Serial);
+            }
+
             bool changed = false;
             lock (_radiosLock)
             {
                 foreach (var k in known)
                 {
+                    ConnectPathKind? learned = null;
+                    if (!string.IsNullOrWhiteSpace(k.Serial))
+                        learnedBySerial.TryGetValue(k.Serial, out learned);
+
                     var existing = _radiosList.FirstOrDefault(
                         r => string.Equals(r.Serial, k.Serial, StringComparison.OrdinalIgnoreCase));
                     bool foreign = !string.IsNullOrWhiteSpace(k.ResolvedAccount)
@@ -711,6 +756,7 @@ namespace JJFlexWpf.Dialogs
                         existing.IsFavorite = k.IsFavorite;
                         existing.PreferredAccount = k.PreferredAccount;
                         existing.PathChain = k.PathChain ?? new List<ConnectPathKind>();
+                        existing.LearnedPath = learned;
                         existing.ForeignAccount = foreign;
                         changed = true;
                         continue;
@@ -724,6 +770,7 @@ namespace JJFlexWpf.Dialogs
                         ModelName = k.Model,
                         IsFavorite = k.IsFavorite,
                         PathChain = k.PathChain ?? new List<ConnectPathKind>(),
+                        LearnedPath = learned,
                         LastSeenRemote = k.LastSeenRemote,
                         LastSeenText = KnownRadioRoster.DescribeAge(k.LastSeenUtc),
                         LastSeenViaAccount = k.LastSeenViaAccount,
@@ -870,6 +917,37 @@ namespace JJFlexWpf.Dialogs
         }
 
         // ------------------------------------------------------------------
+        // Learned connection path (task #79)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Learned-path answers already worked out this picker session, keyed
+        /// by serial. A LAN radio re-announces itself about once a second, so
+        /// without a memo the trend lookup would re-read a JSON file per radio
+        /// per packet — and read it on the discovery thread at that.
+        ///
+        /// <para>Caching for the life of the dialog is safe because the input
+        /// only changes when a connect is recorded, and a connect closes this
+        /// dialog.</para>
+        /// </summary>
+        private readonly Dictionary<string, ConnectPathKind?> _learnedPaths
+            = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>What this radio's connection history suggests, memoized.
+        /// Null for an unknown serial, an unreadable store, or no trend.</summary>
+        private ConnectPathKind? LearnedPathFor(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return null;
+            lock (_learnedPaths)
+            {
+                if (_learnedPaths.TryGetValue(serial, out var cached)) return cached;
+            }
+            var learned = ConnectPathPolicy.LearnForRadio(serial);
+            lock (_learnedPaths) { _learnedPaths[serial] = learned; }
+            return learned;
+        }
+
+        // ------------------------------------------------------------------
         // Discovery
         // ------------------------------------------------------------------
 
@@ -881,6 +959,11 @@ namespace JJFlexWpf.Dialogs
                 radio.AutoConnect = _callbacks.AutoConnectDesired;
                 radio.LowBW = _callbacks.AutoConnectLowBW;
             }
+
+            // Ask the history what it suggests BEFORE taking _radiosLock. This
+            // runs on the discovery thread; the memo makes it one file read per
+            // radio per session, and the lock stays free of IO either way.
+            radio.LearnedPath = LearnedPathFor(radio.Serial);
 
             _anyLiveRadioSeen = true;
 
@@ -911,6 +994,7 @@ namespace JJFlexWpf.Dialogs
                     row.LowBW = radio.LowBW;
                     row.FromAccountCache = false;
                     row.RefreshInFlight = false;
+                    row.LearnedPath = radio.LearnedPath;
                     // Note what is deliberately NOT touched: UserLabel,
                     // IsFavorite, PreferredAccount, PathChain — the
                     // operator-owned facts a discovery event knows nothing
@@ -1543,9 +1627,13 @@ namespace JJFlexWpf.Dialogs
         private string PathKey()
         {
             var r = GetSelectedRadio();
+            // The learned value is part of the key because it changes the
+            // automatic option's WORDING. Leaving it out meant a row whose
+            // trend arrived after the combo was first built kept saying plain
+            // "Automatic" while walking the learned order.
             return r == null
                 ? "<none>"
-                : $"{r.Serial}|{string.Join(",", r.PathChain)}";
+                : $"{r.Serial}|{string.Join(",", r.PathChain)}|{r.LearnedPath}";
         }
 
         private string _pathAffordanceKey = "";
@@ -1579,7 +1667,18 @@ namespace JJFlexWpf.Dialogs
                     return;
                 }
 
-                PathCombo.Items.Add(PathAutomatic);
+                // Task #79: when the trend has prefilled the order, the
+                // automatic option SAYS SO. A prefill the operator cannot
+                // perceive is a prefill they cannot disagree with, which is
+                // how a learned value quietly becomes a decision nobody made.
+                // To reject it, pick one of the explicit orders below — those
+                // are stored choices and a stored choice always wins.
+                PathCombo.Items.Add(
+                    radio.ChainIsLearned
+                        ? (radio.LearnedPath == ConnectPathKind.SmartLink
+                            ? "Automatic, learned: SmartLink first"
+                            : "Automatic, learned: local network first")
+                        : PathAutomatic);
                 PathCombo.Items.Add(PathLocalFirst);
                 PathCombo.Items.Add(PathSmartLinkFirst);
                 PathCombo.SelectedIndex =
@@ -1942,7 +2041,19 @@ namespace JJFlexWpf.Dialogs
         /// radio list once per TLS session, so reusing the previous account's
         /// live session would hand back the previous account's radios.
         /// </param>
-        private void StartRemoteFlow(bool forceSessionCycle = false)
+        /// <param name="operatorInitiated">
+        /// True when the operator asked for this pass right now - the context
+        /// menu, the Remote key, a connect that needs SmartLink. False for the
+        /// AutoStartRemote pass, which runs because of a standing preference
+        /// rather than a decision made at this moment (task #85).
+        ///
+        /// <para>It changes two things and nothing else. A background pass does
+        /// not put a window over the radio list the operator is reading, and it
+        /// narrates itself at Diagnostic rather than unconditionally. The work,
+        /// the fallbacks, the list delta and the failure reporting are
+        /// identical - a background pass that fails still says so.</para>
+        /// </param>
+        private void StartRemoteFlow(bool forceSessionCycle = false, bool operatorInitiated = true)
         {
             if (_remoteDiscoveryInFlight)
             {
@@ -1955,22 +2066,48 @@ namespace JJFlexWpf.Dialogs
             MarkCachedRowsRefreshing(true);
             RefreshRadiosList();
 
+            Tracing.TraceLine(
+                $"RigSelector.StartRemoteFlow: operatorInitiated={operatorInitiated} "
+                + $"refreshing={refreshing} - #85 attribution trace",
+                System.Diagnostics.TraceLevel.Info);
+
             // Say WHICH account is about to be used. Anyone with more than one
             // SmartLink login was previously left to infer it from whichever
             // radios turned up (C2 item 15).
+            //
+            // Task #85: this went through the legacy ungated overload, so it
+            // was spoken at every verbosity, Off included. On a pass the
+            // operator did not start it is precisely what ScreenReaderOutput's
+            // own enum calls Diagnostic - "which account a session used, what a
+            // background task is doing". Gated, not deleted: a tester chasing
+            // an account problem still hears it.
             var state = CurrentAccountState();
             if (!string.IsNullOrWhiteSpace(state.Email))
             {
-                _callbacks.ScreenReaderSpeak?.Invoke(
-                    refreshing
-                        ? $"Refreshing the radio list for {state.Email}."
-                        : $"Connecting to SmartLink as {state.Email}.",
-                    false);
+                string accountLine = refreshing
+                    ? $"Refreshing the radio list for {state.Email}."
+                    : $"Connecting to SmartLink as {state.Email}.";
+                if (operatorInitiated)
+                    _callbacks.ScreenReaderSpeak?.Invoke(accountLine, false);
+                else
+                    Radios.ScreenReaderOutput.Speak(accountLine, Radios.VerbosityLevel.Diagnostic, false);
             }
 
-            // Show WinForms connecting window to hold focus while SmartLink auth runs.
-            _closeConnecting = _callbacks.ShowConnecting?.Invoke(
-                refreshing ? "Refreshing remote radios..." : "Connecting to SmartLink...");
+            // Show WinForms connecting window to hold focus while SmartLink
+            // auth runs - but ONLY for a pass the operator started.
+            //
+            // On the AutoStartRemote pass this window was the loudest part of
+            // task #85. It arrives over the radio list a fraction of a second
+            // after the operator gets there, takes the foreground, flushes
+            // whatever the screen reader was saying, and announces "Connecting
+            // to SmartLink..." to somebody who came here to pick the radio in
+            // the next room. Background work does not get the foreground. If
+            // the pass needs interactive sign-in, that flow brings its own
+            // window and owns its own announcement.
+            _closeConnecting = operatorInitiated
+                ? _callbacks.ShowConnecting?.Invoke(
+                    refreshing ? "Refreshing remote radios..." : "Connecting to SmartLink...")
+                : null;
 
             var liveBefore = LiveSerialSet();
 
