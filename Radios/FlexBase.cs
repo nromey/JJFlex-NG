@@ -7966,6 +7966,46 @@ namespace Radios
             DiversityOn = !DiversityOn;
         }
 
+        #region ESC — Enhanced Signal Clarity (Sprint 31 Track R)
+
+        // ESC rides on the diversity pair and shares its licence
+        // (LicenseFeatDivEsc), which is why it lives here rather than in a
+        // region of its own. It is a per-SLICE setting with no radio-level
+        // equivalent, and it must be applied to the same slice the Feature
+        // Availability report reads it from — hence GetEscSlice below, which
+        // was already here serving the report and is now serving the controls
+        // that let an operator change what the report describes.
+        //
+        // Every accessor is null-safe and no-ops without a slice: ESC is only
+        // reachable through a dialog that itself refuses to enable its controls
+        // unless diversity is ready AND on, but the radio can disappear between
+        // one and the other.
+
+        private Slice EscSlice => theRadio == null ? null : GetEscSlice(theRadio.ActiveSlice);
+
+        /// <summary>True when ESC is switched on for the slice carrying it.</summary>
+        public bool EscEnabled
+        {
+            get => EscSlice?.ESCEnabled == true;
+            set { var s = EscSlice; if (s != null) s.ESCEnabled = value; }
+        }
+
+        /// <summary>ESC phase shift in degrees, 0 to 360.</summary>
+        public double EscPhaseShift
+        {
+            get => EscSlice?.ESCPhaseShift ?? 0.0;
+            set { var s = EscSlice; if (s != null) s.ESCPhaseShift = value; }
+        }
+
+        /// <summary>ESC gain. FlexLib's own default is 1.0, not zero.</summary>
+        public double EscGain
+        {
+            get => EscSlice?.ESCGain ?? 1.0;
+            set { var s = EscSlice; if (s != null) s.ESCGain = value; }
+        }
+
+        #endregion
+
         public string DiversityGateMessage
         {
             get

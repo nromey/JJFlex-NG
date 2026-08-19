@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
-        Title="ESC Controls"
+        Title="Enhanced Signal Clarity"
         Width="380" SizeToContent="Height"
         ResizeMode="NoResize">
 
@@ -11,6 +11,7 @@
         <CheckBox x:Name="EscEnabledCheckBox" Content="Enhanced Signal Clarity (ESC) enabled"
                   Margin="0,0,0,8"
                   AutomationProperties.Name="Enhanced Signal Clarity enabled"
+                  local:JJFlexHelp.Text="ESC combines the two receivers of a diversity pair into one signal instead of leaving you to pick between them. It needs diversity switched on first. Phase shift lines the two receivers up in time; gain sets how much of the second one is mixed in."
                   Checked="EscEnabledCheckBox_Changed" Unchecked="EscEnabledCheckBox_Changed"/>
 
         <!-- Phase Shift -->
@@ -19,6 +20,7 @@
                 TickFrequency="30" TickPlacement="BottomRight"
                 IsSnapToTickEnabled="False" SmallChange="1" LargeChange="10"
                 AutomationProperties.Name="Phase shift in degrees"
+                local:JJFlexHelp.Text="Zero to 360 degrees, wrapping at both ends. The 90 and 180 buttons below jump straight to the two settings worth trying first. Type an exact figure in the value box if you prefer."
                 ValueChanged="PhaseSlider_ValueChanged"/>
         <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
             <TextBox x:Name="PhaseValueBox" Width="96"
@@ -45,6 +47,7 @@
                 TickFrequency="8" TickPlacement="BottomRight"
                 IsSnapToTickEnabled="False" SmallChange="1" LargeChange="5"
                 AutomationProperties.Name="ESC gain"
+                local:JJFlexHelp.Text="Zero to 4, in steps of 0.05. Zero leaves the second receiver out of the mix entirely, so start there and come up until the signal you want stands out from the noise you do not."
                 ValueChanged="GainSlider_ValueChanged"/>
         <StackPanel Orientation="Horizontal" Margin="0,4,0,8">
             <TextBox x:Name="GainValueBox" Width="96"

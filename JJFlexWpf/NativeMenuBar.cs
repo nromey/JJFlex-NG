@@ -961,6 +961,97 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Build the ESC (Enhanced Signal Clarity) entry.
+    ///
+    /// <para>Sprint 31 Track R. ESC had no menu item anywhere, on any radio,
+    /// regardless of licence or hardware — it appeared only as one line of
+    /// prose in Tools ▸ Feature Availability. The investigation the task asked
+    /// for found something better than a missing feature: EscDialog has existed
+    /// complete since Sprint 9 Track B, with its enable toggle, phase slider,
+    /// 90 and 180 degree presets, gain slider and status line all built and
+    /// working, and NOTHING has ever constructed it. Same shape as the Saved
+    /// Diagnostic Logs browser found this month — built, then never given a
+    /// door — and the same answer: give it a door.</para>
+    ///
+    /// <para>Until now the Feature Availability report could tell an operator
+    /// "ESC: disabled" about a control the application provided no way on earth
+    /// to enable. That is the sharpest form of the silent absence this task
+    /// exists to close.</para>
+    /// </summary>
+    private void BuildEscItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        string? gate = EscGateMessage();
+        if (gate != null)
+        {
+            AddWired(parent, "Enhanced Signal Clarity unavailable", () =>
+                SpeakAfterMenuClose(EscGateMessage()
+                    ?? "Enhanced Signal Clarity is available — reopen this menu."));
+            return;
+        }
+
+        AddWired(parent, "Enhanced Signal Clarity", ShowEscDialog);
+    }
+
+    /// <summary>
+    /// Why ESC cannot be offered, or null when it can.
+    ///
+    /// <para>ESC shares the diversity licence (LicenseFeatDivEsc) and rides on
+    /// the diversity pair, so its gates are diversity's gates — which means
+    /// DiversityGateMessage already encodes exactly the asymmetry this needs,
+    /// including "licence status pending" for a licence never reported. Reusing
+    /// it rather than writing a second ladder means the two can never drift
+    /// into disagreeing about the same radio.</para>
+    ///
+    /// <para>Note what is deliberately NOT a gate here: diversity being
+    /// currently switched OFF. The dialog opens and explains that, because
+    /// "turn diversity on first" is an instruction the operator can act on,
+    /// while a menu item that vanishes is not.</para>
+    /// </summary>
+    private string? EscGateMessage()
+    {
+        var rig = Rig;
+        if (rig == null) return "No radio connected.";
+        if (rig.DiversityReady) return null;
+
+        string detail = NonEmpty(rig.DiversityGateMessage)
+            ?? "Enhanced Signal Clarity is not available on this radio right now.";
+        return "Enhanced Signal Clarity works on a diversity pair, so it needs everything "
+             + "diversity needs. " + detail + ".";
+    }
+
+    /// <summary>
+    /// Open the ESC dialog, wiring its delegates to the live rig.
+    /// </summary>
+    private void ShowEscDialog()
+    {
+        var rig = Rig;
+        if (rig == null) { SpeakNoRadio(); return; }
+
+        var dialog = new Dialogs.EscDialog
+        {
+            Owner = System.Windows.Window.GetWindow(_window),
+            GetEscEnabled = () => rig.EscEnabled,
+            SetEscEnabled = v => rig.EscEnabled = v,
+            GetPhaseShift = () => rig.EscPhaseShift,
+            SetPhaseShift = v => rig.EscPhaseShift = v,
+            GetEscGain = () => rig.EscGain,
+            SetEscGain = v => rig.EscGain = v,
+            HasActiveSlice = () => rig.HasActiveSlice,
+            IsDiversityReady = () => rig.DiversityReady,
+            IsDiversityOn = () => rig.DiversityOn,
+            GetDiversityGateMessage = () => NonEmpty(rig.DiversityGateMessage)
+        };
+        dialog.ShowDialog();
+
+        // Through FocusHome, the funnel that is correct with no radio — the
+        // rig can go away while a dialog is open, and the frequency display is
+        // collapsed behind the rescue page when it does.
+        _window.FocusHome();
+    }
+
+    /// <summary>
     /// Why the antenna tuner cannot be offered on this radio, or null when it
     /// can.
     ///
@@ -1490,6 +1581,7 @@ public class NativeMenuBar : IDisposable
             {
                 AddSep(antSub);
                 BuildDiversityItems(antSub);
+                BuildEscItems(antSub);
             }
 
             // Transmission (was "FM" — renamed for consistency with Classic
