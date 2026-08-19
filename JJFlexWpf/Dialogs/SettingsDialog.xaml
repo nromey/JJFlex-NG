@@ -1190,7 +1190,35 @@
                     <CheckBox x:Name="EarconsEnabledCheck"
                               Content="Enable alert sounds (earcons)"
                               Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable alert sounds such as beeps and tones"/>
+                              AutomationProperties.Name="Enable alert sounds such as beeps and tones"
+                   local:JJFlexHelp.Text="The master switch for every alert sound the app makes. The JJ key quick mute, Control J then Shift T, flips this same switch — and either way the choice is remembered next time you start. Meter tones and speech are separate and unaffected."/>
+
+                    <!-- Per-category switches (Sprint 30, #43) — the finer
+                         controls the earcon help page promised before they
+                         existed. Indented under the master switch they answer
+                         to; the master off silences everything regardless. -->
+                    <StackPanel Margin="20,0,0,8">
+                        <CheckBox x:Name="EarconConnectionCheck"
+                                  Content="Connection sounds" Margin="0,0,0,4"
+                                  AutomationProperties.Name="Connection sounds"
+                   local:JJFlexHelp.Text="The counting tones while a connection is being made, and the double-beep when it lands."/>
+                        <CheckBox x:Name="EarconTransmitCheck"
+                                  Content="Transmit sounds" Margin="0,0,0,4"
+                                  AutomationProperties.Name="Transmit sounds"
+                   local:JJFlexHelp.Text="Transmit start and stop, the hard-kill warning, the tune carrier, and the antenna tuner's progress and verdict."/>
+                        <CheckBox x:Name="EarconDialogsCheck"
+                                  Content="Dialog and panel sounds" Margin="0,0,0,4"
+                                  AutomationProperties.Name="Dialog and panel sounds"
+                   local:JJFlexHelp.Text="The dings when a dialog opens or closes, and the sweeps when a Home panel expands or collapses."/>
+                        <CheckBox x:Name="EarconTuningCheck"
+                                  Content="Tuning and filter sounds" Margin="0,0,0,4"
+                                  AutomationProperties.Name="Tuning and filter sounds"
+                   local:JJFlexHelp.Text="Filter-edge clicks and sweeps, the band-boundary beep, and the frequency-entry ding."/>
+                        <CheckBox x:Name="EarconCommandsCheck"
+                                  Content="Command and confirmation sounds" Margin="0,0,0,4"
+                                  AutomationProperties.Name="Command and confirmation sounds"
+                   local:JJFlexHelp.Text="The JJ key layer's tones, feature on and off beeps, mute-all, and confirmations. Worth keeping — without them the JJ key gives no sign it is listening."/>
+                    </StackPanel>
 
                     <Separator Margin="0,4,0,8"/>
 

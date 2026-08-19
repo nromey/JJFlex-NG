@@ -1,14 +1,14 @@
 # Earcon Control
 
-"Earcons" are the short alert sounds that JJ Flexible Radio Access plays for events such as dialog open, error, confirmation, CW notifications, and other background event cues. They are useful, but they are also audio — and sometimes you just want them quiet without digging into the Settings dialog.
+"Earcons" are the short alert sounds that JJ Flexible Radio Access plays for events such as a dialog opening, a feature toggling, transmit starting, or a connection landing. They are useful, but they are also audio — and sometimes you just want them quiet without digging into the Settings dialog.
 
 ## Quick Mute via the JJ Key
 
-The fast way to mute every earcon at once is through the JJ key. Press `Ctrl+J` to enter the JJ Command layer, then press `Shift+T`. Every earcon mutes (or unmutes again if you press the same sequence a second time).
+The fast way to mute every earcon at once is through the JJ key. Press `Ctrl+J` to enter the JJ Command layer, then press `Shift+T`. Every earcon mutes (or unmutes again if you press the same sequence a second time), and the app tells you which way it went.
 
 - The quick mute only affects the earcon layer. It does not touch your meter tones, the radio audio, or the speech output — just the alert-sound layer.
-- You will hear a short confirmation earcon as the quick mute toggles, indicating whether earcons are now on or off.
-- The setting lasts for your current session. If you quick-mute, then close and reopen the application, earcons come back on by default. For a longer-term mute, use the Settings dialog (see below).
+- It does silence CW notifications along with everything else — they ride the same alert channel. Their own separate on/off switch lives on the Audio tab in Settings.
+- **Your choice is remembered.** The quick mute and the master switch in Settings are the same switch, and it is saved the moment you press it — quick-mute tonight and earcons are still off tomorrow. If things have gone mysteriously quiet, check `Ctrl+J` `Shift+T` first; a mute from last week may still be doing its job.
 
 ## When to Use the Quick Mute
 
@@ -17,15 +17,24 @@ The fast way to mute every earcon at once is through the JJ key. Press `Ctrl+J` 
 - During a Zoom or Teams call, when you are sharing your audio and the earcons would leak out to the other participants.
 - Any situation where you want to hear the radio without application chrome.
 
-## Long-Term Disable
+## Turning Off Just Some of Them
 
-Under **Settings > Audio > Earcons** you will find a master enable/disable switch, plus finer controls for each earcon category (dialog, error, status, and so on). Use those controls if you want earcons off permanently, or off only for a specific category. The quick-mute JJ key sequence does not override these settings — the quick mute is a temporary layer on top.
+Under **Settings, then the Notifications tab, under Alert Sounds** you will find the master switch plus five category switches, so you can quiet the sounds you do not want and keep the ones you rely on:
+
+- **Connection sounds** — the counting tones while a connection is being made, and the double-beep when it lands.
+- **Transmit sounds** — transmit start and stop, the hard-kill warning, the tune carrier, and the antenna tuner's progress and verdict.
+- **Dialog and panel sounds** — the dings when a dialog opens or closes, and the sweeps when a Home panel expands or collapses.
+- **Tuning and filter sounds** — filter-edge clicks and sweeps, the band-boundary beep, and the frequency-entry ding.
+- **Command and confirmation sounds** — the JJ key layer's tones, feature on and off beeps, mute-all, and confirmations. Think twice before turning these off: without them the JJ key gives no sign it is listening.
+
+The master switch outranks the categories — master off means silence, whatever the categories say. And the quick mute is that same master switch, not a separate layer, so flipping either one flips both.
 
 ## What Earcons Are Not
 
 - **Not meter tones.** Meter tones are the continuous audio that represents SWR, ALC, and forward power during transmit. They have their own on/off controls — see the Meter Tones help page.
-- **Not CW notifications.** Those live on a separate channel (see the CW Notifications help page) and have their own enable/disable in settings.
+- **Not typing sounds.** The frequency-entry keystroke sounds have their own mode setting, including off.
 - **Not the radio audio.** You cannot mute earcons to silence the radio — you would be muting a tiny fraction of your audio while the big signal still plays through.
+- **CW notifications are half-in, half-out.** They have their own enable switch on the Audio tab, but they play through the alert channel, so the master earcon mute silences them too.
 
 ## Finding the Hotkey Again
 

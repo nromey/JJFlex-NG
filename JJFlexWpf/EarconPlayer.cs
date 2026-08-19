@@ -36,6 +36,51 @@ namespace JJFlexWpf
         /// </summary>
         public static bool EarconsEnabled { get; set; } = true;
 
+        /// <summary>
+        /// The earcon categories an operator can switch off one at a time
+        /// (Sprint 30, #43 — the finer controls the help page promised before
+        /// they existed). Under the master <see cref="EarconsEnabled"/> gate:
+        /// the master off silences everything regardless of category state.
+        ///
+        /// Deliberately NOT per-sound. Five switches an operator can hold in
+        /// their head beat sixty they cannot; each public earcon method
+        /// declares its family and new earcons must pick one.
+        ///
+        /// Outside the categories, on purpose: CW notifications (their own
+        /// switch on the Audio tab), typing sounds (their own mode setting),
+        /// meter tones (their own engine and toggle), and the calibration /
+        /// scratchpad sounds (developer-facing).
+        /// </summary>
+        public enum EarconCategory
+        {
+            /// <summary>Connect-phase counting tones and the success double-beep.</summary>
+            Connection = 0,
+            /// <summary>TX start/stop, hard kill, tune carrier, ATU, PTT warnings.</summary>
+            Transmit = 1,
+            /// <summary>Dialog open/close dings and panel expand/collapse sweeps.</summary>
+            DialogsAndPanels = 2,
+            /// <summary>Filter-edge clicks and sweeps, band boundary, frequency-entry dings.</summary>
+            TuningAndFilters = 3,
+            /// <summary>JJ-layer tones, feature on/off, mute-all, mode enter/exit, confirmations.</summary>
+            CommandsAndConfirmations = 4,
+        }
+
+        // One flag per EarconCategory value, all on by default. Persisted in
+        // AudioOutputConfig alongside EarconsEnabled.
+        private static readonly bool[] _categoryEnabled = { true, true, true, true, true };
+
+        /// <summary>Whether a category is individually enabled (master gate not considered).</summary>
+        public static bool GetCategoryEnabled(EarconCategory category) =>
+            _categoryEnabled[(int)category];
+
+        /// <summary>Enable or disable one earcon category. Master gate still wins.</summary>
+        public static void SetCategoryEnabled(EarconCategory category, bool enabled) =>
+            _categoryEnabled[(int)category] = enabled;
+
+        /// <summary>Master gate AND the category's own switch.</summary>
+        private static bool On(EarconCategory category) =>
+            EarconsEnabled && _categoryEnabled[(int)category];
+
         // Continuous tone providers registered with the meter channel mixer
         private static readonly List<ISampleProvider> _continuousProviders = new();
 
@@ -367,25 +412,28 @@ namespace JJFlexWpf
             PlayTone(frequencyHz, durationMs, 0.6f);
         }
 
-        public static void Warning1Beep() => Beep(800, 150);
-        public static void Warning2Beep() => Beep(1000, 200);
-        public static void OhCrapBeep() => Beep(1200, 250);
+        public static void Warning1Beep() { if (!On(EarconCategory.Transmit)) return; Beep(800, 150); }
+        public static void Warning2Beep() { if (!On(EarconCategory.Transmit)) return; Beep(1000, 200); }
+        public static void OhCrapBeep() { if (!On(EarconCategory.Transmit)) return; Beep(1200, 250); }
 
         /// <summary>TX start tone — two discrete tones: 400Hz then 800Hz.</summary>
         public static void TxStartTone()
         {
+            if (!On(EarconCategory.Transmit)) return;
             PlayToneSequence(new[] { (400, 50), (0, 20), (800, 50) }, 0.5f);
         }
 
         /// <summary>TX stop tone — two discrete tones: 800Hz then 400Hz.</summary>
         public static void TxStopTone()
         {
+            if (!On(EarconCategory.Transmit)) return;
             PlayToneSequence(new[] { (800, 50), (0, 20), (400, 50) }, 0.5f);
         }
 
         /// <summary>Hard kill tone — two rapid descending beeps.</summary>
         public static void HardKillTone()
         {
+            if (!On(EarconCategory.Transmit)) return;
             PlayToneSequence(new[] { (1000, 100), (0, 30), (600, 200) }, 0.6f);
         }
 
@@ -401,12 +449,14 @@ namespace JJFlexWpf
         /// <summary>Connect phase 1 — single 750 Hz tone (TLS / SmartLink connect).</summary>
         public static void ConnectPhase1Tone()
         {
+            if (!On(EarconCategory.Connection)) return;
             PlayToneSequence(new[] { (ConnectPhaseTonePitchHz, ConnectPhaseToneMs) }, ConnectPhaseToneVolume);
         }
 
         /// <summary>Connect phase 2 — two 750 Hz tones (transport up, waiting for slice).</summary>
         public static void ConnectPhase2Tone()
         {
+            if (!On(EarconCategory.Connection)) return;
             PlayToneSequence(new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
@@ -418,6 +468,7 @@ namespace JJFlexWpf
         /// <summary>Connect phase 3 — three 750 Hz tones (slice acquired, station name pending).</summary>
         public static void ConnectPhase3Tone()
         {
+            if (!On(EarconCategory.Connection)) return;
             PlayToneSequence(new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
@@ -440,6 +491,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void ConnectSuccessTone()
         {
+            if (!On(EarconCategory.Connection)) return;
             PlayToneSequence(new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
@@ -451,6 +503,7 @@ namespace JJFlexWpf
         /// <summary>Parameterized connect-phase counting tone (1..N identical tones).</summary>
         public static void ConnectPhaseTone(int count)
         {
+            if (!On(EarconCategory.Connection)) return;
             if (count <= 0) return;
             var seq = new (int, int)[Math.Max(1, count * 2 - 1)];
             int idx = 0;
@@ -471,6 +524,7 @@ namespace JJFlexWpf
         /// <summary>Confirmation tone — plays confirm.wav.</summary>
         public static void ConfirmTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             if (_confirmSound != null)
                 PlayCachedSound(_confirmSound);
             else
@@ -480,6 +534,7 @@ namespace JJFlexWpf
         /// <summary>Typewriter bell — plays at end of frequency entry in mechanical keyboard mode.</summary>
         public static void TypewriterBellTone()
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             if (_typewriterBellSound != null)
                 PlayCachedSound(_typewriterBellSound);
             else
@@ -489,12 +544,14 @@ namespace JJFlexWpf
         /// <summary>Band boundary beep — 600 Hz double-beep.</summary>
         public static void BandBoundaryBeep()
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             PlayToneSequence(new[] { (600, 50), (0, 30), (600, 50) }, 0.6f);
         }
 
         /// <summary>Filter edge enter tone — plays mode-enter.wav.</summary>
         public static void FilterEdgeEnterTone()
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             if (_modeEnterSound != null)
                 PlayCachedSound(_modeEnterSound);
             else
@@ -504,6 +561,7 @@ namespace JJFlexWpf
         /// <summary>Filter edge exit tone — plays mode-exit.wav.</summary>
         public static void FilterEdgeExitTone()
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             if (_modeExitSound != null)
                 PlayCachedSound(_modeExitSound);
             else
@@ -517,6 +575,7 @@ namespace JJFlexWpf
         /// <param name="isLowEdge">True for low/left edge, false for high/right edge.</param>
         public static void FilterEdgeMoveTone(bool isLowEdge)
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             float pan = isLowEdge ? -0.7f : 0.7f;
             if (_slideSound != null)
                 PlayCachedSoundPanned(_slideSound, pan);
@@ -531,6 +590,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void FilterEdgeMoveTone()
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             if (_slideSound != null)
                 PlayCachedSound(_slideSound);
             else if (_filterEdgeMoveSound != null)
@@ -547,6 +607,7 @@ namespace JJFlexWpf
         /// <param name="isLowEdge">True for low/left boundary, false for high/right boundary.</param>
         public static void FilterBoundaryHitTone(bool isLowEdge)
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             float pan = isLowEdge ? -0.8f : 0.8f;
             if (_zipSound != null)
             {
@@ -566,6 +627,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void FilterSqueezeTone()
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             if (AlertMixer == null) return;
             try
             {
@@ -585,6 +647,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void FilterStretchTone()
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             if (AlertMixer == null) return;
             try
             {
@@ -639,18 +702,21 @@ namespace JJFlexWpf
         /// <summary>Rising chirp — entering leader key mode.</summary>
         public static void LeaderEnterTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             PlayChirp(400, 600, 80, 0.3f);
         }
 
         /// <summary>Double ascending beep — feature toggled ON.</summary>
         public static void FeatureOnTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             PlayToneSequence(new[] { (500, 60), (0, 40), (700, 60) }, 0.3f);
         }
 
         /// <summary>Double descending beep — feature toggled OFF.</summary>
         public static void FeatureOffTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             PlayToneSequence(new[] { (700, 60), (0, 40), (500, 60) }, 0.3f);
         }
 
@@ -662,6 +728,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void MuteAllOnTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             PlayToneSequence(new[] { (625, 55), (0, 30), (785, 55), (0, 30), (940, 55) }, 0.3f);
         }
 
@@ -670,36 +737,42 @@ namespace JJFlexWpf
         /// </summary>
         public static void MuteAllOffTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             PlayToneSequence(new[] { (940, 55), (0, 30), (785, 55), (0, 30), (625, 55) }, 0.3f);
         }
 
         /// <summary>Double ascending ding — dialog/popup opened.</summary>
         public static void DialogOpenTone()
         {
+            if (!On(EarconCategory.DialogsAndPanels)) return;
             PlayToneSequence(new[] { (600, 50), (0, 30), (900, 50) }, 0.25f);
         }
 
         /// <summary>Double descending ding — dialog/popup closed.</summary>
         public static void DialogCloseTone()
         {
+            if (!On(EarconCategory.DialogsAndPanels)) return;
             PlayToneSequence(new[] { (900, 50), (0, 30), (600, 50) }, 0.25f);
         }
 
         /// <summary>Low buzz — invalid leader key.</summary>
         public static void LeaderInvalidTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             PlayTone(200, 100, 0.4f);
         }
 
         /// <summary>Soft descending chirp — leader key cancelled.</summary>
         public static void LeaderCancelTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             PlayChirp(500, 300, 150, 0.2f);
         }
 
         /// <summary>Double chime — leader key help requested.</summary>
         public static void LeaderHelpTone()
         {
+            if (!On(EarconCategory.CommandsAndConfirmations)) return;
             PlayToneSequence(new[] { (800, 80), (0, 40), (1000, 80) }, 0.25f);
         }
 
@@ -714,6 +787,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayExpand()
         {
+            if (!On(EarconCategory.DialogsAndPanels)) return;
             if (AlertMixer == null) { FallbackBeep(800, 100); return; }
             try
             {
@@ -744,6 +818,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayCollapse()
         {
+            if (!On(EarconCategory.DialogsAndPanels)) return;
             if (AlertMixer == null) { FallbackBeep(500, 100); return; }
             try
             {
@@ -769,6 +844,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayCollapseAll()
         {
+            if (!On(EarconCategory.DialogsAndPanels)) return;
             // Sprint 28 Phase 3.8 (2026-04-21) — replaced the synthesized gavel
             // (DecayingGavelSynthesizer + attack transient) after user reported it
             // still inaudible even with earcon-defer tuning. The new design uses the
@@ -799,6 +875,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void StartATUProgressEarcon()
         {
+            if (!On(EarconCategory.Transmit)) return;
             StopATUProgressEarcon(); // Stop any existing progress earcon
             if (AlertMixer == null) return;
             try
@@ -901,6 +978,7 @@ namespace JJFlexWpf
         /// <summary>ATU tune successful — rising major arpeggio C-E-G (~150ms total).</summary>
         public static void ATUSuccessTone()
         {
+            if (!On(EarconCategory.Transmit)) return;
             // C5=523, E5=659, G5=784 — rising major triad
             PlayToneSequence(new[] { (523, 50), (659, 50), (784, 80) }, 0.4f);
         }
@@ -908,6 +986,7 @@ namespace JJFlexWpf
         /// <summary>ATU tune failed — descending minor E-C-A (~200ms total).</summary>
         public static void ATUFailTone()
         {
+            if (!On(EarconCategory.Transmit)) return;
             // E5=659, C5=523, A4=440 — descending
             PlayToneSequence(new[] { (659, 60), (523, 60), (440, 100) }, 0.4f);
         }
@@ -915,12 +994,14 @@ namespace JJFlexWpf
         /// <summary>Tune carrier on — short rising chirp.</summary>
         public static void TuneOnTone()
         {
+            if (!On(EarconCategory.Transmit)) return;
             PlayChirp(400, 700, 100, 0.3f);
         }
 
         /// <summary>Tune carrier off — short falling chirp.</summary>
         public static void TuneOffTone()
         {
+            if (!On(EarconCategory.Transmit)) return;
             PlayChirp(700, 400, 100, 0.3f);
         }
 
@@ -933,6 +1014,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void DingTone()
         {
+            if (!On(EarconCategory.TuningAndFilters)) return;
             if (AlertMixer == null) return;
             try
             {
