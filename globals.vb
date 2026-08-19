@@ -3504,6 +3504,31 @@ Module globals
                 Dim advice = RigControl.LastConnectFailureAdvice
                 Dim failMsg = If(String.IsNullOrEmpty(advice), "Connection failed", "Connection failed. " & advice)
                 Radios.ScreenReaderOutput.Speak(failMsg, VerbosityLevel.Critical, True)
+
+                ' Sprint 30 Track D's failure-moment offer (#78), wired here
+                ' rather than in MainWindow — the track's note named that file,
+                ' but the chain walk lives here and this is the only place a
+                ' NAMED radio's connect is finally known to have failed.
+                '
+                ' Auth failures are deliberately excluded, per DiagnosticOffer's
+                ' own reasoning: signing in fixes them, and the diagnostic log
+                ' carries the SmartLink email and JWT fragments, so exporting
+                ' one costs privacy and buys no diagnosis. Everything else — a
+                ' refusal, a timeout, a radio that was not there — is exactly
+                ' the case where the log holds the whole handshake and the
+                ' evidence goes stale fastest.
+                Dim failClass = RigControl.LastConnectFailureReport?.Class
+                If Not failClass.HasValue OrElse
+                   failClass.Value <> Radios.ConnectFailureClass.AuthenticationFailed Then
+                    Dim failedName = RigControl.RadioNickname
+                    If String.IsNullOrEmpty(failedName) Then failedName = serial
+                    Radios.OperationFailure.Report(
+                        Radios.FailureKind.ConnectFailed,
+                        $"The connection to {failedName} failed",
+                        "JJ Flex recorded the whole connection attempt. Sending that " &
+                        "record is the fastest way to find out why.")
+                End If
+
                 radioSelected = DialogResult.Cancel
                 RigControl.Dispose()
                 RigControl = Nothing

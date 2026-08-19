@@ -567,6 +567,21 @@ namespace Radios
                 $"RadioConfig.SaveForRadio: {radioId} failed twice — the setting is "
                 + "live for this session but will not survive a restart.",
                 System.Diagnostics.TraceLevel.Error);
+
+            // Offer the operator the evidence, here rather than at the call
+            // sites. This is the same reasoning that put the retry here in the
+            // first place (#77): every caller shares the failure, so every
+            // caller would otherwise have to remember to report it, and the one
+            // that forgets is the one that fails silently.
+            //
+            // Deliberately kind-level rather than per-setting: DiagnosticOffer
+            // shows at most one offer per kind per session, so a settings pass
+            // that fails on six fields asks once, not six times.
+            OperationFailure.Report(
+                FailureKind.SettingNotSaved,
+                "A radio setting could not be saved",
+                "The change is in effect right now, but it will not be there the "
+                + "next time you start JJ Flex.");
             return false;
         }
 
