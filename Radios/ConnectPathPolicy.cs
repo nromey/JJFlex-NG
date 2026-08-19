@@ -34,12 +34,15 @@ namespace Radios
         /// How many successful connects in a row on one path constitute a
         /// trend worth prefilling.
         ///
-        /// <para>Three, proposed and not yet ratified by the owner. The number
-        /// is a judgement about how much evidence outweighs inertia, and it is
-        /// bounded from above by the store: the ring holds ten ATTEMPTS, and a
-        /// chain-walking connect writes two of them (the leg that failed, then
-        /// the leg that worked), so a threshold much past four could never be
-        /// reached by a radio that falls back.</para>
+        /// <para>Three is the DEFAULT, not the only answer: task #102 made it a
+        /// setting (<see cref="ConnectPathLearningConfig"/>, 3 to 5) because the
+        /// number is a judgement about how much evidence outweighs inertia, and
+        /// an operator who is often travelling wants the app slower to conclude
+        /// anything. It is bounded from above by the store: the ring holds ten
+        /// ATTEMPTS, and a chain-walking connect writes two of them (the leg
+        /// that failed, then the leg that worked), so a radio that habitually
+        /// falls back has room for exactly five successes and nothing past five
+        /// could ever be reached.</para>
         /// </summary>
         public const int TrendThreshold = 3;
 
@@ -93,9 +96,30 @@ namespace Radios
         }
 
         /// <summary>
-        /// The same question against the on-disk history for one radio.
+        /// The same question against the on-disk history for one radio, using
+        /// the operator's own setting for how much evidence it takes.
         /// Returns null on any IO trouble — a store we cannot read teaches us
         /// nothing, which is not the same as teaching us "no".
+        ///
+        /// <para>Returns null unconditionally when the operator has turned
+        /// learning off (<see cref="ConnectPathLearningConfig.LearnFromHistory"/>).
+        /// The off switch lives HERE, at the one place a trend enters the app,
+        /// rather than inside <see cref="Resolve"/> — Resolve is the pure
+        /// function that pins the "a choice always wins" contract, and it must
+        /// keep answering the same question the tests ask it.</para>
+        /// </summary>
+        public static ConnectPathKind? LearnForRadioUsingSettings(string serial)
+        {
+            var cfg = ConnectPathLearningConfig.Current;
+            if (!cfg.LearnFromHistory) return null;
+            return LearnForRadio(serial, cfg.TrendThreshold);
+        }
+
+        /// <summary>
+        /// The same question against the on-disk history for one radio at an
+        /// explicit threshold. Ignores the on/off setting by design — this is
+        /// the mechanism; <see cref="LearnForRadioUsingSettings"/> is the policy
+        /// the app should call.
         /// </summary>
         public static ConnectPathKind? LearnForRadio(string serial, int threshold = TrendThreshold)
         {

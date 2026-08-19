@@ -65,7 +65,7 @@ namespace JJFlexWpf.Dialogs
         /// <summary>
         /// What this radio's connection history suggests, or null when it
         /// suggests nothing (task #79). Filled in once per row from
-        /// <see cref="Radios.ConnectPathPolicy.LearnForRadio"/> — read from
+        /// <see cref="Radios.ConnectPathPolicy.LearnForRadioUsingSettings"/> — read from
         /// disk when the row is built, never per list refresh.
         ///
         /// <para>A PREFILL and nothing more. <see cref="EffectiveChain"/>
@@ -594,6 +594,23 @@ namespace JJFlexWpf.Dialogs
                     e.Handled = true;
                     OpenRadioContextMenuFromKeyboard();
                 }
+                // Task #98: Delete removes the selected radio. THE key, not
+                // just a menu item — the roster held five entries including two
+                // pieces of test junk, and the only way to be rid of any of
+                // them was to hand-edit AppData, which is not something a blind
+                // operator should ever be asked to do. Delete is where every
+                // list in Windows puts this, so it needs no menu hunting.
+                //
+                // Safe as a bare keypress because it opens a confirmation whose
+                // default scope deletes nothing, and because an accidental
+                // removal of a real radio is self-healing: a radio that is
+                // online gets re-discovered, settings and all.
+                else if (e.Key == System.Windows.Input.Key.Delete
+                         && GetSelectedRadio() is RadioListItem toRemove)
+                {
+                    e.Handled = true;
+                    RemoveRadio(toRemove);
+                }
             };
 
             // Shift+Tab out of the radio list, handled at the WINDOW.
@@ -635,66 +652,20 @@ namespace JJFlexWpf.Dialogs
                 if (!RadiosBox.IsKeyboardFocusWithin) return;
 
                 e.Handled = true;
-                bool got = FocusExpanderHeader(IdentityExpander);
+                // Focus the Expander's HEADER, not the Expander itself.
+                //
+                // Found by Noel at the keyboard 2026-08-19, immediately after
+                // the Shift+Tab restore above started working: landing on the
+                // expander was SILENT when collapsed, and Space did not toggle
+                // it (Enter did). One cause, two symptoms — see ExpanderFocus,
+                // which now owns the fix for every expander in the app. This
+                // dialog and ScreenFieldsPanel had each derived it separately
+                // without knowing about the other (task #105).
+                bool got = ExpanderFocus.FocusHeader(IdentityExpander);
                 JJTrace.Tracing.TraceLine(
                     $"RigSelector: Shift+Tab from list -> IdentityExpander focus={got}",
                     System.Diagnostics.TraceLevel.Info);
             };
-
-            // Focus an Expander's HEADER, not the Expander itself.
-            //
-            // Found by Noel at the keyboard 2026-08-19, immediately after the
-            // Shift+Tab restore above started working. Two symptoms, one cause:
-            //
-            //   - Landing on the expander was sometimes silent. He noticed it
-            //     was silent when COLLAPSED and spoke when expanded.
-            //   - Space did not toggle it open. Enter did.
-            //
-            // That pair is the diagnosis. An Expander's interactive part is a
-            // ToggleButton inside its control template, and a ToggleButton is
-            // what responds to Space. Expander.Focus() puts keyboard focus on
-            // the Expander CONTAINER — focusable, but not the interactive
-            // element — so Space had no ToggleButton to reach, and a screen
-            // reader had a bare container to describe, which is why it
-            // sometimes said nothing at all.
-            //
-            // Focusing the header ToggleButton fixes the announcement and the
-            // Space key together, because they were never two problems.
-            //
-            // The ToggleButton is found by walking the visual tree rather than
-            // by template part name ("HeaderSite" in the stock themes) — a
-            // restyle that renames the part would silently reintroduce exactly
-            // the bug this fixes, and silence is the failure mode we can least
-            // afford to reintroduce quietly. Falls back to the Expander itself
-            // so focus always lands somewhere real.
-            static bool FocusExpanderHeader(System.Windows.Controls.Expander expander)
-            {
-                if (expander == null) return false;
-
-                // ApplyTemplate so the header exists even on the very first
-                // focus, before the expander has ever been rendered.
-                expander.ApplyTemplate();
-
-                var toggle = FindDescendant<System.Windows.Controls.Primitives.ToggleButton>(expander);
-                if (toggle != null && toggle.Focus()) return true;
-
-                return expander.Focus();
-            }
-
-            static T FindDescendant<T>(System.Windows.DependencyObject root)
-                where T : System.Windows.DependencyObject
-            {
-                if (root == null) return null;
-                int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
-                for (int i = 0; i < count; i++)
-                {
-                    var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
-                    if (child is T hit) return hit;
-                    var deeper = FindDescendant<T>(child);
-                    if (deeper != null) return deeper;
-                }
-                return null;
-            }
 
             // Announce an empty list only after discovery has had a real chance.
             // Also force keyboard focus to the ListBox so Tab works even when empty.
@@ -1042,7 +1013,9 @@ namespace JJFlexWpf.Dialogs
             {
                 if (_learnedPaths.TryGetValue(serial, out var cached)) return cached;
             }
-            var learned = ConnectPathPolicy.LearnForRadio(serial);
+            // ...UsingSettings, so the operator's own threshold applies and the
+            // off switch actually switches it off (task #102).
+            var learned = ConnectPathPolicy.LearnForRadioUsingSettings(serial);
             lock (_learnedPaths) { _learnedPaths[serial] = learned; }
             return learned;
         }
@@ -1714,9 +1687,26 @@ namespace JJFlexWpf.Dialogs
         // Connection path preference (persisted per radio)
         // ------------------------------------------------------------------
 
-        private const string PathAutomatic = "Automatic, local first";
-        private const string PathLocalFirst = "Local network first";
-        private const string PathSmartLinkFirst = "SmartLink first";
+        // The option labels ARE the explanation (task #107).
+        //
+        // Each of these used to be a short identifier ("Local network first")
+        // followed, on every arrow press, by a spoken sentence saying what it
+        // meant ("This radio will connect over the local network first, falling
+        // back to SmartLink."). NVDA reads the item itself, so that was the
+        // same fact twice, and the second copy took four times as long to say.
+        //
+        // Fold the meaning into the label and the arrow announcement IS the
+        // answer — one utterance, chosen by us, spoken by the screen reader the
+        // operator already tuned to their own rate. Same precedent as commit
+        // d09f0e50: names are identifiers, and where the identifier can carry
+        // the meaning honestly, nothing else needs to say it.
+        //
+        // Keep these in step with the context menu's Default Connection Path
+        // submenu, which writes the same store — ONE vocabulary, so a setting
+        // changed by one door reads identically at the other.
+        private const string PathAutomatic = "Automatic: local network first, then SmartLink";
+        private const string PathLocalFirst = "Local network first, then SmartLink";
+        private const string PathSmartLinkFirst = "SmartLink first, then local network";
 
         /// <summary>
         /// What the path control should currently be showing. Compared before
@@ -1764,6 +1754,7 @@ namespace JJFlexWpf.Dialogs
                     PathCombo.IsEnabled = false;
                     System.Windows.Automation.AutomationProperties.SetName(
                         PathCombo, "Connection path, no radio selected");
+                    JJFlexHelp.SetText(PathCombo, PathComboHelp + " " + DescribeLearningState());
                     return;
                 }
 
@@ -1796,11 +1787,47 @@ namespace JJFlexWpf.Dialogs
                 // paid once.
                 System.Windows.Automation.AutomationProperties.SetName(
                     PathCombo, "Connection path");
+
+                // The Ctrl+F1 explanation, composed here rather than in XAML
+                // because its last sentence has to report the CURRENT learning
+                // setting — including the off state, which is the one most
+                // easily left unsaid (task #102). On-demand, so a sentence
+                // about a setting most operators never touch costs nothing on
+                // focus.
+                JJFlexHelp.SetText(PathCombo, PathComboHelp + " " + DescribeLearningState());
             }
             finally
             {
                 _suppressPathComboEvent = false;
             }
+        }
+
+        private const string PathComboHelp =
+            "Which way JJ Flexible tries to reach this radio, and in what order. It is saved "
+            + "with the radio, so it travels with the radio rather than with your account. "
+            + "Automatic means the local network first and SmartLink after it. The two explicit "
+            + "orders are your own choice, and a choice always outranks anything JJ Flexible has "
+            + "worked out for itself: if the option reads 'learned', that is a suggestion from "
+            + "this radio's own connection history, and picking either explicit order replaces it "
+            + "for good.";
+
+        /// <summary>
+        /// Where path learning currently stands, in one sentence, honest about
+        /// the OFF state. Says where to change it, because the setting lives in
+        /// Settings and the question gets asked here.
+        /// </summary>
+        private static string DescribeLearningState()
+        {
+            var cfg = ConnectPathLearningConfig.Current;
+            return cfg.LearnFromHistory
+                ? $"Right now JJ Flexible does take that hint, after {cfg.TrendThreshold} connects "
+                  + "in a row the same way. Change it, or switch it off, under Learning Your "
+                  + "Connection Path on the Network tab in Settings. To make it forget what it has "
+                  + "learned about this one radio, press Shift F10 here and choose Forget the "
+                  + "Learned Connection Path."
+                : "Right now JJ Flexible does not take that hint at all — learning is switched off "
+                  + "under Learning Your Connection Path on the Network tab in Settings, so no "
+                  + "option here will ever read 'learned'.";
         }
 
         private void PathCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1815,7 +1842,10 @@ namespace JJFlexWpf.Dialogs
                 2 => new List<ConnectPathKind> { ConnectPathKind.SmartLink, ConnectPathKind.Local },
                 _ => new List<ConnectPathKind>(),
             };
-            SetPathChainForRow(radio, chain);
+            // No confirmation from this door. The screen reader has just read
+            // the combo item, whose label now carries the whole meaning — see
+            // the label constants. Task #107.
+            SetPathChainForRow(radio, chain, confirm: false);
         }
 
         /// <summary>
@@ -1823,7 +1853,17 @@ namespace JJFlexWpf.Dialogs
         /// a spoken success over a declined save is a promise the next
         /// launch breaks. Shared by the combo and the context menu.
         /// </summary>
-        private void SetPathChainForRow(RadioListItem radio, List<ConnectPathKind> chain)
+        /// <param name="confirm">
+        /// Whether to speak a confirmation on SUCCESS. False for the combo,
+        /// where the screen reader has just read the chosen item and a spoken
+        /// restatement is the same fact twice (#107). True for the context
+        /// menu, where the menu closes on click and the operator lands back on
+        /// the radio list with nothing on screen to say what happened.
+        /// <para>A FAILED save always speaks, whatever this says: silence over
+        /// a setting that did not stick is the lying-receipt bug.</para>
+        /// </param>
+        private void SetPathChainForRow(
+            RadioListItem radio, List<ConnectPathKind> chain, bool confirm)
         {
             bool same = radio.PathChain.SequenceEqual(chain);
             if (same) return;
@@ -1840,22 +1880,56 @@ namespace JJFlexWpf.Dialogs
             // focus for no change they can perceive.
             _pathAffordanceKey = PathKey();
 
-            var rowName = RowName(radio);
-            string speech = chain.Count == 0
-                ? $"{rowName} connection path is automatic: local network first, then SmartLink."
-                : chain[0] == ConnectPathKind.SmartLink
-                    ? $"{rowName} will connect over SmartLink first, falling back to the local network."
-                    : $"{rowName} will connect over the local network first, falling back to SmartLink.";
+            // The chosen order, in the SAME words the combo item and the menu
+            // item use. Dropped from this: the "This radio will..." prefix the
+            // sentences used to carry — the operator is looking at that radio's
+            // row and just acted on that radio's menu, so naming it again is
+            // the third time in one gesture.
+            string order = DescribePathChain(chain);
+
             // Only mention persistence when it failed. Saying "and it is saved"
             // on every success is noise; saying nothing when it did NOT save is
             // the lying-receipt bug. The reason lives in the trace file, which
             // is where a support conversation can actually use it.
             if (!persisted)
-                speech += " This is in effect now, but it could not be written to disk,"
-                        + " so it may not be here next time you start. Your trace file has the reason.";
-            _callbacks.ScreenReaderSpeak?.Invoke(speech, true);
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    order + ". This is in effect now, but it could not be written to disk,"
+                    + " so it may not be here next time you start. Your trace file has the reason.",
+                    true);
+            }
+            else if (confirm)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(order + ".", true);
+            }
+
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
+        }
+
+        /// <summary>
+        /// One chain, in words — the single vocabulary shared by the combo
+        /// items, the context-menu items and the spoken confirmation. Three
+        /// surfaces described this in three slightly different ways before
+        /// #107, which is how "falling back to" and "then" ended up meaning the
+        /// same thing in one dialog.
+        /// </summary>
+        private static string DescribePathChain(IReadOnlyList<ConnectPathKind> chain)
+        {
+            if (chain.Count == 0) return PathAutomatic;
+
+            // A one-entry chain means "this path only, never fall back" — the
+            // thing that makes force-remote a valid hole-punch test instrument.
+            // No door in this dialog stores one today, but describing it as
+            // "first, then the other" would be a flat lie if one ever did.
+            if (chain.Count == 1)
+            {
+                return chain[0] == ConnectPathKind.SmartLink
+                    ? "SmartLink only, never the local network"
+                    : "Local network only, never SmartLink";
+            }
+
+            return chain[0] == ConnectPathKind.SmartLink ? PathSmartLinkFirst : PathLocalFirst;
         }
 
         /// <summary>
@@ -1924,8 +1998,98 @@ namespace JJFlexWpf.Dialogs
                 _remoteListLive
                     ? "Refresh Remote List. Reconnects to SmartLink and looks again, picking up radios that came online since."
                     : "Show this account's SmartLink radios");
+            // Task #102: only offer to forget something there is something to
+            // forget. An always-enabled item that answers "there was nothing
+            // learned for this radio" is an item that teaches the operator to
+            // stop trusting it.
+            RemoveRadioMenuItem.IsEnabled = radio != null;
+
+            bool hasLearned = radio?.LearnedPath.HasValue == true;
+            ForgetLearnedPathMenuItem.IsEnabled = hasLearned;
+            System.Windows.Automation.AutomationProperties.SetName(ForgetLearnedPathMenuItem,
+                hasLearned
+                    ? "Forget the learned connection path for selected radio"
+                    : "Forget the learned connection path. Nothing has been learned for this radio.");
+
             BuildPreferredAccountSubmenu(radio);
             BuildDefaultPathSubmenu(radio);
+        }
+
+        /// <summary>
+        /// Forget what this radio's history taught (task #102), door one of
+        /// two — Settings does every radio at once.
+        ///
+        /// <para><b>What it clears, and why there is no smaller option:</b> the
+        /// radio's connection history ring. A learned path is not stored
+        /// anywhere; <see cref="ConnectPathPolicy"/> derives it from that ring
+        /// each time it is asked. "Forget the conclusion but keep the evidence"
+        /// would leave the conclusion to be re-derived within milliseconds, so
+        /// offering it would be offering a lie. The confirmation says so, and
+        /// names the diagnostic value that goes with it.</para>
+        /// </summary>
+        private void ForgetLearnedPathMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var radio = GetSelectedRadio();
+            if (radio == null)
+            {
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                RadiosBox.Focus();
+                return;
+            }
+
+            var rowName = RowName(radio);
+            var confirm = new ConfirmActionDialog(
+                "Forget the Learned Connection Path",
+                $"JJ Flexible worked out how {rowName} usually connects by reading that radio's own "
+                + "connection history. There is nowhere else it is written down, so forgetting what "
+                + "was learned means clearing that history.",
+                new[]
+                {
+                    "This radio loses its record of the last ten connection attempts: which way each "
+                    + "one went, whether it worked, and how long it took.",
+                    "Your own choice of connection path for this radio is NOT touched. Only what "
+                    + "JJ Flexible worked out on its own goes away.",
+                    "It starts learning again from the next connection.",
+                },
+                question: $"Clear the connection history for {rowName}?",
+                yesLabel: "_Forget it",
+                noLabel: "_Keep it")
+            {
+                Owner = this,
+            };
+
+            if (confirm.ShowDialog() != true)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke("Nothing was cleared.", true);
+                FocusRadioList();
+                return;
+            }
+
+            if (!ConnectionHistory.Clear(radio.Serial))
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    "The connection history could not be cleared, so this radio may still follow "
+                    + "its old habit. Your trace file has the reason.", true);
+                FocusRadioList();
+                return;
+            }
+
+            // Drop the memo as well as the file. It is cached for the life of
+            // this dialog precisely so a LAN radio's once-a-second announcement
+            // does not re-read a JSON file — which also means a stale entry
+            // here would keep the row saying "learned" over a store that no
+            // longer says anything.
+            lock (_learnedPaths) { _learnedPaths.Remove(radio.Serial); }
+            radio.LearnedPath = null;
+            _pathAffordanceKey = "";
+            SyncPathAffordance();
+
+            _callbacks.ScreenReaderSpeak?.Invoke(
+                $"{rowName} connection history cleared. Learning starts again from the next connection.",
+                true);
+            RefreshRadiosList();
+            ReselectBySerial(radio.Serial);
+            FocusRadioList();
         }
 
         /// <summary>
@@ -1939,24 +2103,31 @@ namespace JJFlexWpf.Dialogs
             DefaultPathMenuItem.IsEnabled = radio != null;
             if (radio == null) return;
 
-            void AddChoice(string header, string accessible, List<ConnectPathKind> chain, bool isChecked)
+            // ONE label, used as the header AND as the accessible name. They
+            // were different strings until #107 — "Local Network First" on
+            // screen, "Local network first, falling back to SmartLink." by
+            // ear — and the row text elsewhere in this file already carries the
+            // rule those two broke: what a sighted user reads and what a screen
+            // reader says must not diverge. Same constants as the combo, so a
+            // path set at one door reads identically at the other.
+            void AddChoice(string label, List<ConnectPathKind> chain, bool isChecked)
             {
-                var item = new MenuItem { Header = header, IsCheckable = true, IsChecked = isChecked };
-                System.Windows.Automation.AutomationProperties.SetName(item, accessible);
-                item.Click += (_, _) => SetPathChainForRow(radio, chain);
+                var item = new MenuItem { Header = label, IsCheckable = true, IsChecked = isChecked };
+                System.Windows.Automation.AutomationProperties.SetName(item, label);
+                // Confirm here: clicking closes the menu and drops the operator
+                // back on the radio list, so nothing on screen would otherwise
+                // say what the click did.
+                item.Click += (_, _) => SetPathChainForRow(radio, chain, confirm: true);
                 DefaultPathMenuItem.Items.Add(item);
             }
 
-            AddChoice("Automatic",
-                "Automatic. Try the local network first, then SmartLink.",
+            AddChoice(PathAutomatic,
                 new List<ConnectPathKind>(),
                 radio.PathChain.Count == 0);
-            AddChoice("Local Network First",
-                "Local network first, falling back to SmartLink.",
+            AddChoice(PathLocalFirst,
                 new List<ConnectPathKind> { ConnectPathKind.Local, ConnectPathKind.SmartLink },
                 radio.PathChain.Count > 0 && radio.PathChain[0] == ConnectPathKind.Local);
-            AddChoice("SmartLink First",
-                "SmartLink first, falling back to the local network.",
+            AddChoice(PathSmartLinkFirst,
                 new List<ConnectPathKind> { ConnectPathKind.SmartLink, ConnectPathKind.Local },
                 radio.PathChain.Count > 0 && radio.PathChain[0] == ConnectPathKind.SmartLink);
         }
@@ -2117,6 +2288,144 @@ namespace JJFlexWpf.Dialogs
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
             if (RadiosBox.IsKeyboardFocusWithin) FocusRadioList();
+        }
+
+        // ------------------------------------------------------------------
+        // Removing a radio (task #98)
+        // ------------------------------------------------------------------
+
+        private void RemoveRadioMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var radio = GetSelectedRadio();
+            if (radio == null)
+            {
+                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                RadiosBox.Focus();
+                return;
+            }
+            RemoveRadio(radio);
+        }
+
+        /// <summary>
+        /// Take a radio off the list, at a scope the operator chooses inside
+        /// the confirmation. Shared by the Delete key and the context menu —
+        /// two doors, one behaviour, by construction rather than by discipline.
+        /// </summary>
+        private void RemoveRadio(RadioListItem radio)
+        {
+            var rowName = RowName(radio);
+
+            // The radio you are USING is not removable. Deleting its settings
+            // out from under a live session would have the app writing per-radio
+            // state back to a directory it just deleted, and hiding a radio that
+            // is plainly on screen and connected is incoherent. Refuse and say
+            // what to do instead — a refusal with a route is help; a refusal
+            // without one is a wall.
+            var rig = _callbacks.GetCurrentRig?.Invoke();
+            bool connectedToThis = rig != null && rig.IsConnected
+                && (string.Equals(rig.ConnectedSerial, radio.Serial, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(rig.SelectedRadioSerial, radio.Serial, StringComparison.OrdinalIgnoreCase));
+            if (connectedToThis)
+            {
+                new MessageDialog
+                {
+                    Title = "Radio In Use",
+                    Message =
+                        $"You are connected to {rowName} right now, so it cannot be removed. "
+                        + "Disconnect from it first, then remove it.",
+                    Owner = this,
+                }.ShowDialog();
+                FocusRadioList();
+                return;
+            }
+
+            var dialog = new RemoveRadioDialog(rowName, radio.IsLive, radio.AutoConnect)
+            {
+                Owner = this,
+            };
+            if (dialog.ShowDialog() != true)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke($"{rowName} was not removed.", true);
+                FocusRadioList();
+                return;
+            }
+
+            bool deleteSettings = dialog.DeleteSettings;
+
+            // Auto-connect first, and whatever else happens. A startup that
+            // hunts for a radio the operator just removed is the app arguing
+            // with them once a day, and the roster row carrying the
+            // "[AutoConnect]" marker is about to disappear along with the only
+            // place that setting was visible.
+            if (radio.AutoConnect)
+            {
+                try
+                {
+                    _callbacks.SaveAutoConnectSettings(
+                        radio.Serial, radio.Name, radio.IsRemote, radio.LowBW, false);
+                    radio.AutoConnect = false;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine(
+                        $"RigSelector.RemoveRadio({radio.Serial}): clearing auto-connect: {ex.Message}",
+                        System.Diagnostics.TraceLevel.Warning);
+                }
+            }
+
+            bool ok = KnownRadioRoster.Remove(radio.Serial, deleteSettings);
+
+            // Drop the row whether or not the store cooperated: the operator
+            // asked, and refusing an intent because a file was locked hands our
+            // problem to them. What we owe is the truth about how long it will
+            // last, which the speech below tells them.
+            lock (_radiosLock)
+            {
+                _radiosList.RemoveAll(r =>
+                    string.Equals(r.Serial, radio.Serial, StringComparison.OrdinalIgnoreCase));
+            }
+            lock (_learnedPaths) { _learnedPaths.Remove(radio.Serial); }
+            // Let a fresh sighting re-record. That is what clears the hidden
+            // flag for a radio that turns out to still be there — without
+            // this, the once-per-session guard would suppress the very write
+            // that brings a live radio back.
+            lock (_sightingsRecorded) { _sightingsRecorded.Remove(radio.Serial); }
+            _pathAffordanceKey = "";
+            RefreshRadiosList();
+            SyncPathAffordance();
+
+            string speech;
+            if (!ok)
+            {
+                speech = $"{rowName} is off the list for now, but the change could not be written "
+                       + "to disk, so it will be back the next time you start. Your trace file has "
+                       + "the reason.";
+            }
+            else if (deleteSettings)
+            {
+                speech = $"{rowName} removed, along with everything set up for it.";
+            }
+            else if (radio.IsLive)
+            {
+                // Say it BEFORE it happens rather than letting the operator
+                // discover it. The dialog warned; this is the receipt matching
+                // the warning.
+                speech = $"{rowName} removed from the list, with its settings kept. It is reachable "
+                       + "right now, so discovery will list it again shortly.";
+            }
+            else
+            {
+                speech = $"{rowName} removed from the list. Its settings were kept, and it comes "
+                       + "back if this radio is ever seen again.";
+            }
+
+            _callbacks.ScreenReaderSpeak?.Invoke(speech, true);
+
+            // Land somewhere real. The row that had focus no longer exists, and
+            // WPF's fallback after a modal closes is the top of the tab order,
+            // which is not where the operator was.
+            if (RadiosBox.Items.Count > 0) FocusRadioList();
+            else RadiosBox.Focus();
         }
 
         private Action? _closeConnecting;

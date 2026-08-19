@@ -713,6 +713,50 @@
                     <TextBlock Text="Radio Network Address" FontWeight="SemiBold"
                                Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
                     <controls:StaticIpControl x:Name="NetworkStaticIpControl"/>
+
+                    <!-- Learning the connection path (task #102).
+                         App-level, not per-operator: the store it governs
+                         (connect-history.json) is keyed by radio serial and
+                         shared by every operator profile on this machine, so a
+                         per-operator switch could only ever half-apply. -->
+                    <Separator Margin="0,16,0,8"/>
+                    <TextBlock Text="Learning Your Connection Path" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="When a radio connects the same way several times running, JJ Flexible can take the hint and try that way first next time. It only ever fills in a blank: if you have chosen a connection path for a radio yourself, on the Radios tab or in the radio picker, your choice wins and nothing here can change it."/>
+
+                    <CheckBox x:Name="PathLearningEnabledCheck"
+                              Content="Let JJ Flexible learn which connection path each radio prefers"
+                              Margin="0,0,0,4"
+                              AutomationProperties.Name="Learn which connection path each radio prefers"
+                              local:JJFlexHelp.Text="With this off, JJ Flexible never prefills a connection path from a radio's history. Your own choices still apply, and radios you have not chosen a path for fall back to trying the local network first. Turn it off if you are often on the road, where half your connects say nothing about where you usually are. It does not stop the history being kept — that is the record behind the connection times, and it stays either way."
+                              Checked="PathLearningEnabledCheck_Changed"
+                              Unchecked="PathLearningEnabledCheck_Changed"/>
+
+                    <StackPanel x:Name="PathLearningThresholdPanel"
+                                Orientation="Horizontal" Margin="20,4,0,8">
+                        <controls:DecorativeText Text="Connects in a row before it takes the hint:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="PathLearningThresholdCombo" Width="70"
+                                  Style="{StaticResource DialogComboBox}"
+                                  AutomationProperties.Name="Connects in a row before JJ Flexible takes the hint"
+                                  local:JJFlexHelp.Text="Three, four or five. Higher means more evidence before JJ Flexible concludes anything, which is what you want if you are often travelling. Five is the ceiling and the reason is the store, not caution: JJ Flexible keeps the last ten connection attempts per radio, and a radio that tries one way and falls back to the other uses two of those ten every time it connects — so five successes in a row is the most such a radio could ever show. A larger number would be one this app could never reach."
+                                  SelectionChanged="PathLearningThresholdCombo_SelectionChanged"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="PathLearningStatusText"
+                               Style="{StaticResource DialogLabel}"
+                               TextWrapping="Wrap" Margin="0,0,0,8"
+                               AutomationProperties.LiveSetting="Polite"/>
+
+                    <Button x:Name="PathLearningForgetButton"
+                            Content="Forget what has been _learned..."
+                            HorizontalAlignment="Left" Padding="12,4"
+                            AutomationProperties.Name="Forget what has been learned, for every radio"
+                            AutomationProperties.AcceleratorKey="Alt+L"
+                            local:JJFlexHelp.Text="Clears the connection history for every radio this computer knows, which is what JJ Flexible reads to work out a habit — so the habits go with it. It asks first and names what is lost. To do it for one radio only, press Shift F10 on that radio in the radio picker and choose Forget the learned connection path."
+                            Click="PathLearningForgetButton_Click"/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

@@ -67,6 +67,17 @@ namespace Radios
         /// fetched. <see cref="DateTime.MinValue"/> when the row did not come
         /// from an account cache.</summary>
         public DateTime AccountListFetchedUtc { get; set; }
+
+        /// <summary>
+        /// The operator took this radio off the list but kept its settings
+        /// (task #98). Carried through the merge rather than filtered at the
+        /// source so that a radio which turns out to be listed by an account
+        /// RIGHT NOW comes back with its chosen name, its favourite flag and
+        /// its path chain intact — dropping it early would have brought it
+        /// back anonymous, which reads as the settings having been destroyed
+        /// by the safe scope. <see cref="Load"/> filters at the end.
+        /// </summary>
+        public bool HiddenFromList { get; set; }
     }
 
     /// <summary>
@@ -146,6 +157,7 @@ namespace Radios
                         LastSeenRemote = cfg.LastSeenRemote,
                         LastSeenViaAccount = cfg.LastSeenViaAccount ?? "",
                         PreferredAccount = cfg.PreferredAccount ?? "",
+                        HiddenFromList = cfg.HiddenFromList,
                     };
                 }
             }
@@ -221,6 +233,13 @@ namespace Radios
                                 entry.InAccountCache = true;
                                 entry.AccountListFetchedUtc = acct.FetchedUtc;
                             }
+                            // An account list that names this radio outranks a
+                            // hide. Removal cleared it from every cached list,
+                            // so its presence here means a pass since then put
+                            // it back — the account really does list it, and
+                            // hiding a radio the operator can reach is the one
+                            // outcome removal must never produce (task #98).
+                            entry.HiddenFromList = false;
                             cacheAttribution[r.Serial] = acct.AccountEmail;
                             // Appearing in an account's fetched list IS a remote
                             // sighting, whichever account fetched it.
@@ -249,9 +268,93 @@ namespace Radios
             }
 
             return byserial.Values
+                .Where(e => !e.HiddenFromList)
                 .OrderByDescending(e => e.IsFavorite)
                 .ThenByDescending(e => e.LastSeenUtc)
                 .ToList();
+        }
+
+        /// <summary>
+        /// Take a radio off the roster (task #98). Two scopes, and the
+        /// difference between them is the whole point of the confirmation the
+        /// caller must have shown first.
+        ///
+        /// <para><paramref name="deleteSettings"/> FALSE — the safe scope. The
+        /// per-radio profile survives untouched; the radio is simply flagged
+        /// off the list, and every cached record of it is dropped so the row
+        /// does not repaint from the source nobody thought to look at. A live
+        /// sighting, or an account list that names it, brings it straight back
+        /// WITH its settings. For an online radio this is therefore close to a
+        /// no-op, deliberately; where it earns its keep is the junk entry that
+        /// will never answer again.</para>
+        ///
+        /// <para><paramref name="deleteSettings"/> TRUE — the destructive
+        /// scope. The whole <c>radios\{serial}\</c> directory goes: the profile
+        /// AND the connection history ring. The radio can come back; the
+        /// configuration cannot, and the caller must have named what is lost
+        /// before getting here. Deleting the DIRECTORY rather than the row is
+        /// what makes it stick — leave the directory and every setting
+        /// resurrects the moment the radio is re-discovered.</para>
+        ///
+        /// <para>Returns false when any part of the removal was refused, and a
+        /// false must NOT be reported as success: the row would be back at the
+        /// next launch.</para>
+        /// </summary>
+        public static bool Remove(string serial, bool deleteSettings)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return false;
+
+            bool ok = true;
+
+            // The cache first, under both scopes. The roster merges profile and
+            // cache by serial, so a removal that touches only one of them is a
+            // removal the operator watches undo itself.
+            try
+            {
+                var cache = OpenCache();
+                if (cache != null && !cache.Forget(serial)) ok = false;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"KnownRadioRoster.Remove({serial}): cache: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                ok = false;
+            }
+
+            try
+            {
+                var baseDir = RadioConfig.ResolvedBaseDirectory;
+                var dir = string.IsNullOrEmpty(baseDir)
+                    ? null
+                    : Path.Combine(baseDir!, "radios", RadioConfig.SanitizeRadioId(serial));
+
+                if (deleteSettings)
+                {
+                    if (dir != null && Directory.Exists(dir))
+                    {
+                        Directory.Delete(dir, recursive: true);
+                        Tracing.TraceLine(
+                            $"KnownRadioRoster.Remove({serial}): profile directory deleted",
+                            System.Diagnostics.TraceLevel.Info);
+                    }
+                }
+                else if (dir != null && Directory.Exists(dir))
+                {
+                    var cfg = RadioConfig.LoadForRadio(serial);
+                    cfg.HiddenFromList = true;
+                    if (!cfg.SaveForRadio(serial)) ok = false;
+                }
+                // No directory and not deleting: there were no settings to
+                // keep, so clearing the cache above was the entire removal.
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"KnownRadioRoster.Remove({serial}): profile: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                ok = false;
+            }
+
+            return ok;
         }
 
         /// <summary>
@@ -269,6 +372,12 @@ namespace Radios
                 var cfg = RadioConfig.LoadForRadio(serial);
                 if (!string.IsNullOrWhiteSpace(nickname)) cfg.Nickname = nickname;
                 if (!string.IsNullOrWhiteSpace(model)) cfg.Model = model;
+                // A radio that answers is real, so a sighting outranks a hide
+                // (task #98). Keeping a reachable radio off the list would lock
+                // the operator out of their own rig with no explanation
+                // anywhere, and the removal UI is careful never to promise an
+                // online radio will stay gone.
+                cfg.HiddenFromList = false;
                 cfg.LastSeenUtc = DateTime.UtcNow;
                 cfg.LastSeenRemote = isRemote;
                 // A LAN sighting says nothing about which account can see the

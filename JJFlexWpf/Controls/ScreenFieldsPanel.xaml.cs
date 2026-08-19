@@ -1470,11 +1470,11 @@ public partial class ScreenFieldsPanel : UserControl
                     if (firstFocusable != null)
                         Keyboard.Focus(firstFocusable);
                     else
-                        expander.Focus();
+                        ExpanderFocus.FocusHeader(expander);
                 }
                 else
                 {
-                    expander.Focus();
+                    ExpanderFocus.FocusHeader(expander);
                 }
             });
         }
@@ -1491,7 +1491,11 @@ public partial class ScreenFieldsPanel : UserControl
             Visibility = Visibility.Visible;
 
         _expanders[index].IsExpanded = true;
-        _expanders[index].Focus();
+        // The HEADER, not the container — see ExpanderFocus. This line focused
+        // the container raw until task #105, which is the silent-landing plus
+        // dead-Space pair, arriving here for anyone who expanded a category
+        // through the API rather than through Ctrl+Tab.
+        ExpanderFocus.FocusHeader(_expanders[index]);
     }
 
     /// <summary>
@@ -1515,38 +1519,6 @@ public partial class ScreenFieldsPanel : UserControl
             4 => AntennaContent,
             _ => null
         };
-    }
-
-    /// <summary>
-    /// Sprint 28 Phase 3.4 — focus an Expander's inner ToggleButton (its header
-    /// toggle) rather than the Expander container itself. ToggleButton responds
-    /// to Space for expand/collapse; the Expander container does not. Tab nav
-    /// naturally lands on the ToggleButton; programmatic Expander.Focus() lands
-    /// on the container. Falls back to Expander.Focus() if no ToggleButton is
-    /// found in the visual tree (shouldn't happen with the default Expander
-    /// template, but defensive).
-    /// </summary>
-    private static void FocusExpanderToggleButton(Expander expander)
-    {
-        var toggle = FindChildOfType<System.Windows.Controls.Primitives.ToggleButton>(expander);
-        if (toggle != null)
-            toggle.Focus();
-        else
-            expander.Focus();
-    }
-
-    /// <summary>Sprint 28 Phase 3.4 — walk visual tree for a descendant of type T.</summary>
-    private static T? FindChildOfType<T>(DependencyObject parent) where T : DependencyObject
-    {
-        if (parent == null) return null;
-        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is T match) return match;
-            var result = FindChildOfType<T>(child);
-            if (result != null) return result;
-        }
-        return null;
     }
 
     /// <summary>Find the first focusable child control in a visual tree.</summary>
@@ -1616,7 +1588,9 @@ public partial class ScreenFieldsPanel : UserControl
                 // Space re-expand after Escape-collapse. Finding and focusing the
                 // ToggleButton specifically fixes it. Bug 2 fix (Phase 3.4,
                 // 2026-04-21 — user green-lit find-toggle-button approach).
-                FocusExpanderToggleButton(targetExpander);
+                // The walk itself now lives in ExpanderFocus (task #105) — the
+                // RigSelector had independently derived the identical fix.
+                ExpanderFocus.FocusHeader(targetExpander);
 
                 // Collapse the group with the per-group earcon suppressed — we'll
                 // play the collapse earcon deferred via timer so a potential second
@@ -1771,10 +1745,10 @@ public partial class ScreenFieldsPanel : UserControl
         }
 
         // Focus the expander's toggle button (header). Using the shared
-        // FocusExpanderToggleButton helper so the toggle receives keyboard focus
+        // ExpanderFocus helper so the toggle receives keyboard focus
         // consistently — enables Space-to-expand/collapse after Ctrl+Tab
         // navigation. Sprint 28 Phase 3.4 alignment with the Escape-collapse fix.
-        FocusExpanderToggleButton(visible[nextIndex]);
+        ExpanderFocus.FocusHeader(visible[nextIndex]);
     }
 
     private static bool IsDescendantOf(DependencyObject element, DependencyObject ancestor)

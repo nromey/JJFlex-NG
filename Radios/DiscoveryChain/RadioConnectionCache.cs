@@ -192,7 +192,75 @@ namespace Radios.DiscoveryChain
             }
         }
 
-        private void Save()
+        /// <summary>
+        /// Forget one radio entirely: its per-radio entry, and its membership
+        /// in every cached account radio list (task #98).
+        ///
+        /// <para>Both halves are needed or the removal does nothing the
+        /// operator can see. The roster merges BOTH sources by serial, so
+        /// deleting a radio's profile while leaving it in this file simply
+        /// re-paints the row on the next open, from the source nobody
+        /// thought to look at.</para>
+        ///
+        /// <para>Removing a radio from a cached account list edits a remembered
+        /// SERVER answer, which is safe precisely because it is a cache: the
+        /// next SmartLink pass restores whatever is actually true. That is the
+        /// honest behaviour anyway — a radio the account really does list is
+        /// reachable, and a removal must not pretend to hide a reachable
+        /// radio.</para>
+        ///
+        /// <para>No schema change: this touches values, never field names or
+        /// types, so the parity lock with the 4.2-line cascade holds.</para>
+        /// </summary>
+        /// <returns>True when nothing for this serial is left in the file,
+        /// including the case where there was nothing to begin with.</returns>
+        public bool Forget(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return false;
+            try
+            {
+                lock (_sync)
+                {
+                    int removed = _data.Entries.RemoveAll(e =>
+                        string.Equals(e.Serial, serial, StringComparison.OrdinalIgnoreCase));
+
+                    foreach (var list in _data.AccountLists)
+                    {
+                        if (list?.Radios == null) continue;
+                        removed += list.Radios.RemoveAll(r =>
+                            string.Equals(r.Serial, serial, StringComparison.OrdinalIgnoreCase));
+                    }
+
+                    if (removed == 0) return true;
+
+                    // The return value matters here in a way it does not for
+                    // the record-a-sighting callers: the operator is being told
+                    // the radio is gone, and a declined write means it comes
+                    // back at the next launch.
+                    if (!Save()) return false;
+
+                    Tracing.TraceLine(
+                        $"RadioConnectionCache.Forget({serial}): {removed} record(s) removed",
+                        System.Diagnostics.TraceLevel.Info);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RadioConnectionCache.Forget({serial}): {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Write the file. Returns false rather than throwing — a sighting
+        /// record that cannot be written must never break a connect, so most
+        /// callers ignore the result. <see cref="Forget"/> does not: there the
+        /// operator is being told a radio is gone, and a declined write means
+        /// it is back at the next launch.
+        /// </summary>
+        private bool Save()
         {
             try
             {
@@ -203,10 +271,12 @@ namespace Radios.DiscoveryChain
                 using var fs = File.Create(_filePath);
                 var ser = new XmlSerializer(typeof(RadioConnectionCacheFile));
                 ser.Serialize(fs, _data);
+                return true;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Trace.WriteLine($"RadioConnectionCache.Save failed: {ex.Message}");
+                return false;
             }
         }
 

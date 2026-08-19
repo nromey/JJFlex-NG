@@ -111,6 +111,104 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Forget everything recorded for one radio (task #102's reset).
+        ///
+        /// <para><b>This IS the reset, and there is nothing smaller.</b> A
+        /// learned path is not stored anywhere — <see cref="ConnectPathPolicy"/>
+        /// derives it from this ring every time it is asked. So "clear the
+        /// learned path but keep the history" is not a thing that can exist:
+        /// the history is the learned path, one derivation later. Any UI
+        /// offering the choice would be offering a lie.</para>
+        ///
+        /// <para>What that costs, and callers must SAY so: the ring is also
+        /// diagnostic data in its own right — the last ten attempts with their
+        /// paths, outcomes and durations, which is how "how long is this connect
+        /// actually taking" gets answered without a trace-file archaeology
+        /// session. Clearing it throws that away too.</para>
+        ///
+        /// <para>Returns true when nothing is left on disk for this radio,
+        /// including the case where there was nothing to begin with. False
+        /// means the file is still there and the caller must not claim
+        /// success.</para>
+        /// </summary>
+        public static bool Clear(string serial)
+        {
+            try
+            {
+                var file = FilePathFor(serial);
+                if (file == null) return false;
+                lock (_sync)
+                {
+                    if (!File.Exists(file)) return true;
+                    File.Delete(file);
+                    Tracing.TraceLine($"ConnectionHistory.Clear({serial}): ring deleted",
+                        System.Diagnostics.TraceLevel.Info);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ConnectionHistory.Clear({serial}): {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Forget everything recorded for every radio this install knows.
+        /// Returns how many rings were cleared and how many refused, so the
+        /// caller can be honest about a partial result rather than reporting a
+        /// round number it did not achieve.
+        /// </summary>
+        public static (int cleared, int failed) ClearAll()
+        {
+            int cleared = 0, failed = 0;
+            try
+            {
+                var baseDir = RadioConfig.BaseDirectory;
+                if (string.IsNullOrEmpty(baseDir)) return (0, 0);
+                var root = Path.Combine(baseDir, "radios");
+                if (!Directory.Exists(root)) return (0, 0);
+
+                // Walk the store for ring files rather than asking
+                // RadioConfig.ListKnownRadioIds, which lists only directories
+                // that also hold a config.xml. A "forget everything" that
+                // quietly skipped a radio whose profile is missing would leave
+                // it still steering connects, which is the one outcome the
+                // operator pressed this button to prevent. Only directories
+                // that actually have a ring are counted — "cleared 5 radios"
+                // when four never had a history sounds like more happened
+                // than did.
+                foreach (var dir in Directory.EnumerateDirectories(root))
+                {
+                    var file = Path.Combine(dir, "connect-history.json");
+                    if (!File.Exists(file)) continue;
+                    lock (_sync)
+                    {
+                        try
+                        {
+                            File.Delete(file);
+                            cleared++;
+                        }
+                        catch (Exception ex)
+                        {
+                            failed++;
+                            Tracing.TraceLine(
+                                $"ConnectionHistory.ClearAll: {file}: {ex.Message}",
+                                System.Diagnostics.TraceLevel.Warning);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ConnectionHistory.ClearAll: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+            return (cleared, failed);
+        }
+
         private static List<ConnectionAttemptRecord> LoadInternal(string file)
         {
             if (!File.Exists(file)) return new List<ConnectionAttemptRecord>();

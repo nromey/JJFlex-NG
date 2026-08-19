@@ -321,6 +321,27 @@ namespace Radios
         /// connection behaviour.</summary>
         public bool IsFavorite { get; set; }
 
+        /// <summary>
+        /// The operator asked for this radio to be taken off the list, while
+        /// keeping everything configured for it (task #98, the safe scope).
+        ///
+        /// <para>A flag rather than a deletion, because the whole point of the
+        /// safe scope is that the settings survive — and deleting the profile
+        /// to hide the row would be the destructive scope wearing the safe
+        /// scope's label.</para>
+        ///
+        /// <para><b>A live sighting clears it.</b> A radio that answers is
+        /// real, and a hidden reachable radio is an operator locked out of
+        /// their own rig with no explanation anywhere. That is not a
+        /// concession, it is the stated behaviour: hiding an ONLINE radio is
+        /// nearly a no-op, and the removal UI must not promise otherwise.
+        /// Where it earns its keep is the junk roster entry that will never
+        /// answer again — which is exactly the case that had no escape but
+        /// hand-editing AppData, something a blind operator must never be
+        /// asked to do.</para>
+        /// </summary>
+        public bool HiddenFromList { get; set; }
+
         /// <summary>When this radio was last seen by discovery (UTC).
         /// <see cref="DateTime.MinValue"/> means "never seen since this field
         /// shipped" and is announced as "last seen unknown", never as 1 AD.</summary>
@@ -514,6 +535,18 @@ namespace Radios
                 return null;
             }
         }
+
+        /// <summary>
+        /// The config root actually in use, self-healed exactly as the per-radio
+        /// load and save paths do it.
+        ///
+        /// <para>Exists so that other app-level stores under this root
+        /// (<see cref="ConnectPathLearningConfig"/>) read and write the SAME
+        /// directory these methods do. Two stores resolving the root two
+        /// different ways is the failure that looks like success: the save
+        /// reports fine and lands somewhere nothing reads.</para>
+        /// </summary>
+        public static string? ResolvedBaseDirectory => ResolveBaseDirectory();
 
         /// <summary>Load via the app-wide <see cref="BaseDirectory"/>.</summary>
         public static RadioConfig LoadForRadio(string radioId)
