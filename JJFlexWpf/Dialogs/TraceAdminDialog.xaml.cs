@@ -54,9 +54,39 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
-                string docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                FileNameBox.Text = System.IO.Path.Combine(docs, "JJRadioTrace.txt");
+                // The live log, NOT Documents\JJRadioTrace.txt.
+                //
+                // That old default put the file outside the settings folder,
+                // where nothing rotates, archives, prunes or bundles it — and
+                // it still carried Jim's pre-rename "JJRadio" name. A file the
+                // reporting pipeline cannot see is a file the operator cannot
+                // send, which is the opposite of what this dialog is for.
+                string live = "";
+                try { live = JJFlexWpf.DiagnosticsBridge.LiveLogPath?.Invoke() ?? ""; }
+                catch { /* bridge unwired — fall through to the folder default */ }
+                if (string.IsNullOrEmpty(live))
+                {
+                    string folder = "";
+                    try { folder = JJFlexWpf.DiagnosticsBridge.LogFolder?.Invoke() ?? ""; } catch { }
+                    if (string.IsNullOrEmpty(folder))
+                        folder = System.IO.Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                            "JJFlexRadio");
+                    live = System.IO.Path.Combine(folder, "JJFlexRadioTrace.txt");
+                }
+                FileNameBox.Text = live;
             }
+
+            // Read the LIVE state, every time the dialog opens.
+            //
+            // This used to initialize to false unconditionally, so opening the
+            // dialog mid-trace announced "Start tracing" for a trace that was
+            // already running — and pressing the button restarted to a new file,
+            // silently discarding the capture the operator was in the middle of.
+            // The accessible-name fix of 2026-08-17 was correct and made this
+            // worse: the button then faithfully reported a state that was
+            // fiction.
+            _isTracing = JJTrace.Tracing.On;
 
             LevelListBox.SelectedIndex = DefaultLevel;
             UpdateToggleButton();
@@ -67,10 +97,11 @@ namespace JJFlexWpf.Dialogs
             // Content and accessible name change together. The XAML used to
             // hardcode AutomationProperties.Name="Start or stop tracing", so a
             // screen reader heard the same words in both states — the exact
-            // defect Noel reported 2026-08-11. This whole dialog is slated for
-            // retirement by the ratified diagnostic-log design
-            // (docs/planning/active/diagnostic-log-surface.md); until that
-            // track runs, the button at least tells the truth.
+            // defect Noel reported 2026-08-11. This whole dialog is retired by
+            // the ratified diagnostic-log design
+            // (docs/planning/active/diagnostic-log-surface.md) and no menu opens
+            // it any more; it survives one release as a fallback, so it has to
+            // tell the truth for that release.
             ToggleButton.Content = _isTracing ? "Stop" : "Start";
             System.Windows.Automation.AutomationProperties.SetName(
                 ToggleButton, _isTracing ? "Stop tracing" : "Start tracing");

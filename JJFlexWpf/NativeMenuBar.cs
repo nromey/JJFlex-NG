@@ -1649,19 +1649,17 @@ public class NativeMenuBar : IDisposable
             {
                 InitialFilePath = Tracing.TraceFile ?? "",
                 DefaultLevel = (int)(Tracing.TheSwitch?.Level ?? System.Diagnostics.TraceLevel.Info),
+                // Both routed through the session-aware plumbing. The old inline
+                // versions flipped Tracing.On directly, which skipped
+                // ArchiveCurrentTraceSession / BeginNewTraceSession entirely:
+                // the running trace was closed without ever being archived, its
+                // leftover file was found at the next boot and falsely tagged
+                // "killed", and the trace the operator had just started got no
+                // manifest entry at all — invisible to the archive browser and
+                // to any future bundle picker.
                 StartTracing = (filePath, levelIndex) =>
-                {
-                    Tracing.On = false;
-                    Tracing.TraceFile = filePath;
-                    Tracing.TheSwitch.Level = (System.Diagnostics.TraceLevel)levelIndex;
-                    Tracing.On = true;
-                    Tracing.TraceLine($"User started tracing at level {Tracing.TheSwitch.Level}");
-                },
-                StopTracing = () =>
-                {
-                    Tracing.TraceLine("User stopped tracing");
-                    Tracing.On = false;
-                }
+                    DiagnosticsBridge.StartLogAt?.Invoke(filePath, levelIndex),
+                StopTracing = () => DiagnosticsBridge.StopLog?.Invoke()
             };
             dialog.ShowDialog();
         });

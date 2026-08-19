@@ -426,19 +426,108 @@ Module globals
     Friend LastCaptureArchivePath As String = Nothing
 
     ''' <summary>
-    ''' Raised whenever the diagnostic log's state changes — on, off, detail
-    ''' level, capture started or stopped. The Settings tab's status line
-    ''' subscribes so it re-reads reality rather than caching a copy of it.
-    ''' That caching is exactly how TraceAdminDialog ended up announcing "Start
-    ''' tracing" for a trace that was already running.
+    ''' Tell every diagnostics surface that the log's state changed — on, off,
+    ''' detail level, capture started or stopped. The status line subscribes so
+    ''' it re-reads reality rather than caching a copy of it. That caching is
+    ''' exactly how TraceAdminDialog ended up announcing "Start tracing" for a
+    ''' trace that was already running.
     ''' </summary>
-    Friend Event DiagnosticLogStateChanged As EventHandler
-
     Friend Sub RaiseDiagnosticLogStateChanged()
         Try
-            RaiseEvent DiagnosticLogStateChanged(Nothing, EventArgs.Empty)
+            JJFlexWpf.DiagnosticsBridge.NotifyStateChanged()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Hand the WPF diagnostics surface its delegates. Called once at startup,
+    ''' right after the config directory is known. JJFlexWpf cannot call into
+    ''' this project by name — it is referenced BY it — so this is the seam, and
+    ''' having exactly one seam is what stops the surface re-implementing the
+    ''' plumbing the way the retired trace dialog did.
+    ''' </summary>
+    Friend Sub WireDiagnosticsBridge()
+        Try
+            JJFlexWpf.DiagnosticsBridge.DescribeState = Function() DescribeDiagnosticLogState()
+            JJFlexWpf.DiagnosticsBridge.IsCapturing = Function() DetailedCaptureRunning
+            JJFlexWpf.DiagnosticsBridge.KeepLog = Function() DiagnosticsSettings.KeepDiagnosticLog
+            JJFlexWpf.DiagnosticsBridge.DetailLevel = Function() CInt(DiagnosticsSettings.DetailLevel)
+            JJFlexWpf.DiagnosticsBridge.StartCapture = Sub(reason) StartDetailedCapture(reason)
+            JJFlexWpf.DiagnosticsBridge.StopCapture = Sub() StopDetailedCapture()
+            JJFlexWpf.DiagnosticsBridge.ApplySettings =
+                Sub(keep, detail) ApplyDiagnosticLogSettings(keep, CType(detail, Radios.DiagnosticDetail))
+            JJFlexWpf.DiagnosticsBridge.StartLogAt = Sub(path, lvl) StartLogAtPath(path, CType(lvl, TraceLevel))
+            JJFlexWpf.DiagnosticsBridge.StopLog = Sub() StopLogSessionAware()
+            JJFlexWpf.DiagnosticsBridge.LiveLogPath =
+                Function() If(Tracing.TraceFile, If(BootTrace, BootTraceFileName, String.Empty))
+            JJFlexWpf.DiagnosticsBridge.LogFolder = Function() BaseConfigDir
+            JJFlexWpf.DiagnosticsBridge.LastCaptureArchivePath =
+                Function() If(LastCaptureArchivePath, String.Empty)
+            JJFlexWpf.DiagnosticsBridge.DescribeStorage = Function() DescribeDiagnosticStorage()
+            JJFlexWpf.DiagnosticsBridge.DescribeCrashReports = Function() CrashReporter.DescribeCrashReports()
+            JJFlexWpf.DiagnosticsBridge.DeleteLooseLogs = Function() DeleteLoosePlainTextTraces()
+            JJFlexWpf.DiagnosticsBridge.DeleteResolvedCrashReports =
+                Function() CrashReporter.DeleteResolvedCrashReports()
+            JJFlexWpf.DiagnosticsBridge.DescribeBytes = Function(b) DescribeBytes(b)
+            JJFlexWpf.DiagnosticsBridge.OpenSavedLogs = Sub() ShowSavedDiagnosticLogs()
+            JJFlexWpf.DiagnosticsBridge.SaveProblemReport = Sub() DebugInfo.GetDebugInfo()
+            JJFlexWpf.DiagnosticsBridge.Speak = Sub(msg) SpeakDiagnostics(msg)
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Redirect the log to an explicit file at an explicit level, settling the
+    ''' current session first. The rule that must never be broken: nothing flips
+    ''' Tracing.On without archiving what was already open. Breaking it is what
+    ''' made the old dialog's traces invisible to the browser and made the next
+    ''' boot's leftover sweep tag a clean exit as "killed".
+    ''' </summary>
+    Friend Sub StartLogAtPath(path As String, lvl As TraceLevel)
+        Try
+            If String.IsNullOrWhiteSpace(path) Then Return
+            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
+                "Diagnostic log redirected to a chosen file")
+            Tracing.TheSwitch.Level = lvl
+            Tracing.TraceFile = path
+            Tracing.On = True
+            BeginNewTraceSession()
+            LastUserTraceFile = path
+            Tracing.TraceLine(
+                $"Diagnostic log redirected {Date.Now:O} to {path} level={Tracing.TheSwitch.Level}")
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
+    ''' <summary>Stop the log, archiving the session on the way out.</summary>
+    Friend Sub StopLogSessionAware()
+        Try
+            Tracing.TraceLine("Diagnostic log stopped by the operator")
+            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
+                "Operator stopped the diagnostic log")
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
+    ''' <summary>
+    ''' Open the Saved Diagnostic Logs window — the repurposed TraceAdmin form,
+    ''' which held a working archive browser that nothing in the app had
+    ''' instantiated since it was built. This is the entrance that makes it
+    ''' reachable again.
+    ''' </summary>
+    Friend Sub ShowSavedDiagnosticLogs()
+        Try
+            Using dlg As New TraceAdmin()
+                dlg.ShowDialog(AppShellForm)
+            End Using
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
         End Try
     End Sub
 
@@ -1351,6 +1440,7 @@ Module globals
         ' could never govern boot. Absent file = defaults = exactly the previous
         ' behaviour, so upgrading changes nobody's experience.
         DiagnosticsSettings = Radios.DiagnosticsConfig.Load(BaseConfigDir)
+        WireDiagnosticsBridge()
 
         ' The debugger guard stays an AND-term: attach-time behaviour is
         ' unchanged, and the operator's KeepDiagnosticLog choice is the new
