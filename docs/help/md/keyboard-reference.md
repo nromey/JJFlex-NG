@@ -13,7 +13,7 @@ These keys work no matter where you are in the application — and "no matter wh
 | Key | Action |
 |-----|--------|
 | F1 | Open this help file |
-| Ctrl+F1 | Explain the control you are sitting on, when it has a longer explanation than its name |
+| Ctrl+F1 | Explain the control you are sitting on — the longer story its short name leaves out. If there's nothing extra, it says so honestly |
 | Ctrl+/ | Open Command Finder (search all commands) |
 | Ctrl+J | The JJ key (press, release, then press a second key) |
 | Ctrl+Shift+M | Switch between Classic and Modern tuning mode |
@@ -59,6 +59,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | Shift+F | Speak the RX filter width |
 | Ctrl+F | Enter a frequency |
 | D | Toggle tuning speech debounce |
+| Ctrl+D | Start or stop a detailed capture of what the app is doing — works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs |
 | L | Speak log statistics |
 | M | Open the memories dialog |
 | T | Toggle meter tones on/off |

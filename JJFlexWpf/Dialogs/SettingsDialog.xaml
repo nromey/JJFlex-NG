@@ -833,7 +833,7 @@
                                 <ComboBox x:Name="RadioProfileSmartLinkIntentCombo" MinWidth="260"
                                           Style="{StaticResource DialogComboBox}"
                                           AutomationProperties.Name="Whether you want to reach this radio from away"
-                   local:JJFlexHelp.Text="Local only silences every SmartLink registration prompt for this radio."
+                   local:JJFlexHelp.Text="Local only silences every SmartLink registration prompt for this radio. Registering with SmartLink is how you reach a radio over the internet from somewhere else — a radio that never leaves your house does not need it, and nothing about your local operating changes either way."
                                           SelectionChanged="RadioProfileSmartLinkIntentCombo_SelectionChanged">
                                     <ComboBoxItem Content="Ask me when it comes up"/>
                                     <ComboBoxItem Content="I only use this radio here"/>
@@ -853,13 +853,15 @@
                             <CheckBox x:Name="RadioProfileAllowRemotePortCheck" Margin="0,0,0,6"
                                       Checked="RadioProfileRemoteAdmin_Toggled"
                                       Unchecked="RadioProfileRemoteAdmin_Toggled"
-                                      AutomationProperties.Name="Allow changing port settings from a remote connection">
+                                      AutomationProperties.Name="Allow changing port settings from a remote connection"
+                   local:JJFlexHelp.Text="Lets a remote connection change settings that persist on the radio itself, like port numbers. Getting a port wrong is recoverable — the radio stays registered with SmartLink, and hole punch remains a way back in.">
                                 <TextBlock Text="Allow changing port settings from a remote connection" TextWrapping="Wrap"/>
                             </CheckBox>
                             <CheckBox x:Name="RadioProfileAllowRemoteFirmwareCheck" Margin="0,0,0,4"
                                       Checked="RadioProfileRemoteAdmin_Toggled"
                                       Unchecked="RadioProfileRemoteAdmin_Toggled"
-                                      AutomationProperties.Name="Allow firmware updates without someone at the radio">
+                                      AutomationProperties.Name="Allow firmware updates without someone at the radio"
+                   local:JJFlexHelp.Text="Lets a firmware update start with nobody at the radio. Firmware always travels over the radio's local network, so from afar this needs a VPN link like Tailscale — and interrupting an update is not recoverable. Leave it off unless it is truly your only option.">
                                 <TextBlock Text="Allow firmware updates without someone at the radio" TextWrapping="Wrap"/>
                             </CheckBox>
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
@@ -1405,6 +1407,7 @@
                                       Content="Keep a diagnostic log (recommended)"
                                       Margin="0,4,0,8"
                                       AutomationProperties.Name="Keep a diagnostic log, recommended"
+                   local:JJFlexHelp.Text="Keeps a quiet record of what the app does, at the detail level below, so a problem that already happened can still be explained. It stays on this computer."
                                       Checked="DiagKeepLogCheckbox_Changed"
                                       Unchecked="DiagKeepLogCheckbox_Changed"/>
 
@@ -1414,6 +1417,7 @@
                                          Content="Normal (recommended)"
                                          Margin="0,2,0,0"
                                          AutomationProperties.Name="Normal detail, recommended"
+                   local:JJFlexHelp.Text="Records connections, errors, and the actions you take. You will never notice the cost."
                                          Checked="DiagDetailRadio_Checked"/>
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,6"
                                        Text="Records connections, errors, and the actions you take. You will never notice the cost."/>
@@ -1422,6 +1426,7 @@
                                          Content="Detailed"
                                          Margin="0,2,0,0"
                                          AutomationProperties.Name="Detailed"
+                   local:JJFlexHelp.Text="Records nearly everything the app does. Files grow fast. Use it when the developer asks, or use a detailed capture instead."
                                          Checked="DiagDetailRadio_Checked"/>
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,8"
                                        Text="Records nearly everything the app does. Files grow fast. Use it when the developer asks, or use a detailed capture instead."/>
@@ -1435,11 +1440,13 @@
                                         Content="Copy log file path"
                                         Padding="12,4" Margin="0,0,8,0"
                                         AutomationProperties.Name="Copy log file path"
+                   local:JJFlexHelp.Text="Puts the live log file's full path on the clipboard, ready to paste into a message or a file dialog."
                                         Click="DiagCopyPathButton_Click"/>
                                 <Button x:Name="DiagOpenFolderButton"
                                         Content="Open log folder"
                                         Padding="12,4"
                                         AutomationProperties.Name="Open log folder"
+                   local:JJFlexHelp.Text="Opens the folder that holds the live log in File Explorer."
                                         Click="DiagOpenFolderButton_Click"/>
                             </StackPanel>
                         </StackPanel>
@@ -1452,6 +1459,7 @@
                                     Content="Start detailed capture"
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,4,0,6"
                                     AutomationProperties.Name="Start detailed capture"
+                   local:JJFlexHelp.Text="Records everything at maximum detail while you reproduce a problem, then press it again to stop. The capture saves as its own session in Saved Diagnostic Logs. Control J then Control D does the same from anywhere, radio or not."
                                     Click="DiagCaptureButton_Click"/>
                             <!-- Collapsed, not disabled: a disabled control stays
                                  in the tab order and a hidden one does not, and
@@ -1462,6 +1470,7 @@
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
                                     Visibility="Collapsed"
                                     AutomationProperties.Name="Export this capture"
+                   local:JJFlexHelp.Text="Saves the capture you just finished as one file you can attach to a message or hand to support."
                                     Click="DiagExportCaptureButton_Click"/>
                             <TextBlock TextWrapping="Wrap"
                                        Text="A capture records everything at maximum detail while you reproduce a problem, then saves it as its own session in Saved Diagnostic Logs. Control J then Control D starts and stops one from anywhere."/>
@@ -1475,11 +1484,13 @@
                                     Content="Browse saved logs..."
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,4,0,6"
                                     AutomationProperties.Name="Browse saved logs"
+                   local:JJFlexHelp.Text="Opens the Saved Diagnostic Logs window, where every past session can be read, exported, or deleted."
                                     Click="DiagBrowseButton_Click"/>
                             <Button x:Name="DiagProblemReportButton"
                                     Content="Save a problem report bundle..."
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
                                     AutomationProperties.Name="Save a problem report bundle"
+                   local:JJFlexHelp.Text="Gathers the recent sessions and a snapshot of your setup into one bundle file, ready to send when the developer asks what happened. Nothing is sent for you."
                                     Click="DiagProblemReportButton_Click"/>
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
                                        Text="Each session is compressed and kept for 30 days, then removed automatically. Yesterday's sessions stay readable as plain text for one day."/>
@@ -1504,16 +1515,19 @@
                                     Content="Measure now"
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
                                     AutomationProperties.Name="Measure the settings folder now"
+                   local:JJFlexHelp.Text="Adds up what the settings folder is holding, including saved logs and crash reports. It runs when you ask because a large folder takes a moment to count."
                                     Click="DiagMeasureButton_Click"/>
                             <Button x:Name="DiagDeleteLooseButton"
                                     Content="Delete loose log text files"
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
                                     AutomationProperties.Name="Delete loose log text files"
+                   local:JJFlexHelp.Text="Removes leftover plain-text log files. The compressed sessions in Saved Diagnostic Logs are not touched, so nothing you might need is lost."
                                     Click="DiagDeleteLooseButton_Click"/>
                             <Button x:Name="DiagDeleteSentCrashButton"
                                     Content="Delete crash reports I have sent or dismissed"
                                     HorizontalAlignment="Left" Padding="12,4" Margin="0,0,0,6"
                                     AutomationProperties.Name="Delete crash reports I have sent or dismissed"
+                   local:JJFlexHelp.Text="Removes only the crash reports you have already sent or dismissed. A report you have never dealt with is kept, because its whole value is being there when support asks."
                                     Click="DiagDeleteSentCrashButton_Click"/>
                             <TextBlock TextWrapping="Wrap"
                                        Text="Deleting loose log text does not touch the compressed sessions in Saved Diagnostic Logs, so nothing is lost. A crash report you have never sent or dismissed is never deleted automatically."/>
