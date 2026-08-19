@@ -6114,9 +6114,30 @@ namespace Radios
                                 // CwNotificationsEnabled + CwModeAnnounceEnabled. With speech
                                 // on, the operator gets both the spoken mode and the CW mode
                                 // name. With speech off, CW is the only mode announcement.
+                                //
+                                // THE RADIO'S active slice, not this slice's Active flag (#58).
+                                // Slice.Active is per-slice context — a panadapter's active
+                                // slice — so on a radio with several slices open, SEVERAL are
+                                // legitimately Active at once. FlexLib's initial property sync
+                                // then raises DemodMode for each of them during connect, and
+                                // the operator got one Morse mode announcement per open slice.
+                                // Noel heard it live 2026-08-19 on the bench 8600: "usb usb
+                                // usb fm", four slices, every connect.
+                                //
+                                // Note this only became AUDIBLE as a storm once the player was
+                                // serialized (EarconCwOutput's single-reader FIFO). Before that
+                                // the four announcements overlapped into garble, which read as
+                                // one broken noise rather than four correct ones. Fixing the
+                                // garbling made the real defect legible — the count was always
+                                // four.
+                                //
+                                // Radio.ActiveSlice is the ONE slice the operator is on, which
+                                // is what an announcement should follow. Speech never stormed
+                                // here because it does not ride this path.
                                 if (ScreenReaderOutput.CwNotificationsEnabled &&
                                     ScreenReaderOutput.CwModeAnnounceEnabled &&
-                                    ScreenReaderOutput.PlayCwMode != null)
+                                    ScreenReaderOutput.PlayCwMode != null &&
+                                    ReferenceEquals(s, theRadio?.ActiveSlice))
                                     _ = ScreenReaderOutput.PlayCwMode(s.DemodMode);
 
                                 // Firmware leaves NRLOn flag set across mode round-trips but stops

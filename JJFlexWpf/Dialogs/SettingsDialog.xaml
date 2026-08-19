@@ -401,9 +401,9 @@
                                  AutomationProperties.Name="CW notification speed, 10 to 60 words per minute"/>
                     </Grid>
                     <CheckBox x:Name="CwModeAnnounceCheck"
-                              Content="Announce mode changes in CW (when speech is off)"
+                              Content="Use CW to announce mode changes"
                               Margin="0,0,0,8"
-                              AutomationProperties.Name="Play mode name in Morse code when speech verbosity is off"/>
+                              AutomationProperties.Name="Use CW to announce mode changes"/>
 
                     <Separator Margin="0,4,0,8"/>
 
