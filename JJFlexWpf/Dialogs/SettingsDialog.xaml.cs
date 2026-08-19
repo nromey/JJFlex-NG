@@ -97,6 +97,23 @@ namespace JJFlexWpf.Dialogs
             AddHandler(TextBox.GotKeyboardFocusEvent,
                 new KeyboardFocusChangedEventHandler(TextBox_GotKeyboardFocus));
 
+            // F1 opens help AT the page for where you are, per tab (Sprint 30
+            // Track E). Tunnel phase, so this wins over the app-global F1
+            // route, which can only open the help file's front door. Ctrl+F1
+            // (explain the focused control) is untouched — modifier check.
+            PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.F1 &&
+                    System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.None)
+                {
+                    bool onDiagnostics =
+                        SettingsTabs.SelectedItem is System.Windows.Controls.TabItem tab &&
+                        (tab.Header as string) == "Diagnostics";
+                    HelpLauncher.ShowHelp(onDiagnostics ? "DiagnosticLog" : "SettingsDialog");
+                    e.Handled = true;
+                }
+            };
+
             // Track C: notice when the USER types in the Radio Setup name box
             // (programmatic refreshes never have keyboard focus inside it), so
             // OK/Apply can commit a typed-but-never-applied name instead of
@@ -273,6 +290,11 @@ namespace JJFlexWpf.Dialogs
             MicVerdictOutputCombo.SelectedIndex = Math.Clamp(_audioConfig.MicVerdictOutput, 0, 2);
 
             EarconsEnabledCheck.IsChecked = _audioConfig.EarconsEnabled;
+            EarconConnectionCheck.IsChecked = _audioConfig.EarconConnectionEnabled;
+            EarconTransmitCheck.IsChecked = _audioConfig.EarconTransmitEnabled;
+            EarconDialogsCheck.IsChecked = _audioConfig.EarconDialogsEnabled;
+            EarconTuningCheck.IsChecked = _audioConfig.EarconTuningEnabled;
+            EarconCommandsCheck.IsChecked = _audioConfig.EarconCommandsEnabled;
 
             CwNotificationsCheck.IsChecked = _audioConfig.CwNotificationsEnabled;
             CwSidetoneBox.Text = _audioConfig.CwSidetoneHz.ToString();
@@ -1202,6 +1224,11 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.SpeechVerbosity = SpeechVerbosityCombo.SelectedIndex;
             _audioConfig.MicVerdictOutput = Math.Clamp(MicVerdictOutputCombo.SelectedIndex, 0, 2);
             _audioConfig.EarconsEnabled = EarconsEnabledCheck.IsChecked == true;
+            _audioConfig.EarconConnectionEnabled = EarconConnectionCheck.IsChecked == true;
+            _audioConfig.EarconTransmitEnabled = EarconTransmitCheck.IsChecked == true;
+            _audioConfig.EarconDialogsEnabled = EarconDialogsCheck.IsChecked == true;
+            _audioConfig.EarconTuningEnabled = EarconTuningCheck.IsChecked == true;
+            _audioConfig.EarconCommandsEnabled = EarconCommandsCheck.IsChecked == true;
             _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
             if (int.TryParse(CwSidetoneBox.Text, out int sidetone) && sidetone >= 400 && sidetone <= 1200)
                 _audioConfig.CwSidetoneHz = sidetone;

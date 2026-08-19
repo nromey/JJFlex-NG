@@ -259,18 +259,21 @@
                         TabIndex="0" MinWidth="240" Padding="10,6"
                         HorizontalAlignment="Left" Margin="0,0,0,6"
                         AutomationProperties.Name="Connect a radio"
+                        local:JJFlexHelp.Text="Opens the radio picker to look for radios on your network and your SmartLink account. If nothing is found, this page stays available."
                         Click="RescueConnectButton_Click" />
 
                 <Button x:Name="RescueSettingsButton" Content="Settings"
                         TabIndex="1" MinWidth="240" Padding="10,6"
                         HorizontalAlignment="Left" Margin="0,0,0,6"
                         AutomationProperties.Name="Settings"
+                        local:JJFlexHelp.Text="Every JJ Flex setting, including setup for radios you are not connected to right now. A change that needs a radio waits and applies at the next connection."
                         Click="RescueSettingsButton_Click" />
 
                 <Button x:Name="RescueWorkshopButton" Content="Audio Workshop"
                         TabIndex="2" MinWidth="240" Padding="10,6"
                         HorizontalAlignment="Left" Margin="0,0,0,6"
                         AutomationProperties.Name="Audio Workshop"
+                        local:JJFlexHelp.Text="The microphone check and this computer's audio setup, all usable with no radio. The radio-side controls in there stay quiet until you connect."
                         Click="RescueWorkshopButton_Click" />
 
                 <Button x:Name="RescueHelpButton" Content="Help"

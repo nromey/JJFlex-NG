@@ -88,6 +88,10 @@
       <param name="Local" value="pages\jj-flexible-home.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Home Without a Radio">
+      <param name="Local" value="pages\home-no-radio.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Escape & Collapse">
       <param name="Local" value="pages\escape-collapse.htm">
     </OBJECT>
@@ -228,6 +232,10 @@
     <LI><OBJECT type="text/sitemap">
       <param name="Name" value="Double-Tap Tolerance (Accessibility)">
       <param name="Local" value="pages\settings-double-tap-tolerance.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="The Diagnostic Log">
+      <param name="Local" value="pages\diagnostic-log.htm">
     </OBJECT>
   </UL>
 

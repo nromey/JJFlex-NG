@@ -80,6 +80,19 @@ namespace JJFlexWpf
         /// <summary>Whether alert sounds (earcons, beeps, tones) are enabled. Meter tones are separate.</summary>
         public bool EarconsEnabled { get; set; } = true;
 
+        // Per-category alert-sound switches (Sprint 30, #43), under the master
+        // EarconsEnabled gate. One field per EarconPlayer.EarconCategory value.
+        /// <summary>Connect-phase counting tones and the success double-beep.</summary>
+        public bool EarconConnectionEnabled { get; set; } = true;
+        /// <summary>TX start/stop, hard kill, tune carrier, ATU, PTT warnings.</summary>
+        public bool EarconTransmitEnabled { get; set; } = true;
+        /// <summary>Dialog open/close dings and panel expand/collapse sweeps.</summary>
+        public bool EarconDialogsEnabled { get; set; } = true;
+        /// <summary>Filter-edge clicks and sweeps, band boundary, frequency-entry dings.</summary>
+        public bool EarconTuningEnabled { get; set; } = true;
+        /// <summary>JJ-layer tones, feature on/off, mute-all, mode enter/exit, confirmations.</summary>
+        public bool EarconCommandsEnabled { get; set; } = true;
+
         /// <summary>Frequency entry typing sound mode.</summary>
         public TypingSoundMode TypingSound { get; set; } = TypingSoundMode.Beep;
 
@@ -491,6 +504,11 @@ namespace JJFlexWpf
         public void Apply()
         {
             EarconPlayer.EarconsEnabled = EarconsEnabled;
+            EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Connection, EarconConnectionEnabled);
+            EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Transmit, EarconTransmitEnabled);
+            EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.DialogsAndPanels, EarconDialogsEnabled);
+            EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.TuningAndFilters, EarconTuningEnabled);
+            EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations, EarconCommandsEnabled);
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
@@ -548,6 +566,11 @@ namespace JJFlexWpf
             MeterSpeechIntervalSeconds = MeterToneEngine.SpeechIntervalSeconds;
             AutoEnableOnTune = MeterToneEngine.AutoEnableOnTune;
             EarconsEnabled = EarconPlayer.EarconsEnabled;
+            EarconConnectionEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.Connection);
+            EarconTransmitEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.Transmit);
+            EarconDialogsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.DialogsAndPanels);
+            EarconTuningEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.TuningAndFilters);
+            EarconCommandsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations);
             MasterVolume = EarconPlayer.MasterVolume;
             AlertVolume = EarconPlayer.AlertVolume;
             MasterEarconVolume = (int)(EarconPlayer.AlertVolume * 100);

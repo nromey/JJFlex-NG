@@ -63,7 +63,8 @@
                 <ComboBox x:Name="HostApiCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,4"
-                          AutomationProperties.Name="Audio system. This is the Windows driver model JJ Flexible reaches your sound devices through. It applies to both the microphone and the receive audio, and the two lists below show the devices it offers."
+                          AutomationProperties.Name="Audio system"
+                          local:JJFlexHelp.Text="The Windows driver model JJ Flexible reaches your sound devices through. It applies to both the microphone and the receive audio, and the two lists below show the devices it offers."
                           SelectionChanged="HostApiCombo_SelectionChanged"/>
                 <TextBlock x:Name="HostApiNote"
                            Style="{StaticResource DialogLabel}"
@@ -79,7 +80,8 @@
                          Height="110"
                          Margin="0,0,0,4"
                          KeyboardNavigation.DirectionalNavigation="Contained"
-                         AutomationProperties.Name="Radio receive audio output device. This is how the radio reaches your ears; on a remote connection it is the only way to hear it at all."/>
+                         AutomationProperties.Name="Radio receive audio output device"
+                         local:JJFlexHelp.Text="How the radio reaches your ears. On a remote connection it is the only way to hear it at all."/>
                 <TextBlock x:Name="RadioOutputNote"
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
@@ -95,7 +97,8 @@
                          Height="110"
                          Margin="0,0,0,4"
                          KeyboardNavigation.DirectionalNavigation="Contained"
-                         AutomationProperties.Name="Microphone input device sent to the radio. This is how the radio hears you; on a remote connection it is the only way it can."
+                         AutomationProperties.Name="Microphone input device sent to the radio"
+                         local:JJFlexHelp.Text="How the radio hears you. On a remote connection it is the only way it can."
                          SelectionChanged="RadioInputList_SelectionChanged"/>
                 <TextBlock x:Name="RadioInputNote"
                            Style="{StaticResource DialogLabel}"
@@ -117,7 +120,8 @@
                 <ComboBox x:Name="TxRateCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,4"
-                          AutomationProperties.Name="Transmit audio quality. This is the sample rate JJ Flexible encodes your microphone at before sending it to the radio. Full quality is the tested setting; the lower ones use less of your connection when the link is poor."
+                          AutomationProperties.Name="Transmit audio quality"
+                          local:JJFlexHelp.Text="The sample rate JJ Flexible encodes your microphone at before sending it to the radio. Full quality is the tested setting; the lower ones use less of your connection when the link is poor."
                           SelectionChanged="TxRateCombo_SelectionChanged"/>
                 <TextBlock x:Name="TxRateNote"
                            Style="{StaticResource DialogLabel}"
@@ -142,6 +146,7 @@
                         Margin="0,0,0,4"
                         AutomationProperties.Name="Start microphone check"
                         AutomationProperties.AcceleratorKey="Alt+M"
+                        local:JJFlexHelp.Text="Listens to the microphone selected above and reads its level back as you speak. No radio is involved and nothing is transmitted. Press it again to stop."
                         Click="MicCheckButton_Click"/>
 
                 <!-- The verdict lives in a read-only EDIT, not a label: an edit
@@ -177,6 +182,7 @@
                         IsEnabled="False"
                         Margin="0,0,0,4"
                         AutomationProperties.Name="Windows input level"
+                        local:JJFlexHelp.Text="Stage one of your capture chain: the level Windows records this microphone at, before any radio is involved. If the mic check says Hot, bring this down; if it says Quiet, bring it up."
                         ValueChanged="MicLevelSlider_ValueChanged"/>
 
                 <!-- Shown only when the driver actually has a boost part. A
@@ -194,6 +200,7 @@
                         Margin="0,0,0,4"
                         Visibility="Collapsed"
                         AutomationProperties.Name="Microphone Boost"
+                        local:JJFlexHelp.Text="The driver's extra lift for this microphone, hidden by the modern Windows Settings app. A boost left high is the classic cause of a pinned, clipping reading — try zero if the check says Hot with the level already low."
                         ValueChanged="MicBoostSlider_ValueChanged"/>
 
                 <!-- Same idiom as the privacy button below: the way out of a
@@ -241,7 +248,8 @@
                 <ComboBox x:Name="AlertDeviceCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,8"
-                          AutomationProperties.Name="Alert and CW notification output device. These are JJ Flex's own sounds, not the radio's. CW notifications play through this device; there is no separate CW output to choose."/>
+                          AutomationProperties.Name="Alert and CW notification output device"
+                          local:JJFlexHelp.Text="These are JJ Flex's own sounds, not the radio's. CW notifications play through this device; there is no separate CW output to choose."/>
 
                 <TextBlock Text="Meter tone device:"
                            Style="{StaticResource DialogLabel}"
@@ -249,7 +257,8 @@
                 <ComboBox x:Name="MeterDeviceCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,8"
-                          AutomationProperties.Name="Meter tone output device"/>
+                          AutomationProperties.Name="Meter tone output device"
+                          local:JJFlexHelp.Text="Where the meter sonification tones play. It can be the same device as alerts, or a different one to keep the tones out of your radio-audio ear."/>
 
                 <Separator Margin="0,4,0,8"/>
 
@@ -264,7 +273,8 @@
                 <CheckBox x:Name="AdvancedDevicesCheck"
                           Content="_Show every sound endpoint, every audio system at once (advanced)"
                           Margin="0,0,0,6"
-                          AutomationProperties.Name="Show every sound endpoint, every audio system at once. Advanced. This ignores the audio system chosen above, names the audio system on every row, and includes kernel streaming endpoints."
+                          AutomationProperties.Name="Show every sound endpoint, every audio system at once, advanced"
+                          local:JJFlexHelp.Text="Drops the audio-system filter: every endpoint Windows offers, across every audio system at once, with the system named on each row, kernel streaming included. It is also the way to put the microphone on one audio system and the receive audio on another, which the single selector above deliberately does not offer."
                           AutomationProperties.AcceleratorKey="Alt+S"
                           Checked="AdvancedDevicesCheck_Changed"
                           Unchecked="AdvancedDevicesCheck_Changed"/>

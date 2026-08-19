@@ -537,13 +537,43 @@ public class KeyCommands
     private void ShowContextHelpHandler() => HelpLauncher.ShowHelp();
 
     /// <summary>
+    /// The element the current key event ORIGINATED from, stashed by the
+    /// dialog-window routing handlers for the duration of one dispatch.
+    ///
+    /// This closes the #91 focus-boundary question. The Ctrl+F1 binding is a
+    /// WinForms Keys value, and "what has focus" has more than one answer
+    /// across the WinForms/WPF boundary: Keyboard.FocusedElement is
+    /// per-thread input state that can be null (focus on a WinForms surface)
+    /// or stale in principle. The keystroke's own KeyEventArgs.OriginalSource
+    /// is the one answer that cannot be wrong — it IS the element the key was
+    /// delivered to. The dialog routing path has that event in hand and
+    /// stashes it here; the main-window ProcessCmdKey path never sees a WPF
+    /// event, so there Keyboard.FocusedElement remains the best available
+    /// answer and stays as the fallback.
+    ///
+    /// FOR THE RECORD (2026-08-19, from the 2026-08-18 session traces): the
+    /// boundary was never the live defect. The 21:08 traces show
+    /// DispatchFromDialogWindow firing with Keyboard.FocusedElement correctly
+    /// on a Settings TextBox and the walk running to the dialog root — the
+    /// three "no extra explanation" reports were presses on a TextBox that
+    /// genuinely carried no HelpText. The 21:41 session, never examined,
+    /// shows the SAME build finding and speaking the radio-name box's text on
+    /// the first walk step. The defect was coverage, not focus resolution.
+    /// OriginalSource-first is kept anyway because it is immune to the
+    /// staleness class by construction, not by luck.
+    /// </summary>
+    private static System.Windows.DependencyObject? _dispatchOriginalSource;
+
+    /// <summary>
     /// Ctrl+F1: explain the control that has focus.
     ///
-    /// Reads the focused element's AutomationProperties.HelpText - the longer
-    /// explanation that used to live in its NAME and was therefore recited on
-    /// every single focus change. Moving those out on 2026-08-18 made Settings
-    /// far quieter and left the explanations parked with nothing to surface
-    /// them. This is what surfaces them.
+    /// Speaks the focused element's JJFlexHelp.Text — the on-demand
+    /// explanation channel — with AutomationProperties.HelpText as a second
+    /// source at each step, so a control carrying only a short focus-time
+    /// hint still answers the key. See JJFlexHelp for why the custom property
+    /// exists (the #91 defect: NVDA reads UIA HelpText aloud as the control's
+    /// description on every focus change, so parking long explanations there
+    /// silenced nothing).
     ///
     /// F1 keeps opening the help file, which is the Windows convention;
     /// Ctrl+F1 is the usual context-sensitive companion. Noel's steer: "usually
@@ -554,43 +584,38 @@ public class KeyCommands
     /// </summary>
     private void SpeakContextHelpHandler()
     {
-        var focused = System.Windows.Input.Keyboard.FocusedElement
-                      as System.Windows.DependencyObject;
+        // Prefer the keystroke's own origin over Keyboard.FocusedElement —
+        // see _dispatchOriginalSource for the boundary reasoning.
+        var focused = _dispatchOriginalSource
+                      ?? System.Windows.Input.Keyboard.FocusedElement
+                         as System.Windows.DependencyObject;
 
-        // Instrumented 2026-08-18: Ctrl+F1 reported "no extra explanation" on
-        // every control including ones that definitely carry HelpText, so the
-        // question is whether we are looking at the right element at all. The
-        // key binding is a WinForms Keys value routed through the shell, and
-        // the control it should describe lives in a WPF dialog - a boundary
-        // where "what has focus" has more than one answer.
         JJTrace.Tracing.TraceLine(
-            "SpeakContextHelp: focused=" + (focused?.GetType().FullName ?? "null"),
+            "SpeakContextHelp: origin=" + (_dispatchOriginalSource?.GetType().FullName ?? "null")
+            + " keyboardFocus=" + (System.Windows.Input.Keyboard.FocusedElement?.GetType().FullName ?? "null"),
             System.Diagnostics.TraceLevel.Info);
 
         // Walk up: focus often sits on an inner part (a ListBoxItem, a TextBox
         // inside a composite) while the explanation belongs to the control the
-        // operator would say they are "on".
-        while (focused != null)
+        // operator would say they are "on". JJFlexHelp owns the walk,
+        // including the popup boundary a ComboBox dropdown introduces.
+        string? help = JJFlexHelp.FindExplanation(
+            focused,
+            step => JJTrace.Tracing.TraceLine(
+                "SpeakContextHelp: " + step, System.Diagnostics.TraceLevel.Info));
+
+        if (!string.IsNullOrWhiteSpace(help))
         {
-            string help = System.Windows.Automation.AutomationProperties.GetHelpText(focused);
-            JJTrace.Tracing.TraceLine(
-                $"SpeakContextHelp: walk {focused.GetType().Name} helpText="
-                + (string.IsNullOrWhiteSpace(help) ? "(none)" : "'" + help + "'"),
-                System.Diagnostics.TraceLevel.Info);
-            if (!string.IsNullOrWhiteSpace(help))
-            {
-                Radios.ScreenReaderOutput.Speak(
-                    help, Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical);
-                return;
-            }
-            focused = System.Windows.Media.VisualTreeHelper.GetParent(focused);
+            Radios.ScreenReaderOutput.Speak(
+                help, Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical);
+            return;
         }
 
         // Say so rather than doing nothing. A key that is silent half the time
         // teaches the operator it is broken; a key that says "nothing here"
         // teaches them where the explanations are.
         Radios.ScreenReaderOutput.Speak(
-            "No extra explanation for this control. F1 opens the help file.",
+            "No extra help here. F1 opens the help file.",
             Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical);
     }
 
@@ -2362,8 +2387,18 @@ public class KeyCommands
             }
         }
 
-        if (kc.DoCommand(WpfKeyConverter.ToWinFormsKeys(e)))
-            e.Handled = true;
+        // Stash the keystroke's origin for handlers that need to know which
+        // element the operator is on (Ctrl+F1) — see _dispatchOriginalSource.
+        _dispatchOriginalSource = e.OriginalSource as System.Windows.DependencyObject;
+        try
+        {
+            if (kc.DoCommand(WpfKeyConverter.ToWinFormsKeys(e)))
+                e.Handled = true;
+        }
+        finally
+        {
+            _dispatchOriginalSource = null;
+        }
     }
 
     /// <summary>
@@ -2376,8 +2411,18 @@ public class KeyCommands
         if (kc == null || e.Handled) return;
         var k = WpfKeyConverter.ToWinFormsKeys(e);
         if (k == Keys.None) return;
-        if (kc.DispatchFromDialogWindow(k))
-            e.Handled = true;
+        // Stash the keystroke's origin for handlers that need to know which
+        // element the operator is on (Ctrl+F1) — see _dispatchOriginalSource.
+        _dispatchOriginalSource = e.OriginalSource as System.Windows.DependencyObject;
+        try
+        {
+            if (kc.DispatchFromDialogWindow(k))
+                e.Handled = true;
+        }
+        finally
+        {
+            _dispatchOriginalSource = null;
+        }
     }
 
     /// <summary>

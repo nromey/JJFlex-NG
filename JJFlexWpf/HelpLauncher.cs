@@ -84,6 +84,10 @@ namespace JJFlexWpf
             { "ConnectDialog", "pages/connection-troubleshooting.htm" },
             { "WhatsNew", "pages/whats-new.htm" },
             { "KnowYourRadio", "pages/know-your-radio.htm" },
+            // Sprint 30 Track E: the no-radio Home page and the Diagnostics
+            // tab each get a real F1 destination.
+            { "RescueHome", "pages/home-no-radio.htm" },
+            { "DiagnosticLog", "pages/diagnostic-log.htm" },
         };
 
         public static void Initialize()

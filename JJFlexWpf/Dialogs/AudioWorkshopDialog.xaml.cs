@@ -815,6 +815,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (!string.IsNullOrEmpty(choice) && choice[0] != '(')
                 _rig.MicSource = choice;
         };
+        // Ctrl+F1 explanations (#73). On-demand only — JJFlexHelp.Text is
+        // invisible to the screen reader on focus; see JJFlexHelp.
+        JJFlexHelp.SetText(_micSourceControl,
+            "Chooses which microphone the radio transmits: a mic plugged into "
+            + "the radio, or this computer's mic carried over the network. "
+            + "Every control below acts on whichever source is selected here, "
+            + "so set this first.");
         AddRadioControl(TxAudioContent, _micSourceControl);
 
         _micGainControl = MakeValue("Mic Gain", 0, 100, 1);
@@ -826,6 +833,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Mic gain {v}", VerbosityLevel.Terse);
             }
         };
+        JJFlexHelp.SetText(_micGainControl,
+            "How hard the radio listens to its microphone jack. Run a mic "
+            + "check, speak the way you actually operate, and nudge this "
+            + "until the verdict says Good. Hot or Clipping means come down; "
+            + "Quiet means come up. Small steps — a few points at a time.");
         AddRadioControl(TxAudioContent, _micGainControl);
 
         // The PC-source stand-in for Mic Gain (Track PC Gain, 2026-08-13).
@@ -851,6 +863,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // own value on every adjustment, and repeating it would be the
             // same double-speak the Audio Devices sliders were built without.
         };
+        JJFlexHelp.SetText(_pcLevelControl,
+            "Stage one of your transmit audio when this computer's mic is the "
+            + "source: Windows' own capture level for that microphone. Set it "
+            + "with the mic check the same way as Mic Gain — capture cleanly "
+            + "here first, then let the radio's Processing controls shape the "
+            + "result.");
         AddToSection(TxAudioContent, _pcLevelControl);
 
         // Read-only EDIT rather than a label, same reasoning as the device
@@ -870,11 +888,22 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         _micBoostCheck = MakeToggle(MicBoostLabel);
         _micBoostCheck.Checked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, true);
         _micBoostCheck.Unchecked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, false);
+        JJFlexHelp.SetText(_micBoostCheck,
+            "Adds a fixed twenty decibel lift ahead of Mic Gain, for quiet "
+            + "dynamic microphones. If the mic check only reaches Good with "
+            + "Mic Gain pushed near the top, turn this on and bring the gain "
+            + "back down. If it reports Hot with the gain already low, turn "
+            + "this off.");
         AddRadioControl(TxAudioContent, _micBoostCheck);
 
         _micBiasCheck = MakeToggle(MicBiasLabel);
         _micBiasCheck.Checked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
         _micBiasCheck.Unchecked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, false);
+        JJFlexHelp.SetText(_micBiasCheck,
+            "Sends the radio's low-voltage electret power up the mic cable. "
+            + "Some headsets and desk mics need it to produce any audio at "
+            + "all; it is not forty-eight volt phantom power for studio mics. "
+            + "If your mic stays silent no matter the gain, try this.");
         AddRadioControl(TxAudioContent, _micBiasCheck);
 
         // Track I: PC Cleanup sits between the Microphone (capture) and the
@@ -897,6 +926,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             SetToggle("Compander", v => { if (_rig != null) _rig.Compander = v; }, false);
             if (_companderLevelControl != null) _companderLevelControl.Visibility = Visibility.Collapsed;
         };
+        JJFlexHelp.SetText(_companderCheck,
+            "Evens out the difference between your loud and soft syllables "
+            + "before they reach the air, so your average power rises without "
+            + "your peaks getting any hotter. Turn it on for voice work, then "
+            + "set the level below while listening on the TX Monitor.");
         AddToSection(TxAudioContent, _companderCheck);
 
         _companderLevelControl = MakeValue("Compander Level", 0, 100, 5);
@@ -909,6 +943,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Compander level {v}", VerbosityLevel.Terse);
             }
         };
+        JJFlexHelp.SetText(_companderLevelControl,
+            "How firmly the compander squeezes. Higher carries your voice "
+            + "further but flattens it. Listen on the TX Monitor while you "
+            + "adjust, and stop at the last level that still sounds like you.");
         AddToSection(TxAudioContent, _companderLevelControl);
 
         _processorCheck = MakeToggle("Speech Processor");
@@ -922,6 +960,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             SetToggle("Speech Processor", v => { if (_rig != null) _rig.ProcessorOn = v; }, false);
             if (_processorSettingControl != null) _processorSettingControl.Visibility = Visibility.Collapsed;
         };
+        JJFlexHelp.SetText(_processorCheck,
+            "The radio's punch control for voice: it raises your average "
+            + "power so more of your signal survives the noise at the far "
+            + "end. Turn it on for weak-signal or pileup work, and pick how "
+            + "hard it works with Processor Mode below.");
         AddToSection(TxAudioContent, _processorCheck);
 
         _processorSettingControl = MakeCycle("Processor Mode", new[] { "Normal", "DX", "DX+" });
@@ -937,6 +980,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 _rig.ProcessorSetting = (FlexBase.ProcessorSettings)idx;
             }
         };
+        JJFlexHelp.SetText(_processorSettingControl,
+            "Normal for everyday contacts, DX when conditions are rough, DX "
+            + "plus when you need every last bit of punch and can live with "
+            + "sounding processed. Step up only as far as conditions demand.");
         AddToSection(TxAudioContent, _processorSettingControl);
 
         // TX Filter section
@@ -952,6 +999,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"TX low {v}", VerbosityLevel.Terse);
             }
         };
+        JJFlexHelp.SetText(_txFilterLowControl,
+            "Where your transmitted audio starts, in hertz. One hundred to "
+            + "three hundred is the usual range for voice: lower sounds "
+            + "fuller, higher trims rumble and puts more of your power into "
+            + "the part of speech that carries. Pair it with TX Filter High "
+            + "and check the width readout below.");
         AddToSection(TxAudioContent, _txFilterLowControl);
 
         _txFilterHighControl = MakeValue("TX Filter High", 50, 10000, 50);
@@ -964,6 +1017,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"TX high {v}", VerbosityLevel.Terse);
             }
         };
+        JJFlexHelp.SetText(_txFilterHighControl,
+            "Where your transmitted audio stops, in hertz. Around twenty-nine "
+            + "hundred is the usual voice ceiling: higher sounds airier but "
+            + "spends power where it helps intelligibility least, and "
+            + "narrower — twenty-four hundred — puts real punch in a pileup. "
+            + "The width readout below shows what the two filter edges give "
+            + "you together.");
         AddToSection(TxAudioContent, _txFilterHighControl);
 
         _filterWidthLabel = new TextBlock
@@ -995,6 +1055,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_monitorLevelControl != null) _monitorLevelControl.Visibility = Visibility.Collapsed;
             if (_monitorPanControl != null) _monitorPanControl.Visibility = Visibility.Collapsed;
         };
+        JJFlexHelp.SetText(_monitorCheck,
+            "Plays your own transmitted audio back to you while you talk — "
+            + "the most honest way to hear what the compander, processor and "
+            + "filters are doing to your voice. Set the level below to where "
+            + "your own voice informs without distracting.");
         AddToSection(TxAudioContent, _monitorCheck);
 
         _monitorLevelControl = MakeValue("Monitor Level", 0, 100, 5);
@@ -1007,6 +1072,9 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Monitor level {v}", VerbosityLevel.Terse);
             }
         };
+        JJFlexHelp.SetText(_monitorLevelControl,
+            "How loud your own transmitted audio plays back to you. It only "
+            + "changes what you hear — never what goes out on the air.");
         AddToSection(TxAudioContent, _monitorLevelControl);
 
         _monitorPanControl = MakeValue("Monitor Pan", 0, 100, 5);
@@ -1019,6 +1087,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 ScreenReaderOutput.Speak($"Monitor pan {v}", VerbosityLevel.Terse);
             }
         };
+        JJFlexHelp.SetText(_monitorPanControl,
+            "Moves your monitored voice between your left and right ear — "
+            + "handy for keeping the far station in one ear and yourself in "
+            + "the other. Listening only; it changes nothing on the air.");
         AddToSection(TxAudioContent, _monitorPanControl);
 
         // Built-in test tone — the mic replacement (Audio Track C). Late in
@@ -1108,7 +1180,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             Margin = new Thickness(2)
         };
         AutomationProperties.SetName(checkButton, "Check Microphone");
-        AutomationProperties.SetHelpText(checkButton,
+        JJFlexHelp.SetText(checkButton,
             "Opens the Audio Devices window and listens to your microphone. "
             + "The radio is not involved and nothing is transmitted.");
         checkButton.Click += (s, e) => OpenMicrophoneCheck();
@@ -1224,7 +1296,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AddSectionHeader(TxAudioContent, "Microphone Profiles");
 
         _micProfileControl = MakeCycle("Microphone profile", new[] { NoMicProfilesOption });
-        AutomationProperties.SetHelpText(_micProfileControl,
+        JJFlexHelp.SetText(_micProfileControl,
             "A saved setup for one microphone: its computer settings plus, per "
             + "radio, the radio's own mic profile to load. Apply puts it into "
             + "effect; nothing changes until you do.");
@@ -1385,7 +1457,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     GroupName = "MicProfileRadioHalf",
                     IsChecked = true,
                 };
-                AutomationProperties.SetHelpText(referenceOption,
+                JJFlexHelp.SetText(referenceOption,
                     "The radio keeps its own mic profile; this profile just names "
                     + "which one to load. Nothing is copied, so other clients and "
                     + "this app always agree.");
@@ -1399,7 +1471,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     Margin = new Thickness(0, 2, 0, 2),
                     GroupName = "MicProfileRadioHalf",
                 };
-                AutomationProperties.SetHelpText(createOption,
+                JJFlexHelp.SetText(createOption,
                     "Writes a new mic profile to the radio itself, holding its "
                     + "current TX settings. Offered because no radio mic profile "
                     + "is loaded right now — done only if you choose it here.");
@@ -1413,7 +1485,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 GroupName = "MicProfileRadioHalf",
                 IsChecked = referenceOption == null,
             };
-            AutomationProperties.SetHelpText(snapshotOption,
+            JJFlexHelp.SetText(snapshotOption,
                 "Copies mic gain, EQ, compander, processor and filter values "
                 + "into the profile file. The shape used for radios that have "
                 + "no profile system of their own; on a Flex, referencing is "

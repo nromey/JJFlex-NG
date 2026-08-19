@@ -21,8 +21,16 @@ If you connect successfully but then lose the connection partway through a sessi
 
 For SmartLink (remote) connection problems specifically, see the SmartLink and Remote Operation help page for targeted troubleshooting steps.
 
+## The Picker Learns How You Actually Connect
+
+The radio picker pays attention to which way your connections succeed. Once a radio has connected the same way — local or remote — three times in a row, the picker starts suggesting that path for it. It's a suggestion only: it prefills, it never overrides, and a connection path you've chosen explicitly always wins. If the suggestion is ever wrong, just pick the path you want; your explicit choice takes over from there.
+
+## Capture the Problem While It Happens
+
+When a connection misbehaves, the most useful thing you can send me is a detailed capture of the attempt. Press `Ctrl+J`, then `Ctrl+D` — from anywhere, radio or no radio — reproduce the failing connect, then press `Ctrl+J`, `Ctrl+D` again to stop. The capture saves as its own session, ready to export. The full story of the diagnostic log, captures, and problem report bundles is on the Diagnostic Log help page, and the controls live under Settings on the Diagnostics tab.
+
 ## General Tips
 
 - JJ Flexible Radio Access does not require a SmartLink account for local network connections. If you are on the same network as the radio, it should just work — no account needed.
 - Press `Ctrl+Shift+S` at any time to hear the current connection status spoken.
-- The Tracing option under the **Help** menu lets you capture detailed logs for debugging, which is useful when you are reporting a connection issue.
+- A diagnostic log is being kept all the time by default (see the Diagnostic Log help page), so even a problem you didn't capture usually left a record worth exporting.

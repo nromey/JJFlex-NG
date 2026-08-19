@@ -30,6 +30,19 @@ Some settings describe a radio that is not connected right now — a radio name,
 - **Notifications** — speech verbosity, alert sounds, and connection progress announcements.
 - **Accessibility** — the Double-Tap Tolerance setting and other accessibility controls live here.
 - **Updates** — update channel and automatic update checking.
+- **Diagnostics** — the diagnostic log, detailed captures, saved sessions, problem report bundles, and disk space controls. The full story is on the Diagnostic Log help page; Tools, then Diagnostics, jumps straight to this tab.
+
+## The Radios Tab — Reaching This Radio From Away
+
+Each radio you own gets its own per-radio settings, remembered by serial number, and one of them settles a question the app used to keep asking: do you ever want to reach this radio over the internet?
+
+The **"Reaching this radio from away"** setting has three answers, because "no" genuinely comes in two flavors:
+
+- **Ask me when it comes up** — the starting state. On a local connection to an unregistered radio, JJ Flexible may mention SmartLink registration as an option.
+- **I only use this radio here** — the peace-and-quiet answer. Choosing it silences every SmartLink registration prompt for this radio, permanently. Nothing about your local operating changes; registering is only how you reach a radio from somewhere else, and a radio that never leaves your house does not need it.
+- **I want to reach it from away** — points you toward SmartLink registration and the Radio Setup checklist.
+
+Your answer is saved per radio, works with no radio connected, and can be changed here any time it stops being true.
 
 ## Profiles
 

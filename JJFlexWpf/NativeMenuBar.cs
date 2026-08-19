@@ -22,6 +22,14 @@ namespace JJFlexWpf;
 /// Sprint 13C/13D: Shared handlers for DSP toggles, value adjustments, and
 /// filter controls. Used by both Classic (ScreenFields/Operations) and
 /// Modern (Slice/Filter/Audio) menu bars.
+///
+/// Ampersand carve-out (class-wide, #40): explicit &amp; mnemonics are FINE
+/// in this file. The "no ampersands in menu labels" accessibility guideline
+/// was written for WinForms MenuStrip, where screen readers read the literal
+/// character; native Win32 menus render &amp; as an underlined access key and
+/// NVDA reads the label cleanly. Give sibling items UNIQUE mnemonics or none
+/// at all — one item with a mnemonic among bare siblings is the inconsistency
+/// to avoid, not the mnemonic itself.
 /// </summary>
 public class NativeMenuBar : IDisposable
 {
@@ -1707,24 +1715,29 @@ public class NativeMenuBar : IDisposable
     private void BuildHelpPopup(IntPtr bar)
     {
         var help = AddPopup(bar, "&Help");
-        AddWired(help, "Help Topics\tF1", () => HelpLauncher.ShowHelp());
-        AddWired(help, "Keyboard Reference", () => HelpLauncher.ShowHelp("KeyboardReference"));
+        // #40 residual: "What's New" was the only Help item WITH a mnemonic,
+        // which made the menu's access-key story inconsistent. Every item
+        // carries one now, unique within the menu (see the class doc's
+        // ampersand carve-out — native menus render them cleanly).
+        AddWired(help, "&Help Topics\tF1", () => HelpLauncher.ShowHelp());
+        AddWired(help, "Keyboard &Reference", () => HelpLauncher.ShowHelp("KeyboardReference"));
         AddWired(help, "What's &New", () => HelpLauncher.ShowHelp("WhatsNew"));
         AddSep(help);
         // QB Track H (2026-08-07): ONE Key Assignments item (the old
         // Alphabetical / By Function duplicates opened the same dialog three
         // times over). Arrangement is a combo inside the surface now.
-        AddWired(help, "Key Assignments", () => ShowKeysSurface(editable: false));
+        AddWired(help, "Key &Assignments", () => ShowKeysSurface(editable: false));
         // Help > Tracing is GONE. It opened a dialog that could not tell you
         // whether tracing was on, started traces the archive could not see, and
         // wrote them to Documents where nothing rotates or bundles them. Its job
         // is now Tools > Diagnostics, which deep-links to Settings >
         // Diagnostics. See docs/planning/active/diagnostic-log-surface.md §2.
         AddSep(help);
-        AddWired(help, "Earcon Explorer", () =>
+        AddWired(help, "&Earcon Explorer", () =>
             Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 2));
         AddSep(help);
-        AddWired(help, "About", () =>
+        // "b" because Key Assignments owns A.
+        AddWired(help, "A&bout", () =>
         {
             var dialog = new Dialogs.AboutDialog
             {
