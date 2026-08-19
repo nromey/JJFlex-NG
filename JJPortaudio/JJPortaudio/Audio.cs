@@ -109,7 +109,13 @@ namespace JJPortaudio
             p.sampleFormat = PortAudio.PaSampleFormat.paFloat32;
             p.suggestedLatency = (cb.Device.Type == Devices.DeviceTypes.input) ?
                 cb.Device.defaultLowInputLatency : cb.Device.defaultLowOutputLatency;
-            p.hostApiSpecificStreamInfo = (IntPtr)null;
+            // Zero normally. Non-zero only when negotiation engaged the
+            // WASAPI shared-mode converter as a last resort (#12) — and
+            // because this function is the one source of stream parameters,
+            // the format the rate was checked against and the format the
+            // stream opens with carry the identical stream info, preserving
+            // the byte-for-byte invariant this function exists for.
+            p.hostApiSpecificStreamInfo = cb.WasapiAutoConvertInfo;
             return p;
         }
 
@@ -152,6 +158,25 @@ namespace JJPortaudio
             {
                 Tracing.TraceLine("hostApiOf(" + devInfoId + ") failed: " + ex.Message, TraceLevel.Info);
                 return "unknown host API";
+            }
+        }
+
+        /// <summary>
+        /// True when a device index belongs to WASAPI — the one host API
+        /// whose shared-mode rate refusal has a caller-side remedy (#12).
+        /// Read live for the same reason hostApiOf is.
+        /// </summary>
+        private static bool isWasapiDevice(int devInfoId)
+        {
+            try
+            {
+                PortAudio.PaDeviceInfo info = PortAudio.Pa_GetDeviceInfo(devInfoId);
+                return PortAudio.Pa_GetHostApiInfo(info.hostApi).type
+                    == PortAudio.PaHostApiTypeId.paWASAPI;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -266,30 +291,67 @@ namespace JJPortaudio
                                 }
                                 else
                                 {
-                                    // Nothing was accepted. Keep the requested
-                                    // rate and let Pa_OpenStream produce the
-                                    // real error text — PortAudio's own answer
-                                    // is worth more to whoever reads the trace
-                                    // than a rate invented here.
-                                    //
-                                    // Under MME this branch is nearly
-                                    // unreachable, because MME converts. Under
-                                    // WASAPI it means the endpoint's own
-                                    // shared-mode format is not a rate Opus can
-                                    // encode — 44.1 kHz being the usual one —
-                                    // and the honest remedies are to set the
-                                    // device to 48000 Hz in Windows Sound
-                                    // settings or to select MME, which will
-                                    // resample. Say both, because a trace that
-                                    // reports a dead end without an exit is
-                                    // where support conversations stall.
-                                    Tracing.TraceLine("server:negotiate:" + cb.Device.Name
-                                        + " [" + negApi + ", " + devParms.channelCount + " ch]"
-                                        + " reported no usable rate (device default "
-                                        + cb.Device.defaultSampleRate + " Hz); leaving " + requested
-                                        + " Hz for the open to fail on. Set the device to 48000 Hz in "
-                                        + "Windows Sound settings, or choose MME as the audio system, "
-                                        + "which converts rates for you.", TraceLevel.Error);
+                                    // Nothing was accepted natively. For an
+                                    // Opus stream on a WASAPI device there is
+                                    // one more honest move before giving up
+                                    // (#12): the endpoint's shared-mode format
+                                    // is a rate Opus cannot encode — 44.1 kHz
+                                    // being the usual one — and the ladder
+                                    // legally cannot follow the device there.
+                                    // Engage WASAPI's own shared-mode
+                                    // converter (paWinWasapiAutoConvert) and
+                                    // keep the requested rate: the codec gets
+                                    // the cadence it needs, Windows bridges
+                                    // the rates, and the trace says plainly
+                                    // that resampling is happening — the
+                                    // native-first ordering above means every
+                                    // device that CAN run without conversion
+                                    // still does.
+                                    bool rescued = false;
+                                    if (cb.UseOpus && isWasapiDevice(cb.Device.DevinfoID))
+                                    {
+                                        cb.WasapiAutoConvertInfo = WasapiAutoConvert.Allocate();
+                                        devParms.hostApiSpecificStreamInfo = cb.WasapiAutoConvertInfo;
+                                        if (PortAudio.Pa_IsFormatSupported(ref *p1, ref *p2, (double)requested) == 0)
+                                        {
+                                            rescued = true;
+                                            Tracing.TraceLine("server:negotiate:" + cb.Device.Name
+                                                + " [" + negApi + ", " + devParms.channelCount + " ch]"
+                                                + " offers no Opus-legal rate natively (device default "
+                                                + cb.Device.defaultSampleRate + " Hz); opening at "
+                                                + requested + " Hz with the WASAPI shared-mode "
+                                                + "converter engaged — Windows resamples between the "
+                                                + "stream and the device's own rate. Native, "
+                                                + "conversion-free audio needs the device set to "
+                                                + requested + " Hz in Windows Sound settings.",
+                                                TraceLevel.Error);
+                                        }
+                                        else
+                                        {
+                                            WasapiAutoConvert.Release(ref cb.WasapiAutoConvertInfo);
+                                            devParms.hostApiSpecificStreamInfo = IntPtr.Zero;
+                                        }
+                                    }
+                                    if (!rescued)
+                                    {
+                                        // Keep the requested rate and let
+                                        // Pa_OpenStream produce the real error
+                                        // text — PortAudio's own answer is
+                                        // worth more to whoever reads the
+                                        // trace than a rate invented here.
+                                        // With the AutoConvert rescue above,
+                                        // reaching this under WASAPI means
+                                        // even the converter was refused;
+                                        // under other host APIs it means what
+                                        // it always did.
+                                        Tracing.TraceLine("server:negotiate:" + cb.Device.Name
+                                            + " [" + negApi + ", " + devParms.channelCount + " ch]"
+                                            + " reported no usable rate (device default "
+                                            + cb.Device.defaultSampleRate + " Hz); leaving " + requested
+                                            + " Hz for the open to fail on. Set the device to 48000 Hz in "
+                                            + "Windows Sound settings, or choose MME as the audio system, "
+                                            + "which converts rates for you.", TraceLevel.Error);
+                                    }
                                 }
                             }
                             cb.RateSettled = true;
@@ -300,7 +362,9 @@ namespace JJPortaudio
                             Tracing.TraceLine("server:open:" + item.StreamBlock.Device.Name
                                 + " [" + hostApiOf(item.StreamBlock.Device.DevinfoID) + "] "
                                 + item.StreamBlock.SampleRate + " Hz, "
-                                + item.StreamBlock.Channels + " channel(s)", TraceLevel.Info);
+                                + item.StreamBlock.Channels + " channel(s)"
+                                + (item.StreamBlock.WasapiAutoConvertInfo != IntPtr.Zero
+                                    ? ", WASAPI shared-mode converter engaged" : ""), TraceLevel.Info);
                             PortAudio.PaStreamParameters devParms = deviceParams(item.StreamBlock);
                             PortAudio.PaStreamParameters* nullParms = null;
                             PortAudio.PaStreamParameters* p1 = (item.StreamBlock.Device.Type == Devices.DeviceTypes.input) ?
@@ -430,6 +494,7 @@ namespace JJPortaudio
                                 if (item.StreamBlock.opusPool != null) item.StreamBlock.opusPool.Done();
                                 if (item.StreamBlock.Encoder != null) item.StreamBlock.Encoder.Dispose();
                                 if (item.StreamBlock.Decoder != null) item.StreamBlock.Decoder.Dispose();
+                                WasapiAutoConvert.Release(ref item.StreamBlock.WasapiAutoConvertInfo);
                                 Audio.queues.Remove(item.StreamBlock.CBUser);
                             }
                         }
@@ -494,6 +559,14 @@ namespace JJPortaudio
             /// callback, which mixes the stereo pair down for a mono device.
             /// </summary>
             public int Channels = Devices.StreamChannels;
+            /// <summary>
+            /// Unmanaged PaWasapiStreamInfo carrying paWinWasapiAutoConvert,
+            /// or zero (the normal case). Set by negotiation as a LAST
+            /// resort when a WASAPI endpoint's shared-mode format offers no
+            /// Opus-legal rate (#12); deviceParams feeds it to both
+            /// Pa_IsFormatSupported and Pa_OpenStream; freed at close.
+            /// </summary>
+            public IntPtr WasapiAutoConvertInfo = IntPtr.Zero;
             // Set by the AudioServer thread when workItems.negotiate has
             // written the answer into SampleRate. Audio.Open waits on this
             // before it sizes a buffer or builds a codec, because everything
