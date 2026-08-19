@@ -1143,7 +1143,7 @@ public class NativeMenuBar : IDisposable
         // === Radio ===
         var radio = AddPopup(bar, "&Radio");
         if (Rig != null && Rig.IsConnected)
-            AddWired(radio, "Disconnect", () => _window.CloseRadioCallback?.Invoke());
+            AddWired(radio, "Disconnect", DisconnectAndSaySo);
         else
             AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
@@ -1850,7 +1850,8 @@ public class NativeMenuBar : IDisposable
     /// Speak a message after the menu closes. Uses a 150ms delay so the screen reader
     /// picks up the speech after the menu closes and focus returns to the main window.
     /// </summary>
-    private void SpeakAfterMenuClose(string message)
+    private void SpeakAfterMenuClose(string message,
+        Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse)
     {
         _window.Dispatcher.BeginInvoke(async () =>
         {
@@ -1858,8 +1859,54 @@ public class NativeMenuBar : IDisposable
             // Interrupt: cut off NVDA's window title re-announcement so user hears
             // the actual result (e.g., "Antenna 1") instead of the title first.
             await System.Threading.Tasks.Task.Delay(500);
-            Radios.ScreenReaderOutput.Speak(message, Radios.VerbosityLevel.Terse, interrupt: true);
+            Radios.ScreenReaderOutput.Speak(message, level, interrupt: true);
         });
+    }
+
+    /// <summary>
+    /// Radio ▸ Disconnect — tear the radio down and SAY SO.
+    ///
+    /// <para>Sprint 31 Track R, from Noel on 2026-08-19: "disconnecting
+    /// announces nothing." Established from the code rather than guessed at,
+    /// and the cause is not the one it looked like. This item never used the
+    /// PendingDisconnectLead mechanism at all — it called CloseRadioCallback
+    /// (globals.CloseTheRadio) directly, a path that has never announced
+    /// anything in any version. The lead belongs to SelectRadio, the SWITCH
+    /// path, which hands its message to the radio picker that arrives a beat
+    /// later. Disconnect opens no window, so it had nothing to hand a message
+    /// to and simply said nothing.</para>
+    ///
+    /// <para>That also settles why speech is correct HERE when it is wrong
+    /// there: the flush hazard is a window CHANGE. Disconnect produces none —
+    /// the shell stays put and only Home's contents change — so an utterance
+    /// timed after the menu closes survives to be heard. Same rule as always:
+    /// information belongs to the surface that holds focus, and here that
+    /// surface never moved.</para>
+    ///
+    /// <para>Critical rather than Terse: losing the radio is a state change the
+    /// operator has to hear whatever their verbosity setting is.</para>
+    /// </summary>
+    private void DisconnectAndSaySo()
+    {
+        var rig = Rig;
+        string? radioName = null;
+
+        if (rig != null)
+        {
+            radioName = NonEmpty(rig.RadioNickname);
+            // Keep the radio layer quiet, exactly as SelectRadio does. FlexBase's
+            // own message exists for UNEXPECTED drops, where nothing else is
+            // explaining what happened; here we are the explanation, and two
+            // voices racing is worse than either alone.
+            try { rig.SuppressSpeech = true; } catch { /* never block the disconnect */ }
+        }
+
+        // Read the name BEFORE this: the callback disposes the rig.
+        _window.CloseRadioCallback?.Invoke();
+
+        SpeakAfterMenuClose(
+            radioName == null ? "Disconnected from radio" : "Disconnected from " + radioName,
+            Radios.VerbosityLevel.Critical);
     }
 
     /// <summary>Add a separator line.</summary>

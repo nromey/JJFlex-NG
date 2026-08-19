@@ -3863,6 +3863,33 @@ RadioConnected:
                 CloseTheRadio()
             End If
             openTheRadio(False)
+
+            ' Sprint 31 Track R - the lead is a PREFERENCE for an arriving
+            ' window, not a dependency on one.
+            '
+            ' As written, the lead only ever reached the operator if
+            ' DiscoveringRadiosWindow was actually constructed. Several paths
+            ' skip it: openTheRadio returns early when auto-connect is
+            ' cancelled, its outer Catch returns False on any exception before
+            ' the picker, and wpfSelectorProc wraps the waiting room in its own
+            ' Try that deliberately swallows a failure so nothing can stop the
+            ' operator reaching the picker. On any of those the message was set
+            ' and silently dropped - and worse, SuppressSpeech had already muted
+            ' the radio layer's own message, so the result was total silence
+            ' where there used to be at least something.
+            '
+            ' Speaking it here cannot double up: the consumer clears the field
+            ' the instant it takes it, so a non-Nothing value at this point
+            ' means nothing carried it. Critical, because a disconnect is a
+            ' state change the operator has to hear at any verbosity.
+            If Not String.IsNullOrEmpty(PendingDisconnectLead) Then
+                Dim stranded = PendingDisconnectLead
+                PendingDisconnectLead = Nothing
+                Tracing.TraceLine(
+                    "SelectRadio: no window carried the disconnect lead, speaking it directly",
+                    TraceLevel.Info)
+                Radios.ScreenReaderOutput.Speak(stranded, VerbosityLevel.Critical, True)
+            End If
         Catch ex As Exception
             Tracing.TraceLine("SelectRadio:exception " & ex.Message, TraceLevel.Error)
         End Try
