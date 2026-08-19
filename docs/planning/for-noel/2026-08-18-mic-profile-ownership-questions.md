@@ -1,5 +1,9 @@
 # Mic profile ownership — the questions only you can answer
 
+> **Superseded as the place to answer.** Answer in `2026-08-19-sprint30-open-questions.md`, which consolidates every open
+> Sprint 30 question in one file. This file is kept because it holds the full
+> reasoning behind its questions, and the unified file points back here.
+
 Track B, Sprint 30 (2026-08-18). The full design is in
 `docs/planning/design/Mic-Profile-Ownership.md`; these are its decision
 points, one at a time. Nothing below is implemented — the ownership flag

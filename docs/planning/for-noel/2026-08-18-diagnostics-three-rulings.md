@@ -1,5 +1,9 @@
 # Three rulings the diagnostics track needs from you
 
+> **Superseded as the place to answer.** Answer in `2026-08-19-sprint30-open-questions.md`, which consolidates every open
+> Sprint 30 question in one file. This file is kept because it holds the full
+> reasoning behind its questions, and the unified file points back here.
+
 **From:** Sprint 30 Track D (front door diagnostics), `sprint30/track-d`
 **Date:** 2026-08-18
 **Why you:** each of these is a judgement about what the app owes an operator,
