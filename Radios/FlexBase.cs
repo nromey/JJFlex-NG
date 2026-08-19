@@ -11530,16 +11530,22 @@ namespace Radios
         /// </summary>
         public static string SilentTxSpokenWarning(VerbosityLevel verbosity) => verbosity switch
         {
+            // Noel's wording, 2026-08-19: "audio from your computer will [not] be
+            // transmitted using your radio" in place of "will not go out". It
+            // names both halves of the path — the computer that produced the
+            // audio and the radio that is supposed to send it — so an operator
+            // hearing this for the first time learns where the break is, not
+            // just that there is one. "Your", not "this": the house voice.
             VerbosityLevel.Critical =>
-                "No mic profile on this radio. Transmit audio from this computer will not go out.",
+                "No mic profile on this radio. Audio from your computer will not be transmitted.",
             VerbosityLevel.Terse =>
-                "This radio has no mic profile selected, so transmit audio from this computer "
-                + "will not go out. Nothing you did caused it.",
+                "This radio has no mic profile selected, so audio from your computer will not "
+                + "be transmitted through your radio. Nothing you did caused it.",
             _ =>
-                "Heads up: this radio has no mic profile selected. Until one is loaded, transmit "
-                + "audio from this computer will not go out — you would key up and nobody would "
-                + "hear you. Nothing you did caused it, and receive is unaffected. The Audio "
-                + "Workshop has the details.",
+                "Heads up: this radio has no mic profile selected. Until one is loaded, audio "
+                + "from your computer will not be transmitted through your radio — you would key "
+                + "up and nobody would hear you. Nothing you did caused it, and receive is "
+                + "unaffected. The Audio Workshop has the details.",
         };
 
         /// <summary>
@@ -11642,8 +11648,9 @@ namespace Radios
                 {
                     if (SuppressSpeech) return;
                     ScreenReaderOutput.Speak(
-                        $"This radio had no mic profile selected, so transmit audio from this "
-                        + $"computer would not have gone out. I loaded {candidate} on the radio.",
+                        $"This radio had no mic profile selected, so audio from your computer "
+                        + $"would not have been transmitted through your radio. I loaded "
+                        + $"{candidate} on the radio.",
                         Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
                     return;
                 }
