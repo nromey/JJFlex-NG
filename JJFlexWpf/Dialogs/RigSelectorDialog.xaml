@@ -4,9 +4,13 @@
         xmlns:local="clr-namespace:JJFlexWpf"
         xmlns:controls="clr-namespace:JJFlexWpf.Controls"
         Title="Select Radio"
-        Width="560" Height="560"
+        Width="640" Height="560"
         ResizeMode="NoResize"
         Closing="RigSelectorDialog_Closing">
+    <!-- Width went 560 -> 640 on 2026-08-19: the connection-path items now
+         carry their own meaning ("SmartLink first, then local network"), which
+         does not fit a 130-pixel combo. The extra width goes to the right-hand
+         column, so the radio list keeps the room it had. -->
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -101,16 +105,30 @@
                       AutomationProperties.AcceleratorKey="Alt+L"
                       Checked="LowBWCheckBox_Changed"
                       Unchecked="LowBWCheckBox_Changed"/>
-            <!-- Connection path. Enabled only when the selected radio answers
-                 on BOTH the local network and SmartLink; otherwise it names the
-                 one path that exists and is disabled, so it always tells the
-                 truth about how this radio will be reached. -->
+            <!-- Connection path: the ORDER a connect walks for the selected
+                 radio, persisted with that radio.
+
+                 The comment here used to say this was enabled only for a radio
+                 answering on BOTH paths. That stopped being true when the
+                 preference moved from a session bool to a stored chain: it is
+                 enabled for every KNOWN radio, offline ones included, because
+                 the preference matters most for exactly the radios the app
+                 believes have only one home. SyncPathAffordance is the code
+                 that says so. Corrected 2026-08-19 — description drift.
+
+                 Task #107: each item's own text carries its whole meaning, so
+                 the screen reader's reading of the item IS the answer and no
+                 second utterance follows an arrow press. The long-form
+                 explanation is on JJFlexHelp.Text, reachable with Ctrl+F1 and
+                 silent otherwise — never HelpText, which NVDA reads aloud as
+                 the control's description on every single focus. -->
             <Label x:Name="PathLabel" Content="Connection _path" Padding="0,0,0,2"
                    Target="{Binding ElementName=PathCombo}"/>
-            <ComboBox x:Name="PathCombo" MinWidth="130" Height="24" Margin="0,0,0,8"
+            <ComboBox x:Name="PathCombo" MinWidth="230" Height="24" Margin="0,0,0,8"
                       IsEnabled="False"
                       AutomationProperties.Name="Connection path"
                       AutomationProperties.AcceleratorKey="Alt+P"
+                      local:JJFlexHelp.Text="Which way JJ Flexible tries to reach this radio, and in what order. It is saved with the radio, so it travels with the radio rather than with your account. Automatic means the local network first and SmartLink after it. The two explicit orders are your own choice, and a choice always outranks anything JJ Flexible has worked out for itself: if the option reads 'learned', that is a suggestion from your own connection history, and picking either explicit order replaces it for good."
                       SelectionChanged="PathCombo_SelectionChanged"/>
             <!-- The Remote button is gone (2026-08-15 decision): Connect
                  honours each radio's stored path preference and opens

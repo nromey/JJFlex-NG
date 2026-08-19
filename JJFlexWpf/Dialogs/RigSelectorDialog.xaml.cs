@@ -1668,9 +1668,26 @@ namespace JJFlexWpf.Dialogs
         // Connection path preference (persisted per radio)
         // ------------------------------------------------------------------
 
-        private const string PathAutomatic = "Automatic, local first";
-        private const string PathLocalFirst = "Local network first";
-        private const string PathSmartLinkFirst = "SmartLink first";
+        // The option labels ARE the explanation (task #107).
+        //
+        // Each of these used to be a short identifier ("Local network first")
+        // followed, on every arrow press, by a spoken sentence saying what it
+        // meant ("This radio will connect over the local network first, falling
+        // back to SmartLink."). NVDA reads the item itself, so that was the
+        // same fact twice, and the second copy took four times as long to say.
+        //
+        // Fold the meaning into the label and the arrow announcement IS the
+        // answer — one utterance, chosen by us, spoken by the screen reader the
+        // operator already tuned to their own rate. Same precedent as commit
+        // d09f0e50: names are identifiers, and where the identifier can carry
+        // the meaning honestly, nothing else needs to say it.
+        //
+        // Keep these in step with the context menu's Default Connection Path
+        // submenu, which writes the same store — ONE vocabulary, so a setting
+        // changed by one door reads identically at the other.
+        private const string PathAutomatic = "Automatic: local network first, then SmartLink";
+        private const string PathLocalFirst = "Local network first, then SmartLink";
+        private const string PathSmartLinkFirst = "SmartLink first, then local network";
 
         /// <summary>
         /// What the path control should currently be showing. Compared before
@@ -1769,7 +1786,10 @@ namespace JJFlexWpf.Dialogs
                 2 => new List<ConnectPathKind> { ConnectPathKind.SmartLink, ConnectPathKind.Local },
                 _ => new List<ConnectPathKind>(),
             };
-            SetPathChainForRow(radio, chain);
+            // No confirmation from this door. The screen reader has just read
+            // the combo item, whose label now carries the whole meaning — see
+            // the label constants. Task #107.
+            SetPathChainForRow(radio, chain, confirm: false);
         }
 
         /// <summary>
@@ -1777,7 +1797,17 @@ namespace JJFlexWpf.Dialogs
         /// a spoken success over a declined save is a promise the next
         /// launch breaks. Shared by the combo and the context menu.
         /// </summary>
-        private void SetPathChainForRow(RadioListItem radio, List<ConnectPathKind> chain)
+        /// <param name="confirm">
+        /// Whether to speak a confirmation on SUCCESS. False for the combo,
+        /// where the screen reader has just read the chosen item and a spoken
+        /// restatement is the same fact twice (#107). True for the context
+        /// menu, where the menu closes on click and the operator lands back on
+        /// the radio list with nothing on screen to say what happened.
+        /// <para>A FAILED save always speaks, whatever this says: silence over
+        /// a setting that did not stick is the lying-receipt bug.</para>
+        /// </param>
+        private void SetPathChainForRow(
+            RadioListItem radio, List<ConnectPathKind> chain, bool confirm)
         {
             bool same = radio.PathChain.SequenceEqual(chain);
             if (same) return;
@@ -1794,22 +1824,56 @@ namespace JJFlexWpf.Dialogs
             // focus for no change they can perceive.
             _pathAffordanceKey = PathKey();
 
-            var rowName = RowName(radio);
-            string speech = chain.Count == 0
-                ? $"{rowName} connection path is automatic: local network first, then SmartLink."
-                : chain[0] == ConnectPathKind.SmartLink
-                    ? $"{rowName} will connect over SmartLink first, falling back to the local network."
-                    : $"{rowName} will connect over the local network first, falling back to SmartLink.";
+            // The chosen order, in the SAME words the combo item and the menu
+            // item use. Dropped from this: the "This radio will..." prefix the
+            // sentences used to carry — the operator is looking at that radio's
+            // row and just acted on that radio's menu, so naming it again is
+            // the third time in one gesture.
+            string order = DescribePathChain(chain);
+
             // Only mention persistence when it failed. Saying "and it is saved"
             // on every success is noise; saying nothing when it did NOT save is
             // the lying-receipt bug. The reason lives in the trace file, which
             // is where a support conversation can actually use it.
             if (!persisted)
-                speech += " This is in effect now, but it could not be written to disk,"
-                        + " so it may not be here next time you start. Your trace file has the reason.";
-            _callbacks.ScreenReaderSpeak?.Invoke(speech, true);
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    order + ". This is in effect now, but it could not be written to disk,"
+                    + " so it may not be here next time you start. Your trace file has the reason.",
+                    true);
+            }
+            else if (confirm)
+            {
+                _callbacks.ScreenReaderSpeak?.Invoke(order + ".", true);
+            }
+
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
+        }
+
+        /// <summary>
+        /// One chain, in words — the single vocabulary shared by the combo
+        /// items, the context-menu items and the spoken confirmation. Three
+        /// surfaces described this in three slightly different ways before
+        /// #107, which is how "falling back to" and "then" ended up meaning the
+        /// same thing in one dialog.
+        /// </summary>
+        private static string DescribePathChain(IReadOnlyList<ConnectPathKind> chain)
+        {
+            if (chain.Count == 0) return PathAutomatic;
+
+            // A one-entry chain means "this path only, never fall back" — the
+            // thing that makes force-remote a valid hole-punch test instrument.
+            // No door in this dialog stores one today, but describing it as
+            // "first, then the other" would be a flat lie if one ever did.
+            if (chain.Count == 1)
+            {
+                return chain[0] == ConnectPathKind.SmartLink
+                    ? "SmartLink only, never the local network"
+                    : "Local network only, never SmartLink";
+            }
+
+            return chain[0] == ConnectPathKind.SmartLink ? PathSmartLinkFirst : PathLocalFirst;
         }
 
         /// <summary>
@@ -1893,24 +1957,31 @@ namespace JJFlexWpf.Dialogs
             DefaultPathMenuItem.IsEnabled = radio != null;
             if (radio == null) return;
 
-            void AddChoice(string header, string accessible, List<ConnectPathKind> chain, bool isChecked)
+            // ONE label, used as the header AND as the accessible name. They
+            // were different strings until #107 — "Local Network First" on
+            // screen, "Local network first, falling back to SmartLink." by
+            // ear — and the row text elsewhere in this file already carries the
+            // rule those two broke: what a sighted user reads and what a screen
+            // reader says must not diverge. Same constants as the combo, so a
+            // path set at one door reads identically at the other.
+            void AddChoice(string label, List<ConnectPathKind> chain, bool isChecked)
             {
-                var item = new MenuItem { Header = header, IsCheckable = true, IsChecked = isChecked };
-                System.Windows.Automation.AutomationProperties.SetName(item, accessible);
-                item.Click += (_, _) => SetPathChainForRow(radio, chain);
+                var item = new MenuItem { Header = label, IsCheckable = true, IsChecked = isChecked };
+                System.Windows.Automation.AutomationProperties.SetName(item, label);
+                // Confirm here: clicking closes the menu and drops the operator
+                // back on the radio list, so nothing on screen would otherwise
+                // say what the click did.
+                item.Click += (_, _) => SetPathChainForRow(radio, chain, confirm: true);
                 DefaultPathMenuItem.Items.Add(item);
             }
 
-            AddChoice("Automatic",
-                "Automatic. Try the local network first, then SmartLink.",
+            AddChoice(PathAutomatic,
                 new List<ConnectPathKind>(),
                 radio.PathChain.Count == 0);
-            AddChoice("Local Network First",
-                "Local network first, falling back to SmartLink.",
+            AddChoice(PathLocalFirst,
                 new List<ConnectPathKind> { ConnectPathKind.Local, ConnectPathKind.SmartLink },
                 radio.PathChain.Count > 0 && radio.PathChain[0] == ConnectPathKind.Local);
-            AddChoice("SmartLink First",
-                "SmartLink first, falling back to the local network.",
+            AddChoice(PathSmartLinkFirst,
                 new List<ConnectPathKind> { ConnectPathKind.SmartLink, ConnectPathKind.Local },
                 radio.PathChain.Count > 0 && radio.PathChain[0] == ConnectPathKind.SmartLink);
         }
