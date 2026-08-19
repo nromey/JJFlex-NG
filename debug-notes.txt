@@ -1,115 +1,53 @@
-WHAT CHANGED
+This build exists mainly to get a current JJ Flexible onto the laptop, so the
+orphan-process question can finally be tested on the machine where it actually
+happens.
 
-This build is almost entirely the result of one morning of Noel sitting in
-front of the previous one with NVDA. Every item below came from that.
+WHAT'S NEW SINCE YOUR LAST BUILD
 
-The Audio Workshop's sections are real groups now. You hear yourself entering
-and leaving them as you tab, and the H key jumps between them. They looked
-like sections before and were not ones - the walk-through was correctly
-ordered and you could not feel yourself crossing from one step to the next.
+- There is a warning sound now, and it sounds like a warning. One long tone with
+  harmonics, three quarters of a second, deliberately unlike every other sound
+  the app makes. It has its own switch in Settings, Notifications, under Alert
+  Sounds, alongside the five that were already there.
 
-The device picker only shows things you could talk into. Loopbacks and virtual
-audio cables are hidden unless you turn on "show every sound endpoint" with
-Alt+S. Nothing is removed, only hidden, so if you route audio deliberately
-your devices are still there behind that switch.
+- Connecting to a radio with no microphone profile selected now says so. On a
+  radio you have marked as yours it quietly loads one and tells you; on anyone
+  else's it changes nothing and just tells you what it found. Either way you
+  hear about it before you key up rather than afterwards.
 
-Each device is spoken once. It was being said twice - your screen reader
-announced the row and then the app said it again.
+- The Audio Workshop's Earcon Explorer has a Warnings section: the alarm, the
+  problem-recorded tone, and the two feature toggles right beneath them so you
+  can hear them back to back.
 
-Device rows start with the device. Press the first letter of a device name and
-the list jumps to it, the way a list should.
+- The Remove Radio dialog reads better. "Remove from the list only keeps all of
+  it" had nothing you were still holding for "it" to point at.
 
-There is a Windows input level slider in the Microphone Check now, and a
-Microphone Boost slider when your sound driver offers one. This is the missing
-piece: if your microphone is too hot or too quiet, that is the knob that fixes
-it, and until now the app could tell you about the problem but not do anything
-about it.
+THE ONE THING WORTH DOING ON THE LAPTOP
 
-The check reports loudness as well as peak, so it can tell you when you have
-stopped being too quiet rather than only when you are clipping.
+The orphan-process test. Full procedure is in the repo at
+docs\planning\for-noel\2026-08-19-orphan-process-test.md, but the short version:
 
-The level advice has seven levels instead of three, and it talks like a
-person. Every answer starts with one word - Good, Hot, Clipping, Quiet - so you
-can stop listening as soon as you have what you need, and the rest of the
-sentence varies so you are not hearing the same line eight times while you
-tune.
+  1. Settings, Audio: set PC audio for the radio to "Always on for this radio".
+  2. Connect, and CONFIRM YOU CAN ACTUALLY HEAR RADIO AUDIO. This is the part
+     that makes the test mean anything - switched on is not the same as running.
+  3. Leave it playing half a minute, then close the app normally.
+  4. Task Manager, or PowerShell: does a jjflexible.exe still exist?
 
-Your settings cannot get lost between two folders any more. Some were being
-written to one place and read from another, and which ones survived a restart
-depended on which part of the app happened to run last.
+If one survives, do not kill it straight away - note its CPU and thread count
+first. Burning CPU is one bug, sitting idle is a different one, and the evidence
+goes away with the process.
 
-The level meter now zeroes itself when you move the level. Without that the
-check kept reporting the loudest thing it had heard since you started it, which
-was from before you touched anything - so every adjustment looked like it did
-nothing at all. Found by Noel within minutes of the sliders arriving.
+The laptop is the only machine where that survivor has ever been seen. The
+ms-02 has never shown it, which is why testing there proved nothing.
 
-Alt+L speaks the current microphone reading from anywhere on the Audio Devices
-page. This is the one that makes setting your level practical: sit on the input
-level slider, adjust, talk, press Alt+L. You never leave the slider and never
-lose your place. Before this you had to tab away to the reading and back on
-every single adjustment.
+KNOWN ISSUES IN THIS BUILD
 
-The Audio Devices page has three fewer tab stops. The explanatory paragraphs
-that sat above each group are gone as separate stops - what they said now lives
-on the control they were about, so you hear it when you arrive at the thing
-rather than paying a Tab press for it on every pass.
+- The meters panel (Ctrl+M) is rough. Adding a slot leaves the earlier slots
+  with no controls at all, the Test button starts a tone that will not stop, and
+  pan offers only left, centre and right. All known, all being worked.
 
-The Microphone section in the Audio Workshop now follows your transmit source.
-Pick the mic jack and you get Mic Gain, Mic Boost and Mic Bias. Pick PC audio
-and those three disappear - they only act on the radio's jack - and a Windows
-input level takes their place, so the section always shows the gain that
-actually applies. Your Audio Devices page is unchanged and still has its own.
+- Choosing "Remove the radio and its settings" may quietly do the gentler thing
+  and keep them. Nothing gets destroyed unexpectedly, so it fails in the safe
+  direction, but your choice may not be honoured. Under investigation.
 
-Mic Bias no longer claims to be phantom power. It is a low-voltage supply for
-electret mics on the front jack, around 3 volts depending on model. Real
-phantom power is 48 volts on an XLR, and a studio condenser expecting it will
-not run on this. The old label could have sent someone shopping for the wrong
-microphone.
-
-Transmit readings now lead with the number and follow with the coaching, the
-same way the microphone check does. If you would rather not hear the coaching
-at all, Settings, Notifications, Mic audio readout has a decibels-only option -
-that setting now reaches every surface, which it did not before.
-
-F6 moves you to the next section of the Audio Workshop and Shift+F6 goes back.
-It tells you which section you landed in, wraps around at the ends, and skips
-sections that are hidden - so with PC audio selected it will not send you to
-radio controls that are not on screen. Ctrl+Tab still moves between the three
-tabs as before.
-
-The cycle controls - the ones you arrow through, like AGC Mode and Transmit
-audio from - now announce themselves through Windows rather than the app
-talking over your screen reader. Two things come of that. They no longer cut
-off the section name as you tab into a group, which is what was happening this
-morning. And they work on a braille display now, which they never did before,
-because the app's own speech never reached braille at all.
-
-WHAT TO TEST
-
-Open the Audio Workshop with Ctrl+Shift+W and tab through it slowly. You should
-hear the section names as you cross into them.
-
-Open Change Audio Devices and count what is in the input list. Confirm your
-laptop's own microphone array is still there - that one matters.
-
-Start the microphone check, find the Windows input level slider, and use it to
-bring yourself into the Good range. Talk normally.
-
-Then change a setting, close the app completely, and open it again. It should
-still be there.
-
-With a radio: connect, turn PC audio on, key up with the transmit monitor on
-and listen for a steady, rhythmic gap in your own voice. Random dropouts are
-something else; a regular rhythm is the thing that got fixed.
-
-KNOWN ISSUES
-
-The transverter work is not fleshed out yet.
-
-The noise gate and RNNoise are not in this build.
-
-Microphone Boost has only been proven on hardware that does NOT offer one. If
-your headset exposes a boost control, you are the first to see it work.
-
-The help page on the two audio numbers still opens with a draft marker. That is
-deliberate - it has not had a human pass yet.
+- Meter tone slots cannot be reordered, inserted between, or removed with the
+  Delete key.
