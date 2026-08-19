@@ -7,6 +7,22 @@ timeout loop that could never time out) plus the foreground-thread and
 teardown-order work.
 **Radio:** any. PC audio is the part that matters, not which rig.
 
+> **RUN THIS ON THE LAPTOP.** Corrected 2026-08-19 — Noel: "shouldn't we be
+> doing all these tests on the laptop itself since that was the problem
+> machine?" Yes. The laptop is where the survivor has actually been seen; the
+> ms-02 never showed it. Testing on the machine where a bug does not occur is
+> testing where the bug is not.
+>
+> **The real prerequisite is therefore a current build ON THE LAPTOP**, which
+> does not exist yet. That is a distribution step, not a testing one, and it
+> blocks everything below.
+>
+> Run order once the laptop has a build: **laptop first**, ms-02 only as a
+> comparison afterwards. If the laptop is dirty and the ms-02 clean, that is a
+> timing race and the difference between the machines is the clue.
+>
+> **SHELVED 2026-08-19** pending a laptop build.
+
 Mark results inline with `**** `.
 
 ---
@@ -46,6 +62,11 @@ Get-Process jjflexible -ErrorAction SilentlyContinue | Select-Object Id, StartTi
 ```
 
 Empty output means no process. Any line means a survivor.
+
+**Task Manager works just as well** — look for `jjflexible.exe` under Details or
+Processes once the window is gone. Use whichever you would rather navigate; the
+PowerShell version is only quicker because it prints nothing when the answer is
+"no survivor".
 
 **** 
 
@@ -95,12 +116,14 @@ necessarily run the same teardown.
 
 ---
 
-## RUN 4 — MEDIUM: the laptop
+## RUN 4 — the ms-02, for comparison only
 
-This is where you have actually seen it. The ms-02 may simply be too fast, or
-have different audio devices, to reproduce a race the laptop hits.
+Runs 1 to 3 belong on the LAPTOP (see the note at the top). This run repeats
+Run 1 on the ms-02 purely to compare.
 
-Repeat **Run 1** on the laptop.
+It matters only if the laptop was dirty: a laptop-dirty, ms-02-clean pair means
+a timing race, and the difference between the two machines — speed, audio device
+count, driver stack — is where the answer lives.
 
 **** RUN 4 RESULT:
 
