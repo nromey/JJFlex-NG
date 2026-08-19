@@ -392,15 +392,37 @@ When Noel says "done developing" or equivalent, that's the seal-the-day trigger.
 The seal entry's "Cross-surface activity" bullet list MUST cover everything found in the sweep, not just what this session directly did. The AAR's per-surface section MUST do the same. **A 5-minute thorough sweep prevents a permanent gap in the durable record.**
 
 1. **Promote latest debug zip to Dropbox top level as nightly:** Run `publish-nightly-to-dropbox.ps1`. Copies the newest debug zip from NAS `<version>\x64-debug\` to Dropbox top level, replacing any existing `JJFlex_*_x64_nightly.zip` and `NOTES-nightly.txt` there. This is the easy-to-find "what's today's build?" artifact, distinct from the `debug\` subfolder tester distribution. **Skip this step on docs/memory/planning-only days** where no new debug build was produced — the prior day's nightly still represents current code state.
-1a. **Memory index compaction (before the memory backup):** check the size of
-`C:\Users\nrome\.claude\projects\C--dev-JJFlex-NG\memory\MEMORY.md`. The index
-has a hard read limit of ~24.4KB and the harness starts warning near 19.5KB;
-treat **~16KB as the seal threshold**. Over that, compact before backing up:
-one line per entry, move any detail into the topic files (it belongs there
-anyway), merge sibling entries into `·`-separated lines, and drop or
-soft-close stale entries. Small trims every seal beat an emergency rewrite at
-the limit. Added 2026-08-06 after the index hit the warning threshold
-mid-session.
+1a. **Memory index check (before the memory backup):** check the size of
+`C:\Users\nrome\.claude\projects\C--dev-JJFlex-NG\memory\MEMORY.md`. Hard read
+limit ~24.4KB, harness warns near 19.5KB; treat **~12KB as the seal threshold**
+now that the index is split.
+
+**Structure, as of 2026-08-19.** MEMORY.md is an always-loaded CORE, not a full
+index. It holds current state, the rules that fire with no topic cue
+(accessibility, description drift, no time estimates, build safety), Noel's
+trigger phrases, terminology, user preferences and project history — plus one
+pointer line per topic index. The ~200 topic pointers live in
+`index_product_identity.md`, `index_radio_hardware.md`, `index_dsp_audio.md`,
+`index_build_release.md`, `index_testing.md`, `index_infrastructure.md`,
+`index_workflow_process.md`, `index_dev_practices.md` and
+`project_closed_history_index.md`.
+
+**A new memory therefore goes in the matching topic index, NOT in MEMORY.md.**
+The core only grows when something must fire without a cue. The triage line is:
+*topic-triggered knowledge can move one hop; reflex-triggered rules cannot.*
+
+Each pointer line in the core NAMES the contents of its index on purpose. The
+recurring failure is not being unable to fetch a memory, it is not realising
+one exists — see `feedback_grep_memory_before_asserting.md`. Preserve that
+naming when editing a pointer line, or the index stops doing its only job.
+
+**Verify after any restructure:** every file on disk must be reachable from
+MEMORY.md or exactly one index, and no link may dangle. Diff the link set
+against the previous MEMORY.md before overwriting it — the first attempt on
+2026-08-19 silently dropped one entry, caught only by that check.
+
+Added 2026-08-06 after the index hit the warning threshold; rewritten
+2026-08-19 when the flat index reached 18.5KB and was split into a 9.8KB core.
 2. **Memory backup — ALL projects, not just JJFlex:** `backup-memory-to-nas.ps1` snapshots **every** per-project Claude memory tree found under `C:\Users\nrome\.claude\projects\`. JJFlex keeps its legacy flat path (`historical\memory\memory-<ts>.zip`) so its dated series stays unbroken; every other project lands at `historical\memory\projects\<slug>\memory-<ts>.zip`. As of 2026-08-01 this picks up **Freight Fate** (`C--dev-Freight-Fate`, ~118 files) and **Civ VI Access** (`c--dev-Civ-vi-access`, ~175 files), neither of which had ever been backed up. Pass `-PrimaryOnly` for the old JJFlex-only behaviour. **Critical:** these trees live under the user profile, so the `C:\dev` mirror in step 3a does NOT cover them — this script and step 2a are their only backup paths. Keep running it even though 2a also sweeps up `memory\`: this one produces the per-project dated series that `memory-<ts>.zip` history depends on.
 2a. **Claude Code state backup:** `backup-claude-state-to-nas.ps1` snapshots the whole `C:\Users\nrome\.claude` tree plus `~\.claude.json` to NAS `historical\claude-state\claude-state-<ts>.zip`. Keeps the last 12, prunes older. This is the **session transcripts** — the `.jsonl` files under `.claude\projects\<slug>\` that hold every conversation Claude Code has had, and the only thing `claude --resume` can read. Nothing else backs them up: step 3a mirrors `C:\dev` and these live under the user profile; step 2 takes `memory\` only; git covers none of it. They are also on a retention timer — Claude Code sweeps transcripts older than `cleanupPeriodDays` at startup, and on 2026-08-01 that removed nine June sessions across Civ VI Access and the flashdrive project. `cleanupPeriodDays` is now pinned to **365** in `~\.claude\settings.json`, but retention only widens the window; it is not a backup. Excludes regenerable state (`cache`, `plugins`, `shell-snapshots`) and `.credentials.json` — that is a live OAuth token, and re-auth is one `claude` launch. `file-history\` (the ~150 MB `/rewind` snapshot tree) is opt-in via `-IncludeFileHistory`. Expect ~180 MB compressed from ~415 MB raw.
 3. **Private docs backup:** `backup-private-to-nas.ps1` snapshots `C:\Users\nrome\JJFlex-private\` to NAS `historical\private\<date>\`. Captures easter eggs, unlock codes, and other private-docs state.
