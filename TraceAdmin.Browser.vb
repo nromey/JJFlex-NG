@@ -6,12 +6,16 @@ Imports JJTrace
 Imports Radios
 
 ''' <summary>
-''' Trace Archive Browser tab — reads the LZMA manifest, presents archived sessions
+''' Saved Diagnostic Logs — reads the LZMA manifest, presents archived sessions
 ''' as a sortable filterable ListView, and wires up the action buttons (View Trace,
 ''' Copy Path, Export Selected, Delete Selected, Prune Now). All speech-channel
 ''' announcements honor the no-silent-keystrokes rule (every action speaks).
 ''' Per design at docs/planning/active/trace-archive-navigation-design.md
-''' (Sprint 29 Track H).
+''' (Sprint 29 Track H) and docs/planning/active/diagnostic-log-surface.md §3.
+'''
+''' Built in Sprint 29 and unreachable until Sprint 30: nothing in the app ever
+''' instantiated the form that hosted it, so its whole test checklist stayed
+''' unticked because no tester could get to it.
 ''' </summary>
 Partial Class TraceAdmin
 
@@ -30,17 +34,11 @@ Partial Class TraceAdmin
     Private _suspendFilter As Boolean = False
 
     ' --------------------------------------------------------------------
-    ' Tab activation: lazy-initialize the browser.
+    ' Initialization. This used to hang off a tab activation; with the Tracing
+    ' tab gone the browser IS the window, so TraceAdmin_Load calls it.
     ' --------------------------------------------------------------------
 
-    Private Sub MainTabs_SelectedIndexChanged(sender As Object, e As EventArgs) Handles MainTabs.SelectedIndexChanged
-        If MainTabs.SelectedTab Is BrowserTab AndAlso Not _browserInitialized Then
-            InitializeArchiveBrowser()
-            _browserInitialized = True
-        End If
-    End Sub
-
-    Private Sub InitializeArchiveBrowser()
+    Friend Sub InitializeArchiveBrowser()
         Try
             ' Columns
             ArchiveListView.Columns.Add("Date", 150, HorizontalAlignment.Left)
@@ -177,7 +175,7 @@ Partial Class TraceAdmin
         Try
             ArchiveListView.Items.Clear()
             For Each entry In _shownEntries
-                Dim item As New ListViewItem(FormatBootTime(entry.BootTime))
+                Dim item As New ListViewItem(HumanSessionPhrase(entry))
                 item.Tag = entry
                 item.SubItems.Add(FormatDuration(entry.DurationMs))
                 item.SubItems.Add(TraceOutcomeLabels.Display(entry.Outcome))
@@ -192,6 +190,39 @@ Partial Class TraceAdmin
 
     Private Shared Function FormatBootTime(utc As DateTime) As String
         Return utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+    End Function
+
+    ''' <summary>
+    ''' How a session reads out loud: "Tonight at 8:47 PM", "Yesterday at 3:12
+    ''' PM", "14 Aug at 9:00 AM" — with detailed captures named as such, because
+    ''' the one an operator is hunting for is nearly always the capture they
+    ''' just took.
+    '''
+    ''' This is the phrasing the feedback dialog's session picker will need, so
+    ''' it is written once and shared rather than reinvented there. It is the
+    ''' FIRST column deliberately: a screen reader reads a row's first cell as
+    ''' the row's identity, and "2026-08-18 20:47" is not how anyone remembers
+    ''' when something went wrong.
+    ''' </summary>
+    Friend Shared Function HumanSessionPhrase(entry As TraceSessionEntry) As String
+        Dim localTime As DateTime = entry.BootTime.ToLocalTime()
+        Dim clock As String = localTime.ToString("h:mm tt", CultureInfo.InvariantCulture)
+        Dim today As Date = Date.Now.Date
+        Dim dayPart As String
+        If localTime.Date = today Then
+            dayPart = If(localTime.Hour >= 17, "Tonight", "Today")
+        ElseIf localTime.Date = today.AddDays(-1) Then
+            dayPart = "Yesterday"
+        Else
+            dayPart = localTime.ToString("d MMM", CultureInfo.InvariantCulture)
+        End If
+
+        Dim prefix As String = ""
+        If Not String.IsNullOrEmpty(entry.OutcomeDetail) AndAlso
+           entry.OutcomeDetail.StartsWith(CaptureOutcomeDetailPrefix, StringComparison.Ordinal) Then
+            prefix = "Detailed capture, "
+        End If
+        Return $"{prefix}{dayPart} at {clock}"
     End Function
 
     Private Shared Function FormatDuration(durationMs As Long?) As String

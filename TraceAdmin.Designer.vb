@@ -23,18 +23,13 @@ Partial Class TraceAdmin
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
         Me.components = New System.ComponentModel.Container()
-        Me.MainTabs = New System.Windows.Forms.TabControl()
-        Me.TracingTab = New System.Windows.Forms.TabPage()
-        Me.BrowserTab = New System.Windows.Forms.TabPage()
+        ' Sprint 30 Track D: the Tracing tab is gone — its job moved to
+        ' Settings > Diagnostics, and with one tab left the TabControl was a
+        ' tab strip around nothing. The browser is the whole window now, which
+        ' is also why the window is called Saved Diagnostic Logs.
+        Me.BrowserPanel = New System.Windows.Forms.Panel()
 
-        ' Tracing tab controls
-        Me.LevelListBox = New System.Windows.Forms.ListBox()
-        Me.FileNameLabel = New System.Windows.Forms.Label()
-        Me.FileNameBox = New System.Windows.Forms.TextBox()
-        Me.BrowseButton = New System.Windows.Forms.Button()
-        Me.OpenFileDialog = New System.Windows.Forms.OpenFileDialog()
-
-        ' Browser tab controls
+        ' Browser controls
         Me.FilterFromLabel = New System.Windows.Forms.Label()
         Me.FilterFromDate = New System.Windows.Forms.DateTimePicker()
         Me.FilterToLabel = New System.Windows.Forms.Label()
@@ -59,116 +54,42 @@ Partial Class TraceAdmin
         Me.SearchDebounceTimer = New System.Windows.Forms.Timer(Me.components)
 
         ' Form-level
-        Me.ToggleButton = New System.Windows.Forms.Button()
         Me.CnclButton = New System.Windows.Forms.Button()
 
-        Me.MainTabs.SuspendLayout()
-        Me.TracingTab.SuspendLayout()
-        Me.BrowserTab.SuspendLayout()
+        Me.BrowserPanel.SuspendLayout()
         CType(Me.PruneRetentionUpDown, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.SuspendLayout()
         '
-        'MainTabs
+        'BrowserPanel
         '
-        Me.MainTabs.AccessibleName = "Trace admin sections"
-        Me.MainTabs.AccessibleRole = System.Windows.Forms.AccessibleRole.PageTabList
-        Me.MainTabs.Location = New System.Drawing.Point(8, 8)
-        Me.MainTabs.Name = "MainTabs"
-        Me.MainTabs.SelectedIndex = 0
-        Me.MainTabs.Size = New System.Drawing.Size(884, 540)
-        Me.MainTabs.TabIndex = 0
-        Me.MainTabs.Controls.Add(Me.TracingTab)
-        Me.MainTabs.Controls.Add(Me.BrowserTab)
+        Me.BrowserPanel.AccessibleName = "Saved diagnostic logs"
+        Me.BrowserPanel.Location = New System.Drawing.Point(8, 8)
+        Me.BrowserPanel.Name = "BrowserPanel"
+        Me.BrowserPanel.Size = New System.Drawing.Size(884, 540)
+        Me.BrowserPanel.TabIndex = 0
+        Me.BrowserPanel.Controls.Add(Me.FilterFromLabel)
+        Me.BrowserPanel.Controls.Add(Me.FilterFromDate)
+        Me.BrowserPanel.Controls.Add(Me.FilterToLabel)
+        Me.BrowserPanel.Controls.Add(Me.FilterToDate)
+        Me.BrowserPanel.Controls.Add(Me.FilterOutcomeLabel)
+        Me.BrowserPanel.Controls.Add(Me.FilterOutcomeCombo)
+        Me.BrowserPanel.Controls.Add(Me.FilterSearchLabel)
+        Me.BrowserPanel.Controls.Add(Me.FilterSearchBox)
+        Me.BrowserPanel.Controls.Add(Me.FilterStatusLabel)
+        Me.BrowserPanel.Controls.Add(Me.ArchiveListView)
+        Me.BrowserPanel.Controls.Add(Me.SelectionDetailLabel)
+        Me.BrowserPanel.Controls.Add(Me.SelectionDetailBox)
+        Me.BrowserPanel.Controls.Add(Me.ViewTraceButton)
+        Me.BrowserPanel.Controls.Add(Me.CopyPathButton)
+        Me.BrowserPanel.Controls.Add(Me.ExportSelectedButton)
+        Me.BrowserPanel.Controls.Add(Me.DeleteSelectedButton)
+        Me.BrowserPanel.Controls.Add(Me.FooterLabel)
+        Me.BrowserPanel.Controls.Add(Me.AutoPruneInfoLabel)
+        Me.BrowserPanel.Controls.Add(Me.PruneRetentionLabel)
+        Me.BrowserPanel.Controls.Add(Me.PruneRetentionUpDown)
+        Me.BrowserPanel.Controls.Add(Me.PruneNowButton)
         '
-        'TracingTab
-        '
-        Me.TracingTab.AccessibleName = "Tracing"
-        Me.TracingTab.Text = "Tracing"
-        Me.TracingTab.Padding = New System.Windows.Forms.Padding(8)
-        Me.TracingTab.UseVisualStyleBackColor = True
-        Me.TracingTab.Controls.Add(Me.FileNameLabel)
-        Me.TracingTab.Controls.Add(Me.FileNameBox)
-        Me.TracingTab.Controls.Add(Me.BrowseButton)
-        Me.TracingTab.Controls.Add(Me.LevelListBox)
-        '
-        'BrowserTab
-        '
-        Me.BrowserTab.AccessibleName = "Archive Browser"
-        Me.BrowserTab.Text = "Archive Browser"
-        Me.BrowserTab.Padding = New System.Windows.Forms.Padding(8)
-        Me.BrowserTab.UseVisualStyleBackColor = True
-        Me.BrowserTab.Controls.Add(Me.FilterFromLabel)
-        Me.BrowserTab.Controls.Add(Me.FilterFromDate)
-        Me.BrowserTab.Controls.Add(Me.FilterToLabel)
-        Me.BrowserTab.Controls.Add(Me.FilterToDate)
-        Me.BrowserTab.Controls.Add(Me.FilterOutcomeLabel)
-        Me.BrowserTab.Controls.Add(Me.FilterOutcomeCombo)
-        Me.BrowserTab.Controls.Add(Me.FilterSearchLabel)
-        Me.BrowserTab.Controls.Add(Me.FilterSearchBox)
-        Me.BrowserTab.Controls.Add(Me.FilterStatusLabel)
-        Me.BrowserTab.Controls.Add(Me.ArchiveListView)
-        Me.BrowserTab.Controls.Add(Me.SelectionDetailLabel)
-        Me.BrowserTab.Controls.Add(Me.SelectionDetailBox)
-        Me.BrowserTab.Controls.Add(Me.ViewTraceButton)
-        Me.BrowserTab.Controls.Add(Me.CopyPathButton)
-        Me.BrowserTab.Controls.Add(Me.ExportSelectedButton)
-        Me.BrowserTab.Controls.Add(Me.DeleteSelectedButton)
-        Me.BrowserTab.Controls.Add(Me.FooterLabel)
-        Me.BrowserTab.Controls.Add(Me.AutoPruneInfoLabel)
-        Me.BrowserTab.Controls.Add(Me.PruneRetentionLabel)
-        Me.BrowserTab.Controls.Add(Me.PruneRetentionUpDown)
-        Me.BrowserTab.Controls.Add(Me.PruneNowButton)
-        '
-        '== Tracing tab controls ==
-        '
-        'LevelListBox
-        '
-        Me.LevelListBox.AccessibleName = "trace level"
-        Me.LevelListBox.AccessibleRole = System.Windows.Forms.AccessibleRole.List
-        Me.LevelListBox.FormattingEnabled = True
-        Me.LevelListBox.Items.AddRange(New Object() {"Off", "Error", "Warning", "Info", "Verbose"})
-        Me.LevelListBox.Location = New System.Drawing.Point(16, 70)
-        Me.LevelListBox.Name = "LevelListBox"
-        Me.LevelListBox.Size = New System.Drawing.Size(160, 95)
-        Me.LevelListBox.TabIndex = 30
-        '
-        'FileNameLabel
-        '
-        Me.FileNameLabel.AutoSize = True
-        Me.FileNameLabel.Location = New System.Drawing.Point(16, 16)
-        Me.FileNameLabel.Name = "FileNameLabel"
-        Me.FileNameLabel.Size = New System.Drawing.Size(60, 13)
-        Me.FileNameLabel.TabIndex = 10
-        Me.FileNameLabel.Text = "File Name: "
-        '
-        'FileNameBox
-        '
-        Me.FileNameBox.AccessibleName = "file name"
-        Me.FileNameBox.AccessibleRole = System.Windows.Forms.AccessibleRole.Text
-        Me.FileNameBox.Location = New System.Drawing.Point(16, 36)
-        Me.FileNameBox.Name = "FileNameBox"
-        Me.FileNameBox.Size = New System.Drawing.Size(420, 20)
-        Me.FileNameBox.TabIndex = 11
-        '
-        'BrowseButton
-        '
-        Me.BrowseButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
-        Me.BrowseButton.AutoSize = True
-        Me.BrowseButton.Location = New System.Drawing.Point(450, 34)
-        Me.BrowseButton.Name = "BrowseButton"
-        Me.BrowseButton.Size = New System.Drawing.Size(75, 23)
-        Me.BrowseButton.TabIndex = 15
-        Me.BrowseButton.Text = "Browse"
-        Me.BrowseButton.UseVisualStyleBackColor = True
-        '
-        'OpenFileDialog
-        '
-        Me.OpenFileDialog.CheckFileExists = False
-        Me.OpenFileDialog.DefaultExt = "txt"
-        Me.OpenFileDialog.Filter = "text file (*.txt)|*.txt"
-        Me.OpenFileDialog.Title = "Trace File"
-        '
-        '== Browser tab controls ==
+        '== Saved diagnostic log controls ==
         '
         'FilterFromLabel
         '
@@ -383,16 +304,6 @@ Partial Class TraceAdmin
         '
         '== Form-level controls ==
         '
-        'ToggleButton
-        '
-        Me.ToggleButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
-        Me.ToggleButton.AutoSize = True
-        Me.ToggleButton.Location = New System.Drawing.Point(720, 560)
-        Me.ToggleButton.Name = "ToggleButton"
-        Me.ToggleButton.Size = New System.Drawing.Size(75, 25)
-        Me.ToggleButton.TabIndex = 200
-        Me.ToggleButton.UseVisualStyleBackColor = True
-        '
         'CnclButton
         '
         Me.CnclButton.AccessibleRole = System.Windows.Forms.AccessibleRole.PushButton
@@ -401,46 +312,37 @@ Partial Class TraceAdmin
         Me.CnclButton.Name = "CnclButton"
         Me.CnclButton.Size = New System.Drawing.Size(80, 25)
         Me.CnclButton.TabIndex = 201
+        Me.CnclButton.AccessibleName = "Close"
         Me.CnclButton.Text = "Close"
         Me.CnclButton.UseVisualStyleBackColor = True
         '
         'TraceAdmin
         '
-        Me.AcceptButton = Me.ToggleButton
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.CancelButton = Me.CnclButton
         Me.ClientSize = New System.Drawing.Size(900, 595)
-        Me.Controls.Add(Me.MainTabs)
-        Me.Controls.Add(Me.ToggleButton)
+        Me.Controls.Add(Me.BrowserPanel)
         Me.Controls.Add(Me.CnclButton)
         Me.MinimumSize = New System.Drawing.Size(700, 500)
         Me.Name = "TraceAdmin"
-        Me.Text = "Tracing"
-        Me.TracingTab.ResumeLayout(False)
-        Me.TracingTab.PerformLayout()
-        Me.BrowserTab.ResumeLayout(False)
-        Me.BrowserTab.PerformLayout()
-        Me.MainTabs.ResumeLayout(False)
+        ' The type keeps its name (every call site and partial stays put); the
+        ' WINDOW is what the operator meets, and the operator is looking for
+        ' saved logs, not for "tracing".
+        Me.Text = "Saved Diagnostic Logs"
+        Me.AccessibleName = "Saved Diagnostic Logs"
+        Me.BrowserPanel.ResumeLayout(False)
+        Me.BrowserPanel.PerformLayout()
         CType(Me.PruneRetentionUpDown, System.ComponentModel.ISupportInitialize).EndInit()
         Me.ResumeLayout(False)
         Me.PerformLayout()
 
     End Sub
 
-    ' Tabs
-    Friend WithEvents MainTabs As System.Windows.Forms.TabControl
-    Friend WithEvents TracingTab As System.Windows.Forms.TabPage
-    Friend WithEvents BrowserTab As System.Windows.Forms.TabPage
+    ' The whole body of the window
+    Friend WithEvents BrowserPanel As System.Windows.Forms.Panel
 
-    ' Tracing tab
-    Friend WithEvents LevelListBox As System.Windows.Forms.ListBox
-    Friend WithEvents FileNameLabel As System.Windows.Forms.Label
-    Friend WithEvents FileNameBox As System.Windows.Forms.TextBox
-    Friend WithEvents BrowseButton As System.Windows.Forms.Button
-    Friend WithEvents OpenFileDialog As System.Windows.Forms.OpenFileDialog
-
-    ' Browser tab
+    ' Saved diagnostic logs
     Friend WithEvents FilterFromLabel As System.Windows.Forms.Label
     Friend WithEvents FilterFromDate As System.Windows.Forms.DateTimePicker
     Friend WithEvents FilterToLabel As System.Windows.Forms.Label
