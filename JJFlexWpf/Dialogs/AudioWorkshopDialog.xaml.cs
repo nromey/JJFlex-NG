@@ -1560,6 +1560,17 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         var (name, hostApi) = ReadSavedPcInput();
         var capture = new MicCaptureSettings { DeviceName = name };
+
+        // The transmit cleanup chain (PC NR + gate), captured only while a
+        // chain is attached — detached, TxAudioConditioning answers with
+        // defaults that describe nothing, and recording those as this
+        // microphone's tuning would be the confident lie. Null means "not
+        // recorded", same contract as level -1 and boost unrecorded below.
+        // (Track B, 2026-08-18, #44 — until this line the cleanup knobs were
+        // session-only and every restart lost them.)
+        if (TxAudioConditioning.Conditioner != null)
+            capture.Conditioning = TxAudioConditioning.CaptureSettings();
+
         if (string.IsNullOrEmpty(name)) return capture;
 
         var level = WindowsMicLevel.TryFindByName(name, hostApi, out _);
@@ -1606,10 +1617,35 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         {
             // A level tuned for one microphone means nothing on another —
             // moving the current device's level to the old device's number
-            // would be confidently wrong. Say it, do not do it.
+            // would be confidently wrong. Say it, do not do it. The same
+            // argument covers the cleanup chain below: a gate tuned for
+            // that microphone's room noise is not this microphone's gate.
             notes.Add($"It was made with {capture.DeviceName}; this computer is using "
-                + $"{currentName}, so the Windows input level was left alone.");
+                + $"{currentName}, so the Windows input level"
+                + (capture.Conditioning != null ? " and the transmit cleanup settings were" : " was")
+                + " left alone.");
             return string.Join(" ", notes);
+        }
+
+        // The transmit cleanup half (PC NR + gate). Applied to the live
+        // chain when one is attached; the chain only exists while a radio is
+        // connected, so with no radio the truth is "not now", said out loud
+        // rather than silently no-opped — TxAudioConditioning's setters
+        // swallow writes when detached, which is exactly the kind of
+        // confident silence this dialog exists to end.
+        // (Track B, 2026-08-18, #44.)
+        if (capture.Conditioning != null)
+        {
+            if (TxAudioConditioning.Conditioner != null)
+            {
+                TxAudioConditioning.ApplySettings(capture.Conditioning);
+                PollTxCleanup();
+            }
+            else
+            {
+                notes.Add("Its transmit cleanup settings need a connected radio, "
+                    + "so they were not applied.");
+            }
         }
 
         string targetName = !string.IsNullOrEmpty(currentName) ? currentName : capture.DeviceName;

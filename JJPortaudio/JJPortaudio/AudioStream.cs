@@ -223,16 +223,36 @@ namespace JJPortaudio
         private int _peakLogCounter = 0;
         private float _peakSinceLastLog = 0f;
         private float _postPeakSinceLastLog = 0f;
+        // Track B, 2026-08-18 (#17): RMS alongside the peaks. A peak says how
+        // hot the loudest instant was; RMS says how loud the stream actually
+        // IS, which is the number an operator's "it sounds quiet" can be
+        // compared against. Accumulated across the same ~5 s window the peak
+        // log uses, raw (pre-gain) and measured output (post-gain,
+        // post-processing) separately, so the two RMS figures bracket the
+        // gain stage exactly as the two peaks do.
+        private double _rawSquaresSinceLastLog;
+        private double _postSquaresSinceLastLog;
+        private long _meterSamplesSinceLastLog;
+        // Short-term LUFS of what is actually playing (post-gain,
+        // post-processing) — the perceptual companion to the RMS figure,
+        // read from the 3-second window so it is meaningful at the 5-second
+        // log cadence. ShortTermLufs is a lock-free read; the gated
+        // IntegratedLufs (which locks and copies) is deliberately not used
+        // here — this runs on the remote-audio thread every 10 ms packet.
+        private readonly LufsMeter _outputLufs = new LufsMeter();
         public void WriteOpus(byte[] data)
         {
             float[] buf = aud.Decoder.DecodePacketFloat(data);
 
-            // Track peak level before gain for diagnostics
+            // Track peak and RMS level before gain for diagnostics
             float prePeak = 0f;
+            double preSquares = 0;
             for (int i = 0; i < buf.Length; i++)
             {
-                float abs = Math.Abs(buf[i]);
+                float s = buf[i];
+                float abs = Math.Abs(s);
                 if (abs > prePeak) prePeak = abs;
+                preSquares += (double)s * s;
             }
 
             if (OutputGain != 1.0f)
@@ -272,12 +292,24 @@ namespace JJPortaudio
             // Chasing a quiet-audio report with an instrument that reports a
             // level nothing produced is worse than having no instrument.
             float postPeak = 0f;
+            double postSquares = 0;
             for (int i = 0; i < buf.Length; i++)
             {
-                float abs = Math.Abs(buf[i]);
+                float s = buf[i];
+                float abs = Math.Abs(s);
                 if (abs > postPeak) postPeak = abs;
+                postSquares += (double)s * s;
             }
             if (postPeak > _postPeakSinceLastLog) _postPeakSinceLastLog = postPeak;
+            _rawSquaresSinceLastLog += preSquares;
+            _postSquaresSinceLastLog += postSquares;
+            _meterSamplesSinceLastLog += buf.Length;
+
+            // Perceptual loudness of the same post-everything audio. The
+            // meter wants the stream's real rate; before the stream reports
+            // one (0), skip rather than feed a lie.
+            uint meterRate = aud.SampleRate;
+            if (meterRate > 0) _outputLufs.Process(buf, buf.Length, meterRate);
 
             // Every ~5 seconds, at ~100 packets/sec.
             if (++_peakLogCounter >= 500)
@@ -287,15 +319,24 @@ namespace JJPortaudio
                 // report clipping on its own, because the clamp is exactly what
                 // stops it going above 1.0.
                 bool clipped = (_peakSinceLastLog * OutputGain) > 1.0f;
+                long n = Math.Max(_meterSamplesSinceLastLog, 1);
+                double rawRmsDb = 10 * Math.Log10(_rawSquaresSinceLastLog / n + 1e-20);
+                double postRmsDb = 10 * Math.Log10(_postSquaresSinceLastLog / n + 1e-20);
+                float lufs = _outputLufs.ShortTermLufs;
                 Tracing.TraceLine($"OpusAudio: raw peak={_peakSinceLastLog:F4} "
-                    + $"({20 * Math.Log10(_peakSinceLastLog + 1e-10):F1} dBFS), gain={OutputGain:F1}x, "
+                    + $"({20 * Math.Log10(_peakSinceLastLog + 1e-10):F1} dBFS), raw RMS={rawRmsDb:F1} dBFS, "
+                    + $"gain={OutputGain:F1}x, "
                     + $"measured output peak={_postPeakSinceLastLog:F4} "
-                    + $"({20 * Math.Log10(_postPeakSinceLastLog + 1e-10):F1} dBFS)"
+                    + $"({20 * Math.Log10(_postPeakSinceLastLog + 1e-10):F1} dBFS), "
+                    + $"output RMS={postRmsDb:F1} dBFS, output loudness={lufs:F1} LUFS"
                     + $"{(PostDecodeProcessor != null ? ", post-decode processing ON" : "")}"
                     + $"{(clipped ? " CLIPPED" : "")}", TraceLevel.Info);
                 _peakLogCounter = 0;
                 _peakSinceLastLog = 0f;
                 _postPeakSinceLastLog = 0f;
+                _rawSquaresSinceLastLog = 0;
+                _postSquaresSinceLastLog = 0;
+                _meterSamplesSinceLastLog = 0;
             }
 
             aud.TheQ.Enqueue(buf);

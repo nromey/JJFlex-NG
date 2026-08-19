@@ -312,28 +312,9 @@ namespace JJFlexWpf
         }
     }
 
-    /// <summary>
-    /// The serializable shape of the TX conditioning knobs. THIS BELONGS IN
-    /// TRACK F'S MICROPHONE PROFILE — a gate tuned for one microphone and
-    /// room is wrong for another, and actively wrong when operating someone
-    /// else's radio through Connect. Defined here so F has a ready-made
-    /// payload; deliberately not persisted anywhere by Track I.
-    /// Defaults are the recommended settings.
-    /// </summary>
-    public class TxConditioningSettings
-    {
-        /// <summary>Schema version for forward migration, per F's plan.</summary>
-        public int Version { get; set; } = 1;
-        public bool NrEnabled { get; set; }
-        public float NrStrength { get; set; } = 0.8f;
-        public bool GateEnabled { get; set; }
-        public bool AutoThreshold { get; set; } = true;
-        public float ThresholdMarginDb { get; set; } = 8f;
-        /// <summary>Only meaningful when AutoThreshold is false.</summary>
-        public float GateThresholdDb { get; set; } = JJPortaudio.TxNoiseGate.DefaultThresholdDb;
-        public float GateAttackMs { get; set; } = 3f;
-        public float GateHoldMs { get; set; } = 150f;
-        public float GateReleaseMs { get; set; } = 200f;
-        public float GateRangeDb { get; set; } = 25f;
-    }
+    // TxConditioningSettings moved to Radios\MicrophoneProfile.cs
+    // (Track B, 2026-08-18, #44): it is the microphone profile's payload
+    // now, exactly as the note it carried here always said it should be.
+    // Same name and fields; `using Radios;` above keeps every reference in
+    // this file compiling unchanged.
 }

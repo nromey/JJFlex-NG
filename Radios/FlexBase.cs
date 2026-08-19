@@ -11981,12 +11981,52 @@ namespace Radios
             }
         }
 
+        // ── Track B, 2026-08-18 (#29): receive-continuity meter state ──
+        // One remoteAudioProc runs at a time, so plain fields are safe. Reset
+        // at the top of every run; summarized at remoteDone. See the meter
+        // itself in the polling loop for what these mean.
+        private double _opusRxPrevTs;
+        private double _opusRxMinDelta;
+        private double _opusRxMaxDelta;
+        private long _opusRxPacketCount;
+        private long _opusRxGapCount;
+
+        /// <summary>
+        /// One line at stream shutdown: was the receive stream continuous?
+        /// A zero-gap run is evidence too — it acquits the network and points
+        /// the click hunt at the playback side (PortAudio statusFlags and the
+        /// output queue's own silence counters cover that side).
+        /// </summary>
+        private void TraceOpusRxContinuitySummary()
+        {
+            if (_opusRxPacketCount == 0)
+            {
+                Tracing.TraceLine("remoteAudioProc continuity summary: no receive packets consumed",
+                    TraceLevel.Info);
+                return;
+            }
+            string nominal = _opusRxMinDelta < double.MaxValue
+                ? (_opusRxMinDelta * 1000).ToString("F1") : "unknown";
+            Tracing.TraceLine("remoteAudioProc continuity summary: "
+                + _opusRxPacketCount + " packets consumed, nominal step " + nominal
+                + " ms, largest step " + (_opusRxMaxDelta * 1000).ToString("F1") + " ms, "
+                + _opusRxGapCount + " discontinuit" + (_opusRxGapCount == 1 ? "y" : "ies")
+                + (_opusRxGapCount == 0 ? " (the network delivered a continuous stream)"
+                    : " (each one splices non-adjacent audio and is audible as a click)"),
+                _opusRxGapCount == 0 ? TraceLevel.Info : TraceLevel.Error);
+        }
+
         private void remoteAudioProc()
         {
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
             opusOutputChannel = null;
             opusInputChannel = null;
             opusInputAvailable = false;
+            _opusRxPrevTs = 0;
+            _opusRxMinDelta = double.MaxValue;
+            _opusRxMaxDelta = 0;
+            _opusRxPacketCount = 0;
+            _opusRxGapCount = 0;
 #if CWMonitor
             CWMon = null;
 #endif
@@ -12063,6 +12103,23 @@ namespace Radios
             // This was a hardcoded 4.0f until Audio Arc Track A (2026-08-11); it is
             // now the operator's PC output volume — Audio menu > PC Audio, the Home
             // audio expander, or Ctrl+J V P. Default +12 dB = the historical 4x.
+            //
+            // The bypass claim above was VERIFIED against FlexLib, Track B
+            // 2026-08-18 (#17), because it looked contradicted elsewhere: the
+            // RXGain scalar (RXRemoteAudioStream.RXGain, 0-100 mapped to
+            // -20..0 dB) is applied only in RXAudioStream.OnRXDataReady, on
+            // the UNCOMPRESSED DataReady path. We never subscribe to
+            // DataReady; the loop below polls _opusRXList — the raw VITA
+            // packet payloads, untouched by any gain — and decodes with our
+            // own codec. So RXGain genuinely cannot move our level in either
+            // direction. Where the level actually comes from: the radio mixes
+            // slices into the remote stream at each slice's radio-side
+            // audio_level (the AudioGain control, 0-100), and SmartSDR's own
+            // client expects to ATTENUATE what arrives (its RXGain spans
+            // -20..0 dB) — so a stream that decodes below full scale is the
+            // upstream design, not a defect on this side. The honest gain
+            // stages are: slice AudioGain at the radio first, PC output
+            // volume here second.
             opusOutputChannel.PortAudioStream.OutputGain = PcOutputGainFactor;
             // Wire PC-side audio processing if a pipeline has been configured
             opusOutputChannel.PortAudioStream.PostDecodeProcessor = _audioPostProcessor;
@@ -12177,6 +12234,7 @@ namespace Radios
                 // opus receive polling.
                 // get opus data, even during transmit (for QSK).
                 byte[] opusBuf = null;
+                double consumedTs = -1;
                 lock (opusOutputChannel)
                 {
                     RXAudioStream stream = opusOutputChannel.OpusChannel;
@@ -12186,8 +12244,17 @@ namespace Radios
                         // ignore initial packets.
                         if (opusOutputChannel.JustStarted)
                         {
-                            opusOutputChannel.JustStarted = false;
-                            stream.LastOpusTimestampConsumed = stream._opusRXList.Keys[lastID];
+                            // Guarded (Track B, 2026-08-18): with no packet in
+                            // the list yet, Keys[-1] throws. Leaving
+                            // JustStarted true until the first packet exists
+                            // preserves the skip-initial-packets semantics
+                            // exactly.
+                            if (lastID >= 0)
+                            {
+                                opusOutputChannel.JustStarted = false;
+                                stream.LastOpusTimestampConsumed = stream._opusRXList.Keys[lastID];
+                                _opusRxPrevTs = 0; // re-arm the continuity meter
+                            }
                         }
                         else
                         {
@@ -12197,7 +12264,8 @@ namespace Radios
                                     stream._opusRXList.Keys[i])
                                 {
                                     opusBuf = stream._opusRXList.Values[i].payload;
-                                    stream.LastOpusTimestampConsumed = stream._opusRXList.Keys[i];
+                                    consumedTs = stream._opusRXList.Keys[i];
+                                    stream.LastOpusTimestampConsumed = consumedTs;
                                     break;
                                 }
                             }
@@ -12206,6 +12274,41 @@ namespace Radios
                 }
                 if (opusBuf != null)
                 {
+                    // ── Track B, 2026-08-18 (#29): receive-continuity meter ──
+                    // The tone-monitor clicks appear only when TX and RX
+                    // streams run together, and PortAudio's statusFlags can
+                    // only see glitches PortAudio itself caused. A packet the
+                    // NETWORK lost never reaches PortAudio: our decoder just
+                    // splices two non-adjacent 10 ms packets together, and the
+                    // waveform step at the splice IS a click — invisible to
+                    // every instrument this path had. The radio's timestamps
+                    // are media time, so consecutive consumed packets should
+                    // step by exactly one packet duration; the smallest step
+                    // seen this session estimates that duration, and any step
+                    // over 1.5x it counts as a splice discontinuity. Totals at
+                    // stream close; first occurrence logged so the trace shows
+                    // WHEN it began (transmit start is the interesting case).
+                    if (_opusRxPrevTs > 0 && consumedTs > _opusRxPrevTs)
+                    {
+                        double delta = consumedTs - _opusRxPrevTs;
+                        _opusRxPacketCount++;
+                        if (delta < _opusRxMinDelta) _opusRxMinDelta = delta;
+                        if (delta > _opusRxMaxDelta) _opusRxMaxDelta = delta;
+                        if (_opusRxMinDelta < double.MaxValue && delta > _opusRxMinDelta * 1.5)
+                        {
+                            _opusRxGapCount++;
+                            if (_opusRxGapCount == 1)
+                            {
+                                Tracing.TraceLine("remoteAudioProc: first receive-stream "
+                                    + "discontinuity — consumed packet timestamps stepped "
+                                    + $"{delta * 1000:F1} ms where {_opusRxMinDelta * 1000:F1} ms is nominal. "
+                                    + "Audio between those timestamps never arrived; the splice "
+                                    + "is audible as a click. Further gaps are counted silently; "
+                                    + "totals are logged when the stream stops.", TraceLevel.Error);
+                            }
+                        }
+                    }
+                    _opusRxPrevTs = consumedTs;
                     opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
                 }
                 else
@@ -12217,6 +12320,9 @@ namespace Radios
             Tracing.TraceLine("remoteAudioProc:stopping remote audio", TraceLevel.Info);
 
             remoteDone:
+            // Both exits pass through here, so the continuity totals are
+            // reported for aborted runs too.
+            TraceOpusRxContinuitySummary();
             // Note that theRadio may be null here.
 #if CWMonitor
             if (useCWMon) CWMonDone();
@@ -12391,7 +12497,16 @@ namespace Radios
                 // revert from a deliberate operator choice. See
                 // checkPcMicSelection.
                 _pcMicExpected = true;
-                opusOutputChannel.OpusChannel.RXGain = 50;
+                // `RXGain = 50` stood here until Track B 2026-08-18 (#17)
+                // and was a no-op twice over: 50 is the property's default so
+                // the setter's changed-guard did nothing, and the scalar it
+                // feeds is applied only on FlexLib's uncompressed DataReady
+                // path, which this app never subscribes to (we poll the raw
+                // Opus packet list and decode ourselves — see the verified
+                // note at the OutputGain setup above). Removed rather than
+                // kept, because a line that reads like a volume control and
+                // controls nothing is exactly the description drift this
+                // codebase hunts.
                 opusOutputChannel.Started = opusOutputChannel.PortAudioStream.StartAudio();
                 if (!opusOutputChannel.Started)
                 {
