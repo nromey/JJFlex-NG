@@ -367,6 +367,10 @@ Partial Class TraceAdmin
     Friend WithEvents SearchDebounceTimer As System.Windows.Forms.Timer
 
     ' Form-level
-    Friend WithEvents ToggleButton As System.Windows.Forms.Button
+    ' ToggleButton removed Sprint 31 (#103) with the retired trace dialog. It
+    ' was the old Tracing tab's start/stop button and had already lost its
+    ' InitializeComponent line when that tab went, so it was a WithEvents field
+    ' that was permanently Nothing — a control that looked present to anyone
+    ' reading this file and did not exist at runtime.
     Friend WithEvents CnclButton As System.Windows.Forms.Button
 End Class
