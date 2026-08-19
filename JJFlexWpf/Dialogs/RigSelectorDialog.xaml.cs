@@ -518,35 +518,6 @@ namespace JJFlexWpf.Dialogs
                     $"RigSelector: identity expander state: {ex.Message}");
             }
 
-            // Shift+Tab out of the radio list, handled at the WINDOW.
-            //
-            // Third attempt. The list is TabNavigation="Once" - a navigation
-            // group - so WPF resolves Previous inside it, finds nothing before
-            // the list's contents, and stops instead of escaping to the
-            // window's Cycle. Focusing an item rather than the container did
-            // not help; nor did routing MoveFocus(Last) from the ListBox's own
-            // PreviewKeyDown, which is why this moved up to the window where
-            // the key cannot be swallowed by the group first.
-            //
-            // The destination is NAMED rather than navigated to. MoveFocus
-            // depends on the same tab-order resolution that is failing, so
-            // asking for "Last" was asking the broken thing for an answer.
-            // IdentityExpander is the final tab stop by construction - it is
-            // the last element in the Grid.
-            PreviewKeyDown += (_, e) =>
-            {
-                if (e.Key != System.Windows.Input.Key.Tab) return;
-                if ((System.Windows.Input.Keyboard.Modifiers
-                     & System.Windows.Input.ModifierKeys.Shift) == 0) return;
-                if (!RadiosBox.IsKeyboardFocusWithin) return;
-
-                e.Handled = true;
-                bool got = IdentityExpander.Focus();
-                JJTrace.Tracing.TraceLine(
-                    $"RigSelector: Shift+Tab from list -> IdentityExpander focus={got}",
-                    System.Diagnostics.TraceLevel.Info);
-            };
-
             // Register for radio discovery events
             _callbacks.RegisterRadioFound(OnRadioFound);
             _callbacks.RegisterRadioRemoved?.Invoke(OnRadioRemoved);
