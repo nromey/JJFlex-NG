@@ -11605,13 +11605,66 @@ namespace Radios
             var radio = theRadio;
             if (radio == null) return;
 
-            Tracing.TraceLine(
-                "SilentTxCheck: mic profile selection is EMPTY. Transmit audio from this "
-                + "computer will not modulate. Radio offers: "
-                + string.Join(", ", radio.ProfileMICList)
-                + ". ANNOUNCING ONLY — nothing is written to the radio (Sprint 31 Track S, "
-                + "#99). Repair is operator-initiated and ownership-gated.",
-                TraceLevel.Warning);
+            // Ownership decides whether we repair it or only report it.
+            //
+            // Noel ruled 2026-08-19: "yes on silent fix to a known radio." So on
+            // a radio the operator has marked as theirs, JJ Flex loads the
+            // profile itself rather than making them press a button to fix a
+            // failure they did not cause. On any other radio — including one
+            // never answered for — it still only speaks, because the selection
+            // is SHARED state and an empty one on somebody else's radio may be
+            // their deliberate arrangement.
+            //
+            // SILENT MEANS WITHOUT ASKING, NOT WITHOUT SAYING. The repair is
+            // still announced, because the alternative is JJ Flex changing a
+            // setting on the operator's radio and never mentioning it — which
+            // is the shape of thing this project exists not to do. What the
+            // ownership answer buys is the absence of a QUESTION, not the
+            // absence of information.
+            var ownership = RadioConfig.OwnershipOf(radio.Serial);
+            var candidate = SuggestedMicProfileName;
+
+            if (ownership == RadioOwnership.Mine && !string.IsNullOrEmpty(candidate))
+            {
+                // SelectMicProfileIfPresent refuses to CREATE a profile — it
+                // only selects one the radio already lists — so the worst case
+                // here is that nothing happens and the warning still stands.
+                bool applied = SelectMicProfileIfPresent(candidate);
+
+                Tracing.TraceLine(
+                    "SilentTxCheck: mic profile selection is EMPTY on a radio marked MINE. "
+                    + $"Loading '{candidate}' without asking (Noel's ruling 2026-08-19). "
+                    + $"applied={applied}. Radio offers: "
+                    + string.Join(", ", radio.ProfileMICList),
+                    TraceLevel.Warning);
+
+                if (applied)
+                {
+                    if (SuppressSpeech) return;
+                    ScreenReaderOutput.Speak(
+                        $"This radio had no mic profile selected, so transmit audio from this "
+                        + $"computer would not have gone out. I loaded {candidate} on the radio.",
+                        Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+                    return;
+                }
+
+                // The write did not take. Fall through and warn — an operator
+                // told "I fixed it" when nothing changed is worse off than one
+                // simply told it is broken.
+                Tracing.TraceLine(
+                    "SilentTxCheck: the repair did not apply — falling back to the warning.",
+                    TraceLevel.Error);
+            }
+            else
+            {
+                Tracing.TraceLine(
+                    "SilentTxCheck: mic profile selection is EMPTY. Transmit audio from this "
+                    + "computer will not modulate. Radio offers: "
+                    + string.Join(", ", radio.ProfileMICList)
+                    + $". Ownership={ownership} — ANNOUNCING ONLY, nothing is written to the "
+                    + "radio. Repair is operator-initiated on any radio not marked mine.",
+                    TraceLevel.Warning);
+            }
 
             if (SuppressSpeech) return;
 
