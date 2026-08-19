@@ -1397,9 +1397,24 @@ namespace JJFlexWpf
         /// fractions of the fundamental's and they sum, so the peak is
         /// volume x (1 + sum of gains); keep the total under about 1.6.
         ///
-        /// Every other earcon here is a pure sine, which is why they all sound
-        /// like relatives no matter how the pitches are arranged. Harmonics are
-        /// what make a sound read as an alarm instead of a confirmation.
+        /// Every other LIVE earcon here is a pure sine, which is why they all
+        /// sound like relatives no matter how the pitches are arranged.
+        /// Harmonics are what make a sound read as an alarm instead of a
+        /// confirmation.
+        ///
+        /// Read this before extending it: this is the crudest additive
+        /// synthesiser in the assembly, and it is not the one to grow.
+        /// MeterVoice + VoicedToneSampleProvider already do arbitrary partials,
+        /// inharmonicity, brightness tilt, ADSR, tremolo, vibrato, gating and
+        /// tracked band-noise, as named serialisable data with fifteen
+        /// built-in voices — a real sonification engine, built for meters and
+        /// unreachable from the alert path only because nothing ever connected
+        /// the two. DecayingGavelSynthesizer (Internal Types, unwired since
+        /// 2026-04-21) is a third hand-rolled additive voice with a decay
+        /// envelope. Three implementations of one idea. The right move is to
+        /// render alert earcons through VoicedToneSampleProvider and delete
+        /// this; see task #112. Until then, keep this dumb rather than growing
+        /// a fourth vocabulary here.
         /// </summary>
         private static void PlayAdditiveTone(
             int fundamentalHz, int durationMs, float volume,
