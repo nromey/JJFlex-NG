@@ -201,29 +201,17 @@ document.addEventListener('keydown', function (e) {
 
         private string BuildLibraryVersionsHtml()
         {
+            // From the snapshot, not from a second walk of the referenced
+            // assemblies. This method and BuildAboutPlainText below each used to
+            // carry their own independent copy of that walk — two more version
+            // assemblers, both re-deriving FlexLib's version behind
+            // DiagnosticSnapshot's back, in the very component built to stop
+            // exactly that. See DiagnosticSnapshot.ComponentAssemblies.
             var sb = new StringBuilder();
-            var entryAsm = Assembly.GetEntryAssembly();
-            if (entryAsm != null)
+            if (_snapshot != null)
             {
-                string[] dllNames = { "flexlib", "jjloglib", "radios", "radioboxes", "jjflexwpf", "jjtrace" };
-                foreach (var an in entryAsm.GetReferencedAssemblies())
-                {
-                    if (Array.Exists(dllNames, d => string.Equals(d, an.Name, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        string ver = an.Version?.ToString() ?? "?";
-                        try
-                        {
-                            var loaded = Assembly.Load(an);
-                            if (!string.IsNullOrEmpty(loaded.Location) && File.Exists(loaded.Location))
-                            {
-                                var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(loaded.Location);
-                                ver = fvi.ProductVersion ?? fvi.FileVersion ?? ver;
-                            }
-                        }
-                        catch { }
-                        sb.AppendLine($"<li>{Escape(an.Name ?? "")}: {Escape(ver)}</li>");
-                    }
-                }
+                foreach (var (name, version) in _snapshot.ComponentAssemblies)
+                    sb.AppendLine($"<li>{Escape(name)}: {Escape(version)}</li>");
             }
             return sb.ToString();
         }
@@ -243,28 +231,13 @@ document.addEventListener('keydown', function (e) {
             sb.AppendLine();
             sb.AppendLine("Library versions:");
 
-            var entryAsm = Assembly.GetEntryAssembly();
-            if (entryAsm != null)
+            // Same source as the HTML above and as the crash report — one
+            // assembler, so the page a user reads and the report they send can
+            // never disagree about what was running.
+            if (_snapshot != null)
             {
-                string[] dllNames = { "flexlib", "jjloglib", "radios", "radioboxes", "jjflexwpf", "jjtrace" };
-                foreach (var an in entryAsm.GetReferencedAssemblies())
-                {
-                    if (Array.Exists(dllNames, d => string.Equals(d, an.Name, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        string ver = an.Version?.ToString() ?? "?";
-                        try
-                        {
-                            var loaded = Assembly.Load(an);
-                            if (!string.IsNullOrEmpty(loaded.Location) && File.Exists(loaded.Location))
-                            {
-                                var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(loaded.Location);
-                                ver = fvi.ProductVersion ?? fvi.FileVersion ?? ver;
-                            }
-                        }
-                        catch { }
-                        sb.AppendLine($"  {an.Name}: {ver}");
-                    }
-                }
+                foreach (var (name, componentVersion) in _snapshot.ComponentAssemblies)
+                    sb.AppendLine($"  {name}: {componentVersion}");
             }
             return sb.ToString().TrimEnd();
         }
@@ -468,7 +441,12 @@ document.addEventListener('keydown', function (e) {
                 using var doc = JsonDocument.Parse(response);
                 var tagName = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
                 var latestVersion = tagName.TrimStart('v');
-                var currentVersion = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "0.0.0";
+                // The snapshot's assembly version, not a fresh read of the entry
+                // assembly. Comparing against a GitHub tag needs the 3-part
+                // assembly version rather than the 4-part FileVersion, and
+                // AppAssemblyVersion is exactly that — read once, in the one
+                // place this app is allowed to read versions.
+                var currentVersion = _snapshot?.AppAssemblyVersion ?? "0.0.0";
 
                 string msg;
                 if (Version.TryParse(latestVersion, out var latest) &&

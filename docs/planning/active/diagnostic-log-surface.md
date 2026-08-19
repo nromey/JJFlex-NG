@@ -1,9 +1,13 @@
 # The Diagnostic Log Surface (breadcrumb-squelch-ragchew)
 
-**Status:** Design ratified for implementation — cut a track from this file.
-**Date:** 2026-08-11. **Author:** trace-surface design pass, from Noel's four
-findings at the radio 2026-08-11 (research-queue entry "THE TRACE/LOG SURFACE").
-**Branch of record:** `design/trace-surface`.
+**Status:** BUILT — Sprint 30 Track D, 2026-08-18, branch `sprint30/track-d`.
+**Read section 12 first.** It records what was built, what was decided where
+this document was silent, where the implementation deliberately departs from the
+text below, and three facts this document had wrong.
+
+**Design date:** 2026-08-11. **Author:** trace-surface design pass, from Noel's
+four findings at the radio 2026-08-11 (research-queue entry "THE TRACE/LOG
+SURFACE"). **Design branch of record:** `design/trace-surface`.
 
 This is the front door of the reporting pipeline. Crash reports, feedback
 bundles and problem reports all carry the trace file as their payload. Noel —
@@ -482,3 +486,130 @@ track. Anything Noel wants different surfaces naturally at that track's review.
    Flexible at all. Keep the already-specified one-release
    `ArchiveOldDailyTraces` file-pattern sweep as cheap insurance, then
    remove it.
+
+---
+
+## 12. What was built — Sprint 30 Track D, 2026-08-18
+
+Every numbered item in sections 1-11 landed except where noted below. This
+section is the record of the decisions taken where the design was silent, the
+places the implementation deliberately departs from the text, and the facts the
+design got wrong.
+
+### Where the implementation departs from this document, and why
+
+**Per-level help text is visible body text, not `AccessibleDescription`**
+(§3 asked for both). This document predates the 2026-08-18 HelpText finding:
+NVDA reads `AutomationProperties.HelpText` as a control's description on EVERY
+focus, so an explanation parked there is recited every single time the operator
+tabs past the control. Section 3's two sentences would have been read on every
+pass through the radio pair. They are now static text under each radio button —
+read once as dialog body when the tab opens, and still there to be re-read.
+
+**The storage figures are behind a "Measure now" button, not automatic.** A
+recursive walk of a 2.2 GB tree on tab entry stalls the dialog, and a stall is
+indistinguishable from a hang to somebody who cannot see a spinner.
+
+**The WPF `TraceAdminDialog` was corrected and kept, not deleted** (§8.1 said
+delete). Nothing opens it — the Help → Tracing entry is gone — but the file
+stays one release as a fallback, the way `AuthForm` was kept when WebView2
+replaced it. This sprint merges five tracks and the Settings dialog is the
+surface most likely to need backing out. It is corrected, not merely retained:
+live `Tracing.On` instead of an assumed false, session-aware start and stop, and
+the live log as its default file instead of `Documents\JJRadioTrace.txt`. Its
+header comment carries the instruction to delete it once 4.1.17 has shipped.
+Routed to Noel for a ruling.
+
+### Decisions taken where this document was silent
+
+**A `DiagnosticsBridge` delegate table is the seam between the surface and the
+plumbing.** JJFlexWpf is referenced BY the VB project, so the WPF surface cannot
+call the trace plumbing by name. Every previous answer to that problem in this
+codebase was to re-implement the plumbing on the UI side — which is precisely
+how `TraceAdminDialog` came to start traces that bypassed the session archive.
+One seam, populated once at startup by `WireDiagnosticsBridge` in `globals.vb`.
+
+**Nothing in the surface caches log state.** The status line reads through the
+bridge on every refresh and re-reads on a `StateChanged` notification. Caching
+state is the specific mechanism by which the old dialog spent months announcing
+a state that was fiction.
+
+**Crash-report retention: keep newest 3, and a verdict is required before
+deletion.** §8 did not cover crash dumps at all; task #92 did. A `.verdict`
+sidecar records "sent" or "dismissed" beside each bundle. Beyond the newest N, a
+bundle is removed only once it has a verdict AND is past the age window or the
+folder cap. An unresolved bundle survives all of that for 90 days, after which
+its removal is logged by name — the one backstop on the never-delete-unresolved
+rule, because without a ceiling a machine whose upload prompt keeps failing
+grows without bound. Routed to Noel.
+
+**Firmware images age out at 30 days.** A pure cache; the worst case of deleting
+one is a download.
+
+**Manual controls live on the Diagnostics tab, beside the explanation.** "Delete
+loose log text files" removes the stamp-named plain-text siblings at the settings
+folder root REGARDLESS OF AGE, which is the point: the automatic sweep
+deliberately keeps the last day, and an operator who has just filled a disk with
+a Verbose capture should not have to wait a day to get the space back. The
+compressed sessions are never touched, so nothing is lost.
+
+**The failure-moment offer (task #78) is `Radios.OperationFailure` plus
+`JJFlexWpf.DiagnosticOffer`.** The reporter has no UI and lives in Radios so any
+layer can report; the offer owns every judgement about interrupting the operator
+and holds the whole policy in one place. Which failures qualify, which do not,
+and the suppression rules are documented in `DiagnosticOffer`'s type comment and
+summarised in `docs/planning/for-noel/2026-08-18-diagnostics-three-rulings.md`.
+
+**Session rows read as human phrasing.** `TraceAdmin.HumanSessionPhrase` renders
+"Tonight at 8:47 PM" / "Yesterday at 3:12 PM" / "14 Aug at 9:00 AM", and prefixes
+"Detailed capture, " when the session was one. It is the FIRST column because a
+screen reader reads a row's first cell as the row's identity. Written once and
+shared, because the feedback dialog's session picker needs the same phrasing.
+
+### Facts this document had wrong
+
+**"Auto-prune covers `Traces\` only, not the loose `JJFlexRadioTrace-*.txt`
+files at the folder root."** Not so. `PrunePlainTextTracesOlderThan` matches
+`{DailyTraceFilePrefix}-*.txt`, which IS the loose stamp-named set, and it runs
+at every boot. The reason 34 of them (35 MB) were sitting there on 2026-08-18 is
+that the retention window is ONE DAY and they were all from that day — a day
+with thirty launches produces thirty files. The missing capability was never
+automatic pruning; it was a manual control that can act inside the one-day
+window. That is what shipped.
+
+**`PruneCrashReports` already existed.** Task #92's framing ("nothing prunes
+them") was true when the 2.2 GB was measured and stale by the time the track ran:
+a 30-day plus 2 GB newest-first sweep was already in place, and `SaveCrash`
+already deletes the loose `.dmp` and `.txt` after zipping them. What was missing
+was the part that matters — a size cap alone will happily delete the one report
+support is about to ask for.
+
+**The About page had THREE version assemblers, not two.** The audit found
+`BuildLibraryVersionsHtml`; `BuildAboutPlainText` carried an identical inline
+copy, and the update check read the entry assembly a third time. All three now
+read `DiagnosticSnapshot`.
+
+### Retired
+
+`KeepDailyTraceLogs` is no longer read anywhere and `StartDailyTraceIfEnabled`
+is gone, along with its call site in the power-on wiring. The FIELD stays on
+`PersonalData.personal_v1` so existing operator XML round-trips unchanged —
+removing a serialized member buys nothing and risks a migration.
+`ArchiveOldDailyTraces` survives as a one-release sunset sweep, now UNGATED
+(gating it on the retired field would have meant it never ran on the machines
+that need it) and called from `TraceArchiveBootMaintenance`. Remove it after the
+release following 4.1.17.
+
+### Still owed
+
+- The help page `docs/help/md/diagnostic-log.md` and the cross-links from
+  `connection-troubleshooting.md` / `audio-troubleshooting.md`. Track E owns
+  `docs/help/md/` this sprint; the prose is in Track D's report.
+- The `keyboard-reference.md` line for `Ctrl+J, Ctrl+D`. Same reason; the exact
+  line is in Track D's report.
+- The failure-moment hooks in Track A's files — `RadioConfig.SaveForRadio`,
+  `SettingsDialog.RadioProfile.cs`, and the connect-failure site in
+  `MainWindow.xaml.cs`. Track D is fenced out of all three; the exact call sites
+  and lines are in its report.
+- A test matrix folding in the unticked Sprint 29 Track H browser checklist,
+  now that the browser is reachable.

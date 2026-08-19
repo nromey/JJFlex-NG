@@ -1508,6 +1508,12 @@ public class NativeMenuBar : IDisposable
         // so it gets a direct entry rather than making users know which tab
         // holds it. Same one-concept-two-doors pattern as Radio Setup.
         AddWired(tools, "Configure Radio", () => ShowSettingsDialog("Radios"));
+        // Sprint 30 Track D — the front door of the reporting pipeline, and the
+        // replacement for the retired Help > Tracing. Tools is the operations
+        // menu; there is no Operations menu in the native menu bar, which is
+        // why CLAUDE.md's long-standing "Operations > Tracing" pointer was
+        // wrong. Same deep-link pattern as Configure Radio.
+        AddWired(tools, "Diagnostics", () => ShowSettingsDialog("Diagnostics"));
         // Sprint 29 Track D — manual update check. Lives next to Settings
         // since the Updates settings tab is its preference home; this entry
         // is the single-action trigger for the same flow.
@@ -1709,28 +1715,11 @@ public class NativeMenuBar : IDisposable
         // Alphabetical / By Function duplicates opened the same dialog three
         // times over). Arrangement is a combo inside the surface now.
         AddWired(help, "Key Assignments", () => ShowKeysSurface(editable: false));
-        AddWired(help, "Tracing", () =>
-        {
-            var dialog = new Dialogs.TraceAdminDialog
-            {
-                InitialFilePath = Tracing.TraceFile ?? "",
-                DefaultLevel = (int)(Tracing.TheSwitch?.Level ?? System.Diagnostics.TraceLevel.Info),
-                StartTracing = (filePath, levelIndex) =>
-                {
-                    Tracing.On = false;
-                    Tracing.TraceFile = filePath;
-                    Tracing.TheSwitch.Level = (System.Diagnostics.TraceLevel)levelIndex;
-                    Tracing.On = true;
-                    Tracing.TraceLine($"User started tracing at level {Tracing.TheSwitch.Level}");
-                },
-                StopTracing = () =>
-                {
-                    Tracing.TraceLine("User stopped tracing");
-                    Tracing.On = false;
-                }
-            };
-            dialog.ShowDialog();
-        });
+        // Help > Tracing is GONE. It opened a dialog that could not tell you
+        // whether tracing was on, started traces the archive could not see, and
+        // wrote them to Documents where nothing rotates or bundles them. Its job
+        // is now Tools > Diagnostics, which deep-links to Settings >
+        // Diagnostics. See docs/planning/active/diagnostic-log-surface.md §2.
         AddSep(help);
         AddWired(help, "Earcon Explorer", () =>
             Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 2));

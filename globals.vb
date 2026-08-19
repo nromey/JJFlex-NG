@@ -349,8 +349,26 @@ Module globals
         End Try
     End Sub
 
+    ''' <summary>
+    ''' SUNSET SWEEP — remove after the release that follows 4.1.17.
+    '''
+    ''' The daily-trace feature is retired (see the removal of
+    ''' StartDailyTraceIfEnabled and the design's answered question 4). Nothing
+    ''' writes date-stamped daily files any more, but a machine that ran an
+    ''' older build may still have some sitting at the root of the settings
+    ''' folder. This sweep archives and removes them once, so they age out
+    ''' instead of living forever, and then it has no work left to do.
+    '''
+    ''' The gate on CurrentOp.KeepDailyTraceLogs is deliberately GONE: that
+    ''' field is no longer read anywhere, and leaving the gate would have meant
+    ''' the cleanup never ran on the machines that need it.
+    '''
+    ''' Pattern safety, since the glob looks alarming: it matches
+    ''' "JJFlexRadioTrace*.txt", which also catches the live log and the
+    ''' stamp-named plain-text files. Both fail the exact yyyyMMddHHmmss parse
+    ''' below and are skipped. Only a true daily file gets touched.
+    ''' </summary>
     Private Sub ArchiveOldDailyTraces()
-        If CurrentOp Is Nothing OrElse Not CurrentOp.KeepDailyTraceLogs Then Return
         Try
             If Not Directory.Exists(BaseConfigDir) Then Return
             Dim today As Date = Date.Now.Date
@@ -376,20 +394,399 @@ Module globals
         End Try
     End Sub
 
-    Friend Sub StartDailyTraceIfEnabled()
-        If CurrentOp Is Nothing OrElse Not CurrentOp.KeepDailyTraceLogs Then Return
-        ArchiveOldDailyTraces()
+    ''' <summary>
+    ''' The diagnostic log's persisted settings, loaded once at GetConfigInfo
+    ''' before the log opens. App-level, not per-operator — the log has to be
+    ''' running long before anyone picks an operator.
+    '''
+    ''' Never Nothing after GetConfigInfo; defaults to "on at normal detail",
+    ''' which is exactly what this app did before the setting existed.
+    ''' </summary>
+    Friend DiagnosticsSettings As Radios.DiagnosticsConfig = New Radios.DiagnosticsConfig()
+
+    ''' <summary>
+    ''' True while a detailed capture is running. A capture is NOT a second
+    ''' trace — there is exactly one trace stream — it is a temporary elevation
+    ''' of the standing log to maximum detail, marked off as its own session.
+    ''' </summary>
+    Friend ReadOnly Property DetailedCaptureRunning As Boolean
+        Get
+            Return _captureStartedLocal.HasValue
+        End Get
+    End Property
+
+    ''' <summary>When the running capture began, or Nothing.</summary>
+    Private _captureStartedLocal As Date? = Nothing
+
+    ''' <summary>
+    ''' Where the capture that just STOPPED was archived to, so the surface can
+    ''' offer "Export this capture..." without walking the archive. Cleared when
+    ''' the next capture starts.
+    ''' </summary>
+    Friend LastCaptureArchivePath As String = Nothing
+
+    ''' <summary>
+    ''' Tell every diagnostics surface that the log's state changed — on, off,
+    ''' detail level, capture started or stopped. The status line subscribes so
+    ''' it re-reads reality rather than caching a copy of it. That caching is
+    ''' exactly how TraceAdminDialog ended up announcing "Start tracing" for a
+    ''' trace that was already running.
+    ''' </summary>
+    Friend Sub RaiseDiagnosticLogStateChanged()
         Try
-            Dim tracePath As String = Path.Combine(BaseConfigDir, $"{DailyTraceFilePrefix}{Date.Now:yyyyMMddHHmmss}.txt")
-            Tracing.TheSwitch.Level = TraceLevel.Info
-            Tracing.TraceFile = tracePath
-            Tracing.On = True
-            BeginNewTraceSession()
-            LastUserTraceFile = tracePath
-            Tracing.TraceLine($"Daily tracing on {Date.Now:O} level={Tracing.TheSwitch.Level}")
+            JJFlexWpf.DiagnosticsBridge.NotifyStateChanged()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
+    End Sub
+
+    ''' <summary>
+    ''' Hand the WPF diagnostics surface its delegates. Called once at startup,
+    ''' right after the config directory is known. JJFlexWpf cannot call into
+    ''' this project by name — it is referenced BY it — so this is the seam, and
+    ''' having exactly one seam is what stops the surface re-implementing the
+    ''' plumbing the way the retired trace dialog did.
+    ''' </summary>
+    Friend Sub WireDiagnosticsBridge()
+        Try
+            JJFlexWpf.DiagnosticsBridge.DescribeState = Function() DescribeDiagnosticLogState()
+            JJFlexWpf.DiagnosticsBridge.IsCapturing = Function() DetailedCaptureRunning
+            JJFlexWpf.DiagnosticsBridge.KeepLog = Function() DiagnosticsSettings.KeepDiagnosticLog
+            JJFlexWpf.DiagnosticsBridge.DetailLevel = Function() CInt(DiagnosticsSettings.DetailLevel)
+            JJFlexWpf.DiagnosticsBridge.StartCapture = Sub(reason) StartDetailedCapture(reason)
+            JJFlexWpf.DiagnosticsBridge.StopCapture = Sub() StopDetailedCapture()
+            JJFlexWpf.DiagnosticsBridge.ApplySettings =
+                Sub(keep, detail) ApplyDiagnosticLogSettings(keep, CType(detail, Radios.DiagnosticDetail))
+            JJFlexWpf.DiagnosticsBridge.StartLogAt = Sub(path, lvl) StartLogAtPath(path, CType(lvl, TraceLevel))
+            JJFlexWpf.DiagnosticsBridge.StopLog = Sub() StopLogSessionAware()
+            JJFlexWpf.DiagnosticsBridge.LiveLogPath =
+                Function() If(Tracing.TraceFile, If(BootTrace, BootTraceFileName, String.Empty))
+            JJFlexWpf.DiagnosticsBridge.LogFolder = Function() BaseConfigDir
+            JJFlexWpf.DiagnosticsBridge.LastCaptureArchivePath =
+                Function() If(LastCaptureArchivePath, String.Empty)
+            JJFlexWpf.DiagnosticsBridge.DescribeStorage = Function() DescribeDiagnosticStorage()
+            JJFlexWpf.DiagnosticsBridge.DescribeCrashReports = Function() CrashReporter.DescribeCrashReports()
+            JJFlexWpf.DiagnosticsBridge.DeleteLooseLogs = Function() DeleteLoosePlainTextTraces()
+            JJFlexWpf.DiagnosticsBridge.DeleteResolvedCrashReports =
+                Function() CrashReporter.DeleteResolvedCrashReports()
+            JJFlexWpf.DiagnosticsBridge.DescribeBytes = Function(b) DescribeBytes(b)
+            JJFlexWpf.DiagnosticsBridge.OpenSavedLogs = Sub() ShowSavedDiagnosticLogs()
+            JJFlexWpf.DiagnosticsBridge.SaveProblemReport = Sub() DebugInfo.GetDebugInfo()
+            JJFlexWpf.DiagnosticsBridge.Speak = Sub(msg) SpeakDiagnostics(msg)
+
+            ' The failure-moment offer. Installed here because this runs on the
+            ' UI thread at startup, and the dispatcher it captures is the one
+            ' that can actually show a window later, from whatever thread the
+            ' failure happened on.
+            JJFlexWpf.DiagnosticOffer.IsTransmitting =
+                Function() RigControl IsNot Nothing AndAlso RigControl.Transmit
+            JJFlexWpf.DiagnosticOffer.Install()
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Redirect the log to an explicit file at an explicit level, settling the
+    ''' current session first. The rule that must never be broken: nothing flips
+    ''' Tracing.On without archiving what was already open. Breaking it is what
+    ''' made the old dialog's traces invisible to the browser and made the next
+    ''' boot's leftover sweep tag a clean exit as "killed".
+    ''' </summary>
+    Friend Sub StartLogAtPath(path As String, lvl As TraceLevel)
+        Try
+            If String.IsNullOrWhiteSpace(path) Then Return
+            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
+                "Diagnostic log redirected to a chosen file")
+            Tracing.TheSwitch.Level = lvl
+            Tracing.TraceFile = path
+            Tracing.On = True
+            BeginNewTraceSession()
+            LastUserTraceFile = path
+            Tracing.TraceLine(
+                $"Diagnostic log redirected {Date.Now:O} to {path} level={Tracing.TheSwitch.Level}")
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
+    ''' <summary>Stop the log, archiving the session on the way out.</summary>
+    Friend Sub StopLogSessionAware()
+        Try
+            Tracing.TraceLine("Diagnostic log stopped by the operator")
+            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
+                "Operator stopped the diagnostic log")
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
+    ''' <summary>
+    ''' Open the Saved Diagnostic Logs window — the repurposed TraceAdmin form,
+    ''' which held a working archive browser that nothing in the app had
+    ''' instantiated since it was built. This is the entrance that makes it
+    ''' reachable again.
+    ''' </summary>
+    Friend Sub ShowSavedDiagnosticLogs()
+        Try
+            Using dlg As New TraceAdmin()
+                dlg.ShowDialog(AppShellForm)
+            End Using
+        Catch ex As Exception
+            Tracing.ErrMessageTrace(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Outcome detail prefix stamped on a capture's manifest entry so the
+    ''' browser and any future bundle picker can label it as a capture rather
+    ''' than as an ordinary session.
+    ''' </summary>
+    Friend Const CaptureOutcomeDetailPrefix As String = "Detailed capture: "
+
+    ''' <summary>
+    ''' Start a detailed capture: archive whatever session is open, begin a
+    ''' fresh one at maximum detail, and remember the standing level so Stop can
+    ''' put it back.
+    '''
+    ''' There is no level choice here on purpose. A capture exists to hand the
+    ''' developer maximum evidence; offering less is a trap dressed as a
+    ''' courtesy. Four callers share this one implementation: the Diagnostics
+    ''' tab, the Command Finder command, the Ctrl+J Ctrl+D chord, and — later —
+    ''' the feedback dialog's "detailed trace" toggle.
+    '''
+    ''' Idempotent: starting a capture that is already running is a no-op that
+    ''' still speaks, so the operator is never left guessing.
+    ''' </summary>
+    ''' <param name="reason">Short phrase recorded in the session manifest.</param>
+    Friend Sub StartDetailedCapture(Optional reason As String = "user requested")
+        If DetailedCaptureRunning Then
+            SpeakDiagnostics($"Detailed capture is already running, started {FormatClock(_captureStartedLocal.Value)}.")
+            Return
+        End If
+
+        Try
+            ' Settle the current session BEFORE touching Tracing.On. Nothing may
+            ' ever flip the switch without archiving first — that bypass is what
+            ' made the old dialog's traces invisible to the browser and got the
+            ' leftover file falsely tagged "killed" at the next boot.
+            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
+                "Standing diagnostic log closed to begin a detailed capture")
+
+            Tracing.TheSwitch.Level = TraceLevel.Verbose
+            Tracing.TraceFile = BootTraceFileName
+            Tracing.On = True
+            BeginNewTraceSession()
+            _captureStartedLocal = Date.Now
+            LastCaptureArchivePath = Nothing
+            LastUserTraceFile = Tracing.TraceFile
+            Tracing.TraceLine(
+                $"Detailed capture started {Date.Now:O} reason={reason} level={Tracing.TheSwitch.Level}")
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+            _captureStartedLocal = Nothing
+            SpeakDiagnostics("The detailed capture could not be started.")
+            ' The reporting pipeline failing is the one case where the offer is
+            ' also the fallback: if the capture will not start, the standing log
+            ' is the only evidence there is going to be.
+            Radios.OperationFailure.Report(Radios.FailureKind.ReportingFailed,
+                "The detailed capture could not be started",
+                "JJ Flex could not open a new log file for the capture. " &
+                "The ordinary diagnostic log is still running, so there is still a record of what happens next.")
+            RaiseDiagnosticLogStateChanged()
+            Return
+        End Try
+
+        SpeakDiagnostics(
+            "Detailed capture started. Reproduce the problem, then stop the capture from this button or the Diagnostics tab.")
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
+    ''' <summary>
+    ''' Stop a detailed capture: archive the capture as its own session, restore
+    ''' the standing detail level, and keep the always-on log running.
+    '''
+    ''' That last clause is the repair. Stopping a manual trace used to turn
+    ''' tracing off entirely, and the machine then flew unrecorded until the
+    ''' next launch — so the one moment an operator had proved they were hunting
+    ''' a problem was the moment the app stopped watching.
+    ''' </summary>
+    Friend Sub StopDetailedCapture()
+        If Not DetailedCaptureRunning Then
+            SpeakDiagnostics("No detailed capture is running.")
+            Return
+        End If
+
+        Dim started As Date = _captureStartedRequired()
+        Dim spoken As String
+        Try
+            Dim minutes As Integer = CInt(Math.Max(0, Math.Round((Date.Now - started).TotalMinutes)))
+            Tracing.TraceLine($"Detailed capture stopped {Date.Now:O} after about {minutes} minute(s)")
+
+            ' Archive under a capture-flavoured outcome detail so the browser
+            ' can say "Detailed capture, tonight at 8:14 PM" instead of listing
+            ' it as one more anonymous session.
+            LastCaptureArchivePath = ArchiveCurrentTraceSessionReturningPath(
+                TraceSessionOutcome.CleanExit,
+                CaptureOutcomeDetailPrefix & $"{FormatClock(started)}, about {DescribeMinutes(minutes)}")
+
+            _captureStartedLocal = Nothing
+
+            ' Resume the standing log at the standing level, if the operator
+            ' keeps one at all.
+            If DiagnosticsSettings.KeepDiagnosticLog Then
+                Tracing.TheSwitch.Level = DiagnosticsSettings.TraceLevel
+                Tracing.TraceFile = BootTraceFileName
+                Tracing.On = True
+                BeginNewTraceSession()
+                Tracing.TraceLine(
+                    $"Diagnostic log resumed at {Tracing.TheSwitch.Level} after a detailed capture")
+            End If
+
+            spoken = $"Capture saved: {FormatClock(started)}, about {DescribeMinutes(minutes)}."
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+            _captureStartedLocal = Nothing
+            spoken = "The capture was stopped, but saving it ran into a problem."
+        End Try
+
+        SpeakDiagnostics(spoken)
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
+    Private Function _captureStartedRequired() As Date
+        Return If(_captureStartedLocal.HasValue, _captureStartedLocal.Value, Date.Now)
+    End Function
+
+    ''' <summary>Toggle the detailed capture. The chord and the button share this.</summary>
+    Friend Sub ToggleDetailedCapture(Optional reason As String = "user requested")
+        If DetailedCaptureRunning Then StopDetailedCapture() Else StartDetailedCapture(reason)
+    End Sub
+
+    ''' <summary>
+    ''' Apply a changed KeepDiagnosticLog / DetailLevel immediately and persist
+    ''' it. Settings are intents: the operator's choice takes effect now AND
+    ''' next launch, without an OK button in between.
+    ''' </summary>
+    Friend Sub ApplyDiagnosticLogSettings(keepLog As Boolean, detail As Radios.DiagnosticDetail)
+        Dim wasOn As Boolean = DiagnosticsSettings.KeepDiagnosticLog
+        DiagnosticsSettings.KeepDiagnosticLog = keepLog
+        DiagnosticsSettings.DetailLevel = detail
+        If Not DiagnosticsSettings.Save(BaseConfigDir) Then
+            ' The choice is live for this session either way — refusing an intent
+            ' because the disk was busy hands the disk's problem to the operator.
+            ' But say plainly that it will not survive a restart, and offer the
+            ' evidence, because otherwise they find out at the next launch when
+            ' the setting is quietly back where it was.
+            Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
+                "Your diagnostic settings could not be saved",
+                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "Something stopped the settings file from being written.")
+        End If
+
+        Try
+            If DetailedCaptureRunning Then
+                ' A capture outranks the standing level while it runs; the new
+                ' level lands when the capture stops. Say so rather than
+                ' silently appearing to do nothing.
+                Tracing.TraceLine(
+                    $"Diagnostic settings changed during a capture: keepLog={keepLog} detail={detail}",
+                    TraceLevel.Info)
+            ElseIf keepLog Then
+                If Not wasOn OrElse Not Tracing.On Then
+                    Tracing.TheSwitch.Level = DiagnosticsSettings.TraceLevel
+                    Tracing.TraceFile = BootTraceFileName
+                    Tracing.On = True
+                    BeginNewTraceSession()
+                    Tracing.TraceLine($"Diagnostic log turned on at {Tracing.TheSwitch.Level}")
+                Else
+                    Tracing.TraceLine($"Diagnostic log detail is now {Tracing.TheSwitch.Level}", TraceLevel.Info)
+                    Tracing.TheSwitch.Level = DiagnosticsSettings.TraceLevel
+                End If
+            ElseIf wasOn Then
+                Tracing.TraceLine("Diagnostic log turned off by the operator")
+                ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
+                    "User turned diagnostic log off")
+            End If
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
+    ''' <summary>
+    ''' One sentence that answers "what is being recorded, at what detail, and
+    ''' is a capture running" — the question the old dialog could not answer.
+    ''' Used by the Diagnostics tab's status line and by the Command Finder
+    ''' command's spoken confirmation, so the two cannot disagree.
+    ''' </summary>
+    Friend Function DescribeDiagnosticLogState() As String
+        Try
+            If DetailedCaptureRunning Then
+                Return $"Detailed capture in progress, started {FormatClock(_captureStartedLocal.Value)}."
+            End If
+            If Not DiagnosticsSettings.KeepDiagnosticLog OrElse Not Tracing.On Then
+                Return "Diagnostic log is off."
+            End If
+            Dim since As String = ""
+            Try
+                Dim session As TraceSession = TraceSessionContext.Current
+                If session IsNot Nothing Then
+                    since = $", running since {FormatClock(session.BootTimeUtc.ToLocalTime())}"
+                End If
+            Catch
+            End Try
+            Return $"Diagnostic log is on at {DiagnosticsSettings.DetailWord} detail{since}. No capture in progress."
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+            Return "Diagnostic log state is not available."
+        End Try
+    End Function
+
+    ''' <summary>Local clock in the app's spoken style, e.g. "8:14 PM".</summary>
+    Friend Function FormatClock(moment As Date) As String
+        Return moment.ToString("h:mm tt")
+    End Function
+
+    Private Function DescribeMinutes(minutes As Integer) As String
+        If minutes <= 0 Then Return "under a minute"
+        Return $"{minutes} {If(minutes = 1, "minute", "minutes")}"
+    End Function
+
+    ''' <summary>
+    ''' Speak a diagnostics message at Critical verbosity. Every action in this
+    ''' surface speaks its outcome (no-silent-keystrokes), and these are all
+    ''' user-initiated, so none of them is chatter.
+    ''' </summary>
+    Friend Sub SpeakDiagnostics(msg As String)
+        Try
+            Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical)
+        Catch
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Close the current session and open a fresh one at the standing level.
+    ''' Used where something has to release the live file for a moment — the
+    ''' problem-report bundler above all — so that the log resumes instead of
+    ''' staying dead for the rest of the session.
+    ''' </summary>
+    Friend Sub RestartDiagnosticLog(reason As String)
+        Try
+            If Not DiagnosticsSettings.KeepDiagnosticLog Then Return
+            If Tracing.On Then Return ' already running; nothing to restart
+            Tracing.TheSwitch.Level = If(DetailedCaptureRunning, TraceLevel.Verbose, DiagnosticsSettings.TraceLevel)
+            Tracing.TraceFile = BootTraceFileName
+            Tracing.On = True
+            BeginNewTraceSession()
+            Tracing.TraceLine($"Diagnostic log resumed ({reason}) at {Tracing.TheSwitch.Level}")
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        RaiseDiagnosticLogStateChanged()
     End Sub
 
     ''' <summary>
@@ -417,9 +814,24 @@ Module globals
     ''' <param name="outcome">Outcome tag for the manifest entry. Defaults to clean_exit.</param>
     ''' <param name="detail">Optional outcome detail string.</param>
     Friend Sub ArchiveCurrentTraceSession(Optional outcome As String = Nothing, Optional detail As String = Nothing)
+        ArchiveCurrentTraceSessionReturningPath(outcome, detail)
+    End Sub
+
+    ''' <summary>
+    ''' Same work as <see cref="ArchiveCurrentTraceSession"/>, but hands back the
+    ''' full path of the archive it just wrote (or Nothing).
+    '''
+    ''' Exists so stopping a detailed capture can offer "Export this capture..."
+    ''' immediately — the common next act after a capture is getting the file
+    ''' somewhere sendable, and making the operator go find it in a browse list
+    ''' is the friction this whole surface exists to remove.
+    ''' </summary>
+    Friend Function ArchiveCurrentTraceSessionReturningPath(Optional outcome As String = Nothing,
+                                                            Optional detail As String = Nothing) As String
+        Dim archivedRelName As String = Nothing
         Try
             Dim session As TraceSession = TraceSessionContext.Current
-            If session Is Nothing Then Return
+            If session Is Nothing Then Return Nothing
 
             If Not String.IsNullOrEmpty(outcome) Then
                 session.MarkOutcome(outcome, detail)
@@ -443,13 +855,14 @@ Module globals
                     ' complete and consistently named, then archive from there.
                     Dim partPath As String = RenameTraceToStampedPart(tracePath, session.BootTimeUtc, finalPartNumber)
                     If Not String.IsNullOrEmpty(partPath) Then
-                        SessionArchive.ArchiveSession(TraceArchiveDir, partPath, session,
+                        archivedRelName = SessionArchive.ArchiveSession(TraceArchiveDir, partPath, session,
                             deleteSourceAfter:=False, partNumber:=finalPartNumber, isFinalPart:=True)
                     End If
                 Else
                     Dim relName As String = SessionArchive.ArchiveSession(
                         TraceArchiveDir, tracePath, session, deleteSourceAfter:=False)
                     If Not String.IsNullOrEmpty(relName) Then
+                        archivedRelName = relName
                         ' Archive succeeded; preserve source as stamp-named .txt
                         ' for the plain-text retention window. See
                         ' RenameTraceToStamped / PrunePlainTextTracesOlderThan.
@@ -470,7 +883,15 @@ Module globals
             ' carrying a raw framework message is the worst possible outcome.
             Tracing.ErrTraceOnly(ex)
         End Try
-    End Sub
+
+        If String.IsNullOrEmpty(archivedRelName) Then Return Nothing
+        Try
+            Return Path.Combine(TraceArchiveDir,
+                archivedRelName.Replace("/"c, Path.DirectorySeparatorChar))
+        Catch
+            Return Nothing
+        End Try
+    End Function
 
     ''' <summary>
     ''' Plain-text trace retention window in days. After this many days, the
@@ -686,14 +1107,181 @@ Module globals
             ' before its background compression finished.
             ArchiveLeftoverTraceChains(Nothing)
             PrunePlainTextTracesOlderThan(PlainTextTraceRetentionDays)
+            ' One-release sunset sweep for the retired daily-trace files.
+            ArchiveOldDailyTraces()
             ' Crash dumps get the same boot-time housekeeping the trace archive
             ' has had since Sprint 29 — without it the Errors folder grew by a
             ' full-memory dump per crash, forever.
             PruneCrashReports()
+            ' Downloaded firmware images are a pure cache. Nothing ever removed
+            ' them, and on the developer's own machine they had reached 369 MB.
+            PruneFirmwareCache(DiagnosticsSettings.FirmwareCacheDays)
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
     End Sub
+
+    ''' <summary>The folder downloaded radio firmware images land in.</summary>
+    Friend ReadOnly Property FirmwareCacheDir As String
+        Get
+            Return Path.Combine(BaseConfigDir, "firmware")
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' Age out downloaded firmware images. Safe to be aggressive here in a way
+    ''' it is NOT safe to be with crash dumps: a firmware image is re-downloadable
+    ''' by definition, so the worst case is one download, whereas a deleted dump
+    ''' is evidence that cannot be recreated. Returns bytes reclaimed.
+    ''' Never throws — housekeeping must not take the app down.
+    ''' </summary>
+    Friend Function PruneFirmwareCache(retentionDays As Integer) As Long
+        Dim freed As Long = 0
+        Try
+            If retentionDays <= 0 Then Return 0
+            If Not Directory.Exists(FirmwareCacheDir) Then Return 0
+            Dim cutoffUtc As DateTime = DateTime.UtcNow.AddDays(-retentionDays)
+            For Each path As String In Directory.GetFiles(FirmwareCacheDir, "*", SearchOption.AllDirectories)
+                Try
+                    Dim fi As New FileInfo(path)
+                    If fi.LastWriteTimeUtc < cutoffUtc Then
+                        Dim len As Long = fi.Length
+                        fi.Delete()
+                        freed += len
+                    End If
+                Catch
+                    ' A locked image just stays; the next boot retries.
+                End Try
+            Next
+            If freed > 0 Then
+                Tracing.TraceLine(
+                    $"PruneFirmwareCache: reclaimed {freed \ (1024 * 1024)} MB of downloaded firmware older than {retentionDays} days",
+                    TraceLevel.Info)
+            End If
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        Return freed
+    End Function
+
+    ''' <summary>
+    ''' Total bytes under a folder, recursively. Best-effort; unreadable files
+    ''' are skipped rather than aborting the walk.
+    ''' </summary>
+    Friend Function FolderSizeBytes(dir As String) As Long
+        Dim total As Long = 0
+        Try
+            If String.IsNullOrEmpty(dir) OrElse Not Directory.Exists(dir) Then Return 0
+            For Each path As String In Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
+                Try
+                    total += New FileInfo(path).Length
+                Catch
+                End Try
+            Next
+        Catch
+        End Try
+        Return total
+    End Function
+
+    ''' <summary>
+    ''' Human size for speech and labels. "About 2.2 gigabytes" reads far better
+    ''' than a byte count, and the operator hearing this has no way to see a
+    ''' folder listing.
+    ''' </summary>
+    Friend Function DescribeBytes(bytes As Long) As String
+        If bytes < 1024 Then Return $"{bytes} bytes"
+        If bytes < 1024L * 1024 Then Return $"{bytes \ 1024} kilobytes"
+        If bytes < 1024L * 1024 * 1024 Then Return $"{bytes \ (1024L * 1024)} megabytes"
+        Return $"{(bytes / (1024.0 * 1024 * 1024)):F1} gigabytes"
+    End Function
+
+    ''' <summary>
+    ''' What the settings folder is costing, broken down by what it is costing
+    ''' it ON. Nothing in the app ever mentioned any of this, which lands
+    ''' hardest on the operator least able to notice a folder quietly growing.
+    ''' </summary>
+    Friend Function DescribeDiagnosticStorage() As String
+        Try
+            Dim errorsDir As String = Path.Combine(BaseConfigDir, "Errors")
+            Dim crashBytes As Long = FolderSizeBytes(errorsDir)
+            Dim firmwareBytes As Long = FolderSizeBytes(FirmwareCacheDir)
+            Dim archiveBytes As Long = FolderSizeBytes(TraceArchiveDir)
+            Dim looseBytes As Long = LoosePlainTextTraceBytes()
+            Dim totalBytes As Long = FolderSizeBytes(BaseConfigDir)
+
+            Return $"The settings folder holds about {DescribeBytes(totalBytes)}. " &
+                   $"Crash reports {DescribeBytes(crashBytes)}, " &
+                   $"downloaded firmware {DescribeBytes(firmwareBytes)}, " &
+                   $"saved diagnostic logs {DescribeBytes(archiveBytes)}, " &
+                   $"loose log text {DescribeBytes(looseBytes)}."
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+            Return "The size of the settings folder could not be measured."
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' Every loose plain-text log file at the root of the settings folder —
+    ''' the stamp-named siblings the live log leaves behind, plus rotation
+    ''' parts. Excludes the live file itself.
+    ''' </summary>
+    Friend Function LoosePlainTextTraceFiles() As List(Of String)
+        Dim result As New List(Of String)
+        Try
+            If Not Directory.Exists(BaseConfigDir) Then Return result
+            Dim live As String = BootTraceFileName
+            Dim seen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each pattern As String In {$"{DailyTraceFilePrefix}-*.txt", $"{LiveTraceStem}-*.txt"}
+                For Each path As String In Directory.GetFiles(BaseConfigDir, pattern)
+                    If String.Equals(path, live, StringComparison.OrdinalIgnoreCase) Then Continue For
+                    If seen.Add(path) Then result.Add(path)
+                Next
+            Next
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        Return result
+    End Function
+
+    Friend Function LoosePlainTextTraceBytes() As Long
+        Dim total As Long = 0
+        For Each path As String In LoosePlainTextTraceFiles()
+            Try
+                total += New FileInfo(path).Length
+            Catch
+            End Try
+        Next
+        Return total
+    End Function
+
+    ''' <summary>
+    ''' Delete every loose plain-text log file at the settings-folder root,
+    ''' regardless of age. This is the MANUAL control Noel asked for, and the
+    ''' "regardless of age" is the point: automatic pruning deliberately keeps
+    ''' the last day, and the operator who just filled the disk with a Verbose
+    ''' capture should not have to wait a day to get it back.
+    '''
+    ''' The compressed sessions in the Traces folder are NOT touched — they are
+    ''' the durable copy, and every one of these files has one. So this reclaims
+    ''' space without discarding evidence. Returns (filesRemoved, bytesFreed).
+    ''' </summary>
+    Friend Function DeleteLoosePlainTextTraces() As (Files As Integer, Bytes As Long)
+        Dim files As Integer = 0
+        Dim bytes As Long = 0
+        For Each path As String In LoosePlainTextTraceFiles()
+            Try
+                Dim len As Long = New FileInfo(path).Length
+                File.Delete(path)
+                files += 1
+                bytes += len
+            Catch ex As Exception
+                Tracing.ErrTraceOnly(ex)
+            End Try
+        Next
+        Tracing.TraceLine(
+            $"DeleteLoosePlainTextTraces: removed {files} file(s), {bytes} bytes", TraceLevel.Info)
+        Return (files, bytes)
+    End Function
 
     ''' <summary>
     ''' User-initiated trace archive prune. Removes entries + archive files older than
@@ -867,30 +1455,42 @@ Module globals
         ' Tell the trace subsystem where rotated parts get compressed to. MUST
         ' happen before any trace file opens: a live trace that rotates without
         ' an archive root keeps its part as plain text only. Set unconditionally
-        ' (not inside the BootTrace branch) because Operations → Tracing and the
-        ' daily-trace path can open a live trace with BootTrace off.
+        ' (not inside the BootTrace branch) because a detailed capture can open a
+        ' live trace with the standing log switched off.
         Tracing.RotationArchiveRootDir = TraceArchiveDir
 
-        BootTrace = (Not Debugger.IsAttached)
-        'BootTrace = True
+        ' The diagnostic log's own settings, read before the log opens because
+        ' they decide whether it opens at all. App-level by necessity: this runs
+        ' long before an operator has been chosen, so a per-operator preference
+        ' could never govern boot. Absent file = defaults = exactly the previous
+        ' behaviour, so upgrading changes nobody's experience.
+        DiagnosticsSettings = Radios.DiagnosticsConfig.Load(BaseConfigDir)
+        WireDiagnosticsBridge()
+
+        ' The debugger guard stays an AND-term: attach-time behaviour is
+        ' unchanged, and the operator's KeepDiagnosticLog choice is the new
+        ' half. This is the control that never existed for BootTrace.
+        BootTrace = (Not Debugger.IsAttached) AndAlso DiagnosticsSettings.KeepDiagnosticLog
         If BootTrace Then
             RotateBootTraceIfNeeded()
             TraceArchiveBootMaintenance()
-            ' Boot trace level, overridable per launch:
-            '   set JJFLEX_BOOT_TRACE_LEVEL=Verbose
+            ' Boot detail level. Three sources, in increasing priority:
+            '   1. Normal (Info) — the default this app has always used
+            '   2. the operator's standing DetailLevel from Settings > Diagnostics
+            '   3. JJFLEX_BOOT_TRACE_LEVEL=Verbose, per launch
             '
             ' Info is right for every day. Verbose adds every spoken utterance
             ' ("ScreenReaderOutput: Spoke '...'") and other high-frequency
             ' detail, which is what you need to answer "what exactly did it
-            ' say" - and which the Help > Tracing dialog CANNOT give you,
-            ' because reaching that dialog means startup and connect have
+            ' say" — and which no in-app control could give you on its own,
+            ' because reaching any control means startup and connect have
             ' already happened. Noel hit exactly that wall on 2026-08-17
             ' chasing a stray SmartLink announcement that fires during connect.
+            ' The environment variable stays for precisely that case.
             '
-            ' Unrecognised values fall back to Info rather than failing: a
-            ' typo in an environment variable must not cost someone their
-            ' trace file.
-            Dim bootLevel As TraceLevel = TraceLevel.Info
+            ' Unrecognised values fall back rather than failing: a typo in an
+            ' environment variable must not cost someone their diagnostic log.
+            Dim bootLevel As TraceLevel = DiagnosticsSettings.TraceLevel
             Dim lvlRaw As String = Environment.GetEnvironmentVariable("JJFLEX_BOOT_TRACE_LEVEL")
             If Not String.IsNullOrWhiteSpace(lvlRaw) Then
                 Dim parsed As TraceLevel
@@ -2970,9 +3570,12 @@ RadioConnected:
                 WpfMainWindow.ShowErrorCallback = Sub(msg, title)
                                                       MessageBox.Show(AppShellForm, msg, title, MessageBoxButtons.OK, MessageBoxIcon.Error)
                                                   End Sub
+                ' The daily-trace call that used to sit here is gone. Nothing in
+                ' the app ever set KeepDailyTraceLogs, and the always-on log with
+                ' per-session archiving IS the daily-trace idea done properly —
+                ' see docs/planning/active/diagnostic-log-surface.md §8.3.
                 WpfMainWindow.PowerOnCallback = Sub()
                                                     SetupKnob()
-                                                    StartDailyTraceIfEnabled()
                                                 End Sub
                 WpfMainWindow.UpdateTitleBar = Sub(title)
                                                    If AppShellForm IsNot Nothing Then
