@@ -54,14 +54,30 @@ namespace JJFlexWpf.Dialogs
         private volatile bool _anySeen;
         private bool _skipped;
 
-        public DiscoveringRadiosWindow()
+        /// <param name="lead">
+        /// Something to say BEFORE "Discovering radios" - typically what just
+        /// happened, such as a disconnect.
+        ///
+        /// It has to be carried by this window rather than spoken before it,
+        /// because a screen reader flushes on window change: an utterance made
+        /// a moment earlier is destroyed by this window opening, whether it was
+        /// queued OR interrupting. That killed the disconnect announcement
+        /// three separate ways on 2026-08-18 before the mechanism was the
+        /// problem rather than the timing.
+        ///
+        /// Folded into the TITLE rather than spoken separately, so it arrives
+        /// as part of the window's own announcement and cannot be cut by it.
+        /// </param>
+        public DiscoveringRadiosWindow(string? lead = null)
         {
             // The title IS the message. It was "JJ Flexible", which meant the
             // operator heard the application's name - which they already knew,
             // having just launched it - and then the actual message from the
             // body text. A window that exists for one second to say one thing
             // should say that thing in its name.
-            Title = "Discovering radios";
+            Title = string.IsNullOrWhiteSpace(lead)
+                ? "Discovering radios"
+                : lead + ". Discovering radios";
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;

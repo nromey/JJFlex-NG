@@ -210,6 +210,17 @@ Module globals
     Friend MenusLoaded As Boolean
     Friend MemoriesLoaded As Boolean
     Friend BaseConfigDir As String
+
+    ''' <summary>
+    ''' What to say at the START of the next radio-picker session, carried by
+    ''' the discovering window's own title.
+    '''
+    ''' Exists because an utterance made just before a window opens is flushed
+    ''' by the screen reader when focus moves. Anything the operator must hear
+    ''' across that boundary has to be owned by the window arriving, not spoken
+    ''' by the code that opens it.
+    ''' </summary>
+    Friend PendingDisconnectLead As String = Nothing
     Friend ReadOnly Property BootTraceFileName As String
         Get
             Dim rv As String = BaseConfigDir & "\" & InternalName
@@ -2745,7 +2756,8 @@ Module globals
         ' window holds for at most two seconds, ends early once radios have
         ' answered and gone quiet, and Escape skips it.
         Try
-            Dim settling As New JJFlexWpf.Dialogs.DiscoveringRadiosWindow()
+            Dim settling As New JJFlexWpf.Dialogs.DiscoveringRadiosWindow(PendingDisconnectLead)
+            PendingDisconnectLead = Nothing
             ' Through the callback, NOT RigControl.LocalRadios() directly, so
             ' the picker's own start finds discovery already running.
             callbacks.StartLocalDiscovery.Invoke()
@@ -3182,11 +3194,21 @@ RadioConnected:
         Try
             If RigControl IsNot Nothing Then
                 Dim radioName = RigControl.RadioNickname
-                If Not String.IsNullOrEmpty(radioName) Then
-                    Radios.ScreenReaderOutput.Speak("Disconnecting from " & radioName, VerbosityLevel.Critical, True)
-                Else
-                    Radios.ScreenReaderOutput.Speak("Disconnecting from radio", VerbosityLevel.Critical, True)
-                End If
+
+                ' Do NOT speak here. Anything said at this moment is destroyed
+                ' by the picker opening a beat later - a screen reader flushes
+                ' on window change, and it makes no difference whether the
+                ' utterance was queued or interrupting. Both were tried on
+                ' 2026-08-18; the operator heard the new window's title and
+                ' nothing else.
+                '
+                ' The disconnect is instead handed to the window that ARRIVES,
+                ' which announces it as part of its own title. Information has
+                ' to belong to the surface that has focus, not to the moment
+                ' before it.
+                PendingDisconnectLead = If(String.IsNullOrEmpty(radioName),
+                                           "Disconnected from radio",
+                                           "Disconnected from " & radioName)
                 ' Our announcement above covers this disconnect, so keep the
                 ' radio layer quiet rather than having both speak and race. Its
                 ' own message is for UNEXPECTED drops, where nothing else is
