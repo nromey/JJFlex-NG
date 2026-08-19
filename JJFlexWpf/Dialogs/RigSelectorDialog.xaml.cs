@@ -518,6 +518,35 @@ namespace JJFlexWpf.Dialogs
                     $"RigSelector: identity expander state: {ex.Message}");
             }
 
+            // Shift+Tab out of the radio list, handled at the WINDOW.
+            //
+            // Third attempt. The list is TabNavigation="Once" - a navigation
+            // group - so WPF resolves Previous inside it, finds nothing before
+            // the list's contents, and stops instead of escaping to the
+            // window's Cycle. Focusing an item rather than the container did
+            // not help; nor did routing MoveFocus(Last) from the ListBox's own
+            // PreviewKeyDown, which is why this moved up to the window where
+            // the key cannot be swallowed by the group first.
+            //
+            // The destination is NAMED rather than navigated to. MoveFocus
+            // depends on the same tab-order resolution that is failing, so
+            // asking for "Last" was asking the broken thing for an answer.
+            // IdentityExpander is the final tab stop by construction - it is
+            // the last element in the Grid.
+            PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key != System.Windows.Input.Key.Tab) return;
+                if ((System.Windows.Input.Keyboard.Modifiers
+                     & System.Windows.Input.ModifierKeys.Shift) == 0) return;
+                if (!RadiosBox.IsKeyboardFocusWithin) return;
+
+                e.Handled = true;
+                bool got = IdentityExpander.Focus();
+                JJTrace.Tracing.TraceLine(
+                    $"RigSelector: Shift+Tab from list -> IdentityExpander focus={got}",
+                    System.Diagnostics.TraceLevel.Info);
+            };
+
             // Register for radio discovery events
             _callbacks.RegisterRadioFound(OnRadioFound);
             _callbacks.RegisterRadioRemoved?.Invoke(OnRadioRemoved);
@@ -544,37 +573,7 @@ namespace JJFlexWpf.Dialogs
             // Tab out explicitly in the right direction.
             RadiosBox.PreviewKeyDown += (_, e) =>
             {
-                // Shift+Tab out of the list wraps to the END of the dialog.
-                //
-                // The window is KeyboardNavigationMode.Cycle, which should wrap
-                // at both ends, and from every OTHER control it does. From the
-                // list it does not, because the list is
-                // TabNavigation="Once" - a navigation GROUP. WPF resolves
-                // Previous within the group first, finds nothing before the
-                // list's own contents, and stops rather than escaping to the
-                // window's cycle. Focusing an item rather than the container
-                // was tried on 2026-08-18 and did not change it.
-                //
-                // This is a deliberate special case, and the second one on this
-                // control (the empty-list route below is the first). Both exist
-                // for the same reason: "Once" is right for what it does to
-                // FORWARD Tab - one stop for the whole list rather than one per
-                // radio - and wrong for what it does at the boundary. Routing
-                // explicitly is honest about that trade.
-                //
-                // Last, not Previous: the list IS the first tab stop, so
-                // Previous has nowhere to go. Naming the destination avoids
-                // depending on the same wrap that is failing.
-                if (e.Key == System.Windows.Input.Key.Tab
-                    && (System.Windows.Input.Keyboard.Modifiers
-                        & System.Windows.Input.ModifierKeys.Shift) != 0
-                    && RadiosBox.Items.Count > 0)
-                {
-                    e.Handled = true;
-                    MoveFocus(new System.Windows.Input.TraversalRequest(
-                        System.Windows.Input.FocusNavigationDirection.Last));
-                }
-                else if (e.Key == System.Windows.Input.Key.Tab && RadiosBox.Items.Count == 0)
+                if (e.Key == System.Windows.Input.Key.Tab && RadiosBox.Items.Count == 0)
                 {
                     var direction =
                         (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0

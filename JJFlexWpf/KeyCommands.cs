@@ -557,12 +557,26 @@ public class KeyCommands
         var focused = System.Windows.Input.Keyboard.FocusedElement
                       as System.Windows.DependencyObject;
 
+        // Instrumented 2026-08-18: Ctrl+F1 reported "no extra explanation" on
+        // every control including ones that definitely carry HelpText, so the
+        // question is whether we are looking at the right element at all. The
+        // key binding is a WinForms Keys value routed through the shell, and
+        // the control it should describe lives in a WPF dialog - a boundary
+        // where "what has focus" has more than one answer.
+        JJTrace.Tracing.TraceLine(
+            "SpeakContextHelp: focused=" + (focused?.GetType().FullName ?? "null"),
+            System.Diagnostics.TraceLevel.Info);
+
         // Walk up: focus often sits on an inner part (a ListBoxItem, a TextBox
         // inside a composite) while the explanation belongs to the control the
         // operator would say they are "on".
         while (focused != null)
         {
             string help = System.Windows.Automation.AutomationProperties.GetHelpText(focused);
+            JJTrace.Tracing.TraceLine(
+                $"SpeakContextHelp: walk {focused.GetType().Name} helpText="
+                + (string.IsNullOrWhiteSpace(help) ? "(none)" : "'" + help + "'"),
+                System.Diagnostics.TraceLevel.Info);
             if (!string.IsNullOrWhiteSpace(help))
             {
                 Radios.ScreenReaderOutput.Speak(

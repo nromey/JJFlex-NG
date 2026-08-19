@@ -2048,14 +2048,24 @@ namespace Radios
                     VerbosityLevel.Terse  => "JJ Flexible disconnected",
                     _                     => "Disconnected"
                 };
-                // QUEUE, not interrupt. This is the SECOND half of a pair:
-                // SelectRadio speaks "Disconnecting from <radio>" first, and
-                // this cut that off on every radio switch. The pair is a
-                // sentence - what is happening, then that it happened - and
-                // reversing the order by interrupting made the first half
-                // pointless. Surveyed 2026-08-18.
+                // INTERRUPT, deliberately - and this was briefly QUEUE on
+                // 2026-08-18, which was wrong.
+                //
+                // Queueing looked right on paper: SelectRadio says
+                // "Disconnecting from <radio>" and this says it happened, so
+                // the pair reads as one sentence. But a disconnect is followed
+                // immediately by the picker opening, and a window change makes
+                // the screen reader flush whatever is queued. So the queued
+                // half was never heard at all - worse than cutting the first
+                // half, which at least reached the operator.
+                //
+                // On a deliberate radio SWITCH there is no collision to worry
+                // about any more: SelectRadio sets SuppressSpeech before
+                // closing, because its own announcement already covers it. This
+                // line is therefore the voice of an UNEXPECTED drop, where it
+                // is the only announcement there is - and must not wait.
                 ScreenReaderOutput.Speak(
-                    msg, Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+                    msg, Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
             }
             if (ScreenReaderOutput.CwNotificationsEnabled)
             {

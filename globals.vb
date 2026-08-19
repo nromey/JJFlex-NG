@@ -3187,6 +3187,15 @@ RadioConnected:
                 Else
                     Radios.ScreenReaderOutput.Speak("Disconnecting from radio", VerbosityLevel.Critical, True)
                 End If
+                ' Our announcement above covers this disconnect, so keep the
+                ' radio layer quiet rather than having both speak and race. Its
+                ' own message is for UNEXPECTED drops, where nothing else is
+                ' explaining what happened.
+                Try
+                    RigControl.SuppressSpeech = True
+                Catch
+                End Try
+
                 CloseTheRadio()
             End If
             openTheRadio(False)
