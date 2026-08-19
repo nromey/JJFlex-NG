@@ -535,6 +535,18 @@ namespace JJPortaudio
             public long StatusCallbackCount;    // callbacks observed on this stream
             public long FlaggedCallbackCount;   // callbacks carrying any status flag
             public readonly long[] StatusFlagCounts = new long[5]; // per flag, bit order
+            // Track B, 2026-08-18 (#29): output-queue silence instrumentation.
+            // statusFlags only reports glitches PORTAUDIO caused. When OUR
+            // queue runs dry the output callback fills the device buffer with
+            // zeros itself — PortAudio was fed on time, no flag is raised, and
+            // the operator still hears a gap with a click at each edge. These
+            // count that blind spot. Priming silence (before the first queued
+            // buffer ever arrives) is expected and counted separately from
+            // mid-stream starvation, which is the audible defect.
+            public long SilenceFills;           // total silent device buffers while Active
+            public long StarvationFills;        // silent buffers AFTER data had been flowing
+            public bool OutputDataSeen;         // a queued buffer has been consumed
+            public bool StarvationLogged;       // first-occurrence line emitted
         }
         internal class staticQueues
         {
@@ -1197,10 +1209,31 @@ namespace JJPortaudio
                     {
                         Tracing.TraceLine("silence", TraceLevel.Verbose);
                         silence = true;
+                        // Track B (#29): count the self-inflicted gap. See the
+                        // field comments — this is the glitch statusFlags
+                        // cannot see, because we fed the device on time, with
+                        // zeros.
+                        data.SilenceFills++;
+                        if (data.OutputDataSeen)
+                        {
+                            data.StarvationFills++;
+                            if (!data.StarvationLogged)
+                            {
+                                data.StarvationLogged = true;
+                                Tracing.TraceLine("audio output stream: the playback queue ran dry "
+                                    + "mid-stream at callback " + data.StatusCallbackCount
+                                    + " — a device buffer was filled with silence, audible as a gap "
+                                    + "with a click at each edge. PortAudio raises no flag for this "
+                                    + "(we supplied the zeros ourselves). Further occurrences are "
+                                    + "counted silently; totals logged when the stream closes.",
+                                    TraceLevel.Error);
+                            }
+                        }
                     }
                     else
                     {
                         data.Buffer = (float[])data.Q.Dequeue();
+                        data.OutputDataSeen = true;
                     }
                 }
                 // else still data in this buffer.
@@ -1245,7 +1278,19 @@ namespace JJPortaudio
             // Threads Track: stream completing — report the glitch totals
             // for its whole life.
             if (rv != PortAudio.PaStreamCallbackResult.paContinue)
+            {
                 traceStatusFlagSummary(data, "output");
+                // Track B (#29): the queue-side companion summary. Zero
+                // starvation is evidence too — with statusFlags also clean it
+                // acquits the whole playback side and points the click hunt
+                // upstream (see the receive-continuity meter in FlexBase).
+                Tracing.TraceLine("audio output queue summary: "
+                    + data.SilenceFills + " silent fill(s), of which "
+                    + data.StarvationFills + " were mid-stream starvation"
+                    + (data.StarvationFills == 0
+                        ? " (the queue never ran dry while playing)" : ""),
+                    data.StarvationFills == 0 ? TraceLevel.Info : TraceLevel.Error);
+            }
             if ((rv == PortAudio.PaStreamCallbackResult.paContinue) &
                 (data.Q.Count == 0))
             {
