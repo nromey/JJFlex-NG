@@ -1761,6 +1761,20 @@ public partial class MainWindow : UserControl
         var rig = RigControl;
         if (rig == null) return;
 
+        // Sprint 30 Track A — an operator who has already said "I only use
+        // this radio here" is asked nothing further about SmartLink for it,
+        // on any connect, on any run. Not registering is a real answer, and
+        // an app that keeps raising it is treating a decision as an
+        // unfinished task. Checked before the server query so a local-only
+        // radio does not even generate the round trip.
+        if (SmartLinkIntentFor(rig) == Radios.SmartLinkIntents.LocalOnly)
+        {
+            Tracing.TraceLine(
+                "SuggestRegistration: radio is marked local-only — nothing to suggest",
+                TraceLevel.Info);
+            return;
+        }
+
         try
         {
             var result = await rig.QuerySmartLinkRegistrationAsync();
@@ -1823,8 +1837,28 @@ public partial class MainWindow : UserControl
             }
             catch { /* count stays 0; the simple advisory is still correct */ }
 
+            // Sprint 30 Track A — a LOCAL connect with no answer on record gets
+            // an OFFER, not a complaint. The old wording opened by telling an
+            // operator sitting three feet from their radio that it was "not
+            // registered", which frames a valid arrangement as a fault. The
+            // offer states the same fact, says plainly that not registering is
+            // a fine answer, and gives that answer a button so it can be
+            // recorded once and never raised again.
+            //
+            // A REMOTE connect keeps the original advisory: the operator is
+            // already using SmartLink, so registration is not hypothetical and
+            // "I only use this radio here" is not on the table.
+            bool localConnect = !rig.RemoteRig;
+            bool undecided = SmartLinkIntentFor(rig) == Radios.SmartLinkIntents.Undecided;
+
             await Dispatcher.BeginInvoke(() =>
             {
+                if (localConnect && undecided)
+                {
+                    ShowLocalOnlyOffer(serial, account, otherAccounts);
+                    return;
+                }
+
                 string msg =
                     $"This radio is not registered to {account}, the SmartLink account you are " +
                     "signed in with. Registering your radio lets you reach it over the internet " +
@@ -1858,6 +1892,133 @@ public partial class MainWindow : UserControl
         {
             // A failed suggestion must never disturb a working connection.
             Tracing.TraceLine($"SuggestRegistration: {ex.Message}", TraceLevel.Error);
+        }
+    }
+
+    /// <summary>
+    /// This radio's recorded SmartLink intent, or Undecided when there is no
+    /// serial to key it by. Reads the per-radio config each time rather than
+    /// caching: the operator can change it in Settings while connected, and a
+    /// cached copy would keep asking about a radio they just settled.
+    /// </summary>
+    private static Radios.SmartLinkIntents SmartLinkIntentFor(FlexBase rig)
+    {
+        try
+        {
+            string serial = rig.SelectedRadioSerial ?? string.Empty;
+            if (serial.Length == 0) return Radios.SmartLinkIntents.Undecided;
+            return Radios.RadioConfig.LoadForRadio(serial).SmartLinkIntent;
+        }
+        catch (Exception ex)
+        {
+            // An unreadable config must not silence an advisory that might
+            // genuinely help; Undecided is the state that still offers.
+            Tracing.TraceLine(
+                $"SmartLinkIntentFor: {ex.Message} — treating as undecided",
+                TraceLevel.Warning);
+            return Radios.SmartLinkIntents.Undecided;
+        }
+    }
+
+    /// <summary>
+    /// The local-only offer: this radio is not registered with SmartLink, here
+    /// is what registering would buy, and here is the button that says you do
+    /// not want it — once, permanently, per radio.
+    /// </summary>
+    private void ShowLocalOnlyOffer(string serial, string account, int otherAccounts)
+    {
+        string msg =
+            "You are connected to this radio over your own network, and it is not registered " +
+            $"with SmartLink under {account}. That is worth one question, and then this will " +
+            "stop asking.\n\n" +
+            "Registering a radio with SmartLink is how you reach it over the internet from " +
+            "somewhere else — a hotel, a friend's shack, the car. If this radio never leaves " +
+            "your house and you never operate it from away, you do not need it, and nothing " +
+            "about your local operating changes either way.\n\n" +
+            "If you do want it later, Flex requires you to be at the radio with a hand " +
+            "microphone or a CW key plugged in, to prove someone is really there. It all " +
+            "happens right here in JJ Flexible Radio Access; SmartSDR is not required.\n\n" +
+            (otherAccounts > 0
+                ? "One thing to check first: only the signed-in account was asked. If you " +
+                  "registered this radio under one of your other saved accounts, switch to " +
+                  "that account instead — the Manage Accounts button below opens the list.\n\n"
+                : "") +
+            "Choose I Only Use This Radio Here and the question is settled for this radio. " +
+            "Choose Open Radio Setup to register it now. Close leaves it open and you will " +
+            "be asked again on a future run.";
+
+        var actions = new List<Dialogs.AdvisoryDialog.AdvisoryAction>
+        {
+            new("_I only use this radio here", () => RecordSmartLinkIntent(
+                serial, Radios.SmartLinkIntents.LocalOnly)),
+            new("Open Radio _Setup", () =>
+            {
+                // Opening setup IS the answer to the question, so record it.
+                // Without this the offer would return on the next run for an
+                // operator who has plainly said they want SmartLink — and the
+                // registration reminder, which is help once the intent is
+                // known, would never take over from the offer.
+                RecordSmartLinkIntent(serial, Radios.SmartLinkIntents.WantsSmartLink, quiet: true);
+                OpenSettingsCallback?.Invoke("Radio Setup");
+            }),
+        };
+        if (otherAccounts > 0)
+            actions.Add(new("Manage _Accounts", ShowSmartLinkAccountManager));
+
+        // No suppressKey: the "don't show this again" checkbox would be a
+        // third, vaguer way to answer the same question the buttons answer
+        // precisely, and its answer would be stored somewhere else entirely.
+        // Close is the "not now" path and costs one more sighting.
+        Dialogs.AdvisoryDialog.Show("Reaching this radio from away", msg, null, actions.ToArray());
+    }
+
+    /// <summary>
+    /// Write the operator's SmartLink intent for one radio and, unless quiet,
+    /// hand them a receipt.
+    ///
+    /// <para>The receipt is its own window on purpose. The choice is made
+    /// inside a dialog that is closing, and a screen reader flushes its queue
+    /// as that window goes away — so an utterance spoken here would be
+    /// destroyed before it was heard. A window that ARRIVES carries its own
+    /// title, which is why the outcome is IN the title.</para>
+    ///
+    /// <para>It also has to be able to say the write failed. RadioConfig's own
+    /// contract is that a false return means the value did not reach disk but
+    /// the operator's choice still stands for the session — telling them
+    /// otherwise, or telling them nothing, is how a setting silently
+    /// evaporates overnight.</para>
+    /// </summary>
+    private void RecordSmartLinkIntent(string serial, Radios.SmartLinkIntents intent, bool quiet = false)
+    {
+        bool saved = false;
+        try
+        {
+            var cfg = Radios.RadioConfig.LoadForRadio(serial);
+            cfg.SmartLinkIntent = intent;
+            saved = cfg.SaveForRadio(serial);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"RecordSmartLinkIntent({serial}): {ex.Message}", TraceLevel.Error);
+        }
+
+        Tracing.TraceLine(
+            $"RecordSmartLinkIntent: {serial} -> {intent}, saved={saved}", TraceLevel.Info);
+
+        if (quiet) return;
+
+        string where =
+            "You can change this any time in Settings, on the Radios tab, under Reaching this radio.";
+        if (intent == Radios.SmartLinkIntents.LocalOnly)
+        {
+            Dialogs.AdvisoryDialog.Show(
+                saved ? "This radio is now local only" : "Local only, but it may not stick",
+                saved
+                    ? "Noted. Nothing about registering this radio with SmartLink will come up "
+                      + "again, on this run or any other.\n\n" + where
+                    : "Your choice is in effect for this session, but it could not be written to "
+                      + "disk, so it may not survive a restart. Your settings folder may be "
+                      + "locked or full; the trace file has the details.\n\n" + where);
         }
     }
 

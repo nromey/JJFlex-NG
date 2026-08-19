@@ -820,6 +820,29 @@
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
                                        Style="{StaticResource DialogLabel}"
                                        Text="This is about geography, not the connection: a radio at your own house can prefer SmartLink and still be a short walk away. Checking it offers to set the safety net a truly unreachable radio needs — REM ON and the remote administration allowances below."/>
+                            <!-- Sprint 30 Track A: the local-only answer, made
+                                 visible and reversible. A connect offers this
+                                 once; this is where it lives afterwards. Three
+                                 states rather than a checkbox, because "not
+                                 local only" is genuinely two different answers
+                                 — never asked, and asked and answered no. -->
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,2">
+                                <controls:DecorativeText Text="Reaching this radio from away:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="RadioProfileSmartLinkIntentCombo" MinWidth="260"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Whether you want to reach this radio from away"
+                   AutomationProperties.HelpText="Local only silences every SmartLink registration prompt for this radio."
+                                          SelectionChanged="RadioProfileSmartLinkIntentCombo_SelectionChanged">
+                                    <ComboBoxItem Content="Ask me when it comes up"/>
+                                    <ComboBoxItem Content="I only use this radio here"/>
+                                    <ComboBoxItem Content="I want to reach it from away"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="Registering a radio with SmartLink is how you reach it over the internet from somewhere else. A radio that never leaves your house does not need it. Choosing I only use this radio here settles the question for this radio and stops it being raised on connect; nothing about your local operating changes either way."/>
                         </StackPanel>
                     </GroupBox>
                     <GroupBox Header="Remote administration" Margin="0,4,0,8"
