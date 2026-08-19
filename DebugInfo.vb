@@ -169,6 +169,13 @@ Friend Class DebugInfo
             Catch
             End Try
             MessageBox.Show(gatherFailed, ErrorHdr, MessageBoxButtons.OK)
+            ' The bundle is the usual way to get evidence to the developer. When
+            ' it will not build, the raw diagnostic log is what is left, so offer
+            ' it rather than leaving the operator at a dead end.
+            Radios.OperationFailure.Report(Radios.FailureKind.ReportingFailed,
+                "The problem report could not be built",
+                "Nothing was lost — your settings and diagnostic logs are untouched. " &
+                "The diagnostic log on its own still carries most of what the developer needs.")
         Finally
             ' Put the log back. This used to be the end of the diagnostic log for
             ' the rest of the session: gathering debug info turned tracing off and

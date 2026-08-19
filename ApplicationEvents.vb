@@ -318,6 +318,10 @@ Namespace My
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown
+            ' From here on, a failure is still traced but never opens a window.
+            ' A modal fighting a teardown is how an app ends up with no exit path
+            ' at all, and teardown is exactly when late failures arrive.
+            JJFlexWpf.DiagnosticOffer.BeginShutdown()
             ' Play SK prosign on app close. Timeout bumped to 5 seconds to cover the
             ' richer "73 de JJF SK" farewell at speed >= 25 WPM (the MainWindow-side
             ' PlayCwSK delegate picks short-or-long based on current WPM).

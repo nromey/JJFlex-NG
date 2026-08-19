@@ -473,6 +473,14 @@ Module globals
             JJFlexWpf.DiagnosticsBridge.OpenSavedLogs = Sub() ShowSavedDiagnosticLogs()
             JJFlexWpf.DiagnosticsBridge.SaveProblemReport = Sub() DebugInfo.GetDebugInfo()
             JJFlexWpf.DiagnosticsBridge.Speak = Sub(msg) SpeakDiagnostics(msg)
+
+            ' The failure-moment offer. Installed here because this runs on the
+            ' UI thread at startup, and the dispatcher it captures is the one
+            ' that can actually show a window later, from whatever thread the
+            ' failure happened on.
+            JJFlexWpf.DiagnosticOffer.IsTransmitting =
+                Function() RigControl IsNot Nothing AndAlso RigControl.Transmit
+            JJFlexWpf.DiagnosticOffer.Install()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
@@ -580,6 +588,13 @@ Module globals
             Tracing.ErrTraceOnly(ex)
             _captureStartedLocal = Nothing
             SpeakDiagnostics("The detailed capture could not be started.")
+            ' The reporting pipeline failing is the one case where the offer is
+            ' also the fallback: if the capture will not start, the standing log
+            ' is the only evidence there is going to be.
+            Radios.OperationFailure.Report(Radios.FailureKind.ReportingFailed,
+                "The detailed capture could not be started",
+                "JJ Flex could not open a new log file for the capture. " &
+                "The ordinary diagnostic log is still running, so there is still a record of what happens next.")
             RaiseDiagnosticLogStateChanged()
             Return
         End Try
@@ -659,7 +674,17 @@ Module globals
         Dim wasOn As Boolean = DiagnosticsSettings.KeepDiagnosticLog
         DiagnosticsSettings.KeepDiagnosticLog = keepLog
         DiagnosticsSettings.DetailLevel = detail
-        DiagnosticsSettings.Save(BaseConfigDir)
+        If Not DiagnosticsSettings.Save(BaseConfigDir) Then
+            ' The choice is live for this session either way — refusing an intent
+            ' because the disk was busy hands the disk's problem to the operator.
+            ' But say plainly that it will not survive a restart, and offer the
+            ' evidence, because otherwise they find out at the next launch when
+            ' the setting is quietly back where it was.
+            Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
+                "Your diagnostic settings could not be saved",
+                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "Something stopped the settings file from being written.")
+        End If
 
         Try
             If DetailedCaptureRunning Then
