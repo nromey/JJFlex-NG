@@ -142,8 +142,15 @@ namespace JJFlexWpf
         {
             if (_shuttingDown) return false;
 
-            // Nothing to offer if nothing is being recorded.
-            try { if (DiagnosticsBridge.KeepLog?.Invoke() == false) return false; }
+            // Nothing to offer if nothing is being recorded — but a running
+            // capture counts even when the standing log is switched off. That
+            // combination is the operator deliberately hunting something, which
+            // is the LAST moment to decide there is no evidence worth offering.
+            try
+            {
+                if (DiagnosticsBridge.KeepLog?.Invoke() == false && !DiagnosticsBridge.Capturing())
+                    return false;
+            }
             catch { }
             try { if (string.IsNullOrEmpty(DiagnosticsBridge.LiveLogPath?.Invoke())) return false; }
             catch { return false; }
