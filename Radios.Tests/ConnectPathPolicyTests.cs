@@ -273,6 +273,39 @@ namespace Radios.Tests
             Assert.Null(ConnectPathPolicy.LearnForRadio(""));
         }
 
+        // ------------------------------------------------------------------
+        // The local-only answer, which shares this store
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void SmartLinkIntentRoundTrips()
+        {
+            var cfg = new RadioConfig { SmartLinkIntent = SmartLinkIntents.LocalOnly };
+            Assert.True(cfg.Save(_dir, "8888-0001"));
+            Assert.Equal(SmartLinkIntents.LocalOnly,
+                RadioConfig.Load(_dir, "8888-0001").SmartLinkIntent);
+        }
+
+        [Fact]
+        public void AConfigWrittenBeforeTheLocalOnlyAnswerExistedLoadsAsUndecided()
+        {
+            // The whole point of Undecided being zero: an install that
+            // upgrades into this build has answered nothing, and must be
+            // ASKED rather than assumed either way.
+            var path = Path.Combine(_dir, "radios", "8888-0002", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path,
+                "<?xml version=\"1.0\"?>\n" +
+                "<RadioConfig xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n" +
+                "  <Version>1</Version>\n" +
+                "  <RadioId>8888-0002</RadioId>\n" +
+                "  <Nickname>older rig</Nickname>\n" +
+                "</RadioConfig>\n");
+
+            Assert.Equal(SmartLinkIntents.Undecided,
+                RadioConfig.Load(_dir, "8888-0002").SmartLinkIntent);
+        }
+
         [Fact]
         public void AStoredChoiceStillWinsWhenTheTrendComesOffDisk()
         {
