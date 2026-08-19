@@ -421,6 +421,26 @@ MEMORY.md or exactly one index, and no link may dangle. Diff the link set
 against the previous MEMORY.md before overwriting it — the first attempt on
 2026-08-19 silently dropped one entry, caught only by that check.
 
+**Archive sweep — do this every seal, it is where the headroom comes from.**
+The index shrinks in proportion to work that FINISHES, but only if closure was
+recorded. So:
+
+- When today's work closed something a memory describes, stamp that memory now,
+  with a banner at its top: `> **RESOLVED / SHIPPED / SUPERSEDED — <who>,
+  <date>: <what changed>**`. Stamp the *reasoning*, not just the fact — see
+  `project_as_retry_pathway_regression.md`, filed as a networking regression and
+  actually closed by authentication work nobody had connected to it.
+- Then sweep: `grep -lin "RESOLVED\|SHIPPED\|SUPERSEDED\|CLOSED" *.md` over the
+  memory directory. Anything stamped, whose work nothing live still depends on,
+  moves into `project_closed_history_index.md` and out of the core.
+- Age is NOT the signal. `project_anti_patterns_from_blindcat.md` is one of the
+  oldest entries and is consulted constantly. Closure is the only signal.
+
+Without the stamp this sweep finds nothing: the four entries archived on
+2026-08-19 were discovered only because earlier sessions happened to write those
+words into them by chance, and anything that closed quietly stayed in the
+always-loaded core indefinitely.
+
 Added 2026-08-06 after the index hit the warning threshold; rewritten
 2026-08-19 when the flat index reached 18.5KB and was split into a 9.8KB core.
 2. **Memory backup — ALL projects, not just JJFlex:** `backup-memory-to-nas.ps1` snapshots **every** per-project Claude memory tree found under `C:\Users\nrome\.claude\projects\`. JJFlex keeps its legacy flat path (`historical\memory\memory-<ts>.zip`) so its dated series stays unbroken; every other project lands at `historical\memory\projects\<slug>\memory-<ts>.zip`. As of 2026-08-01 this picks up **Freight Fate** (`C--dev-Freight-Fate`, ~118 files) and **Civ VI Access** (`c--dev-Civ-vi-access`, ~175 files), neither of which had ever been backed up. Pass `-PrimaryOnly` for the old JJFlex-only behaviour. **Critical:** these trees live under the user profile, so the `C:\dev` mirror in step 3a does NOT cover them — this script and step 2a are their only backup paths. Keep running it even though 2a also sweeps up `memory\`: this one produces the per-project dated series that `memory-<ts>.zip` history depends on.
