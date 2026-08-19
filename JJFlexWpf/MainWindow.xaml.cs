@@ -1035,6 +1035,28 @@ public partial class MainWindow : UserControl
         SelectRadioCallback.Invoke();
     }
 
+    /// <summary>
+    /// Sprint 31 Track R — the one addition Noel asked for on this page, in his
+    /// own words: "if you can't connect, perhaps one needs to setup a radio /
+    /// enroll it."
+    ///
+    /// <para>A deep link rather than a plain Settings open, and the distinction
+    /// is the whole point: a page that exists because the operator is stuck
+    /// must not answer a stuck operator with directions. The tab name is the
+    /// SAME string the firmware advisory has used since Sprint 29
+    /// (MainWindow.FirmwareAdvisory.cs), so this reuses a route already proven
+    /// to land, rather than inventing a second one.</para>
+    ///
+    /// <para>Kept as its own button rather than repointing the Settings button:
+    /// Settings is the general door, and an operator with no radio may equally
+    /// want Audio, Updates or Diagnostics. Repointing it would buy back one tab
+    /// stop by removing the only general route off the page.</para>
+    /// </summary>
+    private void RescueRadioSetupButton_Click(object sender, RoutedEventArgs e)
+    {
+        OpenSettingsCallback?.Invoke("Radio Setup");
+    }
+
     private void RescueSettingsButton_Click(object sender, RoutedEventArgs e)
     {
         // Empty string, not a tab name: Settings opens on its default tab.

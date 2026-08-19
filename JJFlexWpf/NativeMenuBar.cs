@@ -1978,8 +1978,28 @@ public class NativeMenuBar : IDisposable
             dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;
             dialog.OperatorName = _window.OpenParms.GetOperatorName?.Invoke();
         }
-        if (openAtTab != null)
-            dialog.SelectTabByHeader(openAtTab);
+        if (openAtTab != null && dialog.SelectTabByHeader(openAtTab))
+        {
+            // Sprint 31 Track R: selecting the tab is not the same as LANDING on
+            // it. Selection is a visual fact; without focus the dialog opens and
+            // the screen reader announces the title plus whatever WPF happened to
+            // focus first, so a deep link taken from the rescue page could leave
+            // an operator who cannot see the tab strip with no evidence they
+            // arrived anywhere other than plain Settings.
+            //
+            // Focusing the selected TabItem folds the arrival into the dialog's
+            // own opening announcement — the same principle as
+            // PendingDisconnectLead, applied to a tab instead of a window title.
+            // Deferred to Loaded because focus set before the window exists is
+            // discarded; this is the sibling of the papercut already commented in
+            // SettingsDialog ("focusing a field on an unselected tab fails
+            // silently"), pointing the other way.
+            dialog.Loaded += (_, _) =>
+            {
+                if (dialog.SettingsTabs.SelectedItem is System.Windows.Controls.TabItem landed)
+                    landed.Focus();
+            };
+        }
 
         // Track C (OK/Apply convention): the app-side application + persistence
         // runs after EVERY successful commit — Apply-and-stay included — not
