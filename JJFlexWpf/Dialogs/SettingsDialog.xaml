@@ -748,6 +748,37 @@
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                Style="{StaticResource DialogLabel}"
                                Text="The name is stored on the radio itself and shows up everywhere — discovery, SmartLink, other clients. Applying while connected to this radio renames it for real; applying while not connected only changes the name shown here until the next connection."/>
+                    <!-- Sprint 31 Track S (#94): whose radio this is. Sits right
+                         after the name because it is identity, not networking —
+                         and because it decides whether the rest of JJ Flex may
+                         create anything on this radio. Deliberately NOT derived
+                         from registration: you can be signed in with the owner's
+                         own account and still be a guest, and a LAN-only radio
+                         has no registration to reason from at all. -->
+                    <GroupBox Header="Whose radio is this" Margin="0,4,0,8"
+                              AutomationProperties.Name="Whose radio is this">
+                        <StackPanel Margin="4">
+                            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                       Text="Some settings live on the radio itself and are shared by every program connected to it. Telling JJ Flex which radios are yours is what lets it set those up for you — and what keeps it from changing a friend's radio while you are borrowing it."/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                <controls:DecorativeText Text="This radio is:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="RadioProfileOwnershipCombo" MinWidth="260"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Whose radio this is"
+                   local:JJFlexHelp.Text="Marking a radio as yours lets JJ Flex create settings on the radio itself without stopping to ask each time — a mic profile, for instance. On any other radio it will still apply everything that lives on this computer, and will ask before creating anything on the radio. This is your word for it: JJ Flex does not check and cannot. It is here so you do not change a friend's radio by accident, not to stop you doing anything deliberately."
+                                          SelectionChanged="RadioProfileOwnershipCombo_SelectionChanged">
+                                    <ComboBoxItem Content="Ask me when it comes up"/>
+                                    <ComboBoxItem Content="Mine"/>
+                                    <ComboBoxItem Content="Someone else's"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="Being able to reach a radio is not the same as owning it — you can be signed in with its owner's account and still be a guest, and a radio on your own network may have no account behind it at all. So JJ Flex asks instead of guessing. Settings you have already bound to a radio keep working whichever answer you give; this only decides whether new things may be created on it."/>
+                        </StackPanel>
+                    </GroupBox>
                     <GroupBox Header="Connection over SmartLink" Margin="0,4,0,8"
                               AutomationProperties.Name="Connection over SmartLink">
                         <StackPanel Margin="4">

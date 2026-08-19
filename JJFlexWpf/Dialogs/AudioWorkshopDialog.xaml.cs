@@ -1309,6 +1309,49 @@ public partial class AudioWorkshopDialog : JJFlexDialog
 
     private const string NoMicProfilesOption = "(none saved yet)";
 
+    // ── Ownership, and what it gates (Sprint 31 Track S, #94) ──
+    //
+    // Two destinations, two verbs. Saving a microphone profile stays PC-side
+    // and is safe on anybody's radio — it is always offered, on every radio,
+    // with no question asked. CREATING something on the radio itself is a
+    // different act with a different name, and it is the one ownership gates.
+    //
+    // Applying an existing binding is deliberately NOT gated: the binding was
+    // made by this operator, on this radio, earlier, and that is the consent.
+    // See RadioConfig.MayCreateRadioSideState.
+
+    /// <summary>How to name the current radio in a question about it.</summary>
+    private string CurrentRadioLabel()
+    {
+        string serial = _rig?.SelectedRadioSerial ?? "";
+        if (string.IsNullOrEmpty(serial)) return "this radio";
+        string name = RadioConfig.LoadForRadio(serial).DisplayName;
+        if (string.IsNullOrWhiteSpace(name)) name = _rig?.RadioNickname ?? "";
+        return string.IsNullOrWhiteSpace(name) ? "this radio" : name;
+    }
+
+    /// <summary>
+    /// May JJ Flex create new state on this radio right now? Asks once if the
+    /// question has never been answered for it, and takes no for an answer.
+    /// </summary>
+    /// <remarks>
+    /// The account the current session signed in with is deliberately NOT
+    /// passed as the operator's own account. That is the exact derivation this
+    /// design rejects: Noel connected to Margaret's radio using Margaret's
+    /// account, so to SmartLink he WAS the owner, and feeding the session's
+    /// account back in would make every radio suggest "yours". The suggestion
+    /// falls back to a weaker, honest signal instead.
+    /// </remarks>
+    private bool MayCreateOnRadio(string radioId, string reason)
+    {
+        if (string.IsNullOrEmpty(radioId)) return false;
+        var cfg = RadioConfig.LoadForRadio(radioId);
+        if (cfg.Ownership == RadioOwnership.Mine) return true;
+        if (cfg.Ownership == RadioOwnership.SomeoneElses) return false;
+        return RadioOwnershipDialog.Ask(radioId, CurrentRadioLabel(), reason)
+               == RadioOwnership.Mine;
+    }
+
     private void BuildMicProfileSection()
     {
         AddSectionHeader(TxAudioContent, "Microphone Profiles");
@@ -1341,6 +1384,28 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             + "leaves it this way too. Other programs never show it because "
             + "they keep a profile named Default selected at all times.");
         AddToSection(TxAudioContent, _silentTxNote);
+
+        // The repair, and it is a BUTTON on purpose (#94/#99). Loading a mic
+        // profile writes ProfileMICSelection, which is shared radio state, so
+        // it happens because the operator pressed something — never at connect,
+        // never on its own, on any radio, owned or not.
+        _silentTxFixButton = new Button
+        {
+            Content = "Load a Mic Profile on the Radio",
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(2, 0, 2, 4),
+            Visibility = Visibility.Collapsed,
+        };
+        AutomationProperties.SetName(_silentTxFixButton, "Load a mic profile on the radio");
+        JJFlexHelp.SetText(_silentTxFixButton,
+            "Tells the radio to load one of the mic profiles it already has, "
+            + "which is what gives transmit audio from this computer a chain to "
+            + "travel through. It creates nothing — the profile already exists "
+            + "on the radio. It does change a setting the radio shares with "
+            + "every program connected to it, so on a radio JJ Flex does not "
+            + "know to be yours it asks first.");
+        _silentTxFixButton.Click += (s, e) => LoadMicProfileForSilentTx();
+        AddToSection(TxAudioContent, _silentTxFixButton);
 
         _micProfileControl = MakeCycle("Microphone profile", new[] { NoMicProfilesOption });
         JJFlexHelp.SetText(_micProfileControl,
@@ -1399,6 +1464,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 _silentTxNote.Visibility = Visibility.Collapsed;
                 _silentTxNote.Text = "";
             }
+            HideSilentTxFixButton();
             return;
         }
 
@@ -1408,6 +1474,138 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             AutomationProperties.SetName(_silentTxNote, advisory);
         }
         _silentTxNote.Visibility = Visibility.Visible;
+        ShowSilentTxFixButton();
+    }
+
+    /// <summary>
+    /// Offer the repair. Present on every radio, owned or not — the failure is
+    /// real either way and hiding the fix from a guest operator helps nobody.
+    /// What ownership changes is how much is asked before it runs, never
+    /// whether the offer exists.
+    /// </summary>
+    private void ShowSilentTxFixButton()
+    {
+        if (_silentTxFixButton == null || _rig == null) return;
+        string pick = _rig.SuggestedMicProfileName;
+        if (string.IsNullOrEmpty(pick)) { HideSilentTxFixButton(); return; }
+
+        // Naming the profile in the label is the difference between "press
+        // this and something happens to your radio" and a decision the
+        // operator can make from the button alone.
+        string label = $"Load Mic Profile {pick} on the Radio";
+        if ((_silentTxFixButton.Content as string) != label)
+        {
+            _silentTxFixButton.Content = label;
+            AutomationProperties.SetName(_silentTxFixButton, label);
+        }
+        _silentTxFixButton.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Withdraw the offer, keeping focus somewhere real. A control that
+    /// vanishes from under the keyboard leaves focus nowhere, and a screen
+    /// reader then has nothing to read — the operator presses a key and the
+    /// application appears to have died.
+    /// </summary>
+    private void HideSilentTxFixButton()
+    {
+        if (_silentTxFixButton == null) return;
+        if (_silentTxFixButton.Visibility == Visibility.Collapsed) return;
+        bool hadFocus = _silentTxFixButton.IsKeyboardFocusWithin;
+        _silentTxFixButton.Visibility = Visibility.Collapsed;
+        if (hadFocus) _micProfileControl?.Focus();
+    }
+
+    /// <summary>
+    /// The silent-transmit repair, ownership-gated per the design ratified
+    /// 2026-08-19.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Operator-initiated, always.</b> Branch diag/don-audio-708 did
+    /// this same write automatically inside GetProfileInfo, and its mechanism
+    /// is right — pcap-diffed against SmartSDR on the same radio. What is not
+    /// right is doing it at connect: ProfileMICSelection is shared radio state,
+    /// so on a guest connection that silently rearranges someone else's
+    /// transmit chain, and an empty selection on their radio may be their
+    /// deliberate arrangement. So the mechanism ships behind a press.</para>
+    ///
+    /// <para><b>What the flag changes.</b> On a radio marked yours it runs on
+    /// the press, with a receipt and no further question — housekeeping on your
+    /// own equipment. On a radio that has never been asked about, the ownership
+    /// question comes first. On a radio marked someone else's, the write is
+    /// still available (this is a declaration of intent, not a lock) but it is
+    /// confirmed first, with the consequence named: everyone connected to that
+    /// radio gets the change.</para>
+    /// </remarks>
+    private void LoadMicProfileForSilentTx()
+    {
+        if (_rig == null)
+        {
+            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            return;
+        }
+
+        string pick = _rig.SuggestedMicProfileName;
+        string radioId = _rig.SelectedRadioSerial ?? "";
+        if (string.IsNullOrEmpty(pick))
+        {
+            ScreenReaderOutput.Speak(
+                "This radio does not offer a mic profile to load.", VerbosityLevel.Critical);
+            return;
+        }
+
+        if (!MayCreateOnRadio(radioId,
+                $"You asked JJ Flex to load the mic profile {pick} on {CurrentRadioLabel()}, "
+                + "so that transmit audio from this computer has somewhere to go."))
+        {
+            // Not marked as this operator's radio — offered, never silent.
+            var confirm = new ConfirmActionDialog(
+                "Change a Setting on Someone Else's Radio",
+                $"Loading the mic profile {pick} would give transmit audio from this computer "
+                + "a chain to travel through, which is what fixes the problem. It creates "
+                + "nothing new — that profile already exists on the radio.",
+                new[]
+                {
+                    "A mic profile is shared. Every program connected to this radio uses the "
+                    + "one that is loaded, so its owner and anyone else on it get this change "
+                    + "too, with nothing on their end to say why.",
+                    "An empty selection can be deliberate. If the radio's owner arranged it "
+                    + "that way, this undoes their arrangement.",
+                },
+                question: $"Load {pick} on this radio anyway?",
+                yesLabel: "_Load it",
+                noLabel: "_Leave it alone")
+            {
+                Owner = this,
+            };
+            if (confirm.ShowDialog() != true)
+            {
+                ScreenReaderOutput.Speak(
+                    "The radio was left alone.", VerbosityLevel.Terse);
+                return;
+            }
+        }
+
+        if (_rig.SelectMicProfileIfPresent(pick))
+        {
+            JJTrace.Tracing.TraceLine(
+                $"SilentTxFix: operator asked for mic profile '{pick}' on {radioId}.",
+                System.Diagnostics.TraceLevel.Info);
+            // The radio answers on its own schedule, so the receipt says what
+            // was ASKED FOR. The warning line above clears itself on the next
+            // poll, when the radio confirms — which is the honest order.
+            ScreenReaderOutput.Speak(
+                $"Mic profile {pick} loaded on the radio. Transmit audio from this computer "
+                + "has a chain to go through now.",
+                VerbosityLevel.Critical);
+            PollTxAudio();
+        }
+        else
+        {
+            ScreenReaderOutput.Speak(
+                $"This radio no longer lists a mic profile named {pick}, so nothing was changed.",
+                VerbosityLevel.Critical);
+        }
     }
 
     /// <summary>
@@ -1546,6 +1744,32 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     + "this app always agree.");
                 panel.Children.Add(referenceOption);
             }
+            else if (RadioConfig.LoadForRadio(_rig!.SelectedRadioSerial ?? "").Ownership
+                     == RadioOwnership.SomeoneElses)
+            {
+                // Marked as somebody else's: the option is not offered at all
+                // (#94 — writing to the radio is surfaced only on radios the
+                // operator has marked as theirs). A read-only line takes its
+                // place so the absence is explained rather than merely felt,
+                // and it names where the answer can be changed. A disabled
+                // radio button would sit in the visual order saying nothing.
+                var notOffered = new TextBox
+                {
+                    Text = "Creating a mic profile on the radio is not offered here, because "
+                         + "you have marked this radio as someone else's. A mic profile lives "
+                         + "on the radio and is shared with everyone connected to it. Your "
+                         + "computer settings still save normally. Settings, Radios tab is "
+                         + "where that answer can be changed.",
+                    IsReadOnly = true,
+                    IsReadOnlyCaretVisible = true,
+                    TextWrapping = TextWrapping.Wrap,
+                    AcceptsReturn = true,
+                    Margin = new Thickness(0, 2, 0, 2),
+                };
+                AutomationProperties.SetName(notOffered,
+                    "Why creating a mic profile on the radio is not offered");
+                panel.Children.Add(notOffered);
+            }
             else
             {
                 createOption = new RadioButton
@@ -1557,7 +1781,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 JJFlexHelp.SetText(createOption,
                     "Writes a new mic profile to the radio itself, holding its "
                     + "current TX settings. Offered because no radio mic profile "
-                    + "is loaded right now — done only if you choose it here.");
+                    + "is loaded right now — done only if you choose it here. "
+                    + "A mic profile lives on the radio and is shared with every "
+                    + "program connected to it, so on a radio JJ Flex does not yet "
+                    + "know to be yours, it asks whose it is before creating one.");
                 panel.Children.Add(createOption);
             }
 
@@ -1621,18 +1848,37 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 }
                 else if (createOption?.IsChecked == true)
                 {
-                    // The explicit offer, taken: SelectProfile's mic case
-                    // creates the profile on the radio when it is missing and
-                    // loads it; the radio autosaves its current TX settings
-                    // into it from here on.
-                    _rig.SelectProfile(new Profile_t(name, ProfileTypes.mic, false));
-                    profile.SetSetupFor(new RadioProfileReference
+                    // The explicit offer, taken — and the first moment the app
+                    // needs to know whose radio this is (#94). The question is
+                    // asked here rather than when the option was ticked, so it
+                    // fires exactly once per save instead of on every change of
+                    // mind, and so it arrives attached to a commit the operator
+                    // just made.
+                    if (MayCreateOnRadio(radioId,
+                            "You asked JJ Flex to create a mic profile named " + name
+                            + " on the radio itself."))
                     {
-                        RadioId = radioId,
-                        RadioModel = _rig.RadioModel,
-                        ProfileName = name,
-                    });
-                    radioHalfSpoken = $"A mic profile named {name} was created on the radio and referenced.";
+                        // SelectProfile's mic case creates the profile on the
+                        // radio when it is missing and loads it; the radio
+                        // autosaves its current TX settings into it from here on.
+                        _rig.SelectProfile(new Profile_t(name, ProfileTypes.mic, false));
+                        profile.SetSetupFor(new RadioProfileReference
+                        {
+                            RadioId = radioId,
+                            RadioModel = _rig.RadioModel,
+                            ProfileName = name,
+                        });
+                        radioHalfSpoken = $"A mic profile named {name} was created on the radio and referenced.";
+                    }
+                    else
+                    {
+                        // Declined, or the radio is marked as someone else's.
+                        // The computer half still saved — refusing the whole
+                        // save would punish the operator for answering
+                        // honestly — and the radio was not touched. Say both.
+                        radioHalfSpoken = "Nothing was created on the radio, so your computer "
+                            + "settings were saved on their own.";
+                    }
                 }
                 else if (snapshotOption?.IsChecked == true)
                 {

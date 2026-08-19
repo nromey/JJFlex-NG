@@ -158,6 +158,54 @@ namespace Radios
     }
 
     /// <summary>
+    /// Whose radio this is, as the OPERATOR declares it (Sprint 31 Track S,
+    /// task #94, ratified 2026-08-19). Numeric values are stable for saved
+    /// configs.
+    ///
+    /// <para><b>This cannot be derived, and the temptation to derive it is the
+    /// whole reason the enum exists.</b> Registration was the obvious
+    /// candidate — your radio if it is registered to your account — and it
+    /// fails on the exact case that raised the question: Noel connected to
+    /// Margaret's radio USING MARGARET'S ACCOUNT, so to SmartLink he WAS the
+    /// owner. Registration answers who has ACCESS, and access and ownership
+    /// diverge the moment anyone helps anyone else, which is most of what a
+    /// tester pool does. Two more cases no inference can see: a LAN-only radio
+    /// has no registration at all, and Don's 6300 lives at Tony's house —
+    /// local to Tony, remote to Don, unambiguously Don's — so physical
+    /// location does not settle it either. Discovery or registration may SEED
+    /// a suggested answer at the moment of asking; neither may decide.</para>
+    ///
+    /// <para><b>It is a declaration of intent, not a security control.</b> The
+    /// question "how do we stop someone marking a radio that is not theirs?"
+    /// has one honest answer: we do not, and we should not try. JJ Flex is not
+    /// defending against a malicious operator — it is protecting an honest one
+    /// from an accident. Anyone who deliberately marks another person's radio
+    /// as theirs has taken that on knowingly. Do not build enforcement on top
+    /// of this; enforcement would cost every honest operator friction and buy
+    /// nothing against the dishonest one.</para>
+    /// </summary>
+    public enum RadioOwnership
+    {
+        /// <summary>Not answered. The DEFAULT, and it means guest behaviour:
+        /// nothing new is created on the radio without asking first. Also the
+        /// only value that lets the question be raised, so a radio that has
+        /// been answered — either way — is never asked about again.</summary>
+        Unset = 0,
+
+        /// <summary>"This radio is mine." JJ Flex may create radio-side state
+        /// on it as ordinary housekeeping.</summary>
+        Mine = 1,
+
+        /// <summary>"This is someone else's radio." A real answer, not a
+        /// deferral: the question stops being raised, and any action that
+        /// would create new radio-side state says plainly why it is not
+        /// offering itself. Reversible from the Radios tab in Settings — an
+        /// operator who buys a friend's rig should not have to guess where the
+        /// answer went.</summary>
+        SomeoneElses = 2,
+    }
+
+    /// <summary>
     /// Per-radio configuration, keyed by radio serial (or, for future non-Flex
     /// rigs, whatever stable identifier the backend provides). Stored at
     /// <c>{BaseConfigDir}\radios\{radioId}\config.xml</c>.
@@ -453,6 +501,121 @@ namespace Radios
             cfg.PcAudioLastStateKnown = true;
             cfg.PcAudioLastOn = on;
             cfg.SaveForRadio(radioId);
+        }
+
+        // ---------------------------------------------------------------
+        // Ownership (Sprint 31 Track S, 2026-08-19, task #94).
+        //
+        // The layer beneath the microphone-profile model: the app had no
+        // concept of WHOSE RADIO it was connected to, and two real behaviours
+        // needed one. See the RadioOwnership enum for why it cannot be
+        // inferred and why it is not a security control.
+        //
+        // APPEND-ONLY, like the roster block above: an absent element
+        // deserialises to Unset, which is the safe guest default, so every
+        // config.xml written before this shipped behaves exactly as it did.
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Whose radio this is, as the operator declared it. Default Unset —
+        /// guest behaviour, and the state in which the question may be raised.
+        /// </summary>
+        public RadioOwnership Ownership { get; set; } = RadioOwnership.Unset;
+
+        /// <summary>
+        /// Whether JJ Flex may CREATE new state on this radio without stopping
+        /// to ask: profiles, settings that persist for every client, anything
+        /// the operator did not individually request.
+        ///
+        /// <para><b>Applying an existing binding is deliberately NOT gated on
+        /// this.</b> A microphone profile that names a radio-side mic profile
+        /// for THIS radio was bound by the operator, on this radio, earlier —
+        /// the binding IS the consent, and re-checking it here would break a
+        /// working setup on the day the flag shipped. What this gates is
+        /// creating radio-side state that does not exist yet, and unrequested
+        /// housekeeping writes. (Ratified 2026-08-19; see
+        /// docs/planning/design/Mic-Profile-Ownership.md.)</para>
+        /// </summary>
+        [XmlIgnore]
+        public bool MayCreateRadioSideState => Ownership == RadioOwnership.Mine;
+
+        /// <summary>
+        /// True when the operator has answered the ownership question for this
+        /// radio, either way. The condition for NOT asking again.
+        /// </summary>
+        [XmlIgnore]
+        public bool OwnershipAnswered => Ownership != RadioOwnership.Unset;
+
+        /// <summary>Ownership for a radio id, without the caller loading a
+        /// whole config. Unknown ids read as Unset, which is the safe
+        /// answer.</summary>
+        public static RadioOwnership OwnershipOf(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return RadioOwnership.Unset;
+            return LoadForRadio(radioId).Ownership;
+        }
+
+        /// <summary>
+        /// Record the operator's ownership answer for a radio. Skips the disk
+        /// write when nothing changed. Returns false only when the value could
+        /// not reach disk — callers should still honour the answer for this
+        /// session, per SaveForRadio's contract.
+        /// </summary>
+        public static bool RecordOwnership(string radioId, RadioOwnership value)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            var cfg = LoadForRadio(radioId);
+            if (cfg.Ownership == value) return true;
+            cfg.Ownership = value;
+            Tracing.TraceLine(
+                $"RadioConfig: ownership of {radioId} declared {value} by the operator.",
+                System.Diagnostics.TraceLevel.Info);
+            return cfg.SaveForRadio(radioId);
+        }
+
+        /// <summary>
+        /// What to PRE-SELECT when the ownership question is asked — never
+        /// what to store. A radio last seen through the operator's own
+        /// preferred SmartLink account, or one that has only ever been seen on
+        /// the local network, are both weak evidence of "mine"; neither is
+        /// proof, and the caller must present the suggestion AS a suggestion.
+        /// Returns Unset when nothing worth suggesting is known.
+        /// </summary>
+        /// <param name="operatorAccount">The SmartLink account the operator
+        /// signs in as, or empty when they use none.</param>
+        public RadioOwnership SuggestOwnership(string? operatorAccount)
+        {
+            // Seen over SmartLink through an account that is not the
+            // operator's own is the one signal that points AWAY from "mine" —
+            // and even that is only a hint, because a shared club account
+            // exists and a borrowed login exists. Never returns SomeoneElses:
+            // suggesting "not yours" about a radio that IS yours would teach
+            // the operator to dismiss this question without reading it.
+            if (!string.IsNullOrEmpty(operatorAccount)
+                && !string.IsNullOrEmpty(LastSeenViaAccount)
+                && !string.Equals(LastSeenViaAccount, operatorAccount,
+                                  StringComparison.OrdinalIgnoreCase))
+            {
+                return RadioOwnership.Unset;
+            }
+
+            if (!string.IsNullOrEmpty(operatorAccount)
+                && string.Equals(LastSeenViaAccount, operatorAccount,
+                                 StringComparison.OrdinalIgnoreCase))
+            {
+                return RadioOwnership.Mine;
+            }
+
+            // Local-only sighting: no registration exists to reason from at
+            // all, which is exactly the case that killed the derive-it idea.
+            // A radio on your own network, never seen remotely, is still the
+            // most likely thing to be yours.
+            if (!LastSeenRemote && LastSeenUtc != DateTime.MinValue)
+            {
+                return RadioOwnership.Mine;
+            }
+
+            return RadioOwnership.Unset;
         }
 
         /// <summary>

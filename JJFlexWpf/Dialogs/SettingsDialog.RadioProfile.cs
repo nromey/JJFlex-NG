@@ -48,6 +48,8 @@ namespace JJFlexWpf.Dialogs
             public bool NoPhysicalAccessTouched;
             public RemOnOnConnectModes RemOn;
             public SmartLinkIntents SmartLinkIntent;
+            /// <summary>Whose radio this is (Sprint 31 Track S, #94).</summary>
+            public RadioOwnership Ownership;
             public string NicknameText = "";
             /// <summary>What the nickname box was loaded with, so "dirty" means
             /// "the user changed it", not "the stored mirror disagrees with the
@@ -189,6 +191,8 @@ namespace JJFlexWpf.Dialogs
                 RemOn = (RemOnOnConnectModes)Math.Max(0, RadioProfileRemOnCombo.SelectedIndex),
                 SmartLinkIntent =
                     (SmartLinkIntents)Math.Max(0, RadioProfileSmartLinkIntentCombo.SelectedIndex),
+                Ownership =
+                    (RadioOwnership)Math.Max(0, RadioProfileOwnershipCombo.SelectedIndex),
                 NicknameText = RadioProfileNicknameBox.Text?.Trim() ?? "",
                 LoadedNickname = _currentProfileLoadedNickname,
             };
@@ -215,6 +219,17 @@ namespace JJFlexWpf.Dialogs
                 RadioProfileRemOnCombo.SelectedIndex = (int)(stashed?.RemOn ?? cfg.RemOnOnConnect);
                 RadioProfileSmartLinkIntentCombo.SelectedIndex =
                     (int)(stashed?.SmartLinkIntent ?? cfg.SmartLinkIntent);
+
+                // Ownership loads as SAVED, never as a guess (#94). The
+                // no-physical-access box below pre-populates from a guess and
+                // says so, and that is right for it — wrongly guessing
+                // "reachable" only costs a suppressed warning. Guessing wrong
+                // here would pre-arm writes to a radio that is not the
+                // operator's, so this control shows exactly what was declared
+                // and nothing else. The suggestion has a home: the ask dialog,
+                // where it appears as a sentence saying it is a guess.
+                RadioProfileOwnershipCombo.SelectedIndex =
+                    (int)(stashed?.Ownership ?? cfg.Ownership);
 
                 // No-physical-access: an explicit choice loads as saved (or as
                 // stashed). Before any explicit choice, pre-populate from the
@@ -315,7 +330,16 @@ namespace JJFlexWpf.Dialogs
                 SmartLinkIntents.WantsSmartLink => " Meant to be reachable from away.",
                 _ => "",
             };
-            return $"Profile: {mode}{port}.{waivers}{reach}{remOn}{smartLink}";
+            // Same rule as the two above: only the answered states speak.
+            // "Nobody has said whose this is" on every radio would bury the
+            // ones that have an answer.
+            string owned = cfg.Ownership switch
+            {
+                RadioOwnership.Mine => " Yours.",
+                RadioOwnership.SomeoneElses => " Someone else's.",
+                _ => "",
+            };
+            return $"Profile: {mode}{port}.{waivers}{reach}{remOn}{smartLink}{owned}";
         }
 
         private void RadioProfileMode_Checked(object sender, RoutedEventArgs e)
@@ -396,6 +420,37 @@ namespace JJFlexWpf.Dialogs
                 (int)SmartLinkIntents.WantsSmartLink =>
                     "Meant to be reachable from away. Registration reminders stay on for this radio.",
                 _ => "You will be asked about reaching this radio from away when it next comes up.",
+            };
+            ScreenReaderOutput.Speak(what + " Press Apply or OK to keep it.",
+                VerbosityLevel.Terse, interrupt: true);
+        }
+
+        /// <summary>
+        /// Whose radio this is (Sprint 31 Track S, #94). The standing surface
+        /// for an answer that is otherwise only asked at the moment an action
+        /// needs it — and, just as importantly, the place to take it back.
+        ///
+        /// <para>No cascade, no confirmation, no warning about marking a radio
+        /// that is not yours. Ownership is a declaration of intent rather than
+        /// a security control; challenging the operator here would be the app
+        /// pretending to verify something it cannot see, and would tax the
+        /// honest answer to inconvenience a dishonest one for about two
+        /// seconds.</para>
+        /// </summary>
+        private void RadioProfileOwnershipCombo_SelectionChanged(
+            object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressRadioProfileEvents) return;
+            string what = RadioProfileOwnershipCombo.SelectedIndex switch
+            {
+                (int)RadioOwnership.Mine =>
+                    "Yours. JJ Flex can create settings on this radio itself without asking each time.",
+                (int)RadioOwnership.SomeoneElses =>
+                    "Someone else's. JJ Flex will not create anything new on this radio, and will "
+                    + "stop asking. Anything you have already set up for it keeps working.",
+                _ =>
+                    "Not answered. JJ Flex will ask the next time something needs to be created on "
+                    + "this radio.",
             };
             ScreenReaderOutput.Speak(what + " Press Apply or OK to keep it.",
                 VerbosityLevel.Terse, interrupt: true);
@@ -772,6 +827,24 @@ namespace JJFlexWpf.Dialogs
                         SmartLinkIntents.WantsSmartLink =>
                             $"{disp}: marked as one you want to reach from away.",
                         _ => $"{disp}: you will be asked about reaching it from away again.",
+                    });
+                }
+
+                if (cfg.Ownership != edit.Ownership)
+                {
+                    cfg.Ownership = edit.Ownership;
+                    changed = true;
+                    notesApplied.Add(edit.Ownership switch
+                    {
+                        RadioOwnership.Mine =>
+                            $"{disp}: marked as yours. JJ Flex can create settings on it without "
+                            + "asking each time.",
+                        RadioOwnership.SomeoneElses =>
+                            $"{disp}: marked as someone else's. Nothing new will be created on it, "
+                            + "and anything you already set up for it keeps working.",
+                        _ =>
+                            $"{disp}: whose radio it is is unanswered again. You will be asked the "
+                            + "next time something needs to be created on it.",
                     });
                 }
 
