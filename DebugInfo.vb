@@ -45,9 +45,16 @@ Friend Class DebugInfo
             Return
         End If
 
-        If Tracing.On Then
-            Tracing.TraceLine("GetDebugInfo:Tracing turned off")
-            Tracing.On = False
+        ' The live log has to release its file so the whole settings folder can
+        ' be zipped. Settle the session properly rather than just flipping the
+        ' switch, so this bundle's own trace lands in the archive along with
+        ' everything else — and so the next boot does not find a leftover file
+        ' and tag a perfectly clean run as "killed".
+        Dim wasLogging As Boolean = Tracing.On
+        If wasLogging Then
+            Tracing.TraceLine("GetDebugInfo: closing the diagnostic log to bundle the settings folder")
+            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
+                "Diagnostic log closed to build a problem report bundle")
         End If
 
         Try
@@ -163,6 +170,12 @@ Friend Class DebugInfo
             End Try
             MessageBox.Show(gatherFailed, ErrorHdr, MessageBoxButtons.OK)
         Finally
+            ' Put the log back. This used to be the end of the diagnostic log for
+            ' the rest of the session: gathering debug info turned tracing off and
+            ' nothing ever turned it back on, so the machine flew unrecorded until
+            ' the next launch — starting from the exact moment the operator had
+            ' proved they were chasing a problem.
+            If wasLogging Then RestartDiagnosticLog("problem report bundle finished")
             openDialog.Dispose()
         End Try
     End Sub

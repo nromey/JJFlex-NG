@@ -3,6 +3,24 @@ using Microsoft.Win32;
 
 namespace JJFlexWpf.Dialogs
 {
+    /// <summary>
+    /// RETIRED as of Sprint 30 Track D. No menu opens this any more — Help >
+    /// Tracing is gone and its job belongs to Settings > Diagnostics (reachable
+    /// from Tools > Diagnostics), per the ratified design at
+    /// docs/planning/active/diagnostic-log-surface.md.
+    ///
+    /// The type is kept for one release rather than deleted, the same way
+    /// AuthForm was kept when WebView2 replaced it: this sprint merges five
+    /// tracks and the Settings tab is the surface most likely to need backing
+    /// out, and a corrected fallback in the tree is cheaper than reconstructing
+    /// one under pressure. It is corrected: it reads live Tracing.On instead of
+    /// assuming false, routes start and stop through the session-aware plumbing
+    /// instead of flipping Tracing.On behind the archive's back, and defaults to
+    /// the real log file instead of Documents\JJRadioTrace.txt.
+    ///
+    /// Delete this file, its XAML, and the entry in the .csproj once 4.1.17 has
+    /// shipped with the Diagnostics tab.
+    /// </summary>
     public partial class TraceAdminDialog : JJFlexDialog
     {
         private static readonly string[] TraceLevels = { "Off", "Error", "Warning", "Info", "Verbose" };

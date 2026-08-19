@@ -340,6 +340,14 @@ public static class KeyInventory
             new[] { "frequency", "enter", "leader" }, "Radio", "General"),
         new("Leader", "Leader key", "Ctrl+J, D", "Toggle tuning speech debounce",
             new[] { "debounce", "tuning", "speech", "leader" }, "Global", "General"),
+        // Sprint 30 Track D. Ctrl+D, not plain D — plain D has been debounce
+        // since before the diagnostic-log design was written — and not Shift+D,
+        // which sits inside the Shift+A-Shift+H slice-jump range. Ctrl+J, Ctrl+F
+        // is the in-layer precedent for a Ctrl-modified follow-on key.
+        new("Leader", "Leader key", "Ctrl+J, Ctrl+D",
+            "Start or stop a detailed capture of what the app is doing",
+            new[] { "capture", "detailed", "diagnostic", "diagnostics", "trace", "tracing", "log",
+                    "record", "bug", "problem", "report", "verbose", "leader" }, "Global", "General"),
         new("Leader", "Leader key", "Ctrl+J, L", "Speak log statistics",
             new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
         new("Leader", "Leader key", "Ctrl+J, M", "Open the memories dialog",
@@ -447,6 +455,33 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] FinderDoors =
     {
+        // Sprint 30 Track D. Three doors, because the operator hunting these
+        // may search for any of "trace", "log", "diagnostic" or "bug" — the
+        // vocabularies of the old surface, the new one, and the problem.
+        new FixedKeyEntry
+        {
+            Description = "Diagnostics settings - what JJ Flex records, how much detail, and where it goes",
+            Scope = "Global", Group = "Diagnostics",
+            MenuText = "Tools menu, Diagnostics (also Settings, Diagnostics tab)",
+            Keywords = new[] { "diagnostic", "diagnostics", "log", "logging", "trace", "tracing",
+                               "detail", "verbose", "record", "problem", "bug", "report", "privacy" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "Saved diagnostic logs - find, read, export or delete a past session",
+            Scope = "Global", Group = "Diagnostics",
+            MenuText = "Settings, Diagnostics tab, Browse saved logs",
+            Keywords = new[] { "saved", "diagnostic", "logs", "archive", "browse", "trace", "session",
+                               "export", "history", "prune", "delete", "old" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "Save a problem report bundle - everything the developer needs, in one file",
+            Scope = "Global", Group = "Diagnostics",
+            MenuText = "Settings, Diagnostics tab, Save a problem report bundle",
+            Keywords = new[] { "problem", "report", "bundle", "debug", "gather", "support",
+                               "send", "developer", "zip", "diagnostic" },
+        },
         new FixedKeyEntry
         {
             Description = "Transmit slice: set, move, or clear (Transmit slice field)",

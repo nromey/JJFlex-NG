@@ -2800,6 +2800,21 @@ public class KeyCommands
                 ToggleTuneDebounce();
                 break;
 
+            // Ctrl+D = Diagnostics: start or stop a detailed capture from
+            // anywhere, including from inside whatever dialog is misbehaving.
+            //
+            // Ctrl+D rather than plain D because plain D has been tuning speech
+            // debounce since before the diagnostic-log design was written; and
+            // rather than Shift+D because that sits inside the Shift+A-Shift+H
+            // slice-jump range. Ctrl+F (enter a frequency) is the in-layer
+            // precedent for a Ctrl-modified follow-on key.
+            //
+            // Works with no radio connected on purpose — "it will not connect"
+            // is precisely the problem worth capturing.
+            case Keys.D | Keys.Control:
+                ToggleDetailedCaptureFromChord();
+                break;
+
             // Log Stats (moved from Ctrl+Shift+T)
             case Keys.L:
                 _context.LogStats();
@@ -3334,6 +3349,32 @@ public class KeyCommands
         int width = high - low;
         string widthKHz = (width / 1000.0).ToString("F1");
         Radios.ScreenReaderOutput.Speak($"TX filter {low} to {high}, {widthKHz} kilohertz", Radios.VerbosityLevel.Terse);
+    }
+
+    /// <summary>
+    /// Ctrl+J, Ctrl+D — start or stop a detailed capture.
+    ///
+    /// The chord exists because the Settings dialog may be part of the problem
+    /// being captured, and because the moment worth recording is rarely a
+    /// moment when you can go looking for a menu. Same implementation, same
+    /// spoken confirmations, as the Diagnostics tab's button and the Command
+    /// Finder command — one behaviour with three doors, not three behaviours.
+    /// </summary>
+    private void ToggleDetailedCaptureFromChord()
+    {
+        if (!DiagnosticsBridge.IsAvailable)
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak("Detailed capture is not available.",
+                Radios.VerbosityLevel.Critical);
+            return;
+        }
+        // Earcon first, so the operator knows the chord landed even before the
+        // sentence starts — a capture toggle is exactly the kind of thing you
+        // press while something else is already talking.
+        if (DiagnosticsBridge.Capturing()) EarconPlayer.FeatureOffTone();
+        else EarconPlayer.FeatureOnTone();
+        DiagnosticsBridge.ToggleCapture("Ctrl+J Ctrl+D");
     }
 
     private void LeaderKeyHelp()
