@@ -11,9 +11,10 @@ namespace JJFlexWpf
     /// BY the VB project, not the other way round, so the surface cannot call
     /// the plumbing by name. Every earlier attempt at this problem in the
     /// codebase solved it by re-implementing the plumbing on the UI side — which
-    /// is exactly how TraceAdminDialog ended up starting traces that bypassed
-    /// the session archive, misfiled them to Documents, and left the next boot
-    /// tagging a perfectly clean exit as "killed".
+    /// is exactly how the retired trace dialog (deleted in Sprint 31) ended up
+    /// starting traces that bypassed the session archive, misfiled them to
+    /// Documents, and left the next boot tagging a perfectly clean exit as
+    /// "killed".
     ///
     /// One implementation, four callers (Settings tab, Command Finder command,
     /// the Ctrl+J Ctrl+D chord, and later the feedback dialog). Every member is
@@ -47,18 +48,14 @@ namespace JJFlexWpf
         /// <summary>Apply and persist (keepLog, detailLevel) immediately.</summary>
         public static Action<bool, int>? ApplySettings { get; set; }
 
-        /// <summary>
-        /// Redirect the log to an explicit path at an explicit TraceLevel,
-        /// settling the current session first. Only the retired trace dialog
-        /// uses this; it exists so that even the fallback cannot flip
-        /// Tracing.On without archiving, which is the bypass that used to leave
-        /// manual traces invisible to the browser and got the next boot tagging
-        /// a clean exit as "killed".
-        /// </summary>
-        public static Action<string, int>? StartLogAt { get; set; }
-
-        /// <summary>Stop and archive the current session. Fallback path only.</summary>
-        public static Action? StopLog { get; set; }
+        // StartLogAt / StopLog removed Sprint 31 (#103). They existed for the
+        // retired trace dialog's "pick a file, pick a level, start" flow and
+        // nothing else ever called them — not even that dialog, in the end,
+        // which drove its own unwired delegates. Deleting the dialog deleted
+        // the only reason to expose a way of pointing the log somewhere other
+        // than the settings folder, which is exactly the bypass that used to
+        // leave manual traces invisible to the browser and got the next boot
+        // tagging a clean exit as "killed".
 
         // ── Where things live ────────────────────────────────────────────
 

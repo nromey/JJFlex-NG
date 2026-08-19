@@ -429,8 +429,8 @@ Module globals
     ''' Tell every diagnostics surface that the log's state changed — on, off,
     ''' detail level, capture started or stopped. The status line subscribes so
     ''' it re-reads reality rather than caching a copy of it. That caching is
-    ''' exactly how TraceAdminDialog ended up announcing "Start tracing" for a
-    ''' trace that was already running.
+    ''' exactly how the retired trace dialog (deleted in Sprint 31) ended up
+    ''' announcing "Start tracing" for a trace that was already running.
     ''' </summary>
     Friend Sub RaiseDiagnosticLogStateChanged()
         Try
@@ -457,8 +457,6 @@ Module globals
             JJFlexWpf.DiagnosticsBridge.StopCapture = Sub() StopDetailedCapture()
             JJFlexWpf.DiagnosticsBridge.ApplySettings =
                 Sub(keep, detail) ApplyDiagnosticLogSettings(keep, CType(detail, Radios.DiagnosticDetail))
-            JJFlexWpf.DiagnosticsBridge.StartLogAt = Sub(path, lvl) StartLogAtPath(path, CType(lvl, TraceLevel))
-            JJFlexWpf.DiagnosticsBridge.StopLog = Sub() StopLogSessionAware()
             JJFlexWpf.DiagnosticsBridge.LiveLogPath =
                 Function() If(Tracing.TraceFile, If(BootTrace, BootTraceFileName, String.Empty))
             JJFlexWpf.DiagnosticsBridge.LogFolder = Function() BaseConfigDir
@@ -486,42 +484,15 @@ Module globals
         End Try
     End Sub
 
-    ''' <summary>
-    ''' Redirect the log to an explicit file at an explicit level, settling the
-    ''' current session first. The rule that must never be broken: nothing flips
-    ''' Tracing.On without archiving what was already open. Breaking it is what
-    ''' made the old dialog's traces invisible to the browser and made the next
-    ''' boot's leftover sweep tag a clean exit as "killed".
-    ''' </summary>
-    Friend Sub StartLogAtPath(path As String, lvl As TraceLevel)
-        Try
-            If String.IsNullOrWhiteSpace(path) Then Return
-            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
-                "Diagnostic log redirected to a chosen file")
-            Tracing.TheSwitch.Level = lvl
-            Tracing.TraceFile = path
-            Tracing.On = True
-            BeginNewTraceSession()
-            LastUserTraceFile = path
-            Tracing.TraceLine(
-                $"Diagnostic log redirected {Date.Now:O} to {path} level={Tracing.TheSwitch.Level}")
-        Catch ex As Exception
-            Tracing.ErrTraceOnly(ex)
-        End Try
-        RaiseDiagnosticLogStateChanged()
-    End Sub
-
-    ''' <summary>Stop the log, archiving the session on the way out.</summary>
-    Friend Sub StopLogSessionAware()
-        Try
-            Tracing.TraceLine("Diagnostic log stopped by the operator")
-            ArchiveCurrentTraceSession(TraceSessionOutcome.CleanExit,
-                "Operator stopped the diagnostic log")
-        Catch ex As Exception
-            Tracing.ErrTraceOnly(ex)
-        End Try
-        RaiseDiagnosticLogStateChanged()
-    End Sub
+    ' StartLogAtPath / StopLogSessionAware removed Sprint 31 (#103) along with
+    ' the retired trace dialog they served. Nothing else called either one:
+    ' redirecting the log to a file of the operator's choosing was that
+    ' dialog's whole idea, and it is the idea the diagnostic-log surface
+    ' replaced. The log now lives in one place, rotates there, archives there,
+    ' and is exported by copying — not by being pointed somewhere else while it
+    ' runs. The rule those two existed to protect still holds and is now
+    ' enforced by there being no way to break it: nothing flips Tracing.On
+    ' without archiving what was already open.
 
     ''' <summary>
     ''' Open the Saved Diagnostic Logs window — the repurposed TraceAdmin form,

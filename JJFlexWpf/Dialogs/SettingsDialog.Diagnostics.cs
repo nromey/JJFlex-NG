@@ -32,7 +32,16 @@ namespace JJFlexWpf.Dialogs
             if (!_diagWired)
             {
                 DiagnosticsBridge.StateChanged += OnDiagnosticStateChanged;
-                Closed += (_, _) => DiagnosticsBridge.StateChanged -= OnDiagnosticStateChanged;
+                // The problem count is live for the same reason the log state
+                // is: a failure can happen while this tab is open, and a count
+                // that was true when the tab was drawn is exactly the kind of
+                // cached fiction the retired trace dialog shipped.
+                ProblemLog.Changed += OnDiagnosticStateChanged;
+                Closed += (_, _) =>
+                {
+                    DiagnosticsBridge.StateChanged -= OnDiagnosticStateChanged;
+                    ProblemLog.Changed -= OnDiagnosticStateChanged;
+                };
                 _diagWired = true;
             }
             RefreshDiagnosticsTab();
@@ -48,7 +57,17 @@ namespace JJFlexWpf.Dialogs
         {
             if (e.NewValue is not true) return;
             RefreshDiagnosticsTab();
-            try { DiagnosticsBridge.Speak?.Invoke(DiagnosticsBridge.State()); } catch { }
+            try
+            {
+                // The problem count leads when there IS one. Someone arriving on
+                // this tab has almost always come because something went wrong,
+                // and "2 problems recorded this session" answers that before the
+                // log's own state does.
+                string spoken = DiagnosticsBridge.State();
+                if (ProblemLog.Count > 0) spoken = ProblemLog.Summary() + ". " + spoken;
+                DiagnosticsBridge.Speak?.Invoke(spoken);
+            }
+            catch { }
         }
 
         private void OnDiagnosticStateChanged(object? sender, EventArgs e)
@@ -108,12 +127,43 @@ namespace JJFlexWpf.Dialogs
                 DiagPathText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty,
                     DiagPathText.Text);
 
+                UpdateProblemCount();
                 UpdateCaptureButton();
             }
             finally
             {
                 _diagSuppressEvents = false;
             }
+        }
+
+        /// <summary>
+        /// The problem count, and whether there is anything to open.
+        ///
+        /// This is the discoverability half of #100: the chord is the fast door,
+        /// this is the one an operator finds without being told a key exists.
+        /// The button is COLLAPSED rather than disabled when the list is empty —
+        /// a disabled control stays in the tab order, and there is nothing
+        /// behind it to reach.
+        /// </summary>
+        private void UpdateProblemCount()
+        {
+            if (DiagProblemCountText == null) return;
+
+            int n = ProblemLog.Count;
+            DiagProblemCountText.Text = n == 0
+                ? "No problems recorded this session."
+                : $"{ProblemLog.Summary()}. The newest is at the top of the list.";
+            System.Windows.Automation.AutomationProperties.SetName(
+                DiagProblemCountText, DiagProblemCountText.Text);
+
+            DiagShowProblemsButton.Visibility = n == 0 ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void DiagShowProblemsButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Same door as the chord, so the two can never disagree about what
+            // an empty list means or what the window says.
+            ProblemsDialog.ShowOrSpeakEmpty(this);
         }
 
         /// <summary>
