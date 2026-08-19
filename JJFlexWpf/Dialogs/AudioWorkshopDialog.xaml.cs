@@ -1108,7 +1108,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             Margin = new Thickness(2)
         };
         AutomationProperties.SetName(checkButton, "Check Microphone");
-        AutomationProperties.SetHelpText(checkButton,
+        JJFlexHelp.SetText(checkButton,
             "Opens the Audio Devices window and listens to your microphone. "
             + "The radio is not involved and nothing is transmitted.");
         checkButton.Click += (s, e) => OpenMicrophoneCheck();
@@ -1224,7 +1224,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AddSectionHeader(TxAudioContent, "Microphone Profiles");
 
         _micProfileControl = MakeCycle("Microphone profile", new[] { NoMicProfilesOption });
-        AutomationProperties.SetHelpText(_micProfileControl,
+        JJFlexHelp.SetText(_micProfileControl,
             "A saved setup for one microphone: its computer settings plus, per "
             + "radio, the radio's own mic profile to load. Apply puts it into "
             + "effect; nothing changes until you do.");
@@ -1385,7 +1385,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     GroupName = "MicProfileRadioHalf",
                     IsChecked = true,
                 };
-                AutomationProperties.SetHelpText(referenceOption,
+                JJFlexHelp.SetText(referenceOption,
                     "The radio keeps its own mic profile; this profile just names "
                     + "which one to load. Nothing is copied, so other clients and "
                     + "this app always agree.");
@@ -1399,7 +1399,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                     Margin = new Thickness(0, 2, 0, 2),
                     GroupName = "MicProfileRadioHalf",
                 };
-                AutomationProperties.SetHelpText(createOption,
+                JJFlexHelp.SetText(createOption,
                     "Writes a new mic profile to the radio itself, holding its "
                     + "current TX settings. Offered because no radio mic profile "
                     + "is loaded right now — done only if you choose it here.");
@@ -1413,7 +1413,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 GroupName = "MicProfileRadioHalf",
                 IsChecked = referenceOption == null,
             };
-            AutomationProperties.SetHelpText(snapshotOption,
+            JJFlexHelp.SetText(snapshotOption,
                 "Copies mic gain, EQ, compander, processor and filter values "
                 + "into the profile file. The shape used for radios that have "
                 + "no profile system of their own; on a Flex, referencing is "
