@@ -1685,7 +1685,12 @@ public class NativeMenuBar : IDisposable
             // home-arrival announcement via DisplayBox_GotKeyboardFocus,
             // restoring orientation cleanly. 2026-04-24 fix flagged by Noel
             // after Phase 8c-ii About dialog rework.
-            _window.FreqOut.FocusDisplay();
+            //
+            // Through FocusHome (Sprint 30 Track A): with no radio the
+            // frequency display is COLLAPSED behind the rescue page, and
+            // Focus() on a collapsed element quietly fails — which is the exact
+            // "focus lands nowhere" this comment was written to prevent.
+            _window.FocusHome();
         });
     }
 

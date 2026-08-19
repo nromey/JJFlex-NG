@@ -88,7 +88,7 @@ public partial class MainWindow : UserControl
                 {
                     Radios.WindowActivation.EnsureForeground(
                         System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
-                    FreqOut?.FocusDisplay();
+                    FocusHome();
                 }
             }
             catch (System.Exception ex)
@@ -185,12 +185,12 @@ public partial class MainWindow : UserControl
         FreqOut.LostKeyboardFocus += (s, e) => _brailleEngine.OnHomePositionBlurred();
 
         // Wire ScreenFieldsPanel Escape handler (Sprint 14) — once, not per-connect
-        FieldsPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
-        FieldsPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
+        FieldsPanel.EscapePressed += (s, e) => FocusHome();
+        FieldsPanel.ReturnFocusToFreqOut = () => FocusHome();
 
         // Wire MetersPanel Escape handler (Sprint 22 Phase 9)
-        MetersPanel.EscapePressed += (s, e) => FreqOut.FocusDisplay();
-        MetersPanel.ReturnFocusToFreqOut = () => FreqOut.FocusDisplay();
+        MetersPanel.EscapePressed += (s, e) => FocusHome();
+        MetersPanel.ReturnFocusToFreqOut = () => FocusHome();
 
         // Wire CW notification delegates once at construction so they're available
         // during connect (AS fires on "Connecting to X", which happens BEFORE PowerOn).
@@ -392,8 +392,16 @@ public partial class MainWindow : UserControl
         // Fires whenever Home becomes visible, INCLUDING when the connect
         // dialog was cancelled and there is no radio at all, which is another
         // reason it cannot be a connect announcement.
+        // Sprint 30 Track A — the first moment "no radio" is a fact rather than
+        // "not yet": the connect flow ran synchronously during startup and has
+        // returned by the time the shell is shown. If it produced no radio,
+        // Home becomes the rescue page before anything below moves focus.
+        EnterRescueModeIfNoRadio();
+
         string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
-        string message = $"JJ Flexible Home, {modeName} tuning mode";
+        string message = _rescueMode
+            ? $"JJ Flexible Home, no radio connected, {modeName} tuning mode"
+            : $"JJ Flexible Home, {modeName} tuning mode";
 
         // Ordering policy (live find 2026-08-04): with a startup advisory on
         // screen, this line used to talk over the dialog — and worse, the
@@ -409,8 +417,9 @@ public partial class MainWindow : UserControl
             return;
         }
 
-        // Focus FreqOut so cursor lands on the frequency display at startup
-        FreqOut.FocusDisplay();
+        // Land on the frequency display at startup — or on the rescue page's
+        // first button when there is no radio and the display is collapsed.
+        FocusHome();
         Radios.ScreenReaderOutput.Speak(
             message, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
     }
@@ -886,6 +895,161 @@ public partial class MainWindow : UserControl
 
     #endregion
 
+    #region Rescue Home — Sprint 30 Track A
+
+    /// <summary>
+    /// True while Home is the limited no-radio page.
+    ///
+    /// <para>The rescue page supersedes per-control gating on Home by
+    /// construction: instead of a full Home whose every control has to remember
+    /// to check for a radio, the page simply does not offer what cannot work.
+    /// A control that is absent cannot lie, and — the part that matters over
+    /// time — a control added to Home next year inherits the rule for free,
+    /// because it is not on this page at all.</para>
+    ///
+    /// <para>SCOPE: startup only. A radio lost mid-session does NOT bring this
+    /// page back. That case is a window transition during live operation, with
+    /// every screen-reader flush lesson applying, and it wants its own design
+    /// rather than a reuse of this one.</para>
+    /// </summary>
+    private bool _rescueMode;
+
+    /// <summary>True while Home is showing the limited no-radio page.</summary>
+    public bool InRescueMode => _rescueMode;
+
+    /// <summary>
+    /// Become the rescue page if the app finished starting up with no radio.
+    /// Called from <see cref="SpeakWelcome"/>, which is the first moment the
+    /// answer is knowable: the connect flow runs synchronously during startup,
+    /// so before it returns, "no radio" only means "not yet".
+    ///
+    /// <para>Idempotent, and one-way within a session — once a radio has
+    /// arrived, <see cref="ExitRescueMode"/> retires the page for good.</para>
+    /// </summary>
+    public void EnterRescueModeIfNoRadio()
+    {
+        if (_rescueMode || RigControl != null) return;
+        _rescueMode = true;
+        Tracing.TraceLine(
+            "Rescue Home: startup finished with no radio — showing the limited page",
+            TraceLevel.Info);
+        ApplyRescueVisibility();
+    }
+
+    /// <summary>
+    /// Hide everything on Home that needs a radio and show the rescue page.
+    /// Re-applied at the end of <see cref="ApplyUIMode"/> so a tuning-mode
+    /// switch made while disconnected cannot quietly un-hide the radio
+    /// controls behind the page.
+    /// </summary>
+    private void ApplyRescueVisibility()
+    {
+        if (!_rescueMode) return;
+
+        RescuePanel.Visibility = Visibility.Visible;
+        RadioControlsPanel.Visibility = Visibility.Collapsed;
+        FieldsPanel.Visibility = Visibility.Collapsed;
+        MetersPanel.Visibility = Visibility.Collapsed;
+        PanadapterPanel.Visibility = Visibility.Collapsed;
+        ContentArea.Visibility = Visibility.Collapsed;
+        LoggingPanel.Visibility = Visibility.Collapsed;
+        StatusText.Text = "Ready — no radio connected";
+    }
+
+    /// <summary>
+    /// A radio arrived: retire the rescue page and hand Home back to the UI
+    /// mode. Restoring through <see cref="ApplyUIMode"/> rather than by
+    /// un-collapsing each panel means the connected layout is never rebuilt
+    /// from this method's memory of what it used to look like — the mode
+    /// builders stay the single source of truth for that.
+    /// </summary>
+    public void ExitRescueMode()
+    {
+        if (!_rescueMode) return;
+        _rescueMode = false;
+        Tracing.TraceLine("Rescue Home: radio arrived — restoring the full page", TraceLevel.Info);
+
+        RescuePanel.Visibility = Visibility.Collapsed;
+        // ContentArea is the one panel the mode builders never touch; its
+        // children carry their own CW-mode visibility rules from there.
+        ContentArea.Visibility = Visibility.Visible;
+        ApplyUIMode(ActiveUIMode);
+    }
+
+    /// <summary>
+    /// Put keyboard focus on the rescue page. Returns false when the page is
+    /// not up or refused focus, so callers can fall through to their normal
+    /// landing spot rather than leaving focus nowhere.
+    /// </summary>
+    public bool FocusRescuePage()
+    {
+        if (!_rescueMode || RescuePanel.Visibility != Visibility.Visible) return false;
+        return RescueConnectButton.Focus();
+    }
+
+    /// <summary>
+    /// Land keyboard focus wherever Home currently keeps it: the rescue page's
+    /// first button when the page is up, the frequency display otherwise.
+    ///
+    /// <para>Every "put the user back on Home" path goes through here. With no
+    /// radio the frequency display is COLLAPSED, and WPF's Focus() on a
+    /// collapsed element simply fails — focus then stays on a dismissed dialog
+    /// or falls to the ElementHost pane, which a screen reader reads as "pane"
+    /// and an operator experiences as the keyboard having stopped working.
+    /// That failure is invisible in a diff, which is exactly why it gets one
+    /// funnel instead of a check at each call site.</para>
+    /// </summary>
+    public void FocusHome()
+    {
+        if (FocusRescuePage()) return;
+        FreqOut.FocusDisplay();
+    }
+
+    private void RescueConnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        // No pre-announcement here, on purpose. The connect flow opens its own
+        // windows, and a screen reader flushes its queue at every window
+        // change — anything said now is destroyed before it is heard. The
+        // arriving window carries its own state (globals.PendingDisconnectLead
+        // is the same pattern from the other direction).
+        if (SelectRadioCallback == null)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                "Connecting is not available yet — the application is still starting up.",
+                VerbosityLevel.Critical, true);
+            return;
+        }
+        SelectRadioCallback.Invoke();
+    }
+
+    private void RescueSettingsButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Empty string, not a tab name: Settings opens on its default tab.
+        // SelectTabByHeader simply reports false for an unmatched header.
+        OpenSettingsCallback?.Invoke(string.Empty);
+    }
+
+    private void RescueWorkshopButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Deliberately on this page. The Workshop's "This Computer" section and
+        // its microphone check exist precisely so an operator can prove their
+        // input works with no radio in the picture; its radio-side sections
+        // disable themselves — see AudioWorkshopDialog.UpdateRadioControlAvailability.
+        Dialogs.AudioWorkshopDialog.ShowOrFocus(RigControl, 0);
+    }
+
+    private void RescueHelpButton_Click(object sender, RoutedEventArgs e)
+    {
+        HelpLauncher.ShowHelp();
+    }
+
+    private void RescueExitButton_Click(object sender, RoutedEventArgs e)
+    {
+        CloseShellCallback?.Invoke();
+    }
+
+    #endregion
+
     #region UI Mode Management — Phase 8.5
 
     /// <summary>
@@ -946,6 +1110,12 @@ public partial class MainWindow : UserControl
                 ShowLoggingUI();
                 break;
         }
+
+        // Rescue Home outranks the mode builders while it is up: every builder
+        // above un-collapses radio controls unconditionally, so without this a
+        // tuning-mode switch made with no radio would put the frequency display
+        // and the CW text boxes back into the tab order behind the page.
+        ApplyRescueVisibility();
     }
 
     /// <summary>
@@ -1101,8 +1271,9 @@ public partial class MainWindow : UserControl
 
         ApplyUIMode(LastNonLogMode);
 
-        // Focus FreqOut display (the primary control in Classic/Modern modes)
-        FreqOut.FocusDisplay();
+        // Focus FreqOut display (the primary control in Classic/Modern modes),
+        // or the rescue page when that is what Home currently is.
+        FocusHome();
 
         Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} tuning mode", VerbosityLevel.Terse);
     }
@@ -1196,9 +1367,15 @@ public partial class MainWindow : UserControl
         // Shift+M and Shift+, (multi-slice variants) are intentionally NOT in
         // this list — they're bound in KeyCommands (Radio scope) and the
         // DoCommand-layer guard at f8c64d57 already covers them.
+        //
+        // Sprint 30 Track A: the rescue page joins the gate. With no radio the
+        // frequency display is collapsed, so FreqOut can never hold focus and
+        // this guard would never fire again — these keys would go back to being
+        // silent in exactly the situation they were written for.
         if (RigControl == null
             && Keyboard.Modifiers == ModifierKeys.None
-            && FreqOut.IsKeyboardFocusWithin
+            && (FreqOut.IsKeyboardFocusWithin
+                || (_rescueMode && RescuePanel.IsKeyboardFocusWithin))
             && IsUniversalHomeKey(rawKey))
         {
             Radios.ScreenReaderOutput.SpeakNoRadioConnected();
@@ -1468,6 +1645,11 @@ public partial class MainWindow : UserControl
     {
         Tracing.TraceLine("MainWindow.OnRadioStarted", TraceLevel.Info);
 
+        // A radio is genuinely here now, which retires the rescue page. Done at
+        // Started rather than at power-on because everything below assumes the
+        // full Home layout exists, and the two are only milliseconds apart.
+        ExitRescueMode();
+
         SetupBoxes();
 
         // Wire memory dialog delegate
@@ -1515,7 +1697,7 @@ public partial class MainWindow : UserControl
             if (_welcomeFocusPending)
             {
                 _welcomeFocusPending = false;
-                try { FreqOut.FocusDisplay(); } catch { /* window may be closing */ }
+                try { FocusHome(); } catch { /* window may be closing */ }
             }
             foreach (var (message, level) in _deferredStartupSpeech)
             {
@@ -1736,7 +1918,11 @@ public partial class MainWindow : UserControl
             // changes — without this, focus that was inside FieldsPanel when
             // it Collapses gets routed by WPF to whatever the next visible
             // focusable element happens to be, which is screen-reader hostile.
-            FreqOut.FocusDisplay();
+            //
+            // Through FocusHome so this stays correct if the mid-session
+            // radio-lost case ever adopts the rescue page (Sprint 30 Track A
+            // deliberately scoped that OUT; today this is always FreqOut).
+            FocusHome();
         }
         catch (System.Exception ex)
         {
@@ -4302,7 +4488,7 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void gotoHome()
     {
-        FreqOut.FocusDisplay();
+        FocusHome();
     }
 
     /// <summary>
