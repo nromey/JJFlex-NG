@@ -3857,6 +3857,16 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         AddEarconButton(_section ?? EarconExplorerContent, "Filter Squeeze", () => EarconPlayer.FilterSqueezeTone());
         AddEarconButton(_section ?? EarconExplorerContent, "Filter Stretch", () => EarconPlayer.FilterStretchTone());
 
+        // Warnings — the two "something is wrong" sounds, with the calm
+        // feature toggles directly beneath them. The order is the point: the
+        // alarm has to be obviously not-a-toggle, and the only way to know is
+        // to hear them back to back. Sprint 31, #111.
+        AddSectionHeader(EarconExplorerContent, "Warnings");
+        AddEarconButton(_section ?? EarconExplorerContent, "Warning Alarm", () => EarconPlayer.WarningAlarmTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Problem Recorded", () => EarconPlayer.ProblemRecordedTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Feature On (for comparison)", () => EarconPlayer.FeatureOnTone());
+        AddEarconButton(_section ?? EarconExplorerContent, "Feature Off (for comparison)", () => EarconPlayer.FeatureOffTone());
+
         // Alerts
         AddSectionHeader(EarconExplorerContent, "Alerts");
         AddEarconButton(_section ?? EarconExplorerContent, "Band Boundary Beep", () => EarconPlayer.BandBoundaryBeep());
