@@ -961,6 +961,135 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Build the ESC (Enhanced Signal Clarity) entry.
+    ///
+    /// <para>Sprint 31 Track R. ESC had no menu item anywhere, on any radio,
+    /// regardless of licence or hardware — it appeared only as one line of
+    /// prose in Tools ▸ Feature Availability. The investigation the task asked
+    /// for found something better than a missing feature: EscDialog has existed
+    /// complete since Sprint 9 Track B, with its enable toggle, phase slider,
+    /// 90 and 180 degree presets, gain slider and status line all built and
+    /// working, and NOTHING has ever constructed it. Same shape as the Saved
+    /// Diagnostic Logs browser found this month — built, then never given a
+    /// door — and the same answer: give it a door.</para>
+    ///
+    /// <para>Until now the Feature Availability report could tell an operator
+    /// "ESC: disabled" about a control the application provided no way on earth
+    /// to enable. That is the sharpest form of the silent absence this task
+    /// exists to close.</para>
+    /// </summary>
+    private void BuildEscItems(IntPtr parent)
+    {
+        if (Rig == null) return;
+
+        string? gate = EscGateMessage();
+        if (gate != null)
+        {
+            AddWired(parent, "Enhanced Signal Clarity unavailable", () =>
+                SpeakAfterMenuClose(EscGateMessage()
+                    ?? "Enhanced Signal Clarity is available — reopen this menu."));
+            return;
+        }
+
+        AddWired(parent, "Enhanced Signal Clarity", ShowEscDialog);
+    }
+
+    /// <summary>
+    /// Why ESC cannot be offered, or null when it can.
+    ///
+    /// <para>ESC shares the diversity licence (LicenseFeatDivEsc) and rides on
+    /// the diversity pair, so its gates are diversity's gates — which means
+    /// DiversityGateMessage already encodes exactly the asymmetry this needs,
+    /// including "licence status pending" for a licence never reported. Reusing
+    /// it rather than writing a second ladder means the two can never drift
+    /// into disagreeing about the same radio.</para>
+    ///
+    /// <para>Note what is deliberately NOT a gate here: diversity being
+    /// currently switched OFF. The dialog opens and explains that, because
+    /// "turn diversity on first" is an instruction the operator can act on,
+    /// while a menu item that vanishes is not.</para>
+    /// </summary>
+    private string? EscGateMessage()
+    {
+        var rig = Rig;
+        if (rig == null) return "No radio connected.";
+        if (rig.DiversityReady) return null;
+
+        string detail = NonEmpty(rig.DiversityGateMessage)
+            ?? "Enhanced Signal Clarity is not available on this radio right now.";
+        return "Enhanced Signal Clarity works on a diversity pair, so it needs everything "
+             + "diversity needs. " + detail + ".";
+    }
+
+    /// <summary>
+    /// Open the ESC dialog, wiring its delegates to the live rig.
+    /// </summary>
+    private void ShowEscDialog()
+    {
+        var rig = Rig;
+        if (rig == null) { SpeakNoRadio(); return; }
+
+        var dialog = new Dialogs.EscDialog
+        {
+            Owner = System.Windows.Window.GetWindow(_window),
+            GetEscEnabled = () => rig.EscEnabled,
+            SetEscEnabled = v => rig.EscEnabled = v,
+            GetPhaseShift = () => rig.EscPhaseShift,
+            SetPhaseShift = v => rig.EscPhaseShift = v,
+            GetEscGain = () => rig.EscGain,
+            SetEscGain = v => rig.EscGain = v,
+            HasActiveSlice = () => rig.HasActiveSlice,
+            IsDiversityReady = () => rig.DiversityReady,
+            IsDiversityOn = () => rig.DiversityOn,
+            GetDiversityGateMessage = () => NonEmpty(rig.DiversityGateMessage)
+        };
+        dialog.ShowDialog();
+
+        // Through FocusHome, the funnel that is correct with no radio — the
+        // rig can go away while a dialog is open, and the frequency display is
+        // collapsed behind the rescue page when it does.
+        _window.FocusHome();
+    }
+
+    /// <summary>
+    /// Why the antenna tuner cannot be offered on this radio, or null when it
+    /// can.
+    ///
+    /// <para>ATU is a HARDWARE gate rather than a licence gate, which is why
+    /// Track A left it — but the asymmetry AdvancedNrGateMessage encodes still
+    /// governs the wording, and it bites harder here than it looks. FlexLib's
+    /// ATUPresent and ATUEnabled are plain bools that start false, so "the
+    /// radio said no tuner" and "the radio has not said anything yet" are the
+    /// SAME value. We therefore never assert that the radio has no tuner. What
+    /// we can say truthfully in every case is that it has not reported one, and
+    /// then name the likeliest reason without claiming it about this
+    /// radio.</para>
+    ///
+    /// <para>The one genuinely distinguishable case gets its own rung: a tuner
+    /// the radio reported as fitted but not allowed. Both halves of that came
+    /// from the radio, so stating it claims nothing we were not told.</para>
+    /// </summary>
+    private string? AtuGateMessage()
+    {
+        var rig = Rig;
+        if (rig == null) return "No radio connected.";
+
+        if (rig.HasATU) return null;
+
+        if (rig.ATUHardwarePresent)
+        {
+            return "Your radio reports that it has an antenna tuner fitted, but that the tuner "
+                 + "is not currently allowed to be used. Nothing on this computer can change "
+                 + "that — it is set on the radio itself.";
+        }
+
+        return "This radio has not reported an antenna tuner, so the tuner controls and ATU "
+             + "Tune are not offered. On some models the tuner is an optional part that may "
+             + "never have been fitted. Tuning your antenna is then a job for an external "
+             + "tuner, and Tools, Feature Availability lists what this radio did report.";
+    }
+
+    /// <summary>
     /// Build receiver controls (AGC, Squelch, RF Gain) — shared between menus.
     /// </summary>
     private void BuildReceiverItems(IntPtr parent)
@@ -1143,9 +1272,10 @@ public class NativeMenuBar : IDisposable
         // === Radio ===
         var radio = AddPopup(bar, "&Radio");
         if (Rig != null && Rig.IsConnected)
-            AddWired(radio, "Disconnect", () => _window.CloseRadioCallback?.Invoke());
+            AddWired(radio, "Disconnect", DisconnectAndSaySo);
         else
             AddWired(radio, "Connect to Radio", () => ConnectWithConfirmation());
+        AddWired(radio, "Radio Rescue", ShowRadioRescue);
         AddWired(radio, "Manage SmartLink Accounts", () => _window.ShowSmartLinkAccountManager());
         AddWired(radio, "MultiFlex Clients", () => _window.ShowMultiFlexDialog());
         AddChecked(radio, "Auto-Connect Enabled",
@@ -1419,14 +1549,26 @@ public class NativeMenuBar : IDisposable
             var dspSub = AddSubmenu(slice, "DSP");
             BuildDSPItems(dspSub);
 
-            // Antenna — RX/TX select, ATU (if present), Diversity (always).
+            // Antenna — RX/TX select, ATU (always), Diversity (always).
             // QB Track I: mnemonic N ("Audio" owns first-letter A), so
             // exploration by accelerator reaches it directly.
             var antSub = AddSubmenu(slice, "A&ntenna");
             BuildAntennaSelectItems(antSub);
-            if (Rig.HasATU)
+            AddSep(antSub);
+            // Sprint 31 Track R — the last silent absence in this submenu. The
+            // four ATU items used to vanish whole on a radio without a tuner,
+            // and from the keyboard "missing" and "not for this radio" feel
+            // identical while only one of them is true. Same treatment Track A
+            // gave Diversity directly below.
+            string? atuGate = AtuGateMessage();
+            if (atuGate != null)
             {
-                AddSep(antSub);
+                AddWired(antSub, "Antenna tuner unavailable", () =>
+                    SpeakAfterMenuClose(AtuGateMessage()
+                        ?? "The antenna tuner is available — reopen this menu."));
+            }
+            else
+            {
                 BuildATUItems(antSub);
                 AddSep(antSub);
                 AddWired(antSub, "ATU Tune\tCtrl+T", () => _window.StartATUTuneCycle());
@@ -1439,6 +1581,7 @@ public class NativeMenuBar : IDisposable
             {
                 AddSep(antSub);
                 BuildDiversityItems(antSub);
+                BuildEscItems(antSub);
             }
 
             // Transmission (was "FM" — renamed for consistency with Classic
@@ -1850,7 +1993,8 @@ public class NativeMenuBar : IDisposable
     /// Speak a message after the menu closes. Uses a 150ms delay so the screen reader
     /// picks up the speech after the menu closes and focus returns to the main window.
     /// </summary>
-    private void SpeakAfterMenuClose(string message)
+    private void SpeakAfterMenuClose(string message,
+        Radios.VerbosityLevel level = Radios.VerbosityLevel.Terse)
     {
         _window.Dispatcher.BeginInvoke(async () =>
         {
@@ -1858,8 +2002,109 @@ public class NativeMenuBar : IDisposable
             // Interrupt: cut off NVDA's window title re-announcement so user hears
             // the actual result (e.g., "Antenna 1") instead of the title first.
             await System.Threading.Tasks.Task.Delay(500);
-            Radios.ScreenReaderOutput.Speak(message, Radios.VerbosityLevel.Terse, interrupt: true);
+            Radios.ScreenReaderOutput.Speak(message, level, interrupt: true);
         });
+    }
+
+    /// <summary>
+    /// Radio ▸ Radio Rescue — Noel's name, and his reason: the rescue page
+    /// arrives on its own three minutes after the radio goes, and nobody should
+    /// have to wait that out when they already know the session is over.
+    ///
+    /// <para>Present on EVERY radio in every state rather than appearing only
+    /// while disconnected, which is the same rule as the gated items below: an
+    /// item that comes and goes teaches the operator nothing, while one that is
+    /// always there and explains itself teaches them what it is for. It also
+    /// makes the item discoverable BEFORE the day they need it, which is the
+    /// only day exploring a menu is expensive.</para>
+    /// </summary>
+    private void ShowRadioRescue()
+    {
+        if (Rig != null && Rig.IsConnected)
+        {
+            // Never tear down a working session from a menu item whose name
+            // sounds helpful. Explain instead, and name the radio so the
+            // operator can tell this is a real connection and not a stale claim.
+            string name = NonEmpty(Rig.RadioNickname) ?? "your radio";
+            SpeakAfterMenuClose(
+                $"Radio Rescue is the no-radio version of Home. You are connected to {name}, "
+                + "so there is nothing to rescue. Disconnect first if you want that page.");
+            return;
+        }
+
+        if (_window.InRescueMode)
+        {
+            _window.FocusHome();
+            SpeakAfterMenuClose("Radio Rescue is already showing.");
+            return;
+        }
+
+        // The operator asked for it, so the lead is short — they do not need to
+        // be told why they are here. Focus goes through FocusHome, the funnel
+        // that is correct with no radio; the page's own name carries the rest.
+        _window.EnterRescueMode("Radio Rescue.");
+
+        if (!_window.InRescueMode)
+        {
+            // EnterRescueMode declines while a rig object still exists, and one
+            // survives a cancelled picker without ever having connected — the
+            // exact state Track A documented in SelectRadio. Rather than let an
+            // item the operator deliberately chose do nothing at all, say so.
+            // Silence here would be the same defect this sprint is closing,
+            // committed by the fix for it.
+            SpeakAfterMenuClose(
+                "Radio Rescue is not available while a radio connection is still being set up. "
+                + "Try again in a moment.");
+            return;
+        }
+
+        _window.FocusHome();
+    }
+
+    /// <summary>
+    /// Radio ▸ Disconnect — tear the radio down and SAY SO.
+    ///
+    /// <para>Sprint 31 Track R, from Noel on 2026-08-19: "disconnecting
+    /// announces nothing." Established from the code rather than guessed at,
+    /// and the cause is not the one it looked like. This item never used the
+    /// PendingDisconnectLead mechanism at all — it called CloseRadioCallback
+    /// (globals.CloseTheRadio) directly, a path that has never announced
+    /// anything in any version. The lead belongs to SelectRadio, the SWITCH
+    /// path, which hands its message to the radio picker that arrives a beat
+    /// later. Disconnect opens no window, so it had nothing to hand a message
+    /// to and simply said nothing.</para>
+    ///
+    /// <para>That also settles why speech is correct HERE when it is wrong
+    /// there: the flush hazard is a window CHANGE. Disconnect produces none —
+    /// the shell stays put and only Home's contents change — so an utterance
+    /// timed after the menu closes survives to be heard. Same rule as always:
+    /// information belongs to the surface that holds focus, and here that
+    /// surface never moved.</para>
+    ///
+    /// <para>Critical rather than Terse: losing the radio is a state change the
+    /// operator has to hear whatever their verbosity setting is.</para>
+    /// </summary>
+    private void DisconnectAndSaySo()
+    {
+        var rig = Rig;
+        string? radioName = null;
+
+        if (rig != null)
+        {
+            radioName = NonEmpty(rig.RadioNickname);
+            // Keep the radio layer quiet, exactly as SelectRadio does. FlexBase's
+            // own message exists for UNEXPECTED drops, where nothing else is
+            // explaining what happened; here we are the explanation, and two
+            // voices racing is worse than either alone.
+            try { rig.SuppressSpeech = true; } catch { /* never block the disconnect */ }
+        }
+
+        // Read the name BEFORE this: the callback disposes the rig.
+        _window.CloseRadioCallback?.Invoke();
+
+        SpeakAfterMenuClose(
+            radioName == null ? "Disconnected from radio" : "Disconnected from " + radioName,
+            Radios.VerbosityLevel.Critical);
     }
 
     /// <summary>Add a separator line.</summary>
@@ -1978,8 +2223,28 @@ public class NativeMenuBar : IDisposable
             dialog.ConfigDirectory = _window.OpenParms.ConfigDirectory;
             dialog.OperatorName = _window.OpenParms.GetOperatorName?.Invoke();
         }
-        if (openAtTab != null)
-            dialog.SelectTabByHeader(openAtTab);
+        if (openAtTab != null && dialog.SelectTabByHeader(openAtTab))
+        {
+            // Sprint 31 Track R: selecting the tab is not the same as LANDING on
+            // it. Selection is a visual fact; without focus the dialog opens and
+            // the screen reader announces the title plus whatever WPF happened to
+            // focus first, so a deep link taken from the rescue page could leave
+            // an operator who cannot see the tab strip with no evidence they
+            // arrived anywhere other than plain Settings.
+            //
+            // Focusing the selected TabItem folds the arrival into the dialog's
+            // own opening announcement — the same principle as
+            // PendingDisconnectLead, applied to a tab instead of a window title.
+            // Deferred to Loaded because focus set before the window exists is
+            // discarded; this is the sibling of the papercut already commented in
+            // SettingsDialog ("focusing a field on an unselected tab fails
+            // silently"), pointing the other way.
+            dialog.Loaded += (_, _) =>
+            {
+                if (dialog.SettingsTabs.SelectedItem is System.Windows.Controls.TabItem landed)
+                    landed.Focus();
+            };
+        }
 
         // Track C (OK/Apply convention): the app-side application + persistence
         // runs after EVERY successful commit — Apply-and-stay included — not

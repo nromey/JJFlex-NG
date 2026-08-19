@@ -262,28 +262,41 @@
                         local:JJFlexHelp.Text="Opens the radio picker to look for radios on your network and your SmartLink account. If nothing is found, this page stays available."
                         Click="RescueConnectButton_Click" />
 
-                <Button x:Name="RescueSettingsButton" Content="Settings"
+                <!-- Second, not last. The sequence a stuck operator actually
+                     walks is "Connect failed, so perhaps this radio is not set
+                     up or enrolled yet" — so the answer to the failure sits
+                     directly under the thing that failed. It is a deep link:
+                     Settings opens already on Radio Setup rather than handing
+                     the operator directions to a tab. -->
+                <Button x:Name="RescueRadioSetupButton" Content="Radio Setup"
                         TabIndex="1" MinWidth="240" Padding="10,6"
+                        HorizontalAlignment="Left" Margin="0,0,0,6"
+                        AutomationProperties.Name="Radio Setup"
+                        local:JJFlexHelp.Text="Opens Settings on the Radio Setup checklist, the ordered steps for bringing a radio up: enrolling it with SmartLink so you can reach it from away, giving it a fixed address, checking its firmware. Every step works while disconnected, which is why this belongs on a page you are reading because you could not connect."
+                        Click="RescueRadioSetupButton_Click" />
+
+                <Button x:Name="RescueSettingsButton" Content="Settings"
+                        TabIndex="2" MinWidth="240" Padding="10,6"
                         HorizontalAlignment="Left" Margin="0,0,0,6"
                         AutomationProperties.Name="Settings"
                         local:JJFlexHelp.Text="Every JJ Flex setting, including setup for radios you are not connected to right now. A change that needs a radio waits and applies at the next connection."
                         Click="RescueSettingsButton_Click" />
 
                 <Button x:Name="RescueWorkshopButton" Content="Audio Workshop"
-                        TabIndex="2" MinWidth="240" Padding="10,6"
+                        TabIndex="3" MinWidth="240" Padding="10,6"
                         HorizontalAlignment="Left" Margin="0,0,0,6"
                         AutomationProperties.Name="Audio Workshop"
                         local:JJFlexHelp.Text="The microphone check and this computer's audio setup, all usable with no radio. The radio-side controls in there stay quiet until you connect."
                         Click="RescueWorkshopButton_Click" />
 
                 <Button x:Name="RescueHelpButton" Content="Help"
-                        TabIndex="3" MinWidth="240" Padding="10,6"
+                        TabIndex="4" MinWidth="240" Padding="10,6"
                         HorizontalAlignment="Left" Margin="0,0,0,6"
                         AutomationProperties.Name="Help"
                         Click="RescueHelpButton_Click" />
 
                 <Button x:Name="RescueExitButton" Content="Exit"
-                        TabIndex="4" MinWidth="240" Padding="10,6"
+                        TabIndex="5" MinWidth="240" Padding="10,6"
                         HorizontalAlignment="Left" Margin="0,0,0,6"
                         AutomationProperties.Name="Exit"
                         Click="RescueExitButton_Click" />
