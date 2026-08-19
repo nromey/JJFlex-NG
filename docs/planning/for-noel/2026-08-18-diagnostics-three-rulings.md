@@ -31,7 +31,28 @@ name: `removed UNRESOLVED crash report JJFlexError-....zip (never sent and never
 dismissed, and older than 90 days)`. Deleting evidence nobody acted on should
 never happen quietly, so it does not.
 
-**Your options, if 90 days is wrong:**
+**RULED 2026-08-19: one week.** Noel's answer, given over the recommendation
+below — which argued against shortening. Recorded rather than quietly applied,
+because the counter-argument is real and whoever revisits this should see both.
+
+The counter-argument, preserved: a crash you never saw a prompt for is exactly
+the one worth keeping, so a short window is most likely to eat the evidence in
+the case the feature exists for.
+
+Why a week is nonetheless defensible, and what makes it safe: the keep-newest
+rule fires FIRST and unconditionally, so the newest `KeepCrashReports` bundles
+(three by default) are never touched by age, verdict or cap. The week therefore
+never governs the crash you just had, or the two before it. It governs the
+fourth unresolved report and older — the pile-up case, where evidence went
+unacted-on while more arrived on top of it. At 200-700 MB per dump that is the
+difference between a folder nobody notices and one that eats a laptop.
+
+**If a week later proves too tight, raise `KeepCrashReports`, not the window.**
+It is already operator-configurable on the Diagnostics tab. Going from three to
+five protects two more reports outright, which addresses the counter-argument
+directly; lengthening the age window instead just delays the same pile-up.
+
+**Original options as presented, if the ruling is revisited:**
 
 - **Longer.** 180 days, a year. Costs disk on a machine that is already having a
   bad time.

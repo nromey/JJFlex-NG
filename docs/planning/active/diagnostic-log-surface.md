@@ -538,7 +538,8 @@ a state that was fiction.
 deletion.** §8 did not cover crash dumps at all; task #92 did. A `.verdict`
 sidecar records "sent" or "dismissed" beside each bundle. Beyond the newest N, a
 bundle is removed only once it has a verdict AND is past the age window or the
-folder cap. An unresolved bundle survives all of that for 90 days, after which
+folder cap. An unresolved bundle survives all of that for 7 days (ruled by Noel
+2026-08-19; the design shipped at 90), after which
 its removal is logged by name — the one backstop on the never-delete-unresolved
 rule, because without a ceiling a machine whose upload prompt keeps failing
 grows without bound. Routed to Noel.

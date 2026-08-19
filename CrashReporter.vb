@@ -91,13 +91,23 @@ Module CrashReporter
     ''' reporter is having the dump when support asks for it, and a retention
     ''' policy that eats the evidence defeats the feature it is protecting.
     '''
-    ''' This is the one backstop on that rule: a report nobody acted on in three
-    ''' months is not something anyone is waiting for, and without SOME ceiling
-    ''' a machine whose upload prompt keeps failing grows without bound. When it
-    ''' fires it says so by name in the log, because deleting unresolved
-    ''' evidence should never happen quietly.
+    ''' This is the one backstop on that rule, and without SOME ceiling a
+    ''' machine whose upload prompt keeps failing grows without bound — which
+    ''' is exactly how %AppData% reached 2.2 GB, 1.8 GB of it dumps (#92).
+    ''' When it fires it says so by name in the log, because deleting
+    ''' unresolved evidence should never happen quietly.
+    '''
+    ''' **One week, ruled by Noel 2026-08-19** (shipped at 90 days for a few
+    ''' hours before he weighed in). A week is short only in isolation: rule 1
+    ''' below keeps the newest <see cref="DiagnosticsConfig.KeepCrashReports"/>
+    ''' bundles — three by default — regardless of age, verdict or cap. So this
+    ''' window never governs the crash you just had, or the two before it. It
+    ''' governs the FOURTH unresolved report and older, which is the pile-up
+    ''' case: evidence nobody acted on while more kept arriving on top of it.
+    ''' At 200-700 MB per dump, a week of that is the difference between a
+    ''' folder you never notice and one that eats a laptop's free space.
     ''' </summary>
-    Private Const UnresolvedCrashGraceDays As Integer = 90
+    Private Const UnresolvedCrashGraceDays As Integer = 7
 
     ''' <summary>
     ''' Suffix of the sidecar that records what the operator decided about a
