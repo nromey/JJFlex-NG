@@ -33,6 +33,7 @@ Shipped as Connect, Settings, Audio Workshop, Help, Exit. Deliberately not
 included: Radio Setup, and Track D's new diagnostics surface. Logging is absent
 as a button but reachable with Ctrl+Shift+L.
 *If you want more or fewer, say which.*
+**** I think that the current rescue page has enough buttons. Other things can be accessed by menus. These are the most important things that are needed if not connected. The only thing I might consider adding is radio setup because if you can't connect, perhaps one needs to setup a radio/enroll it.
 
 **2. Should the rescue page also appear when a radio drops mid-session?**
 Not built — scope was startup only. The old `RestoreNoRadioShell` path still
@@ -41,6 +42,7 @@ focuses it. So the two paths now describe "no radio" differently, which is the
 real reason to decide this.
 *My recommendation: yes, eventually, but not as a quick follow-up — it is a
 window transition during live operation, so every speech-flush lesson applies.*
+**** I'd have it come up if connection drops after 3 minutes. YOu might add a menu item if a connection is dropped so that the user can access the rescue page before that time (radio rescue) might be hthe button name.
 
 **3. Does `FeatureLicense` populate at all on a purely local connect with no
 SmartLink account?**
@@ -48,38 +50,44 @@ Cannot be settled from code. Track A traces the first verdict per radio now, so
 one local session with tracing on answers it. The fallback is already safe: a
 licence never reported produces no "unavailable" claim, because we do not know.
 *This is a "run one session" item rather than a decision.*
+**** Yes. If a radio connects locally and does not have smart link, the radio still gets licensing / feature availability from Flex, so we'll need to query that data even if we connect locally to determine which features Flex says the user has access to.
 
 **4. Is three the right threshold for learning a connection path?**
 Three consecutive successful connects on the same path makes it the prefill.
 Bounded above by the store: the history ring holds ten attempts and a
 chain-walking connect writes two, so much past four is unreachable for a radio
 that falls back.
+**** I think three is fine yes. You could add it as a setting though if you wanted to define it. I'd say allow users to select 3, 4, 5 times before the connect is settled just in case the user goes on the road often. I also cwould add a selection for "do not automatically select connection path.
 
 **5. Is "local only" an app-side setting?**
 Assumed yes and built that way — nothing is written to the radio, nothing asked
 of SmartLink. It is stored per radio, keyed by serial, on this computer only.
+**** yes, correct
 
 **6. Should Logging mode be reachable from the rescue page?**
 It is, via Ctrl+Shift+L, and Logging mode overrides the page. Track A's
 reasoning: the log is a logbook, works offline, and suppressing it would make
 the page wrong about its own claim to offer only what works.
 *Say if you would rather Logging waited for a radio.*
-
+**** yers, 
 **7. Test Tone is now treated as radio-side, and disabled offline.**
 The old code comment listed it as offline-safe; the code disagrees — arming it
 writes `rig.TxToneFrequency` to the radio's transmit chain. Flagged because it
 changes what the Workshop offers on the rescue page.
+**** Yes, you don't need a test tone until the radio connects / you're ready to text TX.
 
 **8. Live Meters are now gated offline.**
 Beyond the literal #90 remainder. Every box read "S-Meter: no reading yet" with
 no radio, which is a promise rather than a fact.
 *Say if you would rather they stayed reachable for inspection.*
+**** Agreed, you don't need access to meters unless the radio can pull a list of meters. The only thing I think you *mightz* want to do would be edit possible meters based on the last radio pull, but when we do multiple radios, it's going to be hard to determine which meter we need to edit.
 
 **9. The auto-started remote pass no longer shows its connecting window.**
 The biggest behaviour change in #85, and the one most wanting your ear. That
 window's stated job was holding focus during SmartLink auth. Track A's
 judgement: background work must not take the foreground, and interactive sign-in
 brings its own window. Needs testing on a real account with auto-start enabled.
+**** I'd have to hear it I think. I agree with the rule, but I'll need to hear it to make sure it works.
 
 **10. There is no way to reject a learned prefill and return to plain
 automatic.**
@@ -87,12 +95,14 @@ To overrule the trend you pick an explicit order, which is a stored choice and
 always wins. Clean, but it means the automatic option can never be returned to
 its un-learned meaning.
 *Say if you want a fourth option in the combo.*
+**** In the setting where you'd select the number or if you want to disable automatic checking, could there be a reaset, also add it to the right click of the radio.
 
 **11. Track A softened one shipped user-facing line.**
 "Registering your radio... tells Flex the radio is yours" became "Registering a
 radio lets that account reach it over the internet", following the finding that
 registration answers access, not ownership. This is your prose, so it wants your
 read.
+**** Fine with me.
 
 ---
 
@@ -113,11 +123,13 @@ fragments, so exporting on an auth failure costs something and diagnoses nothing
 
 Also part of this: at most two offers per session, one offer per kind, silent
 while transmitting, and one "Not now" ends offers for the session.
+You could put up a window for the user or announce something that an issue has been detected, pressing a key would bring up that window. I worry that a window popping up might confuse the user. I'm not sure what we do if a user doesn't hear the notification, I have problems with that in Windows with notifications that I forget to note. If you have ideas let me know.
 
 **13. Delete the retired trace dialog now, or after 4.1.17?**
 Help → Tracing is gone from the menu, but the dialog itself was kept — corrected
 rather than deleted — because the Settings dialog is this sprint's most likely
 rollback candidate and the old dialog is the fallback. Say the word and it goes.
+**** kill it, it was not designed well.
 
 ---
 
@@ -133,16 +145,19 @@ discovery may suggest a first answer; neither decides it. Unset means guest
 behaviour, which is the safe default. The Margaret test is what killed deriving
 it: you connected to her radio using her account, so to SmartLink you *were* the
 owner.
+**** ratified
 
 **15. Two destinations, two verbs?**
 Saving a Workshop profile stays PC-side and safe on anyone's radio. Writing to
 the radio becomes a separate, explicitly named action that appears only on
 radios you have marked as yours. Costs one extra step on your own rig; buys
 never having to think about whose radio you are on.
+**** Agreed. Here's a question though, how do we keep users from noting that they own the radio? Connect should allow us to store radio ownership and grants. Thoughts?
 
 **16. How should the ownership question feel?**
 Ask once at the first moment an action needs it, a field on the per-radio
 Settings panel, or both. Track B's preference is both.
+**** Both
 
 **17. The silent-TX auto-select — apply, offer, or park?**
 This is the one with teeth. An empty mic-profile selection means PC transmit
@@ -157,6 +172,7 @@ the flag exists.
 announce-only version ship now — no write, just "this radio has no mic profile
 selected, so computer transmit audio will not modulate"? That closes a live
 silent failure without touching anyone's radio.*
+**** Agreed with your suggerstion
 
 **18. Bless bindings-keep-working-regardless-of-flag?**
 Applying a profile applies your PC half always, and the radio half only where a
@@ -164,13 +180,13 @@ binding for *this* radio already exists — the binding you created is the
 consent. Track B recommends keeping that, but it is a write to radio state that
 a bare reading of the ownership flag would forbid, so it wants explicit
 blessing.
-
+**** Agreed
 **19. Can one radio be registered to two SmartLink accounts?**
 Unknown, and it matters beyond ownership: if registration is exclusive, then
 registering a friend's radio would silently evict them, which the app should
 refuse to do without warning. Margaret's radio is the ready-made test. Folded
 into task #95, bench-gated.
-
+**** I would not allow it though the app probably won't know if there's two registrations. I think it's best that we allow one registration per account but I'm not sure how we determine that. For connect we would be in control of the process.
 ---
 
 ## Still to come (Track E, running now; Track F, not yet started)
@@ -179,15 +195,18 @@ into task #95, bench-gated.
 It does today, and the help page says it does not — wrong twice over, since the
 mute persists both by an immediate save on toggle and by shutdown capture. Track
 E has to make the code and the page agree, and needs to know which way.
+**** How would you determine if an ear con is "quick muted" I'd just save the mute state, that way we won't have to determine when a quick mute is a quick mute and when you really mean to mute something.
 
 **21. Is `audio-earcon-control.md` a spec to build to, or does the promised
 category list need revising first?**
 I have already told Track E to treat the page as SUSPECT and report rather than
 faithfully build a wrong list, because reality has drifted further from it than
 the task said. Confirm or override.
+**** Unknown right now I think I'll need more explanation / we will need to work that together.
 
 **22. How deep should the repeat-last-message history be, and on what keys?**
 Track F, not yet started. Proposal: ten.
+**** 10 is fine. Not sure what page except that we could use teh Civ Vi principle / key.
 
 **23. May Track F spend live-session minutes on the one protocol-bound Shift+Tab
 attempt (#89)?**
@@ -197,11 +216,13 @@ verified by NVDA on the spot, then stop either way. You may also veto it
 outright. There is one cheap piece of evidence available first — start the
 IdentityExpander expanded and press the key, which discriminates the leading
 suspect in one build without touching navigation code.
+**** Yes, it can take what time it needs to take.
 
 **24. When is the bench day (#56)?**
 It gates receiver simulation (#10), transverter session one (#27), the four
 mystery slices (#59), and now the registration-eviction test (#95). None of them
 block anything else.
+**** I can work some on it today after work if needed. We can do what we can.
 
 ---
 
