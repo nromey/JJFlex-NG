@@ -407,7 +407,7 @@ namespace JJFlex.TxFactAudit
               "VERIFIED from the application's trace, 2026-08-20: -150 on the first second of a transmission, then -10.8 dBFS for the rest of it. Still stays a number at the floor once the meter is known to have reported, because a LIVE meter at its floor while transmitting is THE finding rather than an absence of one.",
               meter: "SC_MIC",
               fixedHere: true,
-              concern: "WAS: gated on the meter EXISTING, while the value only ever moves if hookTxMeters found and subscribed it. Those are two different conditions and only one is checked.");
+              concern: "STILL OPEN, and the most alarming thing found: the radio publishes FOUR byte-identical SC_MIC descriptors, one per slice, at indices 24, 48, 72 and 91 — all claiming source TX- index 0, nothing distinguishing them. MeterInventory.Find is first-name-wins and FlexLib's FindMeterByName is a FirstOrDefault, so the app subscribes to index 24 and never sees the rest. It works only because the first copy happens to be the one that streams. See the remarks on MeterInventory.Find. WAS: gated on the meter EXISTING, while the value only ever moves if hookTxMeters found and subscribed it. Those are two different conditions and only one is checked.");
 
             F("sw-alc", "Transmit drive after the radio's own levelling",
               "FlexBase.SwAlcDb", "Meter ALC DataReady",
@@ -420,7 +420,7 @@ namespace JJFlex.TxFactAudit
             F("codec-mic", "Analog microphone level at the radio's codec",
               "FlexBase.MicData", "Radio.MicDataReady, meter MIC",
               Provenance.MeterValue, FactOwnership.Telemetry, IdleHonesty.Gated,
-              "The wrong instrument for a PC-audio operator and correctly demoted to context here. Prove from the descriptor that MIC is the analog converter path.",
+              "VERIFIED from a Detailed capture, 2026-08-20: across a real PC-audio transmission MIC read between -120 and -70.3 dBFS while SC_MIC read -10.8 at the same instants. That gap of sixty to a hundred and ten decibels IS the original honest-tx-audio bug, measured. MIC is source COD-, the analog converter, and it is structurally blind to PC audio. Correctly demoted to context here and tested by no rule.",
               meter: "MIC",
               idleReads: "0 dBFS",
               fixedHere: true,
@@ -474,7 +474,7 @@ namespace JJFlex.TxFactAudit
             F("swr", "Standing wave ratio",
               "FlexBase.SWRValue", "Radio.SWRDataReady, meter SWR",
               Provenance.MeterValue, FactOwnership.Telemetry, IdleHonesty.Gated,
-              "Needs a transmit window.",
+              "VERIFIED from a Detailed capture, 2026-08-20: 7345 readings across a transmission, every one between 1.0 and 1.01. The meter's own floor is 1.0, exactly as its descriptor declares, so the 0 this fact used to publish was outside the meter's range and provably never a reading.",
               meter: "SWR",
               idleReads: "0 to 1",
               fixedHere: true,

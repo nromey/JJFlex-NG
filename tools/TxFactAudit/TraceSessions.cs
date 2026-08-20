@@ -40,6 +40,26 @@ namespace JJFlex.TxFactAudit
         /// runs and is archived under a stamped name when it exits.</summary>
         public required bool IsLiveName { get; init; }
 
+        /// <summary>
+        /// True when this file is a DETAILED CAPTURE rather than a boot session.
+        /// <para>A capture is started mid-run by Ctrl+J Ctrl+D and declares
+        /// itself with "Detailed capture started ... level=Verbose". It carries
+        /// NO "Boot Tracing on instance" line, because no boot happened - so
+        /// anything that recognises only the boot header skips the one file
+        /// containing the operator's actual reproduction.</para>
+        /// </summary>
+        public bool IsCapture { get; init; }
+
+        /// <summary>True when a capture has no matching stop line, meaning it was
+        /// still recording when we read it. Its tail may not be flushed, so a
+        /// line's ABSENCE proves nothing about the radio.</summary>
+        public bool StillRecording { get; init; }
+
+        /// <summary>How the build was established. A capture carries no assembly
+        /// path, so it is attributed to the boot session that was running when it
+        /// started - an inference, and it says so rather than implying certainty.</summary>
+        public string Attribution { get; init; } = "from its own boot header";
+
         public bool IsVerbose =>
             string.Equals(Level, "Verbose", StringComparison.OrdinalIgnoreCase);
 
@@ -59,8 +79,11 @@ namespace JJFlex.TxFactAudit
         {
             string live = IsLiveName ? ", and this is the live fixed-name log" : "";
             return string.Format(CultureInfo.InvariantCulture,
-                "{0} — instance {1}, version {2}, level {3}, started {4:yyyy-MM-dd HH:mm:ss}, built from {5}{6}",
-                System.IO.Path.GetFileName(Path), Instance, Version, Level, StartedAt, BuildRoot, live);
+                "{0} — {1}instance {2}, version {3}, level {4}, started {5:yyyy-MM-dd HH:mm:ss}, " +
+                "built from {6} ({7}){8}{9}",
+                System.IO.Path.GetFileName(Path), IsCapture ? "DETAILED CAPTURE, " : "", Instance,
+                Version, Level, StartedAt, BuildRoot, Attribution, live,
+                StillRecording ? ", STILL RECORDING" : "");
         }
     }
 
@@ -84,6 +107,17 @@ namespace JJFlex.TxFactAudit
     /// </summary>
     public static class TraceSessions
     {
+        /// <summary>
+        /// A Detailed capture's own opening line. It is NOT the boot header and
+        /// shares none of its fields - no instance, no assembly path, no version.
+        /// </summary>
+        private static readonly Regex CaptureHeader = new(
+            @"Detailed capture started\s+(?<when>\S+)\s+reason=(?<reason>.*?)\s+level=(?<level>\w+)",
+            RegexOptions.Compiled);
+
+        private static readonly Regex CaptureStopped = new(
+            @"Detailed capture stopped", RegexOptions.Compiled);
+
         private static readonly Regex Header = new(
             @"Boot Tracing on instance:(?<instance>\d+)\s+(?<asm>.+?\.dll)\s+(?<ver>[\d.]+)\s+(?<when>.+?)\s+level=(?<level>\w+)",
             RegexOptions.Compiled);
@@ -107,10 +141,38 @@ namespace JJFlex.TxFactAudit
             var found = new List<TraceSessionFile>();
             if (!Directory.Exists(directory)) return found;
 
+            var captures = new List<TraceSessionFile>();
             foreach (string path in Directory.EnumerateFiles(directory, "*Trace*.txt"))
             {
                 TraceSessionFile? session = ReadHeader(path);
-                if (session is not null) found.Add(session);
+                if (session is not null) { found.Add(session); continue; }
+
+                // No boot header. Before giving up - which is exactly what
+                // skipped the ONLY file containing the operator's reproduction
+                // on 2026-08-20 - check whether it is a Detailed capture, which
+                // declares itself differently because no boot happened.
+                TraceSessionFile? capture = ReadCaptureHeader(path);
+                if (capture is not null) captures.Add(capture);
+            }
+
+            // A capture names no assembly, so attribute it to the boot session
+            // that was running when it started: the latest one begun before it.
+            foreach (TraceSessionFile c in captures)
+            {
+                TraceSessionFile? host = found
+                    .Where(b => !b.IsCapture && b.StartedAt <= c.StartedAt)
+                    .OrderByDescending(b => b.StartedAt)
+                    .FirstOrDefault();
+
+                found.Add(host is null
+                    ? c with { Attribution = "no boot session precedes it, so the build is UNKNOWN" }
+                    : c with
+                    {
+                        AssemblyPath = host.AssemblyPath,
+                        Instance = host.Instance,
+                        Version = host.Version,
+                        Attribution = "attributed by time to the session that was running when it started",
+                    });
             }
 
             return found.OrderByDescending(s => s.StartedAt).ToList();
@@ -167,6 +229,66 @@ namespace JJFlex.TxFactAudit
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
 
+            return null;
+        }
+
+        /// <summary>
+        /// Reads a Detailed capture's self-declaration, and whether it is still
+        /// recording. Fields a capture does not carry are left blank for the
+        /// caller to fill in by attribution.
+        /// </summary>
+        public static TraceSessionFile? ReadCaptureHeader(string path)
+        {
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                                                  FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream);
+
+                TraceSessionFile? capture = null;
+                bool stopped = false;
+
+                string? text;
+                while ((text = reader.ReadLine()) is not null)
+                {
+                    if (capture is null)
+                    {
+                        Match m = CaptureHeader.Match(text);
+                        if (m.Success)
+                        {
+                            DateTime.TryParse(m.Groups["when"].Value, CultureInfo.InvariantCulture,
+                                              DateTimeStyles.RoundtripKind, out DateTime started);
+                            capture = new TraceSessionFile
+                            {
+                                Path = path,
+                                Instance = 0,
+                                AssemblyPath = "",
+                                Version = "",
+                                StartedAt = started,
+                                Level = m.Groups["level"].Value,
+                                IsLiveName = System.IO.Path.GetFileName(path)
+                                    .Equals("JJFlexRadioTrace.txt", StringComparison.OrdinalIgnoreCase),
+                                IsCapture = true,
+                            };
+                            continue;
+                        }
+
+                        // Only the opening of the file is worth scanning for a
+                        // start line; a multi-megabyte capture should not be
+                        // read end to end just to decide it is not one.
+                        if (reader.BaseStream.Position > 200_000) break;
+                    }
+                    else if (CaptureStopped.IsMatch(text))
+                    {
+                        stopped = true;
+                        break;
+                    }
+                }
+
+                return capture is null ? null : capture with { StillRecording = !stopped };
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
             return null;
         }
 
