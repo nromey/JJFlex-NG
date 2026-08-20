@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Sprint 33 Track I: renders the reference-voice script to the WAV that
+       ships with the application. NOT part of the app build or solution — it
+       is run by hand when the script changes, and its output is committed.
+
+       Why a tool rather than a one-off: the reference recording is only a
+       reference if it can be reproduced. Committing a WAV whose provenance is
+       "somebody made it once" leaves nobody able to answer what is on it or
+       regenerate it after an edit. The script is the source, this is the
+       compiler, and the WAV is the build output.
+
+       Run: dotnet run (project tools/refvoice), optionally passing a script
+       path and an output WAV path after the argument separator.
+       Defaults write JJFlexWpf/Resources/ReferenceVoice/jjflex-reference-voice.wav
+       from the .txt beside it.
+
+       NOTE ON THE VOICE. This renders with a Windows speech voice, which is
+       deterministic and reproducible but is NOT a human being — it has less
+       plosive energy and a narrower dynamic range than a person at a
+       microphone. That makes it a sound baseline for level, timing and
+       repeatability, and a weaker one for judging compression and
+       intelligibility by ear. A human-recorded take of the same script is
+       strictly better and is a drop-in replacement: record it with the
+       application's own recorder, reading the script, and put the file here
+       under the same name. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>refvoice</AssemblyName>
+    <RootNamespace>RefVoice</RootNamespace>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Speech" Version="10.0.0" />
+  </ItemGroup>
+</Project>

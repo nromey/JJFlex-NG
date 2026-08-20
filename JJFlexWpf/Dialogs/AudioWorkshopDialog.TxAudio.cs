@@ -441,6 +441,15 @@ public partial class AudioWorkshopDialog
         // is what the Audio Check below sends when you have no voice to send.
         BuildTestToneSection();
 
+        // Reference audio (Sprint 33 Track I) — the same mic replacement as
+        // the tone above, carrying a known VOICE instead of a sine. It sits
+        // between the two because it is what the Audio Check below wants sent
+        // whenever the question is "did that change help": a tone cannot
+        // answer that, since nothing in a sine responds to a compressor, and
+        // a person talking cannot either, because they never say it the same
+        // way twice.
+        BuildReferenceAudioSection();
+
         // Audio Check session — the "hear yourself" loop (QB Track G). Last,
         // because it keys the transmitter and proves everything above it.
         BuildAudioCheckSection();

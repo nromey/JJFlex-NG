@@ -212,6 +212,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // the workshop restores the microphone (the tone is armed only
             // while the workshop is open, and arming is never persisted).
             DisarmTone(speak: false);
+            // Sprint 33 Track I: the same rule for the reference recording. An
+            // armed reference that outlived its dialog would replace the
+            // microphone at the next key-down with nothing on screen saying so.
+            // DetachReferenceAudio also drops the recorder's event
+            // subscriptions, which would otherwise go on relabelling a button
+            // that no longer exists.
+            DisarmReference(speak: false);
+            DetachReferenceAudio();
             _meterTimer.Stop();
             // The Core Audio endpoint and its volume callback must not
             // outlive the dialog that subscribed them.
@@ -641,6 +649,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // the static key-down hook and local monitor are ours to clear).
             DisarmTone(speak: false, rig: oldRig);
             SetToneCheckSilently(false);
+            // And the reference player, for the same reason: the player died
+            // with the rig, but the arm box is ours and must not go on
+            // claiming a recording is armed against a radio that is gone.
+            DisarmReference(speak: false, rig: oldRig);
             // Clear a stale loopback arrangement flag on the departing rig so
             // a reconnect on the same FlexBase can arrange again. Writes are
             // internally guarded when the underlying radio is gone.

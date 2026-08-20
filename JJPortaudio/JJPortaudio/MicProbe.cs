@@ -188,6 +188,36 @@ namespace JJPortaudio
         public Devices.DeviceInfo Device { get; private set; }
 
         /// <summary>
+        /// Optional tap on the captured audio: (buffer, floatCount, frames),
+        /// interleaved, called on the capture thread for every block read.
+        /// Null — the default — means the samples are metered and dropped,
+        /// which is everything this class did before Sprint 33 Track I.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the one line that turns a level meter into a recorder, and
+        /// it is deliberately the ONLY thing that changed here. The probe
+        /// already owns its own stream, resolves the device the same way the
+        /// transmit path does, survives a device disappearing, and knows the
+        /// difference between a quiet room and Windows handing us digital
+        /// silence. A recorder that opened its own stream instead would have
+        /// to learn all of that again, and would learn it worse.
+        /// </para>
+        /// <para>
+        /// The tap must copy or consume synchronously and return promptly. It
+        /// is not a real-time callback — this thread does blocking reads and
+        /// PortAudio buffers behind it — but a long stall still shows up as a
+        /// counted input overflow.
+        /// </para>
+        /// <para>
+        /// Set it before <see cref="Start"/>. Nothing here decides on its own
+        /// that audio should be kept; a caller has to ask, which is the shape
+        /// a microphone tap should have.
+        /// </para>
+        /// </remarks>
+        public Action<float[], int, int> FrameSink { get; set; }
+
+        /// <summary>
         /// Open the device and start listening.
         /// </summary>
         /// <param name="device">A live enumeration row, from <see cref="Devices.InputDevices"/>.</param>
@@ -507,6 +537,31 @@ namespace JJPortaudio
 
                     Accumulate(buffer, (int)chunkFrames * channels, (int)chunkFrames);
                     FeedLoudnessMeter(buffer, (int)chunkFrames, channels, (uint)rate);
+
+                    // Sprint 33 Track I: hand the block to whoever asked to
+                    // keep it. Read once into a local so a Stop racing with
+                    // this line cannot null it between the test and the call.
+                    // Deliberately AFTER metering, so a faulting sink can
+                    // never cost the caller its level readings.
+                    var sink = FrameSink;
+                    if (sink != null)
+                    {
+                        try
+                        {
+                            sink(buffer, (int)chunkFrames * channels, (int)chunkFrames);
+                        }
+                        catch (Exception sinkEx)
+                        {
+                            // A recorder that cannot write (disk full, file
+                            // locked) must not take the microphone check down
+                            // with it. Drop the tap, keep listening, and say so
+                            // in the trace — the surface that installed the
+                            // sink notices through its own state.
+                            FrameSink = null;
+                            Tracing.TraceLine("MicProbe: frame sink faulted, tap removed — "
+                                + sinkEx.Message, TraceLevel.Error);
+                        }
+                    }
                 }
             }
             catch (Exception ex)

@@ -52,6 +52,18 @@
     <Content Include="Resources\4f89f8bc7\8abf5a4.0d3a3f5" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\8abf5a4.0d3a3f5" />
     <Content Include="Resources\4f89f8bc7\d7d8480.7605032" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\d7d8480.7605032" />
     <Content Include="Resources\4f89f8bc7\8b38e27\*" CopyToOutputDirectory="PreserveNewest" Link="Resources\4f89f8bc7\8b38e27\%(Filename)%(Extension)" />
+    <!-- Sprint 33 Track I: the reference voice recording and the script it
+         reads. A real file on disk rather than an embedded resource, on
+         purpose: an operator can play it in whatever plays audio to hear what
+         the reference sounds like before trusting measurements taken with it,
+         and read the script to know what they are about to transmit without
+         having to transmit it. It is also several megabytes, which has no
+         business sitting inside a DLL that loads whether or not anyone
+         transmits. The installer's `File /r` ships everything under the output
+         folder and generate-deletelist.ps1 walks the same tree, so both the
+         install and the uninstall handle it with no further wiring.
+         Regenerate by running the refvoice tool in tools/refvoice. -->
+    <Content Include="Resources\ReferenceVoice\*" CopyToOutputDirectory="PreserveNewest" Link="Resources\ReferenceVoice\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

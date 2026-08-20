@@ -114,6 +114,11 @@ public partial class MainWindow : UserControl
         // of the values they read are set later, during startup.
         Dialogs.AudioWorkshopDialog.OpenAudioDevices = () => AudioSetupCallback?.Invoke();
         Dialogs.AudioWorkshopDialog.AudioDevicesPath = () => AudioDevicesFilePath;
+        // Sprint 33 Track I: the recorder records the microphone the operator
+        // already chose. Pointing it at the same setting the rest of the audio
+        // path reads is what stops "which microphone am I recording" from
+        // becoming a second thing to configure and a second thing to get wrong.
+        RecordingNarrator.AudioDevicesPath = () => AudioDevicesFilePath;
 
         // Preset persistence — the operator-scoped store the presets model has
         // always assumed and nothing ever connected (see the note on

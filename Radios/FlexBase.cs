@@ -13015,9 +13015,11 @@ namespace Radios
                         ? " — the device refused the requested " + txRate + " Hz"
                         : ""), TraceLevel.Info);
             }
-            // Audio Track C: hand the persistent TX test-tone generator to the
-            // input stream so an engaged tone replaces the mic at the encoder.
-            opusInputChannel.PortAudioStream.InputToneSource = txToneGen;
+            // Audio Track C: hand the persistent TX injection sources to the
+            // input stream so an engaged one replaces the mic at the encoder.
+            // Sprint 33 Track I: this used to be the tone generator alone; it
+            // is now the mux carrying the tone and the reference-voice player.
+            opusInputChannel.PortAudioStream.InputSource = TxInputSources;
             // Track I: hand the persistent TX conditioning chain (NR + gate +
             // residual tap) to the same stream. It runs AFTER the tone
             // injection point (and is skipped entirely while a tone is
@@ -13231,6 +13233,22 @@ namespace Radios
         // encode-and-send path the mic does.
         private readonly JJPortaudio.TxToneGenerator txToneGen = new JJPortaudio.TxToneGenerator();
 
+        // Sprint 33 Track I: the reference-voice player, owned here for the
+        // same reason the tone generator is — it must survive the TX channel
+        // stopping and starting across key cycles, because a known file
+        // played across two key-downs has to be the same file both times.
+        private readonly JJPortaudio.TxFilePlayer txFilePlayer = new JJPortaudio.TxFilePlayer();
+
+        // Both stand in for the microphone at the same point in the input
+        // callback, so they share the slot through a mux. The tone is listed
+        // first: it is a calibrated reference, and if somebody has both going
+        // the calibrated thing is the one that should survive.
+        // Built on demand rather than in a field initialiser, which cannot
+        // reference the two fields it needs.
+        private JJPortaudio.TxInputSourceMux _txInputSources;
+        private JJPortaudio.TxInputSourceMux TxInputSources =>
+            _txInputSources ??= new JJPortaudio.TxInputSourceMux(txToneGen, txFilePlayer);
+
         // Track I: the TX conditioning chain (noise reduction + gate +
         // residual monitor tap), owned here like the tone generator and the
         // LUFS meter so it survives channel stop/start across key cycles.
@@ -13309,6 +13327,49 @@ namespace Radios
                     return "The radio is in CW mode, where PC transmit audio does not run. Switch to a voice mode first.";
                 return "";
             }
+        }
+
+        /// <summary>
+        /// Sprint 33 Track I: the reference-voice player that stands in for
+        /// the microphone in the transmit stream. The UI loads content into it
+        /// and starts and stops it; the audio path picks it up automatically,
+        /// exactly as it does the test tone.
+        /// </summary>
+        /// <remarks>
+        /// Exposed as the object rather than mirrored property by property.
+        /// The tone generator's surface here is a set of pass-through
+        /// properties written before there was a second source, and repeating
+        /// that for every future source is how a rig class turns into a
+        /// forwarding table. What genuinely belongs to the rig — whether the
+        /// path can carry audio at all — is
+        /// <see cref="TxTonePathTrouble"/>, and it is already shared.
+        /// </remarks>
+        public JJPortaudio.TxFilePlayer TxFilePlayer => txFilePlayer;
+
+        /// <summary>
+        /// True while a known recording is being transmitted in place of the
+        /// microphone.
+        /// </summary>
+        public bool TxFilePlaying => txFilePlayer.Engaged;
+
+        /// <summary>
+        /// Start transmitting the loaded recording in place of the
+        /// microphone. Takes effect immediately if transmitting, otherwise at
+        /// the next key-down.
+        /// </summary>
+        public void TxFileStart()
+        {
+            Tracing.TraceLine("TxFileStart: \"" + txFilePlayer.ContentName + "\", "
+                + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
+                + txFilePlayer.ContentSampleRate + " Hz", TraceLevel.Info);
+            txFilePlayer.Start();
+        }
+
+        /// <summary>Stop transmitting the recording and restore the microphone.</summary>
+        public void TxFileStop()
+        {
+            Tracing.TraceLine("TxFileStop", TraceLevel.Info);
+            txFilePlayer.Stop();
         }
         #endregion
 
