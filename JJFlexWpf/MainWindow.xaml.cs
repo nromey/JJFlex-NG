@@ -5001,10 +5001,6 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Show the earcon scratchpad — easter egg triggered by typing "cqtest" in Ctrl+F.
-    /// Mutes the radio while open so you can hear the sounds you're designing.
-    /// </summary>
-    /// <summary>
     /// Handle calibration reference entered via JJ Ctrl+F frequency input.
     /// Delegates to FreqOutHandlers if available, otherwise handles directly.
     /// </summary>
@@ -5023,24 +5019,35 @@ public partial class MainWindow : UserControl
         }
     }
 
+    /// <summary>
+    /// Show the Earcon Scratchpad — the audio bench. Also reachable from the
+    /// Audio menu, and by typing "cqtest" into Ctrl+F.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This deliberately does NOT mute the radio (#138).</b> It used to,
+    /// muting the slice on the way in and restoring on the way out, on the
+    /// reasoning that you cannot hear a quiet earcon over band noise. That was
+    /// right when the scratchpad only played a sound so you could confirm it
+    /// existed. It stopped being right when the scratchpad became the bench for
+    /// deciding whether an earcon is AUDIBLE ENOUGH — because the thing it has
+    /// to be audible over is exactly the receive audio the mute was removing.
+    /// Judging an alert against silence and then shipping it into a pileup is
+    /// how an alert that tests fine turns out to be inaudible in use.
+    /// </para>
+    /// <para>
+    /// The operator's own mute is theirs either way: the universal <c>M</c>
+    /// toggles the active slice and <c>Shift+M</c> every slice, and unlike this
+    /// method they leave the radio in the state the operator chose rather than
+    /// in the state a dialog chose for them.
+    /// The Audio menu route never muted, so the two ways in now behave the
+    /// same, which they did not before.
+    /// </para>
+    /// </remarks>
     public void ShowEarconScratchpad()
     {
-        // Save and mute radio so earcon sounds are audible
-        bool wasMuted = RigControl?.SliceMute ?? true;
-        if (RigControl != null && !wasMuted)
-            RigControl.SliceMute = true;
-
-        try
-        {
-            var dialog = new Dialogs.EarconScratchpadDialog();
-            dialog.ShowDialog();
-        }
-        finally
-        {
-            // Restore previous mute state
-            if (RigControl != null && !wasMuted)
-                RigControl.SliceMute = false;
-        }
+        var dialog = new Dialogs.EarconScratchpadDialog();
+        dialog.ShowDialog();
     }
 
     /// <summary>
