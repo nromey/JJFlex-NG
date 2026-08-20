@@ -845,6 +845,26 @@ latter. Nothing moved or resignatured. Both were flagged rather than hidden.
 so its amplifier code could live in its own file. Three tracks edit this file;
 the meter section is Track A's and is untouched by everyone else.
 
+### THE SHIM IS GONE — Track B retired it, as planned
+
+`JJFlexWpf.MeterSource` is **deleted outright**, along with the `MeterSlot.Source`
+and `MeterSlot.Waveform` bridges over it, replaced by `MeterSlot.Retarget(...)`.
+`Radios.MeterType`, `MeterChangedDel` and `MeterChanged` are **deleted from
+`FlexBase`** along with all eight raise sites; `MeterToneEngine` was the only
+consumer.
+
+Track A deliberately left these alive so Track B could code against them. **They
+no longer exist.** Any track still calling them will fail to compile at merge —
+which is the good outcome, since the alternative is a silent behaviour change.
+Track B also corrected two comments in `FlexBase` that described the retired
+symbols as live, one of which carried a `<see cref="MeterChanged"/>` that would
+have dangled.
+
+`MeterSlotConfig.Source` changed type from the deleted enum to `string`. That is
+a signature change on a public class, forced by the retirement and correct
+independently — an integer on disk would throw and lose the whole config file.
+It is in a file Track B owns and was reported rather than done quietly.
+
 ### THE ONE HAZARD THAT IS NOT TEXTUAL — verify it by ear after E and H are both in
 
 **A held bench tone may block application shutdown.** Neither track could catch
