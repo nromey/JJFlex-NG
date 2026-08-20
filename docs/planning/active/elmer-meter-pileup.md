@@ -11,9 +11,10 @@ need it: a meters panel that scales to any radio, amplifier or tuner, and a
 diagnostic Elmer that tells an operator which stage of their radio is dead and
 hands them evidence they can paste into an email to Flex.
 
-Alongside it, an independent audio lane (one synthesis vocabulary, an earcon
-registry, a real sonification bench) and a navigation lane (category-list
-navigation, keyboard annotation).
+Alongside it, three independent lanes: audio (one synthesis vocabulary, an earcon
+registry, a real sonification bench), navigation (category-list navigation,
+keyboard annotation), and persistence (why a released slice comes back, and the
+two profile verbs that were never built).
 
 ## The three findings this plan is built on
 
@@ -65,7 +66,9 @@ trailing it. That is Track G, and it is why Track G merges last.
 
 - **Location:** main repo, `C:\dev\JJFlex-NG`
 - **Branch:** `sprint32/track-a`
-- **Blocks:** B, C, E. Start A first and alone.
+- **Blocks:** B, C, D. Start A first and alone. (E also waits on A4, the Workshop
+  file split, but on nothing else — it can start as soon as that one commit
+  lands, ahead of the rest of Phase 1.)
 
 ## Phase 1 — BLOCKING. Report the moment it is committed.
 
@@ -115,7 +118,7 @@ updating is information, and #123's rules depend on being able to say so.
 
 It must expose the inventory **partitioned by source and source index**, because
 that is how amplifier, tuner and per-slice meters separate, and `Meter.Source`
-already tags every meter this way. Track E needs no new concept, only this.
+already tags every meter this way. Track D needs no new concept, only this.
 
 **Change notification is the load-bearing part.** FlexLib raises nothing when a
 meter appears. Detect change centrally — the count-and-set comparison
@@ -281,10 +284,10 @@ precedent. **Move the call site; do not change the method's signature.**
 
 ---
 
-# Track E — Amplifier support
+# Track D — Amplifier support
 
-- **Worktree:** `../jjflex-32e`
-- **Branch:** `sprint32/track-e`
+- **Worktree:** `../jjflex-32d`
+- **Branch:** `sprint32/track-d`
 - **Depends on:** A Phase 1 (inventory partitioning)
 - **Covers:** #125
 
@@ -330,10 +333,10 @@ than an improvised evening.
 
 ---
 
-# Track F — The audio bench
+# Track E — The audio bench
 
-- **Worktree:** `../jjflex-32f`
-- **Branch:** `sprint32/track-f`
+- **Worktree:** `../jjflex-32e`
+- **Branch:** `sprint32/track-e`
 - **Depends on:** A Phase 1 (only for the Workshop file split)
 - **Covers:** #112, #113, #119, #120, #128, #118, #114, and the tier half of #115
 
@@ -444,34 +447,118 @@ what the Workshop already uses.
 
 ---
 
+# Track H — Profiles and persistence
+
+- **Worktree:** `../jjflex-32h`
+- **Branch:** `sprint32/track-h`
+- **Covers:** #117 (which absorbs #59), #58's diagnostic, #70
+- **Independent of everything else.** No shared files with A–G.
+
+Added 2026-08-19 evening, after Noel's live test reframed #117 from "slices are
+unmanageable" into something well-defined.
+
+**H1. The slices are the radio's, not ours — this is a PROFILE problem.** JJ
+Flexible contains zero slice-creation calls; the trace shows all four arriving
+from the radio as `sliceAdded:mine`. Releasing a slice changes live state only;
+the radio restores its global profile on the next connect. Noel released slice
+D, relaunched, and it came back.
+
+**H2. Tell the operator the change is provisional.** Releasing a slice succeeds,
+sounds successful, and is silently discarded at disconnect. **This is the actual
+defect** — the slice handling works; nothing communicates that the work will not
+survive. The persistence step exists and is fully wired (Radio menu > Profiles >
+Save → `Rig.SaveProfile` → `theRadio.SaveGlobalProfile` → `profile global save`),
+and Noel — who knows this codebase better than anyone — could not find it.
+
+Evaluate `Radio.AutoSaveProfile(string state)` FIRST. It exists in FlexLib
+(`Radio.cs:8616`, command `profile autosave "<state>"`), JJ Flexible never calls
+it, and it is the radio's own save-on-disconnect concept. It may be the right
+answer instead of a hand-built receipt flow. Find out what it actually does
+before designing around it.
+
+**H3. Un-stub profile creation.** In `NativeMenuBar.cs` (~2550) the Profiles
+dialog wires Select, Save and Delete for real, but `OnAdd` and `OnUpdate` are
+stubs that speak *"Profile creation not yet available"* / *"Profile update not
+yet available"*. So Save **overwrites the profile you are on** — there is no Save
+As, and an operator cannot keep a four-slice layout and build a one-slice layout
+beside it.
+
+Two things to fix, and the second matters as much as the first: build the
+missing verbs, **and stop presenting verbs that announce their own absence after
+the operator has already navigated to them and pressed.** A sighted user often
+sees a greyed control and does not try; a keyboard and screen-reader operator
+pays the full round-trip first. Disable, hide, or label — any of the three beats
+the current behaviour. Same pattern as #121; sweep for others while here.
+
+**H4. #58's diagnostic — one trace line, not a fix.** The `ActiveSlice` guard
+shipped in `01c2d346` and did not suppress the connect storm, and static reading
+of `_slices.Add` plus `ActiveSlice` predicts one announcement where Noel heard
+four. **Do not guess at the mechanism.** Log what `theRadio.ActiveSlice` actually
+returns at each `DemodMode` event, alongside `s.Index`, `s.Active`, and
+`s.ClientHandle` versus `theRadio.ClientHandle`. One connect settles it. Fixing
+it is a separate decision made once the data exists.
+
+Also confirmed by Noel and belonging here: the 1500 ms pre-teardown window is too
+short for a full CW string. Fix by observing the mixer drain rather than widening
+a constant — the player currently completes on computed duration plus 50 ms.
+
+**H5. #70 — repeat-last-message becomes a short history.** `_lastMessage` is a
+single string; the coalescer's `_lastByKey` is per-key dedup state cleared on
+urgent flush and unusable as history. This was stranded in Sprint 30's Track F
+purely because of the speech-core quarantine — it is pure code and was never
+bench-gated.
+
+**The speech-core quarantine is DROPPED for this sprint** (Noel, 2026-08-19). It
+was written to protect a live session that never ran, and had already lapsed in
+practice. No track holds an exclusive lock on `Radios\Speech\*` or
+`ScreenReaderOutput.cs` — the ordinary symbol contract below governs instead.
+
+---
+
+# A note on track letters: there is no Track F
+
+Deliberate. Three separate things in this project's history are called "Track F"
+— Audio Track F (#10, receiver simulation on IQ playback, bench-gated), Sprint 30
+Track F ("The Operator's Ear", the live session that never ran), and this
+sprint's audio bench, which was briefly labelled F before being renamed to E.
+Skipping the letter costs nothing and removes a collision that would otherwise
+cost a conversation.
+
+---
+
 # Execution order
 
-**Start immediately, three tracks:** A, F, G.
+**Start immediately, four tracks:** A, E, G, H.
 
-F and G are independent of the meter arc. F touches only the Workshop's earcon
+E, G and H are independent of the meter arc. E touches only the Workshop's earcon
 tab (isolated by A4) and the earcon engine; G touches the dialog navigation
-shells and `KeyCommands`.
+shells and `KeyCommands`; H touches profiles, slices and the speech core, and
+shares no files with any other track.
 
 **When Track A reports Phase 1 committed** — FlexLib patch applied and reflection
 deleted, identity-preserving subscription in place, `MeterInventory` service with
-change notification, and the Workshop file split — **start B, C and E.**
+change notification, and the Workshop file split — **start B, C and D.**
 
-Peak concurrency is six.
+Peak concurrency is seven. Above the six-CLI guideline, which is fine under the
+background-agent model (thirteen in one evening is proven) but would not be under
+Model A.
 
 # Merge plan
 
 Track A is the merge target. Merge order as tracks complete:
 
-**B, then E, then C, then F, then G.**
+**B, then D, then C, then E, then H, then G.**
 
-- **B before E** — B is the only track permitted to retire `MeterType` and
-  `MeterSource`. If E merges first it will have been coding against the shim
+- **B before D** — B is the only track permitted to retire `MeterType` and
+  `MeterSource`. If D merges first it will have been coding against the shim
   while B removes it.
-- **C after B and E** — the analyzer's rules reference meters by name, so they
+- **C after B and D** — the analyzer's rules reference meters by name, so they
   want the model settled before they land.
-- **F second to last** — isolated by the file split, low conflict, but it is the
+- **E second to last** — isolated by the file split, low conflict, but it is the
   largest single body of new UI.
-- **G last, always** — it restructures the navigation container that A, C and F
+- **H anywhere** — it shares no files. Placed late only because nothing depends
+  on it; pull it forward freely if it finishes first.
+- **G last, always** — it restructures the navigation container that A, C and E
   are all adding tabs to. Merging it before those tabs exist means restructuring
   a container that is about to change again.
 
@@ -491,11 +578,16 @@ Ownership, so no two tracks move the same ground:
   `AudioOutputConfig`. **B alone may retire `MeterType` / `MeterSource`.**
 - **C owns** the analyzer files, and may move `SilentRadioAdvisory`'s call site
   but **not** its signature.
-- **E owns** the amplifier and tuner files.
-- **F owns** `EarconPlayer`, the earcon registry, the Scratchpad, and
+- **D owns** the amplifier and tuner files.
+- **E owns** `EarconPlayer`, the earcon registry, the Scratchpad, and
   `AudioWorkshopDialog.Earcons.cs`.
 - **G owns** the navigation shells of `SettingsDialog` and
   `AudioWorkshopDialog`, and `KeyCommands`.
+- **H owns** `Profile_t`, `ProfileReporter`, the Profiles dialog wiring in
+  `NativeMenuBar`, the slice and profile sections of `FlexBase`, and
+  `Radios\Speech\*` / `ScreenReaderOutput` for #70. Note G also edits
+  `NativeMenuBar` for navigation — **different regions, but flag it in both
+  completion reports** so the merge knows to look.
 
 **The rule that applies to every track:** reuse the symbol you are told to
 reuse. **If you conclude that symbol should move or change signature, REPORT IT
@@ -521,7 +613,7 @@ dependency that broke the Sprint 30 merge.
 These gate verification, not building. Every track codes to completion
 regardless.
 
-- **Track E** needs the amplifier bench session: amp moved near the radio, on
+- **Track D** needs the amplifier bench session: amp moved near the radio, on
   120V and network, to discover what meters it actually publishes.
 - **Track C** needs field calibration for its thresholds. Ship the skeleton;
   grow it from testers' evidence.
@@ -530,16 +622,17 @@ regardless.
 
 # Deliberately not in this sprint
 
-- **#117 and #59, slice management.** Four slices open on connect that the
-  operator did not create, one stuck in FM, and no way to close them. Genuinely
-  independent and genuinely painful, but it is a different subsystem and
-  deserves its own design pass rather than being stapled onto a keyboard track.
-  Available as a seventh track if Noel wants it in.
+- ~~**#117 and #59, slice management.**~~ **PROMOTED into Track H** the same
+  evening. It was left out as "a different subsystem needing its own design
+  pass" — then Noel ran the test, and the design pass took twenty minutes
+  because the answer turned out to be profile persistence plus two stubbed
+  verbs. Worth remembering as a pattern: a task that looks like it needs
+  research may only need one observation from the operator.
 - **#132**, the remove-radio dialog choosing the wrong path. Blocked on one
   observation: does NVDA report "Remove the radio and its settings" as checked or
   not checked. Small fix once known.
 - **#21**, the orphan-process test. In flight on the laptop.
 - **#133 and #135**, build hygiene. Small enough to do directly rather than as a
   track; #133 is queued for tonight's build work.
-- **#115's camouflage half and #116's ducking.** Sequenced after Track F, for
+- **#115's camouflage half and #116's ducking.** Sequenced after Track E, for
   the reasons given there.
