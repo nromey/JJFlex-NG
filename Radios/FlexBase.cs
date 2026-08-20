@@ -11829,6 +11829,112 @@ namespace Radios
             return rv;
         }
 
+        // ── The operator's profile list: add and update (Sprint 32 Track H) ──
+        //
+        // These are the two verbs the Profiles dialog has been stubbed on since
+        // it was written — OnAdd and OnUpdate spoke "not yet available" AFTER
+        // the operator had navigated to the button and pressed it. Without them
+        // Save can only overwrite the profile you are already on, so there was
+        // no way to keep a four-slice layout and build a one-slice layout beside
+        // it.
+        //
+        // WHAT THESE DO NOT DO IS AS IMPORTANT AS WHAT THEY DO. They do not
+        // write anything to the radio. In Jim's design — which the WinForms
+        // Profile dialog still implements and which this restores rather than
+        // replaces — the operator's list is a list of NAMES the operator cares
+        // about, with at most one default per type; the radio-side write is
+        // <see cref="SaveProfile"/>, reached from the dialog's own Save button.
+        // So "add a global profile then save it" is the Save As that was
+        // missing, in two deliberate steps, and neither step can surprise
+        // somebody else's radio.
+        //
+        // One default per type is enforced on the way in, matching the WinForms
+        // dialog. The alternative — two profiles both claiming default — makes
+        // GetProfileInfo's crnt[0] pick silently arbitrary at the next connect.
+
+        /// <summary>
+        /// Add a profile to the operator's list, clearing any other default of
+        /// the same type when this one is marked default. Writes nothing to the
+        /// radio. Returns false when the name is already taken for that type.
+        /// </summary>
+        public bool AddOperatorProfile(Profile_t p, List<Profile_t> lst = null)
+        {
+            if (p == null || string.IsNullOrWhiteSpace(p.Name)) return false;
+            if (lst == null) lst = Callouts?.Profiles;
+            if (lst == null) return false;
+            if (GetProfileByName(p.Name, p.ProfileType, lst) != null) return false;
+
+            Tracing.TraceLine("AddOperatorProfile:" + p.ToString(), TraceLevel.Info);
+            if (p.Default) ClearDefaultOfType(p.ProfileType, lst);
+            lst.Add(p);
+            PersistOperatorProfiles();
+            return true;
+        }
+
+        /// <summary>
+        /// Replace an entry in the operator's list. Writes nothing to the
+        /// radio: renaming here renames the operator's REFERENCE, and a profile
+        /// that already exists on the radio keeps its own name until something
+        /// saves under the new one.
+        /// </summary>
+        public bool UpdateOperatorProfile(
+            Profile_t original, Profile_t replacement, List<Profile_t> lst = null)
+        {
+            if (original == null || replacement == null) return false;
+            if (string.IsNullOrWhiteSpace(replacement.Name)) return false;
+            if (lst == null) lst = Callouts?.Profiles;
+            if (lst == null) return false;
+
+            // The entry may be a rig profile the operator has never adopted —
+            // GetRigProfiles hands back fresh objects that are not in the list.
+            // Updating one of those ADOPTS it, which is the useful reading of
+            // the verb and matches what the operator just described in the
+            // dialog.
+            int at = lst.IndexOf(original);
+            if (at < 0)
+            {
+                Profile_t existing = GetProfileByName(
+                    original.Name, original.ProfileType, lst);
+                at = existing != null ? lst.IndexOf(existing) : -1;
+            }
+
+            // Refuse a rename that collides with a different existing entry.
+            Profile_t clash = GetProfileByName(
+                replacement.Name, replacement.ProfileType, lst);
+            if (clash != null && (at < 0 || !ReferenceEquals(clash, lst[at])))
+                return false;
+
+            Tracing.TraceLine(
+                "UpdateOperatorProfile:" + original.ToString() + " -> " + replacement.ToString(),
+                TraceLevel.Info);
+            if (replacement.Default) ClearDefaultOfType(replacement.ProfileType, lst);
+            if (at >= 0) lst[at] = replacement;
+            else lst.Add(replacement);
+            PersistOperatorProfiles();
+            return true;
+        }
+
+        /// <summary>Clear the default flag on every profile of one type.</summary>
+        private void ClearDefaultOfType(ProfileTypes typ, List<Profile_t> lst)
+        {
+            foreach (Profile_t p in GetProfilesByType(typ, lst)) p.Default = false;
+        }
+
+        /// <summary>
+        /// Ask the application to write the operator's record to disk. A no-op
+        /// when nothing wired the callout, so the Radios layer never has to know
+        /// how the operator's file is stored.
+        /// </summary>
+        private void PersistOperatorProfiles()
+        {
+            try { Callouts?.SaveOperator?.Invoke(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "PersistOperatorProfiles:" + ex.Message, TraceLevel.Error);
+            }
+        }
+
         public bool DeleteProfile(Profile_t prof, List<Profile_t> lst = null)
         {
             Tracing.TraceLine("DeleteProfile:" + prof.Name + ' ' + prof.ProfileType.ToString(), TraceLevel.Info);
@@ -11882,6 +11988,10 @@ namespace Radios
             if (rv & (p != null))
             {
                 lst.Remove(p);
+                // The WinForms dialog wrote the operator's record after every
+                // delete; the WPF one never did, so a deleted profile came back
+                // on the next launch. (Sprint 32 Track H.)
+                PersistOperatorProfiles();
             }
             return rv;
         }
@@ -13547,6 +13657,21 @@ namespace Radios
             /// List of user's profiles
             /// </summary>
             public List<Profile_t> Profiles;
+
+            /// <summary>
+            /// Ask the application to persist the operator's record, after the
+            /// radio layer has changed <see cref="Profiles"/>.
+            ///
+            /// Added Sprint 32 Track H. The list handed in above is the SAME
+            /// object the application holds, so mutating it here is already
+            /// visible to the app — but only in memory. The WinForms Profile
+            /// dialog wrote the operator's file itself after every add, update
+            /// and delete; the WPF one could not, because the Radios layer sits
+            /// below the application and has no idea where that file lives.
+            /// This is the one line that closes the gap. Optional: unwired means
+            /// changes live for the session and no more.
+            /// </summary>
+            public Action SaveOperator;
         }
         /// <summary>
         /// Callout vector provided at open(). MUST be public: this field

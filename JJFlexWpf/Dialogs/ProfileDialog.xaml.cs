@@ -87,17 +87,20 @@ namespace JJFlexWpf.Dialogs
             return ProfilesListBox.SelectedItem as ProfileDisplayItem;
         }
 
+        // Save applies to global profiles only — a TX or MIC profile is
+        // autosaved by the radio and has nothing for this button to do.
+        //
+        // It used to VANISH on the other two types. Sprint 32 Track H made it
+        // disable instead, which is the same information delivered a better
+        // way: a control that appears and disappears as you arrow a list gives
+        // a keyboard operator a moving target and no explanation, while a
+        // disabled one keeps its place in the tab order and is announced as
+        // unavailable the moment focus reaches it. Same reasoning as the greyed
+        // not-yet-implemented menu items in NativeMenuBar.
         private void ProfilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var item = GetSelectedItem();
-            if (item != null && _callbacks.IsGlobalProfile(item.ProfileData))
-            {
-                SaveButton.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                SaveButton.Visibility = Visibility.Collapsed;
-            }
+            SaveButton.IsEnabled = item != null && _callbacks.IsGlobalProfile(item.ProfileData);
         }
 
         private void SelectButton_Click(object sender, RoutedEventArgs e)

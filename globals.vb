@@ -3536,6 +3536,12 @@ Module globals
             OpenParms.BrailleCells = CurrentOp.BrailleDisplaySize
             OpenParms.License = CurrentOp.License
             OpenParms.Profiles = CurrentOp.Profiles
+            ' Sprint 32 Track H: the Profiles dialog can now add and update
+            ' entries in that list, and the Radios layer has no idea where the
+            ' operator's record is stored. This is how such a change survives
+            ' the session — and it is also why deleting a profile stopped coming
+            ' back on the next launch.
+            OpenParms.SaveOperator = AddressOf Operators.UpdateCurrentOp
 
             ' Check for auto-connect on initial startup
             If initialCall Then
