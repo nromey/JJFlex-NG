@@ -22,6 +22,15 @@
     <PackageReference Include="System.IO.Ports" Version="10.0.11" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The diagnostic rules ship INSIDE the assembly so they can never go
+         missing from an install and need no installer entry. An operator's own
+         copy under %AppData%\JJFlexRadio replaces this one at run time; see
+         Diagnostics\RuleSetLoader.cs. -->
+    <EmbeddedResource Include="Diagnostics\tx-chain-rules.txt"
+                      LogicalName="Radios.Diagnostics.tx-chain-rules.txt" />
+  </ItemGroup>
+
   <!-- No screen-reader natives are copied to the app root. Speech and braille
        ship as prism.dll under runtimes\win-{x64,x86}\native\, copied by
        JJFlexRadio.vbproj alongside portaudio and libopus, and resolved by
