@@ -328,13 +328,23 @@ namespace JJFlexWpf
                 return;
             }
 
-            long target = start + (latencyMs * bytesPerMs);
+            long needed = latencyMs * bytesPerMs;
             int waited = 0;
             int budget = latencyMs + DrainGraceMs;
             while (waited < budget)
             {
                 long now = EarconPlayer.AlertPlayedBytes;
-                if (now < 0 || now >= target) return;
+                if (now < 0) return;
+
+                // waveOutGetPosition counts bytes in a 32-bit field, so at this
+                // mixer's rate it wraps roughly every three and a half hours.
+                // A subtraction is enough to survive one wrap and costs a line;
+                // without it a farewell that happened to land on the wrap would
+                // wait out the whole budget for no reason.
+                long delta = now - start;
+                if (delta < 0) delta += 0x1_0000_0000L;
+                if (delta >= needed) return;
+
                 await Task.Delay(DrainPollMs, ct).ConfigureAwait(false);
                 waited += DrainPollMs;
             }
@@ -416,7 +426,13 @@ namespace JJFlexWpf
             var completed = await Task.WhenAny(
                 _endOfSource.Task,
                 Task.Delay(timeoutMs, ct)).ConfigureAwait(false);
-            return ReferenceEquals(completed, _endOfSource.Task);
+            if (ReferenceEquals(completed, _endOfSource.Task)) return true;
+            // The delay lost by being CANCELLED, not by elapsing — that is a
+            // shutdown or a caller withdrawing, and it must surface as
+            // cancellation so PlayOne tears the handle down instead of
+            // resolving the sequence as if it had been heard.
+            ct.ThrowIfCancellationRequested();
+            return false;
         }
 
         // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
