@@ -30,6 +30,44 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// Category-list navigation (Sprint 32 Track G, task #134). Owns the
+        /// list contents, the two-way sync with SettingsTabs, and the
+        /// Ctrl+Tab / Ctrl+Shift+Tab pair. Held so deep links can ask it to put
+        /// focus on the category they just selected.
+        /// </summary>
+        private CategoryNavigator? _categories;
+
+        /// <summary>
+        /// Put focus on the selected category in the list, announcing where the
+        /// operator has landed.
+        /// </summary>
+        /// <remarks>
+        /// Deep links used to call <c>TabItem.Focus()</c> for this, which
+        /// worked while the tab strip was a real focusable visual. The strip is
+        /// templated away now, so that call would silently do nothing and the
+        /// operator would arrive with no evidence they were anywhere but plain
+        /// Settings. Every deep link routes through here instead.
+        /// </remarks>
+        public bool FocusCategory() => _categories?.FocusSelectedCategory() ?? false;
+
+        /// <summary>
+        /// Settings opens on the category list.
+        /// </summary>
+        /// <remarks>
+        /// Naming the target rather than letting the base walk tab order, for
+        /// the reason RemoveRadioDialog names its own: the walk lands on
+        /// whatever happens to be first today. Here it landed on the OK button,
+        /// which is a strange first thing to hear from a dialog holding eleven
+        /// categories of settings. Landing on the list answers "where am I and
+        /// what else is there" in one announcement.
+        /// </remarks>
+        protected override void FocusFirstControl()
+        {
+            if (FocusCategory()) return;
+            base.FocusFirstControl();
+        }
+
+        /// <summary>
         /// Select a tab by its XAML header text ("Radio Setup", "Network", ...)
         /// before the dialog is shown, so advisories and other deep links can
         /// open Settings already sitting on the relevant tab instead of handing
@@ -92,6 +130,12 @@ namespace JJFlexWpf.Dialogs
             BandMemoryEnabled = pttConfig.BandMemoryEnabled;
 
             InitializeComponent();
+
+            // Category navigation (task #134). Attached before anything else
+            // touches SettingsTabs, so a tab selected later in this
+            // constructor — or by SelectTabByHeader before the dialog is
+            // shown — arrives with the list already tracking it.
+            _categories = CategoryNavigator.Attach(this, SettingsTabs, CategoryListBox);
 
             // Select all text when tabbing into any TextBox
             AddHandler(TextBox.GotKeyboardFocusEvent,

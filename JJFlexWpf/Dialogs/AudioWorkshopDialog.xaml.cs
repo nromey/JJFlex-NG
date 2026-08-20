@@ -266,6 +266,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         "It could not be saved — there is no operator loaded, so there is no "
         + "place to keep it yet.";
 
+    /// <summary>
+    /// Category-list navigation (Sprint 32 Track G, task #134). Owns the list
+    /// contents, the two-way sync with MainTabs, and Ctrl+Tab / Ctrl+Shift+Tab.
+    /// </summary>
+    private readonly CategoryNavigator _categories;
+
     public AudioWorkshopDialog()
     {
         InitializeComponent();
@@ -276,6 +282,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         ShowInTaskbar = true;
         ResizeMode = ResizeMode.CanResize;
         new System.Windows.Interop.WindowInteropHelper(this).Owner = IntPtr.Zero;
+
+        // Category navigation (Sprint 32 Track G, task #134): Ctrl+Tab and
+        // Ctrl+Shift+Tab step categories from anywhere in the window, and the
+        // list down the left names every one of them. It ENUMERATES the
+        // TabControl, so a category added by any other track shows up here
+        // with no edit to this file.
+        _categories = CategoryNavigator.Attach(this, MainTabs, CategoryListBox);
 
         BuildTxAudioTab();
         ApplyTxAudioTabOrder();
@@ -413,6 +426,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             if (_startCheckButton != null && _startCheckButton.Focus())
                 return;
         }
+        // Opened on any other category: land on the category list, which says
+        // which one (Sprint 32 Track G). The old fallback walked tab order and
+        // landed on Load Preset — a control that tells the operator nothing
+        // about where the deep link just took them.
+        if (_categories.FocusSelectedCategory()) return;
         base.FocusFirstControl();
     }
 
@@ -426,9 +444,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// backward tab inspects what just happened.
     ///
     /// Noel also asked about Ctrl+Tab section navigation. Deliberately NOT
-    /// added: Ctrl+Tab already switches tabs in this window (standard WPF
-    /// TabControl behaviour, documented in the help), and overloading it
-    /// for section movement inside a tab would collide with that.
+    /// added: Ctrl+Tab moves between CATEGORIES in this window, and
+    /// overloading it for section movement inside one would collide with that.
+    /// Sections move on F6 / Shift+F6. (Ctrl+Tab used to be the WPF
+    /// TabControl's own default behaviour; since Sprint 32 Track G it is
+    /// handled explicitly by CategoryNavigator, which also moves focus to the
+    /// category list so the arrival is announced. Same key, same meaning, no
+    /// longer inherited.)
     /// </summary>
     private void ApplyTxAudioTabOrder()
     {
@@ -490,18 +512,20 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// Collapsed sections must be skipped rather than counted: the Microphone
     /// section's contents change with the transmit source and TX Monitor can
     /// be hidden, so a fixed index would land the operator on nothing.
+    ///
+    /// <para>The panel is DISCOVERED from the selected category rather than
+    /// looked up by index (Sprint 32 Track G). It was a switch on
+    /// <c>MainTabs.SelectedIndex</c> naming 0, 1 and 2 — correct for exactly
+    /// the three categories that existed when it was written, and silently
+    /// wrong for the fourth. Sprint 32 added several: every one of them would
+    /// have fallen through to <c>_ => null</c>, and F6 would have done nothing
+    /// at all on the new categories while continuing to work perfectly on the
+    /// old ones, which is the hardest kind of gap to notice.</para>
     /// </remarks>
     private List<GroupBox> VisibleSections()
     {
         var found = new List<GroupBox>();
-        StackPanel? panel = MainTabs.SelectedIndex switch
-        {
-            0 => TxAudioContent,
-            1 => LiveMetersContent,
-            2 => EarconExplorerContent,
-            _ => null,
-        };
-        if (panel == null) return found;
+        if (SelectedCategoryPanel() is not Panel panel) return found;
 
         foreach (object child in panel.Children)
         {
@@ -509,6 +533,40 @@ public partial class AudioWorkshopDialog : JJFlexDialog
                 found.Add(g);
         }
         return found;
+    }
+
+    /// <summary>
+    /// The content panel of whichever category is showing, unwrapping the
+    /// ScrollViewer every category is built inside.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately shallow: it returns the category's own top-level panel, so
+    /// a "section" stays what it has always been — a GroupBox sitting directly
+    /// in that panel — rather than every nested GroupBox anywhere below. A
+    /// deeper walk would quietly change what F6 counts as a section.
+    /// </remarks>
+    private Panel? SelectedCategoryPanel()
+    {
+        object? content = (MainTabs.SelectedItem as TabItem)?.Content;
+
+        // Unwrap the containers a category is likely to be built inside. Every
+        // category today is ScrollViewer > StackPanel, but three other tracks
+        // added categories this sprint and none of them had to know that, so
+        // this tolerates a Border or another ContentControl in the way rather
+        // than returning null and leaving F6 silently dead on their tabs.
+        for (int depth = 0; depth < 4 && content is not Panel; depth++)
+        {
+            content = content switch
+            {
+                ScrollViewer sv => sv.Content,
+                Border b => b.Child,
+                ContentControl cc => cc.Content,
+                Decorator d => d.Child,
+                _ => null,
+            };
+            if (content == null) break;
+        }
+        return content as Panel;
     }
 
     /// <summary>

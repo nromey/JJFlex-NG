@@ -868,11 +868,19 @@ namespace JJFlexWpf.Dialogs
         #region Steps 5 to 7
 
         /// <summary>
-        /// Step 5 hands off to the Network tab rather than duplicating the port
-        /// and connection-mode controls. Moving focus to the tab header (not just
-        /// selecting it) is what makes this work with a screen reader — otherwise
-        /// the tab changes silently and the user is left reading the old one.
+        /// Step 5 hands off to the Network category rather than duplicating the
+        /// port and connection-mode controls. Moving focus (not just selecting)
+        /// is what makes this work with a screen reader — otherwise the
+        /// category changes silently and the user is left reading the old one.
         /// </summary>
+        /// <remarks>
+        /// The focus TARGET moved with the category list (Sprint 32 Track G,
+        /// task #134). It was <c>tab.Focus()</c>, which worked because the tab
+        /// strip was a real focusable visual; the strip is templated away now,
+        /// so that call would silently do nothing and this button would look
+        /// broken to precisely the operator it exists for. FocusCategory lands
+        /// on the list row instead and announces the same way.
+        /// </remarks>
         private void SetupGoToNetworkButton_Click(object sender, RoutedEventArgs e)
         {
             foreach (var item in SettingsTabs.Items)
@@ -880,10 +888,10 @@ namespace JJFlexWpf.Dialogs
                 if (item is TabItem tab && (tab.Header as string) == "Network")
                 {
                     SettingsTabs.SelectedItem = tab;
-                    tab.Focus();
-                    // DELETED: tab.Focus() raises a UIA focus change and the
-                    // screen reader announces the TabItem's header and selected
-                    // state itself. Speaking "Network settings." raced that
+                    FocusCategory();
+                    // DELETED: the focus change raises a UIA event and the
+                    // screen reader announces the category name and its
+                    // position itself. Speaking "Network settings." raced that
                     // announcement for the same instant and won, replacing a
                     // fuller message with a shorter one.
                     return;

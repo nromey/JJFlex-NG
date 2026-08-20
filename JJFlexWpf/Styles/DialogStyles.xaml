@@ -53,4 +53,51 @@
         <Setter Property="Margin" Value="0,10,0,0"/>
     </Style>
 
+    <!-- ── Category navigation (Sprint 32 Track G, task #134) ──────────────
+
+         A dialog with a dozen sections gets a CATEGORY LIST rather than a tab
+         strip, the shape NVDA's own settings dialog uses: a list down the left
+         naming every section, the section itself filling the rest, and
+         Ctrl+Tab / Ctrl+Shift+Tab stepping between them from anywhere inside.
+         CategoryNavigator.Attach does the wiring; these two styles are the
+         look.
+
+         The TabControl STAYS as the container — only its header strip goes
+         away. That is deliberate and load-bearing: sections are still authored
+         as plain TabItems, so adding one is still one XAML block and needs no
+         knowledge of any of this. The category list enumerates whatever
+         TabItems exist rather than naming them.
+
+         Why the strip goes rather than sitting alongside the list: two
+         controls selecting the same thing is two tab stops, two places to
+         land, and two announcements for one act. The strip also arrows —
+         Left and Right on a focused strip change section — which is a second
+         way to move that nothing tells you about.
+    -->
+    <Style x:Key="CategoryTabControl" TargetType="TabControl">
+        <Setter Property="Focusable" Value="False"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <!-- Selected content only. No TabPanel, so there is no
+                         header strip to focus, to arrow through, or to leave a
+                         Tab-only operator wondering what just changed. -->
+                    <ContentPresenter x:Name="PART_SelectedContentHost"
+                                      ContentSource="SelectedContent"
+                                      Margin="{TemplateBinding Padding}"
+                                      SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="CategoryList" TargetType="ListBox">
+        <Setter Property="Width" Value="170"/>
+        <Setter Property="Margin" Value="0,0,10,0"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+
 </ResourceDictionary>
