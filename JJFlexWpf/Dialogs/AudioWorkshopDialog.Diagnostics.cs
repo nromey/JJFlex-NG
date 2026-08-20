@@ -469,7 +469,7 @@ public partial class AudioWorkshopDialog
         if (inv == null) return;
 
         _watchedInventory = inv;
-        inv.InventoryChanged += OnMeterInventoryChanged;
+        inv.InventoryChanged += OnDiagnosticsInventoryChanged;
     }
 
     private void UnwatchInventory()
@@ -477,7 +477,7 @@ public partial class AudioWorkshopDialog
         MeterInventory? inv = _watchedInventory;
         _watchedInventory = null;
         if (inv == null) return;
-        try { inv.InventoryChanged -= OnMeterInventoryChanged; }
+        try { inv.InventoryChanged -= OnDiagnosticsInventoryChanged; }
         catch (Exception ex)
         {
             Tracing.TraceLine("Diagnostics: unhooking the meter inventory failed — " + ex.Message,
@@ -496,7 +496,7 @@ public partial class AudioWorkshopDialog
     /// place, and it would stop describing the single moment its evidence block
     /// claims to describe.
     /// </remarks>
-    private void OnMeterInventoryChanged(object? sender, EventArgs e)
+    private void OnDiagnosticsInventoryChanged(object? sender, EventArgs e)
     {
         if (!Dispatcher.CheckAccess())
         {
@@ -504,7 +504,7 @@ public partial class AudioWorkshopDialog
             // close and Closed running the unsubscribe, and BeginInvoke on a
             // shut-down dispatcher throws. A diagnostic must not be the thing
             // that crashes the app on the way out.
-            try { Dispatcher.BeginInvoke(() => OnMeterInventoryChanged(sender, e)); }
+            try { Dispatcher.BeginInvoke(() => OnDiagnosticsInventoryChanged(sender, e)); }
             catch (Exception ex)
             {
                 Tracing.TraceLine("Diagnostics: meter change arrived after the window closed — "
