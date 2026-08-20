@@ -563,23 +563,21 @@ namespace Radios
                         t.PropertyChanged += OnDevicePropertyChanged;
                 }
 
-                if (_hookedAmps.Count != amps.Count)
+                // Prune against the CURRENT set rather than against a count. One
+                // amplifier leaving as another arrives keeps the count identical
+                // while the set is entirely different, and a count comparison
+                // would leave a handler on a dead object forever.
+                foreach (Amplifier a in new List<Amplifier>(_hookedAmps))
                 {
-                    foreach (Amplifier a in new List<Amplifier>(_hookedAmps))
-                    {
-                        if (amps.Contains(a)) continue;
-                        a.PropertyChanged -= OnDevicePropertyChanged;
-                        _hookedAmps.Remove(a);
-                    }
+                    if (amps.Contains(a)) continue;
+                    a.PropertyChanged -= OnDevicePropertyChanged;
+                    _hookedAmps.Remove(a);
                 }
-                if (_hookedTuners.Count != tuners.Count)
+                foreach (Tuner t in new List<Tuner>(_hookedTuners))
                 {
-                    foreach (Tuner t in new List<Tuner>(_hookedTuners))
-                    {
-                        if (tuners.Contains(t)) continue;
-                        t.PropertyChanged -= OnDevicePropertyChanged;
-                        _hookedTuners.Remove(t);
-                    }
+                    if (tuners.Contains(t)) continue;
+                    t.PropertyChanged -= OnDevicePropertyChanged;
+                    _hookedTuners.Remove(t);
                 }
             }
         }
