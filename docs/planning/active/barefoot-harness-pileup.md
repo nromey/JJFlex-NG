@@ -207,15 +207,42 @@ No tables. Prose or bullets, screen-reader first.
 
 ---
 
-## Track F — CW notifications: pitch, waveform, and repeat
+## Track F — how the app sounds, and how much of it the operator controls
 
 **Worktree:** `../jjflex-33f` · **Branch:** `sprint33/track-f`
 
-Tasks #146 (pitch follows the radio's sidetone or a configured tone), #145
-(waveform — sine, square, saw, or the additive harmonics), #153 (a repeat key).
+Tasks #146 (CW pitch follows the radio's sidetone or a configured tone), #145 (CW
+waveform), #153 (a CW repeat key), #147 (select the original sine-based sounds or
+the new ones), #144 (the connect series still sounds old).
 
-**One track, not three, because they touch the same five files.** Together they
-are a CW notification settings group with one vocabulary.
+**One track, not five, because they touch the same seven files — and because
+#145 and #147 are the same question asked twice.** How rich should a sound be,
+asked about CW and about earcons. They must share a vocabulary in the settings
+UI, and separate tracks would invent different words for it.
+
+Three findings reshaped this track, and two of them say a filed task is wrong.
+
+**#146 is nearly free.** `FlexBase.cs:6015` already follows the radio's `CWPitch`
+for the CW MONITOR — the notifier simply is not wired to the same event.
+
+**#147 must NOT be built as filed.** It says the classic path was deleted and
+implies restoring it. Do not. `EarconVoices.cs` defines seven named voices that
+`EarconPlayer.cs` references 35 times, and no earcon carries its own timbre — so
+the setting is two definitions of those seven voices and one switch that picks
+the table. All 45 earcons follow automatically, and there is still exactly one
+synthesis engine. Say honestly in the UI that this is a sine-based voice set, not
+a byte-for-byte restoration; the literal originals live at `283a216e^`.
+
+**#144's filed cause is wrong.** The connect series was not skipped by Track E's
+migration — `ConnectPhase1Tone` already calls `PlayVoiced`. It runs on
+`EarconVoices.Plain`, a fundamental plus one harmonic at 12 percent, which is why
+it sounds unchanged: it very nearly is. A voice choice, not wiring, and taste, so
+it needs Noel's ears before it lands.
+
+**#153 has a trap.** `HistoryWalkResetMs = 6000` is calibrated for speech, but
+"SL A USB" runs about 4.4 s at 20 WPM and about 8.9 s at the 10 WPM floor, so the
+walk-back breaks for slow operators. Same root cause as #143's flat farewell
+timeout.
 
 **The only feature track in a test sprint.** It touches no test infrastructure
 and no other track touches its files, so it merges cleanly. Included because
