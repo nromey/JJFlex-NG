@@ -94,6 +94,12 @@ public partial class AudioWorkshopDialog
         SyncToneMonitor();
         UpdateToneStatus(speakIfNewlyOutside: _rig.TxToneEngaged);
 
+        // Reference audio housekeeping, on every tick and every tab for the
+        // same reason: a reference pass ends when the recording runs out, not
+        // when the operator does anything, and an operator who is not looking
+        // at this tab still needs to hear that their microphone came back.
+        SyncReferenceUi();
+
         // The mic reading refreshes on every tick regardless of tab so a
         // review command always reads fresh the moment the operator lands
         // on it.

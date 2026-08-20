@@ -1,0 +1,91 @@
+JJ Flexible reference voice — script, version 1
+================================================
+
+This is the script the shipped reference recording reads, word for word.
+
+It is here for two reasons. An operator can read it to find out exactly what
+they are about to transmit, without having to transmit it to find out. And
+anyone re-recording the reference — in their own voice, on their own
+microphone — says the same words in the same order, so the two recordings stay
+comparable.
+
+Lines in square brackets are instructions to the person or the tool making the
+recording. They are not spoken. Everything else is read aloud, at a normal
+speaking level and a normal speaking distance, without hurrying.
+
+DELIBERATELY NOT ON THIS RECORDING: any callsign, any CQ call, and anything
+that would sound like a real contact. If this ever goes out over the air by
+accident, it must be obvious to anyone listening that it is a test recording
+and not a station calling. That is why it says so twice.
+
+
+[section: slate]
+
+JJ Flexible reference voice, version one. This is a test recording, not a live
+transmission.
+
+
+[section: tone-announce]
+
+Level tone. One thousand hertz, twenty decibels below full scale.
+
+[tone: 1000 Hz, -20 dBFS, 2 seconds]
+
+
+[section: steady]
+
+Steady passage, for the loudness meters.
+
+On a good evening the band opens just before sunset and stays open for hours,
+and you can work a station three thousand miles away with a wire in a tree and
+a hundred watts. On a bad evening the same wire hears nothing but noise. The
+difference is not the radio. It is the sky, the season and the sun, and no
+amount of adjusting a transmitter will change any of the three. What you can
+change is how you sound, and that is what this recording is for.
+
+
+[section: phonetics]
+
+Phonetics. Alpha, Bravo, Charlie, Delta, Echo, Foxtrot, Golf, Hotel, India,
+Juliett, Kilo, Lima, Mike, November, Oscar, Papa, Quebec, Romeo, Sierra, Tango,
+Uniform, Victor, Whiskey, X-ray, Yankee, Zulu.
+
+
+[section: counting]
+
+Counting. One, two, three, four, five, six, seven, eight, nine, ten.
+
+
+[section: dynamics-announce]
+
+Dynamic range. The same sentence quietly, normally, then loudly.
+
+[section: dynamics-quiet | gain: -12 dB]
+
+How do you copy my audio?
+
+[section: dynamics-normal | gain: 0 dB]
+
+How do you copy my audio?
+
+[section: dynamics-loud | gain: +6 dB]
+
+How do you copy my audio?
+
+
+[section: plosives]
+
+Plosives and sibilance. Peter piped a passing barge past the bridge. She sells
+sea shells, and she ships them south. Ticking, tapping, popping, stopping.
+
+
+[section: silence-announce]
+
+Four seconds of silence, for the noise floor.
+
+[silence: 4 seconds]
+
+
+[section: close]
+
+End of the JJ Flexible reference voice. This was a test recording.
