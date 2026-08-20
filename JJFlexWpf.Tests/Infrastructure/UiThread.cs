@@ -29,14 +29,18 @@ public static class UiThread
     public static DesktopIsolation Isolation { get; private set; } = DesktopIsolation.NotAttempted;
 
     /// <summary>
-    /// Set this before the first <see cref="Run(Action)"/> to request that the UI
-    /// thread move itself to a private, non-interactive desktop before WPF
-    /// creates anything. Off by default: the window-handle strategy already
-    /// keeps windows off the screen, and desktop switching is process-global
-    /// enough to be worth opting into rather than out of.
+    /// Move the UI thread to a private, non-interactive desktop before WPF
+    /// creates anything. ON by default, and it earns its keep: a dialog under
+    /// test can put up a modal message box during construction, and on the
+    /// interactive desktop that box is a real visible window in front of the
+    /// operator. On a private desktop it cannot be seen at all, and the watchdog
+    /// closes it. Set the environment variable to 0 to opt out.
     /// </summary>
     public static bool RequestPrivateDesktop { get; set; }
-        = Environment.GetEnvironmentVariable("JJFLEX_TIER1_PRIVATE_DESKTOP") == "1";
+        = Environment.GetEnvironmentVariable("JJFLEX_TIER1_PRIVATE_DESKTOP") != "0";
+
+    /// <summary>Native thread id of the UI thread, for the modal watchdog.</summary>
+    public static uint NativeThreadId { get; private set; }
 
     public static Dispatcher Dispatcher
     {
@@ -57,6 +61,8 @@ public static class UiThread
             using var ready = new ManualResetEventSlim(false);
             var thread = new Thread(() =>
             {
+                NativeThreadId = ModalWatchdog.GetCurrentThreadId();
+
                 if (RequestPrivateDesktop)
                     Isolation = PrivateDesktop.MoveCurrentThread();
 

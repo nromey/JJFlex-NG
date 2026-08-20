@@ -16,13 +16,22 @@ public static class Sweep
     private static readonly Lazy<IReadOnlyList<DialogReport>> Lazy = new(RunAll, isThreadSafe: true);
 
     /// <summary>
-    /// The strategy the suite actually uses. See README.md - HandleOnly creates
-    /// the window handle without ever showing the window, which is the only one
-    /// of the candidates that is both faithful and completely invisible.
+    /// The strategy the suite actually uses, chosen by measurement - see
+    /// README.md and the doc comments on <see cref="RealizationStrategy"/>. The
+    /// two cheap strategies produce empty trees; this one produces a real tree
+    /// and takes nothing from the operator.
+    ///
+    /// <para>The private desktop is still attempted at UI-thread startup and is
+    /// still worth attempting, but it does not succeed under "dotnet test" -
+    /// see <see cref="PrivateDesktop"/>. <see cref="UiThread.Isolation"/> reports
+    /// what actually happened, and the report prints it.</para>
     /// </summary>
-    public const RealizationStrategy Strategy = RealizationStrategy.HandleOnly;
+    public const RealizationStrategy Strategy = RealizationStrategy.OffScreenNonActivated;
 
-    private static readonly TimeSpan PerDialogTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan PerDialogTimeout = TimeSpan.FromSeconds(45);
+
+    /// <summary>Modal windows the watchdog had to close during the sweep.</summary>
+    public static IReadOnlyList<string> WatchdogInterventions { get; private set; } = Array.Empty<string>();
 
     public static IReadOnlyList<DialogReport> Reports => Lazy.Value;
 
@@ -40,8 +49,12 @@ public static class Sweep
         foreach (var (name, reason) in DialogCatalog.DeclaredSkips)
             reports.Add(new DialogReport { Dialog = name, SkipReason = reason });
 
+        UiThread.EnsureStarted();
+        using var watchdog = new ModalWatchdog(UiThread.NativeThreadId, TimeSpan.FromSeconds(20));
+
         foreach (var entry in DialogCatalog.Discover())
         {
+            watchdog.Beat();
             DialogReport report;
             try
             {
@@ -66,6 +79,9 @@ public static class Sweep
             }
             reports.Add(report);
         }
+
+        watchdog.Beat();
+        lock (watchdog.Interventions) WatchdogInterventions = watchdog.Interventions.ToList();
 
         return reports.OrderBy(r => r.Dialog, StringComparer.Ordinal).ToList();
     }

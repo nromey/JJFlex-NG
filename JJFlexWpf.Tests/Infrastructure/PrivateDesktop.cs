@@ -35,6 +35,9 @@ internal static class PrivateDesktop
 
     private static IntPtr _desktop;
 
+    /// <summary>Win32 error from the last failed attempt, for the report.</summary>
+    public static int LastError { get; private set; }
+
     public static DesktopIsolation MoveCurrentThread()
     {
         try
@@ -43,10 +46,22 @@ internal static class PrivateDesktop
             {
                 var name = "JJFlexTier1_" + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 _desktop = CreateDesktop(name, IntPtr.Zero, IntPtr.Zero, 0, GenericAll, IntPtr.Zero);
+                if (_desktop == IntPtr.Zero) LastError = Marshal.GetLastWin32Error();
             }
 
             if (_desktop == IntPtr.Zero) return DesktopIsolation.CreateFailed;
-            return SetThreadDesktop(_desktop) ? DesktopIsolation.Isolated : DesktopIsolation.SwitchFailed;
+            if (SetThreadDesktop(_desktop)) return DesktopIsolation.Isolated;
+
+            // Measured 2026-08-20: this fails with ERROR_BUSY (170) on a WPF UI
+            // thread. SetThreadDesktop refuses once the thread owns any window,
+            // and the CLR's OleInitialize on an STA thread creates the hidden
+            // OLE message window before any of our code runs. A private desktop
+            // is therefore unreachable from inside an STA thread; it would have
+            // to be set for the whole process at launch, through
+            // STARTUPINFO.lpDesktop, which is not ours to choose under
+            // "dotnet test".
+            LastError = Marshal.GetLastWin32Error();
+            return DesktopIsolation.SwitchFailed;
         }
         catch (DllNotFoundException)
         {

@@ -10,30 +10,48 @@ public enum RealizationStrategy
 {
     /// <summary>
     /// Strategy 1, the cheap one. No window handle at all: measure and arrange
-    /// the window's content in isolation. Costs nothing and cannot possibly
-    /// touch the screen - but there is no PresentationSource, so Loaded never
-    /// fires and any dialog that fills itself in on Loaded looks empty.
+    /// the window's content in isolation.
+    /// <para><b>Measured 2026-08-20: does not work.</b> A Window's content is a
+    /// logical child of a template that is never applied, there is no
+    /// PresentationSource, and Loaded never fires. Kept so the probe can show
+    /// its failure rather than assert it.</para>
     /// </summary>
     LayoutOnly,
 
     /// <summary>
-    /// Strategy 1b, and the one this suite uses. <see cref="WindowInteropHelper.EnsureHandle"/>
-    /// creates the HWND <b>without ever showing the window</b>: no WS_VISIBLE,
-    /// no activation, nothing on any desktop. The window still gets a real
-    /// PresentationSource, so Loaded fires and layout is real.
+    /// Strategy 1b. <see cref="WindowInteropHelper.EnsureHandle"/> creates the
+    /// HWND without showing the window, and attaching the window as the
+    /// HwndSource root visual does raise Loaded.
+    /// <para><b>Measured 2026-08-20: still does not work, and this is the
+    /// interesting failure.</b> A WPF Window keeps <c>Visibility.Collapsed</c>
+    /// until it is shown, because Window couples Visibility to Show and Hide.
+    /// Collapsed means no layout: the probe saw Loaded fire, then zero visual
+    /// children, zero focusable controls and an automation tree containing only
+    /// the window. A suite built on this would have reported every dialog in the
+    /// app as empty, which is exactly the class of false alarm that gets a suite
+    /// ignored.</para>
     /// </summary>
     HandleOnly,
 
     /// <summary>
-    /// Strategy 2. A genuine Show() with ShowActivated false, parked far
-    /// off-screen. The window is really visible, just nowhere a monitor can
-    /// reach. Kept as a fallback for anything that needs a shown window.
+    /// Strategy 2. A genuine Show() with ShowActivated false, WS_EX_NOACTIVATE
+    /// and WS_EX_TOOLWINDOW, parked at -32000,-32000 - off every monitor and out
+    /// of Alt+Tab.
+    /// <para><b>Measured 2026-08-20: works, and does not take the keyboard.</b>
+    /// Full layout, full automation tree, focus places and moves normally, and
+    /// the foreground window was unchanged across the whole run.</para>
     /// </summary>
     OffScreenNonActivated,
 
     /// <summary>
-    /// Strategy 3. Same Show(), on a thread moved to a private desktop object.
-    /// The heaviest hammer and the last resort.
+    /// Strategy 3, and what the suite uses. Strategy 2 on a thread moved to a
+    /// private desktop object.
+    /// <para><b>Measured 2026-08-20: works, identical results to strategy 2.</b>
+    /// It is the default rather than the last resort because of something
+    /// strategy 2 cannot cover: a dialog that puts up a modal message box during
+    /// construction shows a genuinely visible window, and this suite hit one. On
+    /// the interactive desktop that box lands in front of the operator. On a
+    /// private desktop there is no surface for it to land on.</para>
     /// </summary>
     PrivateDesktopShown,
 }
