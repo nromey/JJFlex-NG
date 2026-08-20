@@ -112,6 +112,50 @@ namespace JJFlexWpf
         internal const int MixerSampleRate = SampleRate;
         private const int MixerChannels = 2; // Stereo mixer for panning support
 
+        #region Loudness tiers
+
+        // Sprint 32 Track E, #114 / the tier half of #115. Earcons had grown in
+        // two eras and each era picked its own loudness by feel: the older
+        // sounds sit at 0.5 to 0.7, the newer ones at 0.2 to 0.3. That is a 6 dB
+        // step with nothing behind it — not urgency, not frequency content, not
+        // anything an operator could learn. Playing a dialog ding straight after
+        // a hard-kill tone made the app sound like two applications.
+        //
+        // Three tiers now, and a sound picks one for a reason that can be said
+        // in words. Every value is a peak amplitude for a tone rendered through
+        // VoicedToneSampleProvider, whose equal-power normalisation makes RMS
+        // depend only on this number and not on how many partials the voice
+        // has — so two earcons at the same tier really are the same loudness,
+        // which was never true before.
+        //
+        // Keep them in this ratio if they move: each tier is about 2 dB above
+        // the last, close enough that no sound jumps out of the set, far enough
+        // that the ordering is audible.
+
+        /// <summary>Background acknowledgement: progress the operator did not
+        /// ask about, and repeat sounds that fire many times a minute.</summary>
+        internal const float VolumeSoft = 0.40f;
+
+        /// <summary>The default. An answer to a key the operator just pressed.</summary>
+        internal const float VolumeNormal = 0.50f;
+
+        /// <summary>Arrival, failure, or something wrong. Sounds that must land
+        /// even if the operator is listening to something else.</summary>
+        internal const float VolumeStrong = 0.65f;
+
+        /// <summary>
+        /// Input level for the tracking band-pass noise in the expand and
+        /// collapse sweeps. It is NOT a loudness tier and must not be set to
+        /// one: a narrow band-pass over white noise passes only about a tenth
+        /// of the energy driven into it, so this is pre-filter drive and the
+        /// audible result lands well under <see cref="VolumeSoft"/>. Scaled
+        /// with the tone it accompanies when the tiers changed, so the
+        /// tone-to-noise balance tuned by ear on 2026-04-21 survives.
+        /// </summary>
+        private const float ExpandNoiseLevel = 1.1f;
+
+        #endregion
+
         // Convenience accessors for the channel mixers
         private static MixingSampleProvider? AlertMixer => _alertChannel?.Mixer;
         private static MixingSampleProvider? MeterMixer => _meterChannel?.Mixer;
@@ -176,6 +220,18 @@ namespace JJFlexWpf
         public static void Dispose()
         {
             _continuousProviders.Clear();
+            // Drop the long-lived alert-mixer inputs too. These are held in
+            // their own fields rather than in _continuousProviders (which is
+            // the METER mixer's list), so clearing that list does not reach
+            // them. Leaving them set would survive into the next Initialize
+            // and be worse than a leak: StartBenchTone and
+            // StartATUProgressEarcon both re-use a non-null provider instead
+            // of creating one, so they would quietly drive a provider that is
+            // no longer in any mixer, and the sound would simply never arrive.
+            _benchToneProvider = null;
+            _atuProgressProvider = null;
+            _txToneMonitorProvider = null;
+            _txToneMonitorWrapper = null;
             _alertChannel?.Dispose();
             _meterChannel?.Dispose();
             _alertChannel = null;
@@ -419,35 +475,94 @@ namespace JJFlexWpf
 
         #region Public Earcon Methods
 
-        /// <summary>Play a warning beep at the given frequency and duration.</summary>
+        /// <summary>
+        /// A plain tone at the given frequency and duration. The general-purpose
+        /// primitive — an end-stop bump, a quick attention tap, anything that
+        /// wants a sound without wanting to join a family. It is NOT a member of
+        /// the PTT warning family, which is the confusion this call used to
+        /// cause: <see cref="Warning1Beep"/> was literally <c>Beep(800, 150)</c>,
+        /// byte for byte, so the first PTT warning and a generic bump were the
+        /// same sound and neither had an identity.
+        /// </summary>
         public static void Beep(int frequencyHz = 800, int durationMs = 150)
         {
-            PlayTone(frequencyHz, durationMs, 0.6f);
+            PlayTone(frequencyHz, durationMs, VolumeStrong);
         }
 
-        public static void Warning1Beep() { if (!On(EarconCategory.Transmit)) return; Beep(800, 150); }
-        public static void Warning2Beep() { if (!On(EarconCategory.Transmit)) return; Beep(1000, 200); }
-        public static void OhCrapBeep() { if (!On(EarconCategory.Transmit)) return; Beep(1200, 250); }
+        // ------------------------------------------------------------------
+        // The PTT warning family (#118). Fired by PttSafetyController as
+        // transmission runs long: Warning1, then Warning2, then OhCrap.
+        //
+        // These were three calls to Beep at 800, 1000 and 1200 Hz. Pitch was
+        // the only thing separating them, which makes the escalation legible
+        // only to an operator who heard the previous rung recently enough to
+        // compare — exactly the operator who does not need telling. Worse,
+        // Warning1 was indistinguishable from the generic Beep used elsewhere
+        // for unrelated reasons.
+        //
+        // Now each rung moves on three axes at once: timbre mellow → bright →
+        // metallic, pattern steady → pulsing twice → hammering, and loudness
+        // up one tier per step. Any single axis identifies the rung on its own,
+        // so nothing depends on the operator holding a reference in memory.
+        // Pitch and duration are unchanged, so anyone who already knows the
+        // family by its pitches still does.
+        // ------------------------------------------------------------------
+
+        /// <summary>First PTT warning — a nudge. Mellow, steady, 800 Hz.</summary>
+        [Earcon("PTT warning 1, a nudge", EarconCategory.Transmit, Order = 11,
+            Description = "First long-transmission warning. Mellow and steady.")]
+        public static void Warning1Beep()
+        {
+            if (!On(EarconCategory.Transmit)) return;
+            PlayVoiced(EarconVoices.WarningCalm, 800, 150, VolumeSoft);
+        }
+
+        /// <summary>Second PTT warning — insistent. Brighter, pulses twice, 1000 Hz.</summary>
+        [Earcon("PTT warning 2, insistent", EarconCategory.Transmit, Order = 12,
+            Description = "Second long-transmission warning. Brighter, and it pulses twice.")]
+        public static void Warning2Beep()
+        {
+            if (!On(EarconCategory.Transmit)) return;
+            PlayVoiced(EarconVoices.WarningInsistent, 1000, 200, VolumeNormal);
+        }
+
+        /// <summary>Last PTT warning — harsh, metallic, hammering, 1200 Hz.</summary>
+        [Earcon("PTT warning 3, last call", EarconCategory.Transmit, Order = 13,
+            Description = "Final long-transmission warning. Harsh, metallic, hammering.")]
+        public static void OhCrapBeep()
+        {
+            if (!On(EarconCategory.Transmit)) return;
+            PlayVoiced(EarconVoices.WarningUrgent, 1200, 250, VolumeStrong);
+        }
 
         /// <summary>TX start tone — two discrete tones: 400Hz then 800Hz.</summary>
+        [Earcon("Transmit start", EarconCategory.Transmit, Order = 1,
+            Description = "Rising pair. You are transmitting.")]
         public static void TxStartTone()
         {
             if (!On(EarconCategory.Transmit)) return;
-            PlayToneSequence(new[] { (400, 50), (0, 20), (800, 50) }, 0.5f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (400, 50), (0, 20), (800, 50) }, VolumeNormal);
         }
 
         /// <summary>TX stop tone — two discrete tones: 800Hz then 400Hz.</summary>
+        [Earcon("Transmit stop", EarconCategory.Transmit, Order = 2,
+            Description = "Falling pair. You have stopped transmitting.")]
         public static void TxStopTone()
         {
             if (!On(EarconCategory.Transmit)) return;
-            PlayToneSequence(new[] { (800, 50), (0, 20), (400, 50) }, 0.5f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (800, 50), (0, 20), (400, 50) }, VolumeNormal);
         }
 
         /// <summary>Hard kill tone — two rapid descending beeps.</summary>
+        [Earcon("Hard kill", EarconCategory.Transmit, Order = 3,
+            Description = "Transmission was cut off rather than ended.")]
         public static void HardKillTone()
         {
             if (!On(EarconCategory.Transmit)) return;
-            PlayToneSequence(new[] { (1000, 100), (0, 30), (600, 200) }, 0.6f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (1000, 100), (0, 30), (600, 200) }, VolumeStrong);
         }
 
         // Connect-phase counting tones for the state-aware connecting modal.
@@ -457,20 +572,24 @@ namespace JJFlexWpf
         private const int ConnectPhaseTonePitchHz = 750;
         private const int ConnectPhaseToneMs = 70;
         private const int ConnectPhaseToneGapMs = 60;
-        private const float ConnectPhaseToneVolume = 0.35f;
+        private const float ConnectPhaseToneVolume = VolumeSoft;
 
         /// <summary>Connect phase 1 — single 750 Hz tone (TLS / SmartLink connect).</summary>
+        [Earcon("Connect step 1", EarconCategory.Connection, Order = 1,
+            Description = "One counting tone. The link is up and negotiating.")]
         public static void ConnectPhase1Tone()
         {
             if (!On(EarconCategory.Connection)) return;
-            PlayToneSequence(new[] { (ConnectPhaseTonePitchHz, ConnectPhaseToneMs) }, ConnectPhaseToneVolume);
+            PlayVoiced(EarconVoices.Plain, ConnectPhaseTonePitchHz, ConnectPhaseToneMs, ConnectPhaseToneVolume);
         }
 
         /// <summary>Connect phase 2 — two 750 Hz tones (transport up, waiting for slice).</summary>
+        [Earcon("Connect step 2", EarconCategory.Connection, Order = 2,
+            Description = "Two counting tones. Transport is up, waiting for a slice.")]
         public static void ConnectPhase2Tone()
         {
             if (!On(EarconCategory.Connection)) return;
-            PlayToneSequence(new[]
+            PlayVoicedSequence(EarconVoices.Plain, new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
                 (0, ConnectPhaseToneGapMs),
@@ -479,10 +598,12 @@ namespace JJFlexWpf
         }
 
         /// <summary>Connect phase 3 — three 750 Hz tones (slice acquired, station name pending).</summary>
+        [Earcon("Connect step 3", EarconCategory.Connection, Order = 3,
+            Description = "Three counting tones. Slice acquired, station name pending.")]
         public static void ConnectPhase3Tone()
         {
             if (!On(EarconCategory.Connection)) return;
-            PlayToneSequence(new[]
+            PlayVoicedSequence(EarconVoices.Plain, new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
                 (0, ConnectPhaseToneGapMs),
@@ -502,15 +623,18 @@ namespace JJFlexWpf
         /// auto-connect, reconnect) flows through — so fast LAN connects are
         /// no longer silent (the phase tones skip any phase under 500ms).
         /// </summary>
+        [Earcon("Connect success", EarconCategory.Connection, Order = 4,
+            Description = "The signature double-beep. Every successful connect ends here, "
+                        + "however it started.")]
         public static void ConnectSuccessTone()
         {
             if (!On(EarconCategory.Connection)) return;
-            PlayToneSequence(new[]
+            PlayVoicedSequence(EarconVoices.Plain, new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
                 (0, ConnectPhaseToneGapMs),
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs)
-            }, 0.5f);
+            }, VolumeStrong);
         }
 
         /// <summary>Parameterized connect-phase counting tone (1..N identical tones).</summary>
@@ -525,7 +649,7 @@ namespace JJFlexWpf
                 if (i > 0) seq[idx++] = (0, ConnectPhaseToneGapMs);
                 seq[idx++] = (ConnectPhaseTonePitchHz, ConnectPhaseToneMs);
             }
-            PlayToneSequence(seq, ConnectPhaseToneVolume);
+            PlayVoicedSequence(EarconVoices.Plain, seq, ConnectPhaseToneVolume);
         }
 
         /// <summary>Play a frequency sweep (chirp) from startHz to endHz.</summary>
@@ -535,16 +659,21 @@ namespace JJFlexWpf
         }
 
         /// <summary>Confirmation tone — plays confirm.wav.</summary>
+        [Earcon("Confirmation", EarconCategory.CommandsAndConfirmations, Order = 1,
+            Description = "The action you asked for went through.")]
         public static void ConfirmTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
             if (_confirmSound != null)
                 PlayCachedSound(_confirmSound);
             else
-                PlayToneSequence(new[] { (800, 25), (0, 30), (800, 25), (0, 30), (800, 25) }, 0.5f);
+                PlayVoicedDecaySequence(EarconVoices.Press,
+                    new[] { (800, 25), (0, 30), (800, 25), (0, 30), (800, 25) }, VolumeNormal);
         }
 
         /// <summary>Typewriter bell — plays at end of frequency entry in mechanical keyboard mode.</summary>
+        [Earcon("Typewriter bell", EarconCategory.TuningAndFilters, Order = 2,
+            Description = "End of frequency entry, in mechanical keyboard mode.")]
         public static void TypewriterBellTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -555,30 +684,37 @@ namespace JJFlexWpf
         }
 
         /// <summary>Band boundary beep — 600 Hz double-beep.</summary>
+        [Earcon("Band edge", EarconCategory.TuningAndFilters, Order = 3,
+            Description = "Tuning has reached the edge of the band.")]
         public static void BandBoundaryBeep()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
-            PlayToneSequence(new[] { (600, 50), (0, 30), (600, 50) }, 0.6f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (600, 50), (0, 30), (600, 50) }, VolumeNormal);
         }
 
         /// <summary>Filter edge enter tone — plays mode-enter.wav.</summary>
+        [Earcon("Filter edge adjust, entering", EarconCategory.TuningAndFilters, Order = 11,
+            Description = "Filter edge adjustment mode has started.")]
         public static void FilterEdgeEnterTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
             if (_modeEnterSound != null)
                 PlayCachedSound(_modeEnterSound);
             else
-                PlayTone(1000, 80, 0.4f);
+                PlayVoicedDecay(EarconVoices.Chime, 1000, 80, VolumeNormal);
         }
 
         /// <summary>Filter edge exit tone — plays mode-exit.wav.</summary>
+        [Earcon("Filter edge adjust, leaving", EarconCategory.TuningAndFilters, Order = 12,
+            Description = "Filter edge adjustment mode has ended.")]
         public static void FilterEdgeExitTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
             if (_modeExitSound != null)
                 PlayCachedSound(_modeExitSound);
             else
-                PlayTone(600, 80, 0.4f);
+                PlayVoicedDecay(EarconVoices.Chime, 600, 80, VolumeNormal);
         }
 
         /// <summary>
@@ -595,12 +731,14 @@ namespace JJFlexWpf
             else if (_filterEdgeMoveSound != null)
                 PlayCachedSoundPanned(_filterEdgeMoveSound, pan);
             else
-                PlayTonePanned(800, 20, 0.3f, pan);
+                PlayVoicedDecay(EarconVoices.Press, 800, 20, VolumeSoft, pan);
         }
 
         /// <summary>
         /// Filter edge move tone — unpanned (for when edge isn't known).
         /// </summary>
+        [Earcon("Filter edge move, edge unknown", EarconCategory.TuningAndFilters, Order = 33,
+            Description = "The unpanned fallback, used when the code does not know which edge moved.")]
         public static void FilterEdgeMoveTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -609,7 +747,7 @@ namespace JJFlexWpf
             else if (_filterEdgeMoveSound != null)
                 PlayCachedSound(_filterEdgeMoveSound);
             else
-                PlayTone(800, 20, 0.3f);
+                PlayVoicedDecay(EarconVoices.Press, 800, 20, VolumeSoft);
         }
 
         /// <summary>
@@ -631,13 +769,15 @@ namespace JJFlexWpf
             }
             else
             {
-                PlayTonePanned(isLowEdge ? 400 : 800, 80, 0.5f, pan);
+                PlayVoicedDecay(EarconVoices.Press, isLowEdge ? 400 : 800, 80, VolumeNormal, pan);
             }
         }
 
         /// <summary>
         /// Filter squeeze tone — edges closing in. Single descending sweep 800→200Hz, 300ms.
         /// </summary>
+        [Earcon("Filter squeeze", EarconCategory.TuningAndFilters, Order = 51,
+            Description = "The passband is closing in. One descending sweep.")]
         public static void FilterSqueezeTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -645,7 +785,7 @@ namespace JJFlexWpf
             try
             {
                 const int durationMs = 300;
-                var down = new ChirpSampleProvider(SampleRate, 800, 200, durationMs, 0.4f);
+                var down = new ChirpSampleProvider(SampleRate, 800, 200, durationMs, VolumeNormal);
                 AddToMixer(down);
             }
             catch (Exception ex)
@@ -658,6 +798,8 @@ namespace JJFlexWpf
         /// Filter stretch/pull tone — edges opening up. Ascending sweep 200→800Hz
         /// with a second tone 100Hz above, 300ms. The interval gives a "spreading" feel.
         /// </summary>
+        [Earcon("Filter stretch", EarconCategory.TuningAndFilters, Order = 52,
+            Description = "The passband is opening up. Two ascending sweeps a note apart.")]
         public static void FilterStretchTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -666,10 +808,10 @@ namespace JJFlexWpf
             {
                 const int durationMs = 300;
                 // Primary ascending sweep
-                var primary = new ChirpSampleProvider(SampleRate, 200, 800, durationMs, 0.4f);
+                var primary = new ChirpSampleProvider(SampleRate, 200, 800, durationMs, VolumeNormal);
                 AddToMixer(primary);
                 // Secondary tone 100Hz above — same sweep shifted up
-                var secondary = new ChirpSampleProvider(SampleRate, 300, 900, durationMs, 0.3f);
+                var secondary = new ChirpSampleProvider(SampleRate, 300, 900, durationMs, VolumeSoft);
                 AddToMixer(secondary);
             }
             catch (Exception ex)
@@ -682,6 +824,9 @@ namespace JJFlexWpf
         /// Reverse boom — ascending sweep with layered harmonics.
         /// Sounds like a rewind/implosion. Used for calibration reset.
         /// </summary>
+        [Earcon("Reverse boom",
+            Description = "Calibration reset. Outside the family switches on purpose, along with "
+                        + "the other calibration and bench sounds.")]
         public static void ReverseBoomTone()
         {
             if (!EarconsEnabled || AlertMixer == null) return;
@@ -713,24 +858,65 @@ namespace JJFlexWpf
         }
 
         /// <summary>Rising chirp — entering leader key mode.</summary>
+        [Earcon("JJ key pressed", EarconCategory.CommandsAndConfirmations, Order = 21,
+            Description = "The JJ leader layer is listening for the next key.")]
         public static void LeaderEnterTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
-            PlayChirp(400, 600, 80, 0.3f);
+            PlayChirp(400, 600, 80, VolumeNormal);
         }
 
         /// <summary>Double ascending beep — feature toggled ON.</summary>
+        [Earcon("Feature on", EarconCategory.CommandsAndConfirmations, Order = 11,
+            Description = "Rising pair. A toggle just turned on.")]
         public static void FeatureOnTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
-            PlayToneSequence(new[] { (500, 60), (0, 40), (700, 60) }, 0.3f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (500, 60), (0, 40), (700, 60) }, VolumeNormal);
         }
 
         /// <summary>Double descending beep — feature toggled OFF.</summary>
+        [Earcon("Feature off", EarconCategory.CommandsAndConfirmations, Order = 12,
+            Description = "Falling pair. A toggle just turned off.")]
         public static void FeatureOffTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
-            PlayToneSequence(new[] { (700, 60), (0, 40), (500, 60) }, 0.3f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (700, 60), (0, 40), (500, 60) }, VolumeNormal);
+        }
+
+        /// <summary>
+        /// A toggle just changed state: rising for on, falling for off. The one
+        /// call every operator-facing toggle should make.
+        ///
+        /// Sprint 32 Track E, #128. FeatureOnTone and FeatureOffTone existed and
+        /// were called from fifty-odd places, always as the same if-else written
+        /// out again. Writing it out again is how a road gets missed: a toggle
+        /// reachable by a hotkey, a menu item and a settings checkbox needs the
+        /// tone on all three, and the ones that got forgotten were the roads
+        /// nobody was thinking about while adding the other two. PC audio on and
+        /// off made no sound at all, by any road, which is what surfaced this.
+        ///
+        /// Pass the state the toggle ENDED UP IN, not the state it was in — and
+        /// read it back from wherever the truth lives rather than assuming the
+        /// flip succeeded. Several toggles in this application can decline: PC
+        /// audio refuses to come on when no audio devices are configured, and
+        /// a tone claiming otherwise is worse than silence.
+        /// </summary>
+        public static void ToggleTone(bool isOn)
+        {
+            if (isOn) FeatureOnTone(); else FeatureOffTone();
+        }
+
+        /// <summary>
+        /// The same, for an action that affects every slice at once. Pitched a
+        /// third above the single-slice tones so "all of them" and "this one"
+        /// are separable by ear.
+        /// </summary>
+        public static void ToggleAllTone(bool isOn)
+        {
+            if (isOn) MuteAllOnTone(); else MuteAllOffTone();
         }
 
         /// <summary>
@@ -739,33 +925,45 @@ namespace JJFlexWpf
         /// third above the single-slice FeatureOnTone so the user can tell
         /// "affects all slices" from "affects one slice" by ear.
         /// </summary>
+        [Earcon("All slices on", EarconCategory.CommandsAndConfirmations, Order = 13,
+            Description = "Rising triad, a third above the single-slice tone. Affects every slice.")]
         public static void MuteAllOnTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
-            PlayToneSequence(new[] { (625, 55), (0, 30), (785, 55), (0, 30), (940, 55) }, 0.3f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (625, 55), (0, 30), (785, 55), (0, 30), (940, 55) }, VolumeNormal);
         }
 
         /// <summary>
         /// Tri-tone descending — multi-slice unmute-all. Mirror of MuteAllOnTone.
         /// </summary>
+        [Earcon("All slices off", EarconCategory.CommandsAndConfirmations, Order = 14,
+            Description = "Falling triad. The mirror of all-slices-on.")]
         public static void MuteAllOffTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
-            PlayToneSequence(new[] { (940, 55), (0, 30), (785, 55), (0, 30), (625, 55) }, 0.3f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (940, 55), (0, 30), (785, 55), (0, 30), (625, 55) }, VolumeNormal);
         }
 
         /// <summary>Double ascending ding — dialog/popup opened.</summary>
+        [Earcon("Dialog opened", EarconCategory.DialogsAndPanels, Order = 1,
+            Description = "Rising pair when a dialog or popup opens.")]
         public static void DialogOpenTone()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
-            PlayToneSequence(new[] { (600, 50), (0, 30), (900, 50) }, 0.25f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (600, 50), (0, 30), (900, 50) }, VolumeSoft);
         }
 
         /// <summary>Double descending ding — dialog/popup closed.</summary>
+        [Earcon("Dialog closed", EarconCategory.DialogsAndPanels, Order = 2,
+            Description = "Falling pair when a dialog or popup closes.")]
         public static void DialogCloseTone()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
-            PlayToneSequence(new[] { (900, 50), (0, 30), (600, 50) }, 0.25f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (900, 50), (0, 30), (600, 50) }, VolumeSoft);
         }
 
         /// <summary>
@@ -785,10 +983,14 @@ namespace JJFlexWpf
         /// kind: something is wrong *now* and the next thing you do depends on
         /// knowing it.
         /// </summary>
+        [Earcon("Problem recorded", EarconCategory.Warnings, Order = 2,
+            Description = "Deliberately calm. Something failed, it is already logged, and the "
+                        + "list will still be there in an hour.")]
         public static void ProblemRecordedTone()
         {
             if (!On(EarconCategory.Warnings)) return;
-            PlayToneSequence(new[] { (440, 90), (0, 50), (370, 130) }, 0.28f);
+            PlayVoicedSequence(EarconVoices.Plain,
+                new[] { (440, 90), (0, 50), (370, 130) }, VolumeNormal);
         }
 
         /// <summary>
@@ -808,32 +1010,53 @@ namespace JJFlexWpf
         /// Long enough to be unmissable, short enough not to step on the speech
         /// that follows it — which is the actual payload. The alarm's whole job
         /// is to make sure the sentence after it gets listened to.
+        ///
+        /// Sprint 32 Track E: the spectrum is unchanged, but it is now the
+        /// <see cref="EarconVoices.Alarm"/> voice rendered by the same engine
+        /// as everything else, so it has a real envelope instead of two
+        /// symmetric linear ramps. It also moved to the Strong tier. The old
+        /// hand-summed version worked out at an RMS just above the quietest
+        /// earcons in the app — a warning that was, measurably, softer than a
+        /// dialog closing. That was never a decision anyone made; it fell out
+        /// of three sines being summed without normalisation. If Noel's ear
+        /// says the new level is too much, <see cref="VolumeStrong"/> is the
+        /// one number to move.
         /// </summary>
+        [Earcon("Warning alarm", EarconCategory.Warnings, Order = 1,
+            Description = "Something is wrong now, and what happens next depends on hearing it. "
+                        + "Long and harmonic, so it cannot be mistaken for a toggle.")]
         public static void WarningAlarmTone()
         {
             if (!On(EarconCategory.Warnings)) return;
-            PlayAdditiveTone(800, 750, 0.30f, (2, 0.35f), (3, 0.18f));
+            PlayVoiced(EarconVoices.Alarm, 800, 750, VolumeStrong);
         }
 
         /// <summary>Low buzz — invalid leader key.</summary>
+        [Earcon("JJ key not recognised", EarconCategory.CommandsAndConfirmations, Order = 24,
+            Description = "Low thunk. That key means nothing in the leader layer.")]
         public static void LeaderInvalidTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
-            PlayTone(200, 100, 0.4f);
+            PlayVoicedDecay(EarconVoices.Press, 200, 100, VolumeNormal);
         }
 
         /// <summary>Soft descending chirp — leader key cancelled.</summary>
+        [Earcon("JJ key cancelled", EarconCategory.CommandsAndConfirmations, Order = 23,
+            Description = "Soft falling chirp. The leader layer gave up waiting.")]
         public static void LeaderCancelTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
-            PlayChirp(500, 300, 150, 0.2f);
+            PlayChirp(500, 300, 150, VolumeSoft);
         }
 
         /// <summary>Double chime — leader key help requested.</summary>
+        [Earcon("JJ key help", EarconCategory.CommandsAndConfirmations, Order = 22,
+            Description = "Double chime. The leader layer is about to list what it can do.")]
         public static void LeaderHelpTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
-            PlayToneSequence(new[] { (800, 80), (0, 40), (1000, 80) }, 0.25f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (800, 80), (0, 40), (1000, 80) }, VolumeNormal);
         }
 
         #region Sprint 28 Phase 3 — Expand / Collapse / Collapse-All earcons
@@ -845,13 +1068,15 @@ namespace JJFlexWpf
         /// gives cut-through against ambient RF noise that pure tones would get
         /// masked by — the noise texture's envelope doesn't match broadband hiss.
         /// </summary>
+        [Earcon("Group expanded", EarconCategory.DialogsAndPanels, Order = 11,
+            Description = "Rising sweep with a tracking band of noise, when a group re-expands.")]
         public static void PlayExpand()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
             if (AlertMixer == null) { FallbackBeep(800, 100); return; }
             try
             {
-                var chirp = new ChirpSampleProvider(SampleRate, 400, 1200, 350, 0.25f);
+                var chirp = new ChirpSampleProvider(SampleRate, 400, 1200, 350, VolumeSoft);
                 AddToMixer(chirp);
                 // Noise volume 0.7 (was 0.12) compensates for biquad band-pass
                 // inherent attenuation — narrow band-pass filtering of white noise
@@ -860,7 +1085,7 @@ namespace JJFlexWpf
                 // 0.1 * input RMS. Input volume 0.7 yields ~0.07 RMS, audibly present
                 // but quieter than the 0.25-volume tone. Tuned 2026-04-21 after user
                 // feedback ("sounds just like a tone sweep, no noise").
-                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 400, 1200, 350, 0.7f);
+                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 400, 1200, 350, ExpandNoiseLevel);
                 AddToMixer(noise);
             }
             catch (Exception ex)
@@ -876,15 +1101,17 @@ namespace JJFlexWpf
         /// Mirror of PlayExpand; the symmetry lets users learn "up = grow, down =
         /// shrink" from one pairing and have the pattern hold.
         /// </summary>
+        [Earcon("Group collapsed", EarconCategory.DialogsAndPanels, Order = 12,
+            Description = "Falling sweep, the mirror of expand, on a single-Escape collapse.")]
         public static void PlayCollapse()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
             if (AlertMixer == null) { FallbackBeep(500, 100); return; }
             try
             {
-                var chirp = new ChirpSampleProvider(SampleRate, 1200, 400, 350, 0.25f);
+                var chirp = new ChirpSampleProvider(SampleRate, 1200, 400, 350, VolumeSoft);
                 AddToMixer(chirp);
-                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 1200, 400, 350, 0.7f);
+                var noise = new BandPassNoiseSweepSampleProvider(SampleRate, 1200, 400, 350, ExpandNoiseLevel);
                 AddToMixer(noise);
             }
             catch (Exception ex)
@@ -895,44 +1122,55 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Sprint 28 Phase 3 — low-frequency "gavel" thud with decay. Fires on
-        /// double-Escape collapse-all. 140 Hz fundamental + 280 Hz harmonic + brief
-        /// filtered-noise attack transient, exponential decay over ~450 ms. Semantic:
-        /// "case closed, collapsed everything." Low fundamental cuts through
-        /// ambient RF noise (residual hiss concentrates in the voice band 300-3000 Hz;
-        /// 140 Hz sits below that, in less-congested spectral territory).
+        /// Double-Escape collapse-all: two descending struck notes at the top
+        /// and bottom of the collapse chirp's sweep range, 1200 Hz then 400 Hz.
+        /// Same endpoints as the single-group collapse, stamped rather than
+        /// slid, so the pair reads as "and everything else too."
+        ///
+        /// This shape replaced a synthesized gavel in Sprint 28 Phase 3.8
+        /// (2026-04-21) after the operator could hardly hear the bong — a low
+        /// fundamental was the right idea acoustically and the wrong one on
+        /// laptop speakers. The gavel class itself was left behind unwired as
+        /// "a reference for future percussive work" and sat unread for four
+        /// months; Sprint 32 Track E deleted it, because the thing it was a
+        /// reference FOR is now expressible as a voice — fast attack, decay to
+        /// silence, inharmonic partials — and a synthesiser nobody can find is
+        /// not a reference, it is a fourth vocabulary lying in wait.
         /// </summary>
+        [Earcon("Everything collapsed", EarconCategory.DialogsAndPanels, Order = 13,
+            Description = "Two struck notes falling, on a double-Escape collapse-all.")]
         public static void PlayCollapseAll()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
-            // Sprint 28 Phase 3.8 (2026-04-21) — replaced the synthesized gavel
-            // (DecayingGavelSynthesizer + attack transient) after user reported it
-            // still inaudible even with earcon-defer tuning. The new design uses the
-            // battle-tested PlayToneSequence pattern (same primitive as FeatureOn/Off
-            // tones which are reliably audible): two descending tones at the top and
-            // bottom of the collapse chirp's sweep range (1200 Hz then 400 Hz) for
-            // ~500 ms total. Thematically matches the collapse chirp — same endpoints,
-            // stamped as two fixed tones instead of a continuous slide. 0.5 volume
-            // picks a level comparable to existing loud earcons.
-            //
-            // The older DecayingGavelSynthesizer class is retained in the Internal
-            // Types region as a reference for any future percussive-earcon work but
-            // is no longer wired to a public method.
-            PlayToneSequence(new[] { (1200, 220), (0, 30), (400, 250) }, 0.5f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (1200, 220), (0, 30), (400, 250) }, VolumeStrong);
         }
 
         #endregion
 
         #region ATU Tune Earcons
 
-        // Dedicated provider for ATU progress — short-lived, added/removed per tune cycle
-        private static ContinuousToneSampleProvider? _atuProgressProvider;
-        private static ISampleProvider? _atuProgressStereoWrapper;
+        // Dedicated provider for ATU progress — short-lived, added/removed per
+        // tune cycle. Sprint 32 Track E moved it from ContinuousToneSampleProvider
+        // to VoicedToneSampleProvider, the successor engine: the old provider's
+        // FastPulse waveform is the "Urgent" voice's 50/50 gate, and
+        // MeterVoiceLibrary.FromLegacyWaveform exists precisely to say so. The
+        // voiced provider is already stereo with live equal-power panning, so
+        // the MonoToStereo wrapper goes away too.
+        private static VoicedToneSampleProvider? _atuProgressProvider;
 
         /// <summary>
-        /// Start the ATU progress earcon — FastPulse at 450Hz, moderate volume.
-        /// Loops until StopATUProgressEarcon() is called.
+        /// Start the ATU progress earcon — a fast pulsing tone at 450 Hz that
+        /// runs until <see cref="StopATUProgressEarcon"/> is called. One of the
+        /// two continuous earcons in the app; it needs a Start/Stop pair rather
+        /// than a fire-and-forget Play, and anything auditioning it has to know
+        /// that (see <see cref="EarconCatalog"/>).
         /// </summary>
+        [Earcon("ATU tuning in progress", EarconCategory.Transmit, Order = 31,
+            StopMethod = nameof(StopATUProgressEarcon),
+            RunningProperty = nameof(IsATUProgressEarconRunning),
+            Description = "Continuous. Runs for as long as the tuner is working, so it needs "
+                        + "Start and Stop rather than a single Play.")]
         public static void StartATUProgressEarcon()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -940,13 +1178,15 @@ namespace JJFlexWpf
             if (AlertMixer == null) return;
             try
             {
-                _atuProgressProvider = new ContinuousToneSampleProvider(450f, 0.25f)
+                _atuProgressProvider = new VoicedToneSampleProvider(450f,
+                    VolumeSoft * (_previewActive ? _previewGain : 1f))
                 {
-                    Waveform = WaveformType.FastPulse,
+                    Voice = MeterVoiceLibrary.Resolve(
+                        MeterVoiceLibrary.FromLegacyWaveform(WaveformType.FastPulse)),
+                    Pan = _previewActive ? _previewPan : 0f,
                     Active = true
                 };
-                _atuProgressStereoWrapper = new MonoToStereoSampleProvider(_atuProgressProvider);
-                AlertMixer.AddMixerInput(_atuProgressStereoWrapper);
+                AlertMixer.AddMixerInput(_atuProgressProvider);
             }
             catch (Exception ex)
             {
@@ -955,27 +1195,27 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Stop the ATU progress earcon. Deactivates (10ms fade) then removes from mixer.
+        /// Stop the ATU progress earcon. Deactivates (10 ms fade) then removes
+        /// from the mixer.
         /// </summary>
         public static void StopATUProgressEarcon()
         {
-            if (_atuProgressProvider != null)
+            var provider = _atuProgressProvider;
+            if (provider == null) return;
+            provider.Active = false;
+            _atuProgressProvider = null;
+            if (AlertMixer == null) return;
+            // Brief delay for fade-out, then remove from mixer
+            System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
             {
-                _atuProgressProvider.Active = false;
-            }
-            if (_atuProgressStereoWrapper != null && AlertMixer != null)
-            {
-                var wrapper = _atuProgressStereoWrapper;
-                _atuProgressStereoWrapper = null;
-                _atuProgressProvider = null;
-                // Brief delay for fade-out, then remove from mixer
-                System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
-                {
-                    try { AlertMixer?.RemoveMixerInput(wrapper); }
-                    catch { }
-                });
-            }
+                try { AlertMixer?.RemoveMixerInput(provider); }
+                catch { }
+            });
         }
+
+        /// <summary>True while the ATU progress earcon is running — lets a
+        /// bench surface show Start and Stop honestly rather than guessing.</summary>
+        public static bool IsATUProgressEarconRunning => _atuProgressProvider != null;
 
         /// <summary>
         /// Local monitor for the TX test tone (Audio Track C). A continuous
@@ -1036,56 +1276,139 @@ namespace JJFlexWpf
         }
 
         /// <summary>ATU tune successful — rising major arpeggio C-E-G (~150ms total).</summary>
+        [Earcon("ATU tune succeeded", EarconCategory.Transmit, Order = 32,
+            Description = "Rising major triad. The tuner found a match.")]
         public static void ATUSuccessTone()
         {
             if (!On(EarconCategory.Transmit)) return;
             // C5=523, E5=659, G5=784 — rising major triad
-            PlayToneSequence(new[] { (523, 50), (659, 50), (784, 80) }, 0.4f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (523, 50), (659, 50), (784, 80) }, VolumeNormal);
         }
 
         /// <summary>ATU tune failed — descending minor E-C-A (~200ms total).</summary>
+        [Earcon("ATU tune failed", EarconCategory.Transmit, Order = 33,
+            Description = "Descending minor. The tuner gave up.")]
         public static void ATUFailTone()
         {
             if (!On(EarconCategory.Transmit)) return;
             // E5=659, C5=523, A4=440 — descending
-            PlayToneSequence(new[] { (659, 60), (523, 60), (440, 100) }, 0.4f);
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (659, 60), (523, 60), (440, 100) }, VolumeStrong);
         }
 
         /// <summary>Tune carrier on — short rising chirp.</summary>
+        [Earcon("Tune carrier on", EarconCategory.Transmit, Order = 21,
+            Description = "The tune carrier has started.")]
         public static void TuneOnTone()
         {
             if (!On(EarconCategory.Transmit)) return;
-            PlayChirp(400, 700, 100, 0.3f);
+            PlayChirp(400, 700, 100, VolumeNormal);
         }
 
         /// <summary>Tune carrier off — short falling chirp.</summary>
+        [Earcon("Tune carrier off", EarconCategory.Transmit, Order = 22,
+            Description = "The tune carrier has stopped.")]
         public static void TuneOffTone()
         {
             if (!On(EarconCategory.Transmit)) return;
-            PlayChirp(700, 400, 100, 0.3f);
+            PlayChirp(700, 400, 100, VolumeNormal);
         }
 
         #endregion
 
         /// <summary>
-        /// Confirmation ding with decay — a clear, pleasant tone that cuts through radio audio.
-        /// 1000 Hz fundamental + soft octave harmonic, exponential decay over 250ms.
-        /// Use for frequency entry confirmation and similar confirmations.
+        /// Confirmation ding with decay — a clear, pleasant tone that cuts
+        /// through radio audio. 1000 Hz with a soft octave above it, struck and
+        /// then falling away over 250 ms. Used for frequency-entry confirmation
+        /// and similar.
+        ///
+        /// This used to be DingToneSampleProvider, a private class whose entire
+        /// job was "sine plus octave with an exponential decay" — which is one
+        /// voice and three envelope numbers in the vocabulary, so it is now
+        /// those instead. Sprint 32 Track E, #112.
         /// </summary>
+        [Earcon("Frequency entry ding", EarconCategory.TuningAndFilters, Order = 1,
+            Description = "A struck chime confirming a typed frequency.")]
         public static void DingTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
-            if (AlertMixer == null) return;
+            PlayVoicedDecay(EarconVoices.Chime, 1000, 250, VolumeNormal);
+        }
+
+        #region Bench tone — a held note the operator drives
+
+        // Sprint 32 Track E, #119 and #120. Every earcon in the app is a
+        // one-shot, which is the right shape for an earcon and the wrong shape
+        // for judging one. A sound you cannot hold still cannot be compared
+        // against band noise: by the time you have decided what you heard it
+        // has stopped, and the noise floor has moved. So the bench gets a note
+        // it can hold, and tune and pan and re-voice while it is sounding.
+        //
+        // Distinct from StartTxToneMonitor, which monitors an actual transmit
+        // test tone and is scaled and labelled for that job. This one is local,
+        // says nothing to the radio, and exists purely to be listened to.
+
+        private static VoicedToneSampleProvider? _benchToneProvider;
+
+        /// <summary>
+        /// Start, or re-voice, the held bench tone. Returns the live provider so
+        /// the caller can move Frequency, Volume, Pan and Voice while it sounds
+        /// — which is the whole point — or null if the mixer is unavailable.
+        /// </summary>
+        public static VoicedToneSampleProvider? StartBenchTone(
+            MeterVoice? voice, float frequencyHz, float volume, float pan = 0f)
+        {
+            if (!EarconsEnabled || AlertMixer == null) return null;
             try
             {
-                var ding = new DingToneSampleProvider(SampleRate, 1000, 250, 0.4f);
-                AddToMixer(ding);
+                var existing = _benchToneProvider;
+                if (existing != null)
+                {
+                    existing.Voice = voice ?? MeterVoiceLibrary.Resolve(null);
+                    existing.Frequency = frequencyHz;
+                    existing.Volume = volume;
+                    existing.Pan = pan;
+                    existing.Active = true;
+                    return existing;
+                }
+
+                var provider = new VoicedToneSampleProvider(frequencyHz, volume)
+                {
+                    Voice = voice ?? MeterVoiceLibrary.Resolve(null),
+                    Pan = pan,
+                    Active = true,
+                };
+                _benchToneProvider = provider;
+                AlertMixer.AddMixerInput(provider);
+                return provider;
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"EarconPlayer.DingTone failed: {ex.Message}");
+                Trace.WriteLine($"EarconPlayer.StartBenchTone failed: {ex.Message}");
+                return null;
             }
         }
+
+        /// <summary>Stop the held bench tone (10 ms fade, then remove).</summary>
+        public static void StopBenchTone()
+        {
+            var provider = _benchToneProvider;
+            if (provider == null) return;
+            provider.Active = false;
+            _benchToneProvider = null;
+            if (AlertMixer == null) return;
+            System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
+            {
+                try { AlertMixer?.RemoveMixerInput(provider); }
+                catch { }
+            });
+        }
+
+        /// <summary>True while the held bench tone is sounding.</summary>
+        public static bool IsBenchToneRunning => _benchToneProvider != null;
+
+        #endregion
 
         /// <summary>
         /// Play a tone with specific parameters and panning. Used by earcon scratchpad.
@@ -1093,6 +1416,80 @@ namespace JJFlexWpf
         public static void PlayScratchpadTone(int freqHz, int durationMs, float volume, float pan)
         {
             PlayTonePanned(freqHz, durationMs, volume, pan);
+        }
+
+        /// <summary>
+        /// Play a one-shot voiced note from the bench, optionally with a decay
+        /// that fills its own duration.
+        /// </summary>
+        public static void PlayScratchpadVoiced(MeterVoice? voice, int freqHz, int durationMs,
+            float volume, float pan, bool decay)
+        {
+            var v = voice ?? MeterVoiceLibrary.Resolve(null);
+            if (decay) PlayVoicedDecay(v, freqHz, durationMs, volume, pan);
+            else PlayVoiced(v, freqHz, durationMs, volume, pan);
+        }
+
+        /// <summary>
+        /// Walk a scale from <paramref name="startHz"/> to <paramref name="endHz"/>
+        /// in equal-tempered semitones, one note per step.
+        ///
+        /// Judging a voice on one pitch tells you almost nothing. A timbre that
+        /// reads clearly at 800 Hz can vanish at 300 or turn shrill at 2000, and
+        /// pitch is the axis that carries meter values, so the whole working
+        /// range has to be listenable before a voice is worth keeping.
+        /// </summary>
+        public static void PlayScratchpadScale(MeterVoice? voice, int startHz, int endHz,
+            int noteMs, float volume, float pan, bool decay)
+        {
+            if (startHz <= 0 || endHz <= 0) return;
+            var v = voice ?? MeterVoiceLibrary.Resolve(null);
+            int perNote = Math.Clamp(noteMs, 40, 1000);
+
+            double ratio = (double)endHz / startHz;
+            int semitones = (int)Math.Round(Math.Abs(Math.Log(ratio, 2.0) * 12.0));
+            semitones = Math.Clamp(semitones, 1, 48);
+            int direction = endHz >= startHz ? 1 : -1;
+
+            var steps = new (int freq, int ms)[semitones + 1];
+            for (int i = 0; i <= semitones; i++)
+            {
+                double f = startHz * Math.Pow(2.0, direction * i / 12.0);
+                steps[i] = ((int)Math.Round(f), perNote);
+            }
+
+            if (decay) PlayVoicedDecaySequence(v, steps, volume, pan);
+            else PlayVoicedSequence(v, steps, volume, pan);
+        }
+
+        /// <summary>
+        /// Play the harmonic series over a fundamental: one times, two times,
+        /// three times and so on, each in turn.
+        ///
+        /// This is the ear-training half of the bench. Voices are built out of
+        /// exactly these partials, so hearing them one at a time is how a
+        /// partial list stops being a row of numbers. Steps past about 5 kHz
+        /// are dropped rather than played shrill.
+        /// </summary>
+        public static void PlayScratchpadHarmonics(MeterVoice? voice, int fundamentalHz,
+            int count, int noteMs, float volume, float pan, bool decay)
+        {
+            if (fundamentalHz <= 0) return;
+            var v = voice ?? MeterVoiceLibrary.Resolve(null);
+            int perNote = Math.Clamp(noteMs, 40, 1000);
+            int n = Math.Clamp(count, 1, 16);
+
+            var steps = new List<(int freq, int ms)>();
+            for (int i = 1; i <= n; i++)
+            {
+                int f = fundamentalHz * i;
+                if (f > 5000) break;
+                steps.Add((f, perNote));
+            }
+            if (steps.Count == 0) return;
+
+            if (decay) PlayVoicedDecaySequence(v, steps.ToArray(), volume, pan);
+            else PlayVoicedSequence(v, steps.ToArray(), volume, pan);
         }
 
         /// <summary>
@@ -1279,14 +1676,76 @@ namespace JJFlexWpf
 
         #region Internal Playback
 
+        #region Bench preview scope
+
+        // Sprint 32 Track E, #119. The bench needs to audition a real earcon at
+        // a chosen level and stereo position without every earcon in the app
+        // permanently acquiring a level and a position. So the override is
+        // SCOPED to one Play call rather than being a setting.
+        //
+        // Every earcon's public method builds its providers synchronously and
+        // hands them to the mixer before returning, so a [ThreadStatic] flag
+        // held across that one call reaches exactly the sound being auditioned
+        // and nothing else. It cannot leak: the finally clears it, and a value
+        // left set on the UI thread by an exception would still be cleared
+        // before any other earcon could run on that thread.
+        //
+        // This deliberately does NOT touch the operator's alert volume. The
+        // bench is for comparing sounds against each other and against band
+        // noise; changing a saved setting to do it would be a side effect
+        // nobody asked for and a support call later.
+
+        [ThreadStatic] private static bool _previewActive;
+        [ThreadStatic] private static float _previewGain;
+        [ThreadStatic] private static float _previewPan;
+
+        /// <summary>
+        /// Run one earcon with a bench gain and stereo position applied.
+        /// <paramref name="gain"/> multiplies the sound's own tier;
+        /// <paramref name="pan"/> is added to whatever panning the sound
+        /// already does for itself, so a left-panned filter edge auditioned at
+        /// pan right lands in the middle rather than jumping.
+        /// </summary>
+        public static void PlayWithBenchSettings(Action play, float gain, float pan)
+        {
+            if (play == null) return;
+            _previewActive = true;
+            _previewGain = Math.Clamp(gain, 0f, 4f);
+            _previewPan = Math.Clamp(pan, -1f, 1f);
+            try { play(); }
+            finally
+            {
+                _previewActive = false;
+                _previewGain = 1f;
+                _previewPan = 0f;
+            }
+        }
+
+        /// <summary>Bench gain for a provider going into the alert mixer.</summary>
+        private static ISampleProvider ApplyPreviewGain(ISampleProvider source)
+        {
+            if (!_previewActive || Math.Abs(_previewGain - 1f) < 0.001f) return source;
+            return new VolumeSampleProvider(source) { Volume = _previewGain };
+        }
+
+        #endregion
+
         /// <summary>Add a mono source to the alert channel stereo mixer (auto-converts to stereo center).</summary>
         private static void AddToMixer(ISampleProvider monoSource)
         {
             if (!EarconsEnabled || AlertMixer == null) return;
+            // A bench pan on an otherwise centred sound has to become a real
+            // pan, which needs the mono source before it is widened.
+            if (_previewActive && Math.Abs(_previewPan) >= 0.01f
+                && monoSource.WaveFormat.Channels == 1)
+            {
+                AddToMixerPanned(monoSource, 0f);
+                return;
+            }
             if (monoSource.WaveFormat.Channels == 1)
-                AlertMixer.AddMixerInput(new MonoToStereoSampleProvider(monoSource));
+                AlertMixer.AddMixerInput(ApplyPreviewGain(new MonoToStereoSampleProvider(monoSource)));
             else
-                AlertMixer.AddMixerInput(monoSource);
+                AlertMixer.AddMixerInput(ApplyPreviewGain(monoSource));
         }
 
         /// <summary>Add a mono source to the alert channel stereo mixer with panning (-1 left, 0 center, +1 right).</summary>
@@ -1296,8 +1755,9 @@ namespace JJFlexWpf
             // PanningSampleProvider takes mono → outputs stereo
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
+            if (_previewActive) pan = Math.Clamp(pan + _previewPan, -1f, 1f);
             var panned = new PanningSampleProvider(monoSource) { Pan = pan };
-            AlertMixer.AddMixerInput(panned);
+            AlertMixer.AddMixerInput(ApplyPreviewGain(panned));
         }
 
         /// <summary>Add a mono source with panning that sweeps from startPan to endPan over durationMs.</summary>
@@ -1391,110 +1851,201 @@ namespace JJFlexWpf
             }
         }
 
+        #region Voiced rendering — the one synthesis vocabulary (#112)
+
         /// <summary>
-        /// One sustained note with harmonic partials stacked on it — a tone
-        /// with a timbre, rather than another pure sine. Partial gains are
-        /// fractions of the fundamental's and they sum, so the peak is
-        /// volume x (1 + sum of gains); keep the total under about 1.6.
-        ///
-        /// Every other LIVE earcon here is a pure sine, which is why they all
-        /// sound like relatives no matter how the pitches are arranged.
-        /// Harmonics are what make a sound read as an alarm instead of a
-        /// confirmation.
-        ///
-        /// Read this before extending it: this is the crudest additive
-        /// synthesiser in the assembly, and it is not the one to grow.
-        /// MeterVoice + VoicedToneSampleProvider already do arbitrary partials,
-        /// inharmonicity, brightness tilt, ADSR, tremolo, vibrato, gating and
-        /// tracked band-noise, as named serialisable data with fifteen
-        /// built-in voices — a real sonification engine, built for meters and
-        /// unreachable from the alert path only because nothing ever connected
-        /// the two. DecayingGavelSynthesizer (Internal Types, unwired since
-        /// 2026-04-21) is a third hand-rolled additive voice with a decay
-        /// envelope. Three implementations of one idea. The right move is to
-        /// render alert earcons through VoicedToneSampleProvider and delete
-        /// this; see task #112. Until then, keep this dumb rather than growing
-        /// a fourth vocabulary here.
+        /// Fade tail appended to every voiced render, matching the engine's own
+        /// 10 ms activation fade with 5 ms of headroom. In a sequence the tail
+        /// overlaps the following gap rather than lengthening the earcon, which
+        /// is why steps are summed into one buffer instead of concatenated.
         /// </summary>
-        private static void PlayAdditiveTone(
-            int fundamentalHz, int durationMs, float volume,
-            params (int harmonic, float gain)[] partials)
+        private const int VoicedTailMs = 15;
+
+        /// <summary>
+        /// Render a voiced earcon step by step into one mono buffer.
+        ///
+        /// Each step is a frequency in Hz and a duration in ms; a frequency of
+        /// zero is silence, which is how gaps inside a cadence are expressed —
+        /// the same convention the old PlayToneSequence used, so porting
+        /// an earcon from sines to a voice is a change of instrument and
+        /// nothing else. Steps are placed at their own start offset and SUMMED,
+        /// so a step's decay tail rings on into the gap after it instead of
+        /// being chopped. That is what stops a fast cadence sounding stapled
+        /// together.
+        ///
+        /// This is the only place in the alert path that turns parameters into
+        /// samples. Everything above it chooses a voice, a pitch and a tier.
+        /// </summary>
+        internal static float[] RenderVoiced(MeterVoice voice, (int freq, int ms)[] steps, float volume)
         {
-            if (AlertMixer == null) { FallbackBeep(fundamentalHz, durationMs); return; }
+            int totalMs = 0;
+            foreach (var s in steps) totalMs += Math.Max(s.ms, 0);
+
+            int totalSamples = SampleRate * (totalMs + VoicedTailMs) / 1000 + 1;
+            var buffer = new float[Math.Max(totalSamples, 1)];
+
+            int cursor = 0;
+            foreach (var (freq, ms) in steps)
+            {
+                int stepSamples = SampleRate * Math.Max(ms, 0) / 1000;
+                if (freq > 0 && ms > 0)
+                {
+                    var mono = RenderStep(voice, freq, ms, volume);
+                    int n = Math.Min(mono.Length, buffer.Length - cursor);
+                    for (int i = 0; i < n; i++)
+                        buffer[cursor + i] += mono[i];
+                }
+                cursor += stepSamples;
+            }
+            return buffer;
+        }
+
+        /// <summary>
+        /// Render one note, then restore the level the caller asked for if the
+        /// engine's own activation fade ate into it.
+        ///
+        /// VoicedToneSampleProvider ramps from silence over a fixed 10 ms every
+        /// time it activates. On a meter tone that is invisible; on a 20 ms
+        /// filter-edge click it is half the sound, and the note never reaches
+        /// the amplitude its tier asked for. Measured, that cost the shortest
+        /// earcons around 5 dB — which is the wrong direction entirely for the
+        /// sounds already hardest to pick out of band noise.
+        ///
+        /// So: measure the peak, and scale UP to the requested amplitude if it
+        /// fell short. Never down. A note long enough to reach full level peaks
+        /// at the requested volume already, so the factor is 1 and nothing
+        /// changes; a noisy voice can peak above it, and is left alone. The
+        /// boost is capped, because a nearly-silent render is a bug and
+        /// amplifying it four hundred times would only make the bug loud.
+        ///
+        /// The 10 ms fade lives in the shared engine and the meters depend on
+        /// it. Correcting here rather than there is deliberate.
+        /// </summary>
+        private static float[] RenderStep(MeterVoice voice, int freq, int ms, float volume)
+        {
+            var mono = VoicedToneSampleProvider.RenderMono(voice, freq, ms, volume);
+            if (volume <= 0f || mono.Length == 0) return mono;
+
+            float peak = 0f;
+            foreach (var sample in mono)
+            {
+                float a = Math.Abs(sample);
+                if (a > peak) peak = a;
+            }
+            if (peak <= 0.0001f || peak >= volume) return mono;
+
+            float gain = Math.Min(volume / peak, 4f);
+            for (int i = 0; i < mono.Length; i++) mono[i] *= gain;
+            return mono;
+        }
+
+        /// <summary>
+        /// Play a single voiced note. The workhorse of the alert path: pick a
+        /// voice from <see cref="EarconVoices"/>, a pitch, a length and a
+        /// loudness tier.
+        /// </summary>
+        internal static void PlayVoiced(MeterVoice voice, int frequencyHz, int durationMs,
+            float volume, float pan = 0f)
+        {
+            PlayVoicedSequence(voice, new[] { (frequencyHz, durationMs) }, volume, pan);
+        }
+
+        /// <summary>
+        /// Play a voiced cadence — several notes and gaps as one earcon, one
+        /// mixer input, no inter-note timing jitter.
+        /// </summary>
+        internal static void PlayVoicedSequence(MeterVoice voice, (int freq, int ms)[] steps,
+            float volume, float pan = 0f)
+        {
+            if (!EarconsEnabled) return;
+            if (AlertMixer == null)
+            {
+                int first = 800, ms = 150;
+                foreach (var s in steps) { if (s.freq > 0) { first = s.freq; ms = s.ms; break; } }
+                FallbackBeep(first, ms);
+                return;
+            }
             try
             {
-                var monoFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, 1);
-                var stack = new MixingSampleProvider(monoFormat) { ReadFully = true };
-
-                stack.AddMixerInput((ISampleProvider)new SignalGenerator(SampleRate, 1)
-                {
-                    Type = SignalGeneratorType.Sin,
-                    Frequency = fundamentalHz,
-                    Gain = volume
-                });
-
-                foreach (var (harmonic, gain) in partials)
-                {
-                    stack.AddMixerInput((ISampleProvider)new SignalGenerator(SampleRate, 1)
-                    {
-                        Type = SignalGeneratorType.Sin,
-                        Frequency = fundamentalHz * harmonic,
-                        Gain = volume * gain
-                    });
-                }
-
-                var timed = stack.Take(TimeSpan.FromMilliseconds(durationMs));
-
-                // A three-quarter-second tone that starts and stops square
-                // clicks at both ends, and the click is the loudest part of it.
-                var faded = new FadeInOutSampleProvider(timed, true);
-                double edgeMs = Math.Min(durationMs / 10.0, 25);
-                faded.BeginFadeIn(edgeMs);
-                faded.BeginFadeOut(Math.Max(durationMs - edgeMs, 0));
-
-                AddToMixer(faded);
+                var rendered = RenderVoiced(voice, steps, volume);
+                var provider = new RenderedSampleProvider(rendered);
+                if (Math.Abs(pan) < 0.01f)
+                    AddToMixer(provider);
+                else
+                    AddToMixerPanned(provider, pan);
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"EarconPlayer.PlayAdditiveTone failed: {ex.Message}");
-                FallbackBeep(fundamentalHz, durationMs);
+                Trace.WriteLine($"EarconPlayer.PlayVoicedSequence failed: {ex.Message}");
             }
         }
 
-        private static void PlayToneSequence((int freq, int ms)[] tones, float volume)
+        /// <summary>
+        /// Play a single note that decays away inside its own duration — the
+        /// button-press shape. Noel, 2026-08-19: "for some tones I'd also
+        /// consider adding more of a fade out (decay)... you might use it for a
+        /// button press."
+        /// </summary>
+        internal static void PlayVoicedDecay(MeterVoice voice, int frequencyHz, int durationMs,
+            float volume, float pan = 0f)
         {
-            if (AlertMixer == null) return;
+            PlayVoiced(EarconVoices.DecayingOver(voice, durationMs), frequencyHz, durationMs, volume, pan);
+        }
+
+        /// <summary>
+        /// Play a cadence where every note decays away inside its own step —
+        /// the same shape as <see cref="PlayVoicedDecay"/>, applied to a
+        /// sequence whose notes may differ in length.
+        /// </summary>
+        internal static void PlayVoicedDecaySequence(MeterVoice voice, (int freq, int ms)[] steps,
+            float volume, float pan = 0f)
+        {
+            if (!EarconsEnabled) return;
+            if (AlertMixer == null) { PlayVoicedSequence(voice, steps, volume, pan); return; }
             try
             {
-                var monoFormat = WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, 1);
-                var providers = new ISampleProvider[tones.Length];
-                for (int i = 0; i < tones.Length; i++)
+                int totalMs = 0;
+                foreach (var s in steps) totalMs += Math.Max(s.ms, 0);
+                int totalSamples = SampleRate * (totalMs + VoicedTailMs) / 1000 + 1;
+                var buffer = new float[Math.Max(totalSamples, 1)];
+
+                int cursor = 0;
+                foreach (var (freq, ms) in steps)
                 {
-                    if (tones[i].freq == 0)
+                    int stepSamples = SampleRate * Math.Max(ms, 0) / 1000;
+                    if (freq > 0 && ms > 0)
                     {
-                        providers[i] = new SilenceProvider(monoFormat)
-                            .ToSampleProvider()
-                            .Take(TimeSpan.FromMilliseconds(tones[i].ms));
+                        var shaped = EarconVoices.DecayingOver(voice, ms);
+                        var mono = RenderStep(shaped, freq, ms, volume);
+                        int n = Math.Min(mono.Length, buffer.Length - cursor);
+                        for (int i = 0; i < n; i++)
+                            buffer[cursor + i] += mono[i];
                     }
-                    else
-                    {
-                        var signal = new SignalGenerator(SampleRate, 1)
-                        {
-                            Type = SignalGeneratorType.Sin,
-                            Frequency = tones[i].freq,
-                            Gain = volume
-                        };
-                        providers[i] = signal.Take(TimeSpan.FromMilliseconds(tones[i].ms));
-                    }
+                    cursor += stepSamples;
                 }
-                var concat = new ConcatenatingSampleProvider(providers);
-                AddToMixer(concat);
+
+                var provider = new RenderedSampleProvider(buffer);
+                if (Math.Abs(pan) < 0.01f)
+                    AddToMixer(provider);
+                else
+                    AddToMixerPanned(provider, pan);
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"EarconPlayer.PlayToneSequence failed: {ex.Message}");
+                Trace.WriteLine($"EarconPlayer.PlayVoicedDecaySequence failed: {ex.Message}");
             }
         }
+
+        #endregion
+
+        // PlayToneSequence — the bare-sine cadence primitive every earcon used
+        // to go through — was deleted in Sprint 32 Track E once the last caller
+        // moved to the voiced path. Its convention survives verbatim in
+        // RenderVoiced: a step is (frequency, milliseconds) and frequency zero
+        // means silence, so an earcon reads the same as it always did. Keeping
+        // the old primitive around "in case" is exactly how the app ended up
+        // with three additive synthesisers; a single unbroken sine is still one
+        // call away as PlayTone.
 
         internal static void PlayChirp(int startHz, int endHz, int durationMs, float volume)
         {
@@ -1701,62 +2252,6 @@ namespace JJFlexWpf
         }
 
         /// <summary>
-        /// Sine tone with exponential decay — produces a clear "ding" that fades naturally.
-        /// Includes a soft octave harmonic for warmth.
-        /// </summary>
-        private class DingToneSampleProvider : ISampleProvider
-        {
-            private readonly int _totalSamples;
-            private readonly float _frequency;
-            private readonly float _volume;
-            private readonly float _decayRate;
-            private int _position;
-            private double _phase;
-            private double _phase2; // octave harmonic
-
-            public WaveFormat WaveFormat { get; }
-
-            public DingToneSampleProvider(int sampleRate, float frequency, int durationMs, float volume)
-            {
-                WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
-                _totalSamples = sampleRate * durationMs / 1000;
-                _frequency = frequency;
-                _volume = volume;
-                // Decay rate: envelope reaches ~1% at end of duration
-                _decayRate = -MathF.Log(0.01f) / _totalSamples;
-            }
-
-            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
-            // are re-declared here so the body's index arithmetic is unchanged -
-            // buffer[offset + n] indexes a Span exactly as it did an array.
-            public int Read(Span<float> buffer)
-            {
-                int offset = 0;
-                int count = buffer.Length;
-                int available = _totalSamples - _position;
-                int toCopy = Math.Min(available, count);
-                if (toCopy <= 0) return 0;
-
-                double phaseInc = 2.0 * Math.PI * _frequency / WaveFormat.SampleRate;
-                double phaseInc2 = 2.0 * Math.PI * (_frequency * 2) / WaveFormat.SampleRate;
-
-                for (int i = 0; i < toCopy; i++)
-                {
-                    double envelope = Math.Exp(-_decayRate * _position);
-
-                    // Fundamental (80%) + soft octave harmonic (20%)
-                    double sample = Math.Sin(_phase) * 0.8 + Math.Sin(_phase2) * 0.2;
-
-                    buffer[offset + i] = (float)(sample * envelope * _volume);
-                    _phase += phaseInc;
-                    _phase2 += phaseInc2;
-                    _position++;
-                }
-                return toCopy;
-            }
-        }
-
-        /// <summary>
         /// Pre-loaded .wav audio data stored as mono float samples for instant playback.
         /// Mono storage allows flexible panning at playback time.
         /// </summary>
@@ -1820,6 +2315,35 @@ namespace JJFlexWpf
                 int toCopy = Math.Min(available, count);
                 if (toCopy <= 0) return 0;
                 _sound.AudioData.AsSpan(_position, toCopy).CopyTo(buffer.Slice(offset, toCopy));
+                _position += toCopy;
+                return toCopy;
+            }
+        }
+
+        /// <summary>
+        /// Plays a mono float buffer once. The output end of the voiced path:
+        /// <see cref="RenderVoiced"/> composes the whole earcon offline, this
+        /// hands it to the mixer. Rendering ahead of time rather than
+        /// streaming is deliberate — an earcon is at most a second long, the
+        /// cost is microseconds, and it means a cadence's timing is decided by
+        /// array arithmetic instead of by how the audio callback happens to
+        /// carve up buffers.
+        /// </summary>
+        private class RenderedSampleProvider : ISampleProvider
+        {
+            private readonly float[] _data;
+            private int _position;
+
+            public RenderedSampleProvider(float[] data) { _data = data; }
+            public WaveFormat WaveFormat { get; } =
+                WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, 1);
+
+            public int Read(Span<float> buffer)
+            {
+                int available = _data.Length - _position;
+                int toCopy = Math.Min(available, buffer.Length);
+                if (toCopy <= 0) return 0;
+                _data.AsSpan(_position, toCopy).CopyTo(buffer.Slice(0, toCopy));
                 _position += toCopy;
                 return toCopy;
             }
@@ -2073,141 +2597,6 @@ namespace JJFlexWpf
             }
         }
 
-        /// <summary>
-        /// Sprint 28 Phase 3 — synthesized "gavel" thud: 140 Hz fundamental plus
-        /// quieter 280 Hz harmonic, preceded by a brief filtered-noise attack
-        /// transient (~5 ms), shaped by an exponential decay envelope. Semantic:
-        /// authoritative finality ("case closed"). Fires on double-Escape
-        /// collapse-all.
-        ///
-        /// Low fundamental chosen for cut-through — residual RF noise concentrates
-        /// in the voice band (300-3000 Hz), so 140 Hz sits below the hissiest
-        /// spectral territory and remains audible when voice-band earcons would
-        /// get masked.
-        /// </summary>
-        private class DecayingGavelSynthesizer : ISampleProvider
-        {
-            // Tuned 2026-04-21 after user feedback ("could hardly hear the bong").
-            // Fundamental raised from 140 Hz to 200 Hz for reliable playback on
-            // typical laptop/desktop speakers (140 Hz often rolls off hard).
-            // 200 Hz is still below the voice band (300-3000 Hz), preserving the
-            // cut-through-RF-noise design principle. Volume raised from 0.5 to
-            // 0.85 to compensate for the ear's reduced sensitivity at low
-            // frequencies (equal-loudness contours — ~15 dB more amplitude needed
-            // at low freq for equivalent loudness vs mid-freq). Attack transient
-            // expanded from 5 ms to 18 ms and amplitude boosted — the "strike"
-            // of a real gavel has broadband impact energy, not a brief whisper.
-            private const double FundamentalHz = 200.0;
-            private const double HarmonicHz = 400.0;
-            private const double SecondHarmonicHz = 600.0;
-            private const double HarmonicGain = 0.4;
-            private const double SecondHarmonicGain = 0.2;
-            private const double DecayTauSeconds = 0.15;
-            private const double AttackTransientSeconds = 0.018;
-            private const double AttackStrikeGain = 2.5;
-
-            private readonly int _totalSamples;
-            private readonly float _volume;
-            private readonly int _attackTransientSamples;
-            private readonly Random _rand = new();
-            private double _fundamentalPhase;
-            private double _harmonicPhase;
-            private double _secondHarmonicPhase;
-            // Band-pass state for the attack strike — noise shaped to centered
-            // around 500 Hz, two-pole low-pass chain gives a "wood thud" character
-            // rather than white-noise hiss.
-            private double _noiseLp1;
-            private double _noiseLp2;
-            private int _position;
-
-            public WaveFormat WaveFormat { get; }
-
-            public DecayingGavelSynthesizer(int sampleRate, float totalDurationSeconds)
-            {
-                WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, 1);
-                _totalSamples = (int)(sampleRate * totalDurationSeconds);
-                _volume = 0.85f;
-                _attackTransientSamples = (int)(sampleRate * AttackTransientSeconds);
-            }
-
-            // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
-            // are re-declared here so the body's index arithmetic is unchanged -
-            // buffer[offset + n] indexes a Span exactly as it did an array.
-            public int Read(Span<float> buffer)
-            {
-                int offset = 0;
-                int count = buffer.Length;
-                int available = _totalSamples - _position;
-                int toCopy = Math.Min(available, count);
-                if (toCopy <= 0) return 0;
-
-                int sampleRate = WaveFormat.SampleRate;
-                // Two cascaded one-pole low-pass filters at 700 Hz — shapes noise
-                // into the "wood thud" character (broadband mid-low energy).
-                double lpAlpha = Math.Exp(-2.0 * Math.PI * 700.0 / sampleRate);
-
-                for (int i = 0; i < toCopy; i++)
-                {
-                    double tSeconds = (double)_position / sampleRate;
-
-                    // Tonal content: fundamental + harmonic + second harmonic.
-                    // Each subsequent harmonic quieter for natural "bell-like"
-                    // overtone decay. All three share the same exponential decay.
-                    _fundamentalPhase += 2.0 * Math.PI * FundamentalHz / sampleRate;
-                    _harmonicPhase += 2.0 * Math.PI * HarmonicHz / sampleRate;
-                    _secondHarmonicPhase += 2.0 * Math.PI * SecondHarmonicHz / sampleRate;
-                    double tonal = Math.Sin(_fundamentalPhase)
-                                 + HarmonicGain * Math.Sin(_harmonicPhase)
-                                 + SecondHarmonicGain * Math.Sin(_secondHarmonicPhase);
-                    // Normalize so peak tonal amplitude stays around unity
-                    tonal *= 0.6;
-
-                    // Exponential decay — fast initial drop, long tail
-                    double decay = Math.Exp(-tSeconds / DecayTauSeconds);
-
-                    // Attack strike — 18 ms burst of double-low-passed noise with
-                    // sharp envelope. This is the "crack" of the gavel. Amplitude
-                    // significantly exceeds the tonal content during the strike
-                    // window so the attack registers as impact before the resonant
-                    // ring-out takes over.
-                    double attack = 0.0;
-                    if (_position < _attackTransientSamples)
-                    {
-                        double rawNoise = (_rand.NextDouble() * 2.0) - 1.0;
-                        _noiseLp1 = lpAlpha * _noiseLp1 + (1.0 - lpAlpha) * rawNoise;
-                        _noiseLp2 = lpAlpha * _noiseLp2 + (1.0 - lpAlpha) * _noiseLp1;
-                        // Attack envelope: ramps up the first 1/4, holds, ramps down
-                        // over last 3/4. Gives a percussive "thud" rather than a
-                        // symmetrical bump.
-                        double attackPosition = (double)_position / _attackTransientSamples;
-                        double attackEnv;
-                        if (attackPosition < 0.25)
-                            attackEnv = attackPosition * 4.0;
-                        else
-                            attackEnv = (1.0 - attackPosition) / 0.75;
-                        attack = _noiseLp2 * attackEnv * AttackStrikeGain;
-                    }
-
-                    // 2 ms global fade-in to avoid DC click at the very start
-                    double globalFadeIn = 1.0;
-                    int fadeInSamples = sampleRate / 1000 * 2;
-                    if (_position < fadeInSamples)
-                        globalFadeIn = (double)_position / fadeInSamples;
-
-                    double sample = (tonal * decay + attack) * globalFadeIn * _volume;
-
-                    // Soft clip to keep peaks in [-1, 1] range — unlikely to fire
-                    // with tuned volumes but defensive against clipping if summed
-                    // against other playing earcons.
-                    if (sample > 0.95) sample = 0.95 + 0.05 * Math.Tanh((sample - 0.95) * 20);
-                    else if (sample < -0.95) sample = -0.95 + 0.05 * Math.Tanh((sample + 0.95) * 20);
-
-                    buffer[offset + i] = (float)sample;
-                    _position++;
-                }
-                return toCopy;
-            }
-        }
 
         #endregion
     }

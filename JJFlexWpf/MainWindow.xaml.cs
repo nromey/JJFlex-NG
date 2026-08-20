@@ -1394,6 +1394,14 @@ public partial class MainWindow : UserControl
         ApplyUIMode(newMode);
         SaveUIModeCallback?.Invoke(newMode);
 
+        // Sprint 32 Track E, #128. All three roads to tuning mode -- the
+        // Ctrl+Shift+M chord, the Slice menu and the Tools menu -- come through
+        // here, so one tone covers them all. Modern is the "on" end, matching
+        // the checked state the menu items show. This one earns a tone more
+        // than most: it changes what the arrow keys do, and the sentence that
+        // follows takes several seconds to say.
+        EarconPlayer.ToggleTone(newMode == UIMode.Modern);
+
         // Sprint 26 Phase 8: mode-change announcement includes the brief tuning-key
         // summary for the new mode. Addresses Don's discoverability gap — without
         // this, operators toggling modes have no cue that the keys have changed.
@@ -2374,6 +2382,8 @@ public partial class MainWindow : UserControl
     {
         _brailleEngine.Enabled = !_brailleEngine.Enabled;
         _brailleEngine.UpdateTimerState();
+        // Sprint 32 Track E, #128.
+        EarconPlayer.ToggleTone(_brailleEngine.Enabled);
         Radios.ScreenReaderOutput.Speak(
             _brailleEngine.Enabled ? "Braille status on" : "Braille status off",
             Radios.VerbosityLevel.Terse,
@@ -4833,6 +4843,9 @@ public partial class MainWindow : UserControl
 
         bool newState = !IsAutoConnectEnabled();
         SetAutoConnectEnabled(newState);
+        // Sprint 32 Track E, #128. Both roads (menu item and the Radio menu
+        // entry) return through here, so the tone lands whichever was used.
+        EarconPlayer.ToggleTone(newState);
         return newState ? "Auto-connect enabled" : "Auto-connect disabled";
     }
 

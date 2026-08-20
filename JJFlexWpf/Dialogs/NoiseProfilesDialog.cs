@@ -242,6 +242,13 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
         if (_polling || _pipeline == null) return;
         setter(on);
 
+        // Sprint 32 Track E, #128. These same PC noise-reduction switches tone
+        // from the Home panel and from the Ctrl+J chords; this dialog was the
+        // silent third road. The tone is not a substitute for the speech
+        // deleted below — that was removed because it DUPLICATED what the
+        // checkbox already says, and a tone duplicates nothing.
+        EarconPlayer.ToggleTone(on);
+
         // DELETED: the CheckBox already announces its own new state through
         // UIA, on the control that has focus. Speaking "{label} on" as well
         // meant NVDA's announcement was cut off mid-word and then restated -

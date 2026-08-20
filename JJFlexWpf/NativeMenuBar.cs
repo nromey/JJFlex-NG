@@ -286,15 +286,26 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Toggle an OffOnValues property and speak the result.
-    /// Used by NR, NB, ANF, APF, VOX, Squelch, etc.
+    /// Toggle an OffOnValues property, sound it, and speak the result.
+    /// Used by NR, NB, ANF, APF, VOX, Squelch, mic boost, compander and the
+    /// rest of the on-radio DSP family.
     /// </summary>
+    /// <remarks>
+    /// Sprint 32 Track E, #128. Every one of these settings is reachable three
+    /// ways — a Home panel checkbox, a Ctrl+J leader chord, and this menu — and
+    /// only two of the three made a sound. An operator learns from the Home
+    /// panel that a toggle answers back, reaches the same setting from the menu
+    /// and gets nothing, and that reads as the command having failed rather
+    /// than as the menu being quieter. One tone here covers every item that
+    /// funnels through this method, which is the argument for the funnel.
+    /// </remarks>
     private void ToggleDSP(string label, Func<FlexBase.OffOnValues> getter, Action<FlexBase.OffOnValues> setter)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
         var current = getter();
         var newVal = Rig.ToggleOffOn(current);
         setter(newVal);
+        EarconPlayer.ToggleTone(newVal == FlexBase.OffOnValues.on);
         SpeakAfterMenuClose($"{label} {(newVal == FlexBase.OffOnValues.on ? "on" : "off")}");
     }
 
@@ -665,6 +676,11 @@ public class NativeMenuBar : IDisposable
                 if (Rig == null) { SpeakNoRadio(); return; }
                 bool newMute = !Rig.SliceMute;
                 Rig.SliceMute = newMute;
+                // Matches the hotkey road (KeyCommands.MuteSliceHandler), which
+                // has toned on newMute since it was written. Mute All directly
+                // below this has always toned too, which is what makes the
+                // omission here read as an oversight rather than a decision.
+                EarconPlayer.ToggleTone(newMute);
                 SpeakAfterMenuClose(newMute ? "Muted" : "Unmuted");
             }, () => Rig?.SliceMute == true);
 
@@ -708,6 +724,11 @@ public class NativeMenuBar : IDisposable
                 // announced the wish, not the outcome, so a failed toggle said
                 // "PC audio on" while nothing played. QB Track B, 2026-08-07.
                 bool actual = Rig.PCAudio;
+                // Sound the outcome for the same reason the speech does. PC
+                // audio can refuse to come on when no sound device is
+                // configured, and a rising tone over a toggle that did not
+                // happen is a confident lie.
+                EarconPlayer.ToggleTone(actual);
                 SpeakAfterMenuClose(
                     actual ? "PC audio on"
                     : wanted ? "PC audio could not start, still off"
@@ -864,6 +885,7 @@ public class NativeMenuBar : IDisposable
             if (Rig == null) { SpeakNoRadio(); return; }
             bool isOn = Rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
             Rig.FlexTunerType = isOn ? FlexBase.FlexTunerTypes.none : FlexBase.FlexTunerTypes.auto;
+            EarconPlayer.ToggleTone(!isOn);
             SpeakAfterMenuClose($"ATU {(isOn ? "off" : "on")}");
         }, () => Rig?.FlexTunerType != FlexBase.FlexTunerTypes.none);
 
@@ -913,6 +935,7 @@ public class NativeMenuBar : IDisposable
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
                 Rig.ToggleDiversity();
+                EarconPlayer.ToggleTone(Rig.DiversityOn);
                 SpeakAfterMenuClose(Rig.DiversityOn ? "Diversity on" : "Diversity off");
             }, () => Rig?.DiversityOn == true);
             return;
@@ -1262,6 +1285,7 @@ public class NativeMenuBar : IDisposable
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             Rig.DummyLoadMode = !Rig.DummyLoadMode;
+            EarconPlayer.ToggleTone(Rig.DummyLoadMode);
             if (Rig.DummyLoadMode)
                 SpeakAfterMenuClose("Dummy load mode on. Power zero.");
             else
@@ -1539,6 +1563,7 @@ public class NativeMenuBar : IDisposable
                 var rit = new FlexBase.RITData(Rig.RIT);
                 rit.Active = !rit.Active;
                 Rig.RIT = rit;
+                EarconPlayer.ToggleTone(rit.Active);
                 SpeakAfterMenuClose($"RIT {(rit.Active ? "on" : "off")}");
             });
             AddWired(tuningSub, "XIT On/Off", () =>
@@ -1547,6 +1572,7 @@ public class NativeMenuBar : IDisposable
                 var xit = new FlexBase.RITData(Rig.XIT);
                 xit.Active = !xit.Active;
                 Rig.XIT = xit;
+                EarconPlayer.ToggleTone(xit.Active);
                 SpeakAfterMenuClose($"XIT {(xit.Active ? "on" : "off")}");
             });
 
@@ -1636,6 +1662,7 @@ public class NativeMenuBar : IDisposable
             panel.Visibility = newVisible ? Visibility.Visible : Visibility.Collapsed;
             _window.FieldsPanelUserVisible = newVisible;
             _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
+            EarconPlayer.ToggleTone(newVisible);
             SpeakAfterMenuClose(newVisible ? "Field panel shown" : "Field panel hidden");
         }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
         AddSep(screenFields);
