@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tier 1 of the Sprint 33 test suite: in-process UI Automation invariants.
+
+    This project constructs every JJFlexWpf dialog inside the test process and
+    walks its automation peer tree. It needs WPF (UseWPF), it needs STA, and it
+    needs to do all of that without taking keyboard focus away from the operator
+    - see README.md in this folder for both mechanisms.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>JJFlexWpf.Tests</RootNamespace>
+    <AssemblyName>JJFlexWpf.Tests</AssemblyName>
+    <Platforms>AnyCPU;x64;x86</Platforms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+
+    <!-- Windows-only APIs are the entire point of this project. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JJFlexWpf\JJFlexWpf.csproj" />
+    <ProjectReference Include="..\Radios\Radios.csproj" />
+  </ItemGroup>
+
+</Project>
