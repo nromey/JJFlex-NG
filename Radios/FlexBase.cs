@@ -30,11 +30,13 @@ using Radios.SmartLink;
 
 namespace Radios
 {
-    /// <summary>Meter types for the MeterChanged event.</summary>
-    public enum MeterType
-    {
-        SMeter, ALC, Mic, Power, SWR, Compression, Voltage, PATemp
-    }
+    // The MeterType enum and the MeterChanged event lived here until Sprint 32
+    // Track B retired them — the hand-off this file's own meter section
+    // describes. They named eight meters on a radio that reports over a
+    // hundred, and everything above them was choosing from eight because
+    // identity had already been destroyed by the adapter. The replacement is
+    // FlexBase.MeterData (every reading of every meter, with the Meter itself)
+    // and FlexBase.MeterInventory. MeterToneEngine was the only consumer.
 
     /// <summary>
     /// Tri-state outcome from ConnectToSmartLink so setupRemote can distinguish
@@ -7297,11 +7299,10 @@ namespace Radios
         private void forwardPowerData(float data)
         {
             Tracing.TraceLine("forwardPower:" + data.ToString(), TraceLevel.Verbose);
-            if (_PowerDBM != data)
-            {
-                _PowerDBM = data;
-                MeterChanged?.Invoke(this, MeterType.Power, data);
-            }
+            // The change guard here existed only to avoid re-raising
+            // MeterChanged for a repeated value. With that event gone the
+            // comparison decides nothing, so the assignment stands alone.
+            _PowerDBM = data;
         }
 
         protected float _SWR;
@@ -7312,7 +7313,6 @@ namespace Radios
         {
             Tracing.TraceLine("SWRData:" + data.ToString(), TraceLevel.Verbose);
             _SWR = data;
-            MeterChanged?.Invoke(this, MeterType.SWR, data);
         }
 
         private string SWRText()
@@ -7334,7 +7334,6 @@ namespace Radios
             syncMeterInventory(); // cheap no-op unless the meter set has changed
             hookTxMeters(); // lazy: SC_MIC / SW ALC meters register late
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
-            MeterChanged?.Invoke(this, MeterType.Mic, data);
         }
 
         internal float _MicPeakData;
@@ -7352,7 +7351,6 @@ namespace Radios
         {
             Tracing.TraceLine("compPeakData:" + data.ToString(), TraceLevel.Verbose);
             _CompPeakData = data;
-            MeterChanged?.Invoke(this, MeterType.Compression, data);
         }
 
         private float _ALC;
@@ -7369,7 +7367,6 @@ namespace Radios
         {
             _ALC = data;
             Tracing.TraceLine("hwALCData:" + data.ToString(), TraceLevel.Verbose);
-            MeterChanged?.Invoke(this, MeterType.ALC, data);
         }
 
         // --- Transmit-audio meters (2026-08-11) ------------------------------
@@ -7428,9 +7425,9 @@ namespace Radios
         // nothing above a lossy adapter can recover what the adapter dropped.
         //
         // So: subscribe generically, once per meter, and re-raise with the meter
-        // intact. MeterType and MeterChanged stay exactly as they were — they are
-        // retired by the track that rebuilds the meters panel, not here, because
-        // MeterToneEngine and other callers still read them.
+        // intact. MeterType and MeterChanged were left alive here as a shim and
+        // then retired by Track B, the track that rebuilt the meters panel, once
+        // MeterToneEngine — their only consumer — had moved onto MeterData.
 
         private readonly object _meterHookLock = new object();
 
@@ -7453,8 +7450,8 @@ namespace Radios
         public delegate void MeterDataDel(object sender, Meter meter, float value);
 
         /// <summary>Raised for every reading of every meter, meter identity intact.
-        /// See <see cref="MeterChanged"/> for the older eight-value path, which is
-        /// still live.</summary>
+        /// The only meter feed there is: the older eight-value MeterChanged path
+        /// was retired in Sprint 32 Track B.</summary>
         public event MeterDataDel MeterData;
 
         /// <summary>The SET of meters the radio publishes changed.
@@ -7785,7 +7782,6 @@ namespace Radios
         {
             Tracing.TraceLine("PATempDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _PATempData = data;
-            MeterChanged?.Invoke(this, MeterType.PATemp, data);
         }
 
         /// <summary>PA temperature in degrees C.</summary>
@@ -7796,7 +7792,6 @@ namespace Radios
         {
             Tracing.TraceLine("VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _VoltsData = data;
-            MeterChanged?.Invoke(this, MeterType.Voltage, data);
         }
 
         /// <summary>Supply voltage.</summary>
@@ -7843,7 +7838,6 @@ namespace Radios
                 {
                     Tracing.TraceLine("sMeterData:" + s.Index + ' ' + data.ToString(), TraceLevel.Verbose);
                     parent._SMeter = (int)data;
-                    parent.MeterChanged?.Invoke(parent, MeterType.SMeter, data);
                 }
             }
 
@@ -14141,9 +14135,9 @@ namespace Radios
             }
         }
 
-        /// <summary>Meter data change event — fired from meter callbacks for sonification.</summary>
-        public delegate void MeterChangedDel(object sender, MeterType meter, float value);
-        public event MeterChangedDel MeterChanged;
+        // MeterChangedDel / MeterChanged retired in Sprint 32 Track B. Meter
+        // sonification subscribes to MeterData instead, which carries the Meter
+        // itself; see the meter-inventory section above.
 
         /// <summary>Raw S-meter value in dBm (before S-unit conversion).</summary>
         public int SMeterRaw => _SMeter;
