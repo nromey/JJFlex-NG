@@ -109,6 +109,10 @@ namespace JJFlexWpf
             if (!_queue.Writer.TryWrite(item))
             {
                 // Writer is completed (we're being disposed) — treat as cancelled.
+                // Traced because this is a SUPPRESSION path: the caller's Task
+                // resolves instantly and no audio will ever exist, which from the
+                // operator's seat is indistinguishable from a working play call.
+                Trace.WriteLine("EarconCwOutput.PlayElementsAsync: queue writer completed — sequence dropped as cancelled");
                 System.Threading.Interlocked.Decrement(ref _outstanding);
                 tcs.TrySetCanceled();
             }

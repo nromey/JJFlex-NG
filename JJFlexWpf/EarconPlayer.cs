@@ -1178,6 +1178,7 @@ namespace JJFlexWpf
             if (AlertMixer == null) return;
             try
             {
+                JJTrace.Tracing.TraceLine("EarconPlayer: ATU progress earcon started");
                 _atuProgressProvider = new VoicedToneSampleProvider(450f,
                     VolumeSoft * (_previewActive ? _previewGain : 1f))
                 {
@@ -1202,6 +1203,7 @@ namespace JJFlexWpf
         {
             var provider = _atuProgressProvider;
             if (provider == null) return;
+            JJTrace.Tracing.TraceLine("EarconPlayer: ATU progress earcon stopped");
             provider.Active = false;
             _atuProgressProvider = null;
             if (AlertMixer == null) return;

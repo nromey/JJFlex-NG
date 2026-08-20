@@ -417,6 +417,14 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void StopEverythingOnTheBench(bool spoken)
     {
+        // Permanent: this line is the difference between "the tone outlived its
+        // dialog" and "the operator closed the dialog, which stopped the tone" —
+        // the two readings of the 2026-08-19 missing-farewell report. spoken:false
+        // means the Closed handler fired; spoken:true means the bench button.
+        JJTrace.Tracing.TraceLine(
+            $"AudioWorkshop: StopEverythingOnTheBench (spoken={spoken}) — "
+            + $"atuRunning={EarconPlayer.IsATUProgressEarconRunning}, "
+            + $"benchRunning={EarconPlayer.IsBenchToneRunning}");
         StopEarconSeries();
         EarconPlayer.StopATUProgressEarcon();
         EarconPlayer.StopTxToneMonitor();
