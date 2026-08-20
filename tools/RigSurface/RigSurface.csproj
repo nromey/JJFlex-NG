@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>JJFlex.RigSurface</RootNamespace>
+    <AssemblyName>RigSurface</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <!-- Track D references this project. Keep it dependency-free: sockets and
+         the BCL only. No FlexLib, deliberately — see the note in README.md
+         about why the read path must not go through FlexLib's cache. -->
+  </PropertyGroup>
+</Project>
