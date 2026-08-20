@@ -94,7 +94,7 @@ internal static class Observe
             FocusToggleState = toggle,
             TreeNodeCount = nodes,
             TreeDigest = treeDigest,
-            SpeechLogLength = speechLogPath != null ? SpeechLog.Length(speechLogPath) : 0,
+            SpeechLogLength = speechLogPath != null ? TraceLog.Length(speechLogPath) : 0,
         };
     }
 
@@ -228,7 +228,7 @@ internal static class Observe
     {
         long lastEventTicks = Environment.TickCount64;
         long start = lastEventTicks;
-        long lastLen = speechLogPath != null ? SpeechLog.Length(speechLogPath) : 0;
+        long lastLen = speechLogPath != null ? TraceLog.Length(speechLogPath) : 0;
 
         void Bump() => Volatile.Write(ref lastEventTicks, Environment.TickCount64);
 
@@ -264,7 +264,7 @@ internal static class Observe
 
                 if (speechLogPath != null)
                 {
-                    long len = SpeechLog.Length(speechLogPath);
+                    long len = TraceLog.Length(speechLogPath);
                     if (len != lastLen) { lastLen = len; Bump(); }
                 }
 
@@ -298,9 +298,27 @@ internal static class Observe
 }
 
 /// <summary>
-/// The speech channel: JJ Flexible's own trace file, read from outside.
+/// JJ Flexible's own trace file, read from outside. Two channels come out of
+/// it and they answer different questions.
+///
+/// <para><b>Routing</b> — <c>DoCommand:</c> and <c>Leader:</c> lines, written
+/// UNCONDITIONALLY at Info level, so no detailed capture is needed. Every
+/// registry keystroke logs the key it resolved to, and a keystroke that reaches
+/// the dispatcher and finds nothing logs <c>DoCommand:key not found:</c>. That
+/// last line is the dead-binding signature in plain text: the 2026-08-13 Alt+L
+/// failure would have written one on every press. This is the strongest signal
+/// the probe has, because it separates "the chord never arrived" from "the
+/// chord arrived and nothing was listening" — a distinction speech cannot make
+/// and a human at the keyboard cannot hear.</para>
+///
+/// <para><b>Speech</b> — <c>ScreenReaderOutput: Spoke '...'</c>, at Verbose.
+/// Needed because the Home field keys never reach DoCommand at all; they are
+/// handled in FreqOutHandlers and their only outward effect is an utterance.
+/// Verbose is NOT on by default: every trace file on this machine at Info
+/// contains zero ScreenReaderOutput lines, so a detailed capture has to be
+/// running for this channel to exist.</para>
 /// </summary>
-internal static class SpeechLog
+internal static class TraceLog
 {
     public static string AppDataDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio");
@@ -378,7 +396,43 @@ internal static class SpeechLog
     /// every key and be measuring nothing but its own misconfiguration.
     /// </summary>
     public static bool LooksVerbose(IEnumerable<string> traceLines) =>
-        traceLines.Any(l =>
-            l.Contains("ScreenReaderOutput:", StringComparison.Ordinal)
-            || l.Contains("Verbose", StringComparison.OrdinalIgnoreCase));
+        traceLines.Any(l => l.Contains("ScreenReaderOutput:", StringComparison.Ordinal));
+
+    /// <summary>What the key dispatcher did with a keystroke.</summary>
+    internal sealed record RoutingEvent(string Line, bool Unhandled);
+
+    private static readonly string[] RoutingMarkers =
+    {
+        "DoCommand:", "Leader:", "DispatchFromDialogWindow:",
+    };
+
+    private static readonly string[] UnhandledMarkers =
+    {
+        "DoCommand:key not found:", "Leader:no command for ", "DoCommand:no rig setup",
+    };
+
+    /// <summary>
+    /// Pull the routing decisions out of raw trace lines. Order is preserved:
+    /// a chord that logs its key and then "key not found" tells a different
+    /// story from one that logs nothing at all, and the sequence is the story.
+    /// </summary>
+    public static List<RoutingEvent> Routing(IEnumerable<string> traceLines)
+    {
+        var events = new List<RoutingEvent>();
+        foreach (string line in traceLines)
+        {
+            int at = -1;
+            foreach (string marker in RoutingMarkers)
+            {
+                at = line.IndexOf(marker, StringComparison.Ordinal);
+                if (at >= 0) break;
+            }
+            if (at < 0) continue;
+
+            string text = line[at..].Trim();
+            bool unhandled = UnhandledMarkers.Any(m => text.StartsWith(m, StringComparison.Ordinal));
+            events.Add(new RoutingEvent(text, unhandled));
+        }
+        return events;
+    }
 }

@@ -80,6 +80,7 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
   jjprobe watch     [--pid N] --seconds N [--out FILE]
   jjprobe press     [--pid N] [--window SEL] --chord "Ctrl+J, Ctrl+A"
                     [--quiet-ms 400] [--max-settle-ms 2500] [--json] [--no-digest]
+                    [--risk safe|mutates|transmits] [--transmit-clearance FILE]
   jjprobe act       [--pid N] --op invoke|toggle|select|expand|focus|value|listitems
                     (--id ID | --name NAME | --class CLASS) [--index N] [--value V]
   jjprobe inventory [--pid N | --appdir DIR] [--json]
@@ -88,18 +89,23 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
   jjprobe altcheck  --src DIR                        (offline: static source scan)
   jjprobe sweep     [--pid N] [--window SEL] [--appdir DIR] [--context NAME]
                     [--risk safe,mutates,transmits] [--max N] [--no-capture]
-                    [--out FILE] [--json]
+                    [--transmit-clearance FILE] [--out FILE] [--json]
 
 Default process name is 'jjflexible'. --window takes a title substring, a class
 substring, or an index from `jjprobe windows`.
 
 SAFETY. `press` and `sweep` type on the real desktop: the target window is
 brought to the foreground first, so whatever the operator was doing loses focus.
-`sweep` presses only chords classified safe unless --risk says otherwise, and
-never presses a transmitting chord without being told to by name.
+Only chords classified safe are pressed unless --risk says otherwise, and a
+chord that keys the transmitter ALSO needs --transmit-clearance: a JSON file,
+written by something that can actually read the radio's power back, carrying
+issuedUtc, ceilingWatts, measuredWatts and validForMs. Stale or over-ceiling
+clearances are refused. A ceiling you set is a wish; a ceiling you read back
+immediately before keying is a ceiling.
 
 Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
-4 target window not found · 5 could not foreground the window.
+4 target window not found · 5 could not foreground the window ·
+6 refused at the safety gate.
 """);
         return error == null ? 0 : 2;
     }
@@ -134,7 +140,7 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
     private static int CmdFocus(Args a)
     {
         int pid = ResolvePid(a);
-        Snapshot s = Observe.Capture(pid, SpeechLog.FindCurrent(), digest: false);
+        Snapshot s = Observe.Capture(pid, TraceLog.FindCurrent(), digest: false);
         Console.WriteLine($"foreground window: \"{s.ForegroundTitle}\"");
         Console.WriteLine($"focused in pid {pid}: {s.FocusControlType} name=\"{s.FocusName}\" "
             + $"id=\"{s.FocusAutomationId}\" class={s.FocusClassName}");
@@ -194,8 +200,10 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
         WindowInfo? window = Targets.Resolve(pid, a.Str("window"));
         if (window == null) { Console.Error.WriteLine("no visible window for that process"); return 4; }
 
-        PressResult r = Press.Send(pid, chord, window, SpeechLog.FindCurrent(),
-            a.Int("quiet-ms", 400), a.Int("max-settle-ms", 2500), digest: !a.Flag("no-digest"));
+        RiskLevel risk = a.Has("risk") ? Risk.Parse(a.Str("risk") ?? "safe") : RiskLevel.Safe;
+        PressResult r = Press.Send(pid, chord, window, TraceLog.FindCurrent(),
+            a.Int("quiet-ms", 400), a.Int("max-settle-ms", 2500), digest: !a.Flag("no-digest"),
+            risk, LoadClearance(a));
 
         if (a.Flag("json"))
         {
@@ -207,12 +215,14 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             Console.WriteLine($"settled after {r.SettleMs} ms, quiesced={r.Quiesced}");
             Console.WriteLine($"focus before: {r.FocusBefore}");
             Console.WriteLine($"focus after:  {r.FocusAfter}");
-            foreach (string s in r.Spoke) Console.WriteLine($"  said: \"{s}\"");
-            foreach (string c in r.UiChanges) Console.WriteLine($"  saw:  {c}");
+            foreach (string s in r.Spoke) Console.WriteLine($"  said:  \"{s}\"");
+            foreach (string c in r.Routed) Console.WriteLine($"  route: {c}");
+            foreach (string c in r.UiChanges) Console.WriteLine($"  saw:   {c}");
             Console.WriteLine($"verdict: {r.Verdict}{(r.Error != null ? " — " + r.Error : "")}");
         }
 
         if (r.Verdict == "not-sent") return 5;
+        if (r.Verdict == "skipped") return 6;
         return r.Quiesced ? 0 : 3;
     }
 
@@ -311,6 +321,7 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             StartCapture = !a.Flag("no-capture"),
             Digest = !a.Flag("no-digest"),
             MaxKeys = a.Int("max", int.MaxValue),
+            Clearance = LoadClearance(a),
         };
         if (a.Has("risk"))
             o.AllowedRisk = (a.Str("risk") ?? "safe")
@@ -344,6 +355,21 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             Console.Error.WriteLine($"jjprobe: {pids.Length} '{name}' processes; using pid {pids[0]}. "
                 + "Pass --pid to choose.");
         return pids[0];
+    }
+
+    /// <summary>
+    /// Read the transmit clearance, if one was offered. Deliberately a FILE
+    /// rather than a flag: the probe cannot see the radio, so the only honest
+    /// clearance is one written by something that can, and a file carries a
+    /// timestamp a flag cannot.
+    /// </summary>
+    private static TransmitClearance? LoadClearance(Args a)
+    {
+        if (a.Str("transmit-clearance") is not string path) return null;
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"transmit clearance file not found: {path}", path);
+        return JsonSerializer.Deserialize<TransmitClearance>(File.ReadAllText(path))
+            ?? throw new InvalidOperationException($"transmit clearance file {path} did not parse");
     }
 
     private static string ResolveAppDir(Args a)

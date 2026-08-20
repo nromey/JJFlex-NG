@@ -29,21 +29,86 @@ internal sealed class PressResult
     /// churning when the maximum wait expired.</summary>
     [JsonPropertyName("quiesced")] public bool Quiesced { get; set; }
 
+    /// <summary>What the key dispatcher logged, in order. Info level, always on.</summary>
+    [JsonPropertyName("routed")] public List<string> Routed { get; set; } = new();
+    /// <summary>True when the dispatcher explicitly said no command was found —
+    /// the chord arrived and nothing was listening. The dead-binding signature.</summary>
+    [JsonPropertyName("dispatcherFoundNothing")] public bool DispatcherFoundNothing { get; set; }
+
     [JsonPropertyName("spoke")] public List<string> Spoke { get; set; } = new();
     [JsonPropertyName("uiChanges")] public List<string> UiChanges { get; set; } = new();
-    [JsonPropertyName("speechChannelAvailable")] public bool SpeechChannelAvailable { get; set; }
+    [JsonPropertyName("traceChannelAvailable")] public bool TraceChannelAvailable { get; set; }
 
     /// <summary>
-    /// "effect" — something observably happened.
+    /// "handled" — the app did something observable.
+    /// "unhandled" — the chord ARRIVED and the dispatcher found no command for
+    ///     it. Distinct from silent, and much more damning.
     /// "silent" — pressed cleanly and nothing changed anywhere we can see.
     /// "not-sent" — never reached the app; see <see cref="Error"/>.
-    /// "skipped" — deliberately not pressed, see <see cref="Error"/>.
+    /// "skipped" — deliberately not pressed; see <see cref="Error"/>.
     /// </summary>
     [JsonPropertyName("verdict")] public string Verdict { get; set; } = "";
     [JsonPropertyName("error")] public string? Error { get; set; }
 
     [JsonPropertyName("focusBefore")] public string FocusBefore { get; set; } = "";
     [JsonPropertyName("focusAfter")] public string FocusAfter { get; set; } = "";
+}
+
+/// <summary>
+/// A vouch from whoever can actually see the radio, that keying it right now is
+/// within the operator's power ceiling.
+///
+/// <para>Raised by Track G, 2026-08-20: <c>FlexBase.setupFromScratch()</c> sets
+/// <c>RFPower = 100</c> unconditionally. It only runs when no saved global
+/// profile is found, so it does not fire on the current bench radio — but a
+/// harness that keys a radio which has been reset, or one it has never seen
+/// before, can find itself at full power with nothing having asked for it.</para>
+///
+/// <para>The correction that matters: a ceiling you SET is a wish, and a
+/// ceiling you READ BACK immediately before keying is a ceiling. This probe
+/// deliberately has no radio connection, so it cannot do the reading itself —
+/// which is exactly why the vouch is a file. The tool that can see the radio
+/// writes it; the tool that presses the key demands it and checks it is fresh.
+/// Neither half can wave the other through.</para>
+/// </summary>
+internal sealed class TransmitClearance
+{
+    [JsonPropertyName("issuedUtc")] public string IssuedUtc { get; set; } = "";
+    [JsonPropertyName("ceilingWatts")] public double CeilingWatts { get; set; }
+    /// <summary>Power read back FROM THE RADIO, not the value that was sent to it.</summary>
+    [JsonPropertyName("measuredWatts")] public double MeasuredWatts { get; set; }
+    [JsonPropertyName("radio")] public string Radio { get; set; } = "";
+    [JsonPropertyName("validForMs")] public int ValidForMs { get; set; } = 10000;
+
+    public bool IsValid(out string reason)
+    {
+        if (!DateTime.TryParse(IssuedUtc, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal
+                | System.Globalization.DateTimeStyles.AssumeUniversal, out DateTime issued))
+        {
+            reason = $"issuedUtc '{IssuedUtc}' is not a timestamp";
+            return false;
+        }
+
+        double ageMs = (DateTime.UtcNow - issued).TotalMilliseconds;
+        if (ageMs < 0) { reason = "clearance is dated in the future"; return false; }
+        if (ageMs > ValidForMs)
+        {
+            reason = $"clearance is {ageMs:F0} ms old and only valid for {ValidForMs} ms — "
+                   + "read the power back again";
+            return false;
+        }
+        if (CeilingWatts <= 0) { reason = "no ceiling set"; return false; }
+        if (MeasuredWatts > CeilingWatts)
+        {
+            reason = $"radio reports {MeasuredWatts:F0} W, ceiling is {CeilingWatts:F0} W";
+            return false;
+        }
+
+        reason = $"{MeasuredWatts:F0} W measured against a {CeilingWatts:F0} W ceiling"
+               + $"{(Radio.Length > 0 ? $" on {Radio}" : "")}, {ageMs:F0} ms ago";
+        return true;
+    }
 }
 
 /// <summary>
@@ -55,7 +120,8 @@ internal sealed class PressResult
 /// released in a finally block on every path; the target window must genuinely
 /// reach the foreground before anything is sent, and a refusal aborts rather
 /// than firing the keystroke into whatever is focused instead; and a chord
-/// classified as transmitting is never pressed without an explicit opt-in.</para>
+/// classified as transmitting needs a fresh, radio-read power clearance rather
+/// than a command-line flag.</para>
 /// </summary>
 internal static class Press
 {
@@ -71,27 +137,51 @@ internal static class Press
         int pid,
         Chord chord,
         WindowInfo window,
-        string? speechLogPath,
+        string? traceLogPath,
         int quietMs,
         int maxSettleMs,
-        bool digest)
+        bool digest,
+        RiskLevel risk = RiskLevel.Safe,
+        TransmitClearance? clearance = null)
     {
         var result = new PressResult
         {
             Chord = chord.Display,
             Pid = pid,
+            Risk = risk.ToString(),
             Window = string.IsNullOrEmpty(window.Title) ? window.ClassName : window.Title,
             WindowHandle = window.HwndHex,
-            SpeechChannelAvailable = speechLogPath != null,
+            TraceChannelAvailable = traceLogPath != null,
         };
+
+        // ── The transmit gate. Checked here, at the only place a keystroke can
+        //    actually leave, so no caller can route around it.
+        if (risk == RiskLevel.Transmits)
+        {
+            if (clearance == null)
+            {
+                result.Verdict = "skipped";
+                result.Error = "this chord keys the transmitter and no power clearance was supplied. "
+                             + "Pass --transmit-clearance with a file written by whatever can read the "
+                             + "radio's power back; a command-line flag is not evidence about the radio.";
+                return result;
+            }
+            if (!clearance.IsValid(out string why))
+            {
+                result.Verdict = "skipped";
+                result.Error = "transmit clearance refused: " + why;
+                return result;
+            }
+            result.Error = "transmit cleared: " + why;
+        }
 
         // Start from a clean modifier state. A leftover Ctrl from an aborted
         // previous press turns the next plain key into a chord and produces a
         // completely fictitious result.
         Native.ReleaseAllModifiers();
 
-        long speechOffset = speechLogPath != null ? SpeechLog.Length(speechLogPath) : 0;
-        Snapshot before = Observe.Capture(pid, speechLogPath, digest);
+        long traceOffset = traceLogPath != null ? TraceLog.Length(traceLogPath) : 0;
+        Snapshot before = Observe.Capture(pid, traceLogPath, digest);
         result.FocusBefore = Summarise(before);
 
         if (!Native.Force(window.Hwnd))
@@ -119,18 +209,31 @@ internal static class Press
             Native.ReleaseAllModifiers();
         }
 
-        result.Quiesced = Observe.WaitForSettle(pid, speechLogPath, quietMs, maxSettleMs, out int elapsed);
+        result.Quiesced = Observe.WaitForSettle(pid, traceLogPath, quietMs, maxSettleMs, out int elapsed);
         result.SettleMs = elapsed;
         result.SettledAtUtc = DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 
-        Snapshot after = Observe.Capture(pid, speechLogPath, digest);
+        Snapshot after = Observe.Capture(pid, traceLogPath, digest);
         result.FocusAfter = Summarise(after);
         result.UiChanges = Observe.Diff(before, after);
 
-        if (speechLogPath != null)
-            result.Spoke = SpeechLog.Utterances(SpeechLog.ReadSince(speechLogPath, speechOffset));
+        if (traceLogPath != null)
+        {
+            List<string> newLines = TraceLog.ReadSince(traceLogPath, traceOffset);
+            result.Spoke = TraceLog.Utterances(newLines);
 
-        result.Verdict = result.Spoke.Count > 0 || result.UiChanges.Count > 0 ? "effect" : "silent";
+            var routing = TraceLog.Routing(newLines);
+            result.Routed = routing.Select(e => e.Line).ToList();
+            result.DispatcherFoundNothing = routing.Any(e => e.Unhandled);
+        }
+
+        bool anythingHappened = result.Spoke.Count > 0 || result.UiChanges.Count > 0
+                                || result.Routed.Any(l => !l.StartsWith("DoCommand:key not found", StringComparison.Ordinal));
+
+        result.Verdict =
+            result.DispatcherFoundNothing && !anythingHappened ? "unhandled"
+            : anythingHappened ? "handled"
+            : "silent";
         return result;
     }
 

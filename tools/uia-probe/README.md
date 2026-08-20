@@ -91,13 +91,17 @@ One JSON object on stdout, nothing else. Fields that matter to a caller:
 - `settledAtUtc` and `settleMs` — when the app stopped reacting.
 - `quiesced` — true when it went quiet on its own; false when it was still
   churning when the maximum wait expired.
+- `routed` — what the key dispatcher logged, in order.
+- `dispatcherFoundNothing` — true when the chord arrived and no command claimed
+  it.
 - `spoke` — the utterances the app produced, in order.
 - `uiChanges` — windows opened or closed, focus moves, toggle-state changes,
   automation-tree changes.
-- `verdict` — `effect`, `silent`, `not-sent`, or `skipped`.
+- `verdict` — `handled`, `unhandled`, `silent`, `not-sent`, or `skipped`.
 
 Exit codes: `0` ok · `1` error · `2` usage · `3` pressed but never settled ·
-`4` target window not found · `5` could not bring the window to the foreground.
+`4` target window not found · `5` could not bring the window to the foreground ·
+`6` refused at the safety gate.
 
 **"Settled" means** no UIA event from the target process *and* no new bytes in
 the speech log for `--quiet-ms` consecutive milliseconds, capped at
@@ -109,7 +113,28 @@ it.
 Chord syntax: modifiers with `+`, sequence steps with `,`. So `Shift+F6` is one
 keystroke and `Ctrl+J, V, H` is three.
 
-## The speech channel, and why it is not optional
+## The two trace channels
+
+### Routing — the strong one, and it is free
+
+The key dispatcher writes `DoCommand:` and `Leader:` lines **unconditionally at
+Info level**, so nothing has to be turned on. Every registry keystroke logs the
+key it resolved to, and a keystroke that reaches the dispatcher and finds
+nothing logs:
+
+```
+DoCommand:key not found:F4, Alt
+```
+
+That line is the dead-binding signature in plain text. It separates *the chord
+never arrived* from *the chord arrived and nothing was listening* — a
+distinction speech cannot make, and one a human at the keyboard cannot hear,
+because both sound like silence. The Alt+L failure of 2026-08-13 would have
+written one of these on every press.
+
+`verdict: "unhandled"` in a press result means exactly this happened.
+
+### Speech — needed, because half the key map never reaches the dispatcher
 
 Most of JJ Flexible's keys change nothing visible. They **speak**. Pressing `M`
 mutes the slice and says so, and no state anywhere in the automation tree
@@ -125,12 +150,15 @@ So the probe reads the app's own trace file, where `ScreenReaderOutput` logs
 every utterance as `ScreenReaderOutput: Spoke '...'` at Verbose level. That
 makes speech observable from outside without changing a line of app code.
 
-**Precondition:** the trace level must be Verbose, and the default is Info. A
-detailed capture raises it, so `sweep` starts one with `Ctrl+J, Ctrl+D` and
-verifies it took. Without that verification a whole sweep can report "no
-observable effect" for every key and be measuring nothing but its own
-misconfiguration — which is why the report says, up front, whether the speech
-channel was live.
+**Precondition:** the `Spoke` lines are Verbose and the default level is Info.
+Measured on this machine: every trace file at Info contains **zero**
+`ScreenReaderOutput` lines. A detailed capture raises the level, so `sweep`
+starts one with `Ctrl+J, Ctrl+D` and then *reads the log back* to confirm
+Verbose lines are actually appearing — not merely that the chord did something,
+which any side effect would satisfy. Without that check a whole sweep can report
+"no observable effect" for every key and be measuring nothing but its own
+misconfiguration, which is why the report says up front whether each channel was
+live.
 
 ## Safety
 
@@ -149,6 +177,17 @@ screen, in an application whose keys can key a transmitter.
   releasing slices and anything else the operator would have to put back.
   Skipped chords are listed in the report, because a silent exclusion reads as
   coverage.
+- **Transmitting needs a clearance, not a flag.** `--risk transmits` is not
+  enough. A transmitting chord also requires `--transmit-clearance FILE`: JSON
+  carrying `issuedUtc`, `ceilingWatts`, `measuredWatts`, `validForMs`, written
+  by something that can read the radio's power **back** — and refused if it is
+  stale or over the ceiling. Raised by Track G on 2026-08-20:
+  `FlexBase.setupFromScratch()` sets `RFPower = 100` unconditionally, so a
+  harness keying a radio that has been reset, or one it has never seen, can find
+  itself at full power with nothing having asked for it. A ceiling you *set* is
+  a wish. A ceiling you *read back immediately before keying* is a ceiling. The
+  probe has no radio connection by design, which is precisely why the vouch has
+  to come from the other side of the seam and cannot be waved through here.
 - **The sweep halts rather than guessing.** If a key opens something and Escape
   does not bring the app back, it stops — every later result would have been
   measured against the wrong window.

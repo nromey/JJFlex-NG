@@ -18,6 +18,9 @@ internal sealed class SweepOptions
     public string? OutPath { get; set; }
     public bool Digest { get; set; } = true;
     public int MaxKeys { get; set; } = int.MaxValue;
+    /// <summary>A fresh power read-back from whoever can see the radio. Without
+    /// one, transmitting chords are refused even if --risk names them.</summary>
+    public TransmitClearance? Clearance { get; set; }
 }
 
 internal sealed class SweepReport
@@ -116,27 +119,42 @@ internal static class Sweep
         WindowInfo window = Targets.Resolve(o.Pid, o.WindowSelector)
             ?? throw new InvalidOperationException("no visible window for that process");
 
-        string? speechLog = SpeechLog.FindCurrent();
+        string? speechLog = TraceLog.FindCurrent();
         report.SpeechLog = speechLog;
         if (speechLog == null)
-            report.Notes.Add("No trace file found in %AppData%\\JJFlexRadio. Speech cannot be observed, "
-                + "so every Home key will look silent whether it works or not. Treat this run as invalid.");
+            report.Notes.Add("No trace file found in %AppData%\\JJFlexRadio. Neither routing nor speech can be "
+                + "observed, so every key will look silent whether it works or not. Treat this run as invalid.");
 
-        // ── Turn the speech channel on. Ctrl+J, Ctrl+D starts the detailed
-        //    capture, which raises the trace level to Verbose; without it the
-        //    'Spoke' lines are filtered out at source and the sweep measures
-        //    nothing but its own misconfiguration.
+        // ── The ROUTING channel needs nothing turned on. DoCommand and Leader
+        //    lines are written unconditionally at Info, and they are the strongest
+        //    signal here because they separate "the chord never arrived" from
+        //    "the chord arrived and nothing was listening".
+        //
+        //    The SPEECH channel is the one that needs a detailed capture: the
+        //    Spoke lines are Verbose, and the default level is Info. It is not
+        //    optional cover, though — the Home field keys never reach DoCommand
+        //    at all, so speech is the ONLY evidence they exist.
         if (o.StartCapture && speechLog != null)
         {
             var probe = PressChord(o, window, speechLog, "Ctrl+J, Ctrl+D", "start detailed capture", "preflight");
             report.Presses.Add(probe);
-            speechLog = SpeechLog.FindCurrent() ?? speechLog;   // capture may open a new file
+            speechLog = TraceLog.FindCurrent() ?? speechLog;   // capture may open a new file
             report.SpeechLog = speechLog;
-            report.SpeechChannelVerified = probe.Spoke.Count > 0;
+
+            // Proof by observation: read the log back and look for a Verbose-only
+            // line. Asking whether the chord "did something" is not the same
+            // question and would pass on any old side effect.
+            var after = TraceLog.ReadSince(speechLog, Math.Max(0, TraceLog.Length(speechLog) - 65536));
+            report.SpeechChannelVerified = TraceLog.LooksVerbose(after);
             report.Notes.Add(report.SpeechChannelVerified
-                ? "Detailed capture responded, so Ctrl+J, Ctrl+D is proven working and the speech channel is live."
-                : "Ctrl+J, Ctrl+D produced no observable response. Either the chord is dead or the capture was "
-                + "already running. Verbose speech lines may be missing from everything below.");
+                ? "Verbose lines are present, so the speech channel is live and Ctrl+J, Ctrl+D did its job."
+                : "No Verbose lines after Ctrl+J, Ctrl+D. Either the chord is dead or a capture was already "
+                + "running and this press stopped it. Home field keys below cannot be judged.");
+        }
+        else if (speechLog != null)
+        {
+            report.Notes.Add("Detailed capture not started (--no-capture). Routing is still observable, but "
+                + "Home field keys speak and never reach the dispatcher, so they cannot be judged this run.");
         }
 
         // ── Learn the Home layout by walking it, rather than assuming it.
@@ -188,12 +206,12 @@ internal static class Sweep
                     continue;
                 }
 
-                PressResult r = Press.Send(o.Pid, ec.Chord, window, speechLog, o.QuietMs, o.MaxSettleMs, o.Digest);
+                PressResult r = Press.Send(o.Pid, ec.Chord, window, speechLog, o.QuietMs, o.MaxSettleMs,
+                    o.Digest, risk, o.Clearance);
                 r.KeyDisplay = entry.KeyDisplay;
                 r.Context = entry.Context + (landedIn.Length > 0 ? $" (landed: {landedIn})" : "");
                 r.Description = entry.Description;
                 r.Derivation = ec.Derivation.ToString();
-                r.Risk = risk.ToString();
                 report.Presses.Add(r);
                 pressed++;
 
@@ -336,17 +354,25 @@ internal static class Sweep
         sb.AppendLine("Key press sweep");
         sb.AppendLine();
         sb.AppendLine($"Started {r.StartedUtc}, process {r.Pid}, build directory {r.AppDir}.");
-        sb.AppendLine($"Speech log: {r.SpeechLog ?? "none found"}. "
-            + $"Speech channel verified: {(r.SpeechChannelVerified ? "yes" : "no")}.");
+        sb.AppendLine($"Trace log: {r.SpeechLog ?? "none found"}.");
+        sb.AppendLine("Routing channel (DoCommand and Leader lines, Info level): "
+            + $"{(r.SpeechLog != null ? "available" : "NOT AVAILABLE")}. "
+            + $"Speech channel (Verbose): {(r.SpeechChannelVerified ? "live" : "NOT LIVE")}.");
+        if (!r.SpeechChannelVerified)
+            sb.AppendLine("Without the speech channel, the Home field keys cannot be judged: they never reach "
+                + "the dispatcher, so an utterance is their only outward sign.");
         sb.AppendLine();
 
         var real = r.Presses.Where(p => p.Context is not ("seek" or "field map" or "restore" or "preflight")).ToList();
-        int effect = real.Count(p => p.Verdict == "effect");
+        int handled = real.Count(p => p.Verdict == "handled");
+        int unhandled = real.Count(p => p.Verdict == "unhandled");
         int silent = real.Count(p => p.Verdict == "silent");
         int notSent = real.Count(p => p.Verdict == "not-sent");
+        int refused = real.Count(p => p.Verdict == "skipped");
 
-        sb.AppendLine($"Pressed {real.Count} chords. {effect} produced something observable, "
-            + $"{silent} produced nothing at all, {notSent} never reached the app.");
+        sb.AppendLine($"Pressed {real.Count} chords. {handled} did something observable, "
+            + $"{unhandled} arrived at the dispatcher and found no command, {silent} produced nothing at all, "
+            + $"{notSent} never reached the app, {refused} were refused at the safety gate.");
         sb.AppendLine();
 
         if (r.FieldMap.Count > 0)
@@ -356,9 +382,20 @@ internal static class Sweep
             sb.AppendLine();
         }
 
+        if (unhandled > 0)
+        {
+            sb.AppendLine("ARRIVED AND NOTHING WAS LISTENING. This is the dead-binding signature: the keystroke "
+                + "reached the dispatcher, which logged that it had no command for it.");
+            foreach (PressResult p in real.Where(p => p.Verdict == "unhandled"))
+                sb.AppendLine($"- {p.Chord} on {p.Context} — should have: {p.Description}. "
+                    + $"Dispatcher said: {string.Join(" / ", p.Routed)}");
+            sb.AppendLine();
+        }
+
         if (silent > 0)
         {
-            sb.AppendLine("Produced no observable effect:");
+            sb.AppendLine("Produced no observable effect at all — no routing, no speech, no visible change. "
+                + "Either genuinely dead, or the key belongs to a surface this run could not reach:");
             foreach (PressResult p in real.Where(p => p.Verdict == "silent"))
                 sb.AppendLine($"- {p.Chord} on {p.Context} — expected: {p.Description}");
             sb.AppendLine();
@@ -372,12 +409,21 @@ internal static class Sweep
             sb.AppendLine();
         }
 
-        sb.AppendLine("Produced an observable effect:");
-        foreach (PressResult p in real.Where(p => p.Verdict == "effect"))
+        if (refused > 0)
+        {
+            sb.AppendLine("Refused at the safety gate:");
+            foreach (PressResult p in real.Where(p => p.Verdict == "skipped"))
+                sb.AppendLine($"- {p.Chord} — {p.Error}");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("Did something observable:");
+        foreach (PressResult p in real.Where(p => p.Verdict == "handled"))
         {
             string said = p.Spoke.Count > 0 ? "said \"" + string.Join("\" then \"", p.Spoke) + "\"" : "";
+            string routed = p.Routed.Count > 0 ? "dispatcher: " + string.Join(" / ", p.Routed) : "";
             string seen = p.UiChanges.Count > 0 ? string.Join("; ", p.UiChanges) : "";
-            string joined = string.Join("; ", new[] { said, seen }.Where(s => s.Length > 0));
+            string joined = string.Join("; ", new[] { said, routed, seen }.Where(s => s.Length > 0));
             sb.AppendLine($"- {p.Chord} on {p.Context} — {joined}");
         }
         sb.AppendLine();
