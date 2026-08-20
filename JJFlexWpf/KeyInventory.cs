@@ -553,7 +553,7 @@ public static class KeyInventory
         {
             Description = "Save your station setup into the radio so slice changes survive disconnecting",
             Scope = "Radio", Group = "FreqOut",
-            MenuText = "Slice menu, Save Station Setup to Radio",
+            MenuText = "Slice menu, Selection submenu, Save Station Setup to Radio",
             Keywords = new[] { "save", "stick", "sticky", "keep", "persist", "permanent", "remember",
                                "forget", "forgot", "back", "returns", "restore", "revert", "lost",
                                "slice", "layout", "setup", "station", "profile", "global",

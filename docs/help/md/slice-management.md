@@ -4,11 +4,13 @@ FlexRadio slices are like independent receivers — each one has its own frequen
 
 ## Creating and Releasing Slices
 
-- **Create Slice** — adds a new slice, as long as your radio supports more slices than you currently have active. You will hear: "Slice created, 2 slices active."
-- **Release Slice** — removes the most recently added slice. You will hear a confirmation such as "Slice released, 2 slices active" depending on how many slices remain.
-- You cannot release the only slice. If you try, you will hear: "Cannot release the only slice."
+- **New Slice** — adds a new slice, as long as your radio supports more slices than you currently have active. You will hear: "Slice created, 2 active."
+- **Release Active Slice** — removes the slice you are currently on, not the one you added last. You will hear which one went: "Slice D released, 3 active."
+- You cannot release your last remaining slice. If you try, you will hear: "Cannot release last slice."
 
-These commands are available through the Radio menu, and also through the ScreenFields panel under the Audio and Slice category (`Ctrl+Shift+2`). The menu structure is the same whether you are in Classic tuning mode or Modern tuning mode.
+These commands live on the **Slice** menu, in the **Selection** submenu, and are also on the ScreenFields panel under the Audio and Slice category (`Ctrl+Shift+2`). The menu structure is the same whether you are in Classic tuning mode or Modern tuning mode.
+
+If other operators are sharing the radio with you, the Selection submenu also tells you how many slices they are using. You can only release your own.
 
 ## Making Slice Changes Stick
 
@@ -20,9 +22,10 @@ broken. Nothing had told the radio to keep the change.
 After you add or release a slice you will hear a reminder: "This will not
 survive disconnect unless you save the profile."
 
-To make the change permanent, choose **Save Station Setup to Radio** from the
-Slice menu. JJ Flexible tells you which profile it is about to write and asks
-you to confirm before anything is saved.
+To make the change permanent, choose **Save Station Setup to Radio**, which sits
+with New Slice and Release Active Slice in the Selection submenu on the Slice
+menu. JJ Flexible tells you which profile it is about to write and asks you to
+confirm before anything is saved.
 
 Two things are worth knowing before you save:
 

@@ -70,7 +70,8 @@ save the current station into a global profile.
 
 Adding or releasing a slice does not change anything permanently: the radio puts
 its stored setup back the next time you connect. The quickest way to keep a
-change is **Save Station Setup to Radio** on the Slice menu, which saves into
+change is **Save Station Setup to Radio**, in the Selection submenu on the Slice
+menu, which saves into
 whichever global profile the radio currently has loaded, and tells you which one
 that is before it writes anything.
 
