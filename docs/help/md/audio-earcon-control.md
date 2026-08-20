@@ -32,6 +32,19 @@ The warning alarm is deliberately unlike anything else the app plays. It is a si
 
 The master switch outranks the categories — master off means silence, whatever the categories say. And the quick mute is that same master switch, not a separate layer, so flipping either one flips both.
 
+## Changing How They Sound, Not Just Whether
+
+The alert sounds were rebuilt: they picked up a shaped attack, a fade-out on the ones that should feel struck, harmonics that help them survive being played over receive audio, and a transmit-warning family that escalates in three different ways instead of just getting higher in pitch.
+
+If you preferred the plain tones they replaced, you can have them back. Under **Settings**, then **Audio**, under **Alerts and CW Notifications**, look for **Alert tone set**:
+
+- **Modern** — the rebuilt sounds. This is the default.
+- **Classic** — the plain tones as they sounded before. Same pitches, same rhythms, same loudness; just simpler sounds.
+
+Arrow between the two to hear a sample — a press, a ding and a warning nudge, back to back. Every other detail is untouched by this setting, so a sound you already recognise stays recognisable either way.
+
+One thing worth knowing before you pick Classic: the three transmit warnings become pure tones that differ only in pitch, which is exactly what they were before and exactly why they were changed. If you've never had trouble telling the first warning from the last one, Classic will suit you fine.
+
 ## What Earcons Are Not
 
 - **Not meter tones.** Meter tones are the continuous audio that represents SWR, ALC, and forward power during transmit. They have their own on/off controls — see the Meter Tones help page.

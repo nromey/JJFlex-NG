@@ -341,10 +341,51 @@ namespace JJFlexWpf.Dialogs
             EarconCommandsCheck.IsChecked = _audioConfig.EarconCommandsEnabled;
             EarconWarningsCheck.IsChecked = _audioConfig.EarconWarningsEnabled;
 
-            CwNotificationsCheck.IsChecked = _audioConfig.CwNotificationsEnabled;
-            CwSidetoneBox.Text = _audioConfig.CwSidetoneHz.ToString();
-            CwSpeedBox.Text = _audioConfig.CwSpeedWpm.ToString();
-            CwModeAnnounceCheck.IsChecked = _audioConfig.CwModeAnnounce;
+            // Sprint 33 Track F — the three "how the app sounds" pickers. All
+            // three preview on selection change, so an operator arrowing
+            // through hears each option rather than reading its name. That is
+            // also why the previews are suppressed while this method runs:
+            // populating a combo raises SelectionChanged, and a Settings dialog
+            // that plays three sounds on the way open would be a bug.
+            _suppressSoundPreviews = true;
+            try
+            {
+                // #147 — alert tone set. Item order matches EarconVoiceSet.
+                foreach (string label in EarconVoices.SetLabels)
+                    AlertToneSetCombo.Items.Add(label);
+                AlertToneSetCombo.SelectedIndex =
+                    Math.Clamp(_audioConfig.EarconVoiceSet, 0, EarconVoices.SetLabels.Count - 1);
+
+                // #146 — pitch source. Index 0 is the configured tone, which is
+                // both the default and the behaviour every existing config has.
+                CwPitchSourceCombo.Items.Add("Use the frequency below");
+                CwPitchSourceCombo.Items.Add("Follow the radio's CW sidetone");
+                CwPitchSourceCombo.SelectedIndex = _audioConfig.CwPitchFollowsRadio ? 1 : 0;
+
+                // #145 — keying tone shape.
+                foreach (var w in EarconVoices.CwWaveforms)
+                    CwWaveformCombo.Items.Add(w.Label);
+                int waveIdx = 0;
+                for (int i = 0; i < EarconVoices.CwWaveforms.Count; i++)
+                {
+                    if (string.Equals(EarconVoices.CwWaveforms[i].Id, _audioConfig.CwWaveform,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        waveIdx = i;
+                        break;
+                    }
+                }
+                CwWaveformCombo.SelectedIndex = waveIdx;
+
+                CwNotificationsCheck.IsChecked = _audioConfig.CwNotificationsEnabled;
+                CwSidetoneBox.Text = _audioConfig.CwSidetoneHz.ToString();
+                CwSpeedBox.Text = _audioConfig.CwSpeedWpm.ToString();
+                CwModeAnnounceCheck.IsChecked = _audioConfig.CwModeAnnounce;
+            }
+            finally
+            {
+                _suppressSoundPreviews = false;
+            }
 
             MeterTonesNotifCheck.IsChecked = _audioConfig.MeterTonesEnabled;
             ShowPanadapterCheck.IsChecked = _audioConfig.ShowPanadapter;
@@ -1281,6 +1322,17 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.EarconCommandsEnabled = EarconCommandsCheck.IsChecked == true;
             _audioConfig.EarconWarningsEnabled = EarconWarningsCheck.IsChecked == true;
             _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
+            // Sprint 33 Track F. Read back by index rather than by the label
+            // text: the labels are user-facing prose and will be reworded, and
+            // a setting that stops persisting the day someone improves a
+            // sentence is the worst kind of coupling.
+            _audioConfig.EarconVoiceSet = Math.Clamp(AlertToneSetCombo.SelectedIndex, 0,
+                EarconVoices.SetLabels.Count - 1);
+            _audioConfig.CwPitchFollowsRadio = CwPitchSourceCombo.SelectedIndex == 1;
+            int wave = CwWaveformCombo.SelectedIndex;
+            _audioConfig.CwWaveform = wave >= 0 && wave < EarconVoices.CwWaveforms.Count
+                ? EarconVoices.CwWaveforms[wave].Id
+                : EarconVoices.DefaultCwWaveformId;
             if (int.TryParse(CwSidetoneBox.Text, out int sidetone) && sidetone >= 400 && sidetone <= 1200)
                 _audioConfig.CwSidetoneHz = sidetone;
             // Sprint 26 Phase 6: soft cap raised from 30 to 60 WPM for CW experts.

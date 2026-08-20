@@ -62,12 +62,22 @@ namespace JJFlexWpf
         /// <param name="sidetoneHz">Tone frequency for mark elements (audio outputs).</param>
         /// <param name="volume">Amplitude 0.0–1.0 (audio outputs).</param>
         /// <param name="riseFallMs">Attack/release time in milliseconds for the envelope shape.</param>
+        /// <param name="markVoice">
+        /// Optional spectrum for mark elements (#145, audio outputs). Null — the
+        /// default — is a single pure sine, which is what CW notifications have
+        /// always sounded like. Only the voice's PARTIALS, brightness and
+        /// inharmonicity are meaningful here: the keying envelope belongs to the
+        /// renderer, because it is what stops the tone clicking, and a voice's
+        /// gating would chop a 60 ms dit into fragments. Non-audio outputs
+        /// (haptic, visual) ignore this exactly as they ignore sidetoneHz.
+        /// </param>
         /// <param name="ct">Cancels mid-sequence playback.</param>
         Task PlayElementsAsync(
             IReadOnlyList<CwElement> elements,
             int sidetoneHz,
             float volume,
             int riseFallMs,
+            MeterVoice? markVoice,
             CancellationToken ct);
 
         /// <summary>Cancel any in-flight sequence immediately.</summary>

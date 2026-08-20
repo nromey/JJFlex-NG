@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -2381,6 +2381,16 @@ public class NativeMenuBar : IDisposable
                 // exact defect class the intents rule exists to prevent.
                 rootConfig.OfferStationSaveOnDisconnect =
                     audioConfig.OfferStationSaveOnDisconnect;
+                // Sprint 33 Track F: the pitch source, the keying
+                // waveform and the alert voice set are user-scope for
+                // the same reason the four above are — they describe
+                // this operator's ears, not this radio. Left out of
+                // this list they would apply until the next restart
+                // and then quietly revert, which is worse than not
+                // offering them.
+                rootConfig.CwPitchFollowsRadio = audioConfig.CwPitchFollowsRadio;
+                rootConfig.CwWaveform = audioConfig.CwWaveform;
+                rootConfig.EarconVoiceSet = audioConfig.EarconVoiceSet;
                 rootConfig.Save(rootConfigDir);
             }
         };

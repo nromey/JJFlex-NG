@@ -997,6 +997,227 @@ namespace Radios
         /// </summary>
         public static Func<string, Task>? PlayCwText { get; set; }
 
+        /// <summary>
+        /// The connected radio's CW sidetone pitch in hertz, or null when there
+        /// is no radio to have one (#146).
+        ///
+        /// Pushed from FlexBase on the radio's CWPitch property change and on
+        /// every connect and disconnect, and consumed by MainWindow, which
+        /// hands it to the notifier. Same inversion as the Play delegates: the
+        /// radio layer sits below JJFlexWpf and announces the fact rather than
+        /// knowing who wants it.
+        ///
+        /// Null is a NORMAL value, not an error. The notifier falls back to the
+        /// operator's configured tone and says nothing about it.
+        /// </summary>
+        public static Action<int?>? RadioCwPitchChanged { get; set; }
+
+        /// <summary>
+        /// Drop whatever CW is currently keying and flush anything queued
+        /// behind it. Wired to <c>MorseNotifier.Cancel</c> by MainWindow, for
+        /// the same reason as the Play delegates: FlexBase and this class sit
+        /// below JJFlexWpf and cannot see it.
+        ///
+        /// It reaches the CW output ONLY. A continuous earcon — ATU progress is
+        /// the live example — is a separate input on the alert mixer and is not
+        /// touched. That was worth checking rather than assuming, because the
+        /// two share an audio channel and Noel confirmed on 2026-08-20 that
+        /// CW-over-ATU-tone is a combination that really happens.
+        /// </summary>
+        public static Action? CancelCw { get; set; }
+
+        // ══ Recent CW history (#153, Sprint 33 Track F) ══
+        //
+        // The speech repeat above walks the last ten things SPOKEN. This walks
+        // the last ten things SENT AS CW, and they are deliberately separate
+        // rings rather than one: an operator running with speech off and CW
+        // notifications on has a CW history and no speech history, and merging
+        // them would mean pressing repeat to hear a message that was never
+        // rendered in the mode they are listening in.
+        //
+        // WHAT GOES IN: text messages only — the slice census ("3/4") and the
+        // slice vocabulary ("SL A USB"). Noel's ruling, 2026-08-20.
+        //
+        // WHAT STAYS OUT: the AS / BT / SK prosigns. They are punctuation —
+        // wait, connected, closing — and re-sending "closing" out of context
+        // tells an operator nothing they can act on, while filling the ring
+        // with entries that push real information off the end.
+
+        /// <summary>How many past CW messages are kept.</summary>
+        private const int CwHistoryDepth = 10;
+
+        /// <summary>
+        /// How long after CW playback FINISHES a second press still means "step
+        /// further back" rather than "start again at the newest".
+        ///
+        /// Note the word FINISHES, and note that this is the same 6000 ms the
+        /// speech walk uses while meaning something quite different by it. The
+        /// speech window is measured from the press, which is fine because
+        /// speech is fast. Measured the same way, CW would be broken for
+        /// exactly the operators most likely to want this: at 20 WPM "SL A USB"
+        /// runs about 4.4 seconds, and at the 10 WPM floor the app allows it
+        /// runs about 8.9 — past the window before the message has even
+        /// finished playing. The operator would press twice and hear the newest
+        /// message again, and the walk would look broken.
+        ///
+        /// Deriving the window from SpeedWpm would also have worked and was
+        /// rejected: it computes an answer the audio path can simply be asked
+        /// for. The Play delegate's Task already resolves when the sequence has
+        /// drained through the device, so the end of playback is an OBSERVED
+        /// instant, and observed beats computed every time — the same argument
+        /// EarconCwOutput.WaitForDrain makes at length about why a computed
+        /// duration cut the exit farewell short.
+        /// </summary>
+        private const int CwHistoryWalkResetMs = 6000;
+
+        private static readonly List<string> _cwHistory = new List<string>(CwHistoryDepth);
+        private static readonly object _cwHistoryLock = new object();
+        private static int _cwHistoryCursor = -1;
+        private static DateTime _cwWalkEndedAt = DateTime.MinValue;
+        private static bool _cwWalkPlaying;
+
+        /// <summary>
+        /// Which replay is current. A press that interrupts an in-flight replay
+        /// leaves the old one's continuation still to run, and without this it
+        /// would land after the new replay started and clear the "still
+        /// playing" flag underneath it — turning the very next press into a
+        /// restart. Cheap to fix, invisible to test for.
+        /// </summary>
+        private static long _cwWalkGeneration;
+
+        /// <summary>
+        /// Send text as CW and remember it.
+        ///
+        /// This is the single point where CW text reaches the notifier, which is
+        /// why the history is recorded here rather than at the callers: a future
+        /// caller gets into the walk by using this method, and cannot forget to.
+        /// Prosign playback deliberately does not come through here.
+        /// </summary>
+        /// <returns>A Task that resolves when the CW has finished playing, or
+        /// immediately when nothing was sent.</returns>
+        public static Task SendCwText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return Task.CompletedTask;
+            var play = PlayCwText;
+            if (play == null) return Task.CompletedTask;
+
+            RememberCw(text);
+            return play(text);
+        }
+
+        private static void RememberCw(string message)
+        {
+            lock (_cwHistoryLock)
+            {
+                // The census fires on every slice-set change and often repeats
+                // the same fraction. Sending it again is right — it is a status
+                // ping — but storing it again would push something useful off
+                // the end of a ten-deep ring to say nothing new.
+                if (_cwHistory.Count > 0 &&
+                    string.Equals(_cwHistory[0], message, StringComparison.Ordinal))
+                    return;
+
+                _cwHistory.Insert(0, message);
+                if (_cwHistory.Count > CwHistoryDepth) _cwHistory.RemoveAt(_cwHistory.Count - 1);
+
+                // Anything newly sent makes a walk in progress stale.
+                _cwHistoryCursor = -1;
+            }
+        }
+
+        /// <summary>The recent CW messages, newest first. A snapshot.</summary>
+        public static IReadOnlyList<string> RecentCwMessages
+        {
+            get { lock (_cwHistoryLock) { return _cwHistory.ToArray(); } }
+        }
+
+        /// <summary>
+        /// Re-send the next message back through the CW history.
+        ///
+        /// First press after a pause sends the most recent; pressing again
+        /// before the reset window expires steps further back; running off the
+        /// oldest wraps to the newest — the same shape as the speech walk, so
+        /// an operator who knows one knows the other.
+        ///
+        /// The in-flight sequence is cancelled first, exactly as the speech
+        /// repeat emits with interrupt. Without it, walking back would queue
+        /// rather than interrupt, and a second press would mean waiting out the
+        /// first message before hearing the second — which at 10 WPM is most of
+        /// ten seconds and reads as the key having done nothing.
+        /// </summary>
+        /// <returns>False when nothing has been sent as CW yet.</returns>
+        public static bool RepeatRecentCw()
+        {
+            if (PlayCwText == null) return false;
+
+            string message;
+            lock (_cwHistoryLock)
+            {
+                if (_cwHistory.Count == 0) return false;
+
+                // A replay that is still playing is not stale by definition —
+                // no time has elapsed since it ended, because it has not.
+                bool stale = !_cwWalkPlaying &&
+                    (DateTime.UtcNow - _cwWalkEndedAt).TotalMilliseconds > CwHistoryWalkResetMs;
+
+                if (stale || _cwHistoryCursor < 0) _cwHistoryCursor = 0;
+                else _cwHistoryCursor = (_cwHistoryCursor + 1) % _cwHistory.Count;
+
+                message = _cwHistory[_cwHistoryCursor];
+                _cwWalkPlaying = true;
+            }
+
+            try { CancelCw?.Invoke(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ScreenReaderOutput: CW cancel before repeat failed - {ex.Message}",
+                    TraceLevel.Warning);
+            }
+
+            _ = ReplayCw(message);
+            return true;
+        }
+
+        /// <summary>
+        /// Play one history entry and stamp when it finished.
+        ///
+        /// It calls the delegate directly rather than <see cref="SendCwText"/>,
+        /// which is what keeps a replay out of the history it is reading from —
+        /// no re-entrancy flag needed, because the recording lives in the other
+        /// method rather than in the play path.
+        /// </summary>
+        private static async Task ReplayCw(string message)
+        {
+            long gen = System.Threading.Interlocked.Increment(ref _cwWalkGeneration);
+            try
+            {
+                var play = PlayCwText;
+                if (play != null) await play(message).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { /* interrupted by the next press */ }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ScreenReaderOutput: CW repeat playback failed - {ex.Message}",
+                    TraceLevel.Warning);
+            }
+            finally
+            {
+                // Only the newest replay owns the clock. An older one finishing
+                // late must not tell the walk that the current message ended.
+                // Under the same lock the walk reads them, so a press landing
+                // at this instant sees one consistent pair rather than a
+                // half-updated one.
+                lock (_cwHistoryLock)
+                {
+                    if (System.Threading.Interlocked.Read(ref _cwWalkGeneration) == gen)
+                    {
+                        _cwWalkEndedAt = DateTime.UtcNow;
+                        _cwWalkPlaying = false;
+                    }
+                }
+            }
+        }
+
         /// <summary>Whether CW notifications are currently enabled.</summary>
         public static bool CwNotificationsEnabled { get; set; }
 

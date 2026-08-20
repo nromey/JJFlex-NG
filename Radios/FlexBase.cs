@@ -5981,6 +5981,24 @@ namespace Radios
         public event ConnectedDel ConnectedEvent;
         private void raiseConnectedEvent(bool connected)
         {
+            // #146: the notifier's "follow the radio's sidetone" option needs a
+            // pitch the moment a radio arrives, not only when the operator next
+            // changes it on the front panel. This is the one place both
+            // transitions pass through, so it is the one place that has to
+            // remember. Disconnect pushes null, which is how "there is nothing
+            // to follow, use the configured tone" is said — a normal state, and
+            // nothing announces anything about it.
+            try
+            {
+                ScreenReaderOutput.RadioCwPitchChanged?.Invoke(
+                    connected ? theRadio?.CWPitch : (int?)null);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("raiseConnectedEvent: CW pitch notify failed:" + ex.Message,
+                    TraceLevel.Warning);
+            }
+
             if (ConnectedEvent != null)
             {
                 Tracing.TraceLine("raiseConnectedEvent:" + connected.ToString(), TraceLevel.Info);
@@ -6239,6 +6257,15 @@ namespace Radios
                     {
                         Tracing.TraceLine("CWPitch:" + r.CWPitch, TraceLevel.Info);
                         if (useCWMon) CWMon.Frequency = (uint)r.CWPitch;
+                        // #146: the CW MONITOR has followed this pitch for
+                        // years — the line above. The CW NOTIFIER was simply
+                        // never wired to the same event. Announced rather than
+                        // pushed at anyone in particular; whoever cares hooks it.
+                        try { ScreenReaderOutput.RadioCwPitchChanged?.Invoke(r.CWPitch); }
+                        catch (Exception ex)
+                        {
+                            Tracing.TraceLine("CWPitch notify failed:" + ex.Message, TraceLevel.Warning);
+                        }
                     }
                     break;
                 case "CWSpeed":
@@ -12938,7 +12965,11 @@ namespace Radios
             Tracing.TraceLine(
                 $"AnnounceSliceCensus:{used}/{total} (radio.MaxSlices={radio.MaxSlices} "
                 + $"model={TotalMaxSlices} mine={MyNumSlices})", TraceLevel.Info);
-            _ = play($"{used}/{total}");
+            // SendCwText rather than the delegate directly (#153): it is the one
+            // point where CW text reaches the notifier, so it is where the
+            // repeat history is recorded. Calling the delegate would still make
+            // the sound and would silently leave this message unrepeatable.
+            _ = ScreenReaderOutput.SendCwText($"{used}/{total}");
         }
 
         /// <summary>
@@ -12959,7 +12990,9 @@ namespace Radios
             string mode = s.DemodMode;
             if (string.IsNullOrEmpty(letter) || string.IsNullOrEmpty(mode)) return;
 
-            _ = play($"SL {letter} {mode}");
+            // See AnnounceSliceCensus — SendCwText is what puts this in the
+            // repeat history (#153).
+            _ = ScreenReaderOutput.SendCwText($"SL {letter} {mode}");
         }
 
         /// <summary>

@@ -229,6 +229,20 @@ public partial class MainWindow : UserControl
         // change — so it gets its own honestly-named delegate rather than
         // pushing sentences through PlayCwMode.
         Radios.ScreenReaderOutput.PlayCwText = (text) => _morseNotifier.PlayString(text);
+        // Sprint 33 Track F (#153): the CW repeat cancels what is keying before
+        // it re-sends, exactly as the speech repeat emits with interrupt. This
+        // reaches EarconCwOutput and nothing else — a continuous earcon such as
+        // the ATU progress tone is a separate input on the alert mixer and
+        // keeps running, which was verified rather than assumed.
+        Radios.ScreenReaderOutput.CancelCw = () => _morseNotifier.Cancel();
+        // (#146) The radio announces its CW sidetone pitch on connect, on every
+        // change, and as null on disconnect. Whether the notifier USES it is the
+        // operator's setting; the notifier holds both numbers and picks.
+        Radios.ScreenReaderOutput.RadioCwPitchChanged = (hz) =>
+        {
+            _lastRadioCwPitchHz = hz;
+            _morseNotifier.RadioSidetoneHz = hz;
+        };
 
         // Load user-scope CW settings from BaseConfigDir (root of %AppData%\JJFlexRadio\)
         // so CwNotificationsEnabled + speed + sidetone are set before any connect
@@ -243,14 +257,7 @@ public partial class MainWindow : UserControl
             if (System.IO.Directory.Exists(baseConfigDir))
             {
                 var userConfig = AudioOutputConfig.Load(baseConfigDir);
-                _morseNotifier.SidetoneHz = Math.Clamp(userConfig.CwSidetoneHz, 400, 1200);
-                // Sprint 26 Phase 6: soft cap raised from 30 to 60 WPM. CW experts
-                // operate at 35-45+ WPM and the notifier's PARIS math handles
-                // anything decodable. Minimum stays at 10 WPM — below that the
-                // dit lengths become UI-distracting slow.
-                _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 60);
-                Radios.ScreenReaderOutput.CwNotificationsEnabled = userConfig.CwNotificationsEnabled;
-                Radios.ScreenReaderOutput.CwModeAnnounceEnabled = userConfig.CwModeAnnounce;
+                ApplyCwNotifierSettings(userConfig);
                 Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled = userConfig.SpeakConnectionProgress;
                 // Sprint 33 Track K. Loaded here, from ROOT, for the same
                 // reason the CW flags above are: it has to be in place before
@@ -258,6 +265,16 @@ public partial class MainWindow : UserControl
                 // otherwise carry it is not read until PowerOn.
                 Radios.FlexBase.OfferStationSaveOnDisconnect =
                     userConfig.OfferStationSaveOnDisconnect;
+                // #147, and here for the same reason the CW settings are:
+                // AudioOutputConfig.Apply() runs on CONNECT, so an operator who
+                // chose the Classic set would hear the Modern one on every
+                // dialog ding and JJ-key tone between launch and their first
+                // connect — including the whole of a session that never
+                // connects at all.
+                EarconVoices.ActiveSet =
+                    userConfig.EarconVoiceSet == (int)EarconVoiceSet.Classic
+                        ? EarconVoiceSet.Classic
+                        : EarconVoiceSet.Modern;
             }
         }
         catch (Exception ex)
@@ -742,15 +759,42 @@ public partial class MainWindow : UserControl
         // Settings-while-running case, same as the braille pattern above.
         if (CurrentAudioConfig != null)
         {
-            _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
-            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
-            Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
-            Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+            ApplyCwNotifierSettings(CurrentAudioConfig);
             Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled = CurrentAudioConfig.SpeakConnectionProgress;
         }
 
         // Reflect any "Show panadapter" change immediately (toggle acts live)
         ApplyPanadapterVisibility();
+    }
+
+    /// <summary>
+    /// Push the operator's CW notification preferences at the notifier and the
+    /// screen-reader layer.
+    ///
+    /// Three call sites used to hold their own copy of these lines — the
+    /// constructor, the Settings-while-running path and the connect path — and
+    /// Sprint 33 Track F was about to make it nine. Copies of a settings
+    /// application drift silently: the one that gets forgotten does not fail,
+    /// it quietly keeps yesterday's value, which is the description-drift
+    /// defect wearing a different hat. One method, three callers.
+    ///
+    /// The clamps are deliberately different from each other. Sidetone is
+    /// 400–1200 because that is what the settings field promises. Speed is
+    /// 10–60: Sprint 26 raised the cap from 30 because CW experts operate at
+    /// 35–45 and the PARIS math handles anything decodable, and the floor stays
+    /// at 10 because below that the dit lengths are distracting rather than
+    /// slow. The RADIO's pitch is deliberately not clamped to the same band —
+    /// see MorseNotifier.EffectiveSidetoneHz.
+    /// </summary>
+    private void ApplyCwNotifierSettings(AudioOutputConfig cfg)
+    {
+        if (cfg == null) return;
+        _morseNotifier.SidetoneHz = Math.Clamp(cfg.CwSidetoneHz, 400, 1200);
+        _morseNotifier.SpeedWpm = Math.Clamp(cfg.CwSpeedWpm, 10, 60);
+        _morseNotifier.FollowRadioSidetone = cfg.CwPitchFollowsRadio;
+        _morseNotifier.MarkVoice = EarconVoices.ResolveCwWaveform(cfg.CwWaveform).Voice;
+        Radios.ScreenReaderOutput.CwNotificationsEnabled = cfg.CwNotificationsEnabled;
+        Radios.ScreenReaderOutput.CwModeAnnounceEnabled = cfg.CwModeAnnounce;
     }
 
     /// <summary>
@@ -2422,6 +2466,49 @@ public partial class MainWindow : UserControl
     public bool WaitForCwIdle(int maxWaitMs) => _cwOutput.WaitForIdle(maxWaitMs);
 
     /// <summary>
+    /// The last CW sidetone pitch a radio reported, or null when none has.
+    /// Static so the Settings preview can be honest about the disconnected
+    /// case without needing a MainWindow instance: previewing "follow the
+    /// radio" with no radio has to sound exactly like the real thing does,
+    /// which is the configured tone and no complaint about it.
+    /// </summary>
+    private static int? _lastRadioCwPitchHz;
+
+    /// <summary>
+    /// Play a short CW sample with the settings currently showing in the
+    /// Settings dialog, without disturbing the live notifier (#145, #146).
+    ///
+    /// A throwaway notifier over the SHARED output, so the sample queues behind
+    /// anything real that is already keying rather than cutting it off. An
+    /// operator auditioning tone shapes mid-connect should not be able to
+    /// silence the connect prosigns by doing so.
+    ///
+    /// "V" is the sample because it is the character every CW operator has
+    /// heard ten thousand times as a test — di-di-di-dah — so nothing about the
+    /// pattern distracts from the timbre, which is the thing being judged.
+    /// </summary>
+    public static void PreviewCwTone(string? waveformId, bool followRadioPitch,
+        int configuredHz, int speedWpm)
+    {
+        try
+        {
+            var preview = new MorseNotifier(_cwOutput)
+            {
+                SidetoneHz = Math.Clamp(configuredHz, 400, 1200),
+                SpeedWpm = Math.Clamp(speedWpm, 10, 60),
+                FollowRadioSidetone = followRadioPitch,
+                RadioSidetoneHz = _lastRadioCwPitchHz,
+                MarkVoice = EarconVoices.ResolveCwWaveform(waveformId).Voice,
+            };
+            _ = preview.PlayString("V");
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"PreviewCwTone failed: {ex.Message}", TraceLevel.Warning);
+        }
+    }
+
+    /// <summary>
     /// Expose FreqOutHandlers for Settings dialog tuning step access.
     /// </summary>
     public FreqOutHandlers? FreqHandlers => _freqOutHandlers;
@@ -3396,10 +3483,7 @@ public partial class MainWindow : UserControl
             ApplyPanadapterVisibility();
 
             // Apply CW notification config
-            _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
-            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
-            Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
-            Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+            ApplyCwNotifierSettings(CurrentAudioConfig);
 
             // Migrate CW settings to root on every connect. CW is user-scope (not per-radio)
             // but historically lived only in per-radio config. The MainWindow constructor
@@ -3420,6 +3504,16 @@ public partial class MainWindow : UserControl
                     rootConfig.CwModeAnnounce = CurrentAudioConfig.CwModeAnnounce;
                     rootConfig.CwSidetoneHz = CurrentAudioConfig.CwSidetoneHz;
                     rootConfig.CwSpeedWpm = CurrentAudioConfig.CwSpeedWpm;
+                    // Sprint 33 Track F: the pitch source, the keying
+                    // waveform and the alert voice set are user-scope for
+                    // the same reason the four above are — they describe
+                    // this operator's ears, not this radio. Left out of
+                    // this list they would apply until the next restart
+                    // and then quietly revert, which is worse than not
+                    // offering them.
+                    rootConfig.CwPitchFollowsRadio = CurrentAudioConfig.CwPitchFollowsRadio;
+                    rootConfig.CwWaveform = CurrentAudioConfig.CwWaveform;
+                    rootConfig.EarconVoiceSet = CurrentAudioConfig.EarconVoiceSet;
                     rootConfig.Save(baseConfigDir);
                 }
             }

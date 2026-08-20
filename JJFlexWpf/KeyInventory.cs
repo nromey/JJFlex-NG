@@ -375,6 +375,13 @@ public static class KeyInventory
             new[] { "memory", "memories", "leader" }, "Radio", "Dialog"),
         new("Leader", "Leader key", "Ctrl+J, T", "Toggle meter tones",
             new[] { "meter", "tones", "leader", "toggle" }, "Global", "Audio"),
+        // Sprint 33 Track F (#153). E for echo, and E is a single dit — the
+        // smallest character in Morse, for the one chord that only ever answers
+        // in Morse. Plain E was the last obvious free letter; Shift+E belongs to
+        // the slice-jump row.
+        new("Leader", "Leader key", "Ctrl+J, E", "Re-send recent CW notifications, pressing again for earlier ones",
+            new[] { "repeat", "cw", "morse", "echo", "again", "history", "recent", "earlier",
+                    "back", "previous", "missed", "resend", "code", "leader" }, "Global", "Audio"),
         new("Leader", "Leader key", "Ctrl+J, Shift+T", "Toggle alert sounds (earcons)",
             new[] { "earcon", "alert", "sounds", "leader", "toggle" }, "Global", "Audio"),
         new("Leader", "Leader key", "Ctrl+J, Shift+A through Shift+H", "Jump to that slice from anywhere (Shift+F is reserved)",
