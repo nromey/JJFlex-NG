@@ -65,6 +65,22 @@ candidate for the `Key.System` mistake. If your harness can detect that pattern
 statically as well as dynamically, do both — belt and braces on a bug that has
 already shipped once.
 
+## You are also the driving half of Tier 3 — agree the seam with Track C
+
+Track C observes the radio. **You press the keys.** The highest-value test in the
+whole sprint is the composition: a key pressed in the REAL running JJ Flexible,
+and the radio then asked whether it actually did the thing. Noel's own framing —
+*"exercise a hotkey or action, see if the radio did what it was supposed to."*
+
+This is not optional politeness between tracks. It is the only arrangement that
+proves the full chain, because a test tool driving the radio on its own
+connection is a second MultiFlex client inspecting its own per-client state, and
+would pass while proving nothing.
+
+So your harness needs a clean "press this, and tell me when it has settled"
+primitive that Track C can call. **Agree that seam with Track C early and report
+what you agreed**, so the merge does not discover two different ideas of it.
+
 ## THE HANDSHAKE — this track drives the live UI, so this is binding
 
 Noel is blind, uses NVDA, and is at the keyboard. On 2026-08-19 an agent drove
