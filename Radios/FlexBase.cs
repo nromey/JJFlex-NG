@@ -11779,6 +11779,38 @@ namespace Radios
                 VerbosityLevel.Critical);
         }
 
+        // ── The radio's own save-on-change concept (Sprint 32 Track H, #117) ──
+        //
+        // READ ONLY, ON PURPOSE. This is deliberately a getter with no setter.
+        //
+        // The radio has an autosave concept of its own and REPORTS it: FlexLib
+        // parses "radio auto_save=1|0" into Radio.ProfileAutoSave. That answers
+        // the first question — whether the radio has the feature at all — from
+        // the wire rather than from a guess, and it answers it without writing
+        // anything to a radio that may have other clients on it.
+        //
+        // What it does NOT answer is what the radio actually DOES when the flag
+        // is on: which profile is written, at what moment, and whether a second
+        // MultiFlex client's state is folded in. Those are radio-side semantics.
+        // FlexLib's setter is one line that sends a command, so no amount of
+        // reading our source or theirs can tell us; it needs a bench session.
+        // Until it has had one, nothing here turns it on.
+        //
+        // Note also that FlexLib carries TWO ways to send this and they do not
+        // agree. Radio.ProfileAutoSave sends `profile autosave on|off`
+        // unquoted, and is the half wired to the status parser. The older
+        // Radio.AutoSaveProfile(string) sends `profile autosave "<state>"`,
+        // quoted, with no status handling and no caller anywhere. Whether the
+        // radio accepts the quoted form is itself unverified — so if autosave is
+        // ever driven from here, drive it through the property.
+
+        /// <summary>
+        /// What the radio reports about its own profile autosave setting, or
+        /// null when there is no radio to ask. Never written by this
+        /// application.
+        /// </summary>
+        public bool? RadioProfileAutoSave => theRadio?.ProfileAutoSave;
+
         /// <summary>
         /// Save a global profile.
         /// </summary>
@@ -14167,6 +14199,21 @@ namespace Radios
             // ships here is the half that needs nobody's permission: say the
             // failure out loud. See CheckMicProfileForSilentTx.
             CheckMicProfileForSilentTx();
+
+            // Record the radio's own autosave setting once per connect (Sprint 32
+            // Track H, #117). Reading only — this is here so the question "does
+            // this radio already save its own profiles?" can be answered from a
+            // trace file the operator can send, instead of by turning the
+            // feature on to find out. Cheap, and it is the observation the
+            // autosave decision is waiting on.
+            Tracing.TraceLine(
+                "GetProfileInfo:radio profile autosave="
+                + (RadioProfileAutoSave.HasValue
+                    ? RadioProfileAutoSave.Value.ToString()
+                    : "unknown")
+                + ", global selection="
+                + (theRadio?.ProfileGlobalSelection ?? "none"),
+                TraceLevel.Info);
 
             // Allocate any free slices.
             if (MyNumSlices < initialFreeSlices)
