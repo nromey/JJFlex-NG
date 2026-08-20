@@ -1,0 +1,545 @@
+# Sprint 32 — elmer-meter-pileup
+
+**Created 2026-08-19.** Base branch: `honest-tx-audio`. FlexLib 4.2.20.
+
+## The sprint in one paragraph
+
+The radio publishes over a hundred meters. JJ Flexible asks for the list on
+every connect, traces it, and then offers the operator a hardcoded eight. This
+sprint builds the layer that can see all of them, and then the two things that
+need it: a meters panel that scales to any radio, amplifier or tuner, and a
+diagnostic Elmer that tells an operator which stage of their radio is dead and
+hands them evidence they can paste into an email to Flex.
+
+Alongside it, an independent audio lane (one synthesis vocabulary, an earcon
+registry, a real sonification bench) and a navigation lane (category-list
+navigation, keyboard annotation).
+
+## The three findings this plan is built on
+
+**1. The enabling FlexLib patch is already written and reviewed.** `MIGRATION.md`
+carries a section headed "Not yet applied: a public accessor for the meter list
+(reviewed 2026-08-16)". A previous session hit this exact wall, worked out the
+edit, decided the day had not come, and wrote down the precise patch plus the
+reasoning "so the day someone needs a meter picker they find the exact edit
+rather than rediscovering it." That day is today. Apply it as written; do not
+redesign it.
+
+**2. The narrowing to eight meters happens in our code, not FlexLib's.** FlexLib
+exposes `Meter.DataReady(Meter meter, float data)` — a generic per-meter event
+carrying the meter itself, with name, source, units and range. `FlexBase` then
+subscribes to ten *named convenience* events (`MicDataReady`, `SWRDataReady`,
+and so on), discards the meter identity, and re-emits as `Radios.MeterType`, an
+eight-value enum. `JJFlexWpf.MeterToneEngine` declares the same eight again as
+`MeterSource`. `MetersPanel` declares the same eight again as a hardcoded string
+array. Three hand-maintained copies of the same literals, stacked over an API
+that was never limited to eight. This is a lossy adapter, not a design — and
+once identity is destroyed at the `FlexBase` boundary, nothing above can recover
+it. The fix is to stop flattening, not to build a bigger picker.
+
+**3. FlexLib has no meter-added event, and the list grows during registration.**
+`traceMeterInventory` re-logs whenever the set *changes* rather than once,
+precisely because the first version snapshotted the radio mid-registration and
+captured eleven meters with the TX-side ones still to arrive. Any consumer that
+reads the inventory at construction time gets a truncated census. That is the
+same defect shape as #129 (`BuildSlotControls()` runs once in the constructor and
+never resyncs). Treat "the meter world arrives late" as a first-class constraint,
+not an edge case.
+
+## Placement ruling (Noel, 2026-08-19)
+
+The diagnostics go in the **Audio Workshop, as new tabs**, and the existing RX
+advisory ("Why is my radio silent?") **moves in from Settings > Audio** to join
+its TX sibling. Both #122 and #123 warned "do not add a seventh audio surface";
+this is the answer.
+
+Accepted consequence: the Workshop grows to five or six tabs, which is exactly
+the "leaky tab strip" problem Noel objected to in Settings. So #134's
+category-list navigation is no longer a Settings-only job — it becomes the
+navigation model for both surfaces, and has to land in this sprint rather than
+trailing it. That is Track G, and it is why Track G merges last.
+
+---
+
+# Track A — The meter inventory (foundation)
+
+- **Location:** main repo, `C:\dev\JJFlex-NG`
+- **Branch:** `sprint32/track-a`
+- **Blocks:** B, C, E. Start A first and alone.
+
+## Phase 1 — BLOCKING. Report the moment it is committed.
+
+**A1. Apply the FlexLib meter-list patch.**
+
+Take it verbatim from `MIGRATION.md`, next to `FindMeterByName` in
+`FlexLib_API/FlexLib/Radio.cs`:
+
+```csharp
+/// <summary>JJFlex patch: enumerate the radio's meter inventory.</summary>
+public ImmutableList<Meter> GetMeters()
+{
+    lock (_meters)
+        return _meters.ToImmutableList();
+}
+```
+
+Then, in the same commit:
+
+- Mark it `// JJFlex patch` the way the VitaSocket edits are marked.
+- Add it to MIGRATION.md's numbered reapply list (it becomes item 11), and move
+  the "Not yet applied" section into the applied list with today's date.
+- **Delete the reflection block in `FlexBase.traceMeterInventory`.** Two ways to
+  reach the same private field is how one of them rots unnoticed. The method
+  keeps its job (trace the inventory on change); only the access route changes.
+- Note it as reportable upstream to Flex — an enumerator for a list whose every
+  other accessor is public is an obvious gap.
+
+**A2. Identity-preserving meter subscription in `FlexBase`.**
+
+Subscribe to FlexLib's generic `Meter.DataReady(Meter, float)` per meter, and
+raise a new event that carries the meter itself.
+
+**Do NOT delete `MeterType` or `MeterChanged` in this track.** `MeterToneEngine`
+and other callers read them, and Track B is what retires them. Leaving the old
+path alive as a shim is deliberate; removing it here breaks B mid-flight.
+
+**A3. The `MeterInventory` service.**
+
+Lives in `Radios` — the layering runs `Radios` BELOW `JJFlexWpf`, so anything
+placed in `JJFlexWpf` is unreachable from the radio layer.
+
+Per meter it must carry: name, `Meter.Source` (`SLC` / `AMP` / `HAAPI`),
+`SourceIndex`, units, range low and high, current value, and a **last-update
+timestamp**. Staleness is a reading, not an absence — a meter that stopped
+updating is information, and #123's rules depend on being able to say so.
+
+It must expose the inventory **partitioned by source and source index**, because
+that is how amplifier, tuner and per-slice meters separate, and `Meter.Source`
+already tags every meter this way. Track E needs no new concept, only this.
+
+**Change notification is the load-bearing part.** FlexLib raises nothing when a
+meter appears. Detect change centrally — the count-and-set comparison
+`traceMeterInventory` already performs, done once in the service rather than
+scattered — and raise an event when the set changes. Everything downstream binds
+to that event rather than sampling at construction.
+
+**A4. Split `AudioWorkshopDialog.xaml.cs`.**
+
+It is 4,866 lines in a single file, already declared `partial`, never split —
+while `SettingsDialog` in the same folder is already split into six per-tab
+partial files. Follow that existing convention: one file per tab,
+`AudioWorkshopDialog.<Tab>.cs`.
+
+This is a **pure mechanical move with no behaviour change**, and it gets its own
+commit. It is in the blocking phase because three tracks add a Workshop tab this
+sprint and a fourth restructures its navigation. Without the split that is four
+agents editing one region; with it, git sees four unrelated files.
+
+## Phase 2 — after Phase 1 is reported
+
+**A5. Meter Inventory tab in the Workshop.** Read-only. Which meters this radio
+actually has, what each reads right now, grouped by source, with staleness
+shown. #123 explicitly recommends shipping this *before* the decision tree: it
+closes the invisible-meter-list finding (commit `d5aecf2b`), gives Don something
+to quote today, and produces the real data needed to write good rules tomorrow.
+
+**A6. Copyable text export of the inventory.** The seed of Track C's evidence
+block, and useful on its own.
+
+---
+
+# Track B — Rebuild the meters panel
+
+- **Worktree:** `../jjflex-32b`
+- **Branch:** `sprint32/track-b`
+- **Depends on:** A Phase 1
+- **Covers:** #129, #124, #131, #126, #127
+- **Owns:** `MetersPanel.xaml.cs`, `MeterToneEngine.cs`, the meter section of
+  `AudioOutputConfig.cs`
+
+These five tasks are one job, not five. Each independently rewrites or touches
+the same 433-line file, and #129's root fix is the structural change the others
+need. Doing them as separate tracks would rewrite `MetersPanel` twice.
+
+**B1. #129, the root fix.** The panel must be a **live view over the engine's
+slot collection**, not a constructor snapshot. `BuildSlotControls()` is called
+once at construction and never again, so slots added later exist in the engine
+with no controls at all — which is exactly what Noel hit: he added a slot, got
+slot 5, and could see nothing else.
+
+**B2. #124, the model move.** Off `MeterToneEngine.MeterSource` and the parallel
+hardcoded string array, onto `MeterDefinition` / `MeterSourceRef` with a string
+key. `MeterSlot`'s own doc comment already concedes this: "new code should use
+Definition directly." The bridge was built and never crossed.
+
+Populate the source picker from Track A's inventory. **A hundred entries in a
+combo is its own accessibility problem**, so this needs a real design pass —
+follow the device-picker precedent from #62: a "common meters" default and an
+"all meters" mode, grouped by source (this radio / amplifier / slice N).
+
+Track B is the **only** track permitted to retire `Radios.MeterType` and
+`JJFlexWpf.MeterSource`. Do it once nothing reads them, and say so in the
+completion report so the merge knows the shim is gone.
+
+**B3. Config migration — highest risk in the sprint.** `AudioOutputConfig`
+persists the meter source **as an integer**. Existing users have slots saved as
+ints; without a migration, everyone's meter tones silently repoint to whatever
+now sits at that ordinal. This is precisely the class of bug as #34, the
+PortAudio device-index issue. **Write the migration first, and test it against a
+real pre-existing `audioConfig.xml`, not a synthetic one.**
+
+**B4. The slot redesign.** Noel's words: "Making it so that you have tabs to go
+through all slots is not efficient, so you'd need a combo to select a tone and
+then modify / enable / do whatever with it. Also would allow for del key /
+remove yes/no query." So: a slot selector combo, one set of controls that
+retarget to the selected slot, and Delete with a confirm.
+
+**B5. #131, the runaway test tone.** The Test button's stop timer only fires
+`slot.ToneProvider.Active = false` when `!MeterToneEngine.Enabled` — but the only
+route into the panel, Ctrl+M, *enables* meters. So the stop condition is
+guaranteed false and the tone never stops. Stop unconditionally on expiry.
+
+**B6. #126, Ctrl+M does two jobs.** It shows the panel and turns meter tones on.
+Separate them; the panel needs a way in that does not change audio state. This
+touches key bindings, so the keyboard audit applies.
+
+**B7. #127.** The meters expander is the only one on Home with no
+expand/collapse earcon. Wire `PlayExpand` / `PlayCollapse`.
+
+**B8. Pan resolution.** Three values (Left / Center / Right) are not enough —
+Noel: "we need that to be slider or have more values though if we have more
+items." Make pan continuous, or at minimum five to seven positions.
+
+---
+
+# Track C — The analyzer
+
+- **Worktree:** `../jjflex-32c`
+- **Branch:** `sprint32/track-c`
+- **Depends on:** A Phase 1
+- **Covers:** #123 (the engine) and #122 (the TX chain walk, as its first
+  ruleset)
+- **Placement:** Audio Workshop, per the ruling above
+
+**C1. Rules as data, never as code.** A decision tree of any size hardcoded in
+C# becomes unmaintainable and untestable. Express rules as a table or file:
+preconditions, meter thresholds, verdict text, remedy. Then rules can be added
+without a build, tested in isolation, and eventually shipped as updates through
+the Data Provider.
+
+**C2. Three-state observability, not two.** Every stage is BROKEN, HEALTHY, or
+**NOT OBSERVABLE FROM HERE**. Over SmartLink some stages live on the far
+machine; on some models a meter is simply absent. "Checked 14 of 19, could not
+read 5" is honest. "All good" when five were unreadable sends the operator
+hunting the wrong end of the problem, which is worse than saying nothing.
+`SilentRadioAdvisory` already models the honest fallback — copy that discipline
+rather than reinventing it.
+
+**C3. Staleness is a reading.** Timestamp everything. Track A's inventory
+supplies the timestamps.
+
+**C4. #122, the TX chain walk, as the first ruleset.** Twelve stages, and nearly
+every observable already exists as a meter, a trace line or a property — nothing
+composes them:
+
+1. Is a mic selected, and is it present
+2. Is the mic capturing (dBFS and LUFS already measured)
+3. PC-side gain and boost
+4. Is PC audio even on (`startRemoteAudioThread` has exactly one caller, so this
+   gates everything downstream)
+5. Opus encoder built at the negotiated rate
+6. VITA TX packets leaving, to the right port
+7. Radio ACK'd the stream as OPUS
+8. Radio mic input selection — PC, MIC or BAL. Wrong selection is silent
+   transmit with everything upstream healthy
+9. Is a mic profile selected — empty means no modulation
+10. Radio TX chain: mic gain, processor, EQ, TX filter
+11. MicData meter — the radio's own report of what it hears. A -120 floor here
+    with stages 1-9 healthy is the signature that stalled the whole
+    honest-tx-audio investigation
+12. Forward power and SWR — did RF actually leave
+
+Report **the first dead stage**, in the operator's own words, with the fix. The
+shape is already written: "Your radio has no mic profile selected, so audio from
+your computer will not be transmitted."
+
+**C5. The evidence block.** Copyable, for a Flex support ticket: the readings
+that justify the verdict, with units, timestamps, firmware version, model and
+serial. Don should paste it into an email without translating anything. This is
+what makes the analyzer worth building beyond our own debugging — it turns every
+user into a competent bug reporter, and costs nothing per user.
+
+**C6. Start small and honest.** Thresholds need field calibration from real
+radios; what counts as a bad SWR or a hot PA is not a guess. Ship a handful of
+high-confidence rules as a skeleton to grow from testers' evidence, not a
+hundred speculative ones.
+
+**C7. Move the RX advisory in.** `SilentRadioAdvisory` moves from Settings >
+Audio into the Workshop beside its TX sibling. Leave a pointer behind where it
+used to be — the same courtesy the CW notifications move already set as
+precedent. **Move the call site; do not change the method's signature.**
+
+---
+
+# Track E — Amplifier support
+
+- **Worktree:** `../jjflex-32e`
+- **Branch:** `sprint32/track-e`
+- **Depends on:** A Phase 1 (inventory partitioning)
+- **Covers:** #125
+
+**There is nothing to wait for.** Noel asked 4O3A directly for developer
+material on 2026-08-19. Their answer: it is all in FlexLib and they have no code
+to give. Driver downloads exist, but no SDK and no samples. That is a green
+light, not a gap — no NDA, no SDK request, no follow-up. It also means **FlexLib
+is the contract with no spec behind it**, so what the hardware publishes at
+runtime is the only authority, which makes the bench trace capture the actual
+documentation rather than a nice-to-have.
+
+**E1. Wire the amplifier.** `Amplifier.cs` gives Handle, IP, Port, Model,
+SerialNumber, Ant, State (PowerUp / SelfCheck / Standby / Idle / TransmitA /
+TransmitB / Fault), IsOperate, `OutputConfiguredForAntenna`, `FindMeterByIndex`,
+`FindMeterByName`, `MeterAdded` / `MeterRemoved` events, and its own
+`List<Meter>`. Command `amplifier set <handle> operate=0/1`; subscription
+`sub amplifier all`. On `Radio`: `AmplifierList`, `ActiveAmplifier`,
+`FindAmplifierByHandle`, `FindMetersByAmplifier`.
+
+**E2. Do not conflate two different amplifiers.** `HAAPI.cs` is the 8000-series
+**built-in** amp (AmpMode, AmpFrequency, AmpModuleGain, AmpXmitState,
+AmpIsSelected, AmplifierFault; `sub ha_api amplifier`, `sub ha_api fault`).
+Noel's 8600 has this whether or not an external amp is attached. An external
+4O3A amp is a separate concept on a separate path.
+
+**E3. Not a bug — do not re-raise.** `FindMetersByTuner` filters on
+`SOURCE_AMPLIFIER`. That is correct: the TGXL piggybacks on the amplifier status
+stream. This is recorded in `4o3a-integration.md` and has been re-derived
+repeatedly. Read it before flagging anything as a vendor defect.
+
+**E4. Tuner: scaffold only.** `Tuner.cs` exists and is complete (State, IsOperate,
+IsBypass, `AutoTune()`, RelayC1/C2/L, PttA/B, network settings, its own meter
+list with Add/Remove). Both `Amplifier` and `Tuner` carry meter machinery Flex
+built deliberately, so the tuner almost certainly publishes meters. But there is
+no TGXL on site — Noel plans to order one from DXE by end of month, with a
+Palstar dummy load. Scaffold read-only if cheap; do not guess at behaviour.
+
+**E5. Deliverable: a for-noel bench procedure.** Verification requires moving the
+amplifier near the radio on 120V and network to discover what meters it actually
+adds. **Building is not blocked; verification is.** Write the procedure in the
+briefing format with annotation slots, so the bench session is one run rather
+than an improvised evening.
+
+---
+
+# Track F — The audio bench
+
+- **Worktree:** `../jjflex-32f`
+- **Branch:** `sprint32/track-f`
+- **Depends on:** A Phase 1 (only for the Workshop file split)
+- **Covers:** #112, #113, #119, #120, #128, #118, #114, and the tier half of #115
+
+This is a dependency chain, and it runs in this order deliberately: **build the
+instrument before the work.** #112 gives one vocabulary, #113 makes every sound
+reachable, #119 and #120 make them auditionable against real band noise — and
+only then are #114, #115 and #118 judgeable at all.
+
+**F1. #112 — one synthesis vocabulary.** Three additive synthesisers exist and
+do not know about each other: `VoicedToneSampleProvider` (the real engine — 15
+named voices, arbitrary partials, brightness, inharmonicity, ADSR, tremolo,
+vibrato, gating, tracked noise, equal-power normalisation, already documented as
+intended for reuse); `DecayingGavelSynthesizer` (hand-rolled, unwired since
+2026-04-21, kept as a reference nobody read); and `PlayAdditiveTone` (added
+2026-08-19 for the warning alarm, the crudest of the three). Render alert
+earcons through `VoicedToneSampleProvider`. Alert earcons then inherit ADSR —
+Noel's decay request, "for some tones I'd also consider adding more of a fade
+out (decay)... you might use it for a button press" — plus inharmonicity and
+tracked band-noise for free.
+
+**F2. #113 — an earcon registry.** `EarconPlayer` exposes 45 no-argument public
+methods; the explorer reaches 18. Unreachable today: the entire connect series
+including `ConnectSuccessTone` (the app's most recognisable sound, and you
+cannot play it on demand), all four JJ-key leader tones, tune and ATU, mute,
+dialog open and close, expand and collapse.
+
+Drive the explorer from a **registry** — an attribute or a static table
+`EarconPlayer` owns — so a new earcon appears automatically and adding a sound
+never again requires remembering to edit a dialog. Sections must mirror the six
+`EarconCategory` values so the explorer and the Settings on/off switches speak
+one vocabulary; today "Meter Tones" heads a group of alert beeps that are not
+meter tones. Continuous earcons (ATU progress) need a Start/Stop pair, not a
+fire-and-forget Play.
+
+**F3. #119 — the explorer becomes a live bench.** Start and stop, pan, volume,
+play a series. Judged against real band noise, which is the only environment
+that matters: Noel can produce plenty of noise at S2 with no antenna.
+
+**F4. #120 — extend the Earcon Scratchpad.** It already exists, it is already
+the most interactive audio surface in the app, and it is not in the Workshop at
+all. Add sustained tone, voice selection, scale walk, harmonic sweep — Noel's
+"ol' slide whistle thingy". **UserVoices is import-only.** His ruling: "We'd
+probably want to add it in code, I'm not sure how we'd 'author' a tone in the
+actual interface, that might be too complex for a radio application." Import
+yes; in-app authoring no. Reachable from a menu item.
+
+**F5. #128 — the toggle-tone sweep.** Every operator-facing toggle plays the
+on/off tone, whichever way it is reached, application-wide: checkbox on gives a
+higher tone, off gives a lower one. PC Audio on and off plays nothing at all
+today, which is what surfaced this.
+
+**F6. #118.** `Beep(int frequencyHz = 800, int durationMs = 150)` and
+`Warning1Beep()` are byte-identical, and the whole PTT warning family is one
+sine getting higher. Differentiate them once F1 supplies the vocabulary.
+
+**F7. #114 and the tier half of #115.** The confirmation tones read fine for
+direction — Noel: "I can definitely tell rising from falling on feature on and
+feature off, that's never been an issue" — they are simply bland next to the
+alarm. The modern earcon tier sits at 0.2-0.3 volume against the legacy tier's
+0.5-0.7, a 6 dB gap with no reason behind it. Normalise the tiers here.
+
+**Deliberately NOT in this track: #115's camouflage problem and #116's ducking.**
+Sounds under about 50 ms are clicks by physics and spectrally indistinguishable
+from QRN; raising gain just makes a louder static crash. That needs the tonal
+redesign F1-F4 enables, judged on the bench F3 builds. Ducking is separate
+plumbing in a different audio stack (`PostDecodeProcessor`, PortAudio side —
+earcons are NAudio) and only helps one listening topology. Sequence both after
+this track proves what the vocabulary can do.
+
+---
+
+# Track G — Navigation and keyboard
+
+- **Worktree:** `../jjflex-32g`
+- **Branch:** `sprint32/track-g`
+- **Covers:** #134, #130
+- **Merges LAST** — it restructures the container every other track is adding
+  tabs to.
+
+**G1. #134 — category-list navigation, NVDA-style.** Noel's spec: "they have a
+category list... ctrl tab goes to the next category, ctrl+shift tab goes to the
+previous category. That's cleaner than a leaky tab strip."
+
+Apply it to **Settings and the Audio Workshop both.** The Workshop grows to five
+or six tabs this sprint, which is the exact condition that makes a tab strip
+leak. One pattern, two surfaces.
+
+**G2. #130 — 29 commands bound to `Keys.None`,** only 2 of them annotated.
+Nothing in the source distinguishes "menu-only on purpose" from "nobody ever
+assigned a key." Annotate all 29 first — that is the deliverable, and it is what
+makes the next pass possible. Then assign keys where one is genuinely missing.
+Noel named PC Audio on and off ("No hotkey for PC audio on and off available
+that I know of, you have to do it in the menu") and agreed the Ctrl+J leader
+layer is the right home rather than a new flat hotkey.
+
+**G3. The keyboard audit is this track's definition of done.** All seven steps
+from CLAUDE.md, and step 7 is not optional: **press the key on a real build.**
+An Alt+L binding shipped completely dead one build after being added because the
+handler tested `e.Key == Key.L`, which is never true while Alt is held — WPF
+reports `Key.System` and puts the real key in `e.SystemKey`. It compiled, it
+reviewed clean, and the chord was simply never handled.
+
+Also relevant here and easy to get wrong: `AutomationProperties.HeadingLevel`
+does not give single-letter navigation inside a dialog. `H` and friends live in
+browse mode; a WPF dialog runs in focus mode where `H` types a letter. Section
+navigation needs a real key — F6 and Shift+F6, the Windows convention, which is
+what the Workshop already uses.
+
+---
+
+# Execution order
+
+**Start immediately, three tracks:** A, F, G.
+
+F and G are independent of the meter arc. F touches only the Workshop's earcon
+tab (isolated by A4) and the earcon engine; G touches the dialog navigation
+shells and `KeyCommands`.
+
+**When Track A reports Phase 1 committed** — FlexLib patch applied and reflection
+deleted, identity-preserving subscription in place, `MeterInventory` service with
+change notification, and the Workshop file split — **start B, C and E.**
+
+Peak concurrency is six.
+
+# Merge plan
+
+Track A is the merge target. Merge order as tracks complete:
+
+**B, then E, then C, then F, then G.**
+
+- **B before E** — B is the only track permitted to retire `MeterType` and
+  `MeterSource`. If E merges first it will have been coding against the shim
+  while B removes it.
+- **C after B and E** — the analyzer's rules reference meters by name, so they
+  want the model settled before they land.
+- **F second to last** — isolated by the file split, low conflict, but it is the
+  largest single body of new UI.
+- **G last, always** — it restructures the navigation container that A, C and F
+  are all adding tabs to. Merging it before those tabs exist means restructuring
+  a container that is about to change again.
+
+**Build after EVERY merge, without exception.** Sprint 30's lesson: two tracks
+merged with **zero textual conflict** and the build then failed, because one
+track was told to reuse a symbol and another track moved it. Git cannot see that
+class of collision and will not warn you. A clean `git merge` is not evidence
+that the result compiles.
+
+# Cross-track symbol contract
+
+Ownership, so no two tracks move the same ground:
+
+- **A owns** `Radio.GetMeters()`, `MeterInventory`, `FlexBase`'s meter
+  subscription section, and the `AudioWorkshopDialog` partial-file split.
+- **B owns** `MetersPanel`, `MeterToneEngine`, and the meter section of
+  `AudioOutputConfig`. **B alone may retire `MeterType` / `MeterSource`.**
+- **C owns** the analyzer files, and may move `SilentRadioAdvisory`'s call site
+  but **not** its signature.
+- **E owns** the amplifier and tuner files.
+- **F owns** `EarconPlayer`, the earcon registry, the Scratchpad, and
+  `AudioWorkshopDialog.Earcons.cs`.
+- **G owns** the navigation shells of `SettingsDialog` and
+  `AudioWorkshopDialog`, and `KeyCommands`.
+
+**The rule that applies to every track:** reuse the symbol you are told to
+reuse. **If you conclude that symbol should move or change signature, REPORT IT
+in your completion report — do not do it.** That is exactly the invisible
+dependency that broke the Sprint 30 merge.
+
+# Definition of done
+
+- Clean x64 build after every merge, verified by the `N Error(s)` summary line —
+  not by grepping for the word "error", which matches warning prose.
+- Verify the exe timestamp is current after every build. Stale binaries have
+  wasted whole testing sessions.
+- Keyboard audit for any track that changed a binding — certainly G, probably B
+  via Ctrl+M.
+- Config migration tested against a real pre-existing `audioConfig.xml`.
+- Test matrix written to `docs/planning/agile/sprint32-test-matrix.md`.
+- CHM rebuilt if any help page changed.
+- Changelog entries in the user-facing voice — state, not developer action, and
+  no internal jargon.
+
+# Bench and tester dependencies
+
+These gate verification, not building. Every track codes to completion
+regardless.
+
+- **Track E** needs the amplifier bench session: amp moved near the radio, on
+  120V and network, to discover what meters it actually publishes.
+- **Track C** needs field calibration for its thresholds. Ship the skeleton;
+  grow it from testers' evidence.
+- **Track B** wants Noel's ear on the common-versus-all meter split before the
+  picker is final.
+
+# Deliberately not in this sprint
+
+- **#117 and #59, slice management.** Four slices open on connect that the
+  operator did not create, one stuck in FM, and no way to close them. Genuinely
+  independent and genuinely painful, but it is a different subsystem and
+  deserves its own design pass rather than being stapled onto a keyboard track.
+  Available as a seventh track if Noel wants it in.
+- **#132**, the remove-radio dialog choosing the wrong path. Blocked on one
+  observation: does NVDA report "Remove the radio and its settings" as checked or
+  not checked. Small fix once known.
+- **#21**, the orphan-process test. In flight on the laptop.
+- **#133 and #135**, build hygiene. Small enough to do directly rather than as a
+  track; #133 is queued for tonight's build work.
+- **#115's camouflage half and #116's ducking.** Sequenced after Track F, for
+  the reasons given there.
