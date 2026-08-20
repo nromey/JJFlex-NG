@@ -74,7 +74,7 @@ namespace Radios
     /// <summary>
     /// Flex superclass
     /// </summary>
-    public class FlexBase : AllRadios, IDisposable
+    public partial class FlexBase : AllRadios, IDisposable
     {
         private const string statusHdr = "Status";
         private const string importedMsg = "Import complete";

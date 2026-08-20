@@ -72,6 +72,16 @@
                     <StackPanel x:Name="MeterInventoryContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
+
+            <!-- Amplifier (Sprint 32 Track D). NAMED rather than referred to by
+                 index: four tracks add tabs to this control in one sprint, and a
+                 reorder must not silently point code at the wrong panel. -->
+            <TabItem x:Name="AmplifierTab" Header="Amplifier"
+                     AutomationProperties.Name="Amplifier and Tuner">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="AmplifierContent" Margin="8" />
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </local:JJFlexDialog>
