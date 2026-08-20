@@ -97,19 +97,57 @@ public partial class MetersPanel : UserControl
 
         LoadGlobalsFromEngine();
 
-        MeterToneEngine.SlotsChanged += OnEngineSlotsChanged;
-        MeterToneEngine.RadioChanged += OnEngineRadioChanged;
-        HookInventory();
-
+        SubscribeToEngine();
         RefreshSourceChoices();
         RefreshSlotList();
 
-        Unloaded += (s, e) =>
-        {
-            MeterToneEngine.SlotsChanged -= OnEngineSlotsChanged;
-            MeterToneEngine.RadioChanged -= OnEngineRadioChanged;
-            UnhookInventory();
-        };
+        // Loaded and Unloaded are SYMMETRIC on purpose. The subscription used
+        // to be made once in this constructor while the unsubscribe ran on
+        // every Unloaded, so the first Unloaded left the panel permanently
+        // deaf to SlotsChanged — #129 again, in the one form that would be
+        // hardest to reproduce. Home is a WPF UserControl inside a WinForms
+        // ElementHost, and ElementHost content is reloaded on host handle
+        // recreation, so Unloaded/Loaded pairs are a real event here, not a
+        // theoretical one. Both calls are idempotent; resubscribing rebuilds
+        // from the live engine rather than trusting whatever the controls
+        // still held.
+        Loaded += OnPanelLoaded;
+        Unloaded += OnPanelUnloaded;
+    }
+
+    /// <summary>True while this panel holds engine subscriptions.</summary>
+    private bool _subscribedToEngine;
+
+    private void OnPanelLoaded(object sender, RoutedEventArgs e)
+    {
+        SubscribeToEngine();
+        RefreshSourceChoices();
+        RefreshSlotList();
+    }
+
+    private void OnPanelUnloaded(object sender, RoutedEventArgs e)
+    {
+        // A preview tone must not outlive the panel that started it (#131).
+        StopMeterTestTone();
+        UnsubscribeFromEngine();
+    }
+
+    private void SubscribeToEngine()
+    {
+        if (_subscribedToEngine) return;
+        MeterToneEngine.SlotsChanged += OnEngineSlotsChanged;
+        MeterToneEngine.RadioChanged += OnEngineRadioChanged;
+        _subscribedToEngine = true;
+        HookInventory();
+    }
+
+    private void UnsubscribeFromEngine()
+    {
+        if (!_subscribedToEngine) return;
+        MeterToneEngine.SlotsChanged -= OnEngineSlotsChanged;
+        MeterToneEngine.RadioChanged -= OnEngineRadioChanged;
+        _subscribedToEngine = false;
+        UnhookInventory();
     }
 
     #region Panel visibility (no audio state)
@@ -140,6 +178,10 @@ public partial class MetersPanel : UserControl
     /// <summary>Hide the panel again. Leaves meter tones exactly as they were.</summary>
     public void HidePanel()
     {
+        // A preview belongs to the panel. Closing the panel ends it rather than
+        // leaving a tone sounding over receive audio with no visible control
+        // left to stop it (#131).
+        StopMeterTestTone();
         MetersExpander.IsExpanded = false;
         Visibility = Visibility.Collapsed;
         ScreenReaderOutput.Speak("Meters panel closed", VerbosityLevel.Terse);
@@ -678,6 +720,10 @@ public partial class MetersPanel : UserControl
             return;
         }
 
+        // The slot is about to stop existing; anything it was previewing has to
+        // stop with it.
+        StopMeterTestTone();
+
         if (!MeterToneEngine.RemoveSlot(index))
         {
             ScreenReaderOutput.Speak("Cannot delete the only meter", VerbosityLevel.Terse);
@@ -708,10 +754,38 @@ public partial class MetersPanel : UserControl
     /// a second, so stopping unconditionally costs a live meter nothing and
     /// costs a test tone everything it was missing.
     /// </remarks>
+    /// <summary>
+    /// The one timer that ends a preview, and the slot it will silence. ONE of
+    /// each, deliberately: a timer created per click meant the second press of
+    /// Test scheduled a second stop, and the FIRST stop then cut the second
+    /// preview short — two seconds of tone became a tenth of a second, which
+    /// reads as the button being broken. Restarting a single timer gives every
+    /// press its own full two seconds.
+    /// </summary>
+    private System.Windows.Threading.DispatcherTimer? _meterTestToneTimer;
+    private MeterSlot? _meterTestToneSlot;
+
+    /// <summary>
+    /// Silence a preview immediately. Safe to call when nothing is playing, so
+    /// every path that could strand a tone calls it unconditionally.
+    /// </summary>
+    private void StopMeterTestTone()
+    {
+        _meterTestToneTimer?.Stop();
+        if (_meterTestToneSlot != null)
+        {
+            _meterTestToneSlot.ToneProvider.Active = false;
+            _meterTestToneSlot = null;
+        }
+    }
+
     private void TestButton_Click(object sender, RoutedEventArgs e)
     {
         MeterSlot? slot = SelectedSlot;
         if (slot == null) return;
+
+        // End whatever was already previewing before starting the next one.
+        StopMeterTestTone();
 
         MeterDefinition def = slot.Definition;
         string name = string.IsNullOrWhiteSpace(def.Name) ? def.Source.Key : def.Name;
@@ -722,17 +796,19 @@ public partial class MetersPanel : UserControl
         slot.ToneProvider.Voice = def.EffectiveVoice();
         slot.ToneProvider.Pan = def.Pan;
         slot.ToneProvider.Active = true;
+        _meterTestToneSlot = slot;
 
-        var timer = new System.Windows.Threading.DispatcherTimer
+        if (_meterTestToneTimer == null)
         {
-            Interval = TimeSpan.FromSeconds(2)
-        };
-        timer.Tick += (s, args) =>
-        {
-            timer.Stop();
-            slot.ToneProvider.Active = false;
-        };
-        timer.Start();
+            _meterTestToneTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            _meterTestToneTimer.Tick += (s, args) => StopMeterTestTone();
+        }
+
+        _meterTestToneTimer.Stop();
+        _meterTestToneTimer.Start();
     }
 
     private void SpeechIntervalBox_LostFocus(object sender, RoutedEventArgs e)
