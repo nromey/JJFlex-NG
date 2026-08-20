@@ -484,7 +484,16 @@ public partial class AudioWorkshopDialog
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(() => OnMeterInventoryChanged(sender, e));
+            // The meter thread can raise this between the window starting to
+            // close and Closed running the unsubscribe, and BeginInvoke on a
+            // shut-down dispatcher throws. A diagnostic must not be the thing
+            // that crashes the app on the way out.
+            try { Dispatcher.BeginInvoke(() => OnMeterInventoryChanged(sender, e)); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Diagnostics: meter change arrived after the window closed — "
+                                  + ex.Message, TraceLevel.Verbose);
+            }
             return;
         }
 
