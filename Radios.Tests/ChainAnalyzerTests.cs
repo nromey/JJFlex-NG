@@ -592,5 +592,129 @@ namespace Radios.Tests
             // No tables anywhere: this gets read aloud.
             Assert.DoesNotContain("|", text);
         }
+
+        // ── Sprint 33 Track D: the facts that were reading their own
+        //    initialisers.
+        //
+        //    The engine's honesty was never in doubt; these lock the property
+        //    it depends on and cannot itself check. A fact that CLAIMS to have
+        //    been read is believed, because nothing above it could know better
+        //    — so the guarantee lives or dies at the fact layer, and that is
+        //    what these test.
+        //
+        //    Each pair is the same defect from opposite ends: a floor value
+        //    that fires a rule which should not have fired, and a zero that
+        //    fails to fire one which should have.
+
+        /// <summary>
+        /// Forward power came from a dBm field initialised to -150, which
+        /// converts to about a millionth of a millionth of a watt and formats
+        /// as 0. During a real transmission with the meter not yet reporting,
+        /// that fired "almost no power is leaving it" and sent the operator off
+        /// to their power setting and their band.
+        /// </summary>
+        [Fact]
+        public void A_forward_power_meter_that_has_not_reported_does_not_fire_the_no_power_rule()
+        {
+            DiagnosticFacts f = Transmitting();
+            f.Add(DiagnosticFact.Silent("forward-power", "Forward power",
+                "the radio's forward power meter has not reported yet"));
+
+            ChainReport r = ChainAnalyzer.Run(Rules(), f);
+
+            Assert.NotEqual(StageVerdict.Broken, Stage(r, 12).Verdict);
+        }
+
+        /// <summary>
+        /// The floor still has to fire when it is REAL. Silencing the false
+        /// alarm would be worthless if it also silenced the true one, so this
+        /// is the other half of the same fix.
+        /// </summary>
+        [Fact]
+        public void A_forward_power_meter_that_really_reads_nothing_still_fires_the_no_power_rule()
+        {
+            DiagnosticFacts f = Transmitting();
+            f.Add(DiagnosticFact.Measure("forward-power", "Forward power", 0.0, "watts"));
+
+            ChainReport r = ChainAnalyzer.Run(Rules(), f);
+
+            Assert.Equal(StageVerdict.Broken, Stage(r, 12).Verdict);
+        }
+
+        /// <summary>
+        /// The mirror image, and the more dangerous one: the standing wave
+        /// ratio field had no initialiser at all, so it published zero. Zero to
+        /// one is not a good match, it is an impossible reading — and because
+        /// the rule tests "above 3", an unreported meter read as a perfect
+        /// match and the antenna check silently never happened.
+        ///
+        /// <para>The assertion is on the SENTENCE the operator hears, not on
+        /// the stage enum. A stage whose readable checks all passed is
+        /// deliberately still Healthy; the honesty lives in the line disclosing
+        /// the check that could not be made, and that disclosure is the thing
+        /// worth locking. Asserting on the enum would have been a test of an
+        /// internal spelling rather than of a promise to a user.</para>
+        /// </summary>
+        [Fact]
+        public void An_unreported_swr_meter_makes_the_antenna_stage_say_a_check_was_missed()
+        {
+            DiagnosticFacts f = Transmitting();
+            f.Add(DiagnosticFact.Silent("swr", "Standing wave ratio",
+                "the radio's standing wave ratio meter has not reported yet"));
+
+            ChainReport r = ChainAnalyzer.Run(Rules(), f);
+            string line = Stage(r, 12).Line();
+
+            Assert.Contains("could not be made", line);
+            Assert.Contains("has not reported", line);
+            Assert.Contains("could not be made", r.Census());
+        }
+
+        /// <summary>
+        /// And with the meter reporting, the same stage says nothing was
+        /// missed. Without this the test above would pass on a report that
+        /// says "a check could not be made" about every stage forever.
+        /// </summary>
+        [Fact]
+        public void A_reporting_swr_meter_leaves_the_antenna_stage_with_nothing_missed()
+        {
+            ChainReport r = ChainAnalyzer.Run(Rules(), Transmitting());
+
+            Assert.Equal(StageVerdict.Healthy, Stage(r, 12).Verdict);
+            Assert.DoesNotContain("could not be made", Stage(r, 12).Line());
+        }
+
+        /// <summary>
+        /// A silent transmit mic meter must not read as a radio that hears
+        /// nothing. Same shape as the power case: the floor and the absence of
+        /// a reading are the same bits and completely different diagnoses.
+        /// </summary>
+        [Fact]
+        public void A_silent_transmit_mic_meter_is_not_a_radio_that_hears_nothing()
+        {
+            DiagnosticFacts f = Transmitting();
+            f.Add(DiagnosticFact.Silent("sc-mic-recent", "Transmit audio the radio heard",
+                "the radio lists its transmit mic meter but has not reported a reading yet"));
+
+            ChainReport r = ChainAnalyzer.Run(Rules(), f);
+
+            Assert.NotEqual(StageVerdict.Broken, Stage(r, 11).Verdict);
+        }
+
+        /// <summary>
+        /// And the true case still lands. A live meter sitting at its floor
+        /// while transmitting is THE finding of the whole honest-transmit-audio
+        /// investigation, so it must survive every gate added around it.
+        /// </summary>
+        [Fact]
+        public void A_live_transmit_mic_meter_at_its_floor_still_reports_that_the_radio_hears_nothing()
+        {
+            DiagnosticFacts f = Transmitting();
+            f.Add(DiagnosticFact.Measure("sc-mic-recent", "Transmit audio the radio heard", -150, "dBFS"));
+
+            ChainReport r = ChainAnalyzer.Run(Rules(), f);
+
+            Assert.Equal(StageVerdict.Broken, Stage(r, 11).Verdict);
+        }
     }
 }

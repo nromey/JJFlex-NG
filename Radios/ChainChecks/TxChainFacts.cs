@@ -99,8 +99,21 @@ namespace Radios.ChainChecks
                   () => DiagnosticFact.Text("radio-model", "Radio model", rig.RadioModel, "the radio"));
             Probe(f, "radio-serial", "Radio serial number",
                   () => DiagnosticFact.Text("radio-serial", "Radio serial number", rig.SelectedRadioSerial, "the radio"));
-            Probe(f, "radio-firmware", "Radio firmware version",
-                  () => DiagnosticFact.Text("radio-firmware", "Radio firmware version", rig.RadioFirmwareVersion, "the radio"));
+            // A connected radio always has firmware, so an empty answer means the
+            // version has not been learned rather than that the radio has none.
+            // "Radio firmware version: empty" in an evidence block bound for Flex
+            // support is worse than saying we could not read it.
+            Probe(f, "radio-firmware", "Radio firmware version", () =>
+            {
+                string fw = rig.RadioFirmwareVersion ?? "";
+                if (fw.Length == 0)
+                {
+                    return DiagnosticFact.Absent("radio-firmware", "Radio firmware version",
+                        "the radio's firmware version was not learned when this connection was made",
+                        "the radio");
+                }
+                return DiagnosticFact.Text("radio-firmware", "Radio firmware version", fw, "the radio");
+            });
             Probe(f, "radio-nickname", "Radio nickname",
                   () => DiagnosticFact.Text("radio-nickname", "Radio nickname", rig.RadioNickname, "the radio"));
             Probe(f, "radio-callsign", "Callsign set on the radio",
@@ -193,9 +206,22 @@ namespace Radios.ChainChecks
             Probe(f, "mic-profile-empty", "The radio has no mic profile selected",
                   () => DiagnosticFact.Flag("mic-profile-empty", "The radio has no mic profile selected",
                                             rig.MicProfileSelectionEmpty, "the radio"));
-            Probe(f, "mic-profile-count", "Mic profiles this radio offers",
-                  () => DiagnosticFact.Measure("mic-profile-count", "Mic profiles this radio offers",
-                                               rig.MicProfileNames?.Count ?? 0, "", "the radio"));
+            // Consistent with mic-profile above, which already refuses to judge a
+            // selection the radio has not listed the options for. A count of zero
+            // published before the radio has answered is the same claim that fact
+            // is careful not to make, one line apart.
+            Probe(f, "mic-profile-count", "Mic profiles this radio offers", () =>
+            {
+                List<string> names = rig.MicProfileNames;
+                if (names == null || names.Count == 0)
+                {
+                    return DiagnosticFact.Absent("mic-profile-count", "Mic profiles this radio offers",
+                        "the radio has not yet listed its mic profiles, so there is nothing to count",
+                        "the radio");
+                }
+                return DiagnosticFact.Measure("mic-profile-count", "Mic profiles this radio offers",
+                                              names.Count, "", "the radio");
+            });
             Probe(f, "mic-profile-suggested", "Mic profile the radio would load",
                   () => DiagnosticFact.Text("mic-profile-suggested", "Mic profile the radio would load",
                                             rig.SuggestedMicProfileName ?? "", "the radio"));
@@ -270,9 +296,26 @@ namespace Radios.ChainChecks
             //
             // The meter lookup is the right gate rather than a -150 test,
             // because -150 from a meter that IS reporting is real information.
+            //
+            // The gate below is on the meter having REPORTED, not merely on the
+            // meter existing, and the difference is not academic. FlexBase moves
+            // these scalars from a handler it attaches in hookTxMeters, which
+            // runs only from the MIC meter's own callback and looks the meters up
+            // through FlexLib's CASE-SENSITIVE FindMeterByName. The gate here asks
+            // the inventory, which matches case-INSENSITIVELY. So "the meter
+            // exists" and "the field behind this fact is being written" are two
+            // different conditions, and gating on the first while publishing the
+            // second is how an untouched initialiser reaches an operator wearing
+            // the units of a real measurement.
+            //
+            // MeterInventory tracks readings for EVERY meter off the generic
+            // MeterData feed, independent of that lazy hook, so HasReading is the
+            // one signal that cannot disagree with itself.
             MeterInventory inv = SafeInventory(rig);
-            bool haveScMic = inv?.Find("SC_MIC") != null;
-            bool haveAlc = inv?.Find("ALC") != null;
+            MeterReading scMicMeter = inv?.Find("SC_MIC");
+            MeterReading alcMeter = inv?.Find("ALC");
+            bool haveScMic = scMicMeter != null;
+            bool haveAlc = alcMeter != null;
 
             const string noScMic = "this radio does not publish an SC_MIC meter, so what it "
                                  + "hears on transmit cannot be read here";
@@ -282,6 +325,10 @@ namespace Radios.ChainChecks
                 if (!haveScMic)
                     return DiagnosticFact.Absent("sc-mic-peak",
                         "Loudest transmit audio the radio has heard", noScMic, "the radio");
+                if (!scMicMeter.HasReading)
+                    return DiagnosticFact.Silent("sc-mic-peak", "Loudest transmit audio the radio has heard",
+                        "the radio lists its transmit mic meter but has not reported a reading from it yet",
+                        "the radio's SC_MIC meter");
 
                 float v = rig.ScMicMaxDb;
                 if (v <= -149f)
@@ -307,6 +354,16 @@ namespace Radios.ChainChecks
                     return DiagnosticFact.Absent("sc-mic-recent",
                         "Transmit audio the radio heard in the last second and a half",
                         noScMic, "the radio");
+                // Has REPORTED, not merely exists. A meter that has reported -150
+                // still passes here and still publishes -150, which is the
+                // finding this fact exists for; what cannot pass is a field the
+                // radio has never touched.
+                if (!scMicMeter.HasReading)
+                    return DiagnosticFact.Silent("sc-mic-recent",
+                        "Transmit audio the radio heard in the last second and a half",
+                        "the radio lists its transmit mic meter but has not reported a reading from it yet; "
+                        + "transmit to measure",
+                        "the radio's SC_MIC meter");
                 return DiagnosticFact.Measure("sc-mic-recent",
                         "Transmit audio the radio heard in the last second and a half",
                         rig.ScMicRecentDb, "dBFS", "the radio's SC_MIC meter");
@@ -318,15 +375,30 @@ namespace Radios.ChainChecks
                     return DiagnosticFact.Absent("sw-alc", "Transmit drive after the radio's own levelling",
                         "this radio does not publish a plain ALC meter, so transmit drive cannot be read here",
                         "the radio");
+                if (!alcMeter.HasReading)
+                    return DiagnosticFact.Silent("sw-alc", "Transmit drive after the radio's own levelling",
+                        "the radio lists its ALC meter but has not reported a reading from it yet; "
+                        + "transmit to measure",
+                        "the radio's ALC meter");
                 return DiagnosticFact.Measure("sw-alc", "Transmit drive after the radio's own levelling",
                         rig.SwAlcDb, "dBFS", "the radio's ALC meter");
             });
 
+            // MicData's backing field initialises to ZERO, and zero dBFS is not a
+            // floor — it is FULL SCALE, the loudest reading the meter has. An
+            // ungated read here therefore does not merely invent a number, it
+            // invents the most alarming one available, on a line that sits in the
+            // evidence for "your radio hears nothing".
+            MeterReading micMeter = inv?.Find("MIC");
             Probe(f, "codec-mic", "Analog microphone level at the radio's codec", () =>
             {
-                if (inv?.Find("MIC") == null)
+                if (micMeter == null)
                     return DiagnosticFact.Absent("codec-mic", "Analog microphone level at the radio's codec",
                         "this radio does not publish a MIC meter", "the radio");
+                if (!micMeter.HasReading)
+                    return DiagnosticFact.Silent("codec-mic", "Analog microphone level at the radio's codec",
+                        "the radio lists its MIC meter but has not reported a reading from it yet",
+                        "the radio's MIC meter");
                 return DiagnosticFact.Measure("codec-mic",
                         "Analog microphone level at the radio's codec (reads about -120 when transmit audio comes from the computer, which is normal)",
                         rig.MicData, "dBFS", "the radio's MIC meter");
@@ -339,7 +411,14 @@ namespace Radios.ChainChecks
             AddMeter(f, inv, "meter-micpeak", "Radio mic peak meter", "MICPEAK");
             AddMeter(f, inv, "meter-comppeak", "Radio compression peak meter", "COMPPEAK");
             AddMeter(f, inv, "meter-fwdpwr", "Radio forward power meter", "FWDPWR");
-            AddMeter(f, inv, "meter-revpwr", "Radio reflected power meter", "REVPWR");
+            // REFPWR, not REVPWR. Every other place that names this meter — the
+            // meters panel, MeterModel's note, FlexLib's own AddMeter wiring, and
+            // the 2026-08-16 census of the bench 8600's 102 meters — spells it
+            // REFPWR. This line was the only REVPWR in the repository, so the
+            // fact was permanently Absent and told the operator, in the evidence
+            // for a high-SWR verdict, that their radio publishes no reflected
+            // power meter. It does.
+            AddMeter(f, inv, "meter-revpwr", "Radio reflected power meter", "REFPWR");
             AddMeter(f, inv, "meter-swr", "Radio SWR meter", "SWR");
             AddMeter(f, inv, "meter-patemp", "Radio power amplifier temperature", "PATEMP");
 
@@ -347,12 +426,59 @@ namespace Radios.ChainChecks
             Probe(f, "transmitting", "The radio is transmitting right now",
                   () => DiagnosticFact.Flag("transmitting", "The radio is transmitting right now",
                                             rig.Transmit, "the radio"));
-            Probe(f, "forward-power", "Forward power",
-                  () => DiagnosticFact.Measure("forward-power", "Forward power",
-                                               rig.ForwardPowerWatts, "watts", "the radio"));
-            Probe(f, "swr", "Standing wave ratio",
-                  () => DiagnosticFact.Measure("swr", "Standing wave ratio",
-                                               rig.SWRValue, "to 1", "the radio"));
+            // ── The two facts that were reading their own initialisers ────
+            //
+            // Both are gated the same way the SC_MIC facts above are, and for a
+            // sharper reason: these two are the ONLY facts in this source that a
+            // rule turns into a verdict about the radio's RF output.
+            //
+            // Forward power came from a dBm field initialised to -150. That
+            // converts to about a millionth of a millionth of a watt and formats
+            // as "0". The no-power-out rule fires below a tenth of a watt, so a
+            // forward-power meter that had not reported during a real
+            // transmission produced "your radio is transmitting but almost no
+            // power is leaving it" — a confident wrong verdict, sending the
+            // operator to their power setting and their band, and printed in the
+            // same evidence block as the meter-fwdpwr line correctly saying the
+            // meter has never reported.
+            //
+            // SWR came from a field with no initialiser at all, so it published
+            // 0. An SWR of zero to one is not a low reading, it is an impossible
+            // one — and because the high-swr rule tests "above 3", a silent
+            // meter read as a perfect match and let stage 12 be declared healthy
+            // while nobody had looked. The false alarm and the false all-clear
+            // are the same defect from opposite ends.
+            MeterReading fwdMeter = inv?.Find("FWDPWR");
+            MeterReading swrMeter = inv?.Find("SWR");
+
+            Probe(f, "forward-power", "Forward power", () =>
+            {
+                if (fwdMeter == null)
+                    return DiagnosticFact.Absent("forward-power", "Forward power",
+                        "this radio does not publish a forward power meter, so what is leaving it "
+                        + "cannot be read here", "the radio");
+                if (!fwdMeter.HasReading)
+                    return DiagnosticFact.Silent("forward-power", "Forward power",
+                        "the radio's forward power meter has not reported yet; it reports while "
+                        + "transmitting, so transmit to measure",
+                        "the radio's FWDPWR meter");
+                return DiagnosticFact.Measure("forward-power", "Forward power",
+                        rig.ForwardPowerWatts, "watts", "the radio's FWDPWR meter");
+            });
+
+            Probe(f, "swr", "Standing wave ratio", () =>
+            {
+                if (swrMeter == null)
+                    return DiagnosticFact.Absent("swr", "Standing wave ratio",
+                        "this radio does not publish a standing wave ratio meter", "the radio");
+                if (!swrMeter.HasReading)
+                    return DiagnosticFact.Silent("swr", "Standing wave ratio",
+                        "the radio's standing wave ratio meter has not reported yet; it reports "
+                        + "while transmitting, so transmit to measure",
+                        "the radio's SWR meter");
+                return DiagnosticFact.Measure("swr", "Standing wave ratio",
+                        rig.SWRValue, "to 1", "the radio's SWR meter");
+            });
             Probe(f, "rf-power-setting", "Transmit power setting",
                   () => DiagnosticFact.Measure("rf-power-setting", "Transmit power setting",
                                                rig.XmitPower, "percent", "the radio"));
@@ -366,8 +492,22 @@ namespace Radios.ChainChecks
                                             rig.PttSourceIsHardware, "the radio"));
             Probe(f, "tx-slice", "Transmit slice",
                   () => DiagnosticFact.Text("tx-slice", "Transmit slice", rig.TXSliceLetter ?? "", "the radio"));
-            Probe(f, "tx-mode", "Transmit mode",
-                  () => DiagnosticFact.Text("tx-mode", "Transmit mode", rig.TXMode ?? "", "the radio"));
+            // Empty is NOT an observed mode. A slice always has one, so an empty
+            // string here means the app has not yet seen a mode change for a
+            // slice already flagged as the transmit slice — the app not knowing,
+            // not the radio having nothing. This is the opposite case from
+            // mic-profile, where an empty answer IS the pcap-confirmed fault and
+            // is deliberately kept observed.
+            Probe(f, "tx-mode", "Transmit mode", () =>
+            {
+                string mode = rig.TXMode ?? "";
+                if (mode.Length == 0)
+                {
+                    return DiagnosticFact.Absent("tx-mode", "Transmit mode",
+                        "the transmit slice has not reported its mode to this computer yet", "the radio");
+                }
+                return DiagnosticFact.Text("tx-mode", "Transmit mode", mode, "the radio");
+            });
 
             return f;
         }
