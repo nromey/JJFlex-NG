@@ -445,9 +445,22 @@ namespace JJFlexWpf
         /// The radio describes HWALC as source <c>TX-</c> index 5, "Voltage",
         /// units dBFS, range -150 to 20. It is the voltage on the external
         /// amplifier's ALC jack. The radio ALSO publishes a meter named plainly
-        /// <c>ALC</c>, source <c>TX-</c>, dBFS — that one is the transmit drive
-        /// after software levelling, it is what <c>FlexBase.SwAlcDb</c> already
-        /// carries, and nothing watches it.
+        /// <c>ALC</c>, source <c>TX-</c> index 0, dBFS, range -150 to 20 — that
+        /// one is the transmit drive after software levelling, it is what
+        /// <c>FlexBase.SwAlcDb</c> already carries, and nothing watches it.
+        /// </para>
+        /// <para>
+        /// <b>The caveat that had to be cleared, and how.</b> With no station
+        /// client connected the radio publishes only eleven meters, HWALC among
+        /// them and no plain ALC at all — so a census taken then shows exactly
+        /// one ALC-ish meter and supports the wrong conclusion, that the
+        /// software ALC does not exist on this radio and the watcher had no
+        /// better choice. It does exist. Both were seen together in the
+        /// thirty-five-meter state, the one that also carries the per-slice
+        /// receive meters and the rest of the transmit signal chain. HWALC is
+        /// present in BOTH states; ALC appears with the transmit chain. So the
+        /// two are genuinely distinct meters and the watcher is on the wrong
+        /// one, rather than on the only one available.
         /// </para>
         /// <para>
         /// So for an operator with no amplifier connected — the default, and
