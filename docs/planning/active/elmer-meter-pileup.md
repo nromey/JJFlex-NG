@@ -557,13 +557,24 @@ The two messages:
 - `Radio.AvailableSlices` (Radio.cs:15082) is radio-reported remaining capacity.
 - `Radio.MaxSlices` (Radio.cs:15096) is the model ceiling.
 
-**OPEN — needs Noel's ruling before the census copy is written.** "Number
-available" is ambiguous and the two readings send differently. On his 8600 with
-four slices open: `SL 4/0` (four used, none free) versus `SL 4/4` (four of
-four). Recommendation is FREE, because it answers "can I open another" — which
-is the question a full radio raises. **User-facing copy; do not settle it
-without him** ([[feedback_human_review_user_facing_prose]]). The per-slice
-format is already settled by his wording above and needs no further approval.
+**SETTLED by Noel, 2026-08-19: the census is USED / TOTAL.** His words: *"you
+could just send 3/4 if 3 slices are used, 4 total."* So three slices open on his
+8600 sends `3/4`, and a full radio sends `4/4`.
+
+Why used-over-total rather than a bare free count, recorded so it is not
+re-litigated: **the denominator varies by model** — 2 slices on a 6300 or 8400,
+4 on a 6600 or 8600, 8 on a 6700. A bare "1 free" means something very different
+on a 6700 than on an 8600, and forces the operator to remember which radio they
+are on to interpret it. `3/4` carries both numbers in one token, makes `4/4`
+read unmistakably as full, and leaves the free count trivially derivable. It is
+also a shape a CW operator already reads fluently, the slash being the
+portable-call prosign.
+
+Take TOTAL from `Radio.MaxSlices`, not from `AvailableSlices` — the latter is
+remaining capacity and is the wrong number for the denominator.
+
+Both formats are now approved copy and need no further sign-off: the census as
+`<used>/<total>`, and the per-slice announce as `SL <letter> <mode>`.
 
 **The diagnostic is now optional, not blocking.** The guard is being replaced
 rather than repaired, so the mechanism behind its failure stops mattering for
