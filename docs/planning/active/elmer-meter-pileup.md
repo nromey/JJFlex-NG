@@ -472,9 +472,42 @@ and Noel — who knows this codebase better than anyone — could not find it.
 
 Evaluate `Radio.AutoSaveProfile(string state)` FIRST. It exists in FlexLib
 (`Radio.cs:8616`, command `profile autosave "<state>"`), JJ Flexible never calls
-it, and it is the radio's own save-on-disconnect concept. It may be the right
-answer instead of a hand-built receipt flow. Find out what it actually does
-before designing around it.
+it, and it is the radio's own save-on-disconnect concept. **Its semantics are
+radio-side and undocumented — the method is one line that sends a command, so
+reading our source tells you nothing. This needs a bench observation, not code
+reading.** Find out what it actually does before designing around it.
+
+**Noel's framing, 2026-08-19, and the two traps in it.** He raised offering to
+save on change: *"generally, if you tune the radio or any radio, when you turn
+it off, it saves stuff. Of course, for connect that won't be the case."* The
+analogy is right and he spotted the flaw in it himself.
+
+- **THE DISCONNECT MOMENT IS NOT THE POWER-OFF MOMENT.** A standalone radio
+  powering down has one operator and one state. A networked radio does not power
+  down when a client leaves, and under MultiFlex another operator may still be
+  on it. The global profile is global; the departure is per-client. **Auto-saving
+  on disconnect can capture another operator's slice layout, filters and band,
+  silently, overwriting a profile with a state this operator never chose.** Any
+  automatic save must be gated on being the only client, or must not exist.
+- **A PROMPT AT EXIT IS THE WRONG INSTRUMENT even single-client.** "Save changes
+  before disconnecting?" is the unsaved-changes dialog, and its failure mode is
+  that it fires whether or not anything meaningful changed, so operators learn to
+  dismiss it reflexively — and one day it eats the change they wanted. A prompt
+  trained to be dismissed is worse than no prompt, because it creates the belief
+  that the operator was asked.
+
+**RECOMMENDED SHAPE: a receipt at the moment of change, not a question at the
+moment of departure.** "Slice D released — this will not survive disconnect
+unless you save the profile" costs one utterance, arrives while the operator has
+full context about what they just did, and demands no decision. Notify where
+there is context; prompt only where there is a real choice. A disconnect prompt
+has both properties wrong.
+
+Noel on the prompt: *"I'm not sure I'd do this."* Trust that. It does not cost
+the receipt.
+
+If an auto-save setting is built anyway, it is per-radio — the serial-keyed
+config model already exists for exactly this kind of per-rig preference.
 
 **H3. Un-stub profile creation.** In `NativeMenuBar.cs` (~2550) the Profiles
 dialog wires Select, Save and Delete for real, but `OnAdd` and `OnUpdate` are
