@@ -143,6 +143,54 @@ The finding is in the *documentation*, and it is not cosmetic:
 Not fixed here. It is worth someone deciding whether slice F gets another chord
 or whether the docs should say plainly that it does not have one.
 
+## Two documented key surfaces are missing from the inventory entirely
+
+Cross-checking `docs/help/md/keyboard-reference.md` against `KeyInventory`
+turned up two whole sections of working, documented keys that the inventory does
+not know about. This is the same gap Sprint 32 Track G closed for the Audio
+Workshop's F6 — "a working key nobody could discover" — and these two are still
+open.
+
+**The Audio Devices dialog: six keys.** Alt+M starts or stops the microphone
+check, Alt+L speaks the current reading, Alt+S shows every sound endpoint,
+Alt+R refreshes the device list, Alt+U unmutes the microphone in Windows, Alt+W
+opens the Windows microphone privacy settings. `grep AudioDevices
+KeyInventory.cs` returns nothing.
+
+Alt+L is a real handler in `AudioDevicesDialog.OnPreviewKeyDown` — and it is
+*the* 2026-08-13 site, now correctly normalising through `e.SystemKey`, with the
+whole story in a comment above it. Alt+R, Alt+U and Alt+S are WPF access keys
+(`Content="_Refresh device list"`, `"_Unmute this microphone in Windows"`,
+`"_Show every sound endpoint..."`).
+
+Because none of them is registered, none appears in the Keys dialog's built-in
+view, in the Command Finder, or in the exported key manifest — and the Track B
+sweep will never press them either, since the sweep works from the inventory.
+An operator can only find these six by reading the help file and already knowing
+to look in it.
+
+**The Trace Archive Browser: four keys.** Enter, Ctrl+C, Delete and Ctrl+A on
+the row list. Also absent from the inventory. That section additionally names a
+stale route — "Help → Tracing → Archive Browser" — and the Help menu's Tracing
+item was deleted in Sprint 30 Track D. `NativeMenuBar` says so in its own
+comment: Tools → Diagnostics is the replacement. So the section tells an
+operator to go somewhere that no longer exists.
+
+Neither is fixed here. Registering them in `KeyInventory` is the fix for the
+first half of both, and correcting the route is the fix for the second.
+
+## An observation outside this track's remit
+
+`docs/help/md/keyboard-reference.md` contains 256 table rows. This is the
+keyboard reference for an application whose users are blind screen-reader
+operators, and the project's own standing rule is that tables are not used in
+screen-reader-facing material because a table read aloud becomes a wall of
+coordinates.
+
+Flagging rather than touching: this is a documentation-ownership decision, the
+file is large and shared, and it may well already be known. But it is the one
+document in the product a new blind operator is most likely to read end to end.
+
 ## Two structural facts the harness had to discover, worth writing down
 
 **The Home display publishes nothing to assistive technology except what it
