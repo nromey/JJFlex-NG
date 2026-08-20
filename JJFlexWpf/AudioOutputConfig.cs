@@ -620,6 +620,13 @@ namespace JJFlexWpf
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
             Meters = MeterToneEngine.ExportDefinitions();
             UserVoices = MeterVoiceLibrary.GetUserVoices();
+
+            // What the engine hands back is always current-model, so say so.
+            // The migration is a no-op on an already-current file even without
+            // this stamp — every radio name it produces resolves to itself —
+            // but an unstamped save would claim the file had never been
+            // migrated, which is a lie about the file's own contents.
+            MeterConfigVersion = MeterConfigMigration.CurrentVersion;
         }
     }
 
