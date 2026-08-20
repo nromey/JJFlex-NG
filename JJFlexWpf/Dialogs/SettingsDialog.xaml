@@ -1401,6 +1401,27 @@
                               Margin="0,0,0,8"
                               AutomationProperties.Name="Speak connection progress"
                    local:JJFlexHelp.Text="When checked, JJ Flex announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Sprint 33 Track K (#117, #59). Off by default, and that
+                         is the whole design: what every operator gets is the
+                         spoken "this will not survive disconnect" notice, and
+                         this switch is for the operator who wants the radio-like
+                         behaviour and says so. It offers; it never saves on its
+                         own. The help text has to carry the shared-state warning
+                         because a global profile belongs to the radio, not to
+                         the person who happened to disconnect last. -->
+                    <TextBlock Text="Saving Your Setup to the Radio" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="OfferStationSaveOnDisconnectCheck"
+                              Content="Offer to save my setup to the radio when I disconnect"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Offer to save my setup to the radio when I disconnect"
+                   local:JJFlexHelp.Text="Slices you add or release live only in the current session — the radio restores its own stored setup the next time you connect. When checked, JJ Flex asks on the way out whether to save your setup into the radio, so it comes back the way you left it. It only ever asks; it never saves on its own. It stays quiet when you changed nothing, when another operator is connected to the same radio, and on any radio you have not marked as yours on the Radios tab. You can save at any time without this, from Save Station Setup to Radio on the Slice menu."/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Style="{StaticResource DialogLabel}"
+                               Text="What gets saved is the radio's global profile, which is the whole station — every slice, its frequency and its mode — and it is shared with everyone who connects to that radio, not just you."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

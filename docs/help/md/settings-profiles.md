@@ -46,7 +46,41 @@ Your answer is saved per radio, works with no radio connected, and can be change
 
 ## Profiles
 
-Settings profiles let you save and switch between different configurations. Profiles are useful if you operate from different locations, or if you switch between different operating styles — for example, a contest profile with tighter filters and a ragchew profile with more comfortable bandwidth.
+Profiles let you save and switch between different configurations — useful if
+you operate from different locations, or switch between operating styles, such
+as a contest profile with tighter filters and a ragchew profile with more
+comfortable bandwidth.
+
+The important thing to know first: **these profiles are stored in the radio, not
+in this program.** There are three kinds — global, transmit and microphone — and
+a global profile holds the whole station, which means every slice, its frequency
+and its mode.
+
+Because they live in the radio, they are shared with everyone who connects to
+it. If two of you use the same rig, you are both using the same profiles. That
+is worth remembering before you save one.
+
+Open the profile list from the **Radio** menu, then **Profiles**. It shows the
+profiles you have told JJ Flexible about, and also any the radio itself is
+carrying that you have never adopted — those are marked "on radio". From here
+you can select a profile to load it, add a name, update an entry, delete one, or
+save the current station into a global profile.
+
+### Saving your station without opening this dialog
+
+Adding or releasing a slice does not change anything permanently: the radio puts
+its stored setup back the next time you connect. The quickest way to keep a
+change is **Save Station Setup to Radio** on the Slice menu, which saves into
+whichever global profile the radio currently has loaded, and tells you which one
+that is before it writes anything.
+
+You can also have JJ Flexible ask you on the way out. Turn on **Offer to save my
+setup to the radio when I disconnect** on the Notifications tab. It only ever
+asks — it never saves by itself, it stays quiet when you have changed nothing or
+when another operator is connected, and it does not raise the subject at all on
+a radio you have not marked as yours on the Radios tab.
+
+There is more about all of this on the Slice Management help page.
 
 ## The Tuning Tab
 

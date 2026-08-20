@@ -11932,10 +11932,46 @@ namespace Radios
             return rv;
         }
 
+        // ── The one automatic write that already existed, and its one gap ──
+        //
+        // Sprint 33 Track K found this while auditing #117 and it is worth
+        // stating plainly, because it is the only path in the application that
+        // writes a global profile without anybody pressing anything.
+        //
+        // What arms it: GetProfileInfo, on connect, looks for the operator's
+        // DEFAULT global profile on the radio. If the radio has it, it is
+        // loaded. If the radio does NOT have it, the operator has named a
+        // profile that does not exist yet, so newGlobalProfile records the name
+        // and Dispose creates it on the way out. That is create-on-first-use,
+        // it only ever writes a name the radio did not already have, and it
+        // therefore cannot overwrite an existing profile. Good.
+        //
+        // THE GAP IS THE CONTENTS, NOT THE NAME. The profile is created from
+        // whatever the station looks like at teardown, and under MultiFlex that
+        // includes slices belonging to another operator who is still connected.
+        // Nothing is overwritten today — but the operator's default profile is
+        // now a snapshot of somebody else's station, and it gets loaded on every
+        // subsequent connect. The damage is silent, permanent until noticed, and
+        // arrives disguised as the feature working.
+        //
+        // So it takes the same refusal the operator-facing save takes. On a
+        // single-operator station — the normal case, and the case this was
+        // written for — behaviour is unchanged. The feature is not removed; it
+        // is prevented from capturing a station it cannot describe correctly.
         private bool saveNewGlobalProfile()
         {
             Tracing.TraceLine("saveNewGlobalProfile", TraceLevel.Info);
             bool rv = false;
+
+            if (!string.IsNullOrEmpty(newGlobalProfile) && !OnlyStation)
+            {
+                Tracing.TraceLine(
+                    "saveNewGlobalProfile:skipped, another operator is connected; "
+                    + "would have created " + newGlobalProfile
+                    + " from a station that is not solely ours", TraceLevel.Warning);
+                return false;
+            }
+
             List<Profile_t> crnt = GetProfilesByType(ProfileTypes.global, GetDefaultProfiles());
             foreach (Profile_t p in crnt)
             {
@@ -11948,6 +11984,210 @@ namespace Radios
             }
             // Don't save other profiles.
             return rv;
+        }
+
+        // ══ Saving the station layout: the one-step verb (Sprint 33 Track K) ══
+        //
+        // #117 and #59. Sprint 32 Track H established that the transport works,
+        // un-stubbed the dialog's Add and Update verbs, and added the spoken
+        // receipt that tells the operator a slice change is provisional. What
+        // it did NOT close is the half Noel named himself: "I don't know ...
+        // what I need to do in JJ Flexible to get it to stick in the radio."
+        //
+        // He owns the radio and could not name the procedure, which is the
+        // finding. The procedure exists — open Radio ▸ Profiles, find the
+        // global entry matching the profile the radio currently has loaded,
+        // select it, press Save — and every step of it requires knowing
+        // something the receipt does not say. A receipt that names a thing the
+        // operator cannot find is a receipt for a dead end.
+        //
+        // So this is the verb that procedure was missing: save the global
+        // profile the radio ALREADY HAS LOADED, under the name it already has,
+        // without asking the operator to identify it first. That is what every
+        // other radio means by "it saves stuff when you turn it off", minus the
+        // automatic part, which is deliberately not here — see below.
+        //
+        // WHY THE NAME COMES FROM THE RADIO AND NOT FROM THE OPERATOR'S LIST.
+        // ProfileGlobalSelection is the radio's own report of which global
+        // profile is loaded. The operator's list is a list of names the
+        // operator cares about and may be empty, may be stale, and under
+        // MultiFlex may not describe what is loaded at all — another client can
+        // have selected a different profile since we connected. Saving to the
+        // loaded name is the only reading of "save this" that cannot silently
+        // write over a profile the operator was not looking at.
+
+        /// <summary>
+        /// The global profile the radio currently has loaded, or null when
+        /// there is no radio or the radio has not reported a selection.
+        /// </summary>
+        public string CurrentGlobalProfileName
+        {
+            get
+            {
+                string name = theRadio?.ProfileGlobalSelection;
+                return string.IsNullOrWhiteSpace(name) ? null : name;
+            }
+        }
+
+        /// <summary>
+        /// Set when this application changed the station's slice set during
+        /// this connection, and NOT cleared by the spoken receipt. Distinct
+        /// from the receipt's own flag on purpose: the receipt fires once per
+        /// settled change and clears itself, whereas this has to survive until
+        /// disconnect so the save offer can ask "did anything actually change?"
+        /// and stay silent when the answer is no.
+        /// </summary>
+        public bool OperatorChangedStationThisSession { get; private set; }
+
+        /// <summary>
+        /// Why the station layout cannot be saved right now, or null when it
+        /// can. A reason string rather than a bool because every caller here
+        /// has to TELL the operator — a save verb that silently does nothing is
+        /// the defect this track exists to close, not a pattern to repeat.
+        /// </summary>
+        public string StationLayoutSaveBlocker()
+        {
+            if (theRadio == null || !IsConnected)
+                return "There is no radio connected to save to.";
+
+            // The MultiFlex refusal, and it is the load-bearing one.
+            //
+            // A global profile is STATION state: one per radio, shared by
+            // everyone who connects. Saving it captures the whole station as it
+            // looks at this instant — including slices belonging to another
+            // operator who is on the radio right now and did not ask for their
+            // layout to be written into the owner's profile. There is no way to
+            // save "only my part", because the radio has no such concept.
+            //
+            // Note the fail-safe direction: OnlyStation is false until the GUI
+            // client list has been parsed at least once, so an early call
+            // refuses rather than guesses. Refusing costs the operator one
+            // retry; guessing wrong costs somebody their layout.
+            if (!OnlyStation)
+                return "Another operator is connected to this radio. "
+                     + "Saving now would store their setup as well as yours.";
+
+            if (CurrentGlobalProfileName == null)
+                return "This radio has no global profile loaded, so there is "
+                     + "nothing to save into. Use Radio, then Profiles, to make one.";
+
+            return null;
+        }
+
+        /// <summary>
+        /// Save the station layout into the global profile the radio currently
+        /// has loaded. Returns null on success, or the reason it did not happen.
+        /// Writes to the radio, and only ever when something asked it to —
+        /// there is no caller on any automatic path.
+        /// </summary>
+        public string SaveCurrentStationLayout()
+        {
+            string blocker = StationLayoutSaveBlocker();
+            if (blocker != null)
+            {
+                Tracing.TraceLine(
+                    "SaveCurrentStationLayout:refused:" + blocker, TraceLevel.Info);
+                return blocker;
+            }
+
+            string name = CurrentGlobalProfileName;
+            Tracing.TraceLine(
+                "SaveCurrentStationLayout:saving global profile " + name, TraceLevel.Info);
+
+            // Default:false — this is the radio's loaded profile, and marking it
+            // the operator's default is a separate decision they did not make
+            // by pressing Save.
+            if (!SaveProfile(new Profile_t(name, ProfileTypes.global, false), true))
+                return "The radio did not accept the save.";
+
+            // The layout on the radio now matches what the operator has, so the
+            // offer has nothing left to ask about.
+            OperatorChangedStationThisSession = false;
+            return null;
+        }
+
+        // ══ The disconnect offer, and why it is OFF by default ══
+        //
+        // Noel, raising it and doubting it in the same breath: "We could also
+        // have a setting that if there's been a change to the radio, it could
+        // offer to save the profile. I'm not sure I'd do this, but generally,
+        // if you tune the radio or any radio, when you turn it off, it saves
+        // stuff."
+        //
+        // Both halves of that are right, which is why this is a SETTING and why
+        // it ships off. The expectation is real — every other radio remembers
+        // what you did to it, and an operator who releases a slice and finds it
+        // back tomorrow concludes the application is broken. But Sprint 32
+        // Track H considered a disconnect prompt and deliberately shipped a
+        // spoken notification instead, on reasoning that still holds:
+        //
+        //   1. Disconnect is not power-off. A networked radio keeps running.
+        //   2. Under MultiFlex somebody else may still be on it.
+        //   3. A prompt that fires whether or not anything changed gets
+        //      dismissed reflexively — and a prompt trained to be dismissed is
+        //      worse than none, because it creates the belief that the operator
+        //      was asked.
+        //
+        // This does not overturn that. Track H's notification remains what
+        // every operator gets. What this adds is the switch Noel described, for
+        // the operator who wants radio-like behaviour and says so — and the
+        // gates below answer objections 2 and 3 outright rather than accepting
+        // them. It never fires when another operator is connected, and it never
+        // fires when nothing changed.
+        //
+        // OFFER, NEVER SAVE. Nothing in this application saves a global profile
+        // because a session ended. A global profile is station state shared by
+        // everyone who connects, so an automatic write at disconnect would let
+        // whoever happened to leave last redefine the station for everybody,
+        // silently, having never been asked. The setting controls whether the
+        // QUESTION is asked. The answer is always the operator's.
+
+        /// <summary>
+        /// Whether the operator has asked to be offered a station-layout save
+        /// when they disconnect. App-level, one knob for every radio and every
+        /// connection, in the shape of the other cross-layer settings on this
+        /// class. Default false: the shipped behaviour stays Sprint 32's spoken
+        /// notification until somebody deliberately turns this on.
+        /// </summary>
+        public static bool OfferStationSaveOnDisconnect { get; set; }
+
+        /// <summary>
+        /// Whether to offer a station-layout save right now. Every condition
+        /// must hold, and each one is a separate objection being answered.
+        /// </summary>
+        public bool ShouldOfferStationLayoutSave()
+        {
+            // The operator asked for the question.
+            if (!OfferStationSaveOnDisconnect) return false;
+
+            // Something to ask ABOUT. An offer on a session where the operator
+            // never touched the slice set is the reflexive-dismissal trap, and
+            // this is the line that keeps it shut.
+            if (!OperatorChangedStationThisSession) return false;
+
+            // Saveable at all: connected, sole operator, a profile loaded to
+            // save into. Carries the MultiFlex refusal, so the offer cannot
+            // become the trap it exists to avoid.
+            if (StationLayoutSaveBlocker() != null) return false;
+
+            // Ownership, and this gate belongs on the OFFER but not on the menu
+            // item. RadioConfig.MayCreateRadioSideState governs writes "the
+            // operator did not individually request" — a proactive prompt at
+            // disconnect is exactly that, while choosing Save Station Setup
+            // from a menu is the individual request itself. On a radio never
+            // declared as theirs, JJ Flexible does not raise the subject.
+            var radio = theRadio;
+            if (radio == null) return false;
+            if (RadioConfig.OwnershipOf(radio.Serial) != RadioOwnership.Mine)
+            {
+                Tracing.TraceLine(
+                    "ShouldOfferStationLayoutSave:not offering, radio "
+                    + radio.Serial + " is not declared as the operator's",
+                    TraceLevel.Info);
+                return false;
+            }
+
+            return true;
         }
 
         // ── The operator's profile list: add and update (Sprint 32 Track H) ──
@@ -12498,7 +12738,20 @@ namespace Radios
         /// by the arrival handlers, which also fire for the radio's own
         /// profile restore on connect.
         /// </summary>
-        private void NoteOperatorChangedSliceSet() => _operatorChangedSliceSet = true;
+        private void NoteOperatorChangedSliceSet()
+        {
+            _operatorChangedSliceSet = true;
+
+            // Sprint 33 Track K. The same trigger, recorded a second time with a
+            // different lifetime: _operatorChangedSliceSet is consumed by the
+            // next settled census and cleared, while this one has to last until
+            // the operator disconnects, because that is when the save offer asks
+            // whether there was anything to offer about. Set here rather than in
+            // the arrival handlers for exactly the reason the flag above is —
+            // slices restored by the radio's own profile on connect are not a
+            // change this operator made, and must never make the offer appear.
+            OperatorChangedStationThisSession = true;
+        }
 
         /// <summary>
         /// true if can transmit (currently unused)
