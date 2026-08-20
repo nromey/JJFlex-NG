@@ -272,8 +272,13 @@ verdict: Radio audio is running through this computer, but your radio is listeni
 fix: Set the radio's microphone input back to PC. The Audio Workshop's Microphone section has the setting.
 evidence: mic-source-options
 
+# The connected guard matters. With no radio, mic-source is legitimately
+# unreadable, and without this the stage-by-stage list would report the radio as
+# having gone quiet about its microphone input when the truth is simply that
+# there is no radio — a second, wrong-sounding fault stacked on the real one.
 rule: mic-source-unknown
 in-stage: 8
+needs: radio-connected is yes
 broken-when: mic-source absent
 verdict: Your radio has not said which microphone input it is using, so there is no way to tell where it expects transmit audio to come from.
 fix: If this does not clear in a few seconds, disconnect and reconnect to the radio.
@@ -330,16 +335,12 @@ stage: 11 what the radio says it hears
 about: The radio's own microphone meter, measured after it has chosen an input. This is the radio telling you what actually arrived.
 nothing-to-check: the radio only measures its transmit audio while transmitting, so transmit and run the check again.
 
-# The threshold is -100 dBFS, and it is not invented here: it is the same
-# boundary the app's microphone verdict already calls "nothing at all", reused
-# so that two parts of JJ Flexible cannot disagree about what silence is.
-rule: radio-hears-nothing
-in-stage: 11
-needs: transmitting is yes
-broken-when: sc-mic-recent below -100
-verdict: Your radio is transmitting, but its own microphone meter shows nothing arriving. Whatever this computer or your microphone is doing, the radio is not hearing it.
-fix: Check stage by stage above this one. The most common cause is that the radio has no mic profile selected, and the next is that the radio is listening to a different microphone input.
-evidence: mic-source, mic-profile, sc-mic-peak, sw-alc, codec-mic, pc-tx-loudness
+# ORDER MATTERS HERE, and it is the opposite of the obvious one. The two rules
+# about the meter itself come BEFORE the rule about its value, because a meter
+# that has stopped or never started is a meter whose reading cannot be believed
+# — and the reading it is holding will be at the floor, which would otherwise
+# fire "your radio hears nothing" and send the operator off chasing their
+# microphone when the real problem is that nobody is reporting.
 
 rule: radio-mic-meter-never-reported
 in-stage: 11
@@ -355,9 +356,20 @@ rule: radio-mic-meter-stopped
 in-stage: 11
 needs: transmitting is yes
 broken-when: meter-sc-mic stale over 10 seconds
-verdict: Your radio's transmit microphone meter has stopped updating, so what it last reported is no longer current.
+verdict: Your radio's transmit microphone meter has stopped updating, so what it last reported is no longer current and nothing here can be trusted.
 fix: If this persists, the connection to the radio may be struggling. Over SmartLink, check the network before changing anything about your audio.
-evidence: connection
+evidence: connection, sc-mic-recent
+
+# The threshold is -100 dBFS, and it is not invented here: it is the same
+# boundary the app's microphone verdict already calls "nothing at all", reused
+# so that two parts of JJ Flexible cannot disagree about what silence is.
+rule: radio-hears-nothing
+in-stage: 11
+needs: transmitting is yes
+broken-when: sc-mic-recent below -100
+verdict: Your radio is transmitting, but its own microphone meter shows nothing arriving. Whatever this computer or your microphone is doing, the radio is not hearing it.
+fix: Check stage by stage above this one. The most common cause is that the radio has no mic profile selected, and the next is that the radio is listening to a different microphone input.
+evidence: mic-source, mic-profile, sc-mic-peak, sw-alc, codec-mic, pc-tx-loudness
 
 
 # ── Stage 12 ──────────────────────────────────────────────────────────────
