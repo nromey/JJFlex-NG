@@ -445,7 +445,12 @@ public class KeyCommands
             // then T, and stays where it is.
             new(CommandValues.ToggleMeters, KeyTypes.Command, ToggleMetersHandler,
                 "Show or hide the meters panel", "Meters Panel", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "meter", "meters", "panel", "show", "hide", "configure", "sonification", "s-meter", "alc", "swr" }, ShortActionLabel = "show meters panel" },
+                // "sonification" deliberately does NOT appear here. It is what
+                // the TONES command does, and leaving it on the PANEL command
+                // sent anyone searching for the sound to the settings screen —
+                // re-blurring in Command Finder the exact split #126 made in
+                // the key map.
+                { Keywords = new[] { "meter", "meters", "panel", "show", "hide", "configure", "settings", "s-meter", "alc", "swr" }, ShortActionLabel = "show meters panel" },
 
             // ── 60m channels ──
             new(CommandValues.SixtyMeterChannelUp, KeyTypes.Command, () => _context.GetMainWindow()?.SixtyMeterChannelNavigate(1),
@@ -840,16 +845,20 @@ public class KeyCommands
             coalesceKey: "smeter");
     }
 
-    private void ToggleMeterTonesHandler()
-    {
-        MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
-        var state = MeterToneEngine.Enabled ? "on" : "off";
-        if (MeterToneEngine.Enabled)
-            EarconPlayer.FeatureOnTone();
-        else
-            EarconPlayer.FeatureOffTone();
-        Radios.ScreenReaderOutput.Speak($"Meter tones {state}", Radios.VerbosityLevel.Terse);
-    }
+    /// <summary>
+    /// Ctrl+Alt+M. The same switch as Ctrl+J then T, so it goes through the
+    /// same method.
+    /// </summary>
+    /// <remarks>
+    /// This used to flip <c>MeterToneEngine.Enabled</c> itself and repeat the
+    /// announcement inline, which is precisely the drift
+    /// <c>MeterToneEngine.ToggleEnabled</c> was written to prevent — and it had
+    /// already drifted: this copy spoke without interrupting and earconned
+    /// before speaking, while the leader-layer copy interrupted and spoke
+    /// first. Two keys for one switch is fine. Two keys that describe the
+    /// switch differently is a bug report waiting to be filed.
+    /// </remarks>
+    private void ToggleMeterTonesHandler() => MeterToneEngine.ToggleEnabled();
 
     private void CycleMeterPresetHandler()
     {

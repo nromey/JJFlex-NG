@@ -29,6 +29,7 @@
         <Expander x:Name="MetersExpander" Header="Meters"
                   IsExpanded="False" Margin="4,2"
                   AutomationProperties.Name="Meters configuration panel"
+                  local:JJFlexHelp.Text="Settings for the meter tones: which of the radio's meters you can hear, what each one sounds like, and when. Ctrl+M opens and closes this panel and changes nothing you can hear. The tones themselves switch on and off with Ctrl+J then T, or Ctrl+Alt+M."
                   Expanded="MetersExpander_Expanded"
                   Collapsed="MetersExpander_Collapsed">
             <StackPanel x:Name="MetersContent" Margin="16,4,4,4">

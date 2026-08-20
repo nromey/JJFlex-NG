@@ -140,7 +140,7 @@ These keys work when you're in either Classic or Modern tuning mode:
 | Ctrl+P | Adjust audio panning |
 | Ctrl+Shift+T | Toggle the tune carrier on/off |
 | Ctrl+T | Start an automatic tuning unit (ATU) tune cycle |
-| Ctrl+Alt+M | Toggle meter sonification tones |
+| Ctrl+Alt+M | Toggle meter tones on or off. The same switch as Ctrl+J then T, and it now says the same thing either way |
 | Ctrl+Alt+P | Cycle the meter tone preset (RX, TX, Full Monitor) |
 | Ctrl+Alt+V | Speak the current meter values |
 | Shift+M | Mute or unmute every slice at once |
