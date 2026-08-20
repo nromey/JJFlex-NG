@@ -865,7 +865,37 @@ a signature change on a public class, forced by the retirement and correct
 independently — an integer on disk would throw and lose the whole config file.
 It is in a file Track B owns and was reported rather than done quietly.
 
-### THE ONE HAZARD THAT IS NOT TEXTUAL — verify it by ear after E and H are both in
+### THE ONE HAZARD THAT IS NOT TEXTUAL — CLOSED 2026-08-20, it does not occur
+
+**Tested properly and the interaction is FINE.** Noel left the Audio Workshop
+open with the ATU progress tone running, Alt-Tabbed to the MAIN window,
+confirmed the tone was still audible, and closed the app from there. His words:
+*"closing keeps the tones playing and CW, then it kills the app, farewell works,
+mixer is intact."*
+
+So a long-lived alert-mixer input that never signals end-of-source does NOT
+block, delay or suppress the farewell. Track H's drain observation waits on the
+CW source specifically rather than on mixer silence — which is exactly what Track
+E could not verify from its own branch, and it guessed the risk correctly while
+guessing the mechanism wrong.
+
+**A false alarm was recorded first, and how it happened is worth keeping.** The
+first attempt reported the farewell missing entirely. It was not: Alt+F4 with the
+Workshop focused closes THE WORKSHOP, not the app, because the Workshop is
+non-modal with its Owner deliberately cleared so Alt+Tab works. A dialog close
+correctly plays no farewell. The test instruction said "close the application",
+which has two valid readings in a multi-window app.
+
+**Rule for every future test procedure: a step that closes something must NAME
+the window**, and where a chord could hit either, say how to be sure which has
+focus.
+
+Still open, and NOT settled by the above: whether a continuous earcon outlives
+its dialog when the Workshop is CLOSED rather than merely unfocused. Track E
+claims closing the dialog stops them; the Closed handler appears not to. Same
+shape as #131. Being checked separately.
+
+### Superseded — the original hazard note, kept for the reasoning
 
 **A held bench tone may block application shutdown.** Neither track could catch
 this alone, and no merge tool will show it.
