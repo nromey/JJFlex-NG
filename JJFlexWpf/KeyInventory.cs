@@ -542,6 +542,32 @@ public static class KeyInventory
             MenuText = "Slice menu, Transmit Slice submenu",
             Keywords = new[] { "transmit", "tx", "slice", "clear", "keying", "lockout" },
         },
+        // Sprint 33 Track K (#117, #59). Two doors, and the keyword lists are
+        // the point of them. The operator hunting this does not know the word
+        // "profile" — that is the entire finding. They know what happened TO
+        // them: the slice came back, the change did not stick, the radio
+        // forgot. So the searchable vocabulary has to be the SYMPTOM's and not
+        // the mechanism's, or the search surface reproduces the very
+        // discoverability failure it exists to fix.
+        new FixedKeyEntry
+        {
+            Description = "Save your station setup into the radio so slice changes survive disconnecting",
+            Scope = "Radio", Group = "FreqOut",
+            MenuText = "Slice menu, Selection submenu, Save Station Setup to Radio",
+            Keywords = new[] { "save", "stick", "sticky", "keep", "persist", "permanent", "remember",
+                               "forget", "forgot", "back", "returns", "restore", "revert", "lost",
+                               "slice", "layout", "setup", "station", "profile", "global",
+                               "disconnect", "reconnect" },
+        },
+        new FixedKeyEntry
+        {
+            Description = "Profiles stored in the radio - global, transmit and microphone; select, add, rename, delete or save",
+            Scope = "Radio", Group = "FreqOut",
+            MenuText = "Radio menu, Profiles",
+            Keywords = new[] { "profile", "profiles", "global", "mic", "microphone", "tx", "transmit",
+                               "save", "load", "select", "rename", "delete", "station", "setup",
+                               "contest", "ragchew", "shared" },
+        },
         new FixedKeyEntry
         {
             Description = "Power dialog - transmit and tune power (dBm drive on a transverter)",

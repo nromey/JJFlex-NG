@@ -252,6 +252,12 @@ public partial class MainWindow : UserControl
                 Radios.ScreenReaderOutput.CwNotificationsEnabled = userConfig.CwNotificationsEnabled;
                 Radios.ScreenReaderOutput.CwModeAnnounceEnabled = userConfig.CwModeAnnounce;
                 Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled = userConfig.SpeakConnectionProgress;
+                // Sprint 33 Track K. Loaded here, from ROOT, for the same
+                // reason the CW flags above are: it has to be in place before
+                // the first disconnect, and the per-radio config that would
+                // otherwise carry it is not read until PowerOn.
+                Radios.FlexBase.OfferStationSaveOnDisconnect =
+                    userConfig.OfferStationSaveOnDisconnect;
             }
         }
         catch (Exception ex)

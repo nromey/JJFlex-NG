@@ -196,6 +196,29 @@ namespace JJFlexWpf
         /// </summary>
         public bool SpeakConnectionProgress { get; set; } = true;
 
+        /// <summary>
+        /// Offer to save the station layout into the radio's global profile
+        /// when the operator disconnects, having changed the slice set during
+        /// the session.
+        ///
+        /// <para>DEFAULT FALSE, deliberately, and it is the one setting here
+        /// whose default is an argument rather than a taste. A global profile
+        /// is STATION state — one per radio, shared by every client that
+        /// connects — so what gets saved is never just "my slices". Sprint 32
+        /// weighed a disconnect prompt and shipped a spoken notice instead, on
+        /// the grounds that a prompt firing on every disconnect gets dismissed
+        /// reflexively. That notice stays the shipped behaviour for everyone;
+        /// this switch adds the question for the operator who asks for it, and
+        /// the gates in FlexBase.ShouldOfferStationLayoutSave keep it from
+        /// firing when nothing changed, when another operator is connected, or
+        /// on a radio the operator has not marked as theirs.</para>
+        ///
+        /// <para>Absent from an older audioConfig.xml this deserialises to
+        /// false, which is exactly the behaviour that file was written
+        /// under.</para>
+        /// </summary>
+        public bool OfferStationSaveOnDisconnect { get; set; }
+
         /// <summary>Whether braille status line is enabled.</summary>
         public bool BrailleEnabled { get; set; }
 
@@ -569,6 +592,13 @@ namespace JJFlexWpf
             // corrupted file falls back to the default rather than opening a
             // stream the codec cannot follow.
             Radios.FlexBase.OpusTxSampleRateSetting = (uint)OpusTxSampleRate;
+
+            // Same shape again: the disconnect offer is decided inside the
+            // Radios layer, which cannot see this class, so the preference
+            // crosses as a static. One knob for every radio and every
+            // connection — the per-radio half of the decision is ownership,
+            // and that already lives in RadioConfig.
+            Radios.FlexBase.OfferStationSaveOnDisconnect = OfferStationSaveOnDisconnect;
 
             // Mic-verdict wording, same reasoning: every surface that reads a
             // level out loud asks MicAudioReport, so the preference lives
