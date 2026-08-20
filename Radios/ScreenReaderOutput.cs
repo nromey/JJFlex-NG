@@ -450,7 +450,7 @@ namespace Radios
                 if (!_available) return;
 
                 _backend?.Speak(message, interrupt);
-                _lastMessage = message;
+                Remember(message);
                 Tracing.TraceLine(
                     $"ScreenReaderOutput: Spoke '{message}' (interrupt={interrupt})",
                     TraceLevel.Verbose);
@@ -487,7 +487,7 @@ namespace Radios
                 if (_available)
                 {
                     _backend?.Speak(message, interrupt);
-                    _lastMessage = message;
+                    Remember(message);
                     Tracing.TraceLine($"ScreenReaderOutput: Spoke '{message}'", TraceLevel.Verbose);
                 }
             }
@@ -738,6 +738,111 @@ namespace Radios
         /// Gets the last message that was spoken, for repeat-last-message functionality.
         /// </summary>
         public static string LastMessage => _lastMessage;
+
+        // ══ Recent speech history (#70, Sprint 32 Track H) ══
+        //
+        // Repeat-last-message could only ever repeat ONE message, and by the
+        // time an operator reaches for it the thing they wanted has usually
+        // been overwritten: connect alone emits a short series, and any key
+        // press between hearing something and asking for it again destroys it.
+        // A single-slot memory is exactly one press too shallow to be useful.
+        //
+        // The coalescer's _lastByKey looks like history and is not: it is
+        // per-key dedup state, it holds only the newest value per key, and
+        // DiscardPending clears the whole thing on any urgent flush — which is
+        // to say it is emptied precisely when something worth re-reading has
+        // just happened.
+        //
+        // So this is a proper ring: the last ten distinct utterances, newest
+        // first, recorded at the single point where text actually reaches the
+        // backend so no new intent can bypass it.
+
+        /// <summary>How many past utterances are kept.</summary>
+        private const int HistoryDepth = 10;
+
+        /// <summary>
+        /// How long the operator has to press again before the walk restarts at
+        /// the newest message. Long enough to hear a short utterance and decide
+        /// to keep going, short enough that coming back later starts from the
+        /// present rather than from wherever they stopped.
+        /// </summary>
+        private const int HistoryWalkResetMs = 6000;
+
+        private static readonly List<string> _history = new List<string>(HistoryDepth);
+        private static readonly object _historyLock = new object();
+        private static int _historyCursor = -1;
+        private static DateTime _lastWalkAt = DateTime.MinValue;
+
+        /// <summary>
+        /// True while a replay is being emitted, so the replay does not enter
+        /// the history it is reading from. Without this, pressing repeat twice
+        /// would fill the ring with copies of one message.
+        /// </summary>
+        [ThreadStatic] private static bool _replaying;
+
+        private static void Remember(string message)
+        {
+            _lastMessage = message;
+            if (_replaying) return;
+            if (string.IsNullOrEmpty(message)) return;
+
+            lock (_historyLock)
+            {
+                // A value spoken twice running tells the operator nothing the
+                // second time and would push something useful off the end.
+                if (_history.Count > 0 && string.Equals(_history[0], message, StringComparison.Ordinal))
+                    return;
+
+                _history.Insert(0, message);
+                if (_history.Count > HistoryDepth) _history.RemoveAt(_history.Count - 1);
+
+                // Anything newly spoken makes a walk in progress stale.
+                _historyCursor = -1;
+            }
+        }
+
+        /// <summary>
+        /// The recent utterances, newest first. A snapshot — safe to enumerate.
+        /// </summary>
+        public static IReadOnlyList<string> RecentMessages
+        {
+            get { lock (_historyLock) { return _history.ToArray(); } }
+        }
+
+        /// <summary>
+        /// Speak the next message back through the history.
+        ///
+        /// The first press after a pause says the most recent thing; pressing
+        /// again promptly steps further back, and running off the oldest wraps
+        /// to the newest. Wrapping rather than stopping is deliberate: a silent
+        /// dead end is indistinguishable from a broken key, and announcing the
+        /// end would need wording for a state the operator can already feel
+        /// when the newest message comes round again.
+        /// </summary>
+        /// <returns>False when there is nothing recorded yet.</returns>
+        public static bool RepeatRecent()
+        {
+            string message;
+            lock (_historyLock)
+            {
+                if (_history.Count == 0) return false;
+
+                bool stale = (DateTime.UtcNow - _lastWalkAt).TotalMilliseconds > HistoryWalkResetMs;
+                if (stale || _historyCursor < 0) _historyCursor = 0;
+                else _historyCursor = (_historyCursor + 1) % _history.Count;
+
+                _lastWalkAt = DateTime.UtcNow;
+                message = _history[_historyCursor];
+            }
+
+            // Critical, and past the verbosity gate on purpose: the operator
+            // asked for this one by pressing a key, so the setting that governs
+            // how much the application volunteers has no bearing on it.
+            _replaying = true;
+            try { Emit(message, interrupt: true); }
+            finally { _replaying = false; }
+            return true;
+        }
 
         /// <summary>
         /// Gets whether braille output is available.

@@ -1139,13 +1139,17 @@ public class KeyCommands
             live: !lastTransmit);
     }
 
+    // #70: this used to read a single stored string, which was one press too
+    // shallow to be useful — anything spoken between hearing something and
+    // asking for it again had already overwritten it. The walk now goes back
+    // through the last ten utterances, and pressing again promptly steps
+    // further back. The whole mechanism lives in ScreenReaderOutput, where the
+    // history is recorded; this stays a one-liner so the key and the memory
+    // cannot drift apart.
     private void RepeatLastMessageHandler()
     {
-        var last = Radios.ScreenReaderOutput.LastMessage;
-        if (string.IsNullOrEmpty(last))
+        if (!Radios.ScreenReaderOutput.RepeatRecent())
             Radios.ScreenReaderOutput.Speak("No previous message");
-        else
-            Radios.ScreenReaderOutput.Speak(last, true);
     }
 
     private void CycleVerbosityHandler()
