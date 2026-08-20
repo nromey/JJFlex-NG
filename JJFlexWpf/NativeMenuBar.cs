@@ -2292,18 +2292,21 @@ public class NativeMenuBar : IDisposable
             // an operator who cannot see the tab strip with no evidence they
             // arrived anywhere other than plain Settings.
             //
-            // Focusing the selected TabItem folds the arrival into the dialog's
+            // Focusing the selected category folds the arrival into the dialog's
             // own opening announcement — the same principle as
-            // PendingDisconnectLead, applied to a tab instead of a window title.
-            // Deferred to Loaded because focus set before the window exists is
-            // discarded; this is the sibling of the papercut already commented in
-            // SettingsDialog ("focusing a field on an unselected tab fails
-            // silently"), pointing the other way.
-            dialog.Loaded += (_, _) =>
-            {
-                if (dialog.SettingsTabs.SelectedItem is System.Windows.Controls.TabItem landed)
-                    landed.Focus();
-            };
+            // PendingDisconnectLead, applied to a category instead of a window
+            // title. Deferred to Loaded because focus set before the window
+            // exists is discarded; this is the sibling of the papercut already
+            // commented in SettingsDialog ("focusing a field on an unselected
+            // tab fails silently"), pointing the other way.
+            //
+            // Sprint 32 Track G (task #134): this was `landed.Focus()` on the
+            // selected TabItem, which worked only while the tab strip was a
+            // real focusable visual. Settings now navigates by a category list
+            // and the strip is templated away, so focusing the TabItem would
+            // silently do nothing — turning a deep link into exactly the
+            // no-evidence arrival the comment above exists to prevent.
+            dialog.Loaded += (_, _) => dialog.FocusCategory();
         }
 
         // Track C (OK/Apply convention): the app-side application + persistence

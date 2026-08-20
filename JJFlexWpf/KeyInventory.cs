@@ -328,6 +328,16 @@ public static class KeyInventory
         new("Leader", "Leader key", "Ctrl+J, G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
             new[] { "tone", "test", "generator", "arm", "disarm", "440", "transmit", "tx",
                     "audio", "check", "calibrate", "leader" }, "Radio", "Audio"),
+        // Sprint 32 Track G (task #130). Ctrl+A for Audio, because plain A is
+        // Auto Notch — Ctrl+F, Ctrl+D and Ctrl+R are the precedent for reaching
+        // for the Ctrl-modified form when the letter you want is taken. Noel
+        // named this one on the unbound-command survey: "No hotkey for PC audio
+        // on and off available that I know of, you have to do it in the menu."
+        // It sits one keystroke from Ctrl+J, V, P, which rides the PC output
+        // LEVEL; this is the on/off switch, and the pairing is deliberate.
+        new("Leader", "Leader key", "Ctrl+J, Ctrl+A", "Turn PC audio on or off — whether radio audio plays through this computer",
+            new[] { "pc", "audio", "on", "off", "toggle", "remote", "sound", "mute", "unmute",
+                    "computer", "playback", "hear", "silence", "quiet", "leader" }, "Radio", "Audio"),
         new("Leader", "Leader key", "Ctrl+J, C", "Toggle Compander",
             new[] { "compander", "compression", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
         new("Leader", "Leader key", "Ctrl+J, Shift+P", "Toggle Speech Processor",
@@ -425,6 +435,37 @@ public static class KeyInventory
             new[] { "delete", "remove", "preset", "audio", "workshop" }, "Global", "Audio"),
         new("AudioWorkshop", "Audio Workshop", "Escape", "While a check is transmitting: first press unkeys and stays, second press closes. Escape never leaves you transmitting",
             new[] { "escape", "stop", "unkey", "transmit", "close", "workshop" }, "Global", "Audio"),
+        // F6 has moved between the Workshop's SECTIONS since 2026-08-13 and was
+        // never registered here, so it appeared in neither the Keys dialog nor
+        // the exported key list — a working key nobody could discover. Closed
+        // by Sprint 32 Track G's keyboard audit.
+        //
+        // Worth stating plainly, because it has been got wrong twice: sections
+        // move on F6, not on a single letter. AutomationProperties.HeadingLevel
+        // does NOT give a screen reader's H navigation inside a dialog — H and
+        // friends live in browse mode, for web pages and documents, while a WPF
+        // dialog runs in focus mode where H simply types the letter.
+        new("AudioWorkshop", "Audio Workshop", "F6", "Move to the next section within this category, and say which one",
+            new[] { "section", "next", "move", "navigate", "group", "jump", "workshop" }, "Global", "Audio"),
+        new("AudioWorkshop", "Audio Workshop", "Shift+F6", "Move to the previous section within this category",
+            new[] { "section", "previous", "back", "move", "navigate", "group", "workshop" }, "Global", "Audio"),
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Category navigation — Settings and the Audio Workshop both
+    //  (Sprint 32 Track G, task #134). One pattern, two surfaces, so it
+    //  is registered once here rather than twice per dialog.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] CategoryNavigationKeys =
+    {
+        new("Categories", "Settings and the Audio Workshop", "Ctrl+Tab", "Move to the next category, from anywhere in the dialog",
+            new[] { "category", "categories", "next", "tab", "section", "page", "move",
+                    "navigate", "settings", "workshop" }, "Global", "General"),
+        new("Categories", "Settings and the Audio Workshop", "Ctrl+Shift+Tab", "Move to the previous category, from anywhere in the dialog",
+            new[] { "category", "categories", "previous", "back", "tab", "section", "page",
+                    "move", "navigate", "settings", "workshop" }, "Global", "General"),
+        new("Categories", "Settings and the Audio Workshop", "Up / Down", "In the category list: move between categories",
+            new[] { "category", "categories", "list", "arrow", "up", "down", "move" }, "Global", "General"),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -569,6 +610,7 @@ public static class KeyInventory
         foreach (var e in LeaderCommands) yield return e;
         foreach (var e in VolumeModeCommands) yield return e;
         foreach (var e in AudioWorkshopKeys) yield return e;
+        foreach (var e in CategoryNavigationKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;
     }
 

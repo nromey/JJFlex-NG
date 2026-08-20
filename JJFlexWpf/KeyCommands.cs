@@ -484,9 +484,19 @@ public class KeyCommands
             new(CommandValues.SpeakFrequency, KeyTypes.Command, () => _context.GetMainWindow()?.SpeakFrequency(),
                 "Speak current frequency and mode", "Speak Frequency", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "frequency", "freq", "speak", "readback" }, ShortActionLabel = "speak frequency" },
+            // Sprint 32: the description and keywords follow Track H's rebuild
+            // of this command from one stored string into a ten-deep history.
+            // "Repeat the last spoken message" gave an operator no reason to
+            // press it twice, which hid the entire new feature behind an
+            // accurate-sounding sentence — the description-drift defect in its
+            // purest form. Keywords gain the words someone would actually
+            // search with once they know there is a history to walk.
             new(CommandValues.RepeatLastMessage, KeyTypes.Command, RepeatLastMessageHandler,
-                "Repeat the last spoken message", "Repeat Last Message", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "repeat", "last", "message", "speech", "again" }, ShortActionLabel = "repeat last message" },
+                "Repeat recent messages, pressing again for earlier ones", "Repeat Last Message", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "repeat", "last", "message", "messages", "speech", "again",
+                                     "history", "recent", "earlier", "back", "previous", "missed",
+                                     "said", "heard" },
+                  ShortActionLabel = "repeat last message" },
 
             // ── Verbosity (Sprint 24 Phase 6) ──
             new(CommandValues.CycleVerbosity, KeyTypes.Command, CycleVerbosityHandler,
@@ -958,7 +968,45 @@ public class KeyCommands
     private void ATUMemoriesHandler() => _context.ShowATUMemories();
     private void RebootHandler() => _context.RebootRadio();
     private void TXControlsHandler() => _context.ShowTXControls();
-    private void PCAudioHandler() => _context.PCAudioToggle();
+    /// <summary>
+    /// Turn PC audio on or off, and SAY what happened.
+    /// </summary>
+    /// <remarks>
+    /// The context delegate changes the state and records the operator's
+    /// choice; it does not speak, and until Sprint 32 Track G neither did
+    /// this. The command had no key, so the only way to reach it was the
+    /// Command Finder — where an operator chose "PC audio on/off", heard
+    /// nothing at all, and had no way to learn whether the audio they could
+    /// not hear was off on purpose. Task #130 puts a chord on this command
+    /// (Ctrl+J, Ctrl+A), which would have shipped the same silence.
+    ///
+    /// <para>The wording is lifted from the Radio menu's own PC Audio item so
+    /// the two surfaces speak with one vocabulary, INCLUDING its third case:
+    /// the state is read back off the radio rather than assumed from the
+    /// request, because turning PC audio on can fail — no usable sound
+    /// device — and announcing the wish rather than the outcome is how you get
+    /// "PC audio on" while nothing plays.</para>
+    /// </remarks>
+    private void PCAudioHandler()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.SpeakNoRadioConnected("toggle P C audio");
+            return;
+        }
+
+        bool wanted = !rig.PCAudio;
+        _context.PCAudioToggle();
+
+        bool actual = rig.PCAudio;
+        if (actual) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+        Radios.ScreenReaderOutput.Speak(
+            actual ? "PC audio on"
+            : wanted ? "PC audio could not start, still off"
+            : "PC audio off",
+            Radios.VerbosityLevel.Terse);
+    }
     private void AudioSetupHandler() => _context.AudioSetup();
     private void ContextHelpHandler() => _context.GetMainWindow()?.ShowCommandFinder();
 
@@ -1265,7 +1313,202 @@ public class KeyCommands
     #endregion
 
     // ────────────────────────────────────────────────────────────────
+    //  Why a command has no key — the unbound roster (task #130)
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Why a registry command ships with no default key.
+    /// </summary>
+    /// <remarks>
+    /// Twenty-nine commands defaulted to <c>Keys.None</c> and only two carried
+    /// any explanation, so nothing in the source told "menu-only on purpose"
+    /// apart from "nobody ever assigned a key" — and the two want opposite
+    /// treatment. Sprint 32 Track G annotated all of them. The distinction is
+    /// the whole deliverable: it is what makes a future pass possible, and it
+    /// is why this is an enum rather than a paragraph.
+    /// </remarks>
+    public enum UnboundReason
+    {
+        /// <summary>Reachable on a Ctrl+J leader chord. Bound, just not here —
+        /// leader chords live in DoLeaderCommand, not in the registry, so the
+        /// registry row honestly reads "no key".</summary>
+        LeaderLayer,
+
+        /// <summary>Reachable from a menu or another dialog, deliberately. A
+        /// chord would be a second door to a room with one.</summary>
+        MenuOrDialog,
+
+        /// <summary>Command Finder and Hotkey Editor only, on purpose. Rare or
+        /// slow enough that a reserved chord would cost more than it returns,
+        /// and anyone who wants one can bind it.</summary>
+        CommandFinderOnly,
+
+        /// <summary>The slot is deliberately held EMPTY to protect a design
+        /// decision. Do not fill it without reading why.</summary>
+        Reserved,
+
+        /// <summary>Had a chord on paper; something else consumed it first, so
+        /// the chord never arrived. Now honestly unbound rather than
+        /// pretending.</summary>
+        Shadowed,
+
+        /// <summary>The feature is gone. The command survives in the registry
+        /// and answers with a "no longer supported" message. Binding a key to
+        /// it would be binding a key to an apology.</summary>
+        Retired,
+
+        /// <summary>A default-key row with no command behind it at all — no
+        /// KeyTable entry, so no handler, no description, and nothing in the
+        /// Command Finder. Dead weight, kept only because removing rows from
+        /// this table interacts with saved-default reconciliation.</summary>
+        Vestigial,
+
+        /// <summary>Nobody ever assigned one and nothing says why not. THE
+        /// CANDIDATE STATE — if a command sits here, the next pass should
+        /// either give it a key or move it to one of the reasons above.</summary>
+        Unassigned,
+    }
+
+    /// <summary>One command's explanation for having no key.</summary>
+    public sealed record UnboundNote(UnboundReason Reason, string Detail);
+
+    /// <summary>
+    /// Every command that defaults to <c>Keys.None</c>, and why.
+    /// </summary>
+    /// <remarks>
+    /// Kept beside <see cref="_defaultKeys"/> and CHECKED AGAINST IT at startup
+    /// by ValidateKeyBindings, so a new unbound command cannot slip in without
+    /// an explanation and an old one cannot linger here after being bound.
+    /// A table nobody verifies rots into a description-drift defect within two
+    /// sprints; this one fails loudly in the trace instead.
+    /// </remarks>
+    private static readonly Dictionary<CommandValues, UnboundNote> _unboundNotes = new()
+    {
+        // ── Reachable on the leader layer. Bound in every sense that matters
+        //    to an operator; the registry row is just not where it lives. ──
+        [CommandValues.ShowMemory] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, M opens the memories dialog."),
+        [CommandValues.LogStats] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, L speaks log statistics. NOTE for whoever owns the logging menu: "
+            + "the Logging menu's own 'Log Statistics' item is still an AddNotImplemented "
+            + "stub that answers 'not yet implemented in this version' while this chord "
+            + "has worked for sprints. Reported by Sprint 32 Track G, not fixed here — "
+            + "the logging menu is not this track's file."),
+        [CommandValues.SpeakTXFilter] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, F speaks the TX filter width. The Radio menu's TX Filter submenu also "
+            + "has a 'Read TX Filter' item, which reaches the same answer by its own inline "
+            + "route rather than through this command."),
+        [CommandValues.ToggleMeterTonesGlobal] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, T toggles meter tones."),
+        [CommandValues.RemoteAudio] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+A turns PC audio on and off — added Sprint 32 Track G. Noel named "
+            + "this one specifically: 'No hotkey for PC audio on and off available that I "
+            + "know of, you have to do it in the menu.' Also on the Radio menu under Audio."),
+
+        // ── Menu or dialog, deliberately. These open something; the thing they
+        //    open is where the operator already goes. ──
+        [CommandValues.AudioSetup] = new(UnboundReason.MenuOrDialog,
+            "Radio menu, Audio, Audio Devices. A one-page picker you visit when you change "
+            + "hardware, not during a QSO."),
+        [CommandValues.ATUMemories] = new(UnboundReason.MenuOrDialog,
+            "Radio menu, ATU Memories."),
+        [CommandValues.Reboot] = new(UnboundReason.MenuOrDialog,
+            "Radio menu, Reboot Radio (and Settings, Radio Setup, step 7). Deliberately NOT "
+            + "on a chord: it interrupts everyone on a MultiFlex radio, and the confirmation "
+            + "that names the other connected stations is the point of the slow route."),
+        [CommandValues.TXControls] = new(UnboundReason.MenuOrDialog,
+            "Opens the transmit-controls dialog. Its individual controls are what an operator "
+            + "reaches for mid-QSO, and those have their own keys."),
+        [CommandValues.LogFileName] = new(UnboundReason.MenuOrDialog,
+            "Log file name is set from the logging surfaces, not mid-contact."),
+        [CommandValues.LogMode] = new(UnboundReason.MenuOrDialog,
+            "A log FIELD jump. The full log form is where these are filled in, and Tab reaches "
+            + "them there; the lettered Alt chords cover the fields worth jumping to."),
+        [CommandValues.LogRig] = new(UnboundReason.MenuOrDialog,
+            "A log FIELD jump, as LogMode. Rig is usually constant for a session."),
+        [CommandValues.LogAnt] = new(UnboundReason.MenuOrDialog,
+            "A log FIELD jump, as LogMode. Antenna is usually constant for a session."),
+
+        // ── Command Finder and Hotkey Editor only, on purpose. ──
+        [CommandValues.StartAudioCheck] = new(UnboundReason.CommandFinderOnly,
+            "Starts the Audio Check. Ctrl+Enter does it from inside the Audio Workshop, which "
+            + "is where you are when you want it; a global chord that keys the transmitter "
+            + "from anywhere is not something to hand out by default."),
+        [CommandValues.GatherDebug] = new(UnboundReason.CommandFinderOnly,
+            "Collects a debug snapshot. Settings, Diagnostics is the fuller route now — it "
+            + "records sessions and builds problem-report bundles — so this stays available "
+            + "without spending a chord."),
+        [CommandValues.SmeterDBM] = new(UnboundReason.CommandFinderOnly,
+            "Switches the S-meter between S-units and dBm. A preference you set once, not a "
+            + "thing you toggle; Ctrl+S reads the meter and that is the frequent act."),
+        [CommandValues.StartScan] = new(UnboundReason.CommandFinderOnly,
+            "Starts or stops a scan. Ctrl+Z stops one and Ctrl+Shift+F2 resumes, which are the "
+            + "two an operator needs in a hurry."),
+        [CommandValues.SavedScan] = new(UnboundReason.CommandFinderOnly,
+            "Runs a saved scan by name, which means choosing one — a picking act, not a chord."),
+
+        // ── Reserved. The empty slot IS the decision. ──
+        [CommandValues.AudioGainUp] = new(UnboundReason.Reserved,
+            "One of six audio-gain slots freed in Sprint 29 Track F when levels moved into the "
+            + "Audio expander (Ctrl+Shift+U) and volume mode (Ctrl+J, V). Left unbound and "
+            + "RESERVED per the 2026-05-02 ACK, option 2, so a later sprint cannot claim the "
+            + "chord without meeting the argument: audio levels are not real-time controls "
+            + "during a QSO, and values belong in fields, not on toggle keys."),
+        [CommandValues.AudioGainDown] = new(UnboundReason.Reserved,
+            "Reserved with AudioGainUp — see that note."),
+        [CommandValues.HeadphonesUp] = new(UnboundReason.Reserved,
+            "Reserved with AudioGainUp. The level itself rides on Ctrl+J, V, H."),
+        [CommandValues.HeadphonesDown] = new(UnboundReason.Reserved,
+            "Reserved with AudioGainUp. The level itself rides on Ctrl+J, V, H."),
+        [CommandValues.LineoutUp] = new(UnboundReason.Reserved,
+            "Reserved with AudioGainUp. The level itself rides on Ctrl+J, V, L."),
+        [CommandValues.LineoutDown] = new(UnboundReason.Reserved,
+            "Reserved with AudioGainUp. The level itself rides on Ctrl+J, V, L."),
+
+        // ── Shadowed: had a chord that never arrived. ──
+        [CommandValues.MemoryScan] = new(UnboundReason.Shadowed,
+            "Carried Ctrl+Shift+M for sprints and never once received it — the hard-wired "
+            + "ToggleUIMode meta-command consumed the chord at window level first (QB Track H "
+            + "shadow sweep, 2026-08-07). ToggleTuningMode owns Ctrl+Shift+M in the registry "
+            + "now, so this is honestly unbound instead of falsely bound."),
+        [CommandValues.SpeakFrequency] = new(UnboundReason.Shadowed,
+            "Claimed Ctrl+Shift+F by design intent from Sprint 15 and never received it — "
+            + "ToggleFreqReadout consumed it at window level (same 2026-08-07 sweep). The F "
+            + "key on the Frequency field speaks the frequency, which is the working route."),
+
+        // ── Retired: the feature is gone, the command is an apology. ──
+        [CommandValues.CycleContinuous] = new(UnboundReason.Retired,
+            "Answers 'This feature is no longer supported.' and nothing else. Still listed in "
+            + "the Command Finder, which is worth someone's attention — but it must never be "
+            + "given a key, and this note exists so nobody reads the blank slot as an "
+            + "invitation. Reported by Sprint 32 Track G; removal is not a keyboard change."),
+        [CommandValues.ShowMenus] = new(UnboundReason.Retired,
+            "Answers 'Not available for this radio.' — a leftover from the multi-brand era "
+            + "before the app became Flex-only. Same treatment as CycleContinuous."),
+
+        // ── Vestigial: no command behind the row at all. ──
+        [CommandValues.LogForm] = new(UnboundReason.Vestigial,
+            "There is NO KeyTable entry for this id, so it has no handler, no description and "
+            + "no Command Finder presence — this default-key row points at nothing. Found by "
+            + "Sprint 32 Track G while annotating; left in place because deleting rows from "
+            + "the default table interacts with saved-default reconciliation, which is a "
+            + "config-migration change rather than a keyboard one."),
+    };
+
+    /// <summary>
+    /// Why this command has no key, or null if it has one (or is not a
+    /// registry command). Public so the Keys dialog, the exported key list and
+    /// any future audit can show the reason rather than a blank.
+    /// </summary>
+    public static UnboundNote? GetUnboundNote(CommandValues id) =>
+        _unboundNotes.TryGetValue(id, out var note) ? note : null;
+
+    // ────────────────────────────────────────────────────────────────
     //  Default key bindings — scope-aware
+    //
+    //  Every `Keys.None` row carries a one-line reason tag; the full
+    //  explanation lives in _unboundNotes above, and ValidateKeyBindings
+    //  checks the two agree at startup.
     // ────────────────────────────────────────────────────────────────
 
     private readonly KeyDefType[] _defaultKeys =
@@ -1275,53 +1518,42 @@ public class KeyCommands
         new(Keys.F1 | Keys.Control, CommandValues.SpeakContextHelp, KeyScope.Global),
         new(Keys.F12, CommandValues.StopCW, KeyScope.Global),
         new(Keys.L | Keys.Control, CommandValues.StationLookup, KeyScope.Global),
-        new(Keys.None, CommandValues.GatherDebug, KeyScope.Global),
+        new(Keys.None, CommandValues.GatherDebug, KeyScope.Global), // unbound: CommandFinderOnly
 
         // --- Radio scope ---
         new(Keys.F2, CommandValues.ShowFreq, KeyScope.Radio),
         new(Keys.F | Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
-        new(Keys.None, CommandValues.ShowMemory, KeyScope.Radio),
-        // MemoryScan was "bound" to Ctrl+Shift+M for sprints, but the chord
-        // never reached it — the hard-wired ToggleUIMode meta-command consumed
-        // Ctrl+Shift+M at window level first (QB Track H shadow sweep,
-        // 2026-08-07). Now that ToggleTuningMode owns Ctrl+Shift+M in the
-        // registry (Global scope), MemoryScan is honestly unbound: reachable
-        // via Command Finder, bindable in the Hotkey Editor.
-        new(Keys.None, CommandValues.MemoryScan, KeyScope.Radio),
-        new(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio),
+        new(Keys.None, CommandValues.ShowMemory, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, M
+        new(Keys.None, CommandValues.MemoryScan, KeyScope.Radio), // unbound: Shadowed
+        new(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio), // unbound: CommandFinderOnly
         new(Keys.S | Keys.Control, CommandValues.ReadSMeter, KeyScope.Radio),
         new(Keys.M | Keys.Control | Keys.Alt, CommandValues.ToggleMeterTones, KeyScope.Radio),
         new(Keys.P | Keys.Control | Keys.Alt, CommandValues.CycleMeterPreset, KeyScope.Radio),
         new(Keys.V | Keys.Control | Keys.Alt, CommandValues.SpeakMeters, KeyScope.Radio),
-        new(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio),
-        new(Keys.None, CommandValues.LogForm, KeyScope.Radio),
+        new(Keys.None, CommandValues.CycleContinuous, KeyScope.Radio), // unbound: Retired — never bind this
+        new(Keys.None, CommandValues.LogForm, KeyScope.Radio), // unbound: Vestigial — no KeyTable entry behind it
         new(Keys.C | Keys.Control | Keys.Shift, CommandValues.ClearRIT, KeyScope.Radio),
-        new(Keys.None, CommandValues.StartScan, KeyScope.Radio),
+        new(Keys.None, CommandValues.StartScan, KeyScope.Radio), // unbound: CommandFinderOnly
         new(Keys.X | Keys.Alt | Keys.Shift, CommandValues.ArCluster, KeyScope.Radio),
         new(Keys.R | Keys.Control | Keys.Alt, CommandValues.ReverseBeacon, KeyScope.Radio),
         new(Keys.P | Keys.Control, CommandValues.DoPanning, KeyScope.Radio),
-        new(Keys.None, CommandValues.SavedScan, KeyScope.Radio),
+        new(Keys.None, CommandValues.SavedScan, KeyScope.Radio), // unbound: CommandFinderOnly
         new(Keys.Z | Keys.Control, CommandValues.StopScan, KeyScope.Radio),
-        new(Keys.None, CommandValues.ShowMenus, KeyScope.Radio),
-        // Sprint 29 Track F (tuning unity) — these six audio-gain pairs were
-        // bound to Alt/Shift PageUp/PageDown. They moved into the Audio expander
-        // (Ctrl+Shift+U → arrow to Volume / Headphone Level / Line Out Level)
-        // because audio levels aren't real-time controls during a QSO and
-        // hotkey toggles-vs-values discipline says values live in their fields.
-        // Slots intentionally left unbound and reserved per the 2026-05-02 ACK
-        // (option 2) — leave in place so a future sprint doesn't accidentally
-        // claim them without thinking about this design.
-        new(Keys.None, CommandValues.AudioGainUp, KeyScope.Radio),
-        new(Keys.None, CommandValues.AudioGainDown, KeyScope.Radio),
-        new(Keys.None, CommandValues.HeadphonesUp, KeyScope.Radio),
-        new(Keys.None, CommandValues.HeadphonesDown, KeyScope.Radio),
-        new(Keys.None, CommandValues.LineoutUp, KeyScope.Radio),
-        new(Keys.None, CommandValues.LineoutDown, KeyScope.Radio),
-        new(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio),
-        new(Keys.None, CommandValues.AudioSetup, KeyScope.Radio),
-        new(Keys.None, CommandValues.ATUMemories, KeyScope.Radio),
-        new(Keys.None, CommandValues.Reboot, KeyScope.Radio),
-        new(Keys.None, CommandValues.TXControls, KeyScope.Radio),
+        new(Keys.None, CommandValues.ShowMenus, KeyScope.Radio), // unbound: Retired — never bind this
+        // The six RESERVED audio-gain slots. Read the AudioGainUp note in
+        // _unboundNotes before claiming any of them — the empty slot is the
+        // decision, not an oversight.
+        new(Keys.None, CommandValues.AudioGainUp, KeyScope.Radio), // unbound: Reserved
+        new(Keys.None, CommandValues.AudioGainDown, KeyScope.Radio), // unbound: Reserved
+        new(Keys.None, CommandValues.HeadphonesUp, KeyScope.Radio), // unbound: Reserved
+        new(Keys.None, CommandValues.HeadphonesDown, KeyScope.Radio), // unbound: Reserved
+        new(Keys.None, CommandValues.LineoutUp, KeyScope.Radio), // unbound: Reserved
+        new(Keys.None, CommandValues.LineoutDown, KeyScope.Radio), // unbound: Reserved
+        new(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+A
+        new(Keys.None, CommandValues.AudioSetup, KeyScope.Radio), // unbound: MenuOrDialog
+        new(Keys.None, CommandValues.ATUMemories, KeyScope.Radio), // unbound: MenuOrDialog
+        new(Keys.None, CommandValues.Reboot, KeyScope.Radio), // unbound: MenuOrDialog
+        new(Keys.None, CommandValues.TXControls, KeyScope.Radio), // unbound: MenuOrDialog
 
         // Band jumps
         new(Keys.F3, CommandValues.BandJump160, KeyScope.Radio),
@@ -1368,12 +1600,12 @@ public class KeyCommands
         new(Keys.D | Keys.Alt, CommandValues.LogDateTime, KeyScope.Logging),
         new(Keys.W | Keys.Control, CommandValues.LogFinalize, KeyScope.Logging),
         new(Keys.N | Keys.Control, CommandValues.NewLogEntry, KeyScope.Logging),
-        new(Keys.None, CommandValues.LogFileName, KeyScope.Logging),
-        new(Keys.None, CommandValues.LogMode, KeyScope.Logging),
-        new(Keys.None, CommandValues.LogRig, KeyScope.Logging),
-        new(Keys.None, CommandValues.LogAnt, KeyScope.Logging),
+        new(Keys.None, CommandValues.LogFileName, KeyScope.Logging), // unbound: MenuOrDialog
+        new(Keys.None, CommandValues.LogMode, KeyScope.Logging), // unbound: MenuOrDialog
+        new(Keys.None, CommandValues.LogRig, KeyScope.Logging), // unbound: MenuOrDialog
+        new(Keys.None, CommandValues.LogAnt, KeyScope.Logging), // unbound: MenuOrDialog
         new(Keys.F | Keys.Control | Keys.Shift, CommandValues.SearchLog, KeyScope.Logging),
-        new(Keys.None, CommandValues.LogStats, KeyScope.Logging),
+        new(Keys.None, CommandValues.LogStats, KeyScope.Logging), // unbound: LeaderLayer — Ctrl+J, L
         new(Keys.F6, CommandValues.LogPaneSwitchF6, KeyScope.Logging),
         new(Keys.N | Keys.Control | Keys.Shift, CommandValues.LogCharacteristicsDialog, KeyScope.Logging),
         new(Keys.L | Keys.Control | Keys.Alt, CommandValues.LogOpenFullForm, KeyScope.Logging),
@@ -1389,11 +1621,11 @@ public class KeyCommands
         new(Keys.OemCloseBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowUp, KeyScope.Radio),
         new(Keys.OemOpenBrackets | Keys.Control | Keys.Alt, CommandValues.TXFilterHighDown, KeyScope.Radio),
         new(Keys.OemCloseBrackets | Keys.Control | Keys.Alt, CommandValues.TXFilterHighUp, KeyScope.Radio),
-        new(Keys.None, CommandValues.SpeakTXFilter, KeyScope.Radio),
+        new(Keys.None, CommandValues.SpeakTXFilter, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, F
 
         // Audio Workshop, Tune, ATU, Meters
         new(Keys.W | Keys.Control | Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.Global),
-        new(Keys.None, CommandValues.StartAudioCheck, KeyScope.Radio), // Command Finder only
+        new(Keys.None, CommandValues.StartAudioCheck, KeyScope.Radio), // unbound: CommandFinderOnly
         new(Keys.T | Keys.Control | Keys.Shift, CommandValues.TuneToggle, KeyScope.Radio),
         new(Keys.T | Keys.Control, CommandValues.ATUTune, KeyScope.Radio),
         new(Keys.M | Keys.Control, CommandValues.ToggleMeters, KeyScope.Global),
@@ -1410,16 +1642,12 @@ public class KeyCommands
         new(Keys.A | Keys.Control | Keys.Shift, CommandValues.ToggleAntennaExpander, KeyScope.Radio),
         new(Keys.B | Keys.Control | Keys.Shift, CommandValues.ToggleBrailleStatus, KeyScope.Global),
 
-        // SpeakFrequency claimed Ctrl+Shift+F (Sprint 15+21 design intent) but
-        // never actually received it — the hard-wired ToggleFreqReadout
-        // meta-command consumed Ctrl+Shift+F at window level first (QB Track H
-        // shadow sweep, 2026-08-07). ToggleFreqReadout now owns Ctrl+Shift+F
-        // in the registry (Radio scope; co-binds with SearchLog in Logging
-        // scope, non-conflicting because the modes are mutually exclusive).
-        // SpeakFrequency is honestly unbound: the F key on the Frequency
-        // field speaks the frequency, and the command stays in the Command
-        // Finder / Hotkey Editor for anyone who wants a chord on it.
-        new(Keys.None, CommandValues.SpeakFrequency, KeyScope.Radio),
+        // ToggleFreqReadout owns Ctrl+Shift+F in the registry (Radio scope;
+        // co-binds with SearchLog in Logging scope, non-conflicting because
+        // the modes are mutually exclusive) — which is why SpeakFrequency,
+        // which claimed that chord on paper, is Shadowed. Full story in
+        // _unboundNotes.
+        new(Keys.None, CommandValues.SpeakFrequency, KeyScope.Radio), // unbound: Shadowed
         new(Keys.F4 | Keys.Control, CommandValues.RepeatLastMessage, KeyScope.Global),
 
         // Former hard-wired meta-commands (QB Track H, 2026-08-07) — same
@@ -1431,7 +1659,7 @@ public class KeyCommands
 
         // Verbosity (Sprint 24 Phase 6)
         new(Keys.V | Keys.Control | Keys.Shift, CommandValues.CycleVerbosity, KeyScope.Global),
-        new(Keys.None, CommandValues.ToggleMeterTonesGlobal, KeyScope.Global), // leader key T
+        new(Keys.None, CommandValues.ToggleMeterTonesGlobal, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, T
 
         // Slice (Sprint 24 Phase 8)
         // Shift+M mute-all / Shift+Comma release-all — multi-slice universal
@@ -2654,6 +2882,14 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
 
+        // Trace every leader follow-on. "I pressed Ctrl+J and then something
+        // and nothing happened" is a report we get, and until now the leader
+        // layer was the one dispatch path that left no trace at all — so a
+        // diagnostic capture of the exact complaint contained no evidence of
+        // it. Both arms are needed: this line says the chord arrived, and the
+        // default case below says it arrived and meant nothing.
+        _context.Trace("Leader:" + k);
+
         switch (k)
         {
             // DSP Toggles
@@ -2835,6 +3071,31 @@ public class KeyCommands
                     () => rig.Compander, v => rig.Compander = v);
                 break;
 
+            // Ctrl+A = PC audio on or off (Sprint 32 Track G, task #130).
+            //
+            // Noel, on the survey of commands with no key: "No hotkey for PC
+            // audio on and off available that I know of, you have to do it in
+            // the menu." Of the twenty-nine unbound commands this is the one
+            // that earns a key — it is a toggle you reach for mid-QSO, in the
+            // dark, when you cannot hear something, and a menu is the wrong
+            // instrument for that.
+            //
+            // In the leader layer rather than as a new flat chord, per the
+            // house rule. Ctrl+A rather than plain A because plain A is Auto
+            // Notch; Ctrl+F, Ctrl+D and Ctrl+R are the precedent for reaching
+            // for the Ctrl-modified form when the letter you want is taken,
+            // and A is the letter anyone would reach for. Note Ctrl+J, V, P
+            // rides the PC output LEVEL — this is the on/off switch, and they
+            // sit one keystroke apart on purpose.
+            //
+            // Nothing is duplicated here: the handler is the registry command's
+            // own, so this chord, the Command Finder and the Hotkey Editor all
+            // do the identical thing and say the identical words.
+            case Keys.A | Keys.Control:
+                if (rig == null) LeaderNoRadio();
+                else PCAudioHandler();
+                break;
+
             case Keys.P | Keys.Shift:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Speech Processor",
@@ -2934,6 +3195,7 @@ public class KeyCommands
             case Keys.H | Keys.Shift: JumpToSlice(7); break;
 
             default:
+                _context.Trace("Leader:no command for " + k);
                 EarconPlayer.LeaderInvalidTone();
                 Radios.ScreenReaderOutput.Speak("Unknown command. Press H for help.", true);
                 break;
@@ -3539,6 +3801,67 @@ public class KeyCommands
 
         if (clean)
             _context.Trace("ValidateKeyBindings: all bindings clean, no conflicts");
+
+        clean &= ValidateUnboundAnnotations();
+
+        return clean;
+    }
+
+    /// <summary>
+    /// Every command that defaults to no key must say why, and nothing that
+    /// HAS a key may still be claiming it does not.
+    /// </summary>
+    /// <remarks>
+    /// This is what stops task #130 from being a one-off tidy-up. The whole
+    /// problem was twenty-nine unbound commands with no way to tell a
+    /// deliberate silence from an oversight; a documentation table that
+    /// nothing verifies becomes exactly that again in two sprints, because
+    /// adding a command is easy and remembering a table is not.
+    ///
+    /// <para>Traced rather than thrown: a mis-annotated key table is a
+    /// housekeeping fault, and refusing to start the radio over it would be a
+    /// wildly disproportionate response for an operator who just wants to get
+    /// on the air.</para>
+    /// </remarks>
+    private bool ValidateUnboundAnnotations()
+    {
+        bool clean = true;
+
+        foreach (var d in _defaultKeys)
+        {
+            if (d.Key == Keys.None)
+            {
+                if (!_unboundNotes.ContainsKey(d.Id))
+                {
+                    _context.Trace(
+                        $"UNANNOTATED UNBOUND COMMAND: {d.Id} has no default key and no entry "
+                        + "in _unboundNotes. Say why it has no key — 'menu-only on purpose' and "
+                        + "'nobody ever assigned one' need opposite treatment (task #130).");
+                    clean = false;
+                }
+            }
+            else if (_unboundNotes.ContainsKey(d.Id))
+            {
+                _context.Trace(
+                    $"STALE UNBOUND NOTE: {d.Id} is bound to {d.Key} but still has an entry in "
+                    + "_unboundNotes. Remove the note.");
+                clean = false;
+            }
+        }
+
+        var ids = new HashSet<CommandValues>(_defaultKeys.Select(d => d.Id));
+        foreach (var id in _unboundNotes.Keys)
+        {
+            if (ids.Contains(id)) continue;
+            _context.Trace(
+                $"ORPHANED UNBOUND NOTE: {id} has an entry in _unboundNotes but no row in "
+                + "_defaultKeys.");
+            clean = false;
+        }
+
+        if (clean)
+            _context.Trace(
+                $"ValidateKeyBindings: all {_unboundNotes.Count} unbound commands annotated");
 
         return clean;
     }

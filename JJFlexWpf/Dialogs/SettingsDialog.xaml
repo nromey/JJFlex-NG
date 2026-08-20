@@ -4,8 +4,11 @@
     xmlns:local="clr-namespace:JJFlexWpf"
     xmlns:controls="clr-namespace:JJFlexWpf.Controls"
     Title="Settings"
-    Width="460" Height="540"
+    Width="660" Height="560"
     ResizeMode="NoResize">
+    <!-- Wider than it was (460) because the category list now takes the
+         left-hand 170 (Sprint 32 Track G, task #134). The settings themselves
+         ended up with slightly MORE room than before, not less. -->
     <DockPanel Margin="12">
         <!-- Buttons at bottom. The house convention (Track C, 2026-08-16):
              OK applies and closes, Apply applies and stays, Cancel discards —
@@ -13,8 +16,14 @@
              Apply stays present and enabled even when nothing has changed:
              disabling it would drop it from the tab order (house rule keeps
              disabled controls out), and a button that vanishes mid-dialog is
-             worse than a no-op for anyone counting tab stops. -->
-        <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}">
+             worse than a no-op for anyone counting tab stops.
+
+             Declared first so it docks across the FULL width, under both the
+             category list and the settings — the layout everyone expects. Tab
+             order is set explicitly below rather than inherited from
+             declaration order, because the two no longer want to agree. -->
+        <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}"
+                    KeyboardNavigation.TabIndex="3">
             <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" Style="{StaticResource OkButton}"
                     AutomationProperties.Name="OK"
                     Click="OkButton_Click"/>
@@ -26,8 +35,28 @@
                     Click="CancelButton_Click"/>
         </StackPanel>
 
-        <!-- Tab control -->
+        <!-- The category list (task #134). Contents are built by
+             CategoryNavigator from whatever TabItems exist below — never
+             listed here, so adding a settings category stays a one-block XAML
+             edit and this list picks it up.
+
+             TabIndex 1: the dialog opens ON this list. Eleven categories deep,
+             the first thing an operator should hear is where they are and what
+             else there is, not the first field of whichever category happens
+             to be showing. Ctrl+Tab and Ctrl+Shift+Tab reach it from anywhere
+             inside the dialog. -->
+        <ListBox x:Name="CategoryListBox"
+                 DockPanel.Dock="Left"
+                 Style="{StaticResource CategoryList}"
+                 TabIndex="1"
+                 AutomationProperties.Name="Settings categories"
+                 local:JJFlexHelp.Text="Every group of settings, in one list. Arrow through it to move between them, or use Control plus Tab and Control plus Shift plus Tab from anywhere in this dialog. Tab moves from here into the settings themselves."/>
+
+        <!-- The categories. Styled headerless: the list above IS the tab
+             strip now. -->
         <TabControl x:Name="SettingsTabs"
+                    Style="{StaticResource CategoryTabControl}"
+                    KeyboardNavigation.TabIndex="2"
                     AutomationProperties.Name="Settings categories">
             <!-- PTT Tab -->
             <TabItem Header="PTT" AutomationProperties.Name="Push to talk settings">

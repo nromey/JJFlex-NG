@@ -23,7 +23,7 @@ These keys work no matter where you are in the application — and "no matter wh
 | Ctrl+Shift+S | Speak full status (multi-slice aware) |
 | Ctrl+Alt+S | Open the status dialog |
 | Alt+Shift+S | Speak your current transmit (TX) status |
-| Ctrl+F4 | Repeat the last spoken message |
+| Ctrl+F4 | Repeat what was just spoken — and keep pressing it. Within about six seconds each further press steps back through the last ten messages, wrapping round at the oldest. Leave it longer and the next press starts again from the most recent |
 | Ctrl+Shift+V | Cycle speech verbosity (Chatty, Terse, Off) |
 | Ctrl+Shift+B | Toggle the braille status line |
 | F12 | Stop CW transmission immediately |
@@ -54,6 +54,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | K | Mic check — speak your mic-audio verdict and level, nothing else (see below) |
 | G | Arm or disarm the TX test tone (it replaces your microphone while transmitting) |
 | C | Toggle Compander |
+| Ctrl+A | Turn PC audio on or off — whether radio audio plays through this computer at all. (`Ctrl+J`, `V`, `P` rides how *loud* it plays; this is the switch, and it tells you which way it went) |
 | Shift+P | Toggle Speech Processor |
 | F | Speak the TX filter width |
 | Shift+F | Speak the RX filter width |
@@ -432,22 +433,70 @@ These keys are active in the Select Radio dialog — the window that opens at st
 | Alt+S | SmartLink account. The label follows what you have saved: Sign in to SmartLink, SmartLink Account, or Switch Account |
 | Alt+T | Test the connection to the selected radio |
 | Alt+A | Auto-connect settings for the selected radio |
+| Delete | Take the selected radio off your list. It always asks first, and the choice it offers you starts on the one that deletes nothing — see below |
 | Alt+C, or Escape | Cancel and close the selector |
+
+**About the Delete key and what it asks you.** Delete opens a confirmation with
+two choices: remove the radio from the list only, which keeps every setting you
+have for it, or remove the radio and its settings, which cannot be undone. The
+safe one is chosen for you before you touch anything, and that is deliberate —
+it is what makes a bare Delete keypress safe in the first place.
+
+Both choices are on the Tab ring. That is worth saying because until Sprint 32 they were not: the pair counted as a single stop, so Tab landed on the safe choice and the next Tab went straight to the Remove button. If you tabbed, you never met the second option at all. Now Tab visits each in turn — press Space to take the one you land on — and Up and Down arrow move between them and choose as they go.
 
 **Heads-up: Alt+R is retired.** The Remote button is gone — Connect now opens SmartLink by itself whenever a radio's connection path asks for it, so the button had one job left, showing the remote list, and that lives in the context menu as Show Remote Radios / Refresh Remote List (Shift+F10 on the radio list). If Alt+R was in your fingers, Shift+F10 then R gets you the same list.
 
+## Moving between categories in Settings and the Audio Workshop
+
+Settings holds eleven categories and the Audio Workshop holds several, so both windows navigate the same way — the way NVDA's own settings dialog does. There is a list of categories down the left-hand side, and the category you pick fills the rest of the window.
+
+- **Ctrl+Tab** moves to the next category and **Ctrl+Shift+Tab** to the previous one. Both work from anywhere in the window, including from inside a text box, so you never have to find your way back to the list first.
+- Either one puts you **on the list**, so you hear the category's name and where it sits — "Network, 5 of 11". Tab from there moves into the category's own controls.
+- Both wrap. Past the last category you are on the first; before the first you are on the last.
+- **Up and Down arrow** move through the list in the ordinary way when you are sitting on it.
+- Plain **Tab** is still plain Tab. It moves through the controls of the category you are on and never changes category by itself.
+- Settings opens on the list rather than on a button, so the first thing you hear is where you are and what else there is.
+
+Inside the Audio Workshop, **F6** and **Shift+F6** then move between the sections of whichever category you are on. Categories are the big divisions, sections are the groups within one.
+
+If you knew the old tab strip: it is gone, and the list replaces it. Nothing you could reach before is out of reach — the same categories, in the same order, with a key that works from anywhere instead of only when the strip happened to have focus.
+
 ## Commands With No Default Key
 
-These commands exist and work — they just don't ship with a key. Run them from the Command Finder (`Ctrl+/`), or give them keys of your own in Tools → Hotkey Editor: start scan, saved scan, memory scan, speak frequency, speak TX filter width, show memories, switch S meter units, toggle continuous frequency display, PC audio on/off, select audio device, ATU memories, reboot radio, transmit controls, radio menus, collect debug info, mute slice, show keys help, and the remaining log field jumps (log file name, log mode, log rig, log antenna, log statistics).
+Some commands ship without a key, and it is worth knowing that this is not one list but several. Every one of them runs from the Command Finder (`Ctrl+/`), and you can give any of them a key of your own in Tools → Hotkey Editor.
+
+**Already have a key, just not their own one.** These answer to the JJ key, so
+you may not need to bind anything: show memories (`Ctrl+J`, `M`), log
+statistics (`Ctrl+J`, `L`), speak TX filter width (`Ctrl+J`, `F`), toggle meter
+tones (`Ctrl+J`, `T`), and PC audio on/off (`Ctrl+J`, `Ctrl+A`).
+
+**Live somewhere better than a key.** Audio devices, ATU memories, reboot
+radio, and transmit controls all open something, and the menu that opens them
+is the place you already go. Reboot is deliberately kept off a chord: it
+interrupts everyone on a MultiFlex radio, and the confirmation naming the other
+stations connected is the point of the slower route.
+
+**Waiting in the Command Finder on purpose.** Start scan, saved scan, switch S
+meter units, collect debug info, and start audio check. Each is either rare, or
+better reached where you already are — the Audio Check has `Ctrl+Enter` inside
+the Audio Workshop, which is where you are when you want it.
+
+**Deliberately empty.** The six audio-level slots (`Alt+Page Up` and friends)
+are held open rather than reassigned, so a future feature has to make its case
+before claiming them. Audio levels live in the Audio expander (`Ctrl+Shift+U`)
+and volume mode (`Ctrl+J`, `V`).
+
+**Honestly unbound.** Memory scan and speak frequency each once claimed a chord
+that another command was quietly eating first. Rather than leave a key listed
+that never worked, they have none — and the `F` key on the Frequency field
+speaks the frequency, which was the working route all along.
+
+The remaining log field jumps — log file name, log mode, log rig, log antenna —are filled in from the log form, where Tab reaches them.
 
 ## Audio Workshop
 
-- **F6** moves to the next section — This Computer, Microphone, Processing, TX
-  Filter, TX Monitor, Test Tone, Audio Check — and says which one you landed
-  in. **Shift+F6** goes back. It wraps at both ends, and skips any section that
-  is hidden, so on PC audio you will not be sent to controls that are not there.
-- **Ctrl+Tab** still moves between the three tabs, as it does in any tabbed
-  window. F6 works inside whichever tab you are on.
+- **F6** moves to the next section — This Computer, Microphone, Processing, TX Filter, TX Monitor, Test Tone, Audio Check — and says which one you landed in. **Shift+F6** goes back. It wraps at both ends, and skips any section that is hidden, so on PC audio you will not be sent to controls that are not there.
+- **Ctrl+Tab** moves to the next category, **Ctrl+Shift+Tab** to the previous one, from anywhere in the window. F6 then moves between the sections inside whichever category you are on. See "Moving between categories" below.
 - **Ctrl+Enter** starts or stops the Audio Check from anywhere in the dialog.
   It is a toggle, so the same chord stops it — which matters because a running
   check parks focus on Mic Gain, two stops from the button.

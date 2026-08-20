@@ -184,8 +184,21 @@ public static class KeyManifest
         {
             sb.AppendLine("## Commands with no key (available in the Command Finder, bindable in the Hotkey Editor)");
             sb.AppendLine();
+            // Each one says WHY it has no key (Sprint 32 Track G, task #130).
+            // A bare list of unbound commands reads as a to-do list, and it is
+            // not one: some are reachable on a leader chord, some open a dialog
+            // that is the right route, some are deliberately empty slots, and
+            // two are retired features that must never be bound at all. The
+            // reason is the difference between a gap and a decision.
+            sb.AppendLine("Each entry says why. \"Unassigned\" is the only one that means nobody decided.");
+            sb.AppendLine();
             foreach (var r in unbound)
-                sb.AppendLine($"- {r.Description} ({r.Scope} scope)");
+            {
+                var note = r.CommandId != null
+                    ? KeyCommands.GetUnboundNote(r.CommandId.Value) : null;
+                string why = note == null ? "" : $" — {note.Reason}: {note.Detail}";
+                sb.AppendLine($"- {r.Description} ({r.Scope} scope){why}");
+            }
             sb.AppendLine();
         }
 
