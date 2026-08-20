@@ -286,6 +286,15 @@ public partial class AudioWorkshopDialog
         {
             FlexBase? rig = _rig;
 
+            // Subscribe BEFORE reading anything, and clear the stale flag
+            // first, so a meter arriving mid-collection is caught rather than
+            // dropped. Subscribing afterwards leaves a window in which the
+            // answer changes unnoticed — and that window is the first check
+            // after a connect, which is the exact case the subscription exists
+            // for, because the meter list grows during registration.
+            _txReportStale = false;
+            WatchInventory(rig);
+
             // Collect the computer's facts FIRST so they sit ahead of the
             // radio's in the evidence block: the block reads as a walk along
             // the signal path, and the microphone is where the path starts.
@@ -302,9 +311,6 @@ public partial class AudioWorkshopDialog
 
             DiagnosticFacts facts = TxChainFacts.Collect(rig, pcFacts);
             report = ChainAnalyzer.Run(RuleSetLoader.TxChain(), facts);
-
-            WatchInventory(rig);
-            _txReportStale = false;
             _lastTxReport = report;
         }
         catch (Exception ex)
@@ -507,8 +513,14 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        if (_lastTxReport == null || _txReportStale) return;
+        if (_txReportStale) return;
         _txReportStale = true;
+
+        // The flag is set even when no report exists yet, because the
+        // subscription now starts BEFORE the facts are collected: a meter that
+        // arrives mid-collection has to taint the report that is about to be
+        // written, not be dropped for having arrived early.
+        if (_lastTxReport == null) return;
         RewriteReportWhenNotBeingRead();
     }
 

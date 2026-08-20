@@ -58,10 +58,28 @@ internal static class TxChainPcFacts
             else
             {
                 var devices = new JJPortaudio.Devices(audioDevicesPath);
-                devices.LoadSavedSelection();
-                name = devices.InputDevice?.Name;
-                hostApiTypeId = devices.InputDevice?.hostApiTypeId ?? -1;
-                hostApiName = devices.InputDevice?.hostApiName ?? "";
+
+                // The RETURN VALUE is load-bearing here. readCFG catches its
+                // own deserialization failure, traces it and returns false,
+                // leaving the device array full of nulls — so discarding the
+                // result turns a damaged audioDevices.xml into a null device
+                // name, which reads downstream as "no microphone has been
+                // chosen" and sends a fully configured operator off to pick one
+                // that is already picked. That is precisely the collapse of
+                // unreadable into unconfigured this method exists to prevent,
+                // and it is invisible from the outer try because the exception
+                // never escapes.
+                if (!devices.LoadSavedSelection())
+                {
+                    readFailure = "this computer's audio device settings could not be read; the file at "
+                                + audioDevicesPath + " may be damaged";
+                }
+                else
+                {
+                    name = devices.InputDevice?.Name;
+                    hostApiTypeId = devices.InputDevice?.hostApiTypeId ?? -1;
+                    hostApiName = devices.InputDevice?.hostApiName ?? "";
+                }
             }
         }
         catch (Exception ex)

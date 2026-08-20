@@ -221,8 +221,18 @@ namespace Radios.ChainChecks
             }
         }
 
-        /// <summary>Stages that cannot be seen from this computer at all, no
-        /// matter what the operator does.</summary>
+        /// <summary>
+        /// Stages that came back unobservable for a reason other than "nothing
+        /// applied yet": either the rule file declares them permanently
+        /// unobservable, or their checks could not be read this time.
+        /// </summary>
+        /// <remarks>
+        /// Those two are NOT the same thing, and the report deliberately does
+        /// not pretend to tell them apart in a count. It says "could not be
+        /// checked" and lets each stage give its own reason, because the honest
+        /// distinction — a standing limitation of the app versus a radio that
+        /// happens to be unplugged — lives in the reason, not in the tally.
+        /// </remarks>
         public int StagesBlind => StagesUnobservable - StagesPending;
 
         /// <summary>Stages that are not part of this operator's path.</summary>
@@ -245,6 +255,26 @@ namespace Radios.ChainChecks
                     ? FirstBroken.Message
                     : "Something is wrong at " + FirstBroken.Title + ".";
                 return FirstBroken.Remedy.Length == 0 ? s : s + " " + FirstBroken.Remedy;
+            }
+
+            // NOTHING WAS CHECKED AT ALL. This has to be said before anything
+            // else, because every counter a clean bill of health depends on is
+            // also zero here and the sentence below would read as "all is
+            // well".
+            //
+            // It is reachable in ordinary use: the rules live in a file, and a
+            // missing embedded copy, an unreadable override, or an override
+            // that is empty or all comments all produce a ruleset with no
+            // stages. Census() already says so; this is the line that gets
+            // SPOKEN and sits at the top of the report, so it has to say so
+            // too.
+            if (ChecksMade == 0 && StagesHealthy == 0)
+            {
+                string s = "Nothing was checked, so nothing can be said about your transmit chain. "
+                         + "The checks themselves could not be loaded";
+                if (RuleProblems.Count != 0) s += ": " + RuleProblems[0];
+                else s += ".";
+                return s;
             }
 
             if (ChecksUnreadable > 0 || StagesUnobservable > 0)
@@ -275,9 +305,18 @@ namespace Radios.ChainChecks
             }
             if (StagesBlind > 0)
             {
+                // "could not be checked", NOT "cannot be seen from this
+                // computer". This bucket holds two different things — the
+                // stages the rule file declares permanently unobservable, and
+                // stages whose checks were merely unreadable this time, which
+                // with no radio connected is most of them. Only the first kind
+                // is a standing limitation, and claiming the second kind is one
+                // would send an operator looking for a hole in the app when the
+                // truth is that nothing was plugged in. Each stage's own line
+                // gives its actual reason, verbatim.
                 parts.Add(StagesBlind == 1
-                    ? "one stage cannot be seen from this computer at all"
-                    : StagesBlind + " stages cannot be seen from this computer at all");
+                    ? "one stage could not be checked"
+                    : StagesBlind + " stages could not be checked");
             }
 
             if (parts.Count == 0) return "some of it went unchecked";
@@ -314,7 +353,7 @@ namespace Radios.ChainChecks
             if (StagesPending > 0)
                 sb.Append(", ").Append(StagesPending).Append(" had nothing to check yet");
             if (StagesBlind > 0)
-                sb.Append(", ").Append(StagesBlind).Append(" cannot be seen from this computer");
+                sb.Append(", ").Append(StagesBlind).Append(" could not be checked");
             if (StagesNotInPath > 0)
                 sb.Append(", ").Append(StagesNotInPath).Append(" are not in your transmit path");
             sb.Append('.');
@@ -499,7 +538,15 @@ namespace Radios.ChainChecks
 
                 if (applicabilityUnreadable)
                 {
+                    // Unreadable because we could not tell whether the stage
+                    // even applies — which is a CONDITION we lack, not a stage
+                    // that is invisible from this computer. With no radio
+                    // connected, mic-source is unreadable and four stages land
+                    // here; counting them as permanently blind would tell the
+                    // operator their computer cannot see four stages when the
+                    // truth is simply that nothing is plugged in.
                     result.Verdict = StageVerdict.NotObservable;
+                    result.MeasurableLater = true;
                     continue;
                 }
 
@@ -577,6 +624,25 @@ namespace Radios.ChainChecks
                 if (a == Answer.No) return RuleOutcome.NotApplicable;
             }
 
+            // A rule with nothing to test is a rule that was never run, and it
+            // must NOT count as a check that passed.
+            //
+            // This is not hypothetical. The parser drops any broken-when line it
+            // cannot read and leaves the rule in place with an empty list, so
+            // ONE typo in the rule file — or in an override file pushed out
+            // after release, which is the documented delivery path — would
+            // otherwise turn that rule into a silent pass. Stage 9 carries
+            // exactly one rule, so a typo there would report the confirmed
+            // silent-transmit failure as "checked, nothing wrong". The ruleset's
+            // Problems list does name the bad line, but a list nobody reads is
+            // not a defence; refusing to count the check is.
+            if (rule.BrokenWhen.Count == 0)
+            {
+                why = "the check named " + rule.Id
+                    + " has no test in the rule file, so it could not be run";
+                return RuleOutcome.Unreadable;
+            }
+
             bool all = true;
             foreach (Condition c in rule.BrokenWhen)
             {
@@ -589,7 +655,7 @@ namespace Radios.ChainChecks
             // reports Unreadable when any part of it could not be read rather
             // than silently passing on the first false. A check we only half
             // made is a check we did not make.
-            return rule.BrokenWhen.Count != 0 && all ? RuleOutcome.Fired : RuleOutcome.Passed;
+            return all ? RuleOutcome.Fired : RuleOutcome.Passed;
         }
 
         private static void CollectEvidence(StageResult result, DiagnosticRule rule, DiagnosticFacts facts)

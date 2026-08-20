@@ -530,11 +530,19 @@ namespace Radios.ChainChecks
         /// </summary>
         private void Validate()
         {
+            // A duplicate stage number is DROPPED, not merely reported. Left in
+            // place it is walked twice and its rules counted twice, so the
+            // census claims more checks than were ever run — and a census that
+            // overstates how much was looked at is the exact lie this design
+            // exists to prevent.
             var known = new HashSet<int>();
-            foreach (DiagnosticStage s in Stages)
+            for (int i = 0; i < Stages.Count; i++)
             {
-                if (!known.Add(s.Number))
-                    Problems.Add("Stage " + s.Number + " is declared more than once.");
+                if (known.Add(Stages[i].Number)) continue;
+                Problems.Add("Stage " + Stages[i].Number + " is declared more than once; "
+                    + "only the first declaration is used.");
+                Stages.RemoveAt(i);
+                i--;
             }
 
             foreach (DiagnosticRule r in Rules)

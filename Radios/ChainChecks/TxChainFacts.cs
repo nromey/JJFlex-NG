@@ -253,8 +253,36 @@ namespace Radios.ChainChecks
             // computer. Reading MicData for a PC-audio operator is the
             // cry-wolf mistake this analyzer must not repeat, so it is
             // collected as context and no rule tests it.
+            // EVERY ONE of these three scalars is gated on its meter really
+            // existing, and that gate is load-bearing.
+            //
+            // FlexBase initialises all three to -150 and only ever moves them
+            // from a DataReady handler it attaches IF hookTxMeters finds the
+            // meter by name. "SC_MIC NOT FOUND" and a missing plain "ALC" are
+            // both states FlexBase traces on purpose — a FLEX-8600 publishes
+            // MIC, MICPEAK and HWALC and may carry no plain ALC at all, and
+            // FlexBase's own comment says SwAlcDb then never moves. Without
+            // this gate the accessor hands back an initialiser the radio has
+            // never touched, and the analyzer would publish it as a measured
+            // dBFS value: a fabricated floor that fires "your radio hears
+            // nothing", inside an evidence block that says on one line that the
+            // meter does not exist and on the next quotes a reading from it.
+            //
+            // The meter lookup is the right gate rather than a -150 test,
+            // because -150 from a meter that IS reporting is real information.
+            MeterInventory inv = SafeInventory(rig);
+            bool haveScMic = inv?.Find("SC_MIC") != null;
+            bool haveAlc = inv?.Find("ALC") != null;
+
+            const string noScMic = "this radio does not publish an SC_MIC meter, so what it "
+                                 + "hears on transmit cannot be read here";
+
             Probe(f, "sc-mic-peak", "Loudest transmit audio the radio has heard", () =>
             {
+                if (!haveScMic)
+                    return DiagnosticFact.Absent("sc-mic-peak",
+                        "Loudest transmit audio the radio has heard", noScMic, "the radio");
+
                 float v = rig.ScMicMaxDb;
                 if (v <= -149f)
                 {
@@ -265,28 +293,48 @@ namespace Radios.ChainChecks
                 return DiagnosticFact.Measure("sc-mic-peak", "Loudest transmit audio the radio has heard",
                                               v, "dBFS", "the radio's SC_MIC meter");
             });
-            // These two stay plain numbers even at the -150 idle sentinel, and
-            // that is deliberate. -150 while transmitting is not an absence of
-            // information — it is THE finding, the floor that stalled the
-            // honest-tx-audio investigation for weeks. Turning it into a
-            // "silent" state would make the one rule that matters most
-            // unevaluable in exactly the case it exists for.
-            Probe(f, "sc-mic-recent", "Transmit audio the radio heard in the last second and a half",
-                  () => DiagnosticFact.Measure("sc-mic-recent",
+
+            // This one stays a plain number at the -150 idle sentinel once the
+            // meter is known to exist, and that is deliberate: -150 from a live
+            // meter while transmitting is not an absence of information, it is
+            // THE finding — the floor that stalled the honest-tx-audio
+            // investigation for weeks. Turning a live meter's floor into a
+            // "silent" state would make the rule that matters most unevaluable
+            // in exactly the case it exists for.
+            Probe(f, "sc-mic-recent", "Transmit audio the radio heard in the last second and a half", () =>
+            {
+                if (!haveScMic)
+                    return DiagnosticFact.Absent("sc-mic-recent",
                         "Transmit audio the radio heard in the last second and a half",
-                        rig.ScMicRecentDb, "dBFS", "the radio's SC_MIC meter"));
-            Probe(f, "sw-alc", "Transmit drive after the radio's own levelling",
-                  () => DiagnosticFact.Measure("sw-alc", "Transmit drive after the radio's own levelling",
-                        rig.SwAlcDb, "dBFS", "the radio's SW ALC meter"));
-            Probe(f, "codec-mic", "Analog microphone level at the radio's codec",
-                  () => DiagnosticFact.Measure("codec-mic",
+                        noScMic, "the radio");
+                return DiagnosticFact.Measure("sc-mic-recent",
+                        "Transmit audio the radio heard in the last second and a half",
+                        rig.ScMicRecentDb, "dBFS", "the radio's SC_MIC meter");
+            });
+
+            Probe(f, "sw-alc", "Transmit drive after the radio's own levelling", () =>
+            {
+                if (!haveAlc)
+                    return DiagnosticFact.Absent("sw-alc", "Transmit drive after the radio's own levelling",
+                        "this radio does not publish a plain ALC meter, so transmit drive cannot be read here",
+                        "the radio");
+                return DiagnosticFact.Measure("sw-alc", "Transmit drive after the radio's own levelling",
+                        rig.SwAlcDb, "dBFS", "the radio's ALC meter");
+            });
+
+            Probe(f, "codec-mic", "Analog microphone level at the radio's codec", () =>
+            {
+                if (inv?.Find("MIC") == null)
+                    return DiagnosticFact.Absent("codec-mic", "Analog microphone level at the radio's codec",
+                        "this radio does not publish a MIC meter", "the radio");
+                return DiagnosticFact.Measure("codec-mic",
                         "Analog microphone level at the radio's codec (reads about -120 when transmit audio comes from the computer, which is normal)",
-                        rig.MicData, "dBFS", "the radio's MIC meter"));
+                        rig.MicData, "dBFS", "the radio's MIC meter");
+            });
 
             // Named meters straight from the inventory, which is the only route
             // that carries a per-meter timestamp — so "this meter went quiet"
             // becomes a thing a rule can say.
-            MeterInventory inv = SafeInventory(rig);
             AddMeter(f, inv, "meter-sc-mic", "Radio transmit mic meter", "SC_MIC");
             AddMeter(f, inv, "meter-micpeak", "Radio mic peak meter", "MICPEAK");
             AddMeter(f, inv, "meter-comppeak", "Radio compression peak meter", "COMPPEAK");

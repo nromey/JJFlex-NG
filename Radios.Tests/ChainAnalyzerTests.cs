@@ -411,6 +411,83 @@ namespace Radios.Tests
         // ── The rule file's own defences ──────────────────────────────────
 
         [Fact]
+        public void A_rule_whose_test_failed_to_parse_is_unreadable_not_a_silent_pass()
+        {
+            // One typo in a broken-when line — in the shipped file or in an
+            // override pushed out after release — must not turn its rule into a
+            // check that passes. Stage 9 carries exactly one rule, so this is
+            // the difference between reporting the confirmed silent-transmit
+            // failure and reporting "checked, nothing wrong".
+            var rules = DiagnosticRuleSet.Parse(
+                "stage: 1 a stage\nrule: r\nin-stage: 1\nbroken-when: x wibbles 3\nverdict: v\n");
+            Assert.NotEmpty(rules.Problems);
+
+            var f = new DiagnosticFacts();
+            f.Add(DiagnosticFact.Flag("x", "X", true));
+            ChainReport r = ChainAnalyzer.Run(rules, f);
+
+            Assert.Equal(StageVerdict.NotObservable, r.Stages[0].Verdict);
+            Assert.Equal(0, r.ChecksMade);
+            Assert.Equal(1, r.ChecksUnreadable);
+        }
+
+        [Fact]
+        public void An_empty_ruleset_says_nothing_was_checked_rather_than_nothing_is_wrong()
+        {
+            // Reachable in ordinary use: a missing embedded resource, an
+            // unreadable override, or an override that is empty or all
+            // comments. Every counter a clean bill of health depends on is
+            // also zero here, so the headline has to say so itself.
+            ChainReport r = ChainAnalyzer.Run(new DiagnosticRuleSet(), Healthy());
+
+            Assert.DoesNotContain("nothing is wrong", r.Headline());
+            Assert.Contains("Nothing was checked", r.Headline());
+        }
+
+        [Fact]
+        public void A_duplicate_stage_number_is_dropped_so_its_checks_are_not_counted_twice()
+        {
+            var rules = DiagnosticRuleSet.Parse(
+                "stage: 1 first\nstage: 1 again\nrule: r\nin-stage: 1\n"
+                + "broken-when: x is yes\nverdict: v\n");
+            Assert.Single(rules.Stages);
+            Assert.Contains(rules.Problems, p => p.Contains("more than once"));
+
+            var f = new DiagnosticFacts();
+            f.Add(DiagnosticFact.Flag("x", "X", false));
+            ChainReport r = ChainAnalyzer.Run(rules, f);
+
+            Assert.Equal(1, r.ChecksMade);
+        }
+
+        [Fact]
+        public void With_no_radio_the_unseen_stages_are_not_called_permanently_invisible()
+        {
+            // Their applicability was unreadable because nothing is connected,
+            // which is a condition we lack — not a stage this computer can
+            // never see. Saying otherwise sends the operator hunting for a
+            // limitation that does not exist.
+            var f = new DiagnosticFacts();
+            f.Add(DiagnosticFact.Flag("radio-connected", "A radio is connected", false));
+
+            ChainReport dead = ChainAnalyzer.Run(Rules(), f);
+
+            // The computer-side stages could not even be judged for relevance,
+            // so they read as pending rather than as checks that failed.
+            foreach (int n in new[] { 1, 2, 3, 4 })
+            {
+                Assert.Equal(StageVerdict.NotObservable, Stage(dead, n).Verdict);
+                Assert.True(Stage(dead, n).MeasurableLater, "stage " + n);
+            }
+
+            // And nothing anywhere in the report claims this computer is
+            // incapable of seeing them. The only standing limitations are the
+            // ones the rule file declares, and each says so in its own words.
+            Assert.DoesNotContain("cannot be seen from this computer", dead.Census());
+            Assert.DoesNotContain("cannot be seen from this computer", dead.Headline());
+        }
+
+        [Fact]
         public void A_rule_that_can_never_fire_is_reported_rather_than_shipped_silently()
         {
             var rules = DiagnosticRuleSet.Parse(
