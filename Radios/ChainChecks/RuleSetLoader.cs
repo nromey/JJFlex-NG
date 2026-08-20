@@ -5,7 +5,7 @@ using System.IO;
 using System.Reflection;
 using JJTrace;
 
-namespace Radios.Diagnostics
+namespace Radios.ChainChecks
 {
     /// <summary>
     /// Finds the rules. One built into the app, one the operator or a future
@@ -38,7 +38,7 @@ namespace Radios.Diagnostics
         public const string TxChainFileName = "tx-chain-rules.txt";
 
         /// <summary>The embedded copy's resource name.</summary>
-        private const string TxChainResource = "Radios.Diagnostics.tx-chain-rules.txt";
+        private const string TxChainResource = "Radios.ChainChecks.tx-chain-rules.txt";
 
         private static readonly object CacheLock = new object();
         private static readonly Dictionary<string, DiagnosticRuleSet> Cache =

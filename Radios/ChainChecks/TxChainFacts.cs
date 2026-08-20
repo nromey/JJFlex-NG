@@ -4,7 +4,7 @@ using System.Globalization;
 using JJTrace;
 using System.Diagnostics;
 
-namespace Radios.Diagnostics
+namespace Radios.ChainChecks
 {
     /// <summary>
     /// Reads the radio's side of the transmit chain and states it as facts the

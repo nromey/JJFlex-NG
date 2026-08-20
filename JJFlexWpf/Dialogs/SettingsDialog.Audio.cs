@@ -152,9 +152,23 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Show whichever rung of the silent-radio ladder is currently true, or
-        /// a plain statement of the levels when nothing is wrong.
+        /// State what the radio's own outputs are set to, right above the
+        /// controls that set them.
         /// </summary>
+        /// <remarks>
+        /// This used to read out the silent-radio ladder. The ladder moved to
+        /// the Audio Workshop's Diagnostics page in Sprint 32 Track C, beside
+        /// the transmit chain check, so what is left here is what this line was
+        /// always for: the current state of the four controls immediately below
+        /// it. <see cref="FlexBase.SilentRadioAdvisory"/> is unchanged — the
+        /// call site moved, the method did not.
+        ///
+        /// <para>The mutes are still named, because a muted output IS the state
+        /// of a control on this panel and reading it back is not diagnosis. The
+        /// ORDERED ladder — what to suspect first, and why a Flex is silent by
+        /// design until a client connects — is the part that belongs in one
+        /// place, and that place is now the Workshop.</para>
+        /// </remarks>
         private void RefreshRadioAudioAdvisory()
         {
             if (RadioOutputsAdvisory == null) return;
@@ -169,9 +183,22 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            string? advisory = rig.SilentRadioAdvisory();
-            AudioDevicesDialog.SetStatusLine(RadioOutputsAdvisory, advisory
-                ?? $"Headphone level {rig.HeadphoneGain}, line out level {rig.LineoutGain}, nothing muted.");
+            var muted = new List<string>();
+            if (rig.HeadphoneMute) muted.Add("headphones");
+            if (rig.LineoutMute) muted.Add("line out");
+            if (rig.FrontSpeakerMute) muted.Add("the front speaker");
+
+            string mutes = muted.Count switch
+            {
+                0 => "nothing muted",
+                1 => muted[0] + " muted",
+                2 => muted[0] + " and " + muted[1] + " muted",
+                _ => string.Join(", ", muted.GetRange(0, muted.Count - 1))
+                     + " and " + muted[muted.Count - 1] + " muted",
+            };
+
+            AudioDevicesDialog.SetStatusLine(RadioOutputsAdvisory,
+                $"Headphone level {rig.HeadphoneGain}, line out level {rig.LineoutGain}, {mutes}.");
         }
 
         private void RefreshPcAudioStatus()
@@ -472,37 +499,14 @@ namespace JJFlexWpf.Dialogs
             }
         }
 
-        /// <summary>
-        /// Speak the ladder's current answer on demand.
-        /// </summary>
-        /// <remarks>
-        /// The rungs run in the order that actually bites, and the first one is
-        /// the one that catches operators coming from a conventional rig: a Flex
-        /// produces no audio until a client connects, headphone jack included.
-        /// Everything else — muted outputs, levels at the floor, PC audio off
-        /// with no local path — comes after, because none of it matters if
-        /// nothing is connected.
-        /// </remarks>
-        private void WhySilentButton_Click(object sender, RoutedEventArgs e)
-        {
-            var rig = _rig;
-
-            string message;
-            if (rig == null || !rig.IsConnected)
-            {
-                message = "No radio is connected. A Flex makes no audio at all until a client connects to it, "
-                        + "including at its own headphone jack. Connect first.";
-            }
-            else
-            {
-                message = rig.SilentRadioAdvisory()
-                    ?? $"Nothing obvious is wrong. Headphone level {rig.HeadphoneGain}, line out level {rig.LineoutGain}, "
-                     + "nothing muted. If the radio is still silent, check the slice volume and that a slice is not muted.";
-            }
-
-            RefreshRadioAudioAdvisory();
-            ScreenReaderOutput.Speak(message, VerbosityLevel.Critical, true);
-        }
+        // MOVED, Sprint 32 Track C: WhySilentButton_Click and its "Why is my
+        // radio silent?" button now live on the Audio Workshop's Diagnostics
+        // page as RunReceiveCheck, beside the transmit chain check — Noel's
+        // ruling that the two are one tool pointed in opposite directions.
+        //
+        // The ladder itself, FlexBase.SilentRadioAdvisory, was NOT touched: same
+        // method, same signature, same order of rungs. Only the call site moved.
+        // A pointer stays in the XAML where the button was.
 
         private void AudioDevicesButton_Click(object sender, RoutedEventArgs e)
         {

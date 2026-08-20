@@ -26,9 +26,15 @@
     <!-- The diagnostic rules ship INSIDE the assembly so they can never go
          missing from an install and need no installer entry. An operator's own
          copy under %AppData%\JJFlexRadio replaces this one at run time; see
-         Diagnostics\RuleSetLoader.cs. -->
-    <EmbeddedResource Include="Diagnostics\tx-chain-rules.txt"
-                      LogicalName="Radios.Diagnostics.tx-chain-rules.txt" />
+         ChainChecks\RuleSetLoader.cs.
+
+         The folder is ChainChecks, not Diagnostics, and that is not cosmetic:
+         a Radios.Diagnostics namespace SHADOWS System.Diagnostics for every VB
+         file that imports Radios, so PersonalData.vb's Diagnostics.TraceLevel
+         stopped compiling the moment it existed. Any new Radios.<X> namespace
+         must be checked against System.<X> for the same reason. -->
+    <EmbeddedResource Include="ChainChecks\tx-chain-rules.txt"
+                      LogicalName="Radios.ChainChecks.tx-chain-rules.txt" />
   </ItemGroup>
 
   <!-- No screen-reader natives are copied to the app root. Speech and braille

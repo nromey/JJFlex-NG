@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace Radios.Diagnostics
+namespace Radios.ChainChecks
 {
     /// <summary>
     /// What one stage of the chain came out as.

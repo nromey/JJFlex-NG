@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace Radios.Diagnostics
+namespace Radios.ChainChecks
 {
     /// <summary>
     /// How well we can see one fact. This is the whole three-state-observability

@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 
-namespace Radios.Diagnostics
+namespace Radios.ChainChecks
 {
     /// <summary>
     /// What one test came out as. Three answers, not two, for the same reason
@@ -326,7 +326,7 @@ namespace Radios.Diagnostics
     /// <para>
     /// The format is documented in full at the top of the shipped rule file,
     /// which is the authority — a rule author should never have to read this
-    /// code. See <c>Radios/Diagnostics/tx-chain-rules.txt</c>.
+    /// code. See <c>Radios/ChainChecks/tx-chain-rules.txt</c>.
     /// </para>
     /// </remarks>
     public sealed class DiagnosticRuleSet
