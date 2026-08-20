@@ -1,133 +1,139 @@
-# Sprint 32 Track A — The meter inventory (foundation)
+# Sprint 32 Track B — Rebuild the meters panel
 
-**Worktree:** `C:\dev\jjflex-32a` · **Branch:** `sprint32/track-a`
-**Full design:** `docs/planning/active/elmer-meter-pileup.md`, section "Track A".
-**Read that first.** It carries the reasoning; this file carries the contract.
+**Worktree:** `C:\dev\jjflex-32b` · **Branch:** `sprint32/track-b`
+**Branched off Track A's Phase 1** (`9954c395`), so the meter inventory is
+already in your tree. **Full design:** `docs/planning/active/elmer-meter-pileup.md`,
+section "Track B". Read that first.
 
-## You are the blocking track
+## These five tasks are ONE job
 
-Tracks B, C and D cannot start until you report **Phase 1 committed**. Track E is
-waiting specifically on your A4 commit. Get Phase 1 done and reported before you
-touch Phase 2 — a fast Phase 1 unblocks four other agents.
+#129, #124, #131, #126, #127. Each independently rewrites or touches the same
+433-line `MetersPanel.xaml.cs`, and #129's root fix is the structural change the
+others need. Doing them separately means rewriting the file twice.
 
-## Phase 1 — do these four, commit each separately, then REPORT
+## What Track A already built for you — USE IT, do not rebuild it
 
-### A1. Apply the FlexLib meter-list patch
+On `FlexBase`:
+- `MeterInventory MeterInventory { get; }` — never null, built in the
+  constructor, live from the first connect. **This is the property you want.**
+- `ImmutableList<Meter> RadioMeters` — snapshot, empty when disconnected.
+- `event MeterDataDel MeterData` — signature
+  `void (object sender, Meter meter, float value)`. Every reading of every meter,
+  identity intact.
+- `event EventHandler MeterInventoryChanged` — the SET changed.
 
-`MIGRATION.md` has a section headed **"Not yet applied: a public accessor for the
-meter list (reviewed 2026-08-16)"**. It contains the exact patch, already
-reviewed. **Apply it as written. Do not redesign it.**
+`Radios.MeterInventory`: `event EventHandler InventoryChanged`;
+`IReadOnlyList<MeterReading> All`; `IReadOnlyList<MeterGroup> Groups` (ordered
+radio, then slices by index, then amps and tuners); `int Count`;
+`MeterReading Find(string name)` (case-insensitive); `ForHandle(string)`;
+`ForSource(string source, int sourceIndex)`; `ToText()`.
 
-It goes in `FlexLib_API/FlexLib/Radio.cs` next to `FindMeterByName`:
+`Radios.MeterReading`: `Index`, `Name`, `Description`, `Source` (upper-cased
+`SLC`/`AMP`/`HAAPI`), `SourceIndex`, `Units`, `Low`, `High`, `Value`,
+`HasReading`, `UpdateCount`, `LastUpdateUtc`, `Age`, `IsStale(TimeSpan)`,
+`ValueText()`.
 
-```csharp
-/// <summary>JJFlex patch: enumerate the radio's meter inventory.</summary>
-public ImmutableList<Meter> GetMeters()
-{
-    lock (_meters)
-        return _meters.ToImmutableList();
-}
-```
+`Radios.MeterGroup`: `Source`, `SourceIndex`, `Meters`, `Label` ("This radio",
+"Slice N", "Amplifier or tuner 0xNNNNNNNN"), `Handle` (formatted `0x%08X`).
 
-Same commit, all of it:
-- Mark it `// JJFlex patch`, the way the VitaSocket edits in that file are marked.
-- Add it to MIGRATION.md's numbered reapply list (it becomes item 11) and move the
-  "Not yet applied" section into the applied list, dated today.
-- **Delete the reflection block inside `FlexBase.traceMeterInventory`.** It reaches
-  the same private field by `GetField("_meters", NonPublic | Instance)`. Two routes
-  to one field is how one of them rots. The method keeps its job — tracing the
-  inventory when the set changes — only its access route changes.
+**TWO CONTRACT NOTES FROM TRACK A, both load-bearing:**
 
-This is a vendor-tree edit. It is purely additive, so a future 3-way merge cannot
-conflict with it; it will simply need re-adding if a merge takes the vendor file
-wholesale. That is why MIGRATION.md's reapply list matters.
+1. **BIND to `InventoryChanged`. Do NOT sample once.** FlexLib raises nothing
+   when a meter appears and the list grows during registration — an early
+   snapshot catches eleven meters with the TX-side ones still to arrive. This is
+   the same defect as #129, one layer down.
+2. **`MeterData` and `InventoryChanged` fire on FlexLib's meter thread, NOT the
+   UI thread.** Marshal before touching WPF. `All` and `Groups` are replaced
+   wholesale rather than mutated, so you can iterate one without locking.
 
-### A2. Identity-preserving meter subscription in `FlexBase`
+## B1. #129 — the root fix
 
-FlexLib exposes `Meter.DataReady(Meter meter, float data)` — a generic per-meter
-event carrying the meter itself. `FlexBase` currently subscribes to ten *named
-convenience* events (`MicDataReady`, `SWRDataReady`, …), discards the meter
-identity, and re-emits `MeterType`, an 8-value enum.
+`BuildSlotControls()` is called once in the constructor and never again, so slots
+added to the engine later exist with **no controls at all**. Noel added a slot,
+got slot 5, and could see nothing else.
 
-Subscribe generically and raise a new event that carries the `Meter`.
+**Make the panel a LIVE VIEW over the engine's slot collection.** Not a
+constructor snapshot. This is the structural change everything else here rests on.
 
-**DO NOT delete `MeterType` or `MeterChanged`.** `MeterToneEngine` and other
-callers read them and **Track B is the only track permitted to retire them**.
-Leaving the old path alive as a shim is deliberate. Removing it here breaks Track
-B mid-flight.
+## B2. #124 — the model move
 
-### A3. The `MeterInventory` service
+Off `MeterToneEngine.MeterSource` (the 8-value enum) and the parallel hardcoded
+string array in `MetersPanel.xaml.cs:31`, onto `MeterDefinition` /
+`MeterSourceRef` with a **string key**. `MeterSlot`'s own doc comment already
+concedes this: *"new code should use Definition directly."* The bridge was built
+and never crossed.
 
-**Put it in `Radios`, not `JJFlexWpf`.** The layering runs `Radios` *below*
-`JJFlexWpf`, so anything placed in `JJFlexWpf` is unreachable from the radio layer.
+Populate the source picker from `FlexBase.MeterInventory`. **A hundred entries in
+a combo is its own accessibility problem** — follow the #62 device-picker
+precedent: a "common meters" default and an "all meters" mode, grouped by
+`MeterGroup.Label`.
 
-Per meter, carry: name, `Meter.Source` (`SLC` / `AMP` / `HAAPI`), `SourceIndex`,
-units, range low and high, current value, and a **last-update timestamp**.
-Staleness is a reading, not an absence — Track C's rules depend on being able to
-say "this meter stopped updating."
+**You are the ONLY track permitted to retire `Radios.MeterType` and
+`JJFlexWpf.MeterSource`.** Track A deliberately left them as a shim. Retire them
+once nothing reads them, and **say so explicitly in your completion report** so
+the merge knows the shim is gone.
 
-Expose the inventory **partitioned by source and source index**. That is how
-amplifier, tuner and per-slice meters separate, and `Meter.Source` already tags
-every meter this way. Track D needs no new concept, only this.
+## B3. Config migration — the highest-risk item in the sprint
 
-**Change notification is the load-bearing part, do not skip it.** FlexLib raises
-NOTHING when a meter appears, and the list GROWS DURING REGISTRATION — an 8600
-reported 102 meters, and an early snapshot catches eleven with the TX-side ones
-still to arrive. `traceMeterInventory` already does a count-and-set comparison for
-exactly this reason. Do that once, centrally, in the service, and raise an event
-when the set changes. Everything downstream binds to the event rather than
-sampling at construction.
+`AudioOutputConfig` persists the meter source **as an integer**. Existing users
+have slots saved as ints; without a migration, every operator's meter tones
+silently repoint to whatever now sits at that ordinal. Same class as #34, the
+PortAudio device-index bug.
 
-### A4. Split `AudioWorkshopDialog.xaml.cs` — Track E is waiting on this
+**Write the migration FIRST, and test it against a real pre-existing
+`audioConfig.xml`** — not a synthetic one. `%AppData%\JJFlexRadio\`.
 
-4,866 lines in one file, already declared `partial`, never split. `SettingsDialog`
-in the same folder is already split into six per-tab partial files. Follow that
-existing convention: one file per tab, `AudioWorkshopDialog.<Tab>.cs`.
+## B4. The slot redesign — Noel's words
 
-**Pure mechanical move. No behaviour change. Its own commit.** Three tracks add a
-Workshop tab this sprint and a fourth restructures its navigation; without this
-split that is four agents editing one region.
+*"Making it so that you have tabs to go through all slots is not efficient, so
+you'd need a combo to select a tone and then modify / enable / do whatever with
+it. Also would allow for del key / remove yes/no query."*
 
-**Do this commit EARLY in Phase 1** — ideally first — and say so in your report,
-because Track E is blocked on it specifically and on nothing else of yours.
+A slot selector combo, one set of controls that retarget to the selected slot,
+Delete with a confirm.
 
-## REPORT NOW — then continue to Phase 2
+## B5. #131 — the runaway test tone
 
-Report: each commit SHA, confirmation that the reflection is deleted, the
-`MeterInventory` public surface (so B, C and D can code against it), and
-explicitly that A4 has landed.
+The Test button's stop timer only sets `slot.ToneProvider.Active = false` when
+`!MeterToneEngine.Enabled` — but the only route into the panel, Ctrl+M,
+**enables** meters. The stop condition is guaranteed false and the tone never
+stops. **Stop unconditionally on expiry.**
 
-## Phase 2 — after you have reported
+## B6. #126 — Ctrl+M does two jobs
 
-### A5. Meter Inventory tab in the Workshop
+It shows the panel AND turns meter tones on. Separate them; the panel needs a way
+in that does not change audio state. **This touches key bindings, so the
+CLAUDE.md keyboard audit applies — including pressing the key on a real build.**
+Track G owns `KeyCommands` generally; flag the change in your report so the merge
+knows to look.
 
-Read-only. Which meters this radio actually has, what each reads now, grouped by
-source, with staleness shown. Ship this BEFORE any decision tree exists — it
-closes the invisible-meter-list finding (commit `d5aecf2b`) and produces the real
-data needed to write good rules.
+## B7. #127 — the missing earcon
 
-### A6. Copyable text export of the inventory
+The meters expander is the only one on Home with no expand/collapse earcon. Wire
+`PlayExpand` / `PlayCollapse`.
 
-Seeds Track C's evidence block; useful alone.
+## B8. Pan resolution
 
-## You own these files — no other track touches them
+Three values (Left / Center / Right) are not enough. Noel: *"we need that to be
+slider or have more values though if we have more items."* Continuous, or at
+minimum five to seven positions.
 
-`FlexLib_API/FlexLib/Radio.cs` (the patch), `MIGRATION.md`, `FlexBase`'s meter
-subscription section, the new `MeterInventory`, and the `AudioWorkshopDialog`
-partial-file split.
+## You own these files
+
+`MetersPanel.xaml.cs`, `MeterToneEngine.cs`, the meter section of
+`AudioOutputConfig.cs`. **Do not edit `FlexBase`'s meter section — that is Track
+A's**, and it is done.
 
 ## Rules that apply to every track this sprint
 
 - **Reuse the symbols you are told to reuse. If you conclude one should MOVE or
   CHANGE SIGNATURE, report it — do not do it.** A clean `git merge` with zero
-  textual conflict still broke the build in Sprint 30 because one track moved a
-  symbol another was told to reuse. Git cannot see that class of collision.
-- **NO tables, diagrams or ASCII art** in any doc or comment you write. Prose or
-  bullets. The primary user is blind and uses NVDA.
+  textual conflict still broke the build in Sprint 30 for exactly this reason.
+- **NO tables, diagrams or ASCII art** in anything you write. Prose or bullets.
+  The primary user is blind and uses NVDA.
 - **Verify builds by the `N Error(s)` summary line**, never by grepping for the
-  word "error" — that matches warning prose and has produced a false "it built"
-  report before.
-- Commit per logical chunk with `Sprint 32 Track A: <description>`.
+  word "error" — that matches warning prose. Expect ~609 pre-existing warnings.
+- Commit per logical chunk with `Sprint 32 Track B: <description>`.
 - Do not merge anything into your branch. The orchestrator runs the merge train.
 
 ## Build
@@ -136,11 +142,12 @@ partial-file split.
 dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal
 ```
 
-Close any running JJFlexRadio first — `Radios.dll` locks. If the build reports
-file-lock errors, that is a running app, not a code defect.
+Close any running JJFlexRadio first — `Radios.dll` locks.
 
 ## Definition of done
 
-Phase 1 reported with SHAs; Phase 2 committed; clean x64 build verified by the
-error-count line; no behaviour change in A4; `MeterType`/`MeterChanged` still
-present and working.
+Panel is a live view; picker driven by the real inventory with a common/all
+split; **config migration written first and tested against a real file**; slot
+combo with Delete-and-confirm; test tone stops; Ctrl+M split; expander earcon;
+finer pan; enum and parallel array deleted; clean x64 build. **Report explicitly
+whether you retired `MeterType`/`MeterSource`.**
