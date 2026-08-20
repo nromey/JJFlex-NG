@@ -7412,14 +7412,12 @@ namespace Radios
         /// hardcoded subset. What an 8600 running four slices reports — how
         /// many, under what names, in what units, and which are per-slice — is
         /// simply unknown.</para>
-        /// <para>Reflection, deliberately, and only here. FlexLib exposes
-        /// <c>FindMeterByName</c> publicly but keeps the list itself private, so
-        /// there is no supported way to enumerate. Editing vendor FlexLib is the
-        /// worse option: every edit has to be re-applied by hand on each upgrade
-        /// (see MIGRATION.md). Treat this as scaffolding — a meter picker that
-        /// offers what the radio really has needs a proper accessor, and that is
-        /// a documented FlexLib patch rather than this. MIGRATION.md carries the
-        /// exact patch, reviewed 2026-08-16.</para>
+        /// <para>Enumerated through <c>Radio.GetMeters()</c>, the JJFlex patch in
+        /// <c>FlexLib_API/FlexLib/Radio.cs</c> (MIGRATION.md reapply item 11).
+        /// This method reached the same private field by reflection until
+        /// 2026-08-19; the patch replaced it, and the reflection was deleted in
+        /// the same commit, because two routes to one private field is how one
+        /// of them rots unnoticed.</para>
         /// </summary>
         /// <remarks>
         /// Called from <c>micData</c> on every mic-meter event, so the cheap
@@ -7430,26 +7428,14 @@ namespace Radios
             if (theRadio == null) return;
             try
             {
-                // Resolved once. This runs at meter rate, and a GetField by
-                // string on every call is a name lookup per mic-meter event
-                // for a value that cannot change within a process.
-                if (!_meterListFieldResolved)
-                {
-                    _meterListFieldResolved = true;
-                    _meterListField = theRadio.GetType().GetField("_meters",
-                        System.Reflection.BindingFlags.NonPublic |
-                        System.Reflection.BindingFlags.Instance);
-                }
-
-                if (_meterListField?.GetValue(theRadio) is not IEnumerable raw)
-                {
-                    if (_meterInventoryCount == -1)
-                        Tracing.TraceLine(
-                            "meterInventory: cannot reach FlexLib's meter list — layout changed?",
-                            TraceLevel.Warning);
-                    _meterInventoryCount = 0;
-                    return;
-                }
+                // Snapshot under FlexLib's lock, then trace OUTSIDE it.
+                // GetMeters takes `lock (_meters)` and hands back an immutable
+                // copy, so the handshake is real and nothing is held while
+                // tracing — 102 TraceLine calls are 102 file writes, and
+                // holding the radio's meter lock across them would stall every
+                // meter update and every FindMeterByName in the radio, at
+                // exactly the moment the TX meters are registering.
+                var snapshot = theRadio.GetMeters();
 
                 // Re-log whenever the set CHANGES, not once. The first version of
                 // this fired a single time off the first mic-meter event, which
@@ -7457,28 +7443,6 @@ namespace Radios
                 // meters, with the TX-side ones still to arrive. A truncated
                 // census is worse than none, because the meters subsystem is
                 // being designed against exactly this list.
-                //
-                // Snapshot under FlexLib's lock, then trace OUTSIDE it. FlexLib
-                // guards this list with `lock (_meters)`, locking the instance
-                // itself, so locking the same reference is a real handshake
-                // rather than a hopeful one — but 102 TraceLine calls are 102
-                // file writes, and holding the radio's meter lock across them
-                // stalls every meter update and every FindMeterByName in the
-                // radio, at exactly the moment the TX meters are registering.
-                List<Meter> snapshot;
-                lock (raw)
-                {
-                    // The common path: nothing changed, nothing allocated.
-                    if (raw is ICollection col && col.Count == _meterInventoryCount) return;
-
-                    snapshot = new List<Meter>();
-                    foreach (var o in raw)
-                        if (o is Meter m) snapshot.Add(m);
-                }
-
-                // Second guard, for the case where the list is not an
-                // ICollection: without it an unchanged inventory would re-log
-                // in full on every mic-meter event.
                 if (snapshot.Count == _meterInventoryCount) return;
                 _meterInventoryCount = snapshot.Count;
 
@@ -7498,9 +7462,6 @@ namespace Radios
                 Tracing.TraceLine("meterInventory: " + ex.Message, TraceLevel.Warning);
             }
         }
-
-        private static System.Reflection.FieldInfo _meterListField;
-        private static bool _meterListFieldResolved;
 
         /// <summary>
         /// Subscribe to SC_MIC and SW ALC, lazily — the TX meters register
