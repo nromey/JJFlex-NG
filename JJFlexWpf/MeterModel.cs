@@ -218,14 +218,28 @@ namespace JJFlexWpf
 
     /// <summary>
     /// The legacy eight-source catalog: key names, default ranges, units and
-    /// activation for the sources FlexBase's MeterChanged event carries today.
-    /// The ranges replicate the engine's historical normalisation exactly, so
-    /// behaviour is unchanged — they are now DATA on the definition, which is
-    /// what makes Noel's narrowed S-meter and the coarse/fine SWR pair
-    /// possible. When Track B's real meter-list accessor lands, the radio's
-    /// own names, ranges and units take over as the key space for
-    /// RadioReported sources; this table then covers only migration.
+    /// activation for the sources FlexBase's old eight-value meter event
+    /// carried. The ranges replicate the engine's historical normalisation
+    /// exactly, so behaviour is unchanged — they are now DATA on the
+    /// definition, which is what makes Noel's narrowed S-meter and the
+    /// coarse/fine SWR pair possible.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Sprint 32 Track B moved the live key space onto the radio's OWN meter
+    /// names, so this table's <see cref="Entry.Key"/> values are now HISTORICAL
+    /// keys — what old config files contain — and <see cref="RadioMeterName"/>
+    /// is the translation to what the radio actually calls the same meter.
+    /// The mapping is not a guess: it is read straight out of FlexLib's own
+    /// dispatch (<c>Radio.AddMeter</c> and <c>Slice.AddMeter</c>), which is the
+    /// code that fed the eight named events in the first place.
+    /// </para>
+    /// <para>
+    /// Keep both names resolvable forever. A config written before Sprint 32
+    /// says "Power"; one written after says "FWDPWR"; both must land on the
+    /// same meter or an operator's tones repoint silently on upgrade.
+    /// </para>
+    /// </remarks>
     public static class LegacyMeterCatalog
     {
         public sealed record Entry(string Key, string DisplayName,
@@ -244,22 +258,91 @@ namespace JJFlexWpf
             new("PATemp", "PA Temperature", MeterUnits.DegreesC, "degrees C", 20, 80, MeterActivation.Always),
         };
 
+        /// <summary>
+        /// The eight legacy keys IN THEIR HISTORICAL ORDINAL ORDER — the order
+        /// of the deleted <c>MeterSource</c> enum, which is also the order the
+        /// old panel's hardcoded name array used and therefore the order any
+        /// integer stored in an old config file indexes into. Never reorder.
+        /// </summary>
+        public static readonly IReadOnlyList<string> LegacyOrdinalKeys = new[]
+        {
+            "SMeter", "ALC", "Mic", "Power", "SWR", "Compression", "Voltage", "PATemp",
+        };
+
+        /// <summary>
+        /// What the radio itself calls each legacy source, and which of its
+        /// sources reports it. Taken from FlexLib's own name dispatch:
+        /// <c>Radio.AddMeter</c> hooks FWDPWR, REFPWR, SWR, PATEMP, MIC,
+        /// MICPEAK, COMPPEAK, HWALC, +13.8A and PAEFF; <c>Slice.AddMeter</c>
+        /// hooks LEVEL, which is what the S-meter has always been.
+        /// </summary>
+        private static readonly Dictionary<string, string> LegacyToRadioName =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                ["SMeter"] = "LEVEL",
+                ["ALC"] = "HWALC",
+                ["Mic"] = "MIC",
+                ["Power"] = "FWDPWR",
+                ["SWR"] = "SWR",
+                ["Compression"] = "COMPPEAK",
+                ["Voltage"] = "+13.8A",
+                ["PATemp"] = "PATEMP",
+            };
+
+        /// <summary>
+        /// The radio's own name for a legacy key, or the key unchanged when it
+        /// is not a legacy key (already a radio name, or something we have
+        /// never heard of — either way, passing it through is right).
+        /// Idempotent: every value it produces maps to itself.
+        /// </summary>
+        public static string RadioMeterName(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return key ?? "";
+            return LegacyToRadioName.TryGetValue(key, out string? radio) ? radio : key;
+        }
+
+        /// <summary>
+        /// True when this legacy source lives on a SLICE rather than on the
+        /// radio itself. Only the S-meter does, but the distinction has to be
+        /// carried because a slice meter needs a slice index to match against.
+        /// </summary>
+        public static bool IsSliceSource(string key) =>
+            string.Equals(RadioMeterName(key), "LEVEL", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Look a source up by EITHER its historical key ("Power") or the
+        /// radio's own name for it ("FWDPWR"). Both have to resolve: config
+        /// files written before Sprint 32 carry the first, everything written
+        /// after carries the second.
+        /// </summary>
         public static Entry? Find(string key)
         {
+            if (string.IsNullOrWhiteSpace(key)) return null;
             foreach (var e in Entries)
                 if (string.Equals(e.Key, key, StringComparison.OrdinalIgnoreCase)) return e;
+            foreach (var e in Entries)
+                if (string.Equals(RadioMeterName(e.Key), key, StringComparison.OrdinalIgnoreCase)) return e;
             return null;
         }
 
         /// <summary>Build a fresh definition for a legacy source with its full
-        /// default range, disabled, voiced Pure — the neutral starting point.</summary>
+        /// default range, disabled, voiced Pure — the neutral starting point.
+        /// The source key it writes is the RADIO'S name, because that is what
+        /// the engine matches meter readings against from Sprint 32 on.</summary>
         public static MeterDefinition CreateDefinition(string key)
         {
             var e = Find(key) ?? Entries[0];
             return new MeterDefinition
             {
                 Name = e.DisplayName,
-                Source = new MeterSourceRef { Kind = MeterSourceKind.RadioReported, Key = e.Key },
+                Source = new MeterSourceRef
+                {
+                    Kind = MeterSourceKind.RadioReported,
+                    Key = RadioMeterName(e.Key),
+                    // -1 means "whichever slice is active" for slice meters and
+                    // is simply ignored by radio-wide meters.
+                    SliceIndex = -1,
+                },
                 Range = new MeterRange { Low = e.Low, High = e.High, Units = e.Units, UnitsLabel = e.UnitsLabel },
                 Activation = e.Activation,
                 Enabled = false,

@@ -18,7 +18,7 @@ These keys work no matter where you are in the application — and "no matter wh
 | Ctrl+J | The JJ key (press, release, then press a second key) |
 | Ctrl+Shift+M | Switch between Classic and Modern tuning mode |
 | Ctrl+Shift+L | Enter or exit Logging mode |
-| Ctrl+M | Toggle the meters panel on/off |
+| Ctrl+M | Show or hide the meters panel. This opens and closes the panel and nothing else — it no longer starts or stops your meter tones. The tone switch is Ctrl+J then T |
 | Ctrl+Shift+W | Open the Audio Workshop |
 | Ctrl+Shift+S | Speak full status (multi-slice aware) |
 | Ctrl+Alt+S | Open the status dialog |

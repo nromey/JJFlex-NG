@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -9,11 +11,31 @@ using Radios;
 namespace JJFlexWpf.Controls;
 
 /// <summary>
-/// Sprint 22 Phase 9: Interactive meter tone configuration panel.
-/// Lets users configure MeterToneEngine slots: meter source, waveform,
-/// pan position, base frequency, per-slot mute, test tone, and removal.
-/// Global controls: add slot, auto-enable on tune, speech timer.
+/// Meter tone configuration: which of the radio's meters you can hear, what
+/// each one sounds like, and when.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>This panel is a LIVE VIEW over <see cref="MeterToneEngine.Slots"/>.</b>
+/// It used to build a group of controls per slot, once, in its constructor —
+/// so a slot added later existed in the engine with no controls anywhere. Noel
+/// added one, was told he had slot 5, and could see nothing (#129). Everything
+/// here is rebuilt from the engine on <see cref="MeterToneEngine.SlotsChanged"/>
+/// instead. There is no snapshot to go stale.
+/// </para>
+/// <para>
+/// <b>Shape.</b> One meter selector plus one set of controls that retarget,
+/// rather than N stacks of controls to tab through. Noel: "making it so that
+/// you have tabs to go through all slots is not efficient, so you'd need a
+/// combo to select a tone and then modify / enable / do whatever with it. Also
+/// would allow for del key / remove yes/no query."
+/// </para>
+/// <para>
+/// <b>Threading.</b> Both <see cref="MeterToneEngine.SlotsChanged"/> and the
+/// inventory's InventoryChanged can be raised on FlexLib's meter thread.
+/// Everything that touches a control goes through the dispatcher.
+/// </para>
+/// </remarks>
 public partial class MetersPanel : UserControl
 {
     /// <summary>Fired when user presses Escape — wired to return focus to FreqOut.</summary>
@@ -22,286 +44,738 @@ public partial class MetersPanel : UserControl
     /// <summary>Callback to return focus to the FreqOut control.</summary>
     public Action? ReturnFocusToFreqOut { get; set; }
 
-    // Per-slot UI control references
-    private readonly List<SlotControls> _slotUIs = new();
+    /// <summary>
+    /// True while the code is pushing engine state INTO the controls, so the
+    /// change handlers know not to push it straight back out again. Without it,
+    /// selecting a different meter writes the previous meter's settings onto
+    /// the new one.
+    /// </summary>
+    private bool _loading;
 
-    // Separator that marks the boundary between slot controls and global controls
-    private Separator? _globalSeparator;
+    /// <summary>The inventory we are currently subscribed to, so we can let go
+    /// of it when the radio changes.</summary>
+    private MeterInventory? _inventory;
 
-    private static readonly string[] MeterSourceNames =
+    /// <summary>The stable id of the slot the operator is editing. Ids survive
+    /// reorder and deletion; an index does not.</summary>
+    private string _selectedSlotId = "";
+
+    /// <summary>
+    /// The meters offered when "show every meter" is off. Names as the RADIO
+    /// reports them. This is the #62 device-picker precedent applied to meters:
+    /// a hundred entries in a combo is its own accessibility problem, so the
+    /// default is a short list and the long one is one checkbox away.
+    /// </summary>
+    private static readonly string[] CommonMeterNames =
     {
-        "S-Meter", "ALC", "Mic", "Forward Power", "SWR",
-        "Compression", "Voltage", "PA Temp"
+        "LEVEL",    // the slice S-meter
+        "FWDPWR",
+        "REFPWR",
+        "SWR",
+        "ALC",      // software ALC: transmit drive
+        "HWALC",    // the external-amplifier ALC line
+        "SC_MIC",   // transmit audio from either source
+        "MIC",
+        "COMPPEAK",
+        "PATEMP",
+        "+13.8A",
     };
 
-    private static readonly string[] PanNames = { "Left", "Center", "Right" };
+    private static readonly (MeterActivation Value, string Label)[] ActivationChoices =
+    {
+        (MeterActivation.Always, "Always"),
+        (MeterActivation.ReceiveOnly, "Only while receiving"),
+        (MeterActivation.TransmitOnly, "Only while transmitting"),
+    };
 
     public MetersPanel()
     {
         InitializeComponent();
-        BuildSlotControls();
-        LoadFromEngine();
+
+        foreach (string name in MeterVoiceLibrary.AllNames) VoiceCombo.Items.Add(name);
+        foreach (var choice in ActivationChoices) ActivationCombo.Items.Add(choice.Label);
+
+        LoadGlobalsFromEngine();
+
+        MeterToneEngine.SlotsChanged += OnEngineSlotsChanged;
+        MeterToneEngine.RadioChanged += OnEngineRadioChanged;
+        HookInventory();
+
+        RefreshSourceChoices();
+        RefreshSlotList();
+
+        Unloaded += (s, e) =>
+        {
+            MeterToneEngine.SlotsChanged -= OnEngineSlotsChanged;
+            MeterToneEngine.RadioChanged -= OnEngineRadioChanged;
+            UnhookInventory();
+        };
     }
+
+    #region Panel visibility (no audio state)
 
     /// <summary>
-    /// Toggle the meters panel expansion and meter tones in one action.
-    /// Called by Ctrl+M from MainWindow.
+    /// Show the panel and put the operator in it. Ctrl+M's whole job.
     /// </summary>
-    public void ToggleMeters()
+    /// <remarks>
+    /// Showing the panel and turning the tones on used to be ONE action, so an
+    /// operator who only wanted to look at the settings started a noise, and an
+    /// operator who wanted the noise off had to be looking at the panel (#126).
+    /// They are separate now: this is the panel, and the tone switch lives on
+    /// Ctrl+J then T (and in the Meter Tones menu). Nothing here changes what
+    /// you can hear.
+    /// </remarks>
+    public void ShowPanel()
     {
-        if (MeterToneEngine.Enabled)
+        Visibility = Visibility.Visible;
+        MetersExpander.IsExpanded = true;
+        ScreenReaderOutput.Speak("Meters panel", VerbosityLevel.Terse);
+        Dispatcher.BeginInvoke(new Action(() =>
         {
-            // Turn off meters
-            MeterToneEngine.Enabled = false;
-            EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak("Meter tones off", VerbosityLevel.Terse);
-        }
-        else
-        {
-            // Turn on meters and expand panel
-            MeterToneEngine.Enabled = true;
-            MetersExpander.IsExpanded = true;
-
-            // Show panel if hidden
-            if (Visibility != Visibility.Visible)
-                Visibility = Visibility.Visible;
-
-            EarconPlayer.FeatureOnTone();
-            ScreenReaderOutput.Speak("Meter tones on", VerbosityLevel.Terse);
-        }
+            if (SlotCombo.Items.Count > 0) SlotCombo.Focus();
+            else MetersExpander.Focus();
+        }), System.Windows.Threading.DispatcherPriority.Input);
     }
 
-    #region Build Slot Controls
-
-    private void BuildSlotControls()
+    /// <summary>Hide the panel again. Leaves meter tones exactly as they were.</summary>
+    public void HidePanel()
     {
-        // Find the global separator — it's the first Separator child in MetersContent
-        _globalSeparator = null;
-        foreach (var child in MetersContent.Children)
-        {
-            if (child is Separator sep)
-            {
-                _globalSeparator = sep;
-                break;
-            }
-        }
-
-        // Build UI for existing engine slots
-        for (int i = 0; i < MeterToneEngine.Slots.Count; i++)
-        {
-            AddSlotUI(i);
-        }
+        MetersExpander.IsExpanded = false;
+        Visibility = Visibility.Collapsed;
+        ScreenReaderOutput.Speak("Meters panel closed", VerbosityLevel.Terse);
+        ReturnFocusToFreqOut?.Invoke();
     }
 
-    private void AddSlotUI(int slotIndex)
+    /// <summary>Show the panel if it is hidden, hide it if it is showing.</summary>
+    public void TogglePanelVisibility()
     {
-        var slot = MeterToneEngine.Slots[slotIndex];
-
-        var group = new StackPanel
-        {
-            Margin = new Thickness(0, 4, 0, 4)
-        };
-        AutomationProperties.SetName(group,
-            $"Meter slot {slotIndex + 1}: {MeterSourceNames[(int)slot.Source]}");
-
-        // Header label
-        var header = new TextBlock
-        {
-            Text = $"Meter Slot {slotIndex + 1}",
-            FontWeight = FontWeights.Bold,
-            Margin = new Thickness(0, 2, 0, 4)
-        };
-        group.Children.Add(header);
-
-        // Meter source combo
-        var sourceCombo = new ComboBox
-        {
-            Margin = new Thickness(0, 2, 0, 2),
-            Width = 200,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        AutomationProperties.SetName(sourceCombo, $"Slot {slotIndex + 1} meter type");
-        foreach (var name in MeterSourceNames)
-            sourceCombo.Items.Add(name);
-        sourceCombo.SelectedIndex = (int)slot.Source;
-        int capturedIdx = slotIndex;
-        sourceCombo.SelectionChanged += (s, e) =>
-        {
-            if (capturedIdx < MeterToneEngine.Slots.Count && sourceCombo.SelectedIndex >= 0)
-            {
-                MeterToneEngine.Slots[capturedIdx].Source = (MeterSource)sourceCombo.SelectedIndex;
-                UpdateSlotAutomationName(capturedIdx);
-            }
-        };
-        group.Children.Add(sourceCombo);
-
-        // Voice combo (Track D2: voices are named data, not waveforms —
-        // the list comes from the voice library, built-ins plus user voices)
-        var waveCombo = new ComboBox
-        {
-            Margin = new Thickness(0, 2, 0, 2),
-            Width = 200,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        AutomationProperties.SetName(waveCombo, $"Slot {slotIndex + 1} voice");
-        foreach (var name in MeterVoiceLibrary.AllNames)
-            waveCombo.Items.Add(name);
-        waveCombo.SelectedItem = slot.VoiceName;
-        if (waveCombo.SelectedIndex < 0) waveCombo.SelectedIndex = 0;
-        waveCombo.SelectionChanged += (s, e) =>
-        {
-            if (capturedIdx < MeterToneEngine.Slots.Count && waveCombo.SelectedItem is string voiceName)
-            {
-                MeterToneEngine.Slots[capturedIdx].VoiceName = voiceName;
-            }
-        };
-        group.Children.Add(waveCombo);
-
-        // Pan combo
-        var panCombo = new ComboBox
-        {
-            Margin = new Thickness(0, 2, 0, 2),
-            Width = 120,
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        AutomationProperties.SetName(panCombo, $"Slot {slotIndex + 1} pan position");
-        foreach (var name in PanNames)
-            panCombo.Items.Add(name);
-        // Map float pan to combo index: -1→Left, 0→Center, 1→Right
-        panCombo.SelectedIndex = slot.Pan < -0.3f ? 0 : slot.Pan > 0.3f ? 2 : 1;
-        panCombo.SelectionChanged += (s, e) =>
-        {
-            if (capturedIdx < MeterToneEngine.Slots.Count && panCombo.SelectedIndex >= 0)
-            {
-                float pan = panCombo.SelectedIndex switch { 0 => -1f, 2 => 1f, _ => 0f };
-                MeterToneEngine.Slots[capturedIdx].Pan = pan;
-            }
-        };
-        group.Children.Add(panCombo);
-
-        // Base frequency
-        var freqPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
-        freqPanel.Children.Add(new TextBlock
-        {
-            Text = "Base frequency (Hz):",
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
-        });
-        var freqBox = new TextBox
-        {
-            Width = 60,
-            Text = slot.PitchLow.ToString(),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        AutomationProperties.SetName(freqBox, $"Slot {slotIndex + 1} base frequency in hertz");
-        freqBox.LostFocus += (s, e) =>
-        {
-            if (capturedIdx < MeterToneEngine.Slots.Count &&
-                int.TryParse(freqBox.Text, out int freq))
-            {
-                freq = Math.Clamp(freq, 100, 2000);
-                freqBox.Text = freq.ToString();
-                MeterToneEngine.Slots[capturedIdx].PitchLow = freq;
-            }
-        };
-        freqPanel.Children.Add(freqBox);
-        group.Children.Add(freqPanel);
-
-        // Enabled checkbox
-        var enabledCheck = new CheckBox
-        {
-            Content = "Enabled",
-            IsChecked = slot.Enabled,
-            Margin = new Thickness(0, 2, 0, 2)
-        };
-        AutomationProperties.SetName(enabledCheck, $"Slot {slotIndex + 1} enabled");
-        enabledCheck.Checked += (s, e) =>
-        {
-            if (capturedIdx < MeterToneEngine.Slots.Count)
-                MeterToneEngine.Slots[capturedIdx].Enabled = true;
-        };
-        enabledCheck.Unchecked += (s, e) =>
-        {
-            if (capturedIdx < MeterToneEngine.Slots.Count)
-            {
-                MeterToneEngine.Slots[capturedIdx].Enabled = false;
-                MeterToneEngine.Slots[capturedIdx].ToneProvider.Active = false;
-            }
-        };
-        group.Children.Add(enabledCheck);
-
-        // Button row: Test and Remove
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
-
-        var testBtn = new Button
-        {
-            Content = "Test",
-            Padding = new Thickness(8, 2, 8, 2),
-            Margin = new Thickness(0, 0, 8, 0)
-        };
-        AutomationProperties.SetName(testBtn, $"Test slot {slotIndex + 1} tone");
-        testBtn.Click += (s, e) => TestSlot(capturedIdx);
-        btnPanel.Children.Add(testBtn);
-
-        var removeBtn = new Button
-        {
-            Content = "Remove",
-            Padding = new Thickness(8, 2, 8, 2)
-        };
-        AutomationProperties.SetName(removeBtn, $"Remove meter slot {slotIndex + 1}");
-        removeBtn.Click += (s, e) => RemoveSlotAt(capturedIdx);
-        btnPanel.Children.Add(removeBtn);
-
-        group.Children.Add(btnPanel);
-
-        // Insert before the global separator
-        int insertIndex = _globalSeparator != null
-            ? MetersContent.Children.IndexOf(_globalSeparator)
-            : MetersContent.Children.Count;
-        MetersContent.Children.Insert(insertIndex, group);
-
-        _slotUIs.Add(new SlotControls
-        {
-            Panel = group,
-            SourceCombo = sourceCombo,
-            WaveCombo = waveCombo,
-            PanCombo = panCombo,
-            FreqBox = freqBox,
-            EnabledCheck = enabledCheck,
-            RemoveButton = removeBtn
-        });
-
-        UpdateRemoveButtonStates();
-    }
-
-    private void UpdateSlotAutomationName(int index)
-    {
-        if (index < _slotUIs.Count && index < MeterToneEngine.Slots.Count)
-        {
-            var slot = MeterToneEngine.Slots[index];
-            AutomationProperties.SetName(_slotUIs[index].Panel,
-                $"Meter slot {index + 1}: {MeterSourceNames[(int)slot.Source]}");
-        }
-    }
-
-    private void UpdateRemoveButtonStates()
-    {
-        bool canRemove = _slotUIs.Count > 1;
-        foreach (var ui in _slotUIs)
-            ui.RemoveButton.IsEnabled = canRemove;
-
-        AddSlotButton.IsEnabled = _slotUIs.Count < MeterToneEngine.MaxSlots;
+        if (Visibility == Visibility.Visible && MetersExpander.IsExpanded) HidePanel();
+        else ShowPanel();
     }
 
     #endregion
 
-    #region Load/Save
+    #region Live binding to the engine and the radio
 
-    private void LoadFromEngine()
+    private void OnEngineSlotsChanged(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(RefreshSlotList));
+
+    private void OnEngineRadioChanged(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            HookInventory();
+            RefreshSourceChoices();
+            LoadSelectedSlot();
+        }));
+
+    private void OnInventoryChanged(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            RefreshSourceChoices();
+            LoadSelectedSlot();
+        }));
+
+    /// <summary>
+    /// Follow the current radio's inventory. Bound rather than sampled on
+    /// purpose: FlexLib raises nothing when a meter appears and the list GROWS
+    /// during registration, so a single read at construction catches a
+    /// truncated census with the transmit-side meters still to arrive.
+    /// </summary>
+    private void HookInventory()
+    {
+        MeterInventory? next = MeterToneEngine.Inventory;
+        if (ReferenceEquals(next, _inventory)) return;
+        UnhookInventory();
+        _inventory = next;
+        if (_inventory != null) _inventory.InventoryChanged += OnInventoryChanged;
+    }
+
+    private void UnhookInventory()
+    {
+        if (_inventory != null) _inventory.InventoryChanged -= OnInventoryChanged;
+        _inventory = null;
+    }
+
+    #endregion
+
+    #region The slot selector
+
+    /// <summary>Rebuild the meter selector from the engine's live slot list.</summary>
+    private void RefreshSlotList()
+    {
+        bool wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            var slots = MeterToneEngine.Slots;
+            SlotCombo.Items.Clear();
+
+            int selectIndex = -1;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                MeterDefinition def = slots[i].Definition;
+                string name = string.IsNullOrWhiteSpace(def.Name) ? def.Source.Key : def.Name;
+                string state = def.Enabled ? "sounding" : "silent";
+                SlotCombo.Items.Add($"{i + 1}. {name} ({state})");
+                if (def.Id == _selectedSlotId) selectIndex = i;
+            }
+
+            if (selectIndex < 0 && slots.Count > 0) selectIndex = 0;
+            SlotCombo.SelectedIndex = selectIndex;
+            _selectedSlotId = selectIndex >= 0 ? slots[selectIndex].Definition.Id : "";
+
+            AddSlotButton.IsEnabled = slots.Count < MeterToneEngine.MaxSlots;
+            DeleteButton.IsEnabled = slots.Count > 1;
+            SetSlotControlsEnabled(slots.Count > 0);
+            AutomationProperties.SetName(SlotCombo,
+                $"Meter to configure, {slots.Count} of {MeterToneEngine.MaxSlots}");
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+
+        LoadSelectedSlot();
+    }
+
+    private void SetSlotControlsEnabled(bool on)
+    {
+        SourceCombo.IsEnabled = on;
+        AllMetersCheck.IsEnabled = on;
+        VoiceCombo.IsEnabled = on;
+        ActivationCombo.IsEnabled = on;
+        PanSlider.IsEnabled = on;
+        VolumeSlider.IsEnabled = on;
+        PitchLowBox.IsEnabled = on;
+        PitchHighBox.IsEnabled = on;
+        SlotEnabledCheck.IsEnabled = on;
+        TestButton.IsEnabled = on;
+    }
+
+    /// <summary>The slot being edited, or null when there are none.</summary>
+    private MeterSlot? SelectedSlot
+    {
+        get
+        {
+            var slots = MeterToneEngine.Slots;
+            int i = SlotCombo.SelectedIndex;
+            return i >= 0 && i < slots.Count ? slots[i] : null;
+        }
+    }
+
+    private void SlotCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        MeterSlot? slot = SelectedSlot;
+        _selectedSlotId = slot?.Definition.Id ?? "";
+        LoadSelectedSlot();
+    }
+
+    /// <summary>
+    /// Delete removes the selected meter, with a confirm. Noel asked for the
+    /// key explicitly; the confirm is there because a meter carries a voice and
+    /// a pitch mapping somebody tuned by ear, and there is no undo.
+    /// </summary>
+    private void SlotCombo_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Delete) return;
+        e.Handled = true;
+        DeleteSelectedSlot();
+    }
+
+    #endregion
+
+    #region The source picker
+
+    /// <summary>
+    /// One choosable meter. Carries everything needed to retarget a slot, so
+    /// picking one does not require a second lookup that could fail.
+    /// </summary>
+    private sealed class SourceChoice
+    {
+        public string Key { get; init; } = "";
+        public string Display { get; init; } = "";
+        public int SliceIndex { get; init; } = -1;
+        public MeterRange Range { get; init; } = new();
+        public MeterActivation Activation { get; init; } = MeterActivation.Always;
+        public string Detail { get; init; } = "";
+        public override string ToString() => Display;
+    }
+
+    private readonly List<SourceChoice> _sourceChoices = new();
+
+    /// <summary>
+    /// Rebuild the source list from the radio's own meter inventory, honouring
+    /// the common-versus-all switch.
+    /// </summary>
+    /// <remarks>
+    /// With no radio the list falls back to the meters we know the hardware
+    /// family reports. A settings panel that empties itself when the rig is off
+    /// is a settings panel you cannot prepare with — settings are intents, and
+    /// an intent does not need the radio present to be expressed.
+    /// </remarks>
+    private void RefreshSourceChoices()
+    {
+        bool wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            _sourceChoices.Clear();
+            bool all = AllMetersCheck.IsChecked == true;
+            MeterInventory? inv = MeterToneEngine.Inventory;
+
+            if (inv != null && inv.Count > 0)
+            {
+                foreach (MeterGroup group in inv.Groups)
+                {
+                    bool isSlice = string.Equals(group.Source, "SLC", StringComparison.OrdinalIgnoreCase);
+                    foreach (MeterReading r in group.Meters)
+                    {
+                        if (!all && !IsCommon(r.Name)) continue;
+                        _sourceChoices.Add(FromReading(group, r, isSlice));
+                    }
+                }
+            }
+            else
+            {
+                foreach (var entry in LegacyMeterCatalog.Entries)
+                    _sourceChoices.Add(FromCatalog(entry));
+            }
+
+            // A saved meter this radio does not report must still be visible and
+            // still be selectable. Dropping it out of the list is how a setting
+            // silently becomes something else.
+            MeterDefinition? def = SelectedSlot?.Definition;
+            if (def != null && def.Source.Kind == MeterSourceKind.RadioReported &&
+                !string.IsNullOrWhiteSpace(def.Source.Key) &&
+                !_sourceChoices.Any(c => Matches(c, def.Source)))
+            {
+                _sourceChoices.Add(new SourceChoice
+                {
+                    Key = def.Source.Key,
+                    SliceIndex = def.Source.SliceIndex,
+                    Display = def.Source.Key + " (not reported by this radio)",
+                    Range = def.Range.Clone(),
+                    Activation = def.Activation,
+                    Detail = "This radio is not reporting a meter by that name. "
+                           + "The setting is kept as you left it.",
+                });
+            }
+
+            SourceCombo.Items.Clear();
+            foreach (SourceChoice choice in _sourceChoices) SourceCombo.Items.Add(choice);
+            AutomationProperties.SetName(SourceCombo,
+                $"Meter source, {_sourceChoices.Count} available");
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+    }
+
+    private static bool IsCommon(string name) =>
+        CommonMeterNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+
+    private static bool Matches(SourceChoice choice, MeterSourceRef source) =>
+        string.Equals(choice.Key, source.Key, StringComparison.OrdinalIgnoreCase) &&
+        choice.SliceIndex == source.SliceIndex;
+
+    private static SourceChoice FromReading(MeterGroup group, MeterReading r, bool isSlice)
+    {
+        // The radio does not say when a meter is meaningful, only what it
+        // measures. For the meters we have historical knowledge of, keep that
+        // knowledge; for the rest, Always is the honest answer.
+        var known = LegacyMeterCatalog.Find(r.Name);
+        string units = MeterReading.UnitsText(r.Units);
+        string label = r.Description.Length != 0 ? r.Name + " — " + r.Description : r.Name;
+
+        return new SourceChoice
+        {
+            Key = r.Name,
+            SliceIndex = isSlice ? r.SourceIndex : -1,
+            Display = group.Label + ": " + label,
+            Range = new MeterRange
+            {
+                Low = r.Low,
+                High = r.High,
+                Units = TranslateUnits(r.Units),
+                UnitsLabel = units,
+            },
+            Activation = known?.Activation ?? MeterActivation.Always,
+            Detail = "Range " + r.Low.ToString("0.##", CultureInfo.CurrentCulture)
+                   + " to " + r.High.ToString("0.##", CultureInfo.CurrentCulture)
+                   + (units.Length != 0 ? " " + units : "")
+                   + ", reading " + r.ValueText() + ".",
+        };
+    }
+
+    private static SourceChoice FromCatalog(LegacyMeterCatalog.Entry entry)
+    {
+        string key = LegacyMeterCatalog.RadioMeterName(entry.Key);
+        return new SourceChoice
+        {
+            Key = key,
+            SliceIndex = -1,
+            Display = entry.DisplayName + " (" + key + ")",
+            Range = new MeterRange
+            {
+                Low = entry.Low,
+                High = entry.High,
+                Units = entry.Units,
+                UnitsLabel = entry.UnitsLabel,
+            },
+            Activation = entry.Activation,
+            Detail = "No radio connected, so this is the usual range for this meter "
+                   + "rather than one the radio has stated.",
+        };
+    }
+
+    /// <summary>
+    /// FlexLib's unit vocabulary onto the model's. They overlap almost exactly;
+    /// the model additionally carries units only we compute (LUFS, S units).
+    /// </summary>
+    private static MeterUnits TranslateUnits(Flex.Smoothlake.FlexLib.MeterUnits units) => units switch
+    {
+        Flex.Smoothlake.FlexLib.MeterUnits.Volts => MeterUnits.Volts,
+        Flex.Smoothlake.FlexLib.MeterUnits.Amps => MeterUnits.Amps,
+        Flex.Smoothlake.FlexLib.MeterUnits.Db => MeterUnits.Db,
+        Flex.Smoothlake.FlexLib.MeterUnits.Dbfs => MeterUnits.Dbfs,
+        Flex.Smoothlake.FlexLib.MeterUnits.Dbm => MeterUnits.Dbm,
+        Flex.Smoothlake.FlexLib.MeterUnits.DegreesC => MeterUnits.DegreesC,
+        Flex.Smoothlake.FlexLib.MeterUnits.DegreesF => MeterUnits.DegreesF,
+        Flex.Smoothlake.FlexLib.MeterUnits.SWR => MeterUnits.Swr,
+        Flex.Smoothlake.FlexLib.MeterUnits.Watts => MeterUnits.Watts,
+        Flex.Smoothlake.FlexLib.MeterUnits.Percent => MeterUnits.Percent,
+        _ => MeterUnits.None,
+    };
+
+    private void AllMetersCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        RefreshSourceChoices();
+        LoadSelectedSlot();
+        int n = _sourceChoices.Count;
+        ScreenReaderOutput.Speak(
+            AllMetersCheck.IsChecked == true
+                ? $"Showing all {n} meters"
+                : $"Showing {n} common meters",
+            VerbosityLevel.Terse);
+    }
+
+    private void SourceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        MeterSlot? slot = SelectedSlot;
+        if (slot == null || SourceCombo.SelectedItem is not SourceChoice choice) return;
+
+        slot.Retarget(choice.Key, choice.Display, choice.Range.Clone(),
+                      choice.Activation, choice.SliceIndex);
+        UpdateSourceDetail(choice);
+
+        // The slot's NAME changed, so the selector that lists slots by name is
+        // now out of date. Same signal, one path.
+        MeterToneEngine.NotifySlotContentChanged();
+    }
+
+    private void UpdateSourceDetail(SourceChoice? choice)
+    {
+        SourceDetailText.Text = choice?.Detail ?? "";
+    }
+
+    #endregion
+
+    #region Pushing a slot into the controls
+
+    /// <summary>Show the selected slot's settings. Never writes back.</summary>
+    private void LoadSelectedSlot()
+    {
+        bool wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            MeterSlot? slot = SelectedSlot;
+            if (slot == null)
+            {
+                SourceCombo.SelectedIndex = -1;
+                UpdateSourceDetail(null);
+                return;
+            }
+
+            MeterDefinition def = slot.Definition;
+
+            int sourceIndex = _sourceChoices.FindIndex(c => Matches(c, def.Source));
+            SourceCombo.SelectedIndex = sourceIndex;
+            UpdateSourceDetail(sourceIndex >= 0 ? _sourceChoices[sourceIndex] : null);
+
+            VoiceCombo.SelectedItem = def.VoiceName;
+            if (VoiceCombo.SelectedIndex < 0 && VoiceCombo.Items.Count > 0)
+                VoiceCombo.SelectedIndex = 0;
+
+            ActivationCombo.SelectedIndex =
+                Array.FindIndex(ActivationChoices, a => a.Value == def.Activation);
+
+            PanSlider.Value = Math.Clamp(def.Pan, -1f, 1f) * 100.0;
+            PanText.Text = DescribePan(def.Pan);
+
+            VolumeSlider.Value = Math.Clamp(def.Volume, 0f, 1f) * 100.0;
+            VolumeText.Text = ((int)Math.Round(VolumeSlider.Value)).ToString(CultureInfo.CurrentCulture) + " percent";
+
+            PitchLowBox.Text = ((int)def.PitchLowHz).ToString(CultureInfo.CurrentCulture);
+            PitchHighBox.Text = ((int)def.PitchHighHz).ToString(CultureInfo.CurrentCulture);
+            SlotEnabledCheck.IsChecked = def.Enabled;
+        }
+        finally
+        {
+            _loading = wasLoading;
+        }
+    }
+
+    /// <summary>
+    /// Pan in words. A slider announces a bare number, and "minus 40" does not
+    /// tell a listener which ear that is.
+    /// </summary>
+    private static string DescribePan(float pan)
+    {
+        int percent = (int)Math.Round(Math.Clamp(pan, -1f, 1f) * 100f);
+        if (percent == 0) return "centre";
+        int magnitude = Math.Abs(percent);
+        string side = percent < 0 ? "left" : "right";
+        return magnitude >= 100 ? "full " + side
+             : magnitude.ToString(CultureInfo.CurrentCulture) + " percent " + side;
+    }
+
+    #endregion
+
+    #region Control handlers
+
+    private void VoiceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        MeterSlot? slot = SelectedSlot;
+        if (slot != null && VoiceCombo.SelectedItem is string voiceName)
+            slot.VoiceName = voiceName;
+    }
+
+    private void ActivationCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        MeterSlot? slot = SelectedSlot;
+        int i = ActivationCombo.SelectedIndex;
+        if (slot != null && i >= 0 && i < ActivationChoices.Length)
+            slot.Definition.Activation = ActivationChoices[i].Value;
+    }
+
+    private void PanSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        float pan = (float)(e.NewValue / 100.0);
+        PanText.Text = DescribePan(pan);
+        if (_loading) return;
+        MeterSlot? slot = SelectedSlot;
+        if (slot != null) slot.Pan = pan;
+    }
+
+    private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        VolumeText.Text = ((int)Math.Round(e.NewValue)).ToString(CultureInfo.CurrentCulture) + " percent";
+        if (_loading) return;
+        MeterSlot? slot = SelectedSlot;
+        if (slot != null) slot.Volume = (float)(e.NewValue / 100.0);
+    }
+
+    private void PitchLowBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        MeterSlot? slot = SelectedSlot;
+        if (slot == null) return;
+        if (int.TryParse(PitchLowBox.Text, out int hz))
+        {
+            hz = Math.Clamp(hz, 100, 2000);
+            slot.Definition.PitchLowHz = hz;
+        }
+        PitchLowBox.Text = ((int)slot.Definition.PitchLowHz).ToString(CultureInfo.CurrentCulture);
+    }
+
+    private void PitchHighBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        MeterSlot? slot = SelectedSlot;
+        if (slot == null) return;
+        if (int.TryParse(PitchHighBox.Text, out int hz))
+        {
+            hz = Math.Clamp(hz, 100, 4000);
+            slot.Definition.PitchHighHz = hz;
+        }
+        PitchHighBox.Text = ((int)slot.Definition.PitchHighHz).ToString(CultureInfo.CurrentCulture);
+    }
+
+    private void SlotEnabledCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        MeterSlot? slot = SelectedSlot;
+        if (slot == null) return;
+
+        bool on = SlotEnabledCheck.IsChecked == true;
+        slot.Enabled = on;
+        if (!on) slot.ToneProvider.Active = false;
+
+        // The selector lists each meter with its state, so it has to follow.
+        MeterToneEngine.NotifySlotContentChanged();
+    }
+
+    private void AddSlotButton_Click(object sender, RoutedEventArgs e)
+    {
+        MeterSlot? slot = MeterToneEngine.AddSlot();
+        if (slot == null)
+        {
+            ScreenReaderOutput.Speak("Maximum meters reached", VerbosityLevel.Terse);
+            return;
+        }
+
+        // Select what was just added — the panel is a live view, so the slot
+        // list has already rebuilt itself by the time this runs.
+        _selectedSlotId = slot.Definition.Id;
+        RefreshSlotList();
+        ScreenReaderOutput.Speak(
+            $"Meter {MeterToneEngine.Slots.Count} added", VerbosityLevel.Terse);
+        SlotCombo.Focus();
+    }
+
+    private void DeleteButton_Click(object sender, RoutedEventArgs e) => DeleteSelectedSlot();
+
+    private void DeleteSelectedSlot()
+    {
+        var slots = MeterToneEngine.Slots;
+        int index = SlotCombo.SelectedIndex;
+        if (index < 0 || index >= slots.Count) return;
+
+        if (slots.Count <= 1)
+        {
+            ScreenReaderOutput.Speak("Cannot delete the only meter", VerbosityLevel.Terse);
+            return;
+        }
+
+        MeterDefinition def = slots[index].Definition;
+        string name = string.IsNullOrWhiteSpace(def.Name) ? def.Source.Key : def.Name;
+
+        // Home is a WPF panel hosted inside a WinForms window, so
+        // Window.GetWindow(this) is NULL here — there is no WPF Window above us
+        // to own the dialog. Passing that null to the owner overload throws, the
+        // throw got swallowed, and Delete did nothing at all with no error and
+        // no sound. Found by pressing the button on a real build; it compiled
+        // and reviewed clean. Ask for an owner, use the ownerless overload when
+        // there isn't one.
+        string question = $"Delete the meter \"{name}\"? Its voice and pitch settings go with it.";
+        const string caption = "Delete meter";
+        Window? owner = Window.GetWindow(this);
+        MessageBoxResult answer = owner != null
+            ? MessageBox.Show(owner, question, caption, MessageBoxButton.YesNo,
+                              MessageBoxImage.Question, MessageBoxResult.No)
+            : MessageBox.Show(question, caption, MessageBoxButton.YesNo,
+                              MessageBoxImage.Question, MessageBoxResult.No);
+
+        if (answer != MessageBoxResult.Yes)
+        {
+            ScreenReaderOutput.Speak($"{name} kept", VerbosityLevel.Terse);
+            SlotCombo.Focus();
+            return;
+        }
+
+        if (!MeterToneEngine.RemoveSlot(index))
+        {
+            ScreenReaderOutput.Speak("Cannot delete the only meter", VerbosityLevel.Terse);
+            return;
+        }
+
+        // Land on a neighbour rather than jumping to the top; the operator was
+        // working somewhere in the list.
+        var remaining = MeterToneEngine.Slots;
+        int next = Math.Min(index, remaining.Count - 1);
+        _selectedSlotId = next >= 0 ? remaining[next].Definition.Id : "";
+        RefreshSlotList();
+
+        ScreenReaderOutput.Speak(
+            $"{name} deleted, {remaining.Count} meters remaining", VerbosityLevel.Terse);
+        SlotCombo.Focus();
+    }
+
+    /// <summary>
+    /// Play a two-second preview of the selected meter's tone.
+    /// </summary>
+    /// <remarks>
+    /// The stop is UNCONDITIONAL (#131). It used to silence the tone only when
+    /// meter tones were globally disabled — and the only way into this panel,
+    /// Ctrl+M, ENABLED them, so the stop condition was guaranteed false and a
+    /// test tone ran until the app closed. When meters are on, the engine's
+    /// next reading for that slot reactivates the tone within about a tenth of
+    /// a second, so stopping unconditionally costs a live meter nothing and
+    /// costs a test tone everything it was missing.
+    /// </remarks>
+    private void TestButton_Click(object sender, RoutedEventArgs e)
+    {
+        MeterSlot? slot = SelectedSlot;
+        if (slot == null) return;
+
+        MeterDefinition def = slot.Definition;
+        string name = string.IsNullOrWhiteSpace(def.Name) ? def.Source.Key : def.Name;
+        ScreenReaderOutput.Speak($"Testing {name} tone", VerbosityLevel.Terse);
+
+        slot.ToneProvider.Frequency = (def.PitchLowHz + def.PitchHighHz) / 2f;
+        slot.ToneProvider.Volume = def.Volume * MeterToneEngine.MasterVolume;
+        slot.ToneProvider.Voice = def.EffectiveVoice();
+        slot.ToneProvider.Pan = def.Pan;
+        slot.ToneProvider.Active = true;
+
+        var timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(2)
+        };
+        timer.Tick += (s, args) =>
+        {
+            timer.Stop();
+            slot.ToneProvider.Active = false;
+        };
+        timer.Start();
+    }
+
+    private void SpeechIntervalBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (int.TryParse(SpeechIntervalBox.Text, out int val))
+        {
+            val = Math.Clamp(val, 1, 10);
+            SpeechIntervalBox.Text = val.ToString(CultureInfo.CurrentCulture);
+            MeterToneEngine.SpeechIntervalSeconds = val;
+            MeterToneEngine.UpdateSpeechTimerInterval();
+        }
+    }
+
+    /// <summary>
+    /// The meters expander was the only one on Home with no expand or collapse
+    /// earcon (#127). Same handlers as ScreenFieldsPanel: the earcon carries the
+    /// state change, and the screen reader's own focus announcement carries the
+    /// identity — speaking here as well would double-announce.
+    /// </summary>
+    private void MetersExpander_Expanded(object sender, RoutedEventArgs e) =>
+        EarconPlayer.PlayExpand();
+
+    private void MetersExpander_Collapsed(object sender, RoutedEventArgs e) =>
+        EarconPlayer.PlayCollapse();
+
+    private void Panel_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            EscapePressed?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+        }
+    }
+
+    #endregion
+
+    #region Panel-wide settings
+
+    private void LoadGlobalsFromEngine()
     {
         AutoTuneCheck.IsChecked = MeterToneEngine.AutoEnableOnTune;
         SpeechTimerCheck.IsChecked = MeterToneEngine.SpeechTimerActive;
-        SpeechIntervalBox.Text = MeterToneEngine.SpeechIntervalSeconds.ToString();
+        SpeechIntervalBox.Text = MeterToneEngine.SpeechIntervalSeconds.ToString(CultureInfo.CurrentCulture);
         PeakWatcherCheck.IsChecked = MeterToneEngine.PeakWatcherEnabled;
 
         AutoTuneCheck.Checked += (s, e) => MeterToneEngine.AutoEnableOnTune = true;
@@ -325,109 +799,9 @@ public partial class MetersPanel : UserControl
         config.MeterSpeechIntervalSeconds = MeterToneEngine.SpeechIntervalSeconds;
         config.PeakWatcherEnabled = MeterToneEngine.PeakWatcherEnabled;
         config.MeterTonesEnabled = MeterToneEngine.Enabled;
+        config.Meters = MeterToneEngine.ExportDefinitions();
+        config.MeterConfigVersion = MeterConfigMigration.CurrentVersion;
     }
 
     #endregion
-
-    #region Event Handlers
-
-    private void AddSlotButton_Click(object sender, RoutedEventArgs e)
-    {
-        var slot = MeterToneEngine.AddSlot();
-        if (slot == null)
-        {
-            ScreenReaderOutput.Speak("Maximum meter slots reached", VerbosityLevel.Terse);
-            return;
-        }
-        AddSlotUI(MeterToneEngine.Slots.Count - 1);
-        ScreenReaderOutput.Speak($"Meter slot {MeterToneEngine.Slots.Count} added", VerbosityLevel.Terse);
-    }
-
-    private void RemoveSlotAt(int index)
-    {
-        if (!MeterToneEngine.RemoveSlot(index))
-        {
-            ScreenReaderOutput.Speak("Cannot remove the only meter slot", VerbosityLevel.Terse);
-            return;
-        }
-
-        // Remove UI
-        if (index < _slotUIs.Count)
-        {
-            MetersContent.Children.Remove(_slotUIs[index].Panel);
-            _slotUIs.RemoveAt(index);
-        }
-
-        // Renumber remaining slot headers
-        for (int i = 0; i < _slotUIs.Count; i++)
-        {
-            var header = _slotUIs[i].Panel.Children[0] as TextBlock;
-            if (header != null) header.Text = $"Meter Slot {i + 1}";
-        }
-
-        UpdateRemoveButtonStates();
-        ScreenReaderOutput.Speak($"Slot removed, {MeterToneEngine.Slots.Count} slots remaining", VerbosityLevel.Terse);
-    }
-
-    private void TestSlot(int index)
-    {
-        if (index >= MeterToneEngine.Slots.Count) return;
-        var slot = MeterToneEngine.Slots[index];
-        string sourceName = MeterSourceNames[(int)slot.Source];
-        ScreenReaderOutput.Speak($"Testing {sourceName} tone", VerbosityLevel.Terse);
-
-        // Play a 2-second preview at mid-range
-        slot.ToneProvider.Frequency = (slot.PitchLow + slot.PitchHigh) / 2f;
-        slot.ToneProvider.Volume = slot.Volume * MeterToneEngine.MasterVolume;
-        slot.ToneProvider.Voice = slot.Definition.EffectiveVoice();
-        slot.ToneProvider.Active = true;
-
-        // Stop after 2 seconds
-        var timer = new System.Windows.Threading.DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(2)
-        };
-        timer.Tick += (s, e) =>
-        {
-            timer.Stop();
-            // Only deactivate if meters aren't globally enabled
-            if (!MeterToneEngine.Enabled)
-                slot.ToneProvider.Active = false;
-        };
-        timer.Start();
-    }
-
-    private void SpeechIntervalBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (int.TryParse(SpeechIntervalBox.Text, out int val))
-        {
-            val = Math.Clamp(val, 1, 10);
-            SpeechIntervalBox.Text = val.ToString();
-            MeterToneEngine.SpeechIntervalSeconds = val;
-            MeterToneEngine.UpdateSpeechTimerInterval();
-        }
-    }
-
-    private void Panel_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Escape)
-        {
-            EscapePressed?.Invoke(this, EventArgs.Empty);
-            e.Handled = true;
-        }
-    }
-
-    #endregion
-
-    /// <summary>Track UI controls for a single slot.</summary>
-    private class SlotControls
-    {
-        public StackPanel Panel { get; init; } = null!;
-        public ComboBox SourceCombo { get; init; } = null!;
-        public ComboBox WaveCombo { get; init; } = null!;
-        public ComboBox PanCombo { get; init; } = null!;
-        public TextBox FreqBox { get; init; } = null!;
-        public CheckBox EnabledCheck { get; init; } = null!;
-        public Button RemoveButton { get; init; } = null!;
-    }
 }
