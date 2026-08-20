@@ -207,9 +207,56 @@ No tables. Prose or bullets, screen-reader first.
 
 ---
 
+## Track F — CW notifications: pitch, waveform, and repeat
+
+**Worktree:** `../jjflex-33f` · **Branch:** `sprint33/track-f`
+
+Tasks #146 (pitch follows the radio's sidetone or a configured tone), #145
+(waveform — sine, square, saw, or the additive harmonics), #153 (a repeat key).
+
+**One track, not three, because they touch the same five files.** Together they
+are a CW notification settings group with one vocabulary.
+
+**The only feature track in a test sprint.** It touches no test infrastructure
+and no other track touches its files, so it merges cleanly. Included because
+Noel asked for it directly and because CW notification quality gates everything
+built on top of it — his framing: *"This will be more important as we add more CW
+notifications and haptics."*
+
+Two findings that shape it. **#146 is nearly free**: `FlexBase.cs:6015` already
+follows the radio's `CWPitch` for the CW MONITOR — the notifier simply is not
+wired to the same event. And **#153 has a trap**: `HistoryWalkResetMs = 6000` is
+calibrated for speech, but "SL A USB" runs ~4.4 s at 20 WPM and ~8.9 s at the 10
+WPM floor, so the walk-back would break for slow operators. Same root cause as
+#143's flat farewell timeout.
+
+## Architecture note — the tool is an OBSERVER, not a second operator
+
+Added after Noel asked whether the test tool runs separately from JJ Flexible.
+The answer differs per tier, and getting it wrong invalidates a track:
+
+- **Tier 1 is not an application.** A test project; `dotnet test` loads JJFlexWpf
+  as a library and constructs dialogs in-process. Nothing launches.
+- **Tier 2 IS a separate application**, attaching to a running `jjflexible.exe`
+  through UI Automation — the same API a screen reader consumes.
+- **Tier 3 must be composed with Tier 2, not standalone.** A test tool that opens
+  its own connection is a SECOND MULTIFLEX CLIENT with its own `ClientHandle`.
+  Global state (mic gain, ATU, power, band) reads correctly that way, but
+  per-client state (which slices are yours, which is your TX slice) does not — a
+  standalone tool would inspect its OWN slices and pass while proving nothing
+  about the application. That failure is silent and looks exactly like success.
+
+So the highest-value arrangement is Noel's own: *"exercise a hotkey or action,
+see if the radio did what it was supposed to."* **Track B presses the key in the
+real app; Track C observes the radio.** Both tracks are told to agree that seam
+early and report it.
+
+This is the operator-versus-station-state distinction one layer down — it governs
+a test client exactly as it governs a guest operator.
+
 ## Execution order
 
-**Start A, B, C and E immediately.** They are independent.
+**Start A, B, C, E and F immediately.** They are independent.
 
 **Start D when Track C reports its snapshot-and-restore helper committed** —
 D reuses it rather than growing a second one.
@@ -222,7 +269,7 @@ merged with zero textual conflict and would not compile.
 
 ## Merge order and the collision to expect
 
-Merge into Track A as tracks complete: **E, then B, then C, then D.**
+Merge into Track A as tracks complete: **E, then F, then B, then C, then D.**
 
 **The predictable collision is `JJFlexRadio.sln`.** Four tracks add a project.
 That conflict is additive and visible, which makes it the easy kind — resolve by
