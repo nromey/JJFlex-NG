@@ -139,3 +139,27 @@ State: every fact, and whether it was verified true, verified WRONG, or left
 unverified with the reason. The #139 verdict. Whether unreadable facts genuinely
 arrive as unreadable rather than as plausible zeros. And anything you concluded
 should change outside your worktree — reported, not done.
+
+---
+
+## AUTHORISATION IS BROKERED — do NOT ask Noel directly
+
+**Decided by Noel, 2026-08-20.** Five tracks want either the radio or the live
+desktop, and five agents interrupting him independently would be worse than the
+collision the handshake exists to prevent.
+
+**So: when you are ready for a run that needs the radio or drives the UI, STOP
+and report "ready for a radio run" (or "ready for a UI run") to the orchestrator,
+with exactly what you intend to do and roughly how long it takes.** Do not ask
+Noel. Do not proceed on your own initiative.
+
+The orchestrator batches ready tracks, asks Noel once, runs them back to back,
+and reports done. You will be told when your run is authorised and when it is
+over.
+
+**Priority when tracks contend for the 8600: G first** — a build going to Don
+depends on its answer — then C, then D, then K.
+
+**While you wait, keep working.** Do everything that does not need hardware:
+build the harness, write the code, reason it through. Arrive at your run with the
+maximum settled in advance, because run time is the scarce resource, not compute.
