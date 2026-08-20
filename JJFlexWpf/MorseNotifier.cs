@@ -143,16 +143,20 @@ namespace JJFlexWpf
         /// <summary>
         /// The pitch a mark will actually be rendered at.
         ///
-        /// The clamp on the radio path is wider than the 400–1200 the settings
-        /// box enforces, and deliberately so: that range is a guard-rail for a
-        /// free-text field, whereas a radio's sidetone is a number the operator
-        /// already chose on purpose. Following it and then quietly moving it
-        /// would be the auto-offset behaviour that was explicitly rejected. The
-        /// bounds that remain exist only to keep a garbage value audible.
+        /// The radio's number is used EXACTLY or not at all — never clamped
+        /// into range. The settings box enforces 400–1200 because it is a
+        /// free-text field that needs a guard-rail, but a radio's sidetone is a
+        /// number the operator deliberately chose on the rig, and following it
+        /// while quietly moving it would be the auto-offset behaviour that was
+        /// explicitly rejected. So a pitch outside the audible band falls back
+        /// to the configured tone rather than being bent toward it: FlexLib
+        /// allows a CW pitch of 0, and keying a notification at the bottom of
+        /// a clamp would be a stranger answer than using the tone the operator
+        /// already set here.
         /// </summary>
         public int EffectiveSidetoneHz =>
-            FollowRadioSidetone && RadioSidetoneHz is int hz
-                ? Math.Clamp(hz, 200, 3000)
+            FollowRadioSidetone && RadioSidetoneHz is int hz && hz >= 100 && hz <= 4000
+                ? hz
                 : SidetoneHz;
 
         /// <summary>
