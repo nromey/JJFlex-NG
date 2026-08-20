@@ -1,3 +1,25 @@
+> **STALE — DO NOT RUN THIS AS WRITTEN. Marked 2026-08-19 evening.**
+>
+> Sprint 32 Track E rebuilt the alert earcons after this was written, and its
+> completion report flagged that two of this document's load-bearing assumptions
+> no longer hold:
+>
+> - **The premise of section 1 is gone.** It compares the warning alarm and
+>   Feature Off "at the same volume, 0.30". Track E normalised the two volume
+>   tiers — the 6 dB gap between legacy (0.5–0.7) and modern (0.2–0.3) earcons
+>   was the thing being measured, and it has been closed.
+> - **The section names no longer exist.** "Filter Sounds" and "Alerts" were
+>   replaced when the explorer was rebuilt around the six `EarconCategory` values
+>   so it and the Settings switches share one vocabulary.
+> - **The build stamp is wrong.** It names a 16:20:36 binary that predates every
+>   Track E commit.
+>
+> The QUESTION is still worth asking — do these sounds survive a live noise
+> floor — and Track E built a bench specifically to answer it: play a family back
+> to back, change volume, pan, repeat. **This needs rewriting against the merged
+> build before it goes to Noel.** Rewriting it now would be guessing, since
+> Tracks B and C have not landed.
+
 # Earcon masking test — do they survive a live noise floor?
 
 **Date:** 2026-08-19

@@ -845,6 +845,38 @@ latter. Nothing moved or resignatured. Both were flagged rather than hidden.
 so its amplifier code could live in its own file. Three tracks edit this file;
 the meter section is Track A's and is untouched by everyone else.
 
+### THE ONE HAZARD THAT IS NOT TEXTUAL — verify it by ear after E and H are both in
+
+**A held bench tone may block application shutdown.** Neither track could catch
+this alone, and no merge tool will show it.
+
+Track H replaced the exit farewell's *computed* completion with **observed
+drain**: the provider signals end-of-source on the first short read, then
+`WaveOut.GetPosition()` must advance by the buffer-chain depth. That is the right
+fix and it is why the farewell stopped being cut off.
+
+Track E, separately, added **two LONG-LIVED alert-mixer inputs** — the ATU
+progress earcon and the new bench tone. **Neither ever signals end-of-source**,
+by design: they play until stopped.
+
+Track E's own analysis, and it is the right question: *if the drain check waits
+on mixer silence rather than on the CW source specifically, a held bench tone
+would block shutdown.* Track E could not verify it, because Track H's
+`EarconPlayer` additions are not on Track E's branch.
+
+**Mitigating factors, which reduce the risk but do not close it:** both
+long-lived inputs are removed on stop, and closing either dialog stops them. So
+it needs an operator to close the app with a bench tone still running.
+
+**The check, once E and H are both merged:** start the bench tone or ATU progress
+earcon, leave it running, and close the application. It should exit promptly with
+the normal farewell. If it hangs, or the farewell is delayed, the drain check is
+waiting on the wrong thing and must be narrowed to the CW source rather than
+mixer silence.
+
+**Do this by ear on a real build.** It is a shutdown-path timing interaction; it
+will not show up in a compile and it will not show up in a diff.
+
 # Cross-track symbol contract
 
 Ownership, so no two tracks move the same ground:
