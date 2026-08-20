@@ -12097,6 +12097,29 @@ namespace Radios
             // Default:false — this is the radio's loaded profile, and marking it
             // the operator's default is a separate decision they did not make
             // by pressing Save.
+            // HOW MUCH THIS ACTUALLY CONFIRMS — read before trusting the
+            // receipt this returns to.
+            //
+            // SaveProfile(immediately: true) waits for the queued command to be
+            // ISSUED, not for the radio to acknowledge that it stored anything.
+            // Its false return means only "that was not a global profile",
+            // which cannot happen here. So a null return from this method means
+            // "the save command went out", and the announcement built on it is
+            // making a slightly stronger claim than the evidence supports.
+            //
+            // Compare DeleteProfile a few hundred lines up, which DOES confirm:
+            // it awaits the name disappearing from ProfileGlobalList and
+            // reports honestly when it does not. Save has no equivalent
+            // readback in FlexLib today — ProfileGlobalList still contains the
+            // name whether or not the contents were rewritten, and nothing
+            // exposes a modified time.
+            //
+            // Flagged for the bench rather than guessed at: if the radio does
+            // emit something observable on a successful global save, this is
+            // where to await it, and the receipt wording should follow whatever
+            // that turns out to allow. Until then the failure mode is a save
+            // that is announced and did not happen, which is exactly the class
+            // of thing this application says it does not do.
             if (!SaveProfile(new Profile_t(name, ProfileTypes.global, false), true))
                 return "The radio did not accept the save.";
 
