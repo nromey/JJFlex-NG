@@ -615,9 +615,47 @@ the fix. Log it anyway if cheap — what `theRadio.ActiveSlice` returns at each
 unexplained contradiction in this area will resurface. **Do not guess at the
 mechanism; measure it.**
 
-Also confirmed by Noel and belonging here: the 1500 ms pre-teardown window is too
-short for a full CW string. Fix by observing the mixer drain rather than widening
-a constant — the player currently completes on computed duration plus 50 ms.
+**H4a. The exit farewell loses its LAST CHARACTER, and the obvious fix cannot
+work.** Diagnosed 2026-08-19 from Noel's ear.
+
+The app sends `73 <SK> ee` — note **two** trailing dits (E E). He consistently
+gets `73 SK dit`. **One** dit. Not a truncated tail: exactly the final character.
+
+**CORRECTION TO THE SPRINT 30 NOTE, which named the wrong constant.** It said
+"the 1500 ms pre-teardown window is shorter than a 15 WPM farewell." There is no
+1500 ms exit window — the only 1500 in the tree is `SpeakConnectStatus`'s connect
+delay (MainWindow.xaml.cs:435). The shutdown handler allows
+`PlayCwSK.Invoke().Wait(5000)` (ApplicationEvents.vb ~335), which is ample for a
+sub-second string.
+
+**The real mechanism.** `EarconCwOutput.PlayElementsAsync` completes on a
+COMPUTED duration, never an observed one (EarconCwOutput.cs:225-232):
+
+    int waitMs = totalMs + 50;
+    await Task.Delay(waitMs, linked.Token).ConfigureAwait(false);
+    item.Completion.TrySetResult();
+
+Nothing asks the device whether the buffer drained. So `Wait(5000)` is SATISFIED
+EARLY rather than expiring, and the next lines in the shutdown handler —
+`EarconPlayer.Dispose()` and `ScreenReaderOutput.Shutdown()` — tear the device
+down while the tail is still in hardware. 50 ms is less than a typical NAudio
+output buffer. The final dit is the most vulnerable element in the string:
+shortest, and last.
+
+**THEREFORE: raising the timeout changes nothing.** A generous timeout and an
+optimistic completion signal produce the identical symptom, and only one of them
+responds to a bigger number. Anyone who tries `Wait(10000)` will see no change
+and wrongly conclude the diagnosis was wrong. **Do not start there.**
+
+**Fix by observing drain**, not by padding a guess: query the output's playback
+position, or wait on `PlaybackStopped`, before resolving the completion. A
+trailing silence element would also mask it and is acceptable as a stopgap, but
+it leaves every other exit-time utterance exposed to the same race — the defect
+is in the completion contract, not in this one string.
+
+**Verify by ear, not by compiling.** The whole failure is that the code is
+plausible and the audio is short. Close the app at a couple of speeds and count
+the dits.
 
 **H5. #70 — repeat-last-message becomes a short history.** `_lastMessage` is a
 single string; the coalescer's `_lastByKey` is per-key dedup state cleared on
