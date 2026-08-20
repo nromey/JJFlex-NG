@@ -139,10 +139,13 @@ namespace JJFlexWpf
             nameof(EarconPlayer.Initialize),
             nameof(EarconPlayer.Dispose),
             nameof(EarconPlayer.UnregisterAllContinuousTones),
-            // The Stop half of the transmit test-tone monitor. Its Start takes
-            // a frequency, so the pair is registered as a variant below rather
-            // than by an attribute, and the automatic exclusion cannot see it.
+            // Stop halves whose Start takes parameters, so the pair cannot be
+            // declared by an attribute and the automatic exclusion cannot see
+            // them. Both are bench instruments rather than earcons: the
+            // transmit test-tone monitor, and the held bench tone the
+            // scratchpad drives.
             nameof(EarconPlayer.StopTxToneMonitor),
+            nameof(EarconPlayer.StopBenchTone),
         };
 
         /// <summary>Every playable earcon, families first in enum order, then

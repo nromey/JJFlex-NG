@@ -1178,10 +1178,12 @@ namespace JJFlexWpf
             if (AlertMixer == null) return;
             try
             {
-                _atuProgressProvider = new VoicedToneSampleProvider(450f, VolumeSoft)
+                _atuProgressProvider = new VoicedToneSampleProvider(450f,
+                    VolumeSoft * (_previewActive ? _previewGain : 1f))
                 {
                     Voice = MeterVoiceLibrary.Resolve(
                         MeterVoiceLibrary.FromLegacyWaveform(WaveformType.FastPulse)),
+                    Pan = _previewActive ? _previewPan : 0f,
                     Active = true
                 };
                 AlertMixer.AddMixerInput(_atuProgressProvider);
@@ -1674,14 +1676,76 @@ namespace JJFlexWpf
 
         #region Internal Playback
 
+        #region Bench preview scope
+
+        // Sprint 32 Track E, #119. The bench needs to audition a real earcon at
+        // a chosen level and stereo position without every earcon in the app
+        // permanently acquiring a level and a position. So the override is
+        // SCOPED to one Play call rather than being a setting.
+        //
+        // Every earcon's public method builds its providers synchronously and
+        // hands them to the mixer before returning, so a [ThreadStatic] flag
+        // held across that one call reaches exactly the sound being auditioned
+        // and nothing else. It cannot leak: the finally clears it, and a value
+        // left set on the UI thread by an exception would still be cleared
+        // before any other earcon could run on that thread.
+        //
+        // This deliberately does NOT touch the operator's alert volume. The
+        // bench is for comparing sounds against each other and against band
+        // noise; changing a saved setting to do it would be a side effect
+        // nobody asked for and a support call later.
+
+        [ThreadStatic] private static bool _previewActive;
+        [ThreadStatic] private static float _previewGain;
+        [ThreadStatic] private static float _previewPan;
+
+        /// <summary>
+        /// Run one earcon with a bench gain and stereo position applied.
+        /// <paramref name="gain"/> multiplies the sound's own tier;
+        /// <paramref name="pan"/> is added to whatever panning the sound
+        /// already does for itself, so a left-panned filter edge auditioned at
+        /// pan right lands in the middle rather than jumping.
+        /// </summary>
+        public static void PlayWithBenchSettings(Action play, float gain, float pan)
+        {
+            if (play == null) return;
+            _previewActive = true;
+            _previewGain = Math.Clamp(gain, 0f, 4f);
+            _previewPan = Math.Clamp(pan, -1f, 1f);
+            try { play(); }
+            finally
+            {
+                _previewActive = false;
+                _previewGain = 1f;
+                _previewPan = 0f;
+            }
+        }
+
+        /// <summary>Bench gain for a provider going into the alert mixer.</summary>
+        private static ISampleProvider ApplyPreviewGain(ISampleProvider source)
+        {
+            if (!_previewActive || Math.Abs(_previewGain - 1f) < 0.001f) return source;
+            return new VolumeSampleProvider(source) { Volume = _previewGain };
+        }
+
+        #endregion
+
         /// <summary>Add a mono source to the alert channel stereo mixer (auto-converts to stereo center).</summary>
         private static void AddToMixer(ISampleProvider monoSource)
         {
             if (!EarconsEnabled || AlertMixer == null) return;
+            // A bench pan on an otherwise centred sound has to become a real
+            // pan, which needs the mono source before it is widened.
+            if (_previewActive && Math.Abs(_previewPan) >= 0.01f
+                && monoSource.WaveFormat.Channels == 1)
+            {
+                AddToMixerPanned(monoSource, 0f);
+                return;
+            }
             if (monoSource.WaveFormat.Channels == 1)
-                AlertMixer.AddMixerInput(new MonoToStereoSampleProvider(monoSource));
+                AlertMixer.AddMixerInput(ApplyPreviewGain(new MonoToStereoSampleProvider(monoSource)));
             else
-                AlertMixer.AddMixerInput(monoSource);
+                AlertMixer.AddMixerInput(ApplyPreviewGain(monoSource));
         }
 
         /// <summary>Add a mono source to the alert channel stereo mixer with panning (-1 left, 0 center, +1 right).</summary>
@@ -1691,8 +1755,9 @@ namespace JJFlexWpf
             // PanningSampleProvider takes mono → outputs stereo
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
+            if (_previewActive) pan = Math.Clamp(pan + _previewPan, -1f, 1f);
             var panned = new PanningSampleProvider(monoSource) { Pan = pan };
-            AlertMixer.AddMixerInput(panned);
+            AlertMixer.AddMixerInput(ApplyPreviewGain(panned));
         }
 
         /// <summary>Add a mono source with panning that sweeps from startPan to endPan over durationMs.</summary>
