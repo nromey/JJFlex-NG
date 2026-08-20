@@ -1,0 +1,410 @@
+# Transmit chain rules for JJ Flexible.
+#
+# THIS FILE IS THE ANALYZER. The code that reads it knows about stages, rules,
+# conditions and facts; it knows nothing about radios. Everything the operator
+# is ever told about their transmit chain is written here, in words, and can be
+# changed, corrected or added to without touching a line of code.
+#
+# It ships inside the app, and an operator's own copy at
+# %AppData%\JJFlexRadio\tx-chain-rules.txt replaces it entirely when present.
+# That is also the delivery path for rules pushed out later: a fault we have
+# never seen becomes a check by shipping text, not a build.
+#
+#
+# HOW TO WRITE A RULE
+#
+# The file is plain lines of "keyword: value". A line starting with a hash is a
+# comment. Blank lines are ignored and are only there to make it readable.
+# A keyword written twice joins its two values with a space, so a long sentence
+# can be split over several short lines rather than running off the edge.
+#
+# There are two kinds of block. A "stage" line opens one, a "rule" line opens
+# the other, and everything after a block line belongs to that block until the
+# next one.
+#
+# A STAGE block declares one step of the chain, and takes:
+#   stage: <number> <name>     The number is the walk order, and the first
+#                              broken stage in that order is the answer the
+#                              operator gets. The name is used in every
+#                              sentence about the stage, so write it as the
+#                              operator would say it.
+#   about:                     One sentence on what this step does.
+#   needs:                     A condition that must hold for this stage to be
+#                              part of THIS operator's transmit path. A stage
+#                              that fails it is reported as "not in your
+#                              transmit path", which is a different answer from
+#                              broken and from unreadable. Repeatable.
+#   not-observable:            Set this when the stage cannot be checked at all
+#                              from this computer, and say why. The day someone
+#                              adds the missing observable, delete this line and
+#                              write rules instead.
+#   nothing-to-check:          What to say when the stage applies but no rule
+#                              had anything to test — usually because the
+#                              measurement only exists while transmitting.
+#
+# A RULE block declares one failure and takes:
+#   rule: <short-id>           Appears in the evidence block, so a report can be
+#                              traced back to the rule that produced it.
+#   in-stage: <number>         Which stage this judges.
+#   needs:                     A condition that must hold for this rule to apply
+#                              at all. Use it for "only when transmitting",
+#                              never for the failure itself. Repeatable.
+#   broken-when:               A condition that is part of the failure. ALL of
+#                              them must hold for the rule to fire. Repeatable.
+#   verdict:                   What is wrong, addressed to the operator, saying
+#                              what the CONSEQUENCE is rather than naming a
+#                              setting. Required.
+#   fix:                       What to do about it, as an instruction they can
+#                              follow without knowing how the radio works.
+#   evidence:                  Extra fact names to quote in the evidence block,
+#                              comma separated. The facts a rule tests are
+#                              always included; this is for context that helps
+#                              someone else read the report.
+#
+# Inside verdict and fix, and inside not-observable and nothing-to-check, a
+# fact name in curly braces is replaced by that fact's value: write
+# {mic-source} and the operator reads their own answer. A fact we could not
+# read becomes "not known".
+#
+#
+# CONDITIONS
+#
+# A condition is a fact name, then a test, in words rather than symbols —
+# because this file is read and edited with a screen reader, where a line of
+# angle brackets is punctuation soup. The tests are:
+#
+#   is <value>              text or yes/no, ignoring case
+#   is not <value>
+#   is empty                the fact was read and its answer was nothing
+#   is not empty
+#   contains <text>
+#   below <number>          above, at most and at least work the same way
+#   above <number>
+#   at most <number>
+#   at least <number>
+#   stale over <n> seconds  the reading has not changed for longer than that
+#   silent                  the thing exists and has never reported a value
+#   absent                  not observable from here at all
+#   readable                we have a real value for it
+#
+# Negative numbers are written with a minus sign, as in "below -100". Anything
+# after the number is ignored, so "stale over 10 seconds" reads naturally.
+#
+#
+# THE THREE ANSWERS, AND WHY THEY MATTER MORE THAN THE RULES
+#
+# Every stage comes back BROKEN, HEALTHY, or NOT OBSERVABLE FROM HERE. A check
+# that could not be made is never counted as one that passed. "Checked 14 of
+# 19, five could not be made" is honest; "all good" when five went unread sends
+# an operator to the wrong end of their station, which is worse than saying
+# nothing at all. That rule is enforced by the engine and cannot be written
+# around from this file — a rule that touches a fact it cannot see is reported
+# as unmade, whatever it says.
+#
+# There is a fourth answer, "not in your transmit path", for the stages that do
+# not exist in a given setup: an operator speaking into a microphone plugged
+# into the radio's own front panel has no computer audio and no Opus encoder,
+# and telling them five stages "could not be checked" would invite them to hunt
+# in a path they are not using. It is counted separately and never added to the
+# unreadable total.
+#
+#
+# THRESHOLDS
+#
+# Every number in this file that is not a physical zero is marked below with
+# where it came from. Several are guesses that want confirming against a real
+# radio on a real antenna; they are marked BENCH. Do not add a threshold
+# without saying which kind it is.
+
+ruleset: Transmit chain check
+version: 1
+
+
+# ── Stage 0 ───────────────────────────────────────────────────────────────
+# The chain starts before the microphone. A Flex produces nothing at all until
+# a client is connected to it, which is the rung that catches every operator
+# arriving from a conventional rig.
+
+stage: 0 the connection to your radio
+about: Everything else depends on this. A Flex does nothing at all, including at its own headphone jack, until a client is connected to it.
+
+rule: no-radio
+in-stage: 0
+broken-when: radio-connected is no
+verdict: No radio is connected, so none of your transmit chain can be checked.
+fix: Connect to your radio and run this check again.
+
+
+# ── Stage 1 ───────────────────────────────────────────────────────────────
+
+stage: 1 the microphone chosen on this computer
+about: Which microphone Windows will hand to JJ Flexible when you transmit.
+needs: mic-source is PC
+
+rule: no-pc-microphone
+in-stage: 1
+broken-when: pc-input-device is empty
+verdict: Your radio is set to take transmit audio from this computer, but no microphone has been chosen here, so there is nothing to send.
+fix: Open Audio Devices from the Audio Workshop and choose your microphone.
+evidence: mic-source, pc-audio
+
+rule: pc-microphone-missing
+in-stage: 1
+needs: pc-input-device is not empty
+broken-when: pc-input-device-present is no
+verdict: The microphone this computer is set to use, {pc-input-device}, cannot be found. It may be unplugged, or plugged into a different socket than the one it was chosen on.
+fix: Plug the microphone back in, or open Audio Devices and choose the one you are actually using.
+evidence: pc-input-device-missing-reason
+
+
+# ── Stage 2 ───────────────────────────────────────────────────────────────
+# The only way this build can see sound reaching the transmit stream is the
+# loudness meter, and that meter runs only while transmitting with computer
+# audio. So there is a real check here, and it applies during transmit only.
+
+stage: 2 the microphone actually capturing
+about: Whether sound is reaching JJ Flexible from the microphone at all.
+needs: mic-source is PC
+nothing-to-check: this can only be measured while you are transmitting with computer audio, so transmit and run the check again.
+
+rule: pc-mic-silent-on-transmit
+in-stage: 2
+needs: transmitting is yes
+needs: pc-audio is yes
+broken-when: pc-tx-audio-flowing is no
+verdict: You are transmitting with transmit audio set to come from this computer, but no sound is reaching the transmit stream at all.
+fix: Check that the right microphone is chosen in Audio Devices, that it is not muted in Windows, and that its level is not at the bottom.
+evidence: pc-input-device, pc-mic-muted, pc-mic-level, pc-tx-loudness
+
+
+# ── Stage 3 ───────────────────────────────────────────────────────────────
+
+stage: 3 the microphone level on this computer
+about: What Windows does to the microphone before JJ Flexible ever sees it. A mute here is invisible to the radio.
+needs: mic-source is PC
+
+rule: windows-mic-muted
+in-stage: 3
+broken-when: pc-mic-muted is yes
+verdict: Windows has your microphone muted, so nothing will be transmitted no matter what the radio is set to.
+fix: Unmute the microphone in the Audio Workshop's Windows input level, or in the Windows sound settings.
+evidence: pc-input-device, pc-mic-level
+
+rule: windows-mic-level-floor
+in-stage: 3
+broken-when: pc-mic-level at most 0
+verdict: The Windows input level for {pc-input-device} is at zero, so nothing is being captured.
+fix: Raise the Windows input level in the Audio Workshop and try again.
+
+# BENCH: 10 percent. Chosen as a level low enough that no working setup would
+# sit there deliberately, but it is a guess. If a tester with a hot condenser
+# microphone runs happily below it, raise it or drop this rule.
+rule: windows-mic-level-very-low
+in-stage: 3
+broken-when: pc-mic-level below 10
+broken-when: pc-mic-level above 0
+verdict: The Windows input level for {pc-input-device} is only {pc-mic-level}, which is low enough that you will be very quiet or inaudible.
+fix: Raise the Windows input level in the Audio Workshop until your peaks reach the good band.
+
+
+# ── Stage 4 ───────────────────────────────────────────────────────────────
+# What this can see is INTENT, not liveness. The setting goes on the moment it
+# is switched, and stays on even if the audio thread gave up afterwards. The
+# thread itself is private to the radio layer and there is no observable for
+# it, which is why a healthy answer here is weaker than it looks.
+
+stage: 4 transmit audio leaving this computer
+about: Whether JJ Flexible is sending your microphone to the radio at all.
+needs: mic-source is PC
+
+rule: pc-audio-off
+in-stage: 4
+broken-when: pc-audio is no
+verdict: Your radio is set to take transmit audio from this computer, but radio audio through this computer is switched off, so nothing is being sent.
+fix: Turn on radio audio through this computer. On a SmartLink connection this is also the only way you hear the radio.
+evidence: connection
+
+rule: pc-tx-path-blocked
+in-stage: 4
+needs: pc-audio is yes
+broken-when: pc-tx-path-trouble is not empty
+verdict: {pc-tx-path-trouble}
+fix: Fix that first — nothing further along the chain can work until transmit audio from this computer has a path to the radio.
+
+
+# ── Stage 5 ───────────────────────────────────────────────────────────────
+
+stage: 5 the audio encoder
+about: Your speech is compressed before it is sent, and the radio has to be expecting the same compression.
+needs: mic-source is PC
+not-observable: nothing in JJ Flexible can see the encoder or the rate it opened at, so this step is taken on trust. If sound is reaching the transmit stream at stage 2 and the radio hears you at stage 11, the encoder is working.
+
+
+# ── Stage 6 ───────────────────────────────────────────────────────────────
+
+stage: 6 packets on their way to the radio
+about: The encoded audio travels to the radio as a stream of network packets.
+needs: mic-source is PC
+not-observable: JJ Flexible does not count the transmit packets it sends and cannot see the address they are sent to, so there is nothing to report here. Received packets are counted; sent ones are not.
+
+
+# ── Stage 7 ───────────────────────────────────────────────────────────────
+
+stage: 7 the radio's answer to the audio stream
+about: The radio confirms it has opened the stream and says which compression it will accept.
+needs: mic-source is PC
+not-observable: the radio's answer is held privately inside the app and is not published anywhere a check can read it. This one matters: JJ Flexible always sends compressed audio but never asks the radio for compression when it opens the transmit stream, so a radio that answered with something else would be a silent mismatch that nothing notices.
+
+
+# ── Stage 8 ───────────────────────────────────────────────────────────────
+# Wrong selection here is silent transmit with everything upstream healthy.
+# Note that starting computer audio SETS this to PC itself, so a value other
+# than PC while computer audio is running means it drifted afterwards.
+
+stage: 8 the microphone input the radio is listening to
+about: A Flex can take transmit audio from its microphone jack, its balanced input, its accessory socket or from your computer, and only one of them at a time.
+
+rule: mic-source-drifted-off-pc
+in-stage: 8
+needs: pc-audio is yes
+broken-when: mic-source is not PC
+verdict: Radio audio is running through this computer, but your radio is listening to its {mic-source} input instead, so it will not hear anything you say.
+fix: Set the radio's microphone input back to PC. The Audio Workshop's Microphone section has the setting.
+evidence: mic-source-options
+
+# The connected guard matters. With no radio, mic-source is legitimately
+# unreadable, and without this the stage-by-stage list would report the radio as
+# having gone quiet about its microphone input when the truth is simply that
+# there is no radio — a second, wrong-sounding fault stacked on the real one.
+rule: mic-source-unknown
+in-stage: 8
+needs: radio-connected is yes
+broken-when: mic-source absent
+verdict: Your radio has not said which microphone input it is using, so there is no way to tell where it expects transmit audio to come from.
+fix: If this does not clear in a few seconds, disconnect and reconnect to the radio.
+
+
+# ── Stage 9 ───────────────────────────────────────────────────────────────
+# The confirmed silent-transmit failure, and the one this whole analyzer was
+# built around. Zero invented anything: the radio either has a mic profile
+# selected or it does not, and the app already knows the difference between
+# "no selection" and "the radio has not answered yet".
+
+stage: 9 the mic profile on the radio
+about: A mic profile is the radio's own transmit audio chain. Without one loaded, audio sent from your computer has nothing to travel through.
+
+rule: no-mic-profile
+in-stage: 9
+broken-when: mic-profile-empty is yes
+verdict: Your radio has no mic profile selected, so audio from your computer will not be transmitted. You would key up and nobody would hear you. Receiving is unaffected, and nothing you did caused it: a radio arrives this way from the factory.
+fix: Load a mic profile on the radio. This radio offers one named {mic-profile-suggested}, and the Audio Workshop's Microphone Profiles section has a button that loads it for you.
+evidence: mic-profile-count, mic-profile
+
+
+# ── Stage 10 ──────────────────────────────────────────────────────────────
+# Only one rule here on purpose. Mic gain at zero is a physical floor and needs
+# no judgement. Everything else at this stage — how narrow a transmit filter is
+# too narrow, what processor setting suits a voice — is a matter of taste or
+# wants bench calibration, and a diagnostic that starts guessing about taste
+# stops being believed about the things it does know.
+
+stage: 10 the radio's own transmit chain
+about: Mic gain, the speech processor, the transmit equalizer and the transmit filter, all inside the radio.
+nothing-to-check: with transmit audio coming from your computer, the radio's own mic gain is not the control in use — the Windows input level at stage 3 is. Everything else here is a matter of taste rather than something that can be called wrong.
+
+rule: radio-mic-gain-zero
+in-stage: 10
+needs: mic-source is not PC
+broken-when: mic-gain at most 0
+verdict: Mic gain on the radio is at zero, so the radio is not amplifying your microphone at all.
+fix: Raise mic gain in the Audio Workshop until your peaks reach the good band.
+evidence: mic-source, mic-boost, speech-processor
+
+
+# ── Stage 11 ──────────────────────────────────────────────────────────────
+# The radio's own report of what it hears, and the stage that stalled the
+# honest-tx-audio investigation for weeks: everything upstream healthy and this
+# meter sitting on the floor.
+#
+# Read SC_MIC, never the analog codec meter. The codec meter reads about -120
+# whenever transmit audio comes from the computer, which is normal and correct,
+# and a rule written against it would cry wolf on every PC-audio transmit. The
+# codec reading is collected as context and no rule tests it. Leave it that way.
+
+stage: 11 what the radio says it hears
+about: The radio's own microphone meter, measured after it has chosen an input. This is the radio telling you what actually arrived.
+nothing-to-check: the radio only measures its transmit audio while transmitting, so transmit and run the check again.
+
+# ORDER MATTERS HERE, and it is the opposite of the obvious one. The two rules
+# about the meter itself come BEFORE the rule about its value, because a meter
+# that has stopped or never started is a meter whose reading cannot be believed
+# — and the reading it is holding will be at the floor, which would otherwise
+# fire "your radio hears nothing" and send the operator off chasing their
+# microphone when the real problem is that nobody is reporting.
+
+rule: radio-mic-meter-never-reported
+in-stage: 11
+needs: transmitting is yes
+broken-when: meter-sc-mic silent
+verdict: Your radio lists a transmit microphone meter but has never sent a reading from it, so there is no way to tell what it is hearing.
+fix: This is a radio-side problem rather than anything you set. The evidence block below is worth sending to Flex support.
+
+# BENCH: 10 seconds. While transmitting, this meter should update several times
+# a second, so ten seconds of silence is a long way past normal — but the real
+# update rate over SmartLink on a poor link has not been measured.
+rule: radio-mic-meter-stopped
+in-stage: 11
+needs: transmitting is yes
+broken-when: meter-sc-mic stale over 10 seconds
+verdict: Your radio's transmit microphone meter has stopped updating, so what it last reported is no longer current and nothing here can be trusted.
+fix: If this persists, the connection to the radio may be struggling. Over SmartLink, check the network before changing anything about your audio.
+evidence: connection, sc-mic-recent
+
+# The threshold is -100 dBFS, and it is not invented here: it is the same
+# boundary the app's microphone verdict already calls "nothing at all", reused
+# so that two parts of JJ Flexible cannot disagree about what silence is.
+rule: radio-hears-nothing
+in-stage: 11
+needs: transmitting is yes
+broken-when: sc-mic-recent below -100
+verdict: Your radio is transmitting, but its own microphone meter shows nothing arriving. Whatever this computer or your microphone is doing, the radio is not hearing it.
+fix: Check stage by stage above this one. The most common cause is that the radio has no mic profile selected, and the next is that the radio is listening to a different microphone input.
+evidence: mic-source, mic-profile, sc-mic-peak, sw-alc, codec-mic, pc-tx-loudness
+
+
+# ── Stage 12 ──────────────────────────────────────────────────────────────
+# There is deliberately NO rule about power amplifier temperature. What counts
+# as a hot PA is not something to guess at, and a wrong number here would either
+# frighten an operator whose radio is fine or reassure one whose radio is not.
+# The temperature is collected as evidence; add a rule when a real figure exists.
+
+stage: 12 radio frequency out of the radio
+about: Whether power actually left the radio, and whether the antenna accepted it.
+nothing-to-check: power and standing wave ratio can only be judged while transmitting, so transmit and run the check again.
+
+# BENCH: 0.1 watts. Low enough that no real transmission sits under it, high
+# enough to clear meter noise around zero — but the floor a Flex reports on a
+# genuine dead-key has not been measured.
+rule: no-power-out
+in-stage: 12
+needs: transmitting is yes
+needs: dummy-load is no
+needs: rf-power-setting above 0
+broken-when: forward-power below 0.1
+verdict: Your radio is transmitting but almost no power is leaving it: forward power reads {forward-power}.
+fix: Check that your transmit power setting is not at the bottom, and that the transmit slice is on a band this radio can transmit on.
+evidence: rf-power-setting, tx-slice, tx-mode, ptt-source
+
+# BENCH: 3 to 1. The figure hams generally treat as the point where a solid
+# state radio starts folding back, and where a Flex protects itself. The exact
+# point this radio folds back at has not been measured, and the guard of at
+# least one watt is there so a meter wandering at very low power cannot trip it.
+rule: high-swr
+in-stage: 12
+needs: transmitting is yes
+needs: dummy-load is no
+needs: forward-power at least 1
+broken-when: swr above 3
+verdict: Your standing wave ratio is {swr}, which is high enough that the radio will reduce its own power to protect itself. You will be heard, but not at the power you set.
+fix: Check the antenna, the feedline and any tuner in the path before transmitting further.
+evidence: forward-power, rf-power-setting, meter-revpwr, meter-patemp

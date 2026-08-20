@@ -82,6 +82,16 @@
                     <StackPanel x:Name="AmplifierContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
+
+            <!-- Diagnostics (Sprint 32 Track C). Named rather than reached by
+                 index: several tracks append here, and anything that compared
+                 an index would break silently the moment the order changed. -->
+            <TabItem x:Name="DiagnosticsTab" Header="Diagnostics"
+                     AutomationProperties.Name="Audio Diagnostics">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="DiagnosticsContent" Margin="8" />
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </local:JJFlexDialog>

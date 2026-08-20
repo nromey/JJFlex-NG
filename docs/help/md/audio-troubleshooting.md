@@ -4,9 +4,18 @@ Silence is the hardest thing to diagnose by ear, because the evidence is
 missing. This page walks the causes in the order they actually bite, starting
 with the one that catches almost everybody the first time.
 
-If you would rather have JJ Flexible Radio Access check for you, open Settings, go to the Audio
-tab, and press the **Why is my radio silent?** button. It walks the same ladder
-against your radio right now and speaks the first thing it finds wrong.
+If you would rather have JJ Flexible Radio Access check for you, open the Audio
+Workshop, go to **Diagnostics**, and press **Check My Receive Audio**. It walks
+the same ladder against your radio right now and speaks the first thing it
+finds wrong.
+
+The same page answers the opposite question. **Check My Transmit Chain** walks
+your transmit path from the microphone to the antenna and reports the first
+stage that is dead, along with an honest account of how much of the chain it
+could not see — because a check that could not be made is not a check that
+passed. Underneath it sits an evidence block you can copy straight into an
+email to Flex support, with every reading, its units, its age, and your radio's
+model, serial and firmware already in it.
 
 ## Start Here: A Flex Is Silent Until Something Connects To It
 

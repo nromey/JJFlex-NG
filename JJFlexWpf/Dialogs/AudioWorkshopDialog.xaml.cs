@@ -174,6 +174,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         BuildEarconExplorerTab();
         BuildMeterInventoryTab();
         BuildAmplifierTab();
+        BuildDiagnosticsTab();   // Sprint 32 Track C
 
         // Every section exists now, so set radio-side availability for the rig
         // we already have (or do not have). SetRig covers every change after
