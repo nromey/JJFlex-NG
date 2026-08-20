@@ -778,6 +778,11 @@ public class KeyCommands
         if (rig == null) return;
         rig.SmeterInDBM = !rig.SmeterInDBM;
         _context.GetMainWindow()?.SetupOperationsMenu();
+        // Sprint 32 Track E, #128. dBm is the "on" end of the switch by the
+        // same reading the menu label uses -- it is the non-default, the thing
+        // you turned on. The point is that the two ends differ audibly, not
+        // which one is philosophically higher.
+        EarconPlayer.ToggleTone(rig.SmeterInDBM);
         // Speak the result — this handler was silent when invoked by key,
         // violating no-silent-keystrokes. A stale keymap binding parked on
         // Ctrl+Shift+W dispatched here instead of the Audio Workshop and the
@@ -1169,6 +1174,13 @@ public class KeyCommands
     private void ToggleEarconMute()
     {
         EarconPlayer.EarconsEnabled = !EarconPlayer.EarconsEnabled;
+        // Sprint 32 Track E, #128, and this one is asymmetric on purpose.
+        // Turning alert sounds ON gets a tone -- the tone IS the proof the
+        // thing you just switched on is working, which no other toggle can
+        // offer. Turning them off gets silence, because playing an alert sound
+        // to confirm that alert sounds are off would be the joke it sounds
+        // like. The speech below covers the off direction.
+        if (EarconPlayer.EarconsEnabled) EarconPlayer.ToggleTone(true);
         string state = EarconPlayer.EarconsEnabled ? "on" : "off";
         Radios.ScreenReaderOutput.Speak($"Alert sounds {state}", Radios.VerbosityLevel.Terse, true);
         // Save to config

@@ -319,6 +319,14 @@ namespace JJFlexWpf.Dialogs
                 label = "Front speaker";
             }
 
+            // Sprint 32 Track E, #128. The same three mutes tone from the Home
+            // panel and from the On-Radio Levels dialog. A tone is not the
+            // speech deleted below coming back: that was removed because it
+            // repeated what the checkbox already announces, and a tone repeats
+            // nothing — it is the confirmation that the RADIO moved, not that
+            // the box did.
+            EarconPlayer.ToggleTone(wanted);
+
             Tracing.TraceLine($"Settings: {label} mute set to {wanted}", TraceLevel.Info);
             // DELETED: "Mute the radio's headphone output, checked" and
             // "Headphones muted" are the same sentence twice. The handler
@@ -370,6 +378,10 @@ namespace JJFlexWpf.Dialogs
             // audio on can fail on a machine with no usable sound device, and
             // the box must not sit there checked while nothing is playing.
             bool actual = rig.PCAudio;
+            // Sound the outcome, not the wish — same rule the read-back above
+            // exists for. This was the third of PC audio's three operator
+            // roads, and until Sprint 32 Track E every one of them was silent.
+            EarconPlayer.ToggleTone(actual);
             _suppressRadioOutputEvents = true;
             PcAudioCheck.IsChecked = actual;
             _suppressRadioOutputEvents = false;

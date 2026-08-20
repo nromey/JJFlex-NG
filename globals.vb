@@ -1743,6 +1743,16 @@ Module globals
                     ' choice per radio (intent, not outcome) so the
                     ' remember-last on-connect mode can restore it.
                     Radios.RadioConfig.RecordPcAudioUserChoice(RigControl.SelectedRadioSerial, wanted)
+                    ' Sprint 32 Track E, #128. PC audio is reachable three ways
+                    ' -- this hotkey, the Audio menu, and the Settings checkbox
+                    ' -- and every one of them was silent, which is what
+                    ' surfaced the whole toggle sweep. Read the radio back
+                    ' rather than trusting the request: turning PC audio on
+                    ' fails when there is no usable sound device, and a rising
+                    ' tone over a toggle that did not happen is a confident lie.
+                    ' The other two roads already read back for their speech;
+                    ' this one did not read back at all.
+                    JJFlexWpf.EarconPlayer.ToggleTone(RigControl.PCAudio)
                 End If
             End Sub,
             .AudioMenuString = Function()

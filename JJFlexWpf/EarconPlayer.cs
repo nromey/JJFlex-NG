@@ -220,6 +220,18 @@ namespace JJFlexWpf
         public static void Dispose()
         {
             _continuousProviders.Clear();
+            // Drop the long-lived alert-mixer inputs too. These are held in
+            // their own fields rather than in _continuousProviders (which is
+            // the METER mixer's list), so clearing that list does not reach
+            // them. Leaving them set would survive into the next Initialize
+            // and be worse than a leak: StartBenchTone and
+            // StartATUProgressEarcon both re-use a non-null provider instead
+            // of creating one, so they would quietly drive a provider that is
+            // no longer in any mixer, and the sound would simply never arrive.
+            _benchToneProvider = null;
+            _atuProgressProvider = null;
+            _txToneMonitorProvider = null;
+            _txToneMonitorWrapper = null;
             _alertChannel?.Dispose();
             _meterChannel?.Dispose();
             _alertChannel = null;

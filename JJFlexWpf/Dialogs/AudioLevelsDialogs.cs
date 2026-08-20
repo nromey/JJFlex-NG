@@ -90,6 +90,11 @@ public abstract class AudioLevelsDialogBase : JJFlexDialog
     {
         if (Polling || Rig == null) return;
         setter(on);
+        // Sprint 32 Track E, #128. The same three radio-output mutes are
+        // reachable from the Home panel, where they have always toned. Two
+        // roads to one setting that answer differently teach the operator
+        // nothing except that one of them is broken.
+        EarconPlayer.ToggleTone(on);
         ScreenReaderOutput.Speak($"{label} {(on ? "on" : "off")}",
             VerbosityLevel.Terse, interrupt: true);
     }
