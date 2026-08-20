@@ -42,9 +42,18 @@ namespace JJFlex.RigSurface
 
             switch (verb)
             {
-                // "xmit 1" is the bare key-down. There is no safe form of it.
+                // "xmit 1" is the bare key-down. "xmit 0" is the way OUT, and it
+                // must never be classified as dangerous.
+                //
+                // This is not a nicety. The unkey path runs in a finally block
+                // and behind a watchdog, and if the guard refused it the radio
+                // would stay keyed while the tool reported an error about
+                // refusing to key it. A guard that can trap you in transmit is
+                // worse than no guard at all.
                 case "xmit":
-                    return CommandEffect.Keys;
+                    return tokens.Length > 1 && !IsTruthy(tokens[1])
+                        ? CommandEffect.Silent
+                        : CommandEffect.Keys;
 
                 // "atu start" transmits a tuning carrier AND throws relays.
                 // "atu bypass" and "atu set memories_enabled=" do neither.

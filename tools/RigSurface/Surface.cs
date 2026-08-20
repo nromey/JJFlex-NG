@@ -486,13 +486,16 @@ namespace JJFlex.RigSurface
             Console.WriteLine($"  Working on slice {index}, which is ours and will be released afterwards.");
             Console.WriteLine();
 
+            // Filter edges are a pair and must be written as one command.
+            checks.Add(RunFilterCheck(wire, index, "-2700", "-300"));
+
+            // Antenna selection reads the radio's own legal list first.
+            checks.Add(AntennaCheck(wire, index));
+
             foreach ((string key, string value) in SlicePlan())
             {
                 checks.Add(RunCheck(wire, RigField.Slice(index, key), value));
             }
-
-            // Filter edges are a pair and must be written as one command.
-            checks.Add(RunFilterCheck(wire, index, "-2700", "-300"));
         }
 
         private static IEnumerable<(string Key, string Value)> SlicePlan()
@@ -524,8 +527,50 @@ namespace JJFlex.RigSurface
             yield return ("audio_pan", "40");
             yield return ("squelch", "1");
             yield return ("squelch_level", "30");
-            yield return ("lock", "1");
             yield return ("RF_frequency", "14.200000");
+
+            // Frequency lock goes LAST on purpose. A locked slice refuses to
+            // retune, so locking it before the frequency check would fail that
+            // check for a reason that has nothing to do with the tune path.
+            yield return ("lock", "1");
+        }
+
+        /// <summary>
+        /// Antenna selection, using the legal values the RADIO reports rather
+        /// than a name we invented.
+        ///
+        /// <para>The antenna list is per slice and per SCU and differs by model,
+        /// so guessing a name produces a refusal that looks like a broken
+        /// command path when it is really a wrong argument. Reading the list
+        /// first is both more honest and the only way to get a meaningful
+        /// answer.</para>
+        /// </summary>
+        private static SurfaceCheck AntennaCheck(RigWire wire, int index)
+        {
+            var field = RigField.Slice(index, "rxant");
+            string? legal = wire.State.Get(RigField.Slice(index, "ant_list"));
+            string? current = wire.State.Get(field);
+
+            if (string.IsNullOrEmpty(legal))
+            {
+                return Report(new SurfaceCheck(field, current, null, current, CheckResult.Unobservable,
+                    StateOwnership.ClientOwned,
+                    "The radio did not report an antenna list for this slice, so there is no legal value to " +
+                    "command. Guessing one would produce a refusal that looks like a broken command path."));
+            }
+
+            string? other = legal.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(a => a.Trim())
+                .FirstOrDefault(a => !string.Equals(a, current, StringComparison.OrdinalIgnoreCase));
+
+            if (other is null)
+            {
+                return Report(new SurfaceCheck(field, current, null, current, CheckResult.Skipped,
+                    StateOwnership.ClientOwned,
+                    $"The radio offers only one antenna ({legal}), so there is nothing to switch to."));
+            }
+
+            return RunCheck(wire, field, other);
         }
 
         /// <summary>

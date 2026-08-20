@@ -329,9 +329,18 @@ namespace JJFlex.RigSurface
                 {
                     read = _stream.Read(buffer, 0, buffer.Length);
                 }
-                catch (IOException)
+                catch (IOException ex)
                 {
-                    continue; // receive timeout; loop and re-check cancellation
+                    // A receive timeout is the normal case and just means the
+                    // radio has nothing to say; loop and re-check cancellation.
+                    // Anything else is a real socket failure, and continuing
+                    // would spin forever while every read of the model quietly
+                    // returned stale values.
+                    if (ex.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut })
+                    {
+                        continue;
+                    }
+                    break;
                 }
                 catch (ObjectDisposedException)
                 {

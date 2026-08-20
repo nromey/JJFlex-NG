@@ -47,7 +47,7 @@ namespace JJFlex.RigSurface
 
             // Things that key. Getting any of these wrong transmits by accident.
             Keys("xmit 1");
-            Keys("xmit 0");                    // still routed through the keying path
+            Keys("xmit");                      // no argument, so assume the worst
             Keys("transmit tune 1");
             Keys("transmit set tune=1");
             Keys("transmit set mox=1");
@@ -70,6 +70,12 @@ namespace JJFlex.RigSurface
 
             // The way OUT of transmit must never be classified as dangerous by
             // anything that could refuse it on a budget.
+            // The way OUT of transmit, in all three spellings. If any of these
+            // were classified as keying, the unkey in the finally block would
+            // throw and the radio would stay keyed while the tool reported an
+            // error about refusing to key it.
+            Check("xmit 0 is never blocked",
+                TransmitGuard.Classify("xmit 0") == CommandEffect.Silent);
             Check("unkeying is never blocked",
                 TransmitGuard.Classify("transmit set mox=0") == CommandEffect.Silent);
             Check("stopping the tune carrier is never blocked",
