@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using JJFlex.RigSurface;
 
 namespace JJFlex.TxFactAudit
@@ -43,6 +44,8 @@ namespace JJFlex.TxFactAudit
                     "power" => Power(rest),
                     "audit" => Audit(rest),
                     "fingerprint" => Fingerprint(rest),
+                    "readings" => Readings(rest),
+                    "runbook" => Runbook(),
                     _ => Unknown(command),
                 };
             }
@@ -78,10 +81,15 @@ namespace JJFlex.TxFactAudit
             Console.WriteLine("  map [--fact NAME]   Every fact, traced from the rule name to the radio's own key.");
             Console.WriteLine("  concerns            Only the facts with a known or suspected wiring problem.");
             Console.WriteLine("  crosscheck          Check every wire key in the map against Track C's ownership table.");
+            Console.WriteLine("  runbook             The radio run, step by step, in the order it must happen.");
             Console.WriteLine();
             Console.WriteLine("Reads the radio, changes nothing:");
             Console.WriteLine("  power [--host H]    The transmit power setting and interlock state, from the RADIO.");
             Console.WriteLine("                      Run this immediately before any keying. Never trust a cached copy.");
+            Console.WriteLine("  readings [--host H] [--seconds N]");
+            Console.WriteLine("                      The meter READINGS, over VITA-49, which the command channel");
+            Console.WriteLine("                      does not carry. A meter that never speaks is named as silent,");
+            Console.WriteLine("                      never given a zero.");
             Console.WriteLine("  audit [--host H] [--owner HANDLE]");
             Console.WriteLine("                      Every fact, with the radio's own answer beside it.");
             Console.WriteLine("                      --owner names the APPLICATION's client handle so client-owned");
@@ -328,6 +336,175 @@ namespace JJFlex.TxFactAudit
             Console.WriteLine("Unverified is not a failure of the audit. It is the honest state of a fact");
             Console.WriteLine("whose value arrives only as VITA-49 meter data or only inside the application.");
             return wrong == 0 ? 0 : 1;
+        }
+
+
+        /// <summary>
+        /// The readings themselves, and — the part that matters — which meters
+        /// did NOT produce one.
+        ///
+        /// <para>Every transmit meter on a Flex is silent while receiving. That
+        /// is normal, it is not a fault, and it is precisely the state in which
+        /// the analyzer used to publish an untouched initialiser as a
+        /// measurement. Printing the silent ones by name, beside the ones that
+        /// spoke, is what makes the difference visible instead of inferred.</para>
+        /// </summary>
+        private static int Readings(string[] args)
+        {
+            int seconds = 6;
+            if (Option(args, "--seconds") is string raw
+                && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+                && parsed is > 0 and <= 120)
+            {
+                seconds = parsed;
+            }
+
+            using RigWire wire = Open(args);
+            Console.WriteLine();
+            Console.WriteLine(Guards.DescribeCensus(wire));
+
+            IReadOnlyList<RigObject> descriptors = wire.State.GetObjects(RigTarget.Meter);
+            Console.WriteLine();
+            Console.WriteLine($"The radio describes {descriptors.Count} meters. Listening {seconds} seconds "
+                              + "for readings.");
+
+            using var meters = MeterStream.Open(wire);
+            Console.WriteLine(meters.RegistrationReply + ".");
+            Thread.Sleep(TimeSpan.FromSeconds(seconds));
+
+            Console.WriteLine();
+            Console.WriteLine($"{meters.DatagramsReceived} datagrams arrived, "
+                              + $"{meters.PacketsReceived} of them meter packets.");
+            if (meters.PacketsReceived == 0)
+            {
+                Console.WriteLine(meters.DatagramsReceived == 0
+                    ? "Nothing arrived at all. Do not read anything into the silence below: either the radio "
+                    + "is not streaming to us or this computer's firewall is dropping it, and in neither case "
+                    + "does this say anything about an individual meter."
+                    : "Datagrams arrived but none carried meter readings, so the radio is talking to us about "
+                    + "something else. Still says nothing about any individual meter.");
+                return 1;
+            }
+
+            var spoke = new Dictionary<string, MeterSample>(StringComparer.OrdinalIgnoreCase);
+            foreach (MeterSample s in meters.All()) spoke[s.Name] = s;
+
+            Console.WriteLine();
+            Console.WriteLine("Meters that reported:");
+            foreach (MeterSample s in meters.All().OrderBy(m => m.Index))
+            {
+                string units = s.Units.Length == 0 ? "" : " " + s.Units;
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"  {s.Name} = {s.Value:0.##}{units}, {s.Count} readings."));
+            }
+
+            var silent = new List<string>();
+            foreach (RigObject d in descriptors)
+            {
+                if (d.Fields.TryGetValue("nam", out string? name) && name is not null
+                    && !spoke.ContainsKey(name))
+                {
+                    silent.Add(name);
+                }
+            }
+
+            Console.WriteLine();
+            if (silent.Count == 0)
+            {
+                Console.WriteLine("Every meter the radio describes also reported.");
+            }
+            else
+            {
+                Console.WriteLine($"{silent.Count} meters described but SILENT — present and saying nothing, "
+                                  + "which is information and not an absence:");
+                Console.WriteLine("  " + string.Join(", ", silent));
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("The four the analyzer turns into verdicts:");
+            foreach (string name in new[] { "SC_MIC", "ALC", "FWDPWR", "SWR", "MIC", "HWALC" })
+            {
+                MeterSample? s = meters.Latest(name);
+                Console.WriteLine(s is null
+                    ? $"  {name}: no reading. The fact built on it must say so."
+                    : string.Create(CultureInfo.InvariantCulture,
+                        $"  {name} = {s.Value:0.##} {s.Units}, from {s.Count} readings."));
+            }
+            return 0;
+        }
+
+
+        /// <summary>
+        /// The radio run, written down before the radio is available.
+        ///
+        /// <para>Run time is the scarce resource. Everything here is fixed in
+        /// advance so the window is spent measuring rather than deciding, and
+        /// so that whoever is at the keyboard — who is blind, and who did not
+        /// write any of this — can follow it as prose rather than reconstruct
+        /// it from a tool's help text.</para>
+        /// </summary>
+        private static int Runbook()
+        {
+            Console.WriteLine("THE RADIO RUN — Sprint 33 Track D");
+            Console.WriteLine();
+            Console.WriteLine("Everything provable without transmitting is already done and committed. What");
+            Console.WriteLine("remains needs two things this harness cannot give itself: JJ Flexible connected");
+            Console.WriteLine("to the radio, and a few seconds of key-down.");
+            Console.WriteLine();
+            Console.WriteLine("BEFORE ANYTHING KEYS. Run 'TxFactAudit power'. It reads the transmit power");
+            Console.WriteLine("setting off the radio, not out of any cache, and exits refusing if it is above");
+            Console.WriteLine("one watt or if the radio has not reported it at all. An unreported setting is");
+            Console.WriteLine("not a low one. No antenna is connected.");
+            Console.WriteLine();
+            Console.WriteLine("Step 1 — with JJ Flexible connected, changing nothing.");
+            Console.WriteLine("  Run 'TxFactAudit audit'. It identifies the application by client handle and");
+            Console.WriteLine("  attributes the transmit slice and transmit mode to it rather than to itself.");
+            Console.WriteLine("  This is the step that proves the client-owned facts, and it is the one that");
+            Console.WriteLine("  cannot be faked from a connection of our own.");
+            Console.WriteLine("  Also re-run 'RigSurface meters'. With a station client up the radio publishes");
+            Console.WriteLine("  the whole transmit signal chain; with none it publishes eleven meters and no");
+            Console.WriteLine("  SC_MIC at all.");
+            Console.WriteLine();
+            Console.WriteLine("Step 2 — the fingerprint, one capture instead of a dozen.");
+            Console.WriteLine("  Run 'TxFactAudit fingerprint --apply'. It snapshots every transmit setting");
+            Console.WriteLine("  through Track C's scope, sets nine of them to values that could not be a");
+            Console.WriteLine("  coincidence, and waits. While it waits, open the Audio Workshop's transmit");
+            Console.WriteLine("  check and copy the evidence block. Then press Enter and it puts every setting");
+            Console.WriteLine("  back, verifying each restore against what the radio reports rather than");
+            Console.WriteLine("  assuming the write took.");
+            Console.WriteLine("  One evidence block then proves mic gain, mic boost, mic bias, the speech");
+            Console.WriteLine("  processor and its level, the compander, the monitor, both filter edges and the");
+            Console.WriteLine("  derived filter width. Any fact that did not move is unmissable.");
+            Console.WriteLine();
+            Console.WriteLine("Step 3 — the transmit window, and the only part that keys.");
+            Console.WriteLine("  Start 'TxFactAudit readings --seconds 20' FIRST, so it is already listening.");
+            Console.WriteLine("  Then key at one watt with a tone for about five seconds, and unkey.");
+            Console.WriteLine("  This measures SC_MIC, ALC, FWDPWR, SWR and MIC together, which is the only");
+            Console.WriteLine("  arrangement in which they can be compared: the same audio, the same instant.");
+            Console.WriteLine("  Immediately afterwards, run the Audio Workshop transmit check again and copy");
+            Console.WriteLine("  the evidence block. Forward power, standing wave ratio and the mic peak all");
+            Console.WriteLine("  hold their last value after unkey, so the numbers are still there to compare.");
+            Console.WriteLine();
+            Console.WriteLine("  KNOWN OBSTACLE, and it is this computer's rather than the radio's. Meter");
+            Console.WriteLine("  readings arrive as UDP, and Windows allows inbound UDP only to programs with a");
+            Console.WriteLine("  firewall rule. JJ Flexible has one per worktree; this tool has none, and on");
+            Console.WriteLine("  2026-08-20 no datagram reached it even though the radio accepted the port. If");
+            Console.WriteLine("  step 3 reports nothing arriving, that is the reason, and it is a decision for");
+            Console.WriteLine("  Noel rather than something a diagnostic should quietly change. The tool says");
+            Console.WriteLine("  'nothing arrived' instead of printing zeroes, which is the whole point.");
+            Console.WriteLine();
+            Console.WriteLine("Step 4 — settle the Peak Watcher, which needs no transmission at all.");
+            Console.WriteLine("  Already measured: the watcher guards HWALC, the external-amplifier ALC line,");
+            Console.WriteLine("  and the radio describes that meter as dBFS over a range of -150 to 20. The");
+            Console.WriteLine("  watcher's thresholds are 0.5 and 0.8, which are 0-to-1 fractions being compared");
+            Console.WriteLine("  against decibels. Both halves are now facts rather than suspicions.");
+            Console.WriteLine();
+            Console.WriteLine("WHAT THE RUN MUST NOT DO. No antenna is connected, so nothing above one watt and");
+            Console.WriteLine("nothing longer than a few seconds. Track C exercises the same radio; the");
+            Console.WriteLine("fingerprint in step 2 writes station-global settings and must not overlap with a");
+            Console.WriteLine("scope of theirs. On 2026-08-20 this radio's nickname read 'RigSurfaceProbe',");
+            Console.WriteLine("which is either a run in flight or a restore that did not complete.");
+            return 0;
         }
 
         private enum VerdictKind { Verified, Wrong, Unverified }
@@ -618,7 +795,10 @@ namespace JJFlex.TxFactAudit
             RigWire wire = RigWire.Connect(host);
             Console.WriteLine($"Connected. This harness is client {wire.ClientHandle}.");
             wire.SubscribeAll();
-            wire.Settle(TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(5));
+            // The meter list GROWS during registration — an early snapshot
+            // catches eleven meters with every transmit-side one still to
+            // arrive, and a census taken then is quietly a third of the truth.
+            wire.Settle(TimeSpan.FromMilliseconds(1200), TimeSpan.FromSeconds(15));
             return wire;
         }
 

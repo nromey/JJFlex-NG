@@ -317,8 +317,21 @@ namespace Radios.ChainChecks
             bool haveScMic = scMicMeter != null;
             bool haveAlc = alcMeter != null;
 
-            const string noScMic = "this radio does not publish an SC_MIC meter, so what it "
-                                 + "hears on transmit cannot be read here";
+            // NOT "this radio does not publish it". MEASURED 2026-08-20 on the
+            // bench 8600: with no station client connected the radio publishes
+            // ELEVEN meters — the power, supply and codec ones that are always
+            // there — and the whole transmit signal chain, SC_MIC and ALC
+            // included, appears only once a client brings the transmit chain
+            // up. Thirty-five were present minutes earlier on the same radio.
+            //
+            // So an absent meter here is a statement about the MOMENT, not
+            // about the model, and the two are not interchangeable: telling an
+            // operator their radio lacks a meter it will publish two seconds
+            // later is a false claim about their equipment, and one they may
+            // well repeat to Flex support.
+            const string noScMic = "the radio is not currently publishing an SC_MIC meter, so what it "
+                                 + "hears on transmit cannot be read right now — this meter appears "
+                                 + "with the transmit chain, so try again once the radio is fully up";
 
             Probe(f, "sc-mic-peak", "Loudest transmit audio the radio has heard", () =>
             {
@@ -373,7 +386,8 @@ namespace Radios.ChainChecks
             {
                 if (!haveAlc)
                     return DiagnosticFact.Absent("sw-alc", "Transmit drive after the radio's own levelling",
-                        "this radio does not publish a plain ALC meter, so transmit drive cannot be read here",
+                        "the radio is not currently publishing a plain ALC meter, so transmit drive "
+                        + "cannot be read right now — like SC_MIC, it appears with the transmit chain",
                         "the radio");
                 if (!alcMeter.HasReading)
                     return DiagnosticFact.Silent("sw-alc", "Transmit drive after the radio's own levelling",
@@ -394,7 +408,7 @@ namespace Radios.ChainChecks
             {
                 if (micMeter == null)
                     return DiagnosticFact.Absent("codec-mic", "Analog microphone level at the radio's codec",
-                        "this radio does not publish a MIC meter", "the radio");
+                        "the radio is not currently publishing a MIC meter", "the radio");
                 if (!micMeter.HasReading)
                     return DiagnosticFact.Silent("codec-mic", "Analog microphone level at the radio's codec",
                         "the radio lists its MIC meter but has not reported a reading from it yet",
@@ -455,7 +469,7 @@ namespace Radios.ChainChecks
             {
                 if (fwdMeter == null)
                     return DiagnosticFact.Absent("forward-power", "Forward power",
-                        "this radio does not publish a forward power meter, so what is leaving it "
+                        "the radio is not currently publishing a forward power meter, so what is leaving it "
                         + "cannot be read here", "the radio");
                 if (!fwdMeter.HasReading)
                     return DiagnosticFact.Silent("forward-power", "Forward power",
@@ -470,7 +484,7 @@ namespace Radios.ChainChecks
             {
                 if (swrMeter == null)
                     return DiagnosticFact.Absent("swr", "Standing wave ratio",
-                        "this radio does not publish a standing wave ratio meter", "the radio");
+                        "the radio is not currently publishing a standing wave ratio meter", "the radio");
                 if (!swrMeter.HasReading)
                     return DiagnosticFact.Silent("swr", "Standing wave ratio",
                         "the radio's standing wave ratio meter has not reported yet; it reports "
