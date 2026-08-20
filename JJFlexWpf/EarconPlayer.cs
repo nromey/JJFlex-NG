@@ -652,6 +652,163 @@ namespace JJFlexWpf
             PlayVoicedSequence(EarconVoices.Plain, seq, ConnectPhaseToneVolume);
         }
 
+        // ------------------------------------------------------------------
+        // #144 — the connect series still sounds like the old sounds
+        //
+        // Everything else in the alert path changed instrument in Sprint 32.
+        // The connect series did not, and there is a reason it feels like an
+        // oversight rather than a decision: it IS the plain near-sine it always
+        // was, because EarconVoices.Plain was authored specifically as a
+        // like-for-like replacement for the bare SignalGenerator sine. The
+        // series was ported and never re-voiced.
+        //
+        // These are AUDITION CANDIDATES, not a change. They reach the operator
+        // only through the Earcon Explorer, and they exist so a decision can be
+        // made by ear instead of by description. Every one of them keeps the
+        // COUNTING STRUCTURE — one tone, two tones, three tones, then the
+        // success pair — because that structure is learned vocabulary and is
+        // not what anyone complained about. What varies is the instrument.
+        //
+        // Candidate D is the odd one out and worth hearing even if the timbre
+        // question resolves elsewhere: today "connect success" is the phase-2
+        // counting tone at a louder tier, which means the sound for ARRIVED is
+        // the sound for STILL WORKING played harder. D gives arrival its own
+        // shape by rising a fourth on the second note. That is a difference an
+        // operator can hear without a reference.
+        //
+        // Delete this method and its four catalog entries once one is chosen.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Play one connect-series audition candidate (#144). Not wired to any
+        /// connect path — the Earcon Explorer is the only caller.
+        /// </summary>
+        /// <param name="candidate">'A' through 'D'; anything else is ignored.</param>
+        public static void ConnectSeriesCandidate(char candidate)
+        {
+            if (!EarconsEnabled) return;
+
+            int p = ConnectPhaseTonePitchHz;
+            int ms = ConnectPhaseToneMs;
+            int gap = ConnectPhaseToneGapMs;
+
+            // The whole series back to back — one, two, three, then success —
+            // with a longer gap between the groups so the count stays legible.
+            // Judging a connect sound one tone at a time is judging the wrong
+            // thing; what matters is whether the four read as a family.
+            const int groupGap = 400;
+
+            switch (char.ToUpperInvariant(candidate))
+            {
+                case 'A': // Chime — struck, with a ringing tail. Arrival as a bell.
+                    PlayVoicedSequence(EarconVoices.Chime, new[]
+                    {
+                        (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms), (0, gap), (p, ms),
+                    }, ConnectPhaseToneVolume);
+                    // The six phase tones above run 6·ms with three inter-tone
+                    // gaps and two group gaps; one more group gap puts the
+                    // success pair where the other candidates put theirs.
+                    PlayLaterVoiced(EarconVoices.Chime, new[] { (p, ms), (0, gap), (p, ms) },
+                        VolumeStrong, 6 * ms + 3 * gap + 3 * groupGap);
+                    break;
+
+                case 'B': // Press — struck and dry. A mechanical handshake.
+                    PlayVoicedDecaySequence(EarconVoices.Press, new[]
+                    {
+                        (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms), (0, gap), (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms),
+                    }, ConnectPhaseToneVolume);
+                    break;
+
+                case 'C': // Hollow — odd harmonics, woody. Nothing on the band
+                          // sounds like a clarinet, which is the entire point.
+                    PlayVoicedSequence(ConnectCandidateHollow, new[]
+                    {
+                        (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms), (0, gap), (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms),
+                    }, ConnectPhaseToneVolume);
+                    break;
+
+                case 'D': // Today's voice, but arrival rises a fourth instead of
+                          // repeating the phase-2 pair louder.
+                    PlayVoicedSequence(EarconVoices.Plain, new[]
+                    {
+                        (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (p, ms), (0, gap), (p, ms), (0, groupGap),
+                        (p, ms), (0, gap), (1000, ms),
+                    }, ConnectPhaseToneVolume);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Odd harmonics with a steep rolloff — the clarinet-ish spectrum the
+        /// meter alphabet calls Hollow. Local to the audition because it is a
+        /// candidate, not yet a word in the alert vocabulary; if C wins it
+        /// moves into EarconVoices under a name.
+        /// </summary>
+        private static readonly MeterVoice ConnectCandidateHollow = new MeterVoice
+        {
+            Name = "Connect Candidate Hollow",
+            Partials = new[] { 1f, 0f, 0.45f, 0f, 0.28f, 0f, 0.18f, 0f, 0.12f },
+            AttackMs = 6f,
+            SustainLevel = 1f,
+        };
+
+        /// <summary>
+        /// Play a voiced cadence after a delay, on a timer rather than by
+        /// padding the sequence with silence.
+        ///
+        /// Candidate A needs its success pair at a LOUDER tier than the phase
+        /// tones that precede it, and RenderVoiced applies one volume to a whole
+        /// sequence — so the two halves cannot be one render. Used by the
+        /// audition only; nothing on a real connect path needs it, because
+        /// there the four events are genuinely separate in time.
+        /// </summary>
+        private static void PlayLaterVoiced(MeterVoice voice, (int freq, int ms)[] steps,
+            float volume, int delayMs)
+        {
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    await System.Threading.Tasks.Task.Delay(delayMs).ConfigureAwait(false);
+                    PlayVoicedSequence(voice, steps, volume);
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine($"EarconPlayer.PlayLaterVoiced failed: {ex.Message}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// A press, a ding and a warning nudge back to back — the quickest way
+        /// to hear what the alert tone set setting (#147) actually changes.
+        ///
+        /// Outside the six family switches on purpose, like the other bench
+        /// sounds: it is an instrument for judging the sounds, not one of them,
+        /// and it would be perverse for a preview of the warning voice to go
+        /// silent because the operator has warnings switched off.
+        /// </summary>
+        [Earcon("Alert tone set sampler",
+            Description = "A press, a ding and a warning nudge back to back, in whichever "
+                        + "alert tone set is currently selected.")]
+        public static void VoiceSetSampler()
+        {
+            if (!EarconsEnabled) return;
+            PlayVoicedDecay(EarconVoices.Press, 800, 60, VolumeNormal);
+            PlayLaterVoiced(EarconVoices.Chime, new[] { (1000, 160) }, VolumeNormal, 220);
+            PlayLaterVoiced(EarconVoices.WarningCalm, new[] { (800, 150) }, VolumeSoft, 560);
+        }
+
         /// <summary>Play a frequency sweep (chirp) from startHz to endHz.</summary>
         public static void Chirp(int startHz, int endHz, int durationMs)
         {

@@ -140,6 +140,11 @@ public enum CommandValues
     ToggleLoggingMode,
     ToggleFreqReadout,
     SpeakRXFilter,
+    // Sprint 33 Track F (#153). Appended rather than slotted next to
+    // RepeatLastMessage on purpose: these are ordinals and a stored KeyDefs.xml
+    // references them by value, so inserting in the middle would silently
+    // rebind every operator's customised key past the insertion point.
+    RepeatLastCw,
 }
 
 /// <summary>

@@ -416,11 +416,41 @@
                                   Style="{StaticResource DialogComboBox}"
                                   AutomationProperties.Name="Alert audio output device, also used for CW notifications"/>
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <controls:DecorativeText Text="Alert tone set:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="AlertToneSetCombo" Width="280"
+                                  Style="{StaticResource DialogComboBox}"
+                                  SelectionChanged="AlertToneSetCombo_SelectionChanged"
+                                  AutomationProperties.Name="Alert tone set, modern or classic"
+                   local:JJFlexHelp.Text="arrow through to hear each one. Classic is the plain tones the alert sounds had before they were rebuilt"/>
+                    </StackPanel>
                     <CheckBox x:Name="CwNotificationsCheck"
                               Content="Enable CW notifications (AS, BT, SK prosigns)"
                               Margin="0,0,0,4"
                               AutomationProperties.Name="Enable Morse code notifications for connection events"
                    local:JJFlexHelp.Text="played through the alert device"/>
+                    <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
+                        <controls:DecorativeText Text="CW pitch:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="CwPitchSourceCombo" Width="280"
+                                  Style="{StaticResource DialogComboBox}"
+                                  SelectionChanged="CwPitchSourceCombo_SelectionChanged"
+                                  AutomationProperties.Name="CW notification pitch source"
+                   local:JJFlexHelp.Text="follow the radio's own sidetone, or use the frequency below. With no radio connected the frequency below is used"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
+                        <controls:DecorativeText Text="CW tone shape:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="CwWaveformCombo" Width="280"
+                                  Style="{StaticResource DialogComboBox}"
+                                  SelectionChanged="CwWaveformCombo_SelectionChanged"
+                                  AutomationProperties.Name="CW notification tone shape"
+                   local:JJFlexHelp.Text="arrow through to hear each one. A richer shape is harder for band noise to hide, and harder to mistake for received CW"/>
+                    </StackPanel>
                     <Grid Margin="20,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>

@@ -101,8 +101,66 @@ namespace JJFlexWpf
 
         private ICwNotificationOutput _output;
 
-        /// <summary>Sidetone frequency in Hz (default 700 — traditional CW sidetone).</summary>
+        /// <summary>
+        /// The operator's configured sidetone frequency in Hz (default 700 —
+        /// traditional CW sidetone). This is the tone used unless
+        /// <see cref="FollowRadioSidetone"/> is on AND a radio has reported one.
+        /// </summary>
         public int SidetoneHz { get; set; } = 700;
+
+        // ── #146: follow the radio's sidetone, or use the configured tone ──
+        //
+        // Noel, 2026-08-19: "I'd also make this configurable to 'follow side
+        // tone or use a configured tone'." He said it while REJECTING an
+        // earlier proposal to offset the notification pitch away from the
+        // radio's sidetone automatically. There is no clever third behaviour
+        // here on purpose: two named choices, the operator makes one.
+        //
+        // The CW MONITOR has followed the radio's CWPitch since long before
+        // this — FlexBase keeps CWMon.Frequency current on the property change.
+        // The notifier simply was not wired to the same event.
+        //
+        // Being disconnected is a NORMAL state, not a fault. With no radio
+        // there is no sidetone to follow, so RadioSidetoneHz is null and the
+        // configured tone is used. Nothing announces anything about it; an
+        // operator who has never connected should not be told that a preference
+        // they set is temporarily inapplicable.
+
+        /// <summary>
+        /// When true, use the connected radio's CW sidetone pitch instead of
+        /// <see cref="SidetoneHz"/>. Falls back to the configured tone whenever
+        /// no radio has reported a pitch. Default false — the shipped behaviour.
+        /// </summary>
+        public bool FollowRadioSidetone { get; set; }
+
+        /// <summary>
+        /// The connected radio's CW sidetone pitch in Hz, or null when no radio
+        /// has reported one (not connected, or connected to something that does
+        /// not have a sidetone). Set from the radio's CWPitch property change.
+        /// </summary>
+        public int? RadioSidetoneHz { get; set; }
+
+        /// <summary>
+        /// The pitch a mark will actually be rendered at.
+        ///
+        /// The clamp on the radio path is wider than the 400–1200 the settings
+        /// box enforces, and deliberately so: that range is a guard-rail for a
+        /// free-text field, whereas a radio's sidetone is a number the operator
+        /// already chose on purpose. Following it and then quietly moving it
+        /// would be the auto-offset behaviour that was explicitly rejected. The
+        /// bounds that remain exist only to keep a garbage value audible.
+        /// </summary>
+        public int EffectiveSidetoneHz =>
+            FollowRadioSidetone && RadioSidetoneHz is int hz
+                ? Math.Clamp(hz, 200, 3000)
+                : SidetoneHz;
+
+        /// <summary>
+        /// The spectrum marks are rendered with (#145). Null — the default — is
+        /// a single pure sine, the sound CW notifications have always had.
+        /// Resolve one from <see cref="EarconVoices.CwWaveforms"/>.
+        /// </summary>
+        public MeterVoice? MarkVoice { get; set; }
 
         /// <summary>Speed in words per minute (default 20). Clamped at read-time to ≥5 WPM.</summary>
         public int SpeedWpm { get; set; } = 20;
@@ -165,7 +223,7 @@ namespace JJFlexWpf
             if (dits <= 0) return Task.CompletedTask;
             var elements = new List<CwElement> { CwElement.Gap(DitMs * dits) };
             return _output.PlayElementsAsync(
-                elements, SidetoneHz, Volume, RiseFallMs, ct);
+                elements, EffectiveSidetoneHz, Volume, RiseFallMs, MarkVoice, ct);
         }
 
         /// <summary>Play a string as Morse code (mode names, digits, etc.).</summary>
@@ -195,7 +253,8 @@ namespace JJFlexWpf
                 var elements = BuildStringElements(text);
                 if (elements.Count == 0) return;
                 await _output.PlayElementsAsync(
-                    elements, SidetoneHz, Volume, RiseFallMs, ct).ConfigureAwait(false);
+                    elements, EffectiveSidetoneHz, Volume, RiseFallMs, MarkVoice, ct)
+                    .ConfigureAwait(false);
             }
             catch (OperationCanceledException) { /* normal cancel path */ }
         }
@@ -233,7 +292,8 @@ namespace JJFlexWpf
                 var elements = BuildCharacterElements(encodedChar);
                 if (elements.Count == 0) return;
                 await _output.PlayElementsAsync(
-                    elements, SidetoneHz, Volume, RiseFallMs, ct).ConfigureAwait(false);
+                    elements, EffectiveSidetoneHz, Volume, RiseFallMs, MarkVoice, ct)
+                    .ConfigureAwait(false);
             }
             catch (OperationCanceledException) { /* normal */ }
         }

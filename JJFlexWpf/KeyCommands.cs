@@ -497,6 +497,15 @@ public class KeyCommands
                                      "history", "recent", "earlier", "back", "previous", "missed",
                                      "said", "heard" },
                   ShortActionLabel = "repeat last message" },
+            // Sprint 33 Track F (#153). The CW twin of the line above, and a
+            // separate history on purpose: an operator running with speech off
+            // and CW notifications on has CW to walk back through and no speech.
+            new(CommandValues.RepeatLastCw, KeyTypes.Command, RepeatLastCwHandler,
+                "Re-send recent CW notifications, pressing again for earlier ones", "Repeat Last CW", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "repeat", "cw", "morse", "last", "again", "history",
+                                     "recent", "earlier", "back", "previous", "missed",
+                                     "resend", "slice", "census", "code" },
+                  ShortActionLabel = "repeat last CW" },
 
             // ── Verbosity (Sprint 24 Phase 6) ──
             new(CommandValues.CycleVerbosity, KeyTypes.Command, CycleVerbosityHandler,
@@ -1209,6 +1218,17 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak("No previous message");
     }
 
+    // #153. Mirrors the speech walk one modifier away, and the empty case
+    // SPEAKS rather than sending anything in CW: an operator who presses this
+    // and hears nothing cannot tell "no history" from "the key is dead", and
+    // answering a question about CW in CW would be a poor joke when the answer
+    // is that there is no CW to give.
+    private void RepeatLastCwHandler()
+    {
+        if (!Radios.ScreenReaderOutput.RepeatRecentCw())
+            Radios.ScreenReaderOutput.Speak("No recent CW", Radios.VerbosityLevel.Critical);
+    }
+
     private void CycleVerbosityHandler()
     {
         var newLevel = Radios.ScreenReaderOutput.CycleVerbosity();
@@ -1400,6 +1420,10 @@ public class KeyCommands
             + "route rather than through this command."),
         [CommandValues.ToggleMeterTonesGlobal] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, T toggles meter tones."),
+        [CommandValues.RepeatLastCw] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, E re-sends recent CW notifications — E for echo. The flat chord "
+            + "that would have mirrored the speech repeat on Ctrl+F4 is Ctrl+Shift+F4, "
+            + "and that already focuses the CW send text box."),
         [CommandValues.RemoteAudio] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Ctrl+A turns PC audio on and off — added Sprint 32 Track G. Noel named "
             + "this one specifically: 'No hotkey for PC audio on and off available that I "
@@ -1649,6 +1673,7 @@ public class KeyCommands
         // _unboundNotes.
         new(Keys.None, CommandValues.SpeakFrequency, KeyScope.Radio), // unbound: Shadowed
         new(Keys.F4 | Keys.Control, CommandValues.RepeatLastMessage, KeyScope.Global),
+        new(Keys.None, CommandValues.RepeatLastCw, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, E
 
         // Former hard-wired meta-commands (QB Track H, 2026-08-07) — same
         // chords they always had, now registry-owned and visible.
@@ -3169,6 +3194,26 @@ public class KeyCommands
             // Earcon mute toggle (Sprint 25 Phase 4)
             case Keys.T | Keys.Shift:
                 ToggleEarconMute();
+                break;
+
+            // E = Echo the recent CW notifications (#153, Sprint 33 Track F).
+            //
+            // In the leader layer rather than as a flat chord, and not only
+            // because that is the house rule: the flat chord anyone would reach
+            // for is Ctrl+Shift+F4, one modifier from the speech repeat on
+            // Ctrl+F4 — and it is already taken, by the CW send text box. Every
+            // other free flat chord near F4 would have been arbitrary.
+            //
+            // E because echo, and because E is a single dit — the smallest
+            // character in Morse, for the one command in the layer that only
+            // ever answers in Morse. Plain E is free; only Shift+E is spoken
+            // for, by the slice-jump row.
+            //
+            // Works with no radio on purpose. The history outlives the
+            // connection, and "what did that say?" is asked most often just
+            // after something went away.
+            case Keys.E:
+                RepeatLastCwHandler();
                 break;
 
             // Help

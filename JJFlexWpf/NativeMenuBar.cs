@@ -2338,6 +2338,16 @@ public class NativeMenuBar : IDisposable
                 rootConfig.CwModeAnnounce = audioConfig.CwModeAnnounce;
                 rootConfig.CwSidetoneHz = audioConfig.CwSidetoneHz;
                 rootConfig.CwSpeedWpm = audioConfig.CwSpeedWpm;
+                // Sprint 33 Track F: the pitch source, the keying
+                // waveform and the alert voice set are user-scope for
+                // the same reason the four above are — they describe
+                // this operator's ears, not this radio. Left out of
+                // this list they would apply until the next restart
+                // and then quietly revert, which is worse than not
+                // offering them.
+                rootConfig.CwPitchFollowsRadio = audioConfig.CwPitchFollowsRadio;
+                rootConfig.CwWaveform = audioConfig.CwWaveform;
+                rootConfig.EarconVoiceSet = audioConfig.EarconVoiceSet;
                 rootConfig.Save(rootConfigDir);
             }
         };
