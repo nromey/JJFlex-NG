@@ -63,6 +63,7 @@ internal static class Program
             "unbound" => CmdUnbound(opt),
             "expand" => CmdExpand(opt),
             "altcheck" => CmdAltCheck(opt),
+            "trace" => CmdTrace(opt),
             "sweep" => opt.Flag("dry-run") ? CmdSweep(opt) : Armed(CmdSweep, opt),
             _ => Usage($"unknown command '{command}'"),
         };
@@ -102,6 +103,7 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
   jjprobe unbound   [--pid N | --appdir DIR] [--json]
   jjprobe expand    [--pid N | --appdir DIR]        (offline: no app driving)
   jjprobe altcheck  --src DIR                        (offline: static source scan)
+  jjprobe trace     [--pid N] [--appdir DIR] [--all]
   jjprobe sweep     [--pid N] [--window SEL] [--appdir DIR] [--context NAME]
                     [--risk safe,mutates,transmits] [--max N] [--no-capture] [--digest]
                     [--transmit-clearance FILE] [--exclude "Comma,Period"] [--dry-run]
@@ -217,7 +219,17 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
         if (window == null) { Console.Error.WriteLine("no visible window for that process"); return 4; }
 
         RiskLevel risk = a.Has("risk") ? Risk.Parse(a.Str("risk") ?? "safe") : RiskLevel.Safe;
-        PressResult r = Press.Send(pid, chord, window, TraceLog.FindCurrent(),
+
+        // Attach to THIS process's log, never to whichever file happens to be
+        // newest — with several tracks running the app that is somebody else's
+        // session. See TraceLog.FindForApp.
+        string? appDir = a.Str("appdir") ?? Inventory.AppDirOf(pid);
+        TraceLog.TraceHeader? header = appDir != null ? TraceLog.FindForApp(appDir) : null;
+        if (header == null)
+            Console.Error.WriteLine("jjprobe: no trace file found for that process — routing and speech "
+                + "cannot be observed. Run `jjprobe trace --all` to see what is on disk.");
+
+        PressResult r = Press.Send(pid, chord, window, header?.Path,
             a.Int("quiet-ms", 400), a.Int("max-settle-ms", 2500), digest: !a.Flag("no-digest"),
             risk, LoadClearance(a));
 
@@ -320,6 +332,59 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
     {
         string src = a.Str("src") ?? Directory.GetCurrentDirectory();
         Write(a, AltAudit.Run(Path.GetFullPath(src)));
+        return 0;
+    }
+
+    /// <summary>
+    /// Say which log the probe would read, and why — the gate on whether a
+    /// sweep is worth anyone's time.
+    ///
+    /// <para>Exists because the first real smoke test attached to another
+    /// track's session and reported "no routing, no speech" for a key it was
+    /// not watching the right file for. A sweep run in that state produces
+    /// hundreds of confident, worthless rows. Now the question is answerable in
+    /// one command, before the operator gives up their keyboard.</para>
+    /// </summary>
+    private static int CmdTrace(Args a)
+    {
+        if (a.Flag("all"))
+        {
+            var all = TraceLog.AllHeaders()
+                .OrderByDescending(h => h.StartedAt)
+                .ToList();
+            Console.WriteLine($"{all.Count} trace file(s) with a readable session header, newest session first:");
+            foreach (var h in all)
+                Console.WriteLine($"  {Path.GetFileName(h.Path)} — instance {h.Instance}, level {h.Level}, "
+                    + $"started {h.StartedAt:yyyy-MM-dd HH:mm:ss}, built from {h.AppDir}");
+            return 0;
+        }
+
+        string appDir = ResolveAppDir(a);
+        Console.WriteLine($"build under test: {appDir}");
+
+        TraceLog.TraceHeader? found = TraceLog.FindForApp(appDir);
+        if (found == null)
+        {
+            Console.WriteLine("NO TRACE FILE for that build. Routing and speech are both unobservable, so a "
+                + "sweep would report every key as silent regardless of whether it works.");
+            Console.WriteLine("Run `jjprobe trace --all` to see whose sessions are on disk.");
+            return 1;
+        }
+
+        Console.WriteLine($"attached to: {found.Path}");
+        Console.WriteLine($"  instance {found.Instance}, session started {found.StartedAt:yyyy-MM-dd HH:mm:ss}, "
+            + $"trace level {found.Level}");
+
+        var recent = TraceLog.ReadSince(found.Path, Math.Max(0, TraceLog.Length(found.Path) - 262144));
+        int routing = TraceLog.Routing(recent).Count;
+        bool verbose = TraceLog.LooksVerbose(recent);
+
+        Console.WriteLine($"  routing channel: {(routing > 0 ? "READABLE" : "no DoCommand or Leader lines yet")} "
+            + $"({routing} in the last 256 KB)");
+        Console.WriteLine($"  speech channel:  {(verbose ? "LIVE" : "NOT LIVE — needs a detailed capture (Ctrl+J, Ctrl+D)")}");
+        Console.WriteLine(verbose || routing > 0
+            ? "Good enough to sweep."
+            : "Not worth sweeping yet: neither channel would show anything.");
         return 0;
     }
 

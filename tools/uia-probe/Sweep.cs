@@ -260,12 +260,22 @@ internal static class Sweep
         // has cost nothing — not forty keystrokes into an authorised window.
         var entries = Inventory.Load(appDir);
 
-        string? traceLog = TraceLog.FindCurrent();
+        // Attach to THIS build's log. Newest-by-mtime attached the first smoke
+        // test to another track's session and reported nothing for a key it was
+        // not watching the right file for; with several tracks running the app,
+        // that is the normal condition rather than an edge case.
+        TraceLog.TraceHeader? header = TraceLog.FindForApp(appDir);
+        string? traceLog = header?.Path;
         report.TraceLogPath = traceLog;
-        if (traceLog == null)
-            report.Notes.Add("No trace file found in the JJFlexRadio application data folder. Neither routing "
-                + "nor speech can be observed, so every key will look silent whether it works or not. Treat "
-                + "this run as invalid.");
+        if (header == null)
+        {
+            report.AbortedBecause = $"no trace file belongs to the build at {appDir}. Neither routing nor "
+                + "speech can be observed, so every key would be reported silent whether it works or not. "
+                + "Nothing was pressed. Run `jjprobe trace --all` to see whose sessions are on disk.";
+            return report;
+        }
+        report.Notes.Add($"Attached to {System.IO.Path.GetFileName(traceLog)} — instance {header.Instance}, "
+            + $"trace level {header.Level}, session started {header.StartedAt:HH:mm:ss}, built from {header.AppDir}.");
 
         // One subscription for the whole sweep. Subscribing costs real time, and
         // doing it twice per press would spend more of the operator's authorised
@@ -277,6 +287,15 @@ internal static class Sweep
                 + "been missed.");
 
         var ctx = new SweepContext(o, window, traceLog, watcher, report);
+
+        // A key that never reaches the dispatcher and a key the dispatcher
+        // rejects look identical without this channel, and telling them apart is
+        // the entire point of the sweep.
+        var priming = TraceLog.ReadSince(traceLog, Math.Max(0, TraceLog.Length(traceLog) - 262144));
+        if (TraceLog.Routing(priming).Count == 0)
+            report.Notes.Add("No DoCommand or Leader lines in the last 256 KB of that log yet. The routing "
+                + "channel may still be fine — the app may simply not have had a key pressed at it — but if "
+                + "results below are uniformly silent, suspect the channel before the key map.");
 
         // ── Get to Home deliberately rather than hoping focus is already there.
         //    F2 is the registry's ShowFreq, so this doubles as the first proof

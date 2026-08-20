@@ -133,6 +133,11 @@ internal static class Press
     /// The leader layer arms on key-up, so the follow-on key must not race it.</summary>
     private const int BetweenStepsMs = 90;
 
+    /// <summary>How long to wait for the operator to answer a system dialog
+    /// before giving up. Generous on purpose: a blind operator answering a
+    /// prompt they had to find by Alt+Tab needs longer than a sighted one.</summary>
+    private const int SystemDialogPatienceMs = 45000;
+
     public static PressResult Send(
         int pid,
         Chord chord,
@@ -181,9 +186,18 @@ internal static class Press
         // completely fictitious result.
         Native.ReleaseAllModifiers();
 
-        long traceOffset = traceLogPath != null ? TraceLog.Length(traceLogPath) : 0;
-        Snapshot before = Observe.Capture(pid, traceLogPath, digest);
-        result.FocusBefore = Summarise(before);
+        // ── Resolve any permission prompt BEFORE touching the foreground, never
+        //    the reverse. Injecting input can raise one, and stealing focus from
+        //    it leaves a blind operator with a dialog they cannot see and can
+        //    only reach by guessing at Alt+Tab.
+        if (!Native.WaitForSystemDialogToClear(SystemDialogPatienceMs, out string? blocker))
+        {
+            result.Verdict = "not-sent";
+            result.Error = $"a system dialog (class {blocker}) held the foreground and was still there after "
+                         + $"{SystemDialogPatienceMs / 1000} seconds. Nothing was sent and nothing was stolen "
+                         + "from it — answer the prompt and run again.";
+            return result;
+        }
 
         if (!Native.Force(window.Hwnd))
         {
@@ -193,6 +207,20 @@ internal static class Press
             return result;
         }
         result.Foregrounded = true;
+
+        // ── Baseline AFTER foregrounding, deliberately.
+        //
+        //    Taking it before made the tool lie on its first real outing. F2 was
+        //    pressed at a cold app, the dispatcher logged NOTHING for it, and the
+        //    probe still returned "handled" — because activating the window had
+        //    moved the foreground, given focus to a list item, and grown the
+        //    automation tree from 1 node to 34. Every one of those changes was
+        //    caused by the probe itself. Crediting our own activation as evidence
+        //    the key did something is precisely the false pass this track exists
+        //    to prevent, so the clock starts once the window is already up.
+        long traceOffset = traceLogPath != null ? TraceLog.Length(traceLogPath) : 0;
+        Snapshot before = Observe.Capture(pid, traceLogPath, digest);
+        result.FocusBefore = Summarise(before);
 
         result.SentAtUtc = DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
         try
@@ -258,6 +286,9 @@ internal static class Press
     /// </summary>
     public static void SendQuiet(Chord chord, WindowInfo window, int pauseMs = 45)
     {
+        // Same rule as the measured path: never type past, or steal from, a
+        // system dialog. Repositioning is not important enough to break that.
+        if (Native.ForegroundSystemDialog() != null) return;
         if (Native.GetForegroundWindow() != window.Hwnd && !Native.Force(window.Hwnd)) return;
         try
         {

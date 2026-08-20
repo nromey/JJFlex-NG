@@ -46,12 +46,78 @@ internal static class Native
     private const int SW_RESTORE = 9;
 
     /// <summary>
+    /// Window classes used by system-owned dialogs — permission prompts, UAC,
+    /// credential pickers, and plain message boxes.
+    ///
+    /// <para>Named here because of what happened on 2026-08-20. Injecting input
+    /// raised a Windows security prompt; <see cref="Force"/> immediately stole
+    /// the foreground away from it to reach the target window; and Noel, who is
+    /// blind, was left with a prompt he could not see and could only reach by
+    /// guessing at Alt+Tab. In his words: "I saw security and discovering, then
+    /// that's about all, I had to alt tab to security and then allow." He got
+    /// there. Had he not thought to, it would have looked exactly like a hang.
+    /// </para>
+    ///
+    /// <para>A 199-chord sweep would hit this repeatedly, so it is a guard in
+    /// the tool rather than a rule in someone's head.</para>
+    /// </summary>
+    private static readonly string[] SystemDialogClasses =
+    {
+        "Shell_SystemDialogProxy",     // the modern permission / consent host
+        "#32770",                      // any standard dialog box, MessageBox included
+        "Credential Dialog Xaml Host", // credential and PIN prompts
+        "ConsentUI",                   // UAC
+        "$$$Secure UI$$$",             // secure desktop
+    };
+
+    /// <summary>
+    /// The class of the current foreground window, when it is a system dialog we
+    /// must not touch. Null when the foreground is ordinary.
+    /// </summary>
+    internal static string? ForegroundSystemDialog()
+    {
+        IntPtr fg = GetForegroundWindow();
+        if (fg == IntPtr.Zero) return null;
+        string cls = Cls(fg);
+        return Array.Exists(SystemDialogClasses,
+            c => string.Equals(c, cls, StringComparison.Ordinal)) ? cls : null;
+    }
+
+    /// <summary>
+    /// Wait for a system dialog to be dealt with by the operator.
+    ///
+    /// <para>Waiting rather than stealing is the whole point. Returns false if it
+    /// is still there when the patience runs out, and the caller must then
+    /// decline to send anything: pressing a key past an unanswered security
+    /// prompt is how the keystroke goes somewhere nobody intended.</para>
+    /// </summary>
+    internal static bool WaitForSystemDialogToClear(int timeoutMs, out string? sawClass)
+    {
+        sawClass = ForegroundSystemDialog();
+        if (sawClass == null) return true;
+
+        long deadline = Environment.TickCount64 + timeoutMs;
+        while (Environment.TickCount64 < deadline)
+        {
+            Thread.Sleep(200);
+            if (ForegroundSystemDialog() == null) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Bring a window to the foreground, for real. Returns false when Windows
     /// still refused — callers must treat that as "the keystroke would have
     /// gone somewhere else" and abort, never as a warning to press on through.
+    ///
+    /// <para>Refuses outright while a system dialog holds the foreground. See
+    /// <see cref="SystemDialogClasses"/>: stealing focus from a security prompt
+    /// is the one case where this method is actively harmful, and it is harmful
+    /// specifically to an operator who cannot see what just vanished.</para>
     /// </summary>
     internal static bool Force(IntPtr h)
     {
+        if (ForegroundSystemDialog() != null) return false;
         ShowWindow(h, SW_RESTORE);
         IntPtr fg = GetForegroundWindow();
         uint fgThread = GetWindowThreadProcessId(fg, out _);

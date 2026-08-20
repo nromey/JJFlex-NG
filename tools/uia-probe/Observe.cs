@@ -366,10 +366,186 @@ internal static class TraceLog
     public static string AppDataDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio");
 
+    /// <summary>What a trace file's session header says about who wrote it.</summary>
+    internal sealed record TraceHeader(string Path, int Instance, string AppDir, string Level, DateTime StartedAt);
+
     /// <summary>
-    /// The trace file the running app is writing. Files are named
-    /// JJFlexRadioTrace-yyyyMMdd-HHmmss.txt and a long session rotates into
-    /// -1, -2 parts, so newest-by-write-time is the only reliable answer.
+    /// Find the trace file belonging to a SPECIFIC running app, by reading each
+    /// candidate's own session header and matching the build directory.
+    ///
+    /// <para><b>Newest-by-write-time is wrong, and it was wrong in two ways.</b>
+    /// Measured on 2026-08-20: three traces existed within half an hour, two
+    /// written by Track G's build under jjflex-33g and one by this track's build
+    /// under jjflex-33b. Picking the newest attached the probe to ANOTHER
+    /// TRACK'S SESSION, and it then reported "no routing, no speech" for a key
+    /// it was simply not watching the right log for. With several tracks
+    /// launching the app on one machine that is not an edge case, it is the
+    /// normal condition.
+    /// </para>
+    ///
+    /// <para>Worse, the live file can look OLDER than a closed one: Windows does
+    /// not reliably update a directory entry's LastWriteTime while a file is
+    /// held open, so the log being actively written can sort below a session
+    /// that finished twenty minutes earlier. That is not a bug sorting harder
+    /// can fix.</para>
+    ///
+    /// <para>So match on the header the app writes about itself:
+    /// <c>Boot Tracing on instance:N &lt;path to jjflexible.dll&gt; &lt;version&gt;
+    /// &lt;date&gt; level=&lt;level&gt;</c>. It names the exact build, which is the
+    /// question actually being asked, and it carries the trace level so a caller
+    /// can tell whether speech will be visible before relying on it.</para>
+    ///
+    /// <para>Three filename shapes are searched, because there are three
+    /// surfaces: the always-on boot trace at the fixed name
+    /// JJFlexRadioTrace.txt; the second-instance boot trace at
+    /// JJFlexRadio2Trace.txt, which matters precisely when a sweep runs
+    /// alongside a copy the operator already had open; and the timestamped
+    /// session captures JJFlexRadioTrace-yyyyMMdd-HHmmss.txt that Settings,
+    /// Diagnostics produces.</para>
+    /// </summary>
+    public static TraceHeader? FindForApp(string appDir)
+    {
+        DateTime best = DateTime.MinValue;
+        TraceHeader? chosen = null;
+        string want = appDir.TrimEnd('\\', '/');
+
+        foreach (TraceHeader h in AllHeaders())
+        {
+            if (!string.Equals(h.AppDir.TrimEnd('\\', '/'), want, StringComparison.OrdinalIgnoreCase))
+                continue;
+            // Latest SESSION START, not latest mtime — see the remarks above.
+            if (h.StartedAt < best) continue;
+            best = h.StartedAt;
+            chosen = h;
+        }
+        return chosen;
+    }
+
+    /// <summary>Every trace file in the app data folder with a readable header.</summary>
+    internal static List<TraceHeader> AllHeaders()
+    {
+        var found = new List<TraceHeader>();
+        try
+        {
+            var dir = new DirectoryInfo(AppDataDir);
+            if (!dir.Exists) return found;
+
+            foreach (FileInfo f in dir.GetFiles("JJFlexRadio*Trace*.txt"))
+            {
+                TraceHeader? h = ReadHeader(f.FullName);
+                if (h != null) found.Add(h);
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        return found;
+    }
+
+    private const string HeaderMarker = "Boot Tracing on instance:";
+
+    /// <summary>
+    /// Read the LAST session header in a file — that is the current session.
+    ///
+    /// <para>Reads the tail first and only falls back to the head, because these
+    /// files get very large: a marathon session on 2026-08-07 left an 11.7 GB
+    /// trace, and a probe that reads one whole is a probe nobody runs twice.</para>
+    /// </summary>
+    private static TraceHeader? ReadHeader(string path)
+    {
+        foreach (string chunk in ReadEnds(path))
+        {
+            int at = chunk.LastIndexOf(HeaderMarker, StringComparison.Ordinal);
+            if (at < 0) continue;
+
+            int lineEnd = chunk.IndexOf('\n', at);
+            string line = lineEnd < 0 ? chunk[at..] : chunk[at..lineEnd];
+            TraceHeader? parsed = ParseHeader(path, line);
+            if (parsed != null) return parsed;
+        }
+        return null;
+    }
+
+    private static IEnumerable<string> ReadEnds(string path)
+    {
+        const int Window = 512 * 1024;
+        string? tail = null, head = null;
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            long len = fs.Length;
+
+            if (len > Window)
+            {
+                fs.Seek(len - Window, SeekOrigin.Begin);
+                var buf = new byte[Window];
+                int n = fs.Read(buf, 0, Window);
+                tail = Encoding.UTF8.GetString(buf, 0, n);
+            }
+
+            fs.Seek(0, SeekOrigin.Begin);
+            var headBuf = new byte[(int)Math.Min(len, 64 * 1024)];
+            int hn = fs.Read(headBuf, 0, headBuf.Length);
+            head = Encoding.UTF8.GetString(headBuf, 0, hn);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+
+        if (tail != null) yield return tail;
+        if (head != null) yield return head;
+    }
+
+    /// <summary>
+    /// Pull instance, build directory, level and start time out of a header
+    /// line. Returns null rather than guessing: a header this code cannot read
+    /// means the format changed, and silently attaching to the wrong log is the
+    /// exact failure being fixed here.
+    /// </summary>
+    private static TraceHeader? ParseHeader(string path, string line)
+    {
+        int at = line.IndexOf(HeaderMarker, StringComparison.Ordinal);
+        if (at < 0) return null;
+        string rest = line[(at + HeaderMarker.Length)..].Trim();
+
+        int sp = rest.IndexOf(' ');
+        if (sp < 0 || !int.TryParse(rest[..sp], System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out int instance)) return null;
+
+        int dll = rest.IndexOf(".dll", StringComparison.OrdinalIgnoreCase);
+        if (dll < 0) return null;
+        string dllPath = rest[(sp + 1)..(dll + 4)].Trim();
+        string appDir = System.IO.Path.GetDirectoryName(dllPath) ?? "";
+        if (appDir.Length == 0) return null;
+
+        string level = "";
+        int lv = rest.IndexOf("level=", StringComparison.OrdinalIgnoreCase);
+        if (lv >= 0) level = rest[(lv + "level=".Length)..].Trim();
+
+        // The start time sits between the version and "level=".
+        DateTime started = DateTime.MinValue;
+        if (lv > dll + 4)
+        {
+            string middle = rest[(dll + 4)..lv].Trim();
+            int firstSpace = middle.IndexOf(' ');
+            if (firstSpace >= 0)
+            {
+                string stamp = middle[(firstSpace + 1)..].Trim();
+                DateTime.TryParse(stamp, System.Globalization.CultureInfo.CurrentCulture,
+                    System.Globalization.DateTimeStyles.None, out started);
+            }
+        }
+        if (started == DateTime.MinValue)
+        {
+            try { started = File.GetLastWriteTime(path); } catch (IOException) { }
+        }
+
+        return new TraceHeader(path, instance, appDir, level, started);
+    }
+
+    /// <summary>
+    /// Newest trace regardless of which app wrote it. Only for commands that
+    /// have no process context; anything that knows its pid must use
+    /// <see cref="FindForApp"/>, for the reasons in its remarks.
     /// </summary>
     public static string? FindCurrent()
     {
@@ -377,7 +553,7 @@ internal static class TraceLog
         {
             var dir = new DirectoryInfo(AppDataDir);
             if (!dir.Exists) return null;
-            return dir.GetFiles("JJFlexRadioTrace-*.txt")
+            return dir.GetFiles("JJFlexRadio*Trace*.txt")
                       .OrderByDescending(f => f.LastWriteTimeUtc)
                       .FirstOrDefault()?.FullName;
         }
