@@ -523,13 +523,56 @@ sees a greyed control and does not try; a keyboard and screen-reader operator
 pays the full round-trip first. Disable, hide, or label — any of the three beats
 the current behaviour. Same pattern as #121; sweep for others while here.
 
-**H4. #58's diagnostic — one trace line, not a fix.** The `ActiveSlice` guard
-shipped in `01c2d346` and did not suppress the connect storm, and static reading
-of `_slices.Add` plus `ActiveSlice` predicts one announcement where Noel heard
-four. **Do not guess at the mechanism.** Log what `theRadio.ActiveSlice` actually
-returns at each `DemodMode` event, alongside `s.Index`, `s.Active`, and
-`s.ClientHandle` versus `theRadio.ClientHandle`. One connect settles it. Fixing
-it is a separate decision made once the data exists.
+**H4. #58 — Noel has specified the CW vocabulary, and it supersedes the guard.**
+
+His ruling, 2026-08-19: *"the CW sends modes for all slices which isn't
+necessary. All it needs to send is the number of slices taken, and the number of
+slices available, and when you select mode or go to another slice, we send that,
+SL A USB, change the mode and it sends SL A LSB."*
+
+**This is not a smaller version of the current message — it is two different
+messages at two different moments**, which is why the `ActiveSlice` guard was
+never going to be right. The guard tried to make one message quieter. The real
+problem is that a PER-SLICE property was being announced during a BULK STATE
+REPLAY, so four individually-correct announcements answered a question nobody
+asked. Connect wants a CENSUS of the set; a slice or mode change wants an
+IDENTITY plus a STATE.
+
+Filtering picks one member and calls it representative, which is arbitrary.
+Summarising describes what actually happened. Note the same shape recurs in
+Track C, where a hundred meters arrive and the operator wants "14 checked, 5
+unreadable" rather than fourteen readings.
+
+The two messages:
+
+- **On connect (and on any bulk slice change): a census.** Slices taken and
+  slices available. NOT one message per slice.
+- **On mode change, or on moving to another slice: `SL <letter> <mode>`.**
+  `SL A USB`; change the mode and it sends `SL A LSB`.
+
+**Everything needed already exists — build nothing new to get the data:**
+
+- `Slice.Letter` is a FlexLib property. There is no index-to-letter mapping to
+  write; `FlexBase.ActiveSliceLetter` (FlexBase.cs:7860) already uses it.
+- `Radio.AvailableSlices` (Radio.cs:15082) is radio-reported remaining capacity.
+- `Radio.MaxSlices` (Radio.cs:15096) is the model ceiling.
+
+**OPEN — needs Noel's ruling before the census copy is written.** "Number
+available" is ambiguous and the two readings send differently. On his 8600 with
+four slices open: `SL 4/0` (four used, none free) versus `SL 4/4` (four of
+four). Recommendation is FREE, because it answers "can I open another" — which
+is the question a full radio raises. **User-facing copy; do not settle it
+without him** ([[feedback_human_review_user_facing_prose]]). The per-slice
+format is already settled by his wording above and needs no further approval.
+
+**The diagnostic is now optional, not blocking.** The guard is being replaced
+rather than repaired, so the mechanism behind its failure stops mattering for
+the fix. Log it anyway if cheap — what `theRadio.ActiveSlice` returns at each
+`DemodMode`, alongside `s.Index`, `s.Active`, and `s.ClientHandle` versus
+`theRadio.ClientHandle` — because static reading of `_slices.Add` plus
+`ActiveSlice` predicts ONE announcement where Noel heard four, and an
+unexplained contradiction in this area will resurface. **Do not guess at the
+mechanism; measure it.**
 
 Also confirmed by Noel and belonging here: the 1500 ms pre-teardown window is too
 short for a full CW string. Fix by observing the mixer drain rather than widening
