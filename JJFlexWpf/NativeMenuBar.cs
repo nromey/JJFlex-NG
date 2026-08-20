@@ -464,11 +464,20 @@ public class NativeMenuBar : IDisposable
         AddSep(parent);
 
         // === Meter Tones ===
+        // These two were ONE item until Sprint 32 Track B, and the one item was
+        // wrong twice over: it claimed Ctrl+Alt+M, which is not a binding this
+        // app has, and it showed a checkmark for the tone state while actually
+        // opening the panel. Two items now, each doing and naming one thing.
         var meterSub = AddSubmenu(parent, "Meter Tones");
-        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+Alt+M", () =>
+        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+J, T", () =>
+        {
+            MeterToneEngine.ToggleEnabled();
+        }, () => MeterToneEngine.Enabled);
+
+        AddWired(meterSub, "Meters Panel\tCtrl+M", () =>
         {
             _window.ToggleMetersPanel();
-        }, () => MeterToneEngine.Enabled);
+        });
 
         AddWired(meterSub, "Cycle Preset", () =>
         {

@@ -439,9 +439,13 @@ public class KeyCommands
             new(CommandValues.ATUTune, KeyTypes.Command, ATUTuneHandler,
                 "Start ATU tune cycle", "ATU Tune", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "atu", "tune", "antenna", "tuner", "auto", "match", "swr" }, ShortActionLabel = "start ATU tune" },
+            // Ctrl+M shows the panel and nothing else. It used to ALSO switch
+            // meter tones on, which is why this once read "toggle meter tones"
+            // — see #126. The tone switch is Toggle Meter Tones, on Ctrl+J
+            // then T, and stays where it is.
             new(CommandValues.ToggleMeters, KeyTypes.Command, ToggleMetersHandler,
-                "Toggle meter tones on or off", "Toggle Meters", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "meter", "tones", "sonification", "audio", "s-meter", "alc", "swr" }, ShortActionLabel = "toggle meter tones" },
+                "Show or hide the meters panel", "Meters Panel", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "meter", "meters", "panel", "show", "hide", "configure", "sonification", "s-meter", "alc", "swr" }, ShortActionLabel = "show meters panel" },
 
             // ── 60m channels ──
             new(CommandValues.SixtyMeterChannelUp, KeyTypes.Command, () => _context.GetMainWindow()?.SixtyMeterChannelNavigate(1),
@@ -1155,16 +1159,9 @@ public class KeyCommands
         SaveVerbositySetting();
     }
 
-    private void ToggleMeterTonesGlobalHandler()
-    {
-        MeterToneEngine.Enabled = !MeterToneEngine.Enabled;
-        string state = MeterToneEngine.Enabled ? "on" : "off";
-        Radios.ScreenReaderOutput.Speak($"Meter tones {state}", Radios.VerbosityLevel.Terse, true);
-        if (MeterToneEngine.Enabled)
-            EarconPlayer.FeatureOnTone();
-        else
-            EarconPlayer.FeatureOffTone();
-    }
+    // Ctrl+J then T. The wording and the earcons live on the engine so this and
+    // the Meter Tones menu item say the same thing (Sprint 32 Track B).
+    private void ToggleMeterTonesGlobalHandler() => MeterToneEngine.ToggleEnabled();
 
     private void ToggleEarconMute()
     {

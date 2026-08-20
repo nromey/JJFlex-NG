@@ -4013,13 +4013,18 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Toggle meters panel visibility and meter tones.
-    /// Called from Ctrl+M hotkey.
+    /// Show or hide the meters panel. Called from Ctrl+M.
     /// </summary>
+    /// <remarks>
+    /// This used to show the panel AND switch meter tones on or off in one
+    /// action (#126), which meant an operator who wanted to look at the
+    /// settings started a noise, and an operator who wanted the noise off had
+    /// to open a panel. They are separate now: this key is the panel, and the
+    /// tone switch is Ctrl+J then T. Nothing in here changes audio state.
+    /// </remarks>
     public void ToggleMetersPanel()
     {
-        MetersPanel.Visibility = Visibility.Visible;
-        MetersPanel.ToggleMeters();
+        MetersPanel.TogglePanelVisibility();
     }
 
     /// <summary>
