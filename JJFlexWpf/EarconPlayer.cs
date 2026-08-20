@@ -1289,12 +1289,160 @@ namespace JJFlexWpf
             PlayVoicedDecay(EarconVoices.Chime, 1000, 250, VolumeNormal);
         }
 
+        #region Bench tone — a held note the operator drives
+
+        // Sprint 32 Track E, #119 and #120. Every earcon in the app is a
+        // one-shot, which is the right shape for an earcon and the wrong shape
+        // for judging one. A sound you cannot hold still cannot be compared
+        // against band noise: by the time you have decided what you heard it
+        // has stopped, and the noise floor has moved. So the bench gets a note
+        // it can hold, and tune and pan and re-voice while it is sounding.
+        //
+        // Distinct from StartTxToneMonitor, which monitors an actual transmit
+        // test tone and is scaled and labelled for that job. This one is local,
+        // says nothing to the radio, and exists purely to be listened to.
+
+        private static VoicedToneSampleProvider? _benchToneProvider;
+
+        /// <summary>
+        /// Start, or re-voice, the held bench tone. Returns the live provider so
+        /// the caller can move Frequency, Volume, Pan and Voice while it sounds
+        /// — which is the whole point — or null if the mixer is unavailable.
+        /// </summary>
+        public static VoicedToneSampleProvider? StartBenchTone(
+            MeterVoice? voice, float frequencyHz, float volume, float pan = 0f)
+        {
+            if (!EarconsEnabled || AlertMixer == null) return null;
+            try
+            {
+                var existing = _benchToneProvider;
+                if (existing != null)
+                {
+                    existing.Voice = voice ?? MeterVoiceLibrary.Resolve(null);
+                    existing.Frequency = frequencyHz;
+                    existing.Volume = volume;
+                    existing.Pan = pan;
+                    existing.Active = true;
+                    return existing;
+                }
+
+                var provider = new VoicedToneSampleProvider(frequencyHz, volume)
+                {
+                    Voice = voice ?? MeterVoiceLibrary.Resolve(null),
+                    Pan = pan,
+                    Active = true,
+                };
+                _benchToneProvider = provider;
+                AlertMixer.AddMixerInput(provider);
+                return provider;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.StartBenchTone failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>Stop the held bench tone (10 ms fade, then remove).</summary>
+        public static void StopBenchTone()
+        {
+            var provider = _benchToneProvider;
+            if (provider == null) return;
+            provider.Active = false;
+            _benchToneProvider = null;
+            if (AlertMixer == null) return;
+            System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
+            {
+                try { AlertMixer?.RemoveMixerInput(provider); }
+                catch { }
+            });
+        }
+
+        /// <summary>True while the held bench tone is sounding.</summary>
+        public static bool IsBenchToneRunning => _benchToneProvider != null;
+
+        #endregion
+
         /// <summary>
         /// Play a tone with specific parameters and panning. Used by earcon scratchpad.
         /// </summary>
         public static void PlayScratchpadTone(int freqHz, int durationMs, float volume, float pan)
         {
             PlayTonePanned(freqHz, durationMs, volume, pan);
+        }
+
+        /// <summary>
+        /// Play a one-shot voiced note from the bench, optionally with a decay
+        /// that fills its own duration.
+        /// </summary>
+        public static void PlayScratchpadVoiced(MeterVoice? voice, int freqHz, int durationMs,
+            float volume, float pan, bool decay)
+        {
+            var v = voice ?? MeterVoiceLibrary.Resolve(null);
+            if (decay) PlayVoicedDecay(v, freqHz, durationMs, volume, pan);
+            else PlayVoiced(v, freqHz, durationMs, volume, pan);
+        }
+
+        /// <summary>
+        /// Walk a scale from <paramref name="startHz"/> to <paramref name="endHz"/>
+        /// in equal-tempered semitones, one note per step.
+        ///
+        /// Judging a voice on one pitch tells you almost nothing. A timbre that
+        /// reads clearly at 800 Hz can vanish at 300 or turn shrill at 2000, and
+        /// pitch is the axis that carries meter values, so the whole working
+        /// range has to be listenable before a voice is worth keeping.
+        /// </summary>
+        public static void PlayScratchpadScale(MeterVoice? voice, int startHz, int endHz,
+            int noteMs, float volume, float pan, bool decay)
+        {
+            if (startHz <= 0 || endHz <= 0) return;
+            var v = voice ?? MeterVoiceLibrary.Resolve(null);
+            int perNote = Math.Clamp(noteMs, 40, 1000);
+
+            double ratio = (double)endHz / startHz;
+            int semitones = (int)Math.Round(Math.Abs(Math.Log(ratio, 2.0) * 12.0));
+            semitones = Math.Clamp(semitones, 1, 48);
+            int direction = endHz >= startHz ? 1 : -1;
+
+            var steps = new (int freq, int ms)[semitones + 1];
+            for (int i = 0; i <= semitones; i++)
+            {
+                double f = startHz * Math.Pow(2.0, direction * i / 12.0);
+                steps[i] = ((int)Math.Round(f), perNote);
+            }
+
+            if (decay) PlayVoicedDecaySequence(v, steps, volume, pan);
+            else PlayVoicedSequence(v, steps, volume, pan);
+        }
+
+        /// <summary>
+        /// Play the harmonic series over a fundamental: one times, two times,
+        /// three times and so on, each in turn.
+        ///
+        /// This is the ear-training half of the bench. Voices are built out of
+        /// exactly these partials, so hearing them one at a time is how a
+        /// partial list stops being a row of numbers. Steps past about 5 kHz
+        /// are dropped rather than played shrill.
+        /// </summary>
+        public static void PlayScratchpadHarmonics(MeterVoice? voice, int fundamentalHz,
+            int count, int noteMs, float volume, float pan, bool decay)
+        {
+            if (fundamentalHz <= 0) return;
+            var v = voice ?? MeterVoiceLibrary.Resolve(null);
+            int perNote = Math.Clamp(noteMs, 40, 1000);
+            int n = Math.Clamp(count, 1, 16);
+
+            var steps = new List<(int freq, int ms)>();
+            for (int i = 1; i <= n; i++)
+            {
+                int f = fundamentalHz * i;
+                if (f > 5000) break;
+                steps.Add((f, perNote));
+            }
+            if (steps.Count == 0) return;
+
+            if (decay) PlayVoicedDecaySequence(v, steps.ToArray(), volume, pan);
+            else PlayVoicedSequence(v, steps.ToArray(), volume, pan);
         }
 
         /// <summary>

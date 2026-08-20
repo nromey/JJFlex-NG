@@ -1,12 +1,15 @@
-﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.EarconScratchpadDialog"
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.EarconScratchpadDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Earcon Scratchpad"
-        Width="420" Height="400"
-        ResizeMode="NoResize">
+        Width="470" Height="620"
+        ResizeMode="CanResize">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  AutomationProperties.Name="Earcon scratchpad">
     <StackPanel Margin="12">
-        <TextBlock Text="Tone Generator" FontWeight="Bold" Margin="0,0,0,8" />
+        <TextBlock Text="Tone Generator" FontWeight="Bold" Margin="0,0,0,8"
+                   AutomationProperties.HeadingLevel="Level2" />
 
         <Grid>
             <Grid.ColumnDefinitions>
@@ -20,21 +23,22 @@
                 <RowDefinition/>
                 <RowDefinition/>
                 <RowDefinition/>
-                <RowDefinition/>
             </Grid.RowDefinitions>
 
             <!-- Start Frequency -->
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Start Hz:" VerticalAlignment="Center" Margin="0,0,8,4"/>
             <Slider x:Name="StartFreqSlider" Grid.Row="0" Grid.Column="1" Minimum="100" Maximum="2000" Value="800"
                     AutomationProperties.Name="Start frequency" Margin="0,0,8,4"
+                    local:JJFlexHelp.Text="The pitch everything here starts from: the tone, the note, the bottom of a scale walk, and the fundamental of a harmonic series."
                     ValueChanged="Slider_ValueChanged"/>
             <TextBox x:Name="StartFreqBox" Grid.Row="0" Grid.Column="2" Text="800" VerticalAlignment="Center" Margin="0,0,0,4"
                      AutomationProperties.Name="Start frequency hertz" TextChanged="FreqBox_TextChanged"/>
 
-            <!-- End Frequency (for sweep) -->
+            <!-- End Frequency (for sweep, and the top of a scale walk) -->
             <TextBlock Grid.Row="1" Grid.Column="0" Text="End Hz:" VerticalAlignment="Center" Margin="0,0,8,4"/>
             <Slider x:Name="EndFreqSlider" Grid.Row="1" Grid.Column="1" Minimum="100" Maximum="2000" Value="800"
-                    AutomationProperties.Name="End frequency for sweep" Margin="0,0,8,4"
+                    AutomationProperties.Name="End frequency" Margin="0,0,8,4"
+                    local:JJFlexHelp.Text="Where a sweep lands, and the top of a scale walk. Ignored by everything that plays a single pitch."
                     ValueChanged="Slider_ValueChanged"/>
             <TextBox x:Name="EndFreqBox" Grid.Row="1" Grid.Column="2" Text="800" VerticalAlignment="Center" Margin="0,0,0,4"
                      AutomationProperties.Name="End frequency hertz" TextChanged="FreqBox_TextChanged"/>
@@ -43,6 +47,7 @@
             <TextBlock Grid.Row="2" Grid.Column="0" Text="Duration ms:" VerticalAlignment="Center" Margin="0,0,8,4"/>
             <Slider x:Name="DurationSlider" Grid.Row="2" Grid.Column="1" Minimum="10" Maximum="1000" Value="200"
                     AutomationProperties.Name="Duration milliseconds" Margin="0,0,8,4"
+                    local:JJFlexHelp.Text="How long one sound lasts. In a scale walk or a harmonic series it is the length of each individual note, not of the whole run."
                     ValueChanged="Slider_ValueChanged"/>
             <TextBox x:Name="DurationBox" Grid.Row="2" Grid.Column="2" Text="200" VerticalAlignment="Center" Margin="0,0,0,4"
                      AutomationProperties.Name="Duration milliseconds" TextChanged="FreqBox_TextChanged"/>
@@ -51,6 +56,7 @@
             <TextBlock Grid.Row="3" Grid.Column="0" Text="Volume:" VerticalAlignment="Center" Margin="0,0,8,4"/>
             <Slider x:Name="VolumeSlider" Grid.Row="3" Grid.Column="1" Minimum="0" Maximum="100" Value="60"
                     AutomationProperties.Name="Volume percent" Margin="0,0,8,4"
+                    local:JJFlexHelp.Text="For reference, the shipping earcons sit at 40 percent for background sounds, 50 for the usual answer to a keypress, and 65 for arrivals and warnings."
                     ValueChanged="Slider_ValueChanged"/>
             <TextBox x:Name="VolumeBox" Grid.Row="3" Grid.Column="2" Text="60" VerticalAlignment="Center" Margin="0,0,0,4"
                      AutomationProperties.Name="Volume percent" TextChanged="FreqBox_TextChanged"/>
@@ -68,6 +74,7 @@
             <Button x:Name="PlayToneButton" Content="Play _Tone" Width="100" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Play Tone"
                     AutomationProperties.AcceleratorKey="Alt+T"
+                    local:JJFlexHelp.Text="A plain sine at the start frequency, with no voice on it. The reference the voiced sounds get compared against."
                     Click="PlayTone_Click"/>
             <Button x:Name="PlaySweepButton" Content="Play S_weep" Width="100" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Play Sweep"
@@ -84,13 +91,85 @@
                     AutomationProperties.Name="Play Zip"
                     AutomationProperties.AcceleratorKey="Alt+Z"
                     Click="PlayZip_Click"/>
-            <Button Content="Play Zip _Reversed" Width="100" Height="28" Margin="0,0,8,0"
+            <Button Content="Play Zip _Reversed" Width="140" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Play Zip Reversed"
                     AutomationProperties.AcceleratorKey="Alt+R"
                     Click="PlayZipReversed_Click"/>
         </StackPanel>
 
-        <TextBlock Text="Filter Sounds" FontWeight="Bold" Margin="0,12,0,4" />
+        <!-- The voiced bench. Everything above this line predates the one
+             synthesis vocabulary and plays raw sines and samples; everything
+             below plays a named voice through the same engine the meters use,
+             so a tone auditioned here is a tone that can ship. -->
+        <TextBlock Text="Voices" FontWeight="Bold" Margin="0,16,0,4"
+                   AutomationProperties.HeadingLevel="Level2" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                   Text="A voice is a timbre: which partials, how bright, how it starts and how it fades. Pitch, volume and pan come from the sliders above."/>
+
+        <Grid Margin="0,0,0,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition/>
+                <RowDefinition/>
+            </Grid.RowDefinitions>
+
+            <Label Grid.Row="0" Grid.Column="0" Content="V_oice:" VerticalAlignment="Center" Margin="0,0,8,4"
+                   Target="{Binding ElementName=VoiceCombo}"/>
+            <ComboBox x:Name="VoiceCombo" Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
+                      AutomationProperties.Name="Voice"
+                      local:JJFlexHelp.Text="Built-in meter voices first, then the alert voices the earcons themselves use, then anything you have imported."
+                      SelectionChanged="VoiceCombo_SelectionChanged"/>
+
+            <Label Grid.Row="1" Grid.Column="0" Content="Ha_rmonics:" VerticalAlignment="Center" Margin="0,0,8,4"
+                   Target="{Binding ElementName=HarmonicCountBox}"/>
+            <TextBox x:Name="HarmonicCountBox" Grid.Row="1" Grid.Column="1" Text="8" Width="60"
+                     HorizontalAlignment="Left" Margin="0,0,0,4"
+                     AutomationProperties.Name="Harmonic count"
+                     local:JJFlexHelp.Text="How many steps the harmonic series plays, 1 to 16. Anything landing above 5 kilohertz is dropped rather than played shrill."/>
+        </Grid>
+
+        <CheckBox x:Name="DecayCheck" Content="_Decay: each note falls away inside its own length"
+                  IsChecked="True" Margin="0,4,0,4"
+                  AutomationProperties.Name="Decay"
+                  local:JJFlexHelp.Text="On, a note is struck and fades, which is what makes a short sound read as an answer rather than as a machine artefact. Off, it holds level and stops dead."/>
+
+        <CheckBox x:Name="HoldCheck" Content="_Hold the tone"
+                  Margin="0,0,0,6"
+                  AutomationProperties.Name="Hold the tone"
+                  local:JJFlexHelp.Text="Keeps the note sounding while you move the sliders and change voice. A sound you cannot hold still cannot be judged against band noise, because by the time you have decided what you heard it has stopped."
+                  Checked="HoldCheck_Changed" Unchecked="HoldCheck_Changed"/>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+            <Button Content="Play _Note" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Play Note"
+                    AutomationProperties.AcceleratorKey="Alt+N"
+                    local:JJFlexHelp.Text="One note in the chosen voice, at the start frequency, for the duration set above."
+                    Click="PlayVoicedNote_Click"/>
+            <Button Content="Scale wal_k" Width="100" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Scale walk"
+                    AutomationProperties.AcceleratorKey="Alt+K"
+                    local:JJFlexHelp.Text="Walks the voice in semitones from the start frequency to the end frequency. A timbre that reads clearly at 800 hertz can vanish at 300 or turn shrill at 2000, and pitch is what carries a meter's value, so the whole range has to be listenable."
+                    Click="ScaleWalk_Click"/>
+            <Button Content="Harmonic ser_ies" Width="120" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Harmonic series"
+                    AutomationProperties.AcceleratorKey="Alt+I"
+                    local:JJFlexHelp.Text="Plays the partials that voices are built out of, one at a time, over the start frequency. Hearing them separately is how a partial list stops being a row of numbers."
+                    Click="HarmonicSeries_Click"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <Button Content="I_mport voices..." Width="140" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Import voices"
+                    AutomationProperties.AcceleratorKey="Alt+M"
+                    local:JJFlexHelp.Text="Loads voices from a voice pack file. Voices are written in a file rather than built in here on purpose: authoring one means a screenful of partial amplitudes and envelope times, which is too much surface for a radio application."
+                    Click="ImportVoices_Click"/>
+        </StackPanel>
+
+        <TextBlock Text="Filter Sounds" FontWeight="Bold" Margin="0,16,0,4"
+                   AutomationProperties.HeadingLevel="Level2" />
         <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
             <Button Content="S_queeze" Width="100" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Squeeze"
@@ -105,4 +184,5 @@
         <TextBlock x:Name="StatusText" Margin="0,12,0,0" TextWrapping="Wrap"
                    AutomationProperties.Name="Status" AutomationProperties.LiveSetting="Polite"/>
     </StackPanel>
+    </ScrollViewer>
 </local:JJFlexDialog>
