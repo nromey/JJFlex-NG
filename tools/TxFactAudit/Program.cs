@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Threading;
 using JJFlex.RigSurface;
 
 namespace JJFlex.TxFactAudit
@@ -84,13 +83,17 @@ namespace JJFlex.TxFactAudit
             Console.WriteLine("  crosscheck          Check every wire key in the map against Track C's ownership table.");
             Console.WriteLine("  runbook             The radio run, step by step, in the order it must happen.");
             Console.WriteLine();
+            Console.WriteLine("  readings ...        (listed below; needs a trace, not a radio)");
+            Console.WriteLine();
             Console.WriteLine("Reads the radio, changes nothing:");
             Console.WriteLine("  power [--host H]    The transmit power setting and interlock state, from the RADIO.");
             Console.WriteLine("                      Run this immediately before any keying. Never trust a cached copy.");
-            Console.WriteLine("  readings [--host H] [--seconds N]");
-            Console.WriteLine("                      The meter READINGS, over VITA-49, which the command channel");
-            Console.WriteLine("                      does not carry. A meter that never speaks is named as silent,");
-            Console.WriteLine("                      never given a zero.");
+            Console.WriteLine("  readings [--build DIR] [--file PATH] [--trace-dir DIR]");
+            Console.WriteLine("                      The meter READINGS, out of the application's own trace —");
+            Console.WriteLine("                      what JJ Flexible actually received, not what a second client");
+            Console.WriteLine("                      would have seen. --build picks the session by the worktree");
+            Console.WriteLine("                      that wrote it, which is the only reliable way to tell one");
+            Console.WriteLine("                      track's session from another's.");
             Console.WriteLine("  audit [--host H] [--owner HANDLE]");
             Console.WriteLine("                      Every fact, with the radio's own answer beside it.");
             Console.WriteLine("                      --owner names the APPLICATION's client handle so client-owned");
@@ -345,99 +348,74 @@ namespace JJFlex.TxFactAudit
 
 
         /// <summary>
-        /// The readings themselves, and — the part that matters — which meters
-        /// did NOT produce one.
+        /// The meter readings, taken from the application's own trace.
         ///
-        /// <para>Every transmit meter on a Flex is silent while receiving. That
-        /// is normal, it is not a fault, and it is precisely the state in which
-        /// the analyzer used to publish an untouched initialiser as a
-        /// measurement. Printing the silent ones by name, beside the ones that
-        /// spoke, is what makes the difference visible instead of inferred.</para>
+        /// <para>Decided rather than defaulted: this tool opened a UDP stream of
+        /// its own until 2026-08-20, and that was the wrong experiment. The
+        /// question is whether JJ FLEXIBLE'S facts are honest, and a second
+        /// client with its own subscription sees a different meter set — the
+        /// list is a property of the moment, eleven meters with no station
+        /// client and thirty-five with one. A stream the application never saw
+        /// cannot testify about what the application knew.</para>
         /// </summary>
         private static int Readings(string[] args)
         {
-            int seconds = 6;
-            if (Option(args, "--seconds") is string raw
-                && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
-                && parsed is > 0 and <= 120)
+            string? directory = Option(args, "--trace-dir");
+            string? explicitFile = Option(args, "--file");
+            string? buildRoot = Option(args, "--build");
+
+            IReadOnlyList<TraceSessionFile> sessions = TraceSessions.Discover(directory);
+            if (sessions.Count == 0)
             {
-                seconds = parsed;
-            }
-
-            using RigWire wire = Open(args);
-            Console.WriteLine();
-            Console.WriteLine(Guards.DescribeCensus(wire));
-
-            IReadOnlyList<RigObject> descriptors = wire.State.GetObjects(RigTarget.Meter);
-            Console.WriteLine();
-            Console.WriteLine($"The radio describes {descriptors.Count} meters. Listening {seconds} seconds "
-                              + "for readings.");
-
-            using var meters = MeterStream.Open(wire);
-            Console.WriteLine(meters.RegistrationReply + ".");
-            Thread.Sleep(TimeSpan.FromSeconds(seconds));
-
-            Console.WriteLine();
-            Console.WriteLine($"{meters.DatagramsReceived} datagrams arrived, "
-                              + $"{meters.PacketsReceived} of them meter packets.");
-            if (meters.PacketsReceived == 0)
-            {
-                Console.WriteLine(meters.DatagramsReceived == 0
-                    ? "Nothing arrived at all. Do not read anything into the silence below: either the radio "
-                    + "is not streaming to us or this computer's firewall is dropping it, and in neither case "
-                    + "does this say anything about an individual meter."
-                    : "Datagrams arrived but none carried meter readings, so the radio is talking to us about "
-                    + "something else. Still says nothing about any individual meter.");
+                Console.Error.WriteLine("No trace file in " + (directory ?? TraceSessions.DefaultDirectory)
+                                        + " carries a boot header, so no session could be identified. "
+                                        + "Nothing is reported rather than something being guessed at.");
                 return 1;
             }
 
-            var spoke = new Dictionary<string, MeterSample>(StringComparer.OrdinalIgnoreCase);
-            foreach (MeterSample s in meters.All()) spoke[s.Name] = s;
-
+            Console.WriteLine($"{sessions.Count} sessions found, newest first BY THE START TIME EACH ONE");
+            Console.WriteLine("DECLARED — not by file timestamp, which Windows does not reliably update");
+            Console.WriteLine("while a file is held open, so the live log can sort below a long-dead one.");
             Console.WriteLine();
-            Console.WriteLine("Meters that reported:");
-            foreach (MeterSample s in meters.All().OrderBy(m => m.Index))
-            {
-                string units = s.Units.Length == 0 ? "" : " " + s.Units;
-                Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                    $"  {s.Name} = {s.Value:0.##}{units}, {s.Count} readings."));
-            }
+            foreach (TraceSessionFile s in sessions.Take(8)) Console.WriteLine("  " + s.Describe());
+            Console.WriteLine();
 
-            var silent = new List<string>();
-            foreach (RigObject d in descriptors)
+            TraceSessionFile? chosen;
+            if (explicitFile is not null)
             {
-                if (d.Fields.TryGetValue("nam", out string? name) && name is not null
-                    && !spoke.ContainsKey(name))
+                chosen = TraceSessions.ReadHeader(explicitFile);
+                if (chosen is null)
                 {
-                    silent.Add(name);
+                    Console.Error.WriteLine($"{explicitFile} carries no boot header, so which session it "
+                                            + "belongs to cannot be established.");
+                    return 1;
                 }
             }
-
-            Console.WriteLine();
-            if (silent.Count == 0)
+            else if (buildRoot is not null)
             {
-                Console.WriteLine("Every meter the radio describes also reported.");
+                chosen = TraceSessions.ForBuild(buildRoot, directory);
+                if (chosen is null)
+                {
+                    Console.Error.WriteLine($"No session was written by a build under {buildRoot}. "
+                        + "Attaching to somebody else's trace instead is exactly the failure this "
+                        + "selection exists to prevent, so nothing is read.");
+                    return 1;
+                }
             }
             else
             {
-                Console.WriteLine($"{silent.Count} meters described but SILENT — present and saying nothing, "
-                                  + "which is information and not an absence:");
-                Console.WriteLine("  " + string.Join(", ", silent));
+                chosen = sessions[0];
+                Console.WriteLine("No --build given, so this is the newest session by declared start time.");
+                Console.WriteLine("On a machine running several worktrees at once that is very likely NOT");
+                Console.WriteLine("the build you mean — pass --build with the worktree root to be sure.");
+                Console.WriteLine();
             }
 
+            TraceMeters.Reading reading = TraceMeters.Read(chosen.Path);
             Console.WriteLine();
-            Console.WriteLine("The four the analyzer turns into verdicts:");
-            foreach (string name in new[] { "SC_MIC", "ALC", "FWDPWR", "SWR", "MIC", "HWALC" })
-            {
-                MeterSample? s = meters.Latest(name);
-                Console.WriteLine(s is null
-                    ? $"  {name}: no reading. The fact built on it must say so."
-                    : string.Create(CultureInfo.InvariantCulture,
-                        $"  {name} = {s.Value:0.##} {s.Units}, from {s.Count} readings."));
-            }
-            return 0;
+            TraceMeters.Describe(chosen, reading, Console.WriteLine);
+            return reading.AnyTransmission ? 0 : 0;
         }
-
 
         /// <summary>
         /// The radio run, written down before the radio is available.
@@ -482,21 +460,36 @@ namespace JJFlex.TxFactAudit
             Console.WriteLine("  derived filter width. Any fact that did not move is unmissable.");
             Console.WriteLine();
             Console.WriteLine("Step 3 — the transmit window, and the only part that keys.");
-            Console.WriteLine("  Start 'TxFactAudit readings --seconds 20' FIRST, so it is already listening.");
+            Console.WriteLine("  FIRST, before keying, start a DETAILED diagnostic capture in the app");
+            Console.WriteLine("  (Ctrl+J, Ctrl+D). Detailed means trace level Verbose, and that is the only");
+            Console.WriteLine("  level at which SWR, the codec MIC meter and HWALC appear at all. At the");
+            Console.WriteLine("  default Info level the trace carries one correlated line — SC_MIC with its");
+            Console.WriteLine("  peak, SW ALC, and forward power in dBm — and nothing else.");
             Console.WriteLine("  Then key at one watt with a tone for about five seconds, and unkey.");
-            Console.WriteLine("  This measures SC_MIC, ALC, FWDPWR, SWR and MIC together, which is the only");
-            Console.WriteLine("  arrangement in which they can be compared: the same audio, the same instant.");
-            Console.WriteLine("  Immediately afterwards, run the Audio Workshop transmit check again and copy");
-            Console.WriteLine("  the evidence block. Forward power, standing wave ratio and the mic peak all");
-            Console.WriteLine("  hold their last value after unkey, so the numbers are still there to compare.");
+            Console.WriteLine("  Then stop the capture.");
             Console.WriteLine();
-            Console.WriteLine("  KNOWN OBSTACLE, and it is this computer's rather than the radio's. Meter");
-            Console.WriteLine("  readings arrive as UDP, and Windows allows inbound UDP only to programs with a");
-            Console.WriteLine("  firewall rule. JJ Flexible has one per worktree; this tool has none, and on");
-            Console.WriteLine("  2026-08-20 no datagram reached it even though the radio accepted the port. If");
-            Console.WriteLine("  step 3 reports nothing arriving, that is the reason, and it is a decision for");
-            Console.WriteLine("  Noel rather than something a diagnostic should quietly change. The tool says");
-            Console.WriteLine("  'nothing arrived' instead of printing zeroes, which is the whole point.");
+            Console.WriteLine("  Afterwards run 'TxFactAudit readings --build <this worktree>'. It reads the");
+            Console.WriteLine("  meters out of the APPLICATION'S trace — what JJ Flexible actually received —");
+            Console.WriteLine("  rather than out of a stream of our own. That is the more correct experiment:");
+            Console.WriteLine("  the meter list is a property of the moment, so a second client with its own");
+            Console.WriteLine("  subscription sees a different set and cannot testify about what the app knew.");
+            Console.WriteLine();
+            Console.WriteLine("  The --build argument is load-bearing, not a convenience. Eleven worktrees");
+            Console.WriteLine("  write into the same AppData folder, and picking the newest file attaches to");
+            Console.WriteLine("  whichever track most recently ran. Worse, Windows does not reliably update a");
+            Console.WriteLine("  directory entry while a file is held open, so the LIVE log can sort BELOW one");
+            Console.WriteLine("  closed twenty minutes earlier. Sessions are matched on the assembly path in");
+            Console.WriteLine("  their own boot header and ordered by the start time they declared.");
+            Console.WriteLine();
+            Console.WriteLine("  Also copy the Audio Workshop evidence block immediately after unkeying.");
+            Console.WriteLine("  Forward power, standing wave ratio and the mic peak all hold their last value");
+            Console.WriteLine("  after unkey, so the numbers are still there to compare against the trace.");
+            Console.WriteLine();
+            Console.WriteLine("  NOTE ON THE RECEIVE SIDE. traceTxMeters begins 'if (!Transmit) return', so a");
+            Console.WriteLine("  receiving session traces none of these however healthy the meters are. An");
+            Console.WriteLine("  absence of lines is a statement about whether the radio TRANSMITTED and about");
+            Console.WriteLine("  nothing else — the receive-side facts are settings and telemetry the radio");
+            Console.WriteLine("  holds continuously, and 'TxFactAudit audit' reads those from the radio.");
             Console.WriteLine();
             Console.WriteLine("Step 4 — confirm the Peak Watcher finding, which needs no transmission.");
             Console.WriteLine("  Already measured: the watcher guards HWALC, the external-amplifier ALC line,");

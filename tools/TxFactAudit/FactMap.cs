@@ -22,9 +22,12 @@ namespace JJFlex.TxFactAudit
         /// fully provable this way even though the READING is not.</summary>
         MeterDescriptor,
 
-        /// <summary>The reading itself, which arrives only as VITA-49 UDP to a
-        /// client that registered a stream. A command-channel observer cannot see
-        /// it, so this tool says so rather than inferring a number.</summary>
+        /// <summary>The reading itself. It never crosses the command channel —
+        /// it arrives as VITA-49 UDP to a client that registered a stream — so
+        /// the identity is provable here and the VALUE is read out of the
+        /// application's own trace instead. Deliberately not out of a stream of
+        /// our own: a second client sees a different meter set, and cannot
+        /// testify about what the application knew.</summary>
         MeterValue,
 
         /// <summary>State that lives in JJ Flexible, not on the radio. No wire
@@ -395,13 +398,13 @@ namespace JJFlex.TxFactAudit
             F("sc-mic-peak", "Loudest transmit audio the radio has heard",
               "FlexBase.ScMicMaxDb", "Meter SC_MIC DataReady, peak-held",
               Provenance.MeterValue, FactOwnership.Telemetry, IdleHonesty.Gated,
-              "Identity provable from the descriptor: SC_MIC is the mic OUTPUT, downstream of mic selection, so it hears PC audio and the analog jack alike. The reading needs a transmit window.",
+              "VERIFIED from the application's trace, 2026-08-20: SC_MIC moved from the -150 sentinel to -10.8 dBFS on tone, and the peak-hold sat at -10.7 across the transmission. Identity from the descriptor: SC_MIC is the mic OUTPUT, downstream of mic selection, so it hears PC audio and the analog jack alike.",
               meter: "SC_MIC");
 
             F("sc-mic-recent", "Transmit audio the radio heard in the last second and a half",
               "FlexBase.ScMicRecentDb", "Meter SC_MIC DataReady, rolling peak-hold",
               Provenance.MeterValue, FactOwnership.Telemetry, IdleHonesty.Gated,
-              "Deliberately stays a number at the minus one fifty floor once the meter is known to exist, because a live meter reading its floor while transmitting is THE finding rather than an absence of one.",
+              "VERIFIED from the application's trace, 2026-08-20: -150 on the first second of a transmission, then -10.8 dBFS for the rest of it. Still stays a number at the floor once the meter is known to have reported, because a LIVE meter at its floor while transmitting is THE finding rather than an absence of one.",
               meter: "SC_MIC",
               fixedHere: true,
               concern: "WAS: gated on the meter EXISTING, while the value only ever moves if hookTxMeters found and subscribed it. Those are two different conditions and only one is checked.");
@@ -409,7 +412,7 @@ namespace JJFlex.TxFactAudit
             F("sw-alc", "Transmit drive after the radio's own levelling",
               "FlexBase.SwAlcDb", "Meter ALC DataReady",
               Provenance.MeterValue, FactOwnership.Telemetry, IdleHonesty.Gated,
-              "The real transmit-drive meter, and the one the Peak Watcher does NOT watch. Prove from the descriptor that a meter named exactly ALC exists and is distinct from HWALC.",
+              "VERIFIED from the application's trace, 2026-08-20: SWALC moved from the -150 sentinel to between -4.9 and -2.8 dBFS across a transmission, at instants where SC_MIC read -10.8 — so it is live, moving, and genuinely a different meter. That is also the independent proof for the Peak Watcher finding: the real transmit-drive meter reports perfectly well, and nothing watches it.",
               meter: "ALC",
               fixedHere: true,
               concern: "WAS: the gate asked the inventory case-INSENSITIVELY while the subscription asks FlexLib case-SENSITIVELY. A radio spelling it any other way passes the gate and publishes the untouched minus one fifty initialiser as a measured reading.");
@@ -462,11 +465,11 @@ namespace JJFlex.TxFactAudit
             F("forward-power", "Forward power",
               "FlexBase.ForwardPowerWatts", "Radio.ForwardPowerDataReady, meter FWDPWR, dBm converted to watts",
               Provenance.MeterValue, FactOwnership.Telemetry, IdleHonesty.Gated,
-              "Needs a transmit window. Read the power SETTING off the wire first and never key above the ceiling.",
+              "VERIFIED from the application's trace, 2026-08-20: 17.4 to 26.0 dBm across a transmission, which the analyzer publishes as 0.055 to 0.398 watts. The dBm-to-watts conversion is correct. Read the power SETTING off the wire before keying and never key above the ceiling.",
               meter: "FWDPWR",
               idleReads: "0 watts",
               fixedHere: true,
-              concern: "WAS: no gate at all. The dBm field initialises to minus one fifty, which converts to about a millionth of a millionth of a watt and prints as 0 watts. The no-power-out rule fires below a tenth of a watt, so an unreported meter during a real transmission produces the confident wrong verdict 'your radio is transmitting but almost no power is leaving it'.");
+              concern: "STILL OPEN, and separate from the gate: the no-power-out rule fires below a TENTH OF A WATT, and this radio measured 0.055 to 0.398 watts across a normal bench transmission — under the threshold for part of it, with a completely correct reading. The rule file admits the figure is a guess and says the floor a Flex reports on a genuine dead-key has not been measured. It has now, and 55 milliwatts is a real transmission rather than a dead key, so QRP and transverter operators are told their radio is barely transmitting when it is doing exactly what they set. Retuning a threshold is a judgement about what counts as a fault, with verdict wording attached, so it is reported. WAS: no gate at all. The dBm field initialises to minus one fifty, which converts to about a millionth of a millionth of a watt and prints as 0 watts. The no-power-out rule fires below a tenth of a watt, so an unreported meter during a real transmission produces the confident wrong verdict 'your radio is transmitting but almost no power is leaving it'.");
 
             F("swr", "Standing wave ratio",
               "FlexBase.SWRValue", "Radio.SWRDataReady, meter SWR",
