@@ -337,6 +337,16 @@ public partial class MetersPanel : UserControl
     {
         public string Key { get; init; } = "";
         public string Display { get; init; } = "";
+
+        /// <summary>
+        /// What to CALL the meter once it is chosen, as opposed to how to list
+        /// it. The list entry carries the radio's description so you can tell
+        /// two unfamiliar meters apart while browsing; the slot is then named
+        /// with this, because the slot selector reads every entry aloud and a
+        /// sentence per slot is not a list you can navigate.
+        /// </summary>
+        public string ShortName { get; init; } = "";
+
         public int SliceIndex { get; init; } = -1;
         public MeterRange Range { get; init; } = new();
         public MeterActivation Activation { get; init; } = MeterActivation.Always;
@@ -368,15 +378,37 @@ public partial class MetersPanel : UserControl
 
             if (inv != null && inv.Count > 0)
             {
+                // Slice meters get an "active slice" entry as well as a pinned
+                // one per slice. Without it the commonest setting in the
+                // application could not be SELECTED: a slice source of -1 means
+                // "follow whichever slice I am listening to", which is what
+                // every default and every migrated config carries, while every
+                // choice built from a live reading carries that slice's real
+                // number. -1 never equalled 0, so the S-meter matched nothing,
+                // and the panel told the operator their S-meter was "not
+                // reported by this radio" while its tone played perfectly.
+                int firstSliceChoice = -1;
+                var activeSliceChoices = new List<SourceChoice>();
+                var seenSliceMeters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                 foreach (MeterGroup group in inv.Groups)
                 {
                     bool isSlice = string.Equals(group.Source, "SLC", StringComparison.OrdinalIgnoreCase);
                     foreach (MeterReading r in group.Meters)
                     {
                         if (!all && !IsCommon(r.Name)) continue;
+                        if (isSlice && firstSliceChoice < 0) firstSliceChoice = _sourceChoices.Count;
                         _sourceChoices.Add(FromReading(group, r, isSlice));
+                        if (isSlice && seenSliceMeters.Add(r.Name))
+                            activeSliceChoices.Add(FromActiveSliceReading(r));
                     }
                 }
+
+                // Ahead of the pinned entries, because following the active
+                // slice is what an operator who does not think in slice numbers
+                // wants, and the first matching entry is the one they land on.
+                if (activeSliceChoices.Count > 0 && firstSliceChoice >= 0)
+                    _sourceChoices.InsertRange(firstSliceChoice, activeSliceChoices);
             }
             else
             {
@@ -392,15 +424,35 @@ public partial class MetersPanel : UserControl
                 !string.IsNullOrWhiteSpace(def.Source.Key) &&
                 !_sourceChoices.Any(c => Matches(c, def.Source)))
             {
+                // Say WHICH thing is missing. A meter the radio has never heard
+                // of and a meter on a slice that is not running are different
+                // problems with different fixes, and one message for both sent
+                // the operator looking for the wrong one.
+                bool nameIsReported = inv?.Find(def.Source.Key) != null;
+                bool pinnedToSlice = def.Source.SliceIndex >= 0;
+                string sliceNumber = def.Source.SliceIndex.ToString(CultureInfo.CurrentCulture);
+
+                string display = nameIsReported && pinnedToSlice
+                    ? def.Source.Key + " (slice " + sliceNumber + " is not active)"
+                    : def.Source.Key + " (not reported by this radio)";
+
+                string detail = nameIsReported && pinnedToSlice
+                    ? "This radio reports a meter called " + def.Source.Key
+                      + ", but slice " + sliceNumber + " is not running, so there is nothing "
+                      + "to read. The setting is kept as you left it. Choosing the active "
+                      + "slice entry instead would follow whichever slice you are on."
+                    : "This radio is not reporting a meter by that name. "
+                      + "The setting is kept as you left it.";
+
                 _sourceChoices.Add(new SourceChoice
                 {
                     Key = def.Source.Key,
                     SliceIndex = def.Source.SliceIndex,
-                    Display = def.Source.Key + " (not reported by this radio)",
+                    Display = display,
+                    ShortName = def.Source.Key,
                     Range = def.Range.Clone(),
                     Activation = def.Activation,
-                    Detail = "This radio is not reporting a meter by that name. "
-                           + "The setting is kept as you left it.",
+                    Detail = detail,
                 });
             }
 
@@ -436,6 +488,9 @@ public partial class MetersPanel : UserControl
             Key = r.Name,
             SliceIndex = isSlice ? r.SourceIndex : -1,
             Display = group.Label + ": " + label,
+            ShortName = isSlice ? r.Name + " on slice "
+                                  + r.SourceIndex.ToString(CultureInfo.CurrentCulture)
+                                : r.Name,
             Range = new MeterRange
             {
                 Low = r.Low,
@@ -451,6 +506,46 @@ public partial class MetersPanel : UserControl
         };
     }
 
+    /// <summary>
+    /// The same slice meter, following whichever slice the operator is actually
+    /// listening to rather than one fixed receiver.
+    /// </summary>
+    /// <remarks>
+    /// A source slice index of -1 is what the engine already means by "follow
+    /// the active slice" — <c>MeterToneEngine.SourceMatches</c> has resolved it
+    /// against the active slice all along. What was missing was any way for the
+    /// operator to SAY it: the picker only ever offered pinned entries, so the
+    /// setting every default ships with could be heard but not selected, and
+    /// re-picking a source silently pinned an S-meter to one slice.
+    /// </remarks>
+    private static SourceChoice FromActiveSliceReading(MeterReading r)
+    {
+        var known = LegacyMeterCatalog.Find(r.Name);
+        string units = MeterReading.UnitsText(r.Units);
+        string label = r.Description.Length != 0 ? r.Name + " — " + r.Description : r.Name;
+
+        return new SourceChoice
+        {
+            Key = r.Name,
+            SliceIndex = -1,
+            Display = "Active slice: " + label,
+            ShortName = r.Name + " on the active slice",
+            Range = new MeterRange
+            {
+                Low = r.Low,
+                High = r.High,
+                Units = TranslateUnits(r.Units),
+                UnitsLabel = units,
+            },
+            Activation = known?.Activation ?? MeterActivation.Always,
+            Detail = "Follows whichever slice you are listening to, so it moves with you "
+                   + "instead of staying on one receiver. Range "
+                   + r.Low.ToString("0.##", CultureInfo.CurrentCulture)
+                   + " to " + r.High.ToString("0.##", CultureInfo.CurrentCulture)
+                   + (units.Length != 0 ? " " + units : "") + ".",
+        };
+    }
+
     private static SourceChoice FromCatalog(LegacyMeterCatalog.Entry entry)
     {
         string key = LegacyMeterCatalog.RadioMeterName(entry.Key);
@@ -459,6 +554,7 @@ public partial class MetersPanel : UserControl
             Key = key,
             SliceIndex = -1,
             Display = entry.DisplayName + " (" + key + ")",
+            ShortName = entry.DisplayName,
             Range = new MeterRange
             {
                 Low = entry.Low,
@@ -510,7 +606,11 @@ public partial class MetersPanel : UserControl
         MeterSlot? slot = SelectedSlot;
         if (slot == null || SourceCombo.SelectedItem is not SourceChoice choice) return;
 
-        slot.Retarget(choice.Key, choice.Display, choice.Range.Clone(),
+        // Name the slot with the SHORT name, not the browsing label. The slot
+        // selector reads every entry aloud, and "Slice 0: LEVEL — S-Meter
+        // Level (sounding)" is a sentence where a name belongs.
+        string name = string.IsNullOrWhiteSpace(choice.ShortName) ? choice.Key : choice.ShortName;
+        slot.Retarget(choice.Key, name, choice.Range.Clone(),
                       choice.Activation, choice.SliceIndex);
         UpdateSourceDetail(choice);
 
