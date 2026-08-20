@@ -12732,6 +12732,23 @@ namespace Radios
         private void opusInputStreamAddedHandler(TXRemoteAudioStream stream)
         {
             Tracing.TraceLine("opusInputStreamAddedHandler:" + stream.ClientHandle + ' ' + stream.StreamID.ToString(), TraceLevel.Info);
+            // Sprint 33 Track G: record what the radio agreed to, in its own
+            // words. We encode Opus unconditionally, so a stream the radio did
+            // not open as opus means every packet we send is being read as raw
+            // PCM at the far end — silent transmit with no other symptom. That
+            // was a two-day suspect precisely because nothing ever printed this
+            // line; it is cheap, it runs once per stream, and it turns an
+            // assumption about a radio-side default into an observation.
+            Tracing.TraceLine("opusInputStreamAddedHandler:radio opened the TX stream with compression="
+                + (stream.CompressionSetting ?? "(the radio sent no compression key)")
+                + ", status line was \"" + (stream.LastStatusLine ?? "") + "\"",
+                stream.IsCompressed ? TraceLevel.Info : TraceLevel.Error);
+            if (!stream.IsCompressed)
+            {
+                Tracing.TraceLine("opusInputStreamAddedHandler:the radio did NOT open this stream as opus,"
+                    + " but every transmit packet we send is Opus — expect silent transmit",
+                    TraceLevel.Error);
+            }
             txStream = stream;
         }
 
@@ -12970,13 +12987,56 @@ namespace Radios
 
             // Setup the transmit audio, after the rx audio, but don't start the I/O.
             txStream = null;
-            theRadio.RequestRemoteAudioTXStream(); // see opusInputStreamAddedHandler
+            // Sprint 33 Track G, 2026-08-20: declare the compression we are
+            // actually going to send. Everything that reaches AddTXData below
+            // comes out of the Opus encoder in sendOpusInput, so "opus" is a
+            // statement of fact, not a preference. The bare create this used to
+            // send left the radio to pick a default we never read back — see
+            // the JJFlex patch note on Radio.RequestRemoteAudioTXStream.
+            theRadio.RequestRemoteAudioTXStream(true); // see opusInputStreamAddedHandler
             if (!await(() =>
                 {
                     return (txStream != null) || Disconnecting || stopRemoteAudio;
-                }, 10000))
+                }, 10000)
+                && !Disconnecting && !stopRemoteAudio)
             {
-                Tracing.TraceLine("remoteAudioProc: didn't get RemoteAudioTXStream from radio", TraceLevel.Error);
+                // Sprint 33 Track G: fall back to the vendor-stock bare create.
+                //
+                // `stream create` gets no reply handler, so a radio that
+                // REFUSES the compression argument refuses it silently — the
+                // stream simply never arrives and we land here. The failure
+                // path below tears down the whole remote-audio session, receive
+                // audio included, so an unaccepted parameter would cost an
+                // operator all their audio rather than just transmit.
+                //
+                // A FLEX-8600 accepts it, but Don is on a 6300 and firmware
+                // vintages vary, so this is deliberately not tested by assuming
+                // the bench radio speaks for every radio. Retrying bare means
+                // the worst case of this patch is exactly the behaviour that
+                // shipped before it: whatever default the radio picks.
+                Tracing.TraceLine("remoteAudioProc: no TX stream after asking for compression=opus;"
+                    + " retrying with the bare create this radio may be expecting", TraceLevel.Error);
+#pragma warning disable CS0618 // Deliberate: the point of the retry is to reproduce vendor-stock behaviour exactly.
+                theRadio.RequestRemoteAudioTXStream();
+#pragma warning restore CS0618
+                if (!await(() =>
+                    {
+                        return (txStream != null) || Disconnecting || stopRemoteAudio;
+                    }, 10000))
+                {
+                    Tracing.TraceLine("remoteAudioProc: didn't get RemoteAudioTXStream from radio"
+                        + " (neither the explicit-compression nor the bare create was answered)",
+                        TraceLevel.Error);
+                    goto remoteDone;
+                }
+                Tracing.TraceLine("remoteAudioProc: this radio answered the bare create but not the"
+                    + " explicit-compression one — report it, that is a firmware difference worth knowing",
+                    TraceLevel.Error);
+            }
+            if (txStream == null)
+            {
+                // Disconnecting or stopping raced us; nothing to set up.
+                Tracing.TraceLine("remoteAudioProc: TX stream setup abandoned", TraceLevel.Info);
                 goto remoteDone;
             }
             opusInputChannel = new audioChannelData(txStream, "JJFlexRadio.OpusInputChan");

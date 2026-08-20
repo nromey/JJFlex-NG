@@ -61,6 +61,52 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     commit — two ways to reach one private field is how one of them rots
     unnoticed.
 
+12. **Explicit compression on the remote TX audio stream (applied 2026-08-20,
+    Sprint 33 Track G)**: two comment-marked patches, both additive.
+
+    In `FlexLib_API/FlexLib/Radio.cs`, keep
+    `RequestRemoteAudioTXStream(bool isCompressed)` — sending
+    `stream create type=remote_audio_tx compression=opus` or `compression=none`
+    — and the `[Obsolete]` attribute on the parameterless original. Vendor stock
+    deprecated the parameterless RX request in favour of
+    `RequestRXRemoteAudioStream(bool isCompressed)` and never did the same for
+    TX, so a client encoding Opus for transmit had no supported way to say so
+    and sent Opus into a stream whose compression it never declared. The wire
+    format accepts the argument on both directions — FlexLib's own protocol
+    comment on the `stream` status parser reads
+    `type=<remote_audio_rx|remote_audio_tx> compression=<none|opus>` — and
+    `TXRemoteAudioStream.StatusUpdate` already parses the `compression=` key the
+    radio answers with. Only the request omitted it. The overload mirrors the RX
+    shape deliberately, `[Obsolete]` wording included, so the file carries one
+    idiom rather than two.
+
+    In `FlexLib_API/FlexLib/TXRemoteAudioStream.cs`, keep the
+    `CompressionSetting` and `LastStatusLine` properties and the one-line
+    assignments that fill them. `IsCompressed` is a bool and therefore cannot
+    tell `compression=none` apart from a status line carrying no compression key
+    at all; both leave it false. Keeping the radio's unparsed answer is what
+    makes "what does this radio do with a stream that does not declare
+    compression?" an observation rather than an inference. `Radios/FlexBase.cs`
+    logs both in `opusInputStreamAddedHandler` and raises an error-level line if
+    the radio opened the stream as anything other than opus, because every
+    packet we send is Opus and a mismatch would be silent transmit with no other
+    symptom.
+
+    **This is hygiene, not a bug fix, and the distinction matters if you are
+    reading this while chasing dead transmit audio.** A FLEX-8600 answers a
+    create sent *without* the argument with `compression=OPUS`, and shipping
+    SmartSDR sends the same bare command — both wire-observed on 2026-08-10.
+    Declaring compression is not expected to change behaviour on that radio. The
+    value is in not depending on an undocumented radio-side default, and in the
+    next client author not falling into the same trap. **Reportable upstream to
+    Flex:** an API that offers explicit compression on RX and silently defaults
+    it on TX is an asymmetry worth closing. Worth reporting in the same breath:
+    `RXRemoteAudioStream` compares the compression value case-sensitively
+    against `"OPUS"` while `TXRemoteAudioStream` lowercases first, so the two
+    directions disagree about what a valid answer looks like. Nothing inside
+    FlexLib consumes either `IsCompressed`, and `FlexBase` force-sets the RX one
+    to true, which is why that has never bitten.
+
 ## Upgrade procedure that worked for 4.2.18 → 4.2.20 (2026-08-03)
 
 Rather than a fresh vendor copy + manual patch reapply, use git for a 3-way merge per changed file:
