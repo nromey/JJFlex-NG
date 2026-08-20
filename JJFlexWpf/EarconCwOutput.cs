@@ -220,15 +220,12 @@ namespace JJFlexWpf
 
             lock (_lock) { _currentHandle = handle; }
 
-            // Small tail after the computed duration so the mixer finishes
-            // consuming the last samples before the caller's Task resolves.
-            int waitMs = totalMs + 50;
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(
                 item.CallerToken, _shutdown.Token);
 
             try
             {
-                await Task.Delay(waitMs, linked.Token).ConfigureAwait(false);
+                await WaitForDrain(handle, totalMs, linked.Token).ConfigureAwait(false);
                 item.Completion.TrySetResult();
             }
             catch (OperationCanceledException)
@@ -245,6 +242,123 @@ namespace JJFlexWpf
                 }
             }
         }
+
+        // ── The completion contract, and why a computed duration was wrong ──
+        //
+        // Sprint 32 Track H (H4a). This method used to be three lines:
+        //
+        //     int waitMs = totalMs + 50;
+        //     await Task.Delay(waitMs, linked.Token);
+        //     item.Completion.TrySetResult();
+        //
+        // It resolved on a COMPUTED duration and never asked the device whether
+        // anything had actually been heard. That is why the exit farewell lost
+        // its final dit no matter how generous the caller's timeout was:
+        // ApplicationEvents' Wait(5000) was being SATISFIED EARLY rather than
+        // expiring, and the next statements — EarconPlayer.Dispose() and
+        // ScreenReaderOutput.Shutdown() — tore the output device down while the
+        // tail was still sitting in hardware.
+        //
+        // RAISING THE TIMEOUT CANNOT FIX THIS, and trying it is actively
+        // misleading: a generous timeout combined with an optimistic completion
+        // signal produces exactly the same symptom, so the experiment "looks"
+        // like it disproves the diagnosis. The window was already 5000 ms for a
+        // sub-second string.
+        //
+        // 50 ms was also simply less than the buffering in front of the speaker:
+        // the alert channel runs WaveOut with BufferMilliseconds 100 and the
+        // default two buffers, so about 200 ms of audio can be queued past the
+        // mixer at any moment. The final dit is the most vulnerable element in
+        // the string — shortest, and last.
+        //
+        // So completion is now OBSERVED, in two stages, each of which asks
+        // something that is not a clock:
+        //
+        //  1. The MIXER tells us it has consumed every sample. CancellableCwProvider
+        //     reports end-of-source the first time its inner provider returns a
+        //     short read, which is the same moment MixingSampleProvider drops the
+        //     input. Nothing is computed; the consumer says when it is done.
+        //  2. The DEVICE tells us it has played what it was holding. We snapshot
+        //     WaveOut's own reported play position at the instant of (1) and wait
+        //     for it to advance by the depth of the buffer chain. A stalled device
+        //     stops advancing, so we keep waiting rather than resolving early and
+        //     letting the tail be destroyed.
+        //
+        // Both stages are bounded, because a wedged audio device must never be
+        // able to stop the application closing. A truncated character is a
+        // papercut; an exit that hangs is a support call. When either bound is
+        // hit we resolve normally: the caller's own timeout is not the right
+        // place to express "the sound card is broken".
+        //
+        // A trailing silence element on this one string would have masked the
+        // symptom and left every other exit-time utterance exposed. The defect
+        // was in the completion contract, so the contract is what changed.
+        private async Task WaitForDrain(IDisposable handle, int totalMs, CancellationToken ct)
+        {
+            // Nothing was actually submitted (earcons off, or no mixer): there is
+            // no drain to observe and never will be, so do not make the caller
+            // wait out the sequence duration for silence.
+            if (handle is not CancellableCwProvider provider)
+                return;
+
+            // Stage 1 — wait for the mixer to consume the sequence. Bounded well
+            // past the honest duration: the audio has to travel through the
+            // device buffer before it is even started, so the sequence cannot
+            // finish sooner than totalMs and should not take much longer.
+            int stageOneBudget = totalMs + EarconPlayer.AlertOutputLatencyMs + DrainGraceMs;
+            if (!await provider.WaitForEndOfSource(stageOneBudget, ct).ConfigureAwait(false))
+            {
+                Trace.WriteLine(
+                    "EarconCwOutput.WaitForDrain: mixer did not consume the sequence within "
+                    + stageOneBudget + "ms — resolving anyway.");
+                return;
+            }
+
+            // Stage 2 — the samples are now inside the device's own buffer chain.
+            // Wait for its reported play position to advance by the chain depth.
+            int latencyMs = EarconPlayer.AlertOutputLatencyMs;
+            long bytesPerMs = Math.Max(1, EarconPlayer.AlertBytesPerSecond / 1000);
+            long start = EarconPlayer.AlertPlayedBytes;
+            if (start < 0)
+            {
+                // The device will not report a position (no channel, or the driver
+                // refused). Fall back to its declared latency — still better than
+                // the 50 ms this replaced, and honest about being a fallback.
+                await Task.Delay(latencyMs, ct).ConfigureAwait(false);
+                return;
+            }
+
+            long needed = latencyMs * bytesPerMs;
+            int waited = 0;
+            int budget = latencyMs + DrainGraceMs;
+            while (waited < budget)
+            {
+                long now = EarconPlayer.AlertPlayedBytes;
+                if (now < 0) return;
+
+                // waveOutGetPosition counts bytes in a 32-bit field, so at this
+                // mixer's rate it wraps roughly every three and a half hours.
+                // A subtraction is enough to survive one wrap and costs a line;
+                // without it a farewell that happened to land on the wrap would
+                // wait out the whole budget for no reason.
+                long delta = now - start;
+                if (delta < 0) delta += 0x1_0000_0000L;
+                if (delta >= needed) return;
+
+                await Task.Delay(DrainPollMs, ct).ConfigureAwait(false);
+                waited += DrainPollMs;
+            }
+
+            Trace.WriteLine(
+                "EarconCwOutput.WaitForDrain: device play position did not advance "
+                + latencyMs + "ms within its budget — resolving anyway.");
+        }
+
+        /// <summary>Extra head-room on each drain stage before we stop waiting.</summary>
+        private const int DrainGraceMs = 500;
+
+        /// <summary>How often the device's reported play position is re-read.</summary>
+        private const int DrainPollMs = 10;
 
         private readonly struct QueuedSequence
         {
@@ -282,12 +396,44 @@ namespace JJFlexWpf
         private readonly ISampleProvider _source;
         private volatile bool _cancelled;
 
+        // Set once, the first time the inner provider cannot fill the request —
+        // which is exactly the moment MixingSampleProvider stops asking and drops
+        // this input. See WaitForEndOfSource.
+        private readonly TaskCompletionSource _endOfSource =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public CancellableCwProvider(ISampleProvider source)
         {
             _source = source ?? throw new ArgumentNullException(nameof(source));
         }
 
         public WaveFormat WaveFormat => _source.WaveFormat;
+
+        /// <summary>
+        /// Wait until the mixer has pulled every sample out of this provider, or
+        /// until <paramref name="timeoutMs"/> elapses. True when the source
+        /// really ended; false when the deadline won.
+        ///
+        /// This is the honest half of "has it finished playing" — it is the
+        /// consumer reporting what it consumed, rather than us predicting how
+        /// long consuming ought to take. It is NOT the whole answer: samples the
+        /// mixer has read are still ahead of the speaker inside the output
+        /// device's buffers, which is the second stage of
+        /// <see cref="EarconCwOutput"/>'s drain wait.
+        /// </summary>
+        public async Task<bool> WaitForEndOfSource(int timeoutMs, CancellationToken ct)
+        {
+            var completed = await Task.WhenAny(
+                _endOfSource.Task,
+                Task.Delay(timeoutMs, ct)).ConfigureAwait(false);
+            if (ReferenceEquals(completed, _endOfSource.Task)) return true;
+            // The delay lost by being CANCELLED, not by elapsing — that is a
+            // shutdown or a caller withdrawing, and it must surface as
+            // cancellation so PlayOne tears the handle down instead of
+            // resolving the sequence as if it had been heard.
+            ct.ThrowIfCancellationRequested();
+            return false;
+        }
 
         // NAudio 3.0: ISampleProvider.Read takes a Span<float>. offset/count
         // are re-declared here so the body's index arithmetic is unchanged -
@@ -296,10 +442,23 @@ namespace JJFlexWpf
         {
             int offset = 0;
             int count = buffer.Length;
-            if (_cancelled) return 0;
-            return _source.Read(buffer.Slice(offset, count));
+            if (_cancelled)
+            {
+                _endOfSource.TrySetResult();
+                return 0;
+            }
+            int read = _source.Read(buffer.Slice(offset, count));
+            // A short read means the concatenated sequence is exhausted. The
+            // mixer treats it the same way and removes us, so there is no later
+            // call in which to notice — this is the one chance to record it.
+            if (read < count) _endOfSource.TrySetResult();
+            return read;
         }
 
-        public void Dispose() => _cancelled = true;
+        public void Dispose()
+        {
+            _cancelled = true;
+            _endOfSource.TrySetResult();
+        }
     }
 }
