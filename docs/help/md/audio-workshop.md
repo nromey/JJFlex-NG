@@ -1,4 +1,4 @@
-# Audio Workshop
+﻿# Audio Workshop
 
 The Audio Workshop is where you shape how you sound on the air and — new — where you *hear* it. One window holds your whole transmit audio chain, live meters, and the Audio Check session that keys the rig, lets you adjust while you talk, and plays you back to yourself. Adjust and hear, one surface.
 
@@ -100,7 +100,7 @@ you to radio controls that are not on screen.
 Tabbing works too, and your screen reader announces each section as you cross
 into it. F6 is for when you know where you are going.
 
-Ctrl+Tab still moves between the three tabs, as in any tabbed window.
+The Workshop is divided into categories — TX Audio is one of them — and they are listed down the left-hand side of the window. **Ctrl+Tab** moves to the next category and **Ctrl+Shift+Tab** to the previous one, from anywhere in the window; either one lands you on the list, so you hear which category you arrived in and how many there are. F6 then moves between the sections inside it. Categories are the big divisions, sections are the groups within one.
 
 ### The sculpting chain
 
