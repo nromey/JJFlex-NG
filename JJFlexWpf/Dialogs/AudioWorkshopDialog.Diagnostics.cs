@@ -389,17 +389,27 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private string EvidenceText(ChainReport report)
     {
+        string body;
         try
         {
-            return report.EvidenceText(TxChainFacts.StationLines(_rig), TxChainPcFacts.BuildLines());
+            body = report.EvidenceText(TxChainFacts.StationLines(_rig), TxChainPcFacts.BuildLines());
         }
         catch (Exception ex)
         {
             Tracing.TraceLine("Diagnostics: evidence block failed — " + ex.Message, TraceLevel.Warning);
             // Half an evidence block is still worth sending; an exception is
             // not.
-            return report.EvidenceText();
+            body = report.EvidenceText();
         }
+
+        // A pointer rather than a copy. This block quotes only the readings
+        // behind the verdict; the whole census runs to a hundred meters on an
+        // 8600 and belongs in its own export, not pasted into the middle of a
+        // support email nobody asked for.
+        return body + Environment.NewLine
+             + "The radio's full meter list, with every reading and its age, is on the "
+             + "Meter Inventory page of this workshop and can be copied separately."
+             + Environment.NewLine;
     }
 
     private void CopyEvidence()
