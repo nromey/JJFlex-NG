@@ -91,6 +91,11 @@ because a build going to Don depends on this answer and theirs do not.
 Noel is blind and at the keyboard. Full stop and ask before a run; full stop and
 report after. One authorisation covers one run.
 
+**NOEL AUTHORISED THE ENVELOPE, 2026-08-20: 1 watt, short keyings.** He was
+offered a zero-watt option and chose 1 watt deliberately, so you have a real
+transmit to work with. **No antenna is connected** — keep every keying short, and
+do not key more than the question requires.
+
 **Keying is required here and that is expected** — but no antenna is connected,
 so keep power low and transmissions short. Plan the minimum set of keyings that
 settles the question, ask once, and get them in a single run.
@@ -113,3 +118,27 @@ State: whether the hypothesis held; what the radio actually does with a TX strea
 that does not declare compression; whether MicData moved on a live keying; the
 exact patch and how it is marked for MIGRATION.md; and your recommendation on
 reporting it upstream.
+
+---
+
+## AUTHORISATION IS BROKERED — do NOT ask Noel directly
+
+**Decided by Noel, 2026-08-20.** Five tracks want either the radio or the live
+desktop, and five agents interrupting him independently would be worse than the
+collision the handshake exists to prevent.
+
+**So: when you are ready for a run that needs the radio or drives the UI, STOP
+and report "ready for a radio run" (or "ready for a UI run") to the orchestrator,
+with exactly what you intend to do and roughly how long it takes.** Do not ask
+Noel. Do not proceed on your own initiative.
+
+The orchestrator batches ready tracks, asks Noel once, runs them back to back,
+and reports done. You will be told when your run is authorised and when it is
+over.
+
+**Priority when tracks contend for the 8600: G first** — a build going to Don
+depends on its answer — then C, then D, then K.
+
+**While you wait, keep working.** Do everything that does not need hardware:
+build the harness, write the code, reason it through. Arrive at your run with the
+maximum settled in advance, because run time is the scarce resource, not compute.
