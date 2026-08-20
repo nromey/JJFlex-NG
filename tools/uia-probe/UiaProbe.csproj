@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    jjprobe — the UI Automation probe, promoted out of a session scratchpad
+    into the repository (Sprint 33 Track B).
+
+    DELIBERATELY HAS NO PROJECT REFERENCE TO THE APP. It drives jjflexible.exe
+    from OUTSIDE, by process id, through the same UI Automation channel a
+    screen reader consumes. That is the whole point: a harness that runs inside
+    the app can only tell you what the app believes, and the bugs this tool
+    exists to catch are exactly the ones where the app believes it announced
+    something and nothing reached the outside world.
+
+    The one place it does touch app types is `jjprobe inventory`, which
+    reflects over a BUILT JJFlexWpf.dll found in the build directory under
+    test. That is a runtime load, not a compile-time reference, so the probe
+    still runs against any build — including an installed one — and cannot
+    drift from the binary it is actually probing.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>JJFlex.UiaProbe</RootNamespace>
+    <AssemblyName>jjprobe</AssemblyName>
+    <IsPackable>false</IsPackable>
+
+    <!-- UIAutomationClient/UIAutomationTypes live in the WPF reference set. -->
+    <UseWpf>true</UseWpf>
+
+    <!-- A diagnostic tool, not shipped code: the solution's Sonar/Roslynator/
+         Meziantou pass would drown real findings in style noise. -->
+    <RunAnalyzers>false</RunAnalyzers>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+</Project>
