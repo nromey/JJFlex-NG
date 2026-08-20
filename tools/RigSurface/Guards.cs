@@ -85,8 +85,16 @@ namespace JJFlex.RigSurface
         public static TransmitState ReadTransmitState(RigWire wire)
         {
             ArgumentNullException.ThrowIfNull(wire);
+            return ReadTransmitStateFrom(wire.State.Get(RigField.Interlock("state")));
+        }
 
-            string? state = wire.State.Get(RigField.Interlock("state"));
+        /// <summary>
+        /// The same judgement, applied to a raw interlock state string. Split out
+        /// so a caller waiting on the field can test each value the radio reports
+        /// as it arrives, rather than polling and re-reading.
+        /// </summary>
+        public static TransmitState ReadTransmitStateFrom(string? state)
+        {
             if (string.IsNullOrEmpty(state)) return TransmitState.Unknown;
 
             return state.ToUpperInvariant() switch

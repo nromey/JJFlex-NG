@@ -36,6 +36,9 @@ namespace JJFlex.RigSurface
                     "observe" => Observe(rest),
                     "meters" => Meters(rest),
                     "snapshot" => Snapshot(rest),
+                    "selftest" => SelfTest.Run(),
+                    "surface" => Surface.Run(rest),
+                    "transmit" => TransmitHarness.Run(rest),
                     _ => Unknown(command),
                 };
             }
@@ -302,6 +305,10 @@ namespace JJFlex.RigSurface
             Console.WriteLine("application's library, so that what it reports is what the RADIO says and not");
             Console.WriteLine("what our own cache believes.");
             Console.WriteLine();
+            Console.WriteLine("  selftest");
+            Console.WriteLine("      Check the transmit classifier, the status parser and the ownership table.");
+            Console.WriteLine("      Needs no radio. Run it before trusting anything below.");
+            Console.WriteLine();
             Console.WriteLine("Commands that change nothing and are safe while the radio is in use:");
             Console.WriteLine("  ownership [--target <kind>] [--writable]");
             Console.WriteLine("      Print the station-global versus client-owned classification. No radio needed.");
@@ -315,8 +322,29 @@ namespace JJFlex.RigSurface
             Console.WriteLine("  snapshot [--host <ip>]");
             Console.WriteLine("      Capture the radio's state and report its size. Add --prove to exercise the");
             Console.WriteLine("      restore path against the radio's nickname and put it back.");
+            Console.WriteLine("  surface watch --seconds <n> [--out <file>]");
+            Console.WriteLine("      Record every change the radio reports, timestamped, for correlating against");
+            Console.WriteLine("      keystrokes pressed in the real application.");
+            Console.WriteLine("  surface mark --out <file>");
+            Console.WriteLine("  surface diff --since <file> [--owner <program or handle>]");
+            Console.WriteLine("      Snapshot to a file, press the key, then ask what moved and whose it was.");
+            Console.WriteLine("  surface await --field <target.index.key> [--equals <v>] [--timeout <ms>]");
+            Console.WriteLine("      Block until the radio reports a field at a value. For a driver that would");
+            Console.WriteLine("      rather wait than correlate.");
             Console.WriteLine();
-            Console.WriteLine("No antenna is connected to the bench radio.");
+            Console.WriteLine("Commands that change station state. These refuse to run while anyone else is");
+            Console.WriteLine("connected, and restore everything they touch, including when they fail partway:");
+            Console.WriteLine("  surface exercise [--host <ip>] [--dry-run]");
+            Console.WriteLine("      Walk the non-transmitting surface, asserting every change from the radio's");
+            Console.WriteLine("      own report rather than from our copy of it. --dry-run prints the plan.");
+            Console.WriteLine();
+            Console.WriteLine("Commands that TRANSMIT. Every run asks for typed consent:");
+            Console.WriteLine("  transmit plan     Describe what a run would do, without doing any of it.");
+            Console.WriteLine("  transmit smoke    One short one-watt keying, after consent.");
+            Console.WriteLine("  transmit atu      Parked until the dummy load arrives. Prints why.");
+            Console.WriteLine();
+            Console.WriteLine("No antenna is connected to the bench radio. Read 'transmit plan' before using");
+            Console.WriteLine("anything in that last group.");
         }
     }
 }
