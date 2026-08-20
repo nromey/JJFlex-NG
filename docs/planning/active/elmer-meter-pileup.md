@@ -657,6 +657,55 @@ is in the completion contract, not in this one string.
 plausible and the audio is short. Close the app at a couple of speeds and count
 the dits.
 
+**H4b. CONNECTED close is far worse, and the double-fire guard is why.**
+Diagnosed 2026-08-19 from Noel testing the same action with one variable changed.
+
+His two results, each repeated twice:
+- **Not connected, close:** `73 SK dit` — nearly complete, missing only the final
+  dit. That is H4a.
+- **Connected, close with Alt+F4 without disconnecting first:** **"dah dah"** and
+  nothing else.
+
+`--...` is the digit 7. So the connected path delivers the first TWO ELEMENTS of
+a roughly two-second string — about 150 ms — before the audio device is destroyed
+underneath it.
+
+**The mechanism, and it is one cause producing both symptoms.** `FlexBase`
+~2085, on the disconnect path:
+
+    _ = ScreenReaderOutput.PlayCwSK?.Invoke();
+    ScreenReaderOutput.SkAlreadyPlayedThisSession = true;
+
+The `_ =` DISCARDS the task — nothing awaits it. Then the flag makes
+`ApplicationEvents.MyApplication_Shutdown` skip its own
+`PlayCwSK.Invoke().Wait(5000)`. So on a connected close the farewell is started
+fire-and-forget and teardown runs straight through it into
+`EarconPlayer.Dispose()` and `ScreenReaderOutput.Shutdown()`.
+
+**THE GUARD IS THE CAUSE.** It was added for a real complaint — hearing 73 twice
+when disconnecting via menu and then closing — and it works. But the WAIT lived
+only in the path the guard suppresses. So the flag does not merely prevent a
+second farewell; it removes the only code that was waiting for the first one.
+Two paths both play, only one knows how to wait, and the flag hands the job to
+the one that does not.
+
+**Fix both layers, and in this order:**
+
+1. **Make the disconnect path await its own farewell**, bounded the way Shutdown
+   already bounds its call. Whoever plays it owns waiting for it — do not move
+   the wait around, because the next path that plays SK will inherit the same
+   trap. (There are exactly two today; assume a third.)
+2. **Then fix the completion contract from H4a**, which is what still eats the
+   final dit once the wait is honoured. Step 1 alone turns "dah dah" into
+   "73 SK dit", not into a clean farewell.
+
+**Do not "fix" this by deleting the guard.** That restores the doubled 73 Noel
+complained about, and trades a truncated farewell for a repeated one.
+
+**Verification is two cases, not one:** close while connected, and close while
+not connected. A fix that only ever gets tested disconnected will look complete
+and leave the worse bug in place — which is how it shipped this way.
+
 **H5. #70 — repeat-last-message becomes a short history.** `_lastMessage` is a
 single string; the coalescer's `_lastByKey` is per-key dedup state cleared on
 urgent flush and unusable as history. This was stranded in Sprint 30's Track F
