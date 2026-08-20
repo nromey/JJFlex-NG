@@ -23,7 +23,7 @@ These keys work no matter where you are in the application — and "no matter wh
 | Ctrl+Shift+S | Speak full status (multi-slice aware) |
 | Ctrl+Alt+S | Open the status dialog |
 | Alt+Shift+S | Speak your current transmit (TX) status |
-| Ctrl+F4 | Repeat the last spoken message |
+| Ctrl+F4 | Repeat what was just spoken — and keep pressing it. Within about six seconds each further press steps back through the last ten messages, wrapping round at the oldest. Leave it longer and the next press starts again from the most recent |
 | Ctrl+Shift+V | Cycle speech verbosity (Chatty, Terse, Off) |
 | Ctrl+Shift+B | Toggle the braille status line |
 | F12 | Stop CW transmission immediately |

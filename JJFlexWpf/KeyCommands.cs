@@ -480,9 +480,19 @@ public class KeyCommands
             new(CommandValues.SpeakFrequency, KeyTypes.Command, () => _context.GetMainWindow()?.SpeakFrequency(),
                 "Speak current frequency and mode", "Speak Frequency", false, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "frequency", "freq", "speak", "readback" }, ShortActionLabel = "speak frequency" },
+            // Sprint 32: the description and keywords follow Track H's rebuild
+            // of this command from one stored string into a ten-deep history.
+            // "Repeat the last spoken message" gave an operator no reason to
+            // press it twice, which hid the entire new feature behind an
+            // accurate-sounding sentence — the description-drift defect in its
+            // purest form. Keywords gain the words someone would actually
+            // search with once they know there is a history to walk.
             new(CommandValues.RepeatLastMessage, KeyTypes.Command, RepeatLastMessageHandler,
-                "Repeat the last spoken message", "Repeat Last Message", false, FunctionGroups.General, KeyScope.Global)
-                { Keywords = new[] { "repeat", "last", "message", "speech", "again" }, ShortActionLabel = "repeat last message" },
+                "Repeat recent messages, pressing again for earlier ones", "Repeat Last Message", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "repeat", "last", "message", "messages", "speech", "again",
+                                     "history", "recent", "earlier", "back", "previous", "missed",
+                                     "said", "heard" },
+                  ShortActionLabel = "repeat last message" },
 
             // ── Verbosity (Sprint 24 Phase 6) ──
             new(CommandValues.CycleVerbosity, KeyTypes.Command, CycleVerbosityHandler,
