@@ -804,6 +804,47 @@ track was told to reuse a symbol and another track moved it. Git cannot see that
 class of collision and will not warn you. A clean `git merge` is not evidence
 that the result compiles.
 
+## Known merge collisions, recorded as tracks reported them
+
+**`TRACK-INSTRUCTIONS.md` conflicts add/add on EVERY merge.** Each branch carries
+its own. It is noise — resolve by keeping the target's copy, and note the cleanup
+phase deletes them all anyway. Do not read it as a real conflict.
+
+**`AudioWorkshopDialog.xaml` — three or more tracks append a `TabItem`.** Tracks
+A (Meter Inventory), D (Amplifier) and C (analyzer) all add to the same element.
+Textual conflict is certain and trivial: keep all the tabs.
+
+**`VisibleSections()` — TAKE TRACK G'S VERSION WHOLE AND DELETE THE OTHER ARMS.**
+This one is not trivial and getting it wrong silently reintroduces coupling.
+
+Track A added an index arm (`3 => MeterInventoryContent`). Track D added a
+name-based arm (`AmplifierTab.IsSelected ? AmplifierContent : ...`). **Track G
+deleted the switch entirely** and discovers the content panel from the selected
+`TabItem` at runtime, unwrapping ScrollViewer / Border / ContentControl /
+Decorator. It needs neither index nor name, so it subsumes both arms — and a new
+tab then works with no shell edit at all.
+
+Track G proved the discovered panel is the IDENTICAL OBJECT the old switch named
+on all three original categories, and re-pressed F6 and Shift+F6 on every
+category through injected keystrokes. **Delete Track A's arm and Track D's arm
+when taking G's version.** Leaving either one back-doors the index or name
+dependency G removed.
+
+**`NativeMenuBar.cs` — three tracks, three regions, no expected contention.**
+Track H at ~1970 (the `AddNotImplemented`/`AddStub` helpers) and ~2550-2650 (the
+Profiles dialog callbacks); Track G at ~2242 (the Settings deep link, which had
+been calling `landed.Focus()` on a TabItem — a silent no-op once the tab strip is
+templated away). Verify rather than assume, but these do not overlap.
+
+**`EarconPlayer.cs` and `KeyCommands.cs` — Track H made additive edits to files
+Tracks E and G own.** Three read-only accessors plus two members on the private
+`AudioChannel` in the former; a six-line method body reduced to one line in the
+latter. Nothing moved or resignatured. Both were flagged rather than hidden.
+
+**`FlexBase.cs` gained the `partial` keyword** (one token, line 75) from Track D
+so its amplifier code could live in its own file. Three tracks edit this file;
+the meter section is Track A's and is untouched by everyone else.
+
 # Cross-track symbol contract
 
 Ownership, so no two tracks move the same ground:
