@@ -412,9 +412,39 @@ this track proves what the vocabulary can do.
 
 - **Worktree:** `../jjflex-32g`
 - **Branch:** `sprint32/track-g`
-- **Covers:** #134, #130
+- **Covers:** #134, #130, #132
 - **Merges LAST** — it restructures the container every other track is adding
   tabs to.
+
+**G0. #132 — the destructive remove option is unreachable by Tab.** Do this
+first; it is the smallest item and the highest-consequence one.
+
+`RemoveRadioDialog.xaml` wraps its two scope radios in
+`KeyboardNavigation.TabNavigation="Once"`, which gives the whole group ONE tab
+stop. Tab lands on "Remove from the list only" (pre-checked), and the next Tab
+goes straight to the Remove button. **Tab never visits the second option** —
+only the arrow keys reach it. So an operator who tabs does not merely find the
+destructive option hard to select, they never encounter it, and confirming
+commits the safe default after an interaction that felt complete and deliberate.
+
+That is what happened to Noel on 2026-08-19. His settings were NOT deleted and
+the spoken receipt was accurate — `deleteSettings` was genuinely false. Nothing
+in the code was wrong; the navigation was.
+
+Fix: `TabNavigation="Continue"` on the radio group so Tab visits both. **KEEP
+the pre-checked safe default** — it is load-bearing for a separate deliberate
+decision (RigSelectorDialog.xaml.cs ~600: bare Delete is safe as an unmodified
+keypress precisely because the confirmation's default scope deletes nothing).
+Reachability is the defect, not the default. Also name the arrow-key affordance
+in the body text, where focus already starts.
+
+Why it survived review, worth carrying into the rest of this track:
+`TabNavigation="Once"` is textbook-correct WPF and right on a settings page with
+many groups. It silently assumes the operator knows to arrow. In a dialog whose
+whole purpose is one irreversible choice between two options, that assumption
+becomes load-bearing in a way it never is on a settings page. **When auditing
+navigation elsewhere in this track, ask what a Tab-only operator encounters —
+not what is theoretically focusable.**
 
 **G1. #134 — category-list navigation, NVDA-style.** Noel's spec: "they have a
 category list... ctrl tab goes to the next category, ctrl+shift tab goes to the
