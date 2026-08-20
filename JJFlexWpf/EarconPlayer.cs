@@ -497,6 +497,8 @@ namespace JJFlexWpf
         // ------------------------------------------------------------------
 
         /// <summary>First PTT warning — a nudge. Mellow, steady, 800 Hz.</summary>
+        [Earcon("PTT warning 1, a nudge", EarconCategory.Transmit, Order = 11,
+            Description = "First long-transmission warning. Mellow and steady.")]
         public static void Warning1Beep()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -504,6 +506,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Second PTT warning — insistent. Brighter, pulses twice, 1000 Hz.</summary>
+        [Earcon("PTT warning 2, insistent", EarconCategory.Transmit, Order = 12,
+            Description = "Second long-transmission warning. Brighter, and it pulses twice.")]
         public static void Warning2Beep()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -511,6 +515,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Last PTT warning — harsh, metallic, hammering, 1200 Hz.</summary>
+        [Earcon("PTT warning 3, last call", EarconCategory.Transmit, Order = 13,
+            Description = "Final long-transmission warning. Harsh, metallic, hammering.")]
         public static void OhCrapBeep()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -518,6 +524,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>TX start tone — two discrete tones: 400Hz then 800Hz.</summary>
+        [Earcon("Transmit start", EarconCategory.Transmit, Order = 1,
+            Description = "Rising pair. You are transmitting.")]
         public static void TxStartTone()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -526,6 +534,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>TX stop tone — two discrete tones: 800Hz then 400Hz.</summary>
+        [Earcon("Transmit stop", EarconCategory.Transmit, Order = 2,
+            Description = "Falling pair. You have stopped transmitting.")]
         public static void TxStopTone()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -534,6 +544,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Hard kill tone — two rapid descending beeps.</summary>
+        [Earcon("Hard kill", EarconCategory.Transmit, Order = 3,
+            Description = "Transmission was cut off rather than ended.")]
         public static void HardKillTone()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -551,6 +563,8 @@ namespace JJFlexWpf
         private const float ConnectPhaseToneVolume = VolumeSoft;
 
         /// <summary>Connect phase 1 — single 750 Hz tone (TLS / SmartLink connect).</summary>
+        [Earcon("Connect step 1", EarconCategory.Connection, Order = 1,
+            Description = "One counting tone. The link is up and negotiating.")]
         public static void ConnectPhase1Tone()
         {
             if (!On(EarconCategory.Connection)) return;
@@ -558,6 +572,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Connect phase 2 — two 750 Hz tones (transport up, waiting for slice).</summary>
+        [Earcon("Connect step 2", EarconCategory.Connection, Order = 2,
+            Description = "Two counting tones. Transport is up, waiting for a slice.")]
         public static void ConnectPhase2Tone()
         {
             if (!On(EarconCategory.Connection)) return;
@@ -570,6 +586,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Connect phase 3 — three 750 Hz tones (slice acquired, station name pending).</summary>
+        [Earcon("Connect step 3", EarconCategory.Connection, Order = 3,
+            Description = "Three counting tones. Slice acquired, station name pending.")]
         public static void ConnectPhase3Tone()
         {
             if (!On(EarconCategory.Connection)) return;
@@ -593,6 +611,9 @@ namespace JJFlexWpf
         /// auto-connect, reconnect) flows through — so fast LAN connects are
         /// no longer silent (the phase tones skip any phase under 500ms).
         /// </summary>
+        [Earcon("Connect success", EarconCategory.Connection, Order = 4,
+            Description = "The signature double-beep. Every successful connect ends here, "
+                        + "however it started.")]
         public static void ConnectSuccessTone()
         {
             if (!On(EarconCategory.Connection)) return;
@@ -626,6 +647,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Confirmation tone — plays confirm.wav.</summary>
+        [Earcon("Confirmation", EarconCategory.CommandsAndConfirmations, Order = 1,
+            Description = "The action you asked for went through.")]
         public static void ConfirmTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -637,6 +660,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Typewriter bell — plays at end of frequency entry in mechanical keyboard mode.</summary>
+        [Earcon("Typewriter bell", EarconCategory.TuningAndFilters, Order = 2,
+            Description = "End of frequency entry, in mechanical keyboard mode.")]
         public static void TypewriterBellTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -647,6 +672,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Band boundary beep — 600 Hz double-beep.</summary>
+        [Earcon("Band edge", EarconCategory.TuningAndFilters, Order = 3,
+            Description = "Tuning has reached the edge of the band.")]
         public static void BandBoundaryBeep()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -655,6 +682,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Filter edge enter tone — plays mode-enter.wav.</summary>
+        [Earcon("Filter edge adjust, entering", EarconCategory.TuningAndFilters, Order = 11,
+            Description = "Filter edge adjustment mode has started.")]
         public static void FilterEdgeEnterTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -665,6 +694,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Filter edge exit tone — plays mode-exit.wav.</summary>
+        [Earcon("Filter edge adjust, leaving", EarconCategory.TuningAndFilters, Order = 12,
+            Description = "Filter edge adjustment mode has ended.")]
         public static void FilterEdgeExitTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -694,6 +725,8 @@ namespace JJFlexWpf
         /// <summary>
         /// Filter edge move tone — unpanned (for when edge isn't known).
         /// </summary>
+        [Earcon("Filter edge move, edge unknown", EarconCategory.TuningAndFilters, Order = 33,
+            Description = "The unpanned fallback, used when the code does not know which edge moved.")]
         public static void FilterEdgeMoveTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -731,6 +764,8 @@ namespace JJFlexWpf
         /// <summary>
         /// Filter squeeze tone — edges closing in. Single descending sweep 800→200Hz, 300ms.
         /// </summary>
+        [Earcon("Filter squeeze", EarconCategory.TuningAndFilters, Order = 51,
+            Description = "The passband is closing in. One descending sweep.")]
         public static void FilterSqueezeTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -751,6 +786,8 @@ namespace JJFlexWpf
         /// Filter stretch/pull tone — edges opening up. Ascending sweep 200→800Hz
         /// with a second tone 100Hz above, 300ms. The interval gives a "spreading" feel.
         /// </summary>
+        [Earcon("Filter stretch", EarconCategory.TuningAndFilters, Order = 52,
+            Description = "The passband is opening up. Two ascending sweeps a note apart.")]
         public static void FilterStretchTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
@@ -775,6 +812,9 @@ namespace JJFlexWpf
         /// Reverse boom — ascending sweep with layered harmonics.
         /// Sounds like a rewind/implosion. Used for calibration reset.
         /// </summary>
+        [Earcon("Reverse boom",
+            Description = "Calibration reset. Outside the family switches on purpose, along with "
+                        + "the other calibration and bench sounds.")]
         public static void ReverseBoomTone()
         {
             if (!EarconsEnabled || AlertMixer == null) return;
@@ -806,6 +846,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Rising chirp — entering leader key mode.</summary>
+        [Earcon("JJ key pressed", EarconCategory.CommandsAndConfirmations, Order = 21,
+            Description = "The JJ leader layer is listening for the next key.")]
         public static void LeaderEnterTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -813,6 +855,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Double ascending beep — feature toggled ON.</summary>
+        [Earcon("Feature on", EarconCategory.CommandsAndConfirmations, Order = 11,
+            Description = "Rising pair. A toggle just turned on.")]
         public static void FeatureOnTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -821,6 +865,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Double descending beep — feature toggled OFF.</summary>
+        [Earcon("Feature off", EarconCategory.CommandsAndConfirmations, Order = 12,
+            Description = "Falling pair. A toggle just turned off.")]
         public static void FeatureOffTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -834,6 +880,8 @@ namespace JJFlexWpf
         /// third above the single-slice FeatureOnTone so the user can tell
         /// "affects all slices" from "affects one slice" by ear.
         /// </summary>
+        [Earcon("All slices on", EarconCategory.CommandsAndConfirmations, Order = 13,
+            Description = "Rising triad, a third above the single-slice tone. Affects every slice.")]
         public static void MuteAllOnTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -844,6 +892,8 @@ namespace JJFlexWpf
         /// <summary>
         /// Tri-tone descending — multi-slice unmute-all. Mirror of MuteAllOnTone.
         /// </summary>
+        [Earcon("All slices off", EarconCategory.CommandsAndConfirmations, Order = 14,
+            Description = "Falling triad. The mirror of all-slices-on.")]
         public static void MuteAllOffTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -852,6 +902,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Double ascending ding — dialog/popup opened.</summary>
+        [Earcon("Dialog opened", EarconCategory.DialogsAndPanels, Order = 1,
+            Description = "Rising pair when a dialog or popup opens.")]
         public static void DialogOpenTone()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
@@ -860,6 +912,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Double descending ding — dialog/popup closed.</summary>
+        [Earcon("Dialog closed", EarconCategory.DialogsAndPanels, Order = 2,
+            Description = "Falling pair when a dialog or popup closes.")]
         public static void DialogCloseTone()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
@@ -884,6 +938,9 @@ namespace JJFlexWpf
         /// kind: something is wrong *now* and the next thing you do depends on
         /// knowing it.
         /// </summary>
+        [Earcon("Problem recorded", EarconCategory.Warnings, Order = 2,
+            Description = "Deliberately calm. Something failed, it is already logged, and the "
+                        + "list will still be there in an hour.")]
         public static void ProblemRecordedTone()
         {
             if (!On(EarconCategory.Warnings)) return;
@@ -920,6 +977,9 @@ namespace JJFlexWpf
         /// says the new level is too much, <see cref="VolumeStrong"/> is the
         /// one number to move.
         /// </summary>
+        [Earcon("Warning alarm", EarconCategory.Warnings, Order = 1,
+            Description = "Something is wrong now, and what happens next depends on hearing it. "
+                        + "Long and harmonic, so it cannot be mistaken for a toggle.")]
         public static void WarningAlarmTone()
         {
             if (!On(EarconCategory.Warnings)) return;
@@ -927,6 +987,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Low buzz — invalid leader key.</summary>
+        [Earcon("JJ key not recognised", EarconCategory.CommandsAndConfirmations, Order = 24,
+            Description = "Low thunk. That key means nothing in the leader layer.")]
         public static void LeaderInvalidTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -934,6 +996,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Soft descending chirp — leader key cancelled.</summary>
+        [Earcon("JJ key cancelled", EarconCategory.CommandsAndConfirmations, Order = 23,
+            Description = "Soft falling chirp. The leader layer gave up waiting.")]
         public static void LeaderCancelTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -941,6 +1005,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Double chime — leader key help requested.</summary>
+        [Earcon("JJ key help", EarconCategory.CommandsAndConfirmations, Order = 22,
+            Description = "Double chime. The leader layer is about to list what it can do.")]
         public static void LeaderHelpTone()
         {
             if (!On(EarconCategory.CommandsAndConfirmations)) return;
@@ -957,6 +1023,8 @@ namespace JJFlexWpf
         /// gives cut-through against ambient RF noise that pure tones would get
         /// masked by — the noise texture's envelope doesn't match broadband hiss.
         /// </summary>
+        [Earcon("Group expanded", EarconCategory.DialogsAndPanels, Order = 11,
+            Description = "Rising sweep with a tracking band of noise, when a group re-expands.")]
         public static void PlayExpand()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
@@ -988,6 +1056,8 @@ namespace JJFlexWpf
         /// Mirror of PlayExpand; the symmetry lets users learn "up = grow, down =
         /// shrink" from one pairing and have the pattern hold.
         /// </summary>
+        [Earcon("Group collapsed", EarconCategory.DialogsAndPanels, Order = 12,
+            Description = "Falling sweep, the mirror of expand, on a single-Escape collapse.")]
         public static void PlayCollapse()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
@@ -1022,6 +1092,8 @@ namespace JJFlexWpf
         /// silence, inharmonic partials — and a synthesiser nobody can find is
         /// not a reference, it is a fourth vocabulary lying in wait.
         /// </summary>
+        [Earcon("Everything collapsed", EarconCategory.DialogsAndPanels, Order = 13,
+            Description = "Two struck notes falling, on a double-Escape collapse-all.")]
         public static void PlayCollapseAll()
         {
             if (!On(EarconCategory.DialogsAndPanels)) return;
@@ -1049,6 +1121,11 @@ namespace JJFlexWpf
         /// than a fire-and-forget Play, and anything auditioning it has to know
         /// that (see <see cref="EarconCatalog"/>).
         /// </summary>
+        [Earcon("ATU tuning in progress", EarconCategory.Transmit, Order = 31,
+            StopMethod = nameof(StopATUProgressEarcon),
+            RunningProperty = nameof(IsATUProgressEarconRunning),
+            Description = "Continuous. Runs for as long as the tuner is working, so it needs "
+                        + "Start and Stop rather than a single Play.")]
         public static void StartATUProgressEarcon()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -1152,6 +1229,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>ATU tune successful — rising major arpeggio C-E-G (~150ms total).</summary>
+        [Earcon("ATU tune succeeded", EarconCategory.Transmit, Order = 32,
+            Description = "Rising major triad. The tuner found a match.")]
         public static void ATUSuccessTone()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -1161,6 +1240,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>ATU tune failed — descending minor E-C-A (~200ms total).</summary>
+        [Earcon("ATU tune failed", EarconCategory.Transmit, Order = 33,
+            Description = "Descending minor. The tuner gave up.")]
         public static void ATUFailTone()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -1170,6 +1251,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Tune carrier on — short rising chirp.</summary>
+        [Earcon("Tune carrier on", EarconCategory.Transmit, Order = 21,
+            Description = "The tune carrier has started.")]
         public static void TuneOnTone()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -1177,6 +1260,8 @@ namespace JJFlexWpf
         }
 
         /// <summary>Tune carrier off — short falling chirp.</summary>
+        [Earcon("Tune carrier off", EarconCategory.Transmit, Order = 22,
+            Description = "The tune carrier has stopped.")]
         public static void TuneOffTone()
         {
             if (!On(EarconCategory.Transmit)) return;
@@ -1196,6 +1281,8 @@ namespace JJFlexWpf
         /// voice and three envelope numbers in the vocabulary, so it is now
         /// those instead. Sprint 32 Track E, #112.
         /// </summary>
+        [Earcon("Frequency entry ding", EarconCategory.TuningAndFilters, Order = 1,
+            Description = "A struck chime confirming a typed frequency.")]
         public static void DingTone()
         {
             if (!On(EarconCategory.TuningAndFilters)) return;
