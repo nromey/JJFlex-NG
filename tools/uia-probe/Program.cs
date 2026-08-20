@@ -57,15 +57,30 @@ internal static class Program
             "tree" => CmdTree(opt),
             "focus" => CmdFocus(opt),
             "watch" => CmdWatch(opt),
-            "press" => CmdPress(opt),
+            "press" => Armed(CmdPress, opt),
             "act" => CmdAct(opt),
             "inventory" => CmdInventory(opt),
             "unbound" => CmdUnbound(opt),
             "expand" => CmdExpand(opt),
             "altcheck" => CmdAltCheck(opt),
-            "sweep" => CmdSweep(opt),
+            "sweep" => opt.Flag("dry-run") ? CmdSweep(opt) : Armed(CmdSweep, opt),
             _ => Usage($"unknown command '{command}'"),
         };
+    }
+
+    /// <summary>
+    /// Run a command that is allowed to inject synthetic input.
+    ///
+    /// <para>Deliberately explicit rather than ambient. Everything else in this
+    /// tool observes; only these two type. Marking the boundary in one place
+    /// means the claim "the read-only commands cannot take your keyboard" is
+    /// checkable by reading four lines instead of auditing the whole program.</para>
+    /// </summary>
+    private static int Armed(Func<Args, int> command, Args a)
+    {
+        Native.InjectionArmed = true;
+        try { return command(a); }
+        finally { Native.ReleaseAllModifiers(); }
     }
 
     private static int Usage(string? error = null)

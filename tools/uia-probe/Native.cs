@@ -176,6 +176,25 @@ internal static class Native
     }
 
     /// <summary>
+    /// True once a command that genuinely injects input has started.
+    ///
+    /// <para>This exists to keep a promise about permissions. Synthetic input
+    /// is the one thing this tool does that can take the operator's keyboard,
+    /// and it is gated accordingly — so the read-only commands must not touch
+    /// SendInput even incidentally. Without this flag they did:
+    /// <see cref="ReleaseAllModifiers"/> runs from Main's finally block on every
+    /// invocation, and it would have sent a keyup for any modifier that happened
+    /// to be down. On a clean desktop that sends nothing, but "usually sends
+    /// nothing" is not the same claim as "cannot inject", and only the second
+    /// one is worth making.</para>
+    ///
+    /// <para>So `jjprobe windows`, `tree`, `focus`, `watch`, `inventory`,
+    /// `unbound`, `expand` and `altcheck` are now provably incapable of
+    /// injecting anything, and only `press` and `sweep` arm this.</para>
+    /// </summary>
+    internal static bool InjectionArmed { get; set; }
+
+    /// <summary>
     /// Force every modifier up, regardless of what we think we sent.
     ///
     /// Called before a sweep starts, after every chord, and from a
@@ -187,6 +206,7 @@ internal static class Native
     /// </summary>
     internal static void ReleaseAllModifiers()
     {
+        if (!InjectionArmed) return;
         foreach (ushort vk in new ushort[] { VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN })
         {
             // Only release what is actually down: sending a spurious keyup for

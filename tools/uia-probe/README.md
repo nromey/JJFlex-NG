@@ -160,6 +160,45 @@ which any side effect would satisfy. Without that check a whole sweep can report
 misconfiguration, which is why the report says up front whether each channel was
 live.
 
+## Which commands can take your keyboard, and which provably cannot
+
+Only two commands inject synthetic input: `press` and `sweep`. Everything else
+— `windows`, `tree`, `focus`, `watch`, `inventory`, `unbound`, `expand`,
+`altcheck`, and `sweep --dry-run` — only observes.
+
+That is enforced rather than asserted. `Native.SendKeyEvent` is the single
+injection point, it is called from exactly one file, and it returns immediately
+unless `Native.InjectionArmed` has been set, which only the two typing commands
+do. The distinction is worth the four lines because of how Windows draws it:
+
+- **Focus is per message queue.** `SetFocus` can only target a window created by
+  the calling thread, and off-foreground it changes that thread's own focus
+  record and nothing else. It cannot reach the operator's keyboard.
+- **`SendInput` injects into the FOREGROUND queue.** It really can take the
+  keyboard, which is exactly why it is gated.
+
+These are not the same risk and should not be argued as though they were.
+
+Note what this replaced: `ReleaseAllModifiers` used to run from `Main`'s finally
+block on *every* invocation, so a read-only command would have sent a keyup for
+any modifier that happened to be down. On an idle desktop that sends nothing —
+but "usually sends nothing" is a weaker claim than "cannot inject", and only the
+second one is worth making to someone deciding whether to grant a permission.
+
+### Why `SendInput` cannot be swapped for something quieter
+
+`PostMessage(WM_KEYDOWN)` needs no foreground and no permission, and it is not a
+substitute here. WPF reads modifier state from the real keyboard
+(`Keyboard.Modifiers`), so a chord delivered by `PostMessage` arrives with no
+modifiers attached and a `Ctrl+J` test would silently pass as a bare `J`.
+
+More fundamentally, it would answer a different question. The bug class under
+test is *the key the operator physically presses does not reach the handler*.
+`PostMessage` proves that a `WM_KEYDOWN` carrying vk=L runs the handler — which
+was never in doubt on 2026-08-13. What failed that day was the translation from
+a physical keystroke into `e.Key`, and only real input injection exercises that
+translation.
+
 ## Safety
 
 This tool types on a real desktop belonging to an operator who cannot see the
