@@ -1867,6 +1867,9 @@ public partial class MainWindow : UserControl
             // QB Track L: RadioInfoDialog (General + Feature Availability tabs)
             // — never assigned since Sprint 11, leaving the menu door dead.
             RigControl.ShowRadioInfoDialog = ShowRadioInfoDialog;
+            // Sprint 33 Track J (#109): TXControlsDialog — same bug again,
+            // declared and invoked since Sprint 11, never assigned.
+            RigControl.ShowTXControlsDialog = ShowTXControlsDialog;
         }
 
         // Disable controls initially — PowerNowOn enables them when radio powers on
@@ -3885,6 +3888,69 @@ public partial class MainWindow : UserControl
         {
             gotoHome();
         }
+    }
+
+    /// <summary>
+    /// Show the WPF TXControlsDialog with delegates wired to the current radio.
+    /// Sprint 33 Track J (#109): the Sprint 9 Track B dialog was complete, and
+    /// FlexBase.ShowTXControlsDialog was declared and invoked from globals.vb,
+    /// but nothing ever assigned it. The null-conditional call meant the TX
+    /// Controls door did nothing at all — no window, no speech, nothing for a
+    /// screen reader to report. Exactly the ShowRadioInfoDialog bug below.
+    /// The WinForms original (Radios\TXControls.cs) was deleted when this
+    /// replaced it, so this was the only remaining route to these settings.
+    /// Wired in OnRadioStarted alongside the other two.
+    /// </summary>
+    private void ShowTXControlsDialog()
+    {
+        var rig = RigControl;
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected.",
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var dialog = new Dialogs.TXControlsDialog();
+
+        // TX request inputs
+        dialog.GetTXReqRCAEnabled = () => rig.TXReqRCAEnabled;
+        dialog.SetTXReqRCAEnabled = v => rig.TXReqRCAEnabled = v;
+        dialog.GetTXReqRCAPolarity = () => rig.TXReqRCAPolarity;
+        dialog.SetTXReqRCAPolarity = v => rig.TXReqRCAPolarity = v;
+        dialog.GetTXReqACCEnabled = () => rig.TXReqACCEnabled;
+        dialog.SetTXReqACCEnabled = v => rig.TXReqACCEnabled = v;
+        dialog.GetTXReqACCPolarity = () => rig.TXReqACCPolarity;
+        dialog.SetTXReqACCPolarity = v => rig.TXReqACCPolarity = v;
+
+        // TX outputs, enable plus delay
+        dialog.GetTX1Enabled = () => rig.TX1Enabled;
+        dialog.SetTX1Enabled = v => rig.TX1Enabled = v;
+        dialog.GetTX1Delay = () => rig.TX1Delay;
+        dialog.SetTX1Delay = v => rig.TX1Delay = v;
+
+        dialog.GetTX2Enabled = () => rig.TX2Enabled;
+        dialog.SetTX2Enabled = v => rig.TX2Enabled = v;
+        dialog.GetTX2Delay = () => rig.TX2Delay;
+        dialog.SetTX2Delay = v => rig.TX2Delay = v;
+
+        dialog.GetTX3Enabled = () => rig.TX3Enabled;
+        dialog.SetTX3Enabled = v => rig.TX3Enabled = v;
+        dialog.GetTX3Delay = () => rig.TX3Delay;
+        dialog.SetTX3Delay = v => rig.TX3Delay = v;
+
+        dialog.GetTXACCEnabled = () => rig.TXACCEnabled;
+        dialog.SetTXACCEnabled = v => rig.TXACCEnabled = v;
+        dialog.GetTXACCDelay = () => rig.TXACCDelay;
+        dialog.SetTXACCDelay = v => rig.TXACCDelay = v;
+
+        // Hardware ALC and remote-on
+        dialog.GetHWAlcEnabled = () => rig.HWAlcEnabled;
+        dialog.SetHWAlcEnabled = v => rig.HWAlcEnabled = v;
+        dialog.GetRemoteOnEnabled = () => rig.RemoteOnEnabled;
+        dialog.SetRemoteOnEnabled = v => rig.RemoteOnEnabled = v;
+
+        dialog.ShowDialog();
     }
 
     /// <summary>
