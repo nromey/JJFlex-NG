@@ -142,7 +142,8 @@ internal static class Press
         int maxSettleMs,
         bool digest,
         RiskLevel risk = RiskLevel.Safe,
-        TransmitClearance? clearance = null)
+        TransmitClearance? clearance = null,
+        ActivityWatcher? watcher = null)
     {
         var result = new PressResult
         {
@@ -209,7 +210,10 @@ internal static class Press
             Native.ReleaseAllModifiers();
         }
 
-        result.Quiesced = Observe.WaitForSettle(pid, traceLogPath, quietMs, maxSettleMs, out int elapsed);
+        int elapsed;
+        result.Quiesced = watcher != null
+            ? watcher.WaitForQuiet(traceLogPath, quietMs, maxSettleMs, out elapsed)
+            : Observe.WaitForSettle(pid, traceLogPath, quietMs, maxSettleMs, out elapsed);
         result.SettleMs = elapsed;
         result.SettledAtUtc = DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 
@@ -235,6 +239,36 @@ internal static class Press
             : anythingHappened ? "handled"
             : "silent";
         return result;
+    }
+
+    /// <summary>
+    /// Send a chord with NO observation and no settle wait — just the
+    /// keystrokes and a short fixed pause.
+    ///
+    /// <para>This is how the sweep gets back to a known position between
+    /// measured presses. The Home fields are caret positions inside one text
+    /// box, so reaching the Squelch field means Home then some number of
+    /// Rights, and doing that with a fully observed, fully settled press each
+    /// time would spend the operator's authorised run time walking the display
+    /// instead of testing it. Repositioning is not the measurement; it is the
+    /// cost of getting to it.</para>
+    ///
+    /// <para>Still releases modifiers in a finally, because the reason for that
+    /// does not change when nobody is watching.</para>
+    /// </summary>
+    public static void SendQuiet(Chord chord, WindowInfo window, int pauseMs = 45)
+    {
+        if (Native.GetForegroundWindow() != window.Hwnd && !Native.Force(window.Hwnd)) return;
+        try
+        {
+            for (int i = 0; i < chord.Steps.Count; i++)
+            {
+                if (i > 0) Thread.Sleep(BetweenStepsMs);
+                SendStep(chord.Steps[i]);
+            }
+        }
+        finally { Native.ReleaseAllModifiers(); }
+        Thread.Sleep(pauseMs);
     }
 
     private static void SendStep(Step step)

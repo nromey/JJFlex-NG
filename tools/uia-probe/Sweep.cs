@@ -21,6 +21,26 @@ internal sealed class SweepOptions
     /// <summary>A fresh power read-back from whoever can see the radio. Without
     /// one, transmitting chords are refused even if --risk names them.</summary>
     public TransmitClearance? Clearance { get; set; }
+
+    /// <summary>
+    /// Chords never to press this run, by display name.
+    ///
+    /// <para>Risk levels are too coarse on their own. Releasing a slice and
+    /// toggling noise reduction are both "mutates", but one of them costs the
+    /// operator a rebuild of their whole slice layout and the other is a
+    /// keypress to undo. Naming the individual chords is how a broad run stays
+    /// acceptable, and <see cref="DefaultExclusions"/> is what a sensible one
+    /// starts from.</para>
+    /// </summary>
+    public HashSet<string> Exclude { get; set; } = new(DefaultExclusions, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Excluded by default because they destroy operator state rather than
+    /// changing it: Comma releases the current slice, Shift+Comma releases every
+    /// slice except the first, and Period creates slices that then have to be
+    /// cleaned up. Pass --exclude "" to press them anyway.
+    /// </summary>
+    public static readonly string[] DefaultExclusions = { "Comma", "Shift+Comma", "Period" };
 }
 
 internal sealed class SweepReport
@@ -29,7 +49,7 @@ internal sealed class SweepReport
     [JsonPropertyName("startedUtc")] public string StartedUtc { get; set; } = "";
     [JsonPropertyName("pid")] public int Pid { get; set; }
     [JsonPropertyName("appDir")] public string AppDir { get; set; } = "";
-    [JsonPropertyName("speechLog")] public string? SpeechLog { get; set; }
+    [JsonPropertyName("traceLog")] public string? TraceLogPath { get; set; }
     [JsonPropertyName("speechChannelVerified")] public bool SpeechChannelVerified { get; set; }
     [JsonPropertyName("fieldMap")] public List<string> FieldMap { get; set; } = new();
     [JsonPropertyName("presses")] public List<PressResult> Presses { get; set; } = new();
@@ -48,24 +68,33 @@ internal sealed class SweepReport
 ///
 /// <para><b>Most of these keys are context-sensitive.</b> M mutes only while
 /// the operator is on a Home field. Pressing it from the wrong place proves
-/// nothing and would be reported as a dead key. So the sweep navigates to the
-/// right field first and RECORDS where it actually landed, so every result
-/// carries the evidence of the context it was measured in.</para>
+/// nothing and would be written up as a dead key. So the sweep navigates to the
+/// right field first and records where it went, and every result carries the
+/// context it was measured in.</para>
 ///
 /// <para><b>The Home fields are not separate automation elements.</b> They are
 /// caret positions inside one custom-peer text box that deliberately publishes
-/// no TextPattern and no ValuePattern, precisely so NVDA stays quiet and the
-/// app can do its own speaking. Focus therefore never moves between fields, and
-/// no amount of automation-tree inspection can tell you which field you are on.
-/// The app's own speech is the only external signal — which is why the trace
-/// file is a first-class observation channel here rather than a convenience.</para>
+/// no TextPattern and no ValuePattern, precisely so NVDA stays quiet and the app
+/// can do its own speaking. Focus therefore never moves between fields, and no
+/// amount of automation-tree inspection can tell you which field you are on.
+/// The app's own speech is the only external signal, which is why the trace file
+/// is a first-class observation channel here rather than a convenience — and why
+/// the sweep learns the layout by walking it and listening.</para>
 ///
-/// <para><b>Some of these keys transmit.</b> See <see cref="Risk"/>. The
-/// default is safe-only and the skipped ones are listed, because a silent
+/// <para><b>Some of these keys transmit.</b> See <see cref="Risk"/>. The default
+/// is safe-only, transmitting chords additionally need a fresh power read-back
+/// from the radio side, and everything skipped is listed — because a silent
 /// exclusion reads as coverage.</para>
 /// </summary>
 internal static class Sweep
 {
+    /// <summary>
+    /// How far right the Home display can possibly go. The fields total well
+    /// under this; the margin exists so a longer display in a future build does
+    /// not silently truncate the map.
+    /// </summary>
+    private const int MaxRightsAcrossHome = 56;
+
     /// <summary>Inventory contexts that live on the JJ Flexible Home surface,
     /// mapped to the label the app speaks on arrival.</summary>
     private static readonly Dictionary<string, string> HomeFieldLabels = new(StringComparer.Ordinal)
@@ -100,7 +129,7 @@ internal static class Sweep
         ["Categories"] = "inside Settings or the Audio Workshop",
         ["ValueField"] = "inside a Home field group (expander)",
         ["LoggingPane"] = "inside the logging radio pane",
-        ["CWMessages"] = "keys the transmitter — CW message slots",
+        ["CWMessages"] = "in the CW message slots, which key the transmitter",
     };
 
     public static SweepReport Run(SweepOptions o)
@@ -119,111 +148,164 @@ internal static class Sweep
         WindowInfo window = Targets.Resolve(o.Pid, o.WindowSelector)
             ?? throw new InvalidOperationException("no visible window for that process");
 
-        string? speechLog = TraceLog.FindCurrent();
-        report.SpeechLog = speechLog;
-        if (speechLog == null)
-            report.Notes.Add("No trace file found in %AppData%\\JJFlexRadio. Neither routing nor speech can be "
-                + "observed, so every key will look silent whether it works or not. Treat this run as invalid.");
+        string? traceLog = TraceLog.FindCurrent();
+        report.TraceLogPath = traceLog;
+        if (traceLog == null)
+            report.Notes.Add("No trace file found in the JJFlexRadio application data folder. Neither routing "
+                + "nor speech can be observed, so every key will look silent whether it works or not. Treat "
+                + "this run as invalid.");
 
-        // ── The ROUTING channel needs nothing turned on. DoCommand and Leader
-        //    lines are written unconditionally at Info, and they are the strongest
-        //    signal here because they separate "the chord never arrived" from
-        //    "the chord arrived and nothing was listening".
-        //
-        //    The SPEECH channel is the one that needs a detailed capture: the
-        //    Spoke lines are Verbose, and the default level is Info. It is not
-        //    optional cover, though — the Home field keys never reach DoCommand
-        //    at all, so speech is the ONLY evidence they exist.
-        if (o.StartCapture && speechLog != null)
-        {
-            var probe = PressChord(o, window, speechLog, "Ctrl+J, Ctrl+D", "start detailed capture", "preflight");
-            report.Presses.Add(probe);
-            speechLog = TraceLog.FindCurrent() ?? speechLog;   // capture may open a new file
-            report.SpeechLog = speechLog;
+        // One subscription for the whole sweep. Subscribing costs real time, and
+        // doing it twice per press would spend more of the operator's authorised
+        // run wiring up event handlers than pressing keys.
+        using var watcher = new ActivityWatcher(o.Pid);
+        if (!watcher.Subscribed)
+            report.Notes.Add("Could not subscribe to UI Automation events; settling was judged from the trace "
+                + "file alone. For this app that is the richer signal anyway, but window-only changes may have "
+                + "been missed.");
 
-            // Proof by observation: read the log back and look for a Verbose-only
-            // line. Asking whether the chord "did something" is not the same
-            // question and would pass on any old side effect.
-            var after = TraceLog.ReadSince(speechLog, Math.Max(0, TraceLog.Length(speechLog) - 65536));
-            report.SpeechChannelVerified = TraceLog.LooksVerbose(after);
-            report.Notes.Add(report.SpeechChannelVerified
-                ? "Verbose lines are present, so the speech channel is live and Ctrl+J, Ctrl+D did its job."
-                : "No Verbose lines after Ctrl+J, Ctrl+D. Either the chord is dead or a capture was already "
-                + "running and this press stopped it. Home field keys below cannot be judged.");
-        }
-        else if (speechLog != null)
+        var ctx = new SweepContext(o, window, traceLog, watcher, report);
+
+        // ── Get to Home deliberately rather than hoping focus is already there.
+        //    F2 is the registry's ShowFreq, so this doubles as the first proof
+        //    that registry dispatch is alive at all.
+        PressResult toHome = ctx.Measured("F2", "focus the frequency field", "preflight");
+        report.Presses.Add(toHome);
+        if (toHome.Verdict is "silent" or "unhandled")
+            report.Notes.Add("F2 did not visibly put focus on Home. Everything measured below may have been "
+                + "pressed somewhere other than the Home display.");
+
+        // ── The ROUTING channel needs nothing turned on: DoCommand and Leader
+        //    lines are Info level and always written. The SPEECH channel is the
+        //    one that needs a detailed capture, and it is not optional cover —
+        //    the Home field keys never reach the dispatcher at all, so an
+        //    utterance is the only evidence they exist.
+        if (traceLog != null)
         {
-            report.Notes.Add("Detailed capture not started (--no-capture). Routing is still observable, but "
-                + "Home field keys speak and never reach the dispatcher, so they cannot be judged this run.");
+            var recent = TraceLog.ReadSince(traceLog, Math.Max(0, TraceLog.Length(traceLog) - 65536));
+            bool alreadyVerbose = TraceLog.LooksVerbose(recent);
+
+            if (alreadyVerbose)
+            {
+                report.SpeechChannelVerified = true;
+                report.Notes.Add("A detailed capture was already running, so the speech channel was live before "
+                    + "the sweep started. Ctrl+J, Ctrl+D was NOT pressed — pressing it would have stopped the "
+                    + "capture and taken the channel away.");
+            }
+            else if (o.StartCapture)
+            {
+                report.Presses.Add(ctx.Measured("Ctrl+J, Ctrl+D", "start detailed capture", "preflight"));
+                traceLog = TraceLog.FindCurrent() ?? traceLog;   // capture may open a new file
+                report.TraceLogPath = traceLog;
+                ctx.TraceLogPath = traceLog;
+
+                var after = TraceLog.ReadSince(traceLog, Math.Max(0, TraceLog.Length(traceLog) - 65536));
+                report.SpeechChannelVerified = TraceLog.LooksVerbose(after);
+                report.Notes.Add(report.SpeechChannelVerified
+                    ? "Verbose lines appeared after Ctrl+J, Ctrl+D, so that chord works and the speech channel "
+                      + "is live. Proven by reading the log back, not by the chord merely having done something."
+                    : "No Verbose lines after Ctrl+J, Ctrl+D. The Home field keys below cannot be judged.");
+            }
+            else
+            {
+                report.Notes.Add("Detailed capture not started, because --no-capture was given. Routing is still "
+                    + "observable, but the Home field keys speak and never reach the dispatcher, so they cannot "
+                    + "be judged.");
+            }
         }
 
         // ── Learn the Home layout by walking it, rather than assuming it.
-        report.FieldMap = MapHomeFields(o, window, speechLog);
-        if (report.FieldMap.Count == 0)
-            report.Notes.Add("Walking Home with Home then Right produced no spoken field labels. Either focus was "
-                + "not on Home, or Left/Right navigation is not announcing — both are findings.");
+        Dictionary<string, int> fieldPositions = ctx.MapHomeFields(report);
+        if (fieldPositions.Count == 0)
+            report.Notes.Add("Walking Home with Home then Right produced no spoken field labels. Either focus "
+                + "was not on Home, or Left and Right navigation announces nothing — both are findings.");
 
-        // ── The work.
+        // ── The work, grouped by context so each field is sought once.
         var entries = Inventory.Load(appDir);
         int pressed = 0;
 
-        foreach (InventoryEntry entry in entries)
+        foreach (var group in entries
+                     .Where(e => o.ContextFilter == null
+                                 || e.Context.Contains(o.ContextFilter, StringComparison.OrdinalIgnoreCase))
+                     .GroupBy(e => e.Context, StringComparer.Ordinal))
         {
-            if (o.ContextFilter != null
-                && !entry.Context.Contains(o.ContextFilter, StringComparison.OrdinalIgnoreCase))
-                continue;
+            string context = group.Key;
 
-            Expansion expansion = KeyDisplayExpander.Expand(entry.KeyDisplay);
-            if (expansion.Residue != null)
+            if (ElsewhereContexts.TryGetValue(context, out string? where))
             {
-                report.Unexpandable.Add($"{entry.ContextLabel}: \"{entry.KeyDisplay}\" — {expansion.Residue}");
-                continue;
-            }
-
-            if (ElsewhereContexts.TryGetValue(entry.Context, out string? where))
-            {
-                report.Skipped.Add($"{entry.ContextLabel} \"{entry.KeyDisplay}\" — lives {where}; "
-                    + "this sweep does not open that surface");
+                foreach (InventoryEntry e in group)
+                    report.Skipped.Add($"{e.ContextLabel} \"{e.KeyDisplay}\" — lives {where}; "
+                        + "this sweep does not open that surface");
                 continue;
             }
 
-            foreach (ExpandedChord ec in expansion.Chords)
+            bool homeWide = HomeWideContexts.Contains(context);
+            int rights = 0;
+            if (!homeWide && !fieldPositions.TryGetValue(context, out rights))
             {
-                if (pressed >= o.MaxKeys) { report.Notes.Add($"stopped at --max {o.MaxKeys}"); return report; }
+                foreach (InventoryEntry e in group)
+                    report.Skipped.Add($"{e.ContextLabel} \"{e.KeyDisplay}\" — the {context} field was never "
+                        + "heard while walking Home, so there is no way to get to it and no honest way to "
+                        + "judge its keys");
+                continue;
+            }
 
-                RiskLevel risk = Risk.Classify(ec.Chord.Display, entry.Description);
-                if (!o.AllowedRisk.Contains(risk))
+            foreach (InventoryEntry entry in group)
+            {
+                Expansion expansion = KeyDisplayExpander.Expand(entry.KeyDisplay);
+                if (expansion.Residue != null)
                 {
-                    report.Skipped.Add($"{ec.Chord.Display} ({entry.ContextLabel}) — classified {risk}, "
-                        + "not in the allowed set for this run");
+                    report.Unexpandable.Add($"{entry.ContextLabel}: \"{entry.KeyDisplay}\" — {expansion.Residue}");
                     continue;
                 }
 
-                if (!SeekContext(o, window, speechLog, entry.Context, out string landedIn))
+                foreach (ExpandedChord ec in expansion.Chords)
                 {
-                    report.Skipped.Add($"{ec.Chord.Display} ({entry.ContextLabel}) — could not reach that context; "
-                        + $"ended up at {landedIn}");
-                    continue;
-                }
+                    if (pressed >= o.MaxKeys)
+                    {
+                        report.Notes.Add($"Stopped at the --max limit of {o.MaxKeys}; the rest of the inventory "
+                            + "was not reached.");
+                        return report;
+                    }
 
-                PressResult r = Press.Send(o.Pid, ec.Chord, window, speechLog, o.QuietMs, o.MaxSettleMs,
-                    o.Digest, risk, o.Clearance);
-                r.KeyDisplay = entry.KeyDisplay;
-                r.Context = entry.Context + (landedIn.Length > 0 ? $" (landed: {landedIn})" : "");
-                r.Description = entry.Description;
-                r.Derivation = ec.Derivation.ToString();
-                report.Presses.Add(r);
-                pressed++;
+                    if (o.Exclude.Contains(ec.Chord.Display))
+                    {
+                        report.Skipped.Add($"{ec.Chord.Display} ({entry.ContextLabel}) — on the exclusion list "
+                            + "for this run: it destroys operator state rather than changing it");
+                        continue;
+                    }
 
-                Thread.Sleep(o.BetweenKeysMs);
+                    RiskLevel risk = Risk.Classify(ec.Chord.Display, entry.Description);
+                    if (!o.AllowedRisk.Contains(risk))
+                    {
+                        report.Skipped.Add($"{ec.Chord.Display} ({entry.ContextLabel}) — classified {risk}, "
+                            + "not in the allowed set for this run");
+                        continue;
+                    }
 
-                if (!RestoreBaseline(o, window, speechLog, out string stuck))
-                {
-                    report.AbortedBecause =
-                        $"after pressing {ec.Chord.Display} the app was left showing '{stuck}' and Escape did not "
-                        + "return it. Every result after this point would have been measured against the wrong "
-                        + "window, so the sweep stopped instead of producing plausible nonsense.";
-                    return report;
+                    // Reposition WITHOUT observing: getting there is the cost of
+                    // the measurement, not the measurement.
+                    ctx.RepositionHome(rights);
+
+                    PressResult r = Press.Send(o.Pid, ec.Chord, window, ctx.TraceLogPath,
+                        o.QuietMs, o.MaxSettleMs, o.Digest, risk, o.Clearance, watcher);
+                    r.KeyDisplay = entry.KeyDisplay;
+                    r.Context = homeWide ? context : $"{context}, {rights} rights from Home";
+                    r.Description = entry.Description;
+                    r.Derivation = ec.Derivation.ToString();
+                    report.Presses.Add(r);
+                    pressed++;
+
+                    Thread.Sleep(o.BetweenKeysMs);
+
+                    if (!ctx.RestoreBaseline(out string stuck))
+                    {
+                        report.AbortedBecause =
+                            $"after pressing {ec.Chord.Display} the app was left showing '{stuck}' and Escape did "
+                            + "not return it. Every result after this point would have been measured against the "
+                            + "wrong window, so the sweep stopped instead of producing plausible nonsense.";
+                        return report;
+                    }
                 }
             }
         }
@@ -234,111 +316,142 @@ internal static class Sweep
     // ────────────────────────── navigation ──────────────────────────
 
     /// <summary>
-    /// Walk Home from the first field to the last with the Right key, and
-    /// collect the labels the app speaks along the way. This is both the map
-    /// the sweep navigates with AND a test in its own right: silence here means
-    /// Home navigation announces nothing.
+    /// The per-run state the navigation needs: which window, which log, which
+    /// watcher. Bundled so the helpers stop taking six arguments each.
     /// </summary>
-    private static List<string> MapHomeFields(SweepOptions o, WindowInfo window, string? speechLog)
+    private sealed class SweepContext
     {
-        var labels = new List<string>();
-        if (speechLog == null) return labels;
+        private readonly SweepOptions _o;
+        private readonly WindowInfo _window;
+        private readonly ActivityWatcher _watcher;
+        private readonly SweepReport _report;
 
-        PressChord(o, window, speechLog, "Home", "jump to the first Home field", "field map");
+        public string? TraceLogPath { get; set; }
 
-        for (int i = 0; i < 48; i++)
+        public SweepContext(SweepOptions o, WindowInfo window, string? traceLog,
+            ActivityWatcher watcher, SweepReport report)
         {
-            PressResult r = PressChord(o, window, speechLog, "Right", "move one character right", "field map");
-            foreach (string said in r.Spoke)
-            {
-                string norm = said.Trim();
-                if (norm.Length == 0) continue;
-                if (!labels.Contains(norm, StringComparer.OrdinalIgnoreCase)) labels.Add(norm);
-            }
-        }
-        PressChord(o, window, speechLog, "Home", "back to the first Home field", "field map");
-        return labels;
-    }
-
-    /// <summary>
-    /// Get to the context a key belongs to, and report where we actually
-    /// arrived. Returning the landing spot rather than a bare bool matters:
-    /// a result measured in the wrong place must be readable as such later.
-    /// </summary>
-    private static bool SeekContext(SweepOptions o, WindowInfo window, string? speechLog,
-        string context, out string landedIn)
-    {
-        landedIn = "";
-        if (HomeWideContexts.Contains(context))
-        {
-            PressChord(o, window, speechLog, "Home", "return to a known Home position", "seek");
-            landedIn = "Home, first field";
-            return true;
+            _o = o;
+            _window = window;
+            TraceLogPath = traceLog;
+            _watcher = watcher;
+            _report = report;
         }
 
-        if (!HomeFieldLabels.TryGetValue(context, out string? wanted)) { landedIn = "(unknown context)"; return false; }
-        if (speechLog == null) { landedIn = "(no speech channel to navigate by)"; return false; }
-
-        PressChord(o, window, speechLog, "Home", "start the seek from the first field", "seek");
-
-        for (int i = 0; i < 48; i++)
+        /// <summary>A fully observed press, for measurements and preflight.</summary>
+        public PressResult Measured(string chordText, string description, string context)
         {
-            PressResult r = PressChord(o, window, speechLog, "Right", "seek right", "seek");
-            foreach (string said in r.Spoke)
+            if (!Chord.TryParse(chordText, out Chord chord, out string error))
+                return new PressResult { Chord = chordText, Verdict = "not-sent", Error = error, Context = context };
+
+            PressResult r = Press.Send(_o.Pid, chord, _window, TraceLogPath,
+                _o.QuietMs, _o.MaxSettleMs, digest: false, RiskLevel.Safe, null, _watcher);
+            r.Description = description;
+            r.Context = context;
+            r.Derivation = Derivation.Exact.ToString();
+            return r;
+        }
+
+        /// <summary>
+        /// Walk Home left to right and record which Right-press first produced
+        /// each spoken field label.
+        ///
+        /// <para>This is the map the sweep navigates by AND a test in its own
+        /// right. It is also the only way to navigate at all: the Home fields
+        /// are caret positions inside a single custom-peer text box that
+        /// publishes no TextPattern and no ValuePattern, so focus never moves
+        /// between them and the automation tree cannot say which field the
+        /// operator is on. The app's speech is the whole map.</para>
+        /// </summary>
+        public Dictionary<string, int> MapHomeFields(SweepReport report)
+        {
+            var positions = new Dictionary<string, int>(StringComparer.Ordinal);
+            var heard = new List<(int Rights, string Label)>();
+            if (TraceLogPath == null) return positions;
+
+            Measured("Home", "jump to the first Home field", "field map");
+
+            for (int i = 1; i <= MaxRightsAcrossHome; i++)
             {
-                if (said.Contains(wanted, StringComparison.OrdinalIgnoreCase))
+                PressResult r = Measured("Right", "move one character right", "field map");
+                foreach (string said in r.Spoke)
                 {
-                    landedIn = said.Trim();
-                    return true;
+                    string label = said.Trim();
+                    if (label.Length == 0) continue;
+                    heard.Add((i, label));
+                    if (!report.FieldMap.Contains(label, StringComparer.OrdinalIgnoreCase))
+                        report.FieldMap.Add(label);
                 }
             }
-        }
-        landedIn = $"never heard '{wanted}' in 48 presses of Right";
-        return false;
-    }
 
-    /// <summary>
-    /// Put the app back where it was. A key that opened a dialog leaves every
-    /// subsequent keystroke going somewhere else, so this runs after each press
-    /// and the sweep halts rather than continuing blind.
-    /// </summary>
-    private static bool RestoreBaseline(SweepOptions o, WindowInfo window, string? speechLog, out string stuck)
-    {
-        stuck = "";
-        for (int attempt = 0; attempt < 3; attempt++)
-        {
-            IntPtr fg = Native.GetForegroundWindow();
-            if (fg == window.Hwnd) return true;
-
-            Native.GetWindowThreadProcessId(fg, out uint fgPid);
-            if (fgPid != (uint)o.Pid)
+            // Assign the longest expected label first: "slice operations" and
+            // "transmit slice" both contain "slice", and matching the short one
+            // first would claim the wrong position for all three.
+            foreach (var kv in HomeFieldLabels.OrderByDescending(k => k.Value.Length))
             {
-                // Something outside the app took the foreground. Not ours to
-                // dismiss with Escape — just take it back.
-                if (Native.Force(window.Hwnd)) return true;
-                stuck = $"another application's window ('{Native.Text(fg)}')";
-                return false;
+                if (positions.ContainsKey(kv.Key)) continue;
+                foreach ((int rightsAt, string label) in heard)
+                {
+                    if (!label.Contains(kv.Value, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (positions.ContainsValue(rightsAt)) continue;
+                    positions[kv.Key] = rightsAt;
+                    break;
+                }
             }
 
-            stuck = Native.Text(fg);
-            PressChord(o, window, speechLog, "Escape", "dismiss whatever opened", "restore");
-            Thread.Sleep(200);
+            // Both tuning modes name the field "frequency" and only one is live
+            // at a time. Share the position, and let the report say which
+            // silences were expected rather than calling half of them dead.
+            if (positions.TryGetValue("Freq.Classic", out int freq)) positions.TryAdd("Freq.Modern", freq);
+            else if (positions.TryGetValue("Freq.Modern", out freq)) positions.TryAdd("Freq.Classic", freq);
+
+            Measured("Home", "back to the first Home field", "field map");
+            return positions;
         }
-        return Native.GetForegroundWindow() == window.Hwnd;
-    }
 
-    private static PressResult PressChord(SweepOptions o, WindowInfo window, string? speechLog,
-        string chordText, string description, string context)
-    {
-        if (!Chord.TryParse(chordText, out Chord chord, out string error))
-            return new PressResult { Chord = chordText, Verdict = "not-sent", Error = error, Context = context };
+        /// <summary>
+        /// Put the caret back on a known field, fast and unobserved.
+        /// </summary>
+        public void RepositionHome(int rights)
+        {
+            if (!Chord.TryParse("Home", out Chord home, out _)) return;
+            if (!Chord.TryParse("Right", out Chord right, out _)) return;
 
-        PressResult r = Press.Send(o.Pid, chord, window, speechLog, o.QuietMs, o.MaxSettleMs, digest: false);
-        r.Description = description;
-        r.Context = context;
-        r.Derivation = Derivation.Exact.ToString();
-        r.Risk = RiskLevel.Safe.ToString();
-        return r;
+            Press.SendQuiet(home, _window);
+            for (int i = 0; i < rights; i++) Press.SendQuiet(right, _window);
+        }
+
+        /// <summary>
+        /// Put the app back where it was. A key that opened something leaves
+        /// every later keystroke going somewhere else, so this runs after each
+        /// press and the sweep halts rather than continuing blind.
+        /// </summary>
+        public bool RestoreBaseline(out string stuck)
+        {
+            stuck = "";
+            if (!Chord.TryParse("Escape", out Chord escape, out _)) return true;
+
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                IntPtr fg = Native.GetForegroundWindow();
+                if (fg == _window.Hwnd) return true;
+
+                Native.GetWindowThreadProcessId(fg, out uint fgPid);
+                if (fgPid != (uint)_o.Pid)
+                {
+                    // Something outside the app took the foreground. Not ours to
+                    // dismiss with Escape — just take it back.
+                    if (Native.Force(_window.Hwnd)) return true;
+                    stuck = $"another application's window, '{Native.Text(fg)}'";
+                    return false;
+                }
+
+                stuck = Native.Text(fg);
+                _report.Notes.Add($"'{stuck}' opened and was dismissed with Escape.");
+                Press.SendQuiet(escape, _window, pauseMs: 250);
+            }
+            return Native.GetForegroundWindow() == _window.Hwnd;
+        }
     }
 
     // ────────────────────────── reporting ──────────────────────────
@@ -354,16 +467,18 @@ internal static class Sweep
         sb.AppendLine("Key press sweep");
         sb.AppendLine();
         sb.AppendLine($"Started {r.StartedUtc}, process {r.Pid}, build directory {r.AppDir}.");
-        sb.AppendLine($"Trace log: {r.SpeechLog ?? "none found"}.");
-        sb.AppendLine("Routing channel (DoCommand and Leader lines, Info level): "
-            + $"{(r.SpeechLog != null ? "available" : "NOT AVAILABLE")}. "
-            + $"Speech channel (Verbose): {(r.SpeechChannelVerified ? "live" : "NOT LIVE")}.");
+        sb.AppendLine($"Trace log: {r.TraceLogPath ?? "none found"}.");
+        sb.AppendLine("Routing channel, meaning the DoCommand and Leader lines at Info level: "
+            + $"{(r.TraceLogPath != null ? "available" : "NOT AVAILABLE")}. "
+            + $"Speech channel, which needs Verbose: {(r.SpeechChannelVerified ? "live" : "NOT LIVE")}.");
         if (!r.SpeechChannelVerified)
-            sb.AppendLine("Without the speech channel, the Home field keys cannot be judged: they never reach "
+            sb.AppendLine("Without the speech channel the Home field keys cannot be judged: they never reach "
                 + "the dispatcher, so an utterance is their only outward sign.");
         sb.AppendLine();
 
-        var real = r.Presses.Where(p => p.Context is not ("seek" or "field map" or "restore" or "preflight")).ToList();
+        var real = r.Presses
+            .Where(p => p.Context is not ("field map" or "preflight"))
+            .ToList();
         int handled = real.Count(p => p.Verdict == "handled");
         int unhandled = real.Count(p => p.Verdict == "unhandled");
         int silent = real.Count(p => p.Verdict == "silent");
@@ -372,12 +487,12 @@ internal static class Sweep
 
         sb.AppendLine($"Pressed {real.Count} chords. {handled} did something observable, "
             + $"{unhandled} arrived at the dispatcher and found no command, {silent} produced nothing at all, "
-            + $"{notSent} never reached the app, {refused} were refused at the safety gate.");
+            + $"{notSent} never reached the app, and {refused} were refused at the safety gate.");
         sb.AppendLine();
 
         if (r.FieldMap.Count > 0)
         {
-            sb.AppendLine("Home fields heard while walking left to right:");
+            sb.AppendLine("Heard while walking Home from left to right:");
             foreach (string f in r.FieldMap) sb.AppendLine($"- {f}");
             sb.AppendLine();
         }
@@ -394,8 +509,8 @@ internal static class Sweep
 
         if (silent > 0)
         {
-            sb.AppendLine("Produced no observable effect at all — no routing, no speech, no visible change. "
-                + "Either genuinely dead, or the key belongs to a surface this run could not reach:");
+            sb.AppendLine("Produced no observable effect at all: no routing, no speech, no visible change. "
+                + "Either genuinely dead, or belonging to a surface this run could not reach:");
             foreach (PressResult p in real.Where(p => p.Verdict == "silent"))
                 sb.AppendLine($"- {p.Chord} on {p.Context} — expected: {p.Description}");
             sb.AppendLine();

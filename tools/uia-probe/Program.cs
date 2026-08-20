@@ -89,7 +89,8 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
   jjprobe altcheck  --src DIR                        (offline: static source scan)
   jjprobe sweep     [--pid N] [--window SEL] [--appdir DIR] [--context NAME]
                     [--risk safe,mutates,transmits] [--max N] [--no-capture]
-                    [--transmit-clearance FILE] [--out FILE] [--json]
+                    [--transmit-clearance FILE] [--exclude "Comma,Period"]
+                    [--out FILE] [--json]
 
 Default process name is 'jjflexible'. --window takes a title substring, a class
 substring, or an index from `jjprobe windows`.
@@ -323,6 +324,10 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             MaxKeys = a.Int("max", int.MaxValue),
             Clearance = LoadClearance(a),
         };
+        if (a.Has("exclude"))
+            o.Exclude = (a.Str("exclude") ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (a.Has("risk"))
             o.AllowedRisk = (a.Str("risk") ?? "safe")
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

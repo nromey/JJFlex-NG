@@ -226,74 +226,117 @@ internal static class Observe
     /// </summary>
     public static bool WaitForSettle(int pid, string? speechLogPath, int quietMs, int maxMs, out int elapsedMs)
     {
-        long lastEventTicks = Environment.TickCount64;
-        long start = lastEventTicks;
-        long lastLen = speechLogPath != null ? TraceLog.Length(speechLogPath) : 0;
+        using var watcher = new ActivityWatcher(pid);
+        return watcher.WaitForQuiet(speechLogPath, quietMs, maxMs, out elapsedMs);
+    }
+}
 
-        void Bump() => Volatile.Write(ref lastEventTicks, Environment.TickCount64);
+/// <summary>
+/// Subscribes to the app's UI Automation events ONCE and reports when it goes
+/// quiet.
+///
+/// <para>Separate from the wait itself because subscribing is expensive.
+/// Adding and removing a global focus handler plus a subtree structure handler
+/// costs real time per call, and a sweep that pressed 243 chords while
+/// subscribing twice for each would spend more of the operator's run time
+/// wiring up event handlers than pressing keys. One watcher lives for the whole
+/// sweep; each press just reads the clock it keeps.</para>
+/// </summary>
+internal sealed class ActivityWatcher : IDisposable
+{
+    private readonly int _pid;
+    private readonly AutomationFocusChangedEventHandler? _focus;
+    private readonly StructureChangedEventHandler? _structure;
+    private long _lastActivityTicks = Environment.TickCount64;
+    private bool _disposed;
 
-        AutomationFocusChangedEventHandler focusHandler = (src, _) =>
-        {
-            try { if (src is AutomationElement el && el.Current.ProcessId == pid) Bump(); }
-            catch (ElementNotAvailableException) { Bump(); }
-            catch (System.Runtime.InteropServices.COMException) { Bump(); }
-        };
-        StructureChangedEventHandler structureHandler = (src, _) =>
-        {
-            try { if (src is AutomationElement el && el.Current.ProcessId == pid) Bump(); }
-            catch (ElementNotAvailableException) { Bump(); }
-            catch (System.Runtime.InteropServices.COMException) { Bump(); }
-        };
+    public bool Subscribed { get; }
 
-        bool subscribed = false;
+    public ActivityWatcher(int pid)
+    {
+        _pid = pid;
+
+        _focus = (src, _) => Note(src);
+        _structure = (src, _) => Note(src);
+
         try
         {
-            Automation.AddAutomationFocusChangedEventHandler(focusHandler);
+            Automation.AddAutomationFocusChangedEventHandler(_focus);
             Automation.AddStructureChangedEventHandler(
-                AutomationElement.RootElement, TreeScope.Subtree, structureHandler);
-            subscribed = true;
+                AutomationElement.RootElement, TreeScope.Subtree, _structure);
+            Subscribed = true;
         }
-        catch (System.Runtime.InteropServices.COMException) { /* fall back to the log channel alone */ }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            // Fall back to the trace-file channel alone. Worth continuing:
+            // for this app the log is the richer signal anyway.
+            Subscribed = false;
+        }
+    }
 
+    private void Note(object src)
+    {
         try
         {
-            while (true)
-            {
-                Thread.Sleep(40);
-                long now = Environment.TickCount64;
-
-                if (speechLogPath != null)
-                {
-                    long len = TraceLog.Length(speechLogPath);
-                    if (len != lastLen) { lastLen = len; Bump(); }
-                }
-
-                if (now - Volatile.Read(ref lastEventTicks) >= quietMs)
-                {
-                    elapsedMs = (int)(now - start);
-                    return true;
-                }
-                if (now - start >= maxMs)
-                {
-                    elapsedMs = (int)(now - start);
-                    return false;
-                }
-            }
+            if (src is AutomationElement el && el.Current.ProcessId != _pid) return;
         }
-        finally
+        catch (ElementNotAvailableException) { /* it went away, which is activity */ }
+        catch (System.Runtime.InteropServices.COMException) { }
+        Volatile.Write(ref _lastActivityTicks, Environment.TickCount64);
+    }
+
+    public void Bump() => Volatile.Write(ref _lastActivityTicks, Environment.TickCount64);
+
+    /// <summary>
+    /// Block until the app has been quiet for <paramref name="quietMs"/>, or
+    /// give up at <paramref name="maxMs"/> and say so. Returning false is a
+    /// finding, not an error: a key that leaves the app churning is worth
+    /// knowing about.
+    /// </summary>
+    public bool WaitForQuiet(string? traceLogPath, int quietMs, int maxMs, out int elapsedMs)
+    {
+        long start = Environment.TickCount64;
+        Bump();
+        long lastLen = traceLogPath != null ? TraceLog.Length(traceLogPath) : 0;
+
+        while (true)
         {
-            if (subscribed)
+            Thread.Sleep(30);
+            long now = Environment.TickCount64;
+
+            if (traceLogPath != null)
             {
-                try { Automation.RemoveAutomationFocusChangedEventHandler(focusHandler); }
-                catch (System.Runtime.InteropServices.COMException) { }
-                try
-                {
-                    Automation.RemoveStructureChangedEventHandler(
-                        AutomationElement.RootElement, structureHandler);
-                }
-                catch (System.Runtime.InteropServices.COMException) { }
+                long len = TraceLog.Length(traceLogPath);
+                if (len != lastLen) { lastLen = len; Bump(); }
+            }
+
+            if (now - Volatile.Read(ref _lastActivityTicks) >= quietMs)
+            {
+                elapsedMs = (int)(now - start);
+                return true;
+            }
+            if (now - start >= maxMs)
+            {
+                elapsedMs = (int)(now - start);
+                return false;
             }
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (!Subscribed) return;
+
+        try { if (_focus != null) Automation.RemoveAutomationFocusChangedEventHandler(_focus); }
+        catch (System.Runtime.InteropServices.COMException) { }
+        try
+        {
+            if (_structure != null)
+                Automation.RemoveStructureChangedEventHandler(AutomationElement.RootElement, _structure);
+        }
+        catch (System.Runtime.InteropServices.COMException) { }
     }
 }
 
