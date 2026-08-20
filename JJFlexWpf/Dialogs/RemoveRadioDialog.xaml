@@ -41,9 +41,27 @@
         <!-- Own navigation group so the arrows wrap inside the pair instead of
              walking out into the buttons. Same fix as the SmartLink mode radios
              on 2026-08-18, where arrowing past the last option landed the
-             operator in a port field. -->
+             operator in a port field.
+
+             TabNavigation is Continue, NOT Once, and that is deliberate (task
+             #132). "Once" gives the whole group a single tab stop, so Tab landed
+             on the pre-checked safe option and the next Tab went straight to the
+             Remove button — the destructive option was never ENCOUNTERED by an
+             operator who tabs, only by one who knew to arrow. Confirming then
+             committed the default after an interaction that felt complete. That
+             happened to Noel on 2026-08-19; nothing in the code was wrong, the
+             navigation was. "Once" is textbook-correct WPF and right on a
+             settings page with many groups, where the operator is arrowing
+             anyway. In a dialog whose entire purpose is one irreversible choice
+             between two options, the assumption it makes becomes load-bearing.
+
+             The pre-checked safe default STAYS. It is load-bearing for a
+             separate deliberate decision (RigSelectorDialog.xaml.cs, the Delete
+             key handler): bare Delete with no modifier is defensible as a
+             keypress precisely because this confirmation's default scope deletes
+             nothing. Reachability was the defect, not the default. -->
         <StackPanel KeyboardNavigation.DirectionalNavigation="Cycle"
-                    KeyboardNavigation.TabNavigation="Once"
+                    KeyboardNavigation.TabNavigation="Continue"
                     Margin="0,0,0,8">
             <RadioButton x:Name="ScopeListOnlyRadio"
                          GroupName="RemoveScope"
