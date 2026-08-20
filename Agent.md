@@ -9,6 +9,166 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-19 — THE DAY EVERY GUARD WAS CORRECT AND EVERY OUTCOME WAS WRONG
+
+*63 commits, 100 files, +14,230/−4,212 on `honest-tx-audio`, all pushed. Working
+tree clean at `d2e36155`. Sprint 32 planned and LAUNCHED — four background agents
+in flight at seal time on branches `sprint32/track-{a,e,g,h}`, each carrying one
+instructions commit and working from there.*
+
+**Theme: correct-by-convention code producing wrong outcomes, found by ear.**
+Five defects were diagnosed tonight and not one of them was a mistake in the
+usual sense. Every mechanism was textbook, reviewed, and defensible in isolation.
+They were wrong about the situation they were in, which is a class of defect that
+compiles, reviews clean, and is invisible to static reading — I predicted the
+opposite behaviour from source on two of them and Noel's ears were right both
+times.
+
+### The morning: a warning earcon, and the memory index split in half
+
+Task #111 shipped: a 750 ms 800 Hz tone with two lower harmonics, synthesised
+rather than shipped as a WAV, on Noel's spec. It closed on his ears against live
+band noise — *"the warning alarm I could definitely hear"* — at volume 0.30 while
+`BandBoundaryBeep` at 0.6 needs enhancing. That single comparison established the
+earcon audibility hierarchy: movement beats duration beats panning beats
+harmonics beats amplitude, and amplitude alone is useless for short sounds.
+
+`MEMORY.md` went from 18,557 to 9,955 bytes, 219 links to 198, split into eight
+topic indexes plus a closed-history index. The triage line: *topic-triggered
+knowledge can move one hop; reflex-triggered rules cannot.*
+
+### The afternoon: a live testing session that produced 24 tasks
+
+Tasks #112–#135. Noel drove the app while I read code. Highlights that became
+sprint work: the Earcon Explorer reaches 18 of 45 sounds; the meters panel builds
+slot UI once at construction and never resyncs (#129, confirmed break); the meter
+Test button starts a tone that cannot stop because its stop condition is gated on
+meters being disabled and the only way in enables them (#131); the Audio Workshop
+is two-thirds read-only (#121, *"audio workshop has no audio, it's all read only
+edits lol"*).
+
+### The evening: Sprint 32, and five defects from listening
+
+**Sprint 32 — `docs/planning/active/elmer-meter-pileup.md`.** Seven tracks, no
+Track F on purpose (three prior things in this project carry that name). The
+analyzer turned out far better prepared than feared: `MIGRATION.md` already held
+the exact reviewed FlexLib `GetMeters()` patch, deferred in August with a note
+saying to find it rather than rediscover it. The narrowing to eight meters
+happens in **our** code, not FlexLib's — `Meter.DataReady` carries the meter
+itself and `FlexBase` throws the identity away, after which the same eight
+literals are re-declared three times down the stack.
+
+**The five defects, all correct-guard failures:**
+
+- **#132, the remove-radio dialog.** `TabNavigation="Once"` gives the radio group
+  one tab stop, so Tab never visits the destructive option at all — an operator
+  who tabs does not find it hard to select, they never encounter it, and
+  confirming commits the pre-checked default. Textbook-correct WPF. His settings
+  were never deleted and the spoken receipt was accurate.
+- **#117, slice persistence.** Slice create and delete always worked. The radio
+  restores its layout from its global profile; the persistence step exists, is
+  fully wired, and Noel could not find it. Underneath, the Profiles dialog wires
+  Select/Save/Delete for real while Add and Update speak *"not yet available"*
+  only after you have navigated to them and pressed.
+- **#58, the CW connect storm.** The `ActiveSlice` guard shipped at 11:37 and was
+  in the build he tested at 21:12. It suppressed nothing. Static reading of
+  `_slices.Add` plus `ActiveSlice` predicts one announcement where he heard four —
+  **still unexplained, deliberately left unexplained rather than guessed at.**
+  Superseded anyway: Noel specified a census `<used>/<total>` on connect and
+  `SL <letter> <mode>` on change, which replaces filtering with summarising.
+- **The exit farewell, disconnected.** `EarconCwOutput.PlayElementsAsync`
+  completes on a *computed* duration (`totalMs + 50`), never observed drain, so
+  `Wait(5000)` is satisfied early and `Dispose()` kills the tail. The final dit
+  goes. **Raising the timeout cannot fix this** — the window is already generous.
+- **The exit farewell, connected.** Worse, and the double-fire guard is why. The
+  disconnect path fires SK with `_ =`, discarding the task, then sets the flag
+  that makes the shutdown handler skip its own wait. **The wait lived only in the
+  path the guard suppresses.** Result: "dah dah", the first two elements of a
+  two-second string.
+
+### Cross-surface activity
+
+- **Memory:** 25 files touched today across sessions, including the eight new
+  topic indexes, the additive-synthesis pattern, the warning-earcon family, the
+  grep-before-asserting rule, and the approval-is-not-a-build-order rule. An
+  earlier session resolved and archived `project_as_retry_pathway_regression`
+  (Noel: the AS storm stopped once tokens were stored — closed by authentication
+  work nobody had connected to it).
+- **Worktrees:** four new (`jjflex-32a/e/g/h`). **Nine stale worktrees from
+  Sprints 30 and 31 are still on disk** and should be removed — flagged, not
+  deleted, pending Noel's word.
+- **Other repos:** no sibling repo saw commits today. **Freight Fate sits on 16
+  unpushed commits** (branch `feat/career-1.9`, 1 dirty) and **Civ VI Access on
+  45** (branch `main`, 2 dirty). Unchanged from the 2026-08-01 finding; pushing is
+  Noel's call because both have outside contributors. NAS mirror covers durability.
+- **Dependency advisories:** clean. All 20 projects report no vulnerable packages.
+  The SharpCompress advisory that motivated adding this step is gone.
+- **Bench/hardware decisions:** Palstar DL-2000 chosen over the 1500 (400 W
+  continuous, 2 kW for a minute; SO-239, 0–30 MHz). TGXL not yet ordered. 4O3A
+  confirmed there is no SDK — FlexLib is the whole contract.
+- **Connect:** the relay decision reversed. DERP self-hosted, relay free to
+  everyone, funded by Plus and donations, with the guard that Plus must never
+  gate anything needed to connect at all. Direct and relay paths attempt in
+  parallel, never relay-first.
+
+### Setup for tomorrow
+
+**Merge day.** Four agents were still running when this was written, so their
+results are not in it — read their completion reports first.
+
+Execution: A blocks B, C and D. **When Track A reports Phase 1 committed**
+(FlexLib patch, identity-preserving subscription, `MeterInventory` with change
+notification, and the `AudioWorkshopDialog` partial-file split), create worktrees
+`jjflex-32b/c/d` off `sprint32/track-a` and launch those three. Track E is
+blocked only on A4 and was told to start on `EarconPlayer` meanwhile — **tell it
+when A4 lands.**
+
+Merge order: **B, then D, then C, then E, then H, then G.** G last because it
+restructures the container A, C and E are all adding tabs to. **Build after every
+merge** — Sprint 30 merged with zero textual conflict and still broke.
+
+Still owed by Noel, none of it blocking: the laptop orphan test (#21), and the CW
+storm count on his next connect (trace says four, he reported five).
+
+Not done tonight and deliberately so: **no Dropbox publish.** Distribution is an
+explicit act and he did not ask. Build 4.1.16.1135 is on the NAS from 18:38 if a
+nightly is wanted.
+
+### Rigmeter snapshot — end of 2026-08-19
+
+Taken at `d2e36155`. Sparklines omitted deliberately — they are ASCII art and
+this file gets read with a screen reader.
+
+**Grand totals.** Authored: 1,062 files, 252,588 lines, 1,476,540 words.
+Vendor: 189 files, 55,667 lines. Combined: 1,251 files, 308,255 lines,
+1,632,220 words, 14.6 million characters. So roughly **82 percent of the line
+count is ours**, which is the number that matters — the vendor share stopped
+growing when FlexLib settled at 4.2.20.
+
+**Largest projects by line count.** JJFlexWpf 69,186 lines across 240 files;
+Radios 36,330 across 92; JJFlexUpdater 2,789; JJPortaudio 6,656; JJLogLib
+5,807; Radios.Tests 3,318.
+
+**Today.** 63 commits, 81 unique files, 12,255 insertions, 4,243 deletions, net
+**+8,012 lines**, 98 files in the diff. Sole author JJ Flexbot. Note this counts
+`honest-tx-audio` only — the four Sprint 32 track branches carry one commit each
+at seal time and their work lands tomorrow, so tomorrow's figure will include
+work that was already in flight tonight.
+
+**Trend across snapshots.** Code lines have climbed steadily from 64,565 on
+2026-02-08 to 155,941 on 2026-08-18 — the 2026-01-29 reading of 230,429 code and
+967,495 doc lines is the pre-cleanup baseline before the legacy radio support and
+old FlexLib versions were removed, so it is not comparable. Docs have grown from
+4,470 to 66,586 over the same span, which is the planning-and-memory discipline
+showing up as measurable output rather than as overhead.
+
+**Caveat on scope:** these are JJFlex-NG only. Freight Fate and Civ VI Access
+were idle today but hold 16 and 45 unpushed commits respectively.
+
+**Tokei is still missing on this machine** — rigmeter warned it could not resolve
+a download URL, so comment lines read as 0 across every snapshot. Cosmetic for
+now; worth fixing if comment density ever becomes a question worth asking.
+
 ## END-OF-DAY SEAL — 2026-08-18 — THE DAY SPEECH GOT AN INTENT, AND THE WINDOW GOT THE LAST WORD
 
 *26 commits, 41 files, +3,184/−210 (net +2,974) on `honest-tx-audio`, all

@@ -730,6 +730,38 @@ cost a conversation.
 
 ---
 
+# Model assignment
+
+**Every track in this sprint runs on Opus.** Recorded explicitly rather than left
+to the inherit-the-session default, because Sprint 30 annotated a model per track
+and this plan originally did not.
+
+Why no track is downgraded here:
+
+- **A** is architecture — a vendor-tree patch, a new service, and a subscription
+  rewrite that four other tracks build on. Getting the `MeterInventory` surface
+  wrong costs three tracks a rework.
+- **B** carries the config migration, which silently repoints every operator's
+  meter tones if it is wrong. Same defect class as the PortAudio device-index bug.
+- **C** is the hardest design work in the sprint: a rules engine, three-state
+  observability, and evidence a stranger can act on.
+- **D** reads an undocumented vendor contract at runtime with no spec behind it.
+- **E** designs a synthesis vocabulary and a registry that must survive future
+  additions.
+- **G** is accessibility-critical. The Alt+L binding shipped completely dead
+  because of one subtle WPF fact (`e.Key` versus `e.SystemKey` under Alt); that is
+  precisely where a weaker model loses.
+- **H** carries async race conditions, an audio completion contract, and approved
+  user-facing copy it must not paraphrase.
+
+The genuinely mechanical work — A4's file split, G2's 29 annotations — is a small
+fraction of tracks that are otherwise hard, and splitting those out into cheaper
+agents would cost more in coordination than it saves.
+
+**When launching, omit the model override so the agent inherits the session
+model, and run the session on Opus.** Do not pass a lower tier for B, C or D on
+the assumption they are follow-on work; they are the expensive half of the sprint.
+
 # Execution order
 
 **Start immediately, four tracks:** A, E, G, H.
