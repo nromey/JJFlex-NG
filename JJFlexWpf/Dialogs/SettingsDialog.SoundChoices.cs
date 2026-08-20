@@ -70,8 +70,8 @@ namespace JJFlexWpf.Dialogs
         private bool _alertToneSetRestoreArmed;
 
         /// <summary>
-        /// Arrange for the live tone set to go back where it was if the dialog
-        /// closes any way other than OK.
+        /// Arrange for the live tone set to go back to the last COMMITTED value
+        /// if the dialog closes any way other than OK.
         ///
         /// Armed lazily, the first time the picker actually changes the live
         /// setting, so a dialog that never touched it registers nothing. It has
@@ -80,19 +80,25 @@ namespace JJFlexWpf.Dialogs
         /// handler: JJFlexDialog makes every dialog Escape-closable, and a
         /// setting that survives Escape but not Cancel would be the sort of
         /// difference nobody discovers until it has been wrong for a month.
+        ///
+        /// It reads the config AT CLOSE rather than capturing the opening value
+        /// when armed, and that difference is Apply. Apply commits the combo
+        /// into the config and leaves the dialog open; cancelling after that
+        /// must leave the applied value standing, not roll back to whatever was
+        /// showing when the dialog opened.
         /// </summary>
         private void ArmAlertToneSetRestore()
         {
             if (_alertToneSetRestoreArmed) return;
             _alertToneSetRestoreArmed = true;
 
-            int opened = _audioConfig?.EarconVoiceSet ?? (int)EarconVoiceSet.Modern;
             Closed += (_, _) =>
             {
                 if (DialogResult == true) return;
                 try
                 {
-                    EarconVoices.ActiveSet = opened == (int)EarconVoiceSet.Classic
+                    int committed = _audioConfig?.EarconVoiceSet ?? (int)EarconVoiceSet.Modern;
+                    EarconVoices.ActiveSet = committed == (int)EarconVoiceSet.Classic
                         ? EarconVoiceSet.Classic
                         : EarconVoiceSet.Modern;
                 }
