@@ -13531,7 +13531,21 @@ namespace Radios
 
             p.NextValue1 = setNextValue1;
             p.GetSWRText = SWRText;
+
+            // Built here, not on demand, and it lives as long as the rig does.
+            // The meter inventory is a property of the radio rather than of any
+            // window: it has to be following the set from the first connect,
+            // because meters arrive late and nothing announces them.
+            MeterInventory = new MeterInventory(this);
         }
+
+        /// <summary>
+        /// Every meter this radio publishes, with source, range, units, current
+        /// value and last-update time, partitioned by source. Never null, and
+        /// live from construction — bind to its InventoryChanged rather than
+        /// reading it once, because the meter list grows during registration.
+        /// </summary>
+        public MeterInventory MeterInventory { get; }
 
         // main thread region
         #region mainThread
