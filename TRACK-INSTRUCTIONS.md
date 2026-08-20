@@ -213,13 +213,48 @@ unchanged — because it very nearly is.
 **The fix is a voice choice, not wiring.** Give the connect steps and the
 signature double-beep voices with some character to them.
 
-**This is taste, so it needs his ears before it lands.** Build it so he can hear
-the candidates — the Earcon Explorer reaches the connect series now that Track E
-added the attributes. Do not pick final voices unilaterally.
+**This is taste, so it needs his ears before it lands.** Do not pick final voices
+unilaterally — build it so he can hear the candidates.
+
+**Which means #113 comes FIRST, and it is cheap now.** The Earcon Explorer does
+NOT reach the connect series: `BuildEarconExplorerTab` at
+`AudioWorkshopDialog.Earcons.cs:65` is still a hardcoded list, and there is not
+one reference to `ConnectPhase` or `ConnectSuccess` anywhere in the Workshop. So
+today Noel cannot audition the sounds you are asking him to judge.
+
+Meanwhile `EarconPlayer.cs` carries **40 `[Earcon(...)]` attributes** — Track E
+annotated nearly the whole vocabulary with display name, category, order and
+description — **and nothing consumes them.** The registry was built and left
+unwired.
+
+So: drive the explorer from those attributes by reflection. The expensive half is
+already done. This also disposes of **#142** for free, because the attributes
+carry proper display names ("Connect step 1") rather than the action-verb button
+labels that make auditioning a sound read like performing the action.
+
+**Continuous earcons need a Start/Stop pair, not a single Play** — ATU progress
+being the case in point, and the one Noel has been testing with.
 
 **And note the interaction with #147:** whatever richer voice you choose for the
 connect series must ALSO have a sine-set counterpart, or selecting the classic
 set will leave the connect tones as the only thing that did not get plainer.
+
+## #115 — audibility, and it is the reason all of this matters
+
+**The short mechanical sounds are camouflaged by band noise, and the modern tier
+sits about 6 dB below the classic one.** So "modern" currently means "richer and
+quieter," and quieter is the wrong direction for a sound competing with receive
+audio.
+
+**Fold the level question into the voice-set work rather than treating it
+separately** — you are rewriting the voice table anyway, and a set that is
+consistently harder to hear is a defect in the set, not a separate task. Whatever
+you do to the modern voices, check them at a realistic listening level against
+actual band noise, not in silence.
+
+This is also the honest argument FOR #147's setting: if an operator genuinely
+cannot pick the modern sounds out of the noise on their station, the plain set is
+not nostalgia, it is accessibility.
 
 ## Binding, and the audit that goes with it
 
