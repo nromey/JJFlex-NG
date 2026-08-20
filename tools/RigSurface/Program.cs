@@ -37,6 +37,7 @@ namespace JJFlex.RigSurface
                     "meters" => Meters(rest),
                     "snapshot" => Snapshot(rest),
                     "selftest" => SelfTest.Run(),
+                    "send" => Send.Run(rest),
                     "surface" => Surface.Run(rest),
                     "transmit" => TransmitHarness.Run(rest),
                     _ => Unknown(command),

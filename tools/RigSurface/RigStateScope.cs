@@ -174,6 +174,7 @@ namespace JJFlex.RigSurface
     {
         private readonly RigStateScopeOptions _options;
         private readonly List<int> _createdSlices = new();
+        private readonly HashSet<RigField> _written = new();
         private RestoreReport? _report;
 
         private RigStateScope(RigWire wire, IReadOnlyDictionary<RigField, string> before, RigStateScopeOptions options)
@@ -224,6 +225,24 @@ namespace JJFlex.RigSurface
         {
             if (!_createdSlices.Contains(index)) _createdSlices.Add(index);
         }
+
+        /// <summary>
+        /// Tells the scope that this run WROTE a field, so restore puts it back
+        /// unconditionally rather than deciding from the model whether it moved.
+        ///
+        /// <para>This exists because of a real failure on the bench, not a
+        /// hypothetical one. The radio does not broadcast a status delta for
+        /// every field it accepts a write to — the radio's nickname is one it
+        /// does not. So the model still showed the OLD value, restore compared
+        /// old against old, concluded nothing had moved, and skipped a field
+        /// that had in fact changed. The radio was left altered and the report
+        /// said the restore was clean.</para>
+        ///
+        /// <para>Inferring what changed from the model is only sound for fields
+        /// the radio echoes. Recording what we wrote is sound for all of
+        /// them.</para>
+        /// </summary>
+        public void NoteWritten(RigField field) => _written.Add(field);
 
         /// <summary>
         /// Puts the radio back. Idempotent — calling it twice returns the first
@@ -361,7 +380,13 @@ namespace JJFlex.RigSurface
                 if (composites.Contains((field.Target, field.Key))) continue;
 
                 string? now = Wire.State.Get(field);
-                if (string.Equals(was, now, StringComparison.Ordinal))
+
+                // A field this run wrote is restored whether or not the model
+                // says it moved, because a field the radio does not echo looks
+                // unmoved and is not.
+                bool weWroteIt = _written.Contains(field);
+
+                if (!weWroteIt && string.Equals(was, now, StringComparison.Ordinal))
                 {
                     report.Add(new RestoreOutcome(field, was, now, RestoreStatus.Unchanged, ""));
                     continue;
@@ -369,7 +394,7 @@ namespace JJFlex.RigSurface
 
                 RigFieldSpec spec = OwnershipTable.Lookup(field);
 
-                if (spec.Ownership == StateOwnership.Telemetry)
+                if (spec.Ownership == StateOwnership.Telemetry && !weWroteIt)
                 {
                     // Telemetry moving is the radio doing its job, not damage.
                     report.Add(new RestoreOutcome(field, was, now, RestoreStatus.Unchanged,
@@ -394,7 +419,14 @@ namespace JJFlex.RigSurface
                 string? command = OwnershipTable.SetCommand(field, was);
                 if (command is null)
                 {
-                    report.Add(new RestoreOutcome(field, was, now, RestoreStatus.NotWritable, spec.Notes));
+                    // Free-running telemetry we do not model — GPS time, satellite
+                    // counts — drifts constantly and is not damage. Only report it
+                    // as a problem if this run actually wrote to it.
+                    report.Add(new RestoreOutcome(field, was, now,
+                        weWroteIt ? RestoreStatus.NotWritable : RestoreStatus.Unchanged,
+                        weWroteIt
+                            ? spec.Notes
+                            : "Changed on its own and is not ours to set. Free-running radio telemetry."));
                     continue;
                 }
 
@@ -411,7 +443,11 @@ namespace JJFlex.RigSurface
                     bool ok = Wire.WaitForValue(field, was, _options.VerifyTimeout);
                     report.Add(new RestoreOutcome(field, was, Wire.State.Get(field),
                         ok ? RestoreStatus.Restored : RestoreStatus.DidNotStick,
-                        ok ? "" : $"Sent '{command}' and the radio accepted it, but never reported the old value back."));
+                        ok
+                            ? ""
+                            : $"Sent '{command}' and the radio accepted it, but never reported the old value back. " +
+                              "For a field the radio does not echo this is expected and the write is very likely " +
+                              "fine; confirm with 'observe' on a fresh connection, which re-reads full state."));
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
                 {

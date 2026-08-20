@@ -338,7 +338,7 @@ namespace JJFlex.RigSurface
                 Console.WriteLine($"Snapshot holds {scope.Before.Count} fields. Everything below is restored afterwards.");
                 Console.WriteLine();
 
-                ExerciseStationGlobal(wire, checks);
+                ExerciseStationGlobal(wire, scope, checks);
                 ExerciseOwnSlice(wire, scope, checks);
 
                 Console.WriteLine();
@@ -419,14 +419,14 @@ namespace JJFlex.RigSurface
             yield return (RigField.Radio("binaural_rx"), "1", "binaural receive");
         }
 
-        private static void ExerciseStationGlobal(RigWire wire, List<SurfaceCheck> checks)
+        private static void ExerciseStationGlobal(RigWire wire, RigStateScope scope, List<SurfaceCheck> checks)
         {
             Console.WriteLine("Station-global surface. These are the real thing: one value for the whole radio.");
             Console.WriteLine();
 
             foreach ((RigField field, string wanted, string _) in GlobalPlan())
             {
-                checks.Add(RunCheck(wire, field, wanted));
+                checks.Add(RunCheck(wire, field, wanted, scope));
             }
         }
 
@@ -487,14 +487,14 @@ namespace JJFlex.RigSurface
             Console.WriteLine();
 
             // Filter edges are a pair and must be written as one command.
-            checks.Add(RunFilterCheck(wire, index, "-2700", "-300"));
+            checks.Add(RunFilterCheck(wire, index, "-2700", "-300", scope));
 
             // Antenna selection reads the radio's own legal list first.
-            checks.Add(AntennaCheck(wire, index));
+            checks.Add(AntennaCheck(wire, index, scope));
 
             foreach ((string key, string value) in SlicePlan())
             {
-                checks.Add(RunCheck(wire, RigField.Slice(index, key), value));
+                checks.Add(RunCheck(wire, RigField.Slice(index, key), value, scope));
             }
         }
 
@@ -545,7 +545,7 @@ namespace JJFlex.RigSurface
         /// first is both more honest and the only way to get a meaningful
         /// answer.</para>
         /// </summary>
-        private static SurfaceCheck AntennaCheck(RigWire wire, int index)
+        private static SurfaceCheck AntennaCheck(RigWire wire, int index, RigStateScope scope)
         {
             var field = RigField.Slice(index, "rxant");
             string? legal = wire.State.Get(RigField.Slice(index, "ant_list"));
@@ -570,7 +570,7 @@ namespace JJFlex.RigSurface
                     $"The radio offers only one antenna ({legal}), so there is nothing to switch to."));
             }
 
-            return RunCheck(wire, field, other);
+            return RunCheck(wire, field, other, scope);
         }
 
         /// <summary>
@@ -582,7 +582,7 @@ namespace JJFlex.RigSurface
         /// because a run walks dozens of fields over a minute or more and the
         /// operator can pick up a microphone at any point during it.</para>
         /// </summary>
-        private static SurfaceCheck RunCheck(RigWire wire, RigField field, string wanted)
+        private static SurfaceCheck RunCheck(RigWire wire, RigField field, string wanted, RigStateScope? scope = null)
         {
             Guards.RequireNotTransmitting(wire);
 
@@ -608,6 +608,11 @@ namespace JJFlex.RigSurface
                 return Report(new SurfaceCheck(field, before, null, before, CheckResult.Skipped, spec.Ownership,
                     "No write path. " + spec.Notes));
             }
+
+            // Record the intent to write BEFORE sending. If the send throws or
+            // the reply is lost, the field may still have changed at the radio,
+            // and restore must put it back rather than assume it did not.
+            scope?.NoteWritten(field);
 
             WireReply reply;
             try
@@ -637,7 +642,7 @@ namespace JJFlex.RigSurface
                       "Either it silently ignored the command or it does not report this field."));
         }
 
-        private static SurfaceCheck RunFilterCheck(RigWire wire, int index, string low, string high)
+        private static SurfaceCheck RunFilterCheck(RigWire wire, int index, string low, string high, RigStateScope scope)
         {
             Guards.RequireNotTransmitting(wire);
 
@@ -651,6 +656,8 @@ namespace JJFlex.RigSurface
                     StateOwnership.ClientOwned, "The radio has not reported this slice's filter edges."));
             }
 
+            scope.NoteWritten(lowField);
+            scope.NoteWritten(highField);
             string command = OwnershipTable.CompositeCommand(RigTarget.Slice, index, low, high);
             WireReply reply = wire.Send(command);
             if (!reply.Ok)
