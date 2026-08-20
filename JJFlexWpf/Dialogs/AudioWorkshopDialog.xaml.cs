@@ -172,6 +172,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         ApplyTxAudioTabOrder();
         BuildLiveMetersTab();
         BuildEarconExplorerTab();
+        BuildAmplifierTab();
 
         // Every section exists now, so set radio-side availability for the rig
         // we already have (or do not have). SetRig covers every change after
@@ -385,7 +386,12 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     private List<GroupBox> VisibleSections()
     {
         var found = new List<GroupBox>();
-        StackPanel? panel = MainTabs.SelectedIndex switch
+        // Sprint 32 Track D: the Amplifier tab is matched BY NAME, ahead of the
+        // index switch. Four tracks add a tab to this control in one sprint, and
+        // an index that silently means a different tab after a reorder would send
+        // F6 to the wrong panel with nothing to notice it. Additive on purpose —
+        // the existing arms are untouched.
+        StackPanel? panel = AmplifierTab.IsSelected ? AmplifierContent : MainTabs.SelectedIndex switch
         {
             0 => TxAudioContent,
             1 => LiveMetersContent,
