@@ -88,8 +88,8 @@ jjprobe — drive and observe a running JJ Flexible from outside the process.
   jjprobe expand    [--pid N | --appdir DIR]        (offline: no app driving)
   jjprobe altcheck  --src DIR                        (offline: static source scan)
   jjprobe sweep     [--pid N] [--window SEL] [--appdir DIR] [--context NAME]
-                    [--risk safe,mutates,transmits] [--max N] [--no-capture]
-                    [--transmit-clearance FILE] [--exclude "Comma,Period"]
+                    [--risk safe,mutates,transmits] [--max N] [--no-capture] [--digest]
+                    [--transmit-clearance FILE] [--exclude "Comma,Period"] [--dry-run]
                     [--out FILE] [--json]
 
 Default process name is 'jjflexible'. --window takes a title substring, a class
@@ -310,9 +310,13 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
 
     private static int CmdSweep(Args a)
     {
+        // A dry run needs no running app when --appdir names a build, which is
+        // the point: the plan can be reviewed and authorised before anything is
+        // started, let alone pressed.
+        bool dryRun = a.Flag("dry-run");
         var o = new SweepOptions
         {
-            Pid = ResolvePid(a),
+            Pid = dryRun && a.Str("appdir") != null ? 0 : ResolvePid(a),
             WindowSelector = a.Str("window"),
             AppDir = a.Str("appdir"),
             ContextFilter = a.Str("context"),
@@ -320,7 +324,7 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             MaxSettleMs = a.Int("max-settle-ms", 2500),
             BetweenKeysMs = a.Int("between-ms", 150),
             StartCapture = !a.Flag("no-capture"),
-            Digest = !a.Flag("no-digest"),
+            Digest = a.Flag("digest"),
             MaxKeys = a.Int("max", int.MaxValue),
             Clearance = LoadClearance(a),
         };
@@ -332,6 +336,12 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             o.AllowedRisk = (a.Str("risk") ?? "safe")
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(Risk.Parse).ToHashSet();
+
+        if (dryRun)
+        {
+            Write(a, Sweep.DryRun(o, a.Str("appdir") is string d ? Path.GetFullPath(d) : ResolveAppDir(a)));
+            return 0;
+        }
 
         SweepReport report = Sweep.Run(o);
         string text = a.Flag("json") ? Sweep.ToJson(report) : Sweep.ToText(report);

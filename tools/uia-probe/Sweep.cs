@@ -16,7 +16,18 @@ internal sealed class SweepOptions
     public int BetweenKeysMs { get; set; } = 150;
     public bool StartCapture { get; set; } = true;
     public string? OutPath { get; set; }
-    public bool Digest { get; set; } = true;
+    /// <summary>
+    /// Fingerprint the foreground window's automation tree before and after
+    /// each press. OFF by default in a sweep, deliberately.
+    ///
+    /// <para>It costs up to 500 cross-process property reads twice per press,
+    /// which on 199 chords is minutes of an operator's authorised run — and it
+    /// buys almost nothing on the surface being swept, because the Home display
+    /// publishes hardly anything to the automation tree in the first place. The
+    /// change it would actually catch, a dialog appearing, is already caught by
+    /// diffing the window list. Turn it on for dialog-heavy contexts.</para>
+    /// </summary>
+    public bool Digest { get; set; }
     public int MaxKeys { get; set; } = int.MaxValue;
     /// <summary>A fresh power read-back from whoever can see the radio. Without
     /// one, transmitting chords are refused even if --risk names them.</summary>
@@ -132,6 +143,87 @@ internal static class Sweep
         ["CWMessages"] = "in the CW message slots, which key the transmitter",
     };
 
+    /// <summary>
+    /// Everything the sweep WOULD press, without touching the keyboard.
+    ///
+    /// <para>This exists for the handshake. Driving the live UI needs the
+    /// operator's explicit permission each time, and "may I press some keys for
+    /// ten minutes" is a much worse question than a list of exactly which
+    /// chords, in which order, and which ones are being left alone and why. It
+    /// also means a mistake in the risk classification gets caught by reading
+    /// rather than by an operator hearing their slices being released.</para>
+    ///
+    /// <para>What it cannot tell you is which Home fields are reachable — that
+    /// is only knowable by walking the display and listening, which needs the
+    /// running app. Those rows are listed as conditional.</para>
+    /// </summary>
+    public static string DryRun(SweepOptions o, string appDir)
+    {
+        var entries = Inventory.Load(appDir);
+        var sb = new StringBuilder();
+        var willPress = new List<string>();
+        var wontPress = new List<string>();
+        var conditional = new List<string>();
+
+        foreach (InventoryEntry entry in entries)
+        {
+            if (o.ContextFilter != null
+                && !entry.Context.Contains(o.ContextFilter, StringComparison.OrdinalIgnoreCase)) continue;
+
+            Expansion expansion = KeyDisplayExpander.Expand(entry.KeyDisplay);
+            if (expansion.Residue != null)
+            {
+                wontPress.Add($"{entry.ContextLabel} \"{entry.KeyDisplay}\" — {expansion.Residue}");
+                continue;
+            }
+            if (ElsewhereContexts.TryGetValue(entry.Context, out string? where))
+            {
+                wontPress.Add($"{entry.ContextLabel} \"{entry.KeyDisplay}\" — lives {where}");
+                continue;
+            }
+
+            foreach (ExpandedChord ec in expansion.Chords)
+            {
+                string label = $"{ec.Chord.Display} ({entry.Context}) — {entry.Description}";
+                if (o.Exclude.Contains(ec.Chord.Display))
+                {
+                    wontPress.Add(label + " — on the exclusion list: destroys operator state");
+                    continue;
+                }
+                RiskLevel risk = Risk.Classify(ec.Chord.Display, entry.Description);
+                if (!o.AllowedRisk.Contains(risk))
+                {
+                    wontPress.Add(label + $" — classified {risk}, not allowed this run");
+                    continue;
+                }
+                if (HomeWideContexts.Contains(entry.Context)) willPress.Add(label);
+                else conditional.Add(label);
+            }
+        }
+
+        sb.AppendLine("Sweep dry run — nothing was pressed.");
+        sb.AppendLine();
+        sb.AppendLine($"Allowed risk: {string.Join(", ", o.AllowedRisk.Select(r => r.ToString()))}.");
+        sb.AppendLine($"Excluded by name: {(o.Exclude.Count == 0 ? "nothing" : string.Join(", ", o.Exclude))}.");
+        sb.AppendLine();
+        sb.AppendLine($"Would press {willPress.Count + conditional.Count} chords: "
+            + $"{willPress.Count} that work from anywhere on Home, and {conditional.Count} that first need the "
+            + "sweep to find their field by walking the display and listening — if a field is never heard, its "
+            + "keys are reported as unreachable rather than pressed.");
+        sb.AppendLine($"Would NOT press {wontPress.Count}.");
+        sb.AppendLine();
+
+        sb.AppendLine("Would press, from anywhere on Home:");
+        foreach (string s in willPress) sb.AppendLine($"- {s}");
+        sb.AppendLine();
+        sb.AppendLine("Would press, once the field is found:");
+        foreach (string s in conditional) sb.AppendLine($"- {s}");
+        sb.AppendLine();
+        sb.AppendLine("Would not press:");
+        foreach (string s in wontPress) sb.AppendLine($"- {s}");
+        return sb.ToString();
+    }
+
     public static SweepReport Run(SweepOptions o)
     {
         var report = new SweepReport
@@ -147,6 +239,11 @@ internal static class Sweep
 
         WindowInfo window = Targets.Resolve(o.Pid, o.WindowSelector)
             ?? throw new InvalidOperationException("no visible window for that process");
+
+        // Load the inventory BEFORE touching the keyboard. If reflecting over
+        // the build under test is going to fail, it should fail while the run
+        // has cost nothing — not forty keystrokes into an authorised window.
+        var entries = Inventory.Load(appDir);
 
         string? traceLog = TraceLog.FindCurrent();
         report.TraceLogPath = traceLog;
@@ -221,7 +318,6 @@ internal static class Sweep
                 + "was not on Home, or Left and Right navigation announces nothing — both are findings.");
 
         // ── The work, grouped by context so each field is sought once.
-        var entries = Inventory.Load(appDir);
         int pressed = 0;
 
         foreach (var group in entries
