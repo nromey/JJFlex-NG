@@ -36,6 +36,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 | K | Mic check — speak your mic-audio verdict and level, nothing else |
 | G | Arm or disarm the TX test tone (replaces your microphone while transmitting) |
 | C | Toggle Compander on or off |
+| Ctrl+A | Turn PC audio on or off — whether radio audio plays through this computer at all. It reads the radio back before answering, so if turning it on could not find a sound device it says that rather than claiming success. `V` then `P` rides how loud it plays; this is the switch |
 | Shift+P | Toggle Speech Processor on or off |
 
 ## Filter Information

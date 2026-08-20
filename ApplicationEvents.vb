@@ -322,6 +322,18 @@ Namespace My
             ' A modal fighting a teardown is how an app ends up with no exit path
             ' at all, and teardown is exactly when late failures arrive.
             JJFlexWpf.DiagnosticOffer.BeginShutdown()
+            ' Permanent teardown telemetry (Sprint 32 merge fix). A field report of
+            ' "no CW goodbye" is undiagnosable after the fact without knowing which
+            ' guard condition held and what else was sounding — the 2026-08-19
+            ' report turned out to be a mis-attributed Alt+F4, which only this
+            ' trace can distinguish from a real suppression next time.
+            JJTrace.Tracing.TraceLine(
+                "Shutdown: farewell guard — CwNotificationsEnabled=" &
+                Radios.ScreenReaderOutput.CwNotificationsEnabled.ToString() &
+                ", PlayCwSK wired=" & (Radios.ScreenReaderOutput.PlayCwSK IsNot Nothing).ToString() &
+                ", SkAlreadyPlayedThisSession=" & Radios.ScreenReaderOutput.SkAlreadyPlayedThisSession.ToString() &
+                ", AtuProgressToneRunning=" & JJFlexWpf.EarconPlayer.IsATUProgressEarconRunning.ToString() &
+                ", BenchToneRunning=" & JJFlexWpf.EarconPlayer.IsBenchToneRunning.ToString())
             ' Play SK prosign on app close. Timeout bumped to 5 seconds to cover the
             ' richer "73 de JJF SK" farewell at speed >= 25 WPM (the MainWindow-side
             ' PlayCwSK delegate picks short-or-long based on current WPM).
@@ -332,9 +344,18 @@ Namespace My
                Radios.ScreenReaderOutput.PlayCwSK IsNot Nothing AndAlso
                Not Radios.ScreenReaderOutput.SkAlreadyPlayedThisSession Then
                 Try
-                    Radios.ScreenReaderOutput.PlayCwSK.Invoke().Wait(5000)
-                Catch
+                    Dim swFarewell = System.Diagnostics.Stopwatch.StartNew()
+                    Dim finished = Radios.ScreenReaderOutput.PlayCwSK.Invoke().Wait(5000)
+                    JJTrace.Tracing.TraceLine(
+                        "Shutdown: farewell " & If(finished, "completed", "TIMED OUT") &
+                        " after " & swFarewell.ElapsedMilliseconds.ToString() & "ms")
+                Catch ex As Exception
+                    ' Swallowing this silently is how a suppressed farewell became
+                    ' undiagnosable; trace it, still never open a window.
+                    JJTrace.Tracing.TraceLine("Shutdown: farewell threw: " & ex.ToString())
                 End Try
+            Else
+                JJTrace.Tracing.TraceLine("Shutdown: farewell skipped by guard")
             End If
             ' Shut down meter sonification engine.
             JJFlexWpf.MeterToneEngine.Shutdown()

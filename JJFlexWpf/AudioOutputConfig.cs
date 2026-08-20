@@ -243,11 +243,20 @@ namespace JJFlexWpf
         /// </summary>
         public int MicVerdictOutput { get; set; } = (int)MicVerdictOutputMode.Both;
 
-        /// <summary>Per-slot meter tone configurations. LEGACY: verified
-        /// written by nothing since introduction — retained so old config
-        /// files still deserialize, but the live meter list is
-        /// <see cref="Meters"/> (Track D2).</summary>
+        /// <summary>Per-slot meter tone configurations. LEGACY: retained so old
+        /// config files still deserialize, but the live meter list is
+        /// <see cref="Meters"/> (Track D2). Anything found here is folded
+        /// forward by <see cref="MeterConfigMigration"/> on load.</summary>
         public List<MeterSlotConfig> MeterSlots { get; set; } = new();
+
+        /// <summary>
+        /// Which generation of the meter model this file was written against.
+        /// Absent (and therefore 0) in every config written before Sprint 32,
+        /// which is exactly how <see cref="MeterConfigMigration"/> recognises a
+        /// file whose meter sources are still legacy keys or bare ordinals.
+        /// See that class for what each version means; do not bump it by hand.
+        /// </summary>
+        public int MeterConfigVersion { get; set; }
 
         /// <summary>
         /// User-authored meter voices (Track D2). Built-in voices ship as data
@@ -329,7 +338,14 @@ namespace JJFlexWpf
             {
                 var serializer = new XmlSerializer(typeof(AudioOutputConfig));
                 using var stream = File.OpenRead(path);
-                return (AudioOutputConfig?)serializer.Deserialize(stream);
+                var loaded = (AudioOutputConfig?)serializer.Deserialize(stream);
+
+                // Meter migration happens HERE rather than at the end of Load,
+                // so that the heal-forward path — which copies a legacy file to
+                // the canonical location — writes the migrated shape rather
+                // than immortalising the old one.
+                if (loaded != null) MeterConfigMigration.Migrate(loaded);
+                return loaded;
             }
             catch (Exception ex)
             {
@@ -341,7 +357,24 @@ namespace JJFlexWpf
             }
         }
 
+        /// <summary>
+        /// Read the config, bringing its meter settings forward to the current
+        /// model on the way through. Every path out of here — a real file, a
+        /// healed legacy file, or a first-run default — comes back migrated and
+        /// version-stamped, because a config that skipped the migration would
+        /// be written back to disk still carrying legacy source keys.
+        /// </summary>
         public static AudioOutputConfig Load(string configDir)
+        {
+            AudioOutputConfig config = LoadCore(configDir);
+            // Idempotent and version-guarded: ReadFrom has usually done this
+            // already, and this call is what catches the default-construction
+            // paths below.
+            MeterConfigMigration.Migrate(config);
+            return config;
+        }
+
+        private static AudioOutputConfig LoadCore(string configDir)
         {
             string canonicalDir = CanonicalDir(configDir);
             string path = Path.Combine(canonicalDir, FileName);
@@ -587,6 +620,13 @@ namespace JJFlexWpf
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
             Meters = MeterToneEngine.ExportDefinitions();
             UserVoices = MeterVoiceLibrary.GetUserVoices();
+
+            // What the engine hands back is always current-model, so say so.
+            // The migration is a no-op on an already-current file even without
+            // this stamp — every radio name it produces resolves to itself —
+            // but an unstamped save would claim the file had never been
+            // migrated, which is a lie about the file's own contents.
+            MeterConfigVersion = MeterConfigMigration.CurrentVersion;
         }
     }
 
@@ -622,10 +662,24 @@ namespace JJFlexWpf
         RandomTones
     }
 
-    /// <summary>Per-slot configuration for XML serialization.</summary>
+    /// <summary>
+    /// Per-slot configuration for XML serialization. LEGACY — nothing writes
+    /// this any more; it exists so a config file from before the one-meter-list
+    /// rework still deserializes and can be migrated forward.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Source"/> is a STRING rather than the old enum on purpose.
+    /// The enum is gone, and the field on disk is not reliably one shape: an
+    /// XmlSerializer writes an enum by member name, but the same field has been
+    /// round-tripped through an ordinal, so a real file may hold either "Power"
+    /// or "3". A string accepts both and hands the ambiguity to
+    /// <see cref="MeterConfigMigration.ResolveLegacySource"/>, which is the one
+    /// place that knows the historical order. Typing it as an enum would make
+    /// the deserializer throw on an integer and lose the whole file.
+    /// </remarks>
     public class MeterSlotConfig
     {
-        public MeterSource Source { get; set; }
+        public string Source { get; set; } = "";
         public bool Enabled { get; set; }
         public float Volume { get; set; } = 0.5f;
         public float Pan { get; set; }

@@ -219,6 +219,11 @@ public partial class MainWindow : UserControl
             return _morseNotifier.PlayString($"{prefix} <SK> ee");
         };
         Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
+        // Sprint 32 Track H (#58): the slice vocabulary sends text, not mode
+        // names — "3/4" for the census and "SL A USB" for a slice or mode
+        // change — so it gets its own honestly-named delegate rather than
+        // pushing sentences through PlayCwMode.
+        Radios.ScreenReaderOutput.PlayCwText = (text) => _morseNotifier.PlayString(text);
 
         // Load user-scope CW settings from BaseConfigDir (root of %AppData%\JJFlexRadio\)
         // so CwNotificationsEnabled + speed + sidetone are set before any connect
@@ -1394,6 +1399,14 @@ public partial class MainWindow : UserControl
         ApplyUIMode(newMode);
         SaveUIModeCallback?.Invoke(newMode);
 
+        // Sprint 32 Track E, #128. All three roads to tuning mode -- the
+        // Ctrl+Shift+M chord, the Slice menu and the Tools menu -- come through
+        // here, so one tone covers them all. Modern is the "on" end, matching
+        // the checked state the menu items show. This one earns a tone more
+        // than most: it changes what the arrow keys do, and the sentence that
+        // follows takes several seconds to say.
+        EarconPlayer.ToggleTone(newMode == UIMode.Modern);
+
         // Sprint 26 Phase 8: mode-change announcement includes the brief tuning-key
         // summary for the new mode. Addresses Don's discoverability gap — without
         // this, operators toggling modes have no cue that the keys have changed.
@@ -2374,6 +2387,8 @@ public partial class MainWindow : UserControl
     {
         _brailleEngine.Enabled = !_brailleEngine.Enabled;
         _brailleEngine.UpdateTimerState();
+        // Sprint 32 Track E, #128.
+        EarconPlayer.ToggleTone(_brailleEngine.Enabled);
         Radios.ScreenReaderOutput.Speak(
             _brailleEngine.Enabled ? "Braille status on" : "Braille status off",
             Radios.VerbosityLevel.Terse,
@@ -4013,13 +4028,18 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Toggle meters panel visibility and meter tones.
-    /// Called from Ctrl+M hotkey.
+    /// Show or hide the meters panel. Called from Ctrl+M.
     /// </summary>
+    /// <remarks>
+    /// This used to show the panel AND switch meter tones on or off in one
+    /// action (#126), which meant an operator who wanted to look at the
+    /// settings started a noise, and an operator who wanted the noise off had
+    /// to open a panel. They are separate now: this key is the panel, and the
+    /// tone switch is Ctrl+J then T. Nothing in here changes audio state.
+    /// </remarks>
     public void ToggleMetersPanel()
     {
-        MetersPanel.Visibility = Visibility.Visible;
-        MetersPanel.ToggleMeters();
+        MetersPanel.TogglePanelVisibility();
     }
 
     /// <summary>
@@ -4828,6 +4848,9 @@ public partial class MainWindow : UserControl
 
         bool newState = !IsAutoConnectEnabled();
         SetAutoConnectEnabled(newState);
+        // Sprint 32 Track E, #128. Both roads (menu item and the Radio menu
+        // entry) return through here, so the tone lands whichever was used.
+        EarconPlayer.ToggleTone(newState);
         return newState ? "Auto-connect enabled" : "Auto-connect disabled";
     }
 

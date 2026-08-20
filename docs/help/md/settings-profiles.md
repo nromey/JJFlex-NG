@@ -4,7 +4,7 @@ JJ Flexible Radio Access has a Settings dialog that lets you customise the appli
 
 ## Opening the Settings Dialog
 
-Open the **Tools** menu and choose **Settings**. The Settings dialog opens as a tabbed window, and you can tab through the tabs to find the section you want.
+Open the **Tools** menu and choose **Settings**. The dialog opens on a list of its categories — PTT, Tuning, License, Audio, Network and the rest — with whichever category you pick filling the rest of the window. Arrow through the list to move between them, or press **Ctrl+Tab** and **Ctrl+Shift+Tab** from anywhere in the dialog, which works even while you are sitting in a text box. Tab moves from the list into that category's own settings and never changes category by itself. There is more on this on the Keyboard Reference page, under "Moving between categories".
 
 ## OK, Apply, and Cancel
 

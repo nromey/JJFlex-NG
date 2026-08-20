@@ -286,15 +286,26 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Toggle an OffOnValues property and speak the result.
-    /// Used by NR, NB, ANF, APF, VOX, Squelch, etc.
+    /// Toggle an OffOnValues property, sound it, and speak the result.
+    /// Used by NR, NB, ANF, APF, VOX, Squelch, mic boost, compander and the
+    /// rest of the on-radio DSP family.
     /// </summary>
+    /// <remarks>
+    /// Sprint 32 Track E, #128. Every one of these settings is reachable three
+    /// ways — a Home panel checkbox, a Ctrl+J leader chord, and this menu — and
+    /// only two of the three made a sound. An operator learns from the Home
+    /// panel that a toggle answers back, reaches the same setting from the menu
+    /// and gets nothing, and that reads as the command having failed rather
+    /// than as the menu being quieter. One tone here covers every item that
+    /// funnels through this method, which is the argument for the funnel.
+    /// </remarks>
     private void ToggleDSP(string label, Func<FlexBase.OffOnValues> getter, Action<FlexBase.OffOnValues> setter)
     {
         if (Rig == null) { SpeakNoRadio(); return; }
         var current = getter();
         var newVal = Rig.ToggleOffOn(current);
         setter(newVal);
+        EarconPlayer.ToggleTone(newVal == FlexBase.OffOnValues.on);
         SpeakAfterMenuClose($"{label} {(newVal == FlexBase.OffOnValues.on ? "on" : "off")}");
     }
 
@@ -464,11 +475,20 @@ public class NativeMenuBar : IDisposable
         AddSep(parent);
 
         // === Meter Tones ===
+        // These two were ONE item until Sprint 32 Track B, and the one item was
+        // wrong twice over: it claimed Ctrl+Alt+M, which is not a binding this
+        // app has, and it showed a checkmark for the tone state while actually
+        // opening the panel. Two items now, each doing and naming one thing.
         var meterSub = AddSubmenu(parent, "Meter Tones");
-        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+Alt+M", () =>
+        AddChecked(meterSub, "Meter Tones On/Off\tCtrl+J, T", () =>
+        {
+            MeterToneEngine.ToggleEnabled();
+        }, () => MeterToneEngine.Enabled);
+
+        AddWired(meterSub, "Meters Panel\tCtrl+M", () =>
         {
             _window.ToggleMetersPanel();
-        }, () => MeterToneEngine.Enabled);
+        });
 
         AddWired(meterSub, "Cycle Preset", () =>
         {
@@ -656,6 +676,11 @@ public class NativeMenuBar : IDisposable
                 if (Rig == null) { SpeakNoRadio(); return; }
                 bool newMute = !Rig.SliceMute;
                 Rig.SliceMute = newMute;
+                // Matches the hotkey road (KeyCommands.MuteSliceHandler), which
+                // has toned on newMute since it was written. Mute All directly
+                // below this has always toned too, which is what makes the
+                // omission here read as an oversight rather than a decision.
+                EarconPlayer.ToggleTone(newMute);
                 SpeakAfterMenuClose(newMute ? "Muted" : "Unmuted");
             }, () => Rig?.SliceMute == true);
 
@@ -699,6 +724,11 @@ public class NativeMenuBar : IDisposable
                 // announced the wish, not the outcome, so a failed toggle said
                 // "PC audio on" while nothing played. QB Track B, 2026-08-07.
                 bool actual = Rig.PCAudio;
+                // Sound the outcome for the same reason the speech does. PC
+                // audio can refuse to come on when no sound device is
+                // configured, and a rising tone over a toggle that did not
+                // happen is a confident lie.
+                EarconPlayer.ToggleTone(actual);
                 SpeakAfterMenuClose(
                     actual ? "PC audio on"
                     : wanted ? "PC audio could not start, still off"
@@ -855,6 +885,7 @@ public class NativeMenuBar : IDisposable
             if (Rig == null) { SpeakNoRadio(); return; }
             bool isOn = Rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
             Rig.FlexTunerType = isOn ? FlexBase.FlexTunerTypes.none : FlexBase.FlexTunerTypes.auto;
+            EarconPlayer.ToggleTone(!isOn);
             SpeakAfterMenuClose($"ATU {(isOn ? "off" : "on")}");
         }, () => Rig?.FlexTunerType != FlexBase.FlexTunerTypes.none);
 
@@ -904,6 +935,7 @@ public class NativeMenuBar : IDisposable
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
                 Rig.ToggleDiversity();
+                EarconPlayer.ToggleTone(Rig.DiversityOn);
                 SpeakAfterMenuClose(Rig.DiversityOn ? "Diversity on" : "Diversity off");
             }, () => Rig?.DiversityOn == true);
             return;
@@ -1253,6 +1285,7 @@ public class NativeMenuBar : IDisposable
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             Rig.DummyLoadMode = !Rig.DummyLoadMode;
+            EarconPlayer.ToggleTone(Rig.DummyLoadMode);
             if (Rig.DummyLoadMode)
                 SpeakAfterMenuClose("Dummy load mode on. Power zero.");
             else
@@ -1530,6 +1563,7 @@ public class NativeMenuBar : IDisposable
                 var rit = new FlexBase.RITData(Rig.RIT);
                 rit.Active = !rit.Active;
                 Rig.RIT = rit;
+                EarconPlayer.ToggleTone(rit.Active);
                 SpeakAfterMenuClose($"RIT {(rit.Active ? "on" : "off")}");
             });
             AddWired(tuningSub, "XIT On/Off", () =>
@@ -1538,6 +1572,7 @@ public class NativeMenuBar : IDisposable
                 var xit = new FlexBase.RITData(Rig.XIT);
                 xit.Active = !xit.Active;
                 Rig.XIT = xit;
+                EarconPlayer.ToggleTone(xit.Active);
                 SpeakAfterMenuClose($"XIT {(xit.Active ? "on" : "off")}");
             });
 
@@ -1627,6 +1662,7 @@ public class NativeMenuBar : IDisposable
             panel.Visibility = newVisible ? Visibility.Visible : Visibility.Collapsed;
             _window.FieldsPanelUserVisible = newVisible;
             _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
+            EarconPlayer.ToggleTone(newVisible);
             SpeakAfterMenuClose(newVisible ? "Field panel shown" : "Field panel hidden");
         }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
         AddSep(screenFields);
@@ -1961,16 +1997,40 @@ public class NativeMenuBar : IDisposable
         _checkItems.Add((popup, id, stateGetter, text));
     }
 
+    // ── Verbs that are not there yet, and how they should say so ──
+    //
+    // Sprint 32 Track H. Both helpers below used to add a NORMAL, enabled menu
+    // item that announced its own absence only after the operator had arrowed
+    // to it and pressed Enter. That asymmetry is the whole problem: a sighted
+    // user sees a greyed item, reads "unavailable" from its appearance in
+    // passing, and never tries it — while a keyboard and screen-reader operator
+    // pays the full round trip first, every time, on every one of the nineteen
+    // items that used these.
+    //
+    // Disable, hide, or label — any of the three beats it. These do two: the
+    // item is greyed, so the screen reader says "unavailable" as the operator
+    // arrives on it, and the state is in the LABEL too, so the announcement
+    // carries the reason rather than only the fact. Greyed items are still
+    // reachable by arrow key on Windows menus, so nothing becomes undiscoverable
+    // — the operator learns the feature exists and that it is not ready, in one
+    // pass, without pressing anything.
+    //
+    // The handlers stay wired. A disabled item raises no WM_COMMAND so they will
+    // not run, but they cost nothing and they are the record of what the item is
+    // meant to become.
+
     /// <summary>
-    /// Add a menu item whose implementation is not wired yet. Speaks an honest
-    /// "not yet implemented" — the old text claimed "not yet connected to
-    /// radio", which was a lie for stubs and sent users hunting for a
-    /// connection problem that didn't exist (QB Track A, 2026-08-07).
+    /// Add a menu item whose implementation is not wired yet. Greyed, and says
+    /// so in its label. Speaks an honest "not yet implemented" — the old text
+    /// claimed "not yet connected to radio", which was a lie for stubs and sent
+    /// users hunting for a connection problem that didn't exist (QB Track A,
+    /// 2026-08-07).
     /// </summary>
     private void AddNotImplemented(IntPtr popup, string text)
     {
         int id = _nextId++;
-        AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
+        AppendMenuW(popup, MF_STRING | MF_GRAYED, (UIntPtr)id,
+            $"{text} - not yet implemented");
         _handlers[id] = () =>
         {
             Tracing.TraceLine($"Menu: {text} (not yet wired)", TraceLevel.Info);
@@ -1978,11 +2038,11 @@ public class NativeMenuBar : IDisposable
         };
     }
 
-    /// <summary>Add a stub menu item that speaks "coming soon".</summary>
+    /// <summary>Add a stub menu item, greyed, labelled "coming soon".</summary>
     private void AddStub(IntPtr popup, string text)
     {
         int id = _nextId++;
-        AppendMenuW(popup, MF_STRING, (UIntPtr)id, $"{text} - coming soon");
+        AppendMenuW(popup, MF_STRING | MF_GRAYED, (UIntPtr)id, $"{text} - coming soon");
         _handlers[id] = () =>
         {
             SpeakAfterMenuClose($"{text}, coming soon. Use Classic mode for full features.");
@@ -2232,18 +2292,21 @@ public class NativeMenuBar : IDisposable
             // an operator who cannot see the tab strip with no evidence they
             // arrived anywhere other than plain Settings.
             //
-            // Focusing the selected TabItem folds the arrival into the dialog's
+            // Focusing the selected category folds the arrival into the dialog's
             // own opening announcement — the same principle as
-            // PendingDisconnectLead, applied to a tab instead of a window title.
-            // Deferred to Loaded because focus set before the window exists is
-            // discarded; this is the sibling of the papercut already commented in
-            // SettingsDialog ("focusing a field on an unselected tab fails
-            // silently"), pointing the other way.
-            dialog.Loaded += (_, _) =>
-            {
-                if (dialog.SettingsTabs.SelectedItem is System.Windows.Controls.TabItem landed)
-                    landed.Focus();
-            };
+            // PendingDisconnectLead, applied to a category instead of a window
+            // title. Deferred to Loaded because focus set before the window
+            // exists is discarded; this is the sibling of the papercut already
+            // commented in SettingsDialog ("focusing a field on an unselected
+            // tab fails silently"), pointing the other way.
+            //
+            // Sprint 32 Track G (task #134): this was `landed.Focus()` on the
+            // selected TabItem, which worked only while the tab strip was a
+            // real focusable visual. Settings now navigates by a category list
+            // and the strip is templated away, so focusing the TabItem would
+            // silently do nothing — turning a deep link into exactly the
+            // no-evidence arrival the comment above exists to prevent.
+            dialog.Loaded += (_, _) => dialog.FocusCategory();
         }
 
         // Track C (OK/Apply convention): the app-side application + persistence
@@ -2517,6 +2580,13 @@ public class NativeMenuBar : IDisposable
                     Radios.ProfileTypes.tx,
                     Radios.ProfileTypes.mic
                 };
+                // The operator's own list, PLUS whatever the radio itself is
+                // carrying that the operator has never adopted. Only the first
+                // half was shown until Sprint 32 Track H, which meant a profile
+                // created in another client was invisible here — and, worse,
+                // that the uniqueness check on Add could not see it, so adding a
+                // name the radio already used looked fine and then Save
+                // overwrote the radio's profile without a word.
                 foreach (var ptype in types)
                 {
                     var profiles = Rig.GetProfilesByType(ptype);
@@ -2532,29 +2602,60 @@ public class NativeMenuBar : IDisposable
                         });
                     }
                 }
+                foreach (var p in RigOnlyProfiles())
+                {
+                    string typeLabel = p.ProfileType.ToString().ToUpperInvariant();
+                    items.Add(new Dialogs.ProfileDisplayItem
+                    {
+                        DisplayText = $"[{typeLabel}] {p.Name} (on radio)",
+                        ProfileData = p
+                    });
+                }
                 return items;
             },
             GetProfileTypeNames = () => new[] { "Global", "TX", "MIC" },
             GetProfileNamesByType = (typeIndex) =>
             {
-                var ptype = typeIndex switch
-                {
-                    0 => Radios.ProfileTypes.global,
-                    1 => Radios.ProfileTypes.tx,
-                    2 => Radios.ProfileTypes.mic,
-                    _ => Radios.ProfileTypes.global
-                };
-                var profiles = Rig.GetProfilesByType(ptype);
-                return profiles?.Select(p => p.Name) ?? Enumerable.Empty<string>();
+                var ptype = ProfileTypeFromIndex(typeIndex);
+                // Both halves, for the reason in GetDisplayItems: a uniqueness
+                // check that cannot see the radio's own profiles is not a
+                // uniqueness check.
+                var mine = Rig.GetProfilesByType(ptype)?.Select(p => p.Name)
+                           ?? Enumerable.Empty<string>();
+                var onRadio = RigOnlyProfiles()
+                    .Where(p => p.ProfileType == ptype)
+                    .Select(p => p.Name);
+                return mine.Concat(onRadio);
             },
             OnAdd = (result) =>
             {
-                // Not implemented yet — profile creation requires radio-specific API calls
-                SpeakAfterMenuClose("Profile creation not yet available");
+                if (Rig == null) { SpeakNoRadio(); return; }
+                var ptype = ProfileTypeFromIndex(result.ProfileTypeIndex);
+                var profile = new Radios.Profile_t(result.Name, ptype, result.IsDefault);
+                // Adds the NAME to the operator's list. Nothing is written to
+                // the radio here — the dialog's Save button is the radio-side
+                // write, and keeping the two separate is what makes "add a
+                // global profile, then save it" the Save As that was missing
+                // without ever letting a typo land on somebody's rig.
+                if (Rig.AddOperatorProfile(profile))
+                    SpeakAfterMenuClose($"Profile {profile.Name} added");
+                else
+                    SpeakAfterMenuClose($"Could not add profile {profile.Name}");
             },
             OnUpdate = (originalData, result) =>
             {
-                SpeakAfterMenuClose("Profile update not yet available");
+                if (Rig == null) { SpeakNoRadio(); return; }
+                if (originalData is not Radios.Profile_t original)
+                {
+                    SpeakAfterMenuClose("Invalid profile data");
+                    return;
+                }
+                var ptype = ProfileTypeFromIndex(result.ProfileTypeIndex);
+                var replacement = new Radios.Profile_t(result.Name, ptype, result.IsDefault);
+                if (Rig.UpdateOperatorProfile(original, replacement))
+                    SpeakAfterMenuClose($"Profile {replacement.Name} updated");
+                else
+                    SpeakAfterMenuClose($"Could not update profile {original.Name}");
             },
             OnDelete = (profileData) =>
             {
@@ -2606,6 +2707,39 @@ public class NativeMenuBar : IDisposable
         var dialog = new Dialogs.ProfileDialog(callbacks);
         dialog.ShowDialog();
     }
+
+    /// <summary>
+    /// The profiles the radio itself is carrying that are not in the operator's
+    /// own list. Display profiles are excluded because the dialog offers no way
+    /// to act on them. Never null.
+    /// </summary>
+    private List<Radios.Profile_t> RigOnlyProfiles()
+    {
+        if (Rig == null) return new List<Radios.Profile_t>();
+        try
+        {
+            var all = Rig.GetRigProfiles(Rig.Callouts?.Profiles);
+            if (all == null) return new List<Radios.Profile_t>();
+            return all
+                .Where(p => p.ProfileType != Radios.ProfileTypes.display)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            // Reading the radio's profile lists must never be able to stop the
+            // dialog opening — the operator's own list is still useful.
+            Tracing.TraceLine($"RigOnlyProfiles: {ex.Message}", TraceLevel.Warning);
+            return new List<Radios.Profile_t>();
+        }
+    }
+
+    private static Radios.ProfileTypes ProfileTypeFromIndex(int typeIndex) => typeIndex switch
+    {
+        0 => Radios.ProfileTypes.global,
+        1 => Radios.ProfileTypes.tx,
+        2 => Radios.ProfileTypes.mic,
+        _ => Radios.ProfileTypes.global
+    };
 
     #endregion
 }

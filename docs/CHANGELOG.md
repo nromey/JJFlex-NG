@@ -144,6 +144,21 @@ This release is about the space where you actually spend your time in the app �
 - **[Sub-watt transmit power reads as a real number](#honest-power-readout)** instead of rounding down to 0 watts, which is what the app also says when you aren't transmitting at all. If you drive a transverter or run QRP, the instrument was blind to your entire operating range. Over-S9 signal readings were also being announced six times too high in several places, and are now plain decibels.
 - **[The GPS page leads with lock](#gps-leads-with-lock)** — the fact that actually decides whether your radio is disciplined — and it always announces when the reference locks, which it previously could miss entirely. It also carries the clock correction figure in parts per billion now.
 - **[If the radio takes your microphone away, you hear about it](#mic-selection-assert).** Something changing the radio's transmit input behind your back — a profile load will do it — used to mean transmitting silence with no warning at all.
+- **[The meters panel got torn down and rebuilt](#meters-rebuilt).** You can now hear any meter your radio publishes instead of the same eight forever, the panel is one tidy screen instead of a tab-through pile, and a test tone actually stops.
+
+### Any meter your radio has, and a panel you can get around {#meters-rebuilt}
+
+The meters panel — the one that turns your radio's readings into tones you can hear while you operate — has been rebuilt from the ground up. Here's what changed and why you'll notice.
+
+- **Every meter your radio reports is available now, not eight of them.** The old panel offered a fixed list: S-meter, ALC, mic, power, SWR, compression, voltage, PA temp. That was never the radio's list — an 8600 publishes over a hundred meters, and we were throwing away the other ninety-something before you ever got a say. Pick from the short list of the ones most people want, or tick "Show every meter this radio reports" and go browsing. They're grouped by where they come from: the radio itself, each slice, and any amplifier or tuner you have hooked up.
+- **Your existing meter tones survived the move.** This one mattered to me. The old panel stored your choice as a position in that fixed list, and the new list is a completely different shape — so a careless job here would have quietly repointed everybody's tones at the wrong meter, with nothing to tell you. Your saved meters get translated to the radio's own names on first run, and everything you'd tuned by ear — voice, volume, pan, pitch range, when it sounds — comes through untouched.
+- **One meter at a time, chosen from a list.** The panel used to stack a full set of controls for every meter you had, so getting to the fourth one meant tabbing past three. Now there's a single "Meter" list at the top: pick the one you want, and the controls below it are that meter's controls. Press Delete on the list to remove a meter — it asks first, because there's no undo and you may have spent a while getting it to sound right.
+- **A test tone stops.** Press Test, hear two seconds, done. It used to run forever if meter tones were on, which — since the only way into the panel also switched them on — meant essentially always. Sorry about that one.
+- **Ctrl+M opens the panel and nothing else.** It used to open the panel *and* switch your meter tones on or off in the same keystroke, which is two jobs on one key and made both of them awkward. If you just wanted to look at your settings, you started a noise. Now Ctrl+M is the panel, and Ctrl+J then T is the tones — same as it's always been in the JJ layer, and it's in the Meter Tones menu too.
+- **Pan is a slider instead of three positions.** Left, centre, right was fine when three meters was a lot. It isn't any more, so pan runs smoothly from full left to full right, and it tells you where you are in words rather than making you decode a number. Worth saying out loud: never let pan be the only difference between two meters. If you listen in mono, or hear better on one side, it isn't there at all — that's what the voices are for.
+- **The meters section makes a sound when it opens and closes,** like every other section on Home. It was the only one that didn't.
+
+[Return to version headlines](#unreleased-headlines)
 
 ### The honest audio hub {#honest-audio-hub}
 

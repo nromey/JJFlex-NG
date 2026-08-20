@@ -3,12 +3,19 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Audio Workshop"
-        Width="500" Height="620"
+        Width="680" Height="620"
         ShowInTaskbar="True"
         ResizeMode="CanResize">
+    <!-- Wider than it was (500) because the category list now takes the
+         left-hand 170 (Sprint 32 Track G, task #134). The Workshop grows to
+         five or six categories this sprint, which is the exact condition a tab
+         strip handles worst. -->
     <DockPanel>
-        <!-- Toolbar at top -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,4">
+        <!-- Toolbar at top. TabIndex 1 keeps the ring reading the way the
+             window looks: toolbar across the top, category list down the left,
+             the category itself filling the rest. -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="8,4"
+                    KeyboardNavigation.TabIndex="1">
             <!-- Load/Save use the universal document keys Ctrl+O / Ctrl+S
                  (handled in OnPreviewKeyDown). Save deliberately has NO
                  access-key underscore: its old Alt+S mnemonic also matched
@@ -41,8 +48,32 @@
                     Click="Reset_Click"/>
         </StackPanel>
 
-        <TabControl x:Name="MainTabs" Margin="4"
-                    KeyboardNavigation.TabNavigation="Cycle">
+        <!-- The category list (task #134). Built by CategoryNavigator from
+             whatever TabItems exist below, never listed here — three other
+             tracks were adding categories to this window while this was
+             written, and not one of them had to touch this file. -->
+        <ListBox x:Name="CategoryListBox"
+                 DockPanel.Dock="Left"
+                 Style="{StaticResource CategoryList}"
+                 Margin="8,4,4,4"
+                 TabIndex="2"
+                 AutomationProperties.Name="Workshop categories"
+                 local:JJFlexHelp.Text="Every part of the Workshop, in one list. Arrow through it to move between them, or use Control plus Tab and Control plus Shift plus Tab from anywhere in this window. Inside a category, F6 and Shift plus F6 move between its sections."/>
+
+        <!-- Styled headerless: the list to the left IS the tab strip now.
+             TabNavigation was "Cycle" here from March 2026 until Sprint 32
+             Track G. That trapped Tab inside the categories: an operator
+             working in the content could tab forever and never reach Load
+             Preset, Save Preset, Export, Import or Reset. It was a reasonable
+             fix at the time — the window is non-modal and its tab order was
+             genuinely broken — but JJFlexDialog gave every dialog a
+             window-level Cycle on 2026-08-10, which does the wrapping properly
+             and one level further out. Leaving it here after that turned a fix
+             into a cage. The default (Continue) is what lets Tab out. -->
+        <local:CategoryTabHost x:Name="MainTabs" Margin="4"
+                    Style="{StaticResource CategoryTabControl}"
+                    KeyboardNavigation.TabIndex="3"
+                    AutomationProperties.Name="Workshop categories">
             <!-- Tab 1: TX Audio -->
             <TabItem Header="TX Audio" AutomationProperties.Name="TX Audio Settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
@@ -63,6 +94,35 @@
                     <StackPanel x:Name="EarconExplorerContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
-        </TabControl>
+
+            <!-- Tab 4: Meter Inventory. Named so code can ask whether it is
+                 selected rather than comparing an index — tabs get reordered. -->
+            <TabItem x:Name="MeterInventoryTab" Header="Meter Inventory"
+                     AutomationProperties.Name="Meter Inventory">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="MeterInventoryContent" Margin="8" />
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Amplifier (Sprint 32 Track D). NAMED rather than referred to by
+                 index: four tracks add tabs to this control in one sprint, and a
+                 reorder must not silently point code at the wrong panel. -->
+            <TabItem x:Name="AmplifierTab" Header="Amplifier"
+                     AutomationProperties.Name="Amplifier and Tuner">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="AmplifierContent" Margin="8" />
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Diagnostics (Sprint 32 Track C). Named rather than reached by
+                 index: several tracks append here, and anything that compared
+                 an index would break silently the moment the order changed. -->
+            <TabItem x:Name="DiagnosticsTab" Header="Diagnostics"
+                     AutomationProperties.Name="Audio Diagnostics">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="DiagnosticsContent" Margin="8" />
+                </ScrollViewer>
+            </TabItem>
+        </local:CategoryTabHost>
     </DockPanel>
 </local:JJFlexDialog>

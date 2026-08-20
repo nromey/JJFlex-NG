@@ -7019,6 +7019,22 @@ namespace Flex.Smoothlake.FlexLib
                 return _meters.FirstOrDefault(m => m.Name == s);
         }
 
+        /// <summary>
+        /// JJFlex patch: enumerate the radio's meter inventory.
+        /// </summary>
+        /// <remarks>
+        /// Every other accessor around _meters is public (FindMeterByName,
+        /// FindMetersByAmplifier, FindMetersByTuner) but there was no way to
+        /// ask what meters a radio actually has. Mirrors FindMetersByAmplifier
+        /// exactly — same lock, same ImmutableList return — so no caller can be
+        /// handed a list that mutates underneath it. Reportable upstream.
+        /// </remarks>
+        public ImmutableList<Meter> GetMeters() // JJFlex patch
+        {
+            lock (_meters)
+                return _meters.ToImmutableList();
+        }
+
         public ImmutableList<Meter> FindMetersByAmplifier(Amplifier amp)
         {
             lock (_meters)

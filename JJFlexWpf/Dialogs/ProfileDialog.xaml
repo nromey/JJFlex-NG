@@ -44,8 +44,12 @@
                     AutomationProperties.Name="Delete"
                     AutomationProperties.AcceleratorKey="Alt+D"
                     Click="DeleteButton_Click"/>
+            <!-- Disabled rather than collapsed until a global profile is
+                 selected: a button that appears and disappears as the operator
+                 arrows the list is a moving target with no explanation. See
+                 ProfilesListBox_SelectionChanged. -->
             <Button x:Name="SaveButton" Content="_Save" AutomationProperties.AcceleratorKey="Alt+S" MinWidth="90" Height="28" Margin="0,0,0,8"
-                    Visibility="Collapsed"
+                    IsEnabled="False"
                     AutomationProperties.Name="Save profile to radio"
                     Click="SaveButton_Click"/>
         </StackPanel>

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using Flex.Smoothlake.FlexLib;
 using NAudio.Wave.SampleProviders;
 using Radios;
 
@@ -57,6 +58,25 @@ namespace JJFlexWpf
         }
         private static bool _enabled;
 
+        /// <summary>
+        /// Flip the meter tones on or off, announcing and earconning the new
+        /// state. The ONE place that vocabulary lives, so the hotkey and the
+        /// menu cannot drift apart in what they say.
+        /// </summary>
+        /// <remarks>
+        /// Separated from the meters PANEL in Sprint 32 Track B (#126). Showing
+        /// the panel and starting a noise used to be a single action; they are
+        /// two now, and this is the noise half.
+        /// </remarks>
+        public static void ToggleEnabled()
+        {
+            Enabled = !Enabled;
+            string state = Enabled ? "on" : "off";
+            ScreenReaderOutput.Speak($"Meter tones {state}", VerbosityLevel.Terse, true);
+            if (Enabled) EarconPlayer.FeatureOnTone();
+            else EarconPlayer.FeatureOffTone();
+        }
+
         /// <summary>Whether speech readout of meter values is enabled.</summary>
         public static bool SpeechEnabled { get; set; } = true;
 
@@ -85,6 +105,41 @@ namespace JJFlexWpf
 
         /// <summary>The meter tone slots.</summary>
         public static List<MeterSlot> Slots { get; } = new();
+
+        /// <summary>
+        /// The slot collection changed: one was added, one was removed, or the
+        /// whole set was replaced by a preset or by a config load.
+        /// </summary>
+        /// <remarks>
+        /// This event is the fix for #129. The panel used to build its controls
+        /// once in its constructor and never again, so a slot added afterwards
+        /// existed in this list with no controls anywhere — Noel added a slot,
+        /// was told he had slot 5, and could see nothing. Anything that renders
+        /// slots must treat this list as LIVE and rebind here rather than
+        /// snapshotting it. Raised on whichever thread made the change, which
+        /// for a preset applied during config load is not the UI thread.
+        /// </remarks>
+        public static event EventHandler? SlotsChanged;
+
+        /// <summary>
+        /// The radio the engine is attached to, or null. Exposed so a view can
+        /// reach <see cref="FlexBase.MeterInventory"/> without being handed a
+        /// rig separately and without going stale when the radio changes.
+        /// </summary>
+        public static FlexBase? Rig => _rig;
+
+        /// <summary>
+        /// Everything the connected radio says it can measure, or null when no
+        /// radio is attached. Never sample this once — bind to the inventory's
+        /// own InventoryChanged, because the list grows during registration.
+        /// </summary>
+        public static MeterInventory? Inventory => _rig?.MeterInventory;
+
+        /// <summary>A radio was attached or detached.</summary>
+        public static event EventHandler? RadioChanged;
+
+        private static void RaiseSlotsChanged() =>
+            SlotsChanged?.Invoke(null, EventArgs.Empty);
 
         /// <summary>Current preset name.</summary>
         public static string CurrentPreset { get; private set; } = "RX Monitor";
@@ -119,6 +174,7 @@ namespace JJFlexWpf
 
             ApplyPreset("RX Monitor");
             _initialized = true;
+            RaiseSlotsChanged();
         }
 
         /// <summary>
@@ -130,8 +186,12 @@ namespace JJFlexWpf
                 DetachFromRadio();
 
             _rig = rig;
-            _rig.MeterChanged += OnMeterChanged;
+            // The identity-preserving feed (Sprint 32 Track A): every reading of
+            // every meter, with the meter itself. The old eight-value event is
+            // gone, and with it the ceiling of eight choosable meters.
+            _rig.MeterData += OnMeterData;
             _rig.TransmitChange += OnTransmitChanged;
+            RadioChanged?.Invoke(null, EventArgs.Empty);
         }
 
         /// <summary>Disconnect from the current radio.</summary>
@@ -139,9 +199,10 @@ namespace JJFlexWpf
         {
             if (_rig != null)
             {
-                _rig.MeterChanged -= OnMeterChanged;
+                _rig.MeterData -= OnMeterData;
                 _rig.TransmitChange -= OnTransmitChanged;
                 _rig = null;
+                RadioChanged?.Invoke(null, EventArgs.Empty);
             }
             // Silence all tones
             foreach (var slot in Slots)
@@ -155,6 +216,7 @@ namespace JJFlexWpf
             EarconPlayer.UnregisterAllContinuousTones();
             Slots.Clear();
             _initialized = false;
+            RaiseSlotsChanged();
         }
 
         #region Presets
@@ -200,6 +262,8 @@ namespace JJFlexWpf
                     ConfigureSlot(3, "Mic", true, 0.3f, 0f, 350, 800, "Hollow");
                     break;
             }
+
+            RaiseSlotsChanged();
         }
 
         /// <summary>Cycle to the next preset.</summary>
@@ -255,6 +319,8 @@ namespace JJFlexWpf
 
             for (int i = 0; i < defs.Count; i++)
                 Slots[i].SetDefinition(defs[i]);
+
+            RaiseSlotsChanged();
         }
 
         /// <summary>Snapshot the working set for persistence.</summary>
@@ -275,6 +341,7 @@ namespace JJFlexWpf
             var slot = new MeterSlot();
             Slots.Add(slot);
             EarconPlayer.RegisterContinuousStereo(slot.ToneProvider);
+            RaiseSlotsChanged();
             return slot;
         }
 
@@ -286,8 +353,17 @@ namespace JJFlexWpf
             slot.ToneProvider.Active = false;
             EarconPlayer.UnregisterContinuousTone(slot.ToneProvider);
             Slots.RemoveAt(index);
+            RaiseSlotsChanged();
             return true;
         }
+
+        /// <summary>
+        /// Tell every view that a slot's CONTENTS changed — its source, name or
+        /// voice — as opposed to the set of slots changing. Same event, because
+        /// a view that rebuilds from the live list handles both identically,
+        /// and one signal is one thing to get wrong.
+        /// </summary>
+        public static void NotifySlotContentChanged() => RaiseSlotsChanged();
 
         #endregion
 
@@ -353,14 +429,25 @@ namespace JJFlexWpf
 
         #region Meter Event Handling
 
-        private static void OnMeterChanged(object sender, MeterType meter, float value)
+        /// <summary>
+        /// The meter the Peak Watcher guards. Historically this was
+        /// <c>MeterType.ALC</c>, which was fed by the radio's HWALC meter — the
+        /// external-amplifier ALC line. Naming it here keeps the behaviour
+        /// bit-identical across the move off the eight-value event. Whether the
+        /// watcher SHOULD instead follow the software ALC (the real transmit
+        /// drive) is a live question, and not this track's to answer.
+        /// </summary>
+        private const string PeakWatcherMeterName = "HWALC";
+
+        private static void OnMeterData(object sender, Meter meter, float value)
         {
+            if (meter == null) return;
             long now = DateTime.UtcNow.Ticks;
 
             // Peak Watcher runs regardless of tone throttling — it has its own
             // cooldown and a safety alert should never wait behind a tone.
             if (_enabled && PeakWatcherEnabled && _rig != null && _rig.Transmit
-                && meter == MeterType.ALC)
+                && string.Equals(meter.Name, PeakWatcherMeterName, StringComparison.OrdinalIgnoreCase))
             {
                 CheckPeakWatcher(value, now);
             }
@@ -368,7 +455,6 @@ namespace JJFlexWpf
             if (!_enabled || _rig == null) return;
 
             bool transmitting = _rig.Transmit;
-            string key = meter.ToString();
 
             // Update each slot whose source matches this meter. More than one
             // may match — two meters sharing a source (coarse and fine SWR) is
@@ -377,7 +463,7 @@ namespace JJFlexWpf
             {
                 var def = slot.Definition;
                 if (!def.Enabled) continue;
-                if (!SourceMatchesLegacy(def.Source, key)) continue;
+                if (!SourceMatches(def.Source, meter)) continue;
 
                 // Per-slot throttle to ~10 Hz to avoid audio glitching.
                 if (now - slot.LastUpdateTicks < ThrottleIntervalTicks) continue;
@@ -415,12 +501,56 @@ namespace JJFlexWpf
             }
         }
 
-        /// <summary>Does a source reference match a legacy FlexBase meter
-        /// event? Only radio-reported sources with legacy keys are live until
-        /// the real meter-list accessor lands (Track B).</summary>
-        private static bool SourceMatchesLegacy(MeterSourceRef source, string legacyKey) =>
-            source.Kind == MeterSourceKind.RadioReported &&
-            string.Equals(source.Key, legacyKey, StringComparison.OrdinalIgnoreCase);
+        /// <summary>
+        /// Does this source reference name the meter that just reported?
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The key space is the radio's OWN meter names now — LEVEL, FWDPWR,
+        /// HWALC, SC_MIC, +13.8A — not the eight we used to invent. A config
+        /// written before Sprint 32 holds the old names and is translated once,
+        /// on load, by <see cref="MeterConfigMigration"/>; nothing here has to
+        /// know about that.
+        /// </para>
+        /// <para>
+        /// Slices need the extra hop. A four-slice radio reports four meters
+        /// called LEVEL, one per slice, so name alone would let whichever slice
+        /// reported last drive the tone. A source index of -1 means "follow the
+        /// active slice", which is what a migrated S-meter gets and what an
+        /// operator who does not think in slice numbers wants.
+        /// </para>
+        /// </remarks>
+        private static bool SourceMatches(MeterSourceRef source, Meter meter)
+        {
+            if (source.Kind != MeterSourceKind.RadioReported) return false;
+            if (!string.Equals(source.Key, meter.Name, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            bool isSlice = string.Equals(meter.Source, Meter.SOURCE_SLICE,
+                                         StringComparison.OrdinalIgnoreCase);
+            if (!isSlice) return true;
+
+            if (source.SliceIndex >= 0) return meter.SourceIndex == source.SliceIndex;
+
+            int active = ActiveSliceIndex();
+            // No active slice to follow: take the reading rather than falling
+            // silent. A silent meter reads as a broken feature.
+            return active < 0 || meter.SourceIndex == active;
+        }
+
+        /// <summary>
+        /// The radio index of the active slice, or -1. Derived from the slice
+        /// LETTER because that is the only public route from here — the same
+        /// letter-minus-A arithmetic FlexBase's own <c>LetterToVFO</c> uses, so
+        /// it is the project's existing convention rather than a new assumption.
+        /// </summary>
+        private static int ActiveSliceIndex()
+        {
+            string letter = _rig?.ActiveSliceLetter ?? "";
+            if (letter.Length == 0) return -1;
+            int index = char.ToUpperInvariant(letter[0]) - 'A';
+            return index >= 0 && index < 32 ? index : -1;
+        }
 
         private static bool ShouldSound(MeterActivation activation, bool transmitting) =>
             activation switch
@@ -530,23 +660,19 @@ namespace JJFlexWpf
         #endregion
     }
 
-    /// <summary>
-    /// Legacy meter sources. Retained as a bridge: the model's source space is
-    /// <see cref="MeterSourceRef"/> (which also expresses PC-derived,
-    /// frequency-domain and derived sources); this enum names the eight
-    /// FlexBase event sources that are live today, and existing UI indexes it.
-    /// </summary>
-    public enum MeterSource
-    {
-        SMeter, ALC, Mic, Power, SWR, Compression, Voltage, PATemp
-    }
+    // The eight-value MeterSource enum lived here until Sprint 32 Track B and
+    // is deliberately gone. It capped the choosable meters at eight on a radio
+    // that reports over a hundred, and because the panel wrote
+    // (MeterSource)combo.SelectedIndex, its ORDINAL was load-bearing in saved
+    // config files. The source space is MeterSourceRef with a string key drawn
+    // from the radio's own meter list; MeterConfigMigration translates anything
+    // written before the change. Do not reintroduce an enum here.
 
     /// <summary>
     /// A meter tone slot: a <see cref="MeterDefinition"/> (source + range +
     /// voice + mapping) bound to a live <see cref="VoicedToneSampleProvider"/>.
-    /// The legacy flat properties (Source, Waveform, PitchLow…) are bridges
-    /// over the definition so existing callers keep working; new code should
-    /// use <see cref="Definition"/> directly.
+    /// The flat properties are thin conveniences that also keep the live
+    /// synthesis provider in step; <see cref="Definition"/> is the model.
     /// </summary>
     public class MeterSlot
     {
@@ -578,33 +704,31 @@ namespace JJFlexWpf
             ToneProvider.Pan = Definition.Pan;
         }
 
-        // ---- legacy bridges ----
-
-        /// <summary>Legacy source bridge. Setting it rebinds the definition to
-        /// that catalog source, refreshing range, units and activation.</summary>
-        public MeterSource Source
+        /// <summary>
+        /// Point this slot at a different meter, keeping the operator's voice,
+        /// volume, pan and pitch mapping — those were chosen for the SLOT, not
+        /// for the meter, and re-picking a source should not silently undo an
+        /// afternoon of tuning by ear. Name, range, units and activation come
+        /// from the new source, because those describe the meter itself.
+        /// </summary>
+        /// <param name="key">The radio's own meter name, e.g. FWDPWR.</param>
+        /// <param name="displayName">What to call it. Empty uses the key.</param>
+        /// <param name="range">The new range in the source's own units.</param>
+        /// <param name="activation">When the tone is allowed to sound.</param>
+        /// <param name="sliceIndex">Which slice, or -1 to follow the active one.</param>
+        public void Retarget(string key, string displayName, MeterRange range,
+            MeterActivation activation, int sliceIndex)
         {
-            get => Enum.TryParse<MeterSource>(Definition.Source.Key, true, out var s)
-                ? s : MeterSource.SMeter;
-            set
+            if (string.IsNullOrWhiteSpace(key)) return;
+            Definition.Name = string.IsNullOrWhiteSpace(displayName) ? key : displayName;
+            Definition.Source = new MeterSourceRef
             {
-                var entry = LegacyMeterCatalog.Find(value.ToString());
-                if (entry == null) return;
-                Definition.Name = entry.DisplayName;
-                Definition.Source = new MeterSourceRef
-                {
-                    Kind = MeterSourceKind.RadioReported,
-                    Key = entry.Key,
-                };
-                Definition.Range = new MeterRange
-                {
-                    Low = entry.Low,
-                    High = entry.High,
-                    Units = entry.Units,
-                    UnitsLabel = entry.UnitsLabel,
-                };
-                Definition.Activation = entry.Activation;
-            }
+                Kind = MeterSourceKind.RadioReported,
+                Key = key,
+                SliceIndex = sliceIndex,
+            };
+            if (range != null) Definition.Range = range;
+            Definition.Activation = activation;
         }
 
         public bool Enabled
@@ -661,21 +785,5 @@ namespace JJFlexWpf
             }
         }
 
-        /// <summary>Legacy waveform bridge: maps the old enum onto the
-        /// equivalent built-in voice. Getter answers Sine for anything the old
-        /// enum cannot express.</summary>
-        public WaveformType Waveform
-        {
-            get => Definition.VoiceName switch
-            {
-                "Square" => WaveformType.Square,
-                "Reedy" => WaveformType.Sawtooth,
-                "Pulsing" => WaveformType.SlowPulse,
-                "Urgent" => WaveformType.FastPulse,
-                "Ring" => WaveformType.Alternating,
-                _ => WaveformType.Sine,
-            };
-            set => VoiceName = MeterVoiceLibrary.FromLegacyWaveform(value);
-        }
     }
 }

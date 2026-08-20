@@ -106,6 +106,20 @@ namespace JJFlexWpf.Dialogs
                     + "auto-connect off, whichever way you remove it.");
             }
 
+            // How to reach the choice, said out loud, because focus starts here
+            // and this is the only place it can be said before a decision is
+            // made. Task #132: Tab used to skip the second option entirely, and
+            // even now that Tab visits both, an operator arriving at a
+            // pre-checked pair benefits from being told the pair is a pair and
+            // that arrows move within it.
+            body.AppendLine();
+            body.AppendLine();
+            body.Append(
+                "Both choices are below this text, and \"Remove from the list only\" is already "
+                + "selected. Tab moves to each of them in turn — press Space to take the one you "
+                + "land on — and the up and down arrow keys both move and choose as they go. "
+                + "Nothing happens until you press Remove.");
+
             BodyText.Text = ScreenReaderText.NormalizeLineBreaks(body.ToString());
 
             Loaded += (_, _) =>

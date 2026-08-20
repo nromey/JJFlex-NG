@@ -3,36 +3,162 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:local="clr-namespace:JJFlexWpf"
              mc:Ignorable="d"
              d:DesignWidth="600" d:DesignHeight="400"
              AutomationProperties.Name="Meters Configuration"
              PreviewKeyDown="Panel_PreviewKeyDown">
 
-    <!-- Sprint 22 Phase 9: Interactive meter tone configuration panel.
-         Expander-based, same pattern as ScreenFieldsPanel.
-         Per-slot: meter type, waveform, pan, base freq, mute, test, remove.
-         Global: add slot, auto-enable on tune, speech timer controls. -->
+    <!-- Meter tone configuration.
+
+         Sprint 32 Track B rebuilt this panel around ONE set of controls that
+         retargets, driven by a meter selector combo, rather than a stack of
+         per-slot control groups. Noel's reason, and it is the whole design:
+         "making it so that you have tabs to go through all slots is not
+         efficient, so you'd need a combo to select a tone and then modify /
+         enable / do whatever with it."
+
+         Everything below is declared here rather than built in code-behind,
+         which is what makes the panel a LIVE VIEW: the controls exist from the
+         start and are repointed at whichever slot is selected, so a slot added
+         later is simply another entry in the selector instead of a group of
+         controls nobody remembered to build (#129). -->
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled"
                   Focusable="False">
         <Expander x:Name="MetersExpander" Header="Meters"
                   IsExpanded="False" Margin="4,2"
-                  AutomationProperties.Name="Meters configuration panel">
+                  AutomationProperties.Name="Meters configuration panel"
+                  Expanded="MetersExpander_Expanded"
+                  Collapsed="MetersExpander_Collapsed">
             <StackPanel x:Name="MetersContent" Margin="16,4,4,4">
-                <!-- Slot controls are built dynamically in code-behind -->
 
-                <!-- Global controls section -->
-                <Separator Margin="0,8,0,8" />
+                <!-- ── Which meter am I editing ── -->
+                <TextBlock Text="Meter:" Margin="0,2,0,2" />
+                <ComboBox x:Name="SlotCombo" Width="320"
+                          HorizontalAlignment="Left" Margin="0,0,0,6"
+                          AutomationProperties.Name="Meter to configure"
+                          local:JJFlexHelp.Text="Pick which of your meter tones to work on. Everything below this changes the meter named here. Press Delete to remove it."
+                          SelectionChanged="SlotCombo_SelectionChanged"
+                          PreviewKeyDown="SlotCombo_PreviewKeyDown" />
 
-                <Button x:Name="AddSlotButton" Content="Add Meter Slot"
-                        Margin="0,2" Padding="8,4"
-                        HorizontalAlignment="Left"
-                        AutomationProperties.Name="Add a new meter tone slot"
-                        Click="AddSlotButton_Click" />
+                <!-- ── What it measures ── -->
+                <TextBlock Text="Source:" Margin="0,2,0,2" />
+                <ComboBox x:Name="SourceCombo" Width="420"
+                          HorizontalAlignment="Left" Margin="0,0,0,2"
+                          AutomationProperties.Name="Meter source"
+                          local:JJFlexHelp.Text="Which of the radio's own meters this tone follows. The short list holds the ones most operators want; tick Show every meter to reach all of them, grouped by where they come from."
+                          SelectionChanged="SourceCombo_SelectionChanged" />
+
+                <CheckBox x:Name="AllMetersCheck"
+                          Content="Show every meter this radio reports"
+                          Margin="0,0,0,6"
+                          AutomationProperties.Name="Show every meter this radio reports"
+                          local:JJFlexHelp.Text="Off gives you a short list of the meters most operators use. On gives you everything the radio publishes, which on a 8600 is over a hundred entries, grouped by radio, slice, and amplifier or tuner."
+                          Checked="AllMetersCheck_Changed"
+                          Unchecked="AllMetersCheck_Changed" />
+
+                <TextBlock x:Name="SourceDetailText"
+                           Margin="0,0,0,6" TextWrapping="Wrap"
+                           AutomationProperties.Name="Selected meter details" />
+
+                <!-- ── How it sounds ── -->
+                <TextBlock Text="Voice:" Margin="0,2,0,2" />
+                <ComboBox x:Name="VoiceCombo" Width="200"
+                          HorizontalAlignment="Left" Margin="0,0,0,6"
+                          AutomationProperties.Name="Meter voice"
+                          local:JJFlexHelp.Text="The timbre this meter speaks with. Timbre is what tells two meters apart, so give meters you listen to together clearly different voices."
+                          SelectionChanged="VoiceCombo_SelectionChanged" />
+
+                <TextBlock Text="When it sounds:" Margin="0,2,0,2" />
+                <ComboBox x:Name="ActivationCombo" Width="200"
+                          HorizontalAlignment="Left" Margin="0,0,0,6"
+                          AutomationProperties.Name="When this meter sounds"
+                          local:JJFlexHelp.Text="Always, only while receiving, or only while transmitting. A transmit meter that sounds on receive is just noise."
+                          SelectionChanged="ActivationCombo_SelectionChanged" />
+
+                <!-- Pan is continuous now. It used to offer three positions,
+                     Left, Centre and Right, which is far too coarse once more
+                     than three meters can sound at once. Never let pan be the
+                     only thing separating two meters: it is lost entirely to
+                     mono listeners and to asymmetric hearing loss. -->
+                <TextBlock Text="Pan:" Margin="0,2,0,2" />
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <Slider x:Name="PanSlider" Width="220"
+                            Minimum="-100" Maximum="100"
+                            SmallChange="5" LargeChange="25"
+                            TickFrequency="5" IsSnapToTickEnabled="True"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Pan, minus 100 full left, 0 centre, 100 full right"
+                            local:JJFlexHelp.Text="Where this meter sits in the stereo field, from minus 100 full left through 0 centre to 100 full right. Use it to spread meters apart, but never as the only difference between two of them."
+                            ValueChanged="PanSlider_ValueChanged" />
+                    <TextBlock x:Name="PanText" VerticalAlignment="Center"
+                               Margin="8,0,0,0" MinWidth="90" />
+                </StackPanel>
+
+                <TextBlock Text="Volume:" Margin="0,2,0,2" />
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                    <Slider x:Name="VolumeSlider" Width="220"
+                            Minimum="0" Maximum="100"
+                            SmallChange="5" LargeChange="20"
+                            TickFrequency="5" IsSnapToTickEnabled="True"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Meter volume percent"
+                            local:JJFlexHelp.Text="How loud this meter's tone is, before the master meter volume is applied."
+                            ValueChanged="VolumeSlider_ValueChanged" />
+                    <TextBlock x:Name="VolumeText" VerticalAlignment="Center"
+                               Margin="8,0,0,0" MinWidth="90" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                    <TextBlock Text="Lowest pitch (Hz):"
+                               VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox x:Name="PitchLowBox" Width="60"
+                             VerticalAlignment="Center"
+                             AutomationProperties.Name="Lowest pitch in hertz, 100 to 2000"
+                             local:JJFlexHelp.Text="The tone you hear at the bottom of this meter's range."
+                             LostFocus="PitchLowBox_LostFocus" />
+                    <TextBlock Text="Highest pitch (Hz):"
+                               VerticalAlignment="Center" Margin="16,0,8,0" />
+                    <TextBox x:Name="PitchHighBox" Width="60"
+                             VerticalAlignment="Center"
+                             AutomationProperties.Name="Highest pitch in hertz, 100 to 4000"
+                             local:JJFlexHelp.Text="The tone you hear at the top of this meter's range."
+                             LostFocus="PitchHighBox_LostFocus" />
+                </StackPanel>
+
+                <CheckBox x:Name="SlotEnabledCheck"
+                          Content="This meter sounds"
+                          Margin="0,6,0,2"
+                          AutomationProperties.Name="This meter sounds"
+                          local:JJFlexHelp.Text="Whether this meter's tone plays at all, when meter tones are on and its activation allows it."
+                          Checked="SlotEnabledCheck_Changed"
+                          Unchecked="SlotEnabledCheck_Changed" />
+
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,2">
+                    <Button x:Name="TestButton" Content="Test"
+                            Padding="8,2" Margin="0,0,8,0"
+                            AutomationProperties.Name="Play a two second preview of this meter's tone"
+                            Click="TestButton_Click" />
+                    <Button x:Name="DeleteButton" Content="Delete"
+                            Padding="8,2" Margin="0,0,8,0"
+                            AutomationProperties.Name="Delete this meter"
+                            Click="DeleteButton_Click" />
+                    <Button x:Name="AddSlotButton" Content="Add Meter"
+                            Padding="8,2"
+                            AutomationProperties.Name="Add a new meter tone"
+                            Click="AddSlotButton_Click" />
+                </StackPanel>
+
+                <!-- ── Everything below applies to all meters ── -->
+                <Separator Margin="0,10,0,8" />
+
+                <TextBlock Text="These settings apply to all meters."
+                           Margin="0,0,0,4" />
 
                 <CheckBox x:Name="AutoTuneCheck"
                           Content="Auto-enable meters when tuning"
-                          Margin="0,8,0,2"
+                          Margin="0,2,0,2"
                           AutomationProperties.Name="Automatically enable meter tones when tune carrier is activated" />
 
                 <CheckBox x:Name="SpeechTimerCheck"

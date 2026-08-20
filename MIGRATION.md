@@ -32,56 +32,34 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     wants a decision rather than a drive-by. The equivalent references in our
     own projects were removed on 2026-08-17.
 
-## Not yet applied: a public accessor for the meter list (reviewed 2026-08-16)
-
-**Status: NOT a patch we carry. Recorded here so the decision is not
-re-litigated from scratch, and so the day someone needs a meter picker they
-find the exact edit rather than rediscovering it.**
-
-`Radio` keeps its meter inventory in `private List<Meter> _meters`, guarded
-throughout by `lock (_meters)`. Every accessor around it is public —
-`FindMeterByName`, `FindMetersByAmplifier`, `FindMetersByTuner` — but there is
-no way to enumerate the list. So "what meters does this radio actually have?"
-is unanswerable through the supported API.
-
-That question is not academic. On 2026-08-16 a FLEX-8600 reported **102
-meters** against the eight the Live Meters tab hardcodes. Anything that lets an
-operator choose which meters to watch has to ask the radio, not carry a list.
-
-`FlexBase.traceMeterInventory` answers it today **by reflection**, and that is
-the right shape for a diagnostic: it is one method, it fails soft (a changed
-field name traces one warning and stops), it holds FlexLib's own lock object so
-the handshake is real rather than hopeful, and nothing in the app depends on it
-succeeding. It is the wrong shape for a picker, because a UI that silently
-offers nothing when a vendor field is renamed is worse than one that does not
-compile.
-
-The patch, when a picker needs it — one method in
-`FlexLib_API/FlexLib/Radio.cs`, next to `FindMeterByName`:
-
-```csharp
-/// <summary>JJFlex patch: enumerate the radio's meter inventory.</summary>
-public ImmutableList<Meter> GetMeters()
-{
-    lock (_meters)
-        return _meters.ToImmutableList();
-}
-```
-
-Notes for whoever applies it:
-
-- It mirrors `FindMetersByAmplifier` exactly — same lock, same
-  `ImmutableList<Meter>` return — so it is stylistically vendor-native and has
-  no chance of handing out a list that mutates underneath a caller.
-- It is purely additive. No existing vendor line changes, so a 3-way merge on
-  the next upgrade cannot conflict with it; it will simply need re-adding if
-  the merge takes the vendor file wholesale.
-- Mark it `// JJFlex patch` the way the VitaSocket edits are marked, and add it
-  to the reapply list above.
-- Delete the reflection in `traceMeterInventory` in the same commit. Two ways
-  to reach the same private field is how one of them rots unnoticed.
-- Reportable upstream: an enumerator for a list whose every other accessor is
-  public is an obvious gap, and Flex may simply add it.
+11. **Public accessor for the meter list (applied 2026-08-19, Sprint 32 Track
+    A)**: in `FlexLib_API/FlexLib/Radio.cs`, next to `FindMeterByName`, keep the
+    comment-marked `public ImmutableList<Meter> GetMeters()` — `lock (_meters)`,
+    `return _meters.ToImmutableList()`. `Radio` keeps its meter inventory in
+    `private List<Meter> _meters`, guarded throughout by `lock (_meters)`, and
+    every accessor around it is public (`FindMeterByName`,
+    `FindMetersByAmplifier`, `FindMetersByTuner`) — but there was no way to
+    enumerate it, so "what meters does this radio actually have?" was
+    unanswerable through the supported API. That is not academic: on 2026-08-16
+    a FLEX-8600 reported **102 meters** against the eight the Live Meters tab
+    hardcoded, and anything that lets an operator choose which meters to watch
+    has to ask the radio rather than carry a list. The patch mirrors
+    `FindMetersByAmplifier` exactly — same lock, same `ImmutableList<Meter>`
+    return — so it is stylistically vendor-native and cannot hand out a list
+    that mutates underneath a caller. It is **purely additive**: no existing
+    vendor line changes, so a 3-way merge on the next upgrade cannot conflict
+    with it, but it WILL need re-adding if a merge takes `Radio.cs` wholesale,
+    which is the whole reason this list exists. `Radios/FlexBase.cs` and
+    `Radios/MeterInventory.cs` both depend on it, so a lost reapply is a build
+    break rather than a silent degradation — deliberately. **Reportable
+    upstream to Flex:** an enumerator for a list whose every other accessor is
+    public is an obvious gap, and they may simply add it. History: reviewed and
+    written down on 2026-08-16 under a heading reading "Not yet applied",
+    because that session needed only a trace and got it by reflection; applied
+    on 2026-08-19 when the meter inventory service needed a supported route.
+    The reflection in `FlexBase.traceMeterInventory` was deleted in the same
+    commit — two ways to reach one private field is how one of them rots
+    unnoticed.
 
 ## Upgrade procedure that worked for 4.2.18 → 4.2.20 (2026-08-03)
 

@@ -7,6 +7,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -29,11 +30,13 @@ using Radios.SmartLink;
 
 namespace Radios
 {
-    /// <summary>Meter types for the MeterChanged event.</summary>
-    public enum MeterType
-    {
-        SMeter, ALC, Mic, Power, SWR, Compression, Voltage, PATemp
-    }
+    // The MeterType enum and the MeterChanged event lived here until Sprint 32
+    // Track B retired them — the hand-off this file's own meter section
+    // describes. They named eight meters on a radio that reports over a
+    // hundred, and everything above them was choosing from eight because
+    // identity had already been destroyed by the adapter. The replacement is
+    // FlexBase.MeterData (every reading of every meter, with the Meter itself)
+    // and FlexBase.MeterInventory. MeterToneEngine was the only consumer.
 
     /// <summary>
     /// Tri-state outcome from ConnectToSmartLink so setupRemote can distinguish
@@ -71,7 +74,7 @@ namespace Radios
     /// <summary>
     /// Flex superclass
     /// </summary>
-    public class FlexBase : AllRadios, IDisposable
+    public partial class FlexBase : AllRadios, IDisposable
     {
         private const string statusHdr = "Status";
         private const string importedMsg = "Import complete";
@@ -1170,6 +1173,16 @@ namespace Radios
             theRadio.HWAlcDataReady += new Radio.MeterDataReadyEventHandler(hwALCData);
             theRadio.ReflectedPowerDataReady += new Radio.MeterDataReadyEventHandler(reflectedPowerData);
             theRadio.PAEffDataReady += new Radio.MeterDataReadyEventHandler(paEffData);
+
+            // Sprint 32 Track A: and now EVERY meter, not just the ten named
+            // convenience events above. Fresh radio, fresh subscriptions. This
+            // first pass usually finds the list still filling — meter
+            // registration runs on after connect — which is exactly why the
+            // reconcile is re-driven from every meter reading rather than
+            // trusted once here.
+            resetMeterInventory();
+            syncMeterInventory();
+
             theRadio.TxBandSettingsAdded += new Radio.TxBandSettingsAddedEventHandler(txBandSettingsHandler);
             theRadio.RXRemoteAudioStreamAdded += new Radio.RXRemoteAudioStreamAddedEventHandler(opusOutputStreamAddedHandler);
             theRadio.TXRemoteAudioStreamAdded += new Radio.TXRemoteAudioStreamAddedEventHandler(opusInputStreamAddedHandler);
@@ -2080,9 +2093,44 @@ namespace Radios
                 ScreenReaderOutput.Speak(
                     msg, Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
             }
+            // ── The exit farewell, and why this path has to WAIT for it ──
+            //
+            // Sprint 32 Track H. Until now this line read
+            //
+            //     _ = ScreenReaderOutput.PlayCwSK?.Invoke();
+            //
+            // which DISCARDS the task: nothing anywhere awaited the farewell it
+            // started. The very next line sets SkAlreadyPlayedThisSession, and
+            // that flag makes ApplicationEvents.MyApplication_Shutdown skip its
+            // own PlayCwSK.Invoke().Wait(5000). So the only code that waited for
+            // the farewell lived exclusively in the path the flag suppresses.
+            //
+            // The guard is not the bug and must stay — it was added for a real
+            // complaint (hearing 73 twice when disconnecting from the menu and
+            // then closing) and it works. What it did NOT do was inherit the
+            // wait. Closing while CONNECTED therefore ran Alt+F4 →
+            // ExitApplication → CloseTheRadio → here → fire-and-forget → teardown
+            // straight through EarconPlayer.Dispose(), and Noel heard "dah dah":
+            // the first two elements of the digit 7, roughly 150 ms of a
+            // two-second string, before the audio device was destroyed under it.
+            //
+            // WHOEVER PLAYS IT OWNS WAITING FOR IT. The wait is deliberately not
+            // hoisted somewhere shared, because the next path that decides to
+            // play SK would inherit exactly this trap. There are two today;
+            // assume a third.
+            //
+            // The wait is placed at the END of Disconnect rather than here, so
+            // the farewell overlaps the disconnect work (main-thread join, radio
+            // disconnect await) that this method has to do anyway. Practically
+            // that costs no added latency at all, while still guaranteeing that
+            // Disconnect does not return until its own farewell has finished or
+            // the bound has expired. Bounded at 5000 ms, matching what Shutdown
+            // already allows: a wedged audio device must never be able to stop a
+            // disconnect, let alone an application exit.
+            Task farewell = null;
             if (ScreenReaderOutput.CwNotificationsEnabled)
             {
-                _ = ScreenReaderOutput.PlayCwSK?.Invoke();
+                farewell = ScreenReaderOutput.PlayCwSK?.Invoke();
                 // Mark SK played for this session so the app-exit Shutdown handler
                 // skips its own SK call. Otherwise the user hears 73-SK twice when
                 // they disconnect via menu and then close the app.
@@ -2138,9 +2186,45 @@ namespace Radios
                 // reuses the live session (faster, fewer SSL handshakes, and
                 // exactly the ownership fix that motivated this sprint).
 
+                // The radio's Meter objects go with the radio. Forget the
+                // subscriptions so the next connect hooks the new ones and the
+                // inventory is re-announced rather than assumed unchanged.
+                resetMeterInventory();
+
                 theRadio = null;
             }
+
+            // Now collect the farewell started at the top of this method. See the
+            // long comment there: this path plays SK and suppresses the only
+            // other path that knew how to wait, so it has to do the waiting
+            // itself. Bounded, and never allowed to throw — a farewell must not
+            // be able to fail a disconnect.
+            if (farewell != null)
+            {
+                try
+                {
+                    if (!farewell.Wait(SkFarewellWaitMs))
+                    {
+                        Tracing.TraceLine(
+                            "Disconnect:SK farewell did not finish within "
+                            + SkFarewellWaitMs + "ms — continuing teardown",
+                            TraceLevel.Warning);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("Disconnect:SK farewell:" + ex.Message, TraceLevel.Warning);
+                }
+            }
         }
+
+        /// <summary>
+        /// How long any path that plays the SK farewell may wait for it before
+        /// giving up and continuing. Matches the bound
+        /// <c>ApplicationEvents.MyApplication_Shutdown</c> already applies to its
+        /// own call, so the two SK paths cannot drift apart.
+        /// </summary>
+        internal const int SkFarewellWaitMs = 5000;
 
         private bool _IsConnected = false; // set in radioPropertyChangedHandler
         /// <summary>
@@ -5593,6 +5677,15 @@ namespace Radios
                 if (disposing)
                 {
                     component.Dispose();
+
+                    // The slice-settle timer (Sprint 32 Track H). Stopped before
+                    // Disconnect so a census cannot be scheduled onto a radio
+                    // that is being torn down.
+                    lock (_sliceSettleLock)
+                    {
+                        try { _sliceSettleTimer?.Dispose(); } catch { }
+                        _sliceSettleTimer = null;
+                    }
                 }
 
                 if (theRadio != null)
@@ -6110,6 +6203,11 @@ namespace Radios
                     case "Active":
                         {
                             Tracing.TraceLine("Active:slice " + s.Index.ToString() + " " + s.Active.ToString(), TraceLevel.Info);
+                            // "or on moving to another slice" — the second half
+                            // of Noel's spec. The radio confirming a slice as
+                            // Active is the honest moment the operator arrived
+                            // on it. See AnnounceSliceIdentity.
+                            if (s.Active) AnnounceSliceIdentity(s);
                         }
                         break;
                     case "DemodMode":
@@ -6122,36 +6220,32 @@ namespace Radios
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
 
-                                // CW mode announcement. Runs alongside speech (not only when
-                                // speech is off) -- CW is a parallel notification channel when
-                                // CwNotificationsEnabled + CwModeAnnounceEnabled. With speech
-                                // on, the operator gets both the spoken mode and the CW mode
-                                // name. With speech off, CW is the only mode announcement.
+                                // The CW mode announcement (#58). Runs alongside speech, not
+                                // only when speech is off — CW is a parallel notification
+                                // channel when CwNotificationsEnabled + CwModeAnnounceEnabled.
                                 //
-                                // THE RADIO'S active slice, not this slice's Active flag (#58).
-                                // Slice.Active is per-slice context — a panadapter's active
-                                // slice — so on a radio with several slices open, SEVERAL are
-                                // legitimately Active at once. FlexLib's initial property sync
-                                // then raises DemodMode for each of them during connect, and
-                                // the operator got one Morse mode announcement per open slice.
-                                // Noel heard it live 2026-08-19 on the bench 8600: "usb usb
-                                // usb fm", four slices, every connect.
+                                // Sprint 32 Track H REPLACED what stood here rather than
+                                // repairing it. The line used to be a bare mode name gated on
+                                // ReferenceEquals(s, theRadio?.ActiveSlice), and that guard was
+                                // the wrong instrument for the wrong problem: it announced a
+                                // PER-SLICE property during a BULK STATE REPLAY, so on connect
+                                // four individually-correct announcements answered a question
+                                // nobody had asked. Noel heard it live 2026-08-19 on the bench
+                                // 8600: "usb usb usb fm", four slices, every connect.
                                 //
-                                // Note this only became AUDIBLE as a storm once the player was
-                                // serialized (EarconCwOutput's single-reader FIFO). Before that
-                                // the four announcements overlapped into garble, which read as
-                                // one broken noise rather than four correct ones. Fixing the
-                                // garbling made the real defect legible — the count was always
-                                // four.
+                                // Filtering to one member and calling it representative is
+                                // arbitrary. Summarising describes what actually happened. So
+                                // connect gets a CENSUS of the set (AnnounceSliceCensus) and a
+                                // slice or mode change gets an IDENTITY plus a STATE — which is
+                                // this call. The letter is IN the message, so nothing has to
+                                // nominate a representative slice at all.
                                 //
-                                // Radio.ActiveSlice is the ONE slice the operator is on, which
-                                // is what an announcement should follow. Speech never stormed
-                                // here because it does not ride this path.
-                                if (ScreenReaderOutput.CwNotificationsEnabled &&
-                                    ScreenReaderOutput.CwModeAnnounceEnabled &&
-                                    ScreenReaderOutput.PlayCwMode != null &&
-                                    ReferenceEquals(s, theRadio?.ActiveSlice))
-                                    _ = ScreenReaderOutput.PlayCwMode(s.DemodMode);
+                                // (The storm only became audible once the player was serialized
+                                // by EarconCwOutput's single-reader FIFO. Before that the four
+                                // announcements overlapped into garble that read as one broken
+                                // noise rather than four correct ones. Fixing the garbling made
+                                // the real defect legible; the count was always four.)
+                                AnnounceSliceIdentity(s);
 
                                 // Firmware leaves NRLOn flag set across mode round-trips but stops
                                 // applying Legacy NR processing. The user-visible workaround is to
@@ -7016,6 +7110,10 @@ namespace Radios
                 }
                 Tracing.TraceLine("sliceAdded:mine " + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                 SliceCountChanged?.Invoke();
+                // #58: opens the bulk window and restarts the settle timer, so
+                // a connect that delivers four slices produces ONE census
+                // instead of four per-slice announcements.
+                NoteSliceSetChanged();
                 if (slc.IsTransmitSlice)
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
@@ -7078,6 +7176,11 @@ namespace Radios
                     mySliceRemoved = true;
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                     SliceCountChanged?.Invoke();
+                    // #58 and #117: one census after the set settles, and — when
+                    // the operator asked for it — the receipt saying the change
+                    // is provisional. Releasing three slices in a burst still
+                    // costs exactly one of each.
+                    NoteSliceSetChanged();
                 }
             }
             else Tracing.TraceLine("sliceRemoved:not mine" + slc.ToString(), TraceLevel.Info);
@@ -7281,11 +7384,10 @@ namespace Radios
         private void forwardPowerData(float data)
         {
             Tracing.TraceLine("forwardPower:" + data.ToString(), TraceLevel.Verbose);
-            if (_PowerDBM != data)
-            {
-                _PowerDBM = data;
-                MeterChanged?.Invoke(this, MeterType.Power, data);
-            }
+            // The change guard here existed only to avoid re-raising
+            // MeterChanged for a repeated value. With that event gone the
+            // comparison decides nothing, so the assignment stands alone.
+            _PowerDBM = data;
         }
 
         protected float _SWR;
@@ -7296,7 +7398,6 @@ namespace Radios
         {
             Tracing.TraceLine("SWRData:" + data.ToString(), TraceLevel.Verbose);
             _SWR = data;
-            MeterChanged?.Invoke(this, MeterType.SWR, data);
         }
 
         private string SWRText()
@@ -7315,10 +7416,9 @@ namespace Radios
             _MicData = data;
             // Inventory first so the trace reads in order: what the radio has,
             // then which of the two TX meters we managed to hook out of it.
-            traceMeterInventory(); // cheap no-op unless the meter count has changed
+            syncMeterInventory(); // cheap no-op unless the meter set has changed
             hookTxMeters(); // lazy: SC_MIC / SW ALC meters register late
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
-            MeterChanged?.Invoke(this, MeterType.Mic, data);
         }
 
         internal float _MicPeakData;
@@ -7336,7 +7436,6 @@ namespace Radios
         {
             Tracing.TraceLine("compPeakData:" + data.ToString(), TraceLevel.Verbose);
             _CompPeakData = data;
-            MeterChanged?.Invoke(this, MeterType.Compression, data);
         }
 
         private float _ALC;
@@ -7353,7 +7452,6 @@ namespace Radios
         {
             _ALC = data;
             Tracing.TraceLine("hwALCData:" + data.ToString(), TraceLevel.Verbose);
-            MeterChanged?.Invoke(this, MeterType.ALC, data);
         }
 
         // --- Transmit-audio meters (2026-08-11) ------------------------------
@@ -7400,6 +7498,138 @@ namespace Radios
         public void ResetScMicMax() => _scMicMaxDb = -150f;
         private int _meterInventoryCount = -1;
 
+        // --- The whole meter inventory, identity preserved (Sprint 32 Track A) ---
+        //
+        // FlexLib raises Meter.DataReady(Meter, float) for every meter the radio
+        // publishes — the meter itself comes with the reading, carrying name,
+        // source, source index, units and range. FlexBase historically subscribed
+        // instead to ten NAMED convenience events (MicDataReady, SWRDataReady and
+        // the rest), threw the meter away, and re-emitted MeterType, an eight-value
+        // enum. An 8600 reports 102 meters. Everything past that boundary was
+        // choosing from eight because identity had already been destroyed, and
+        // nothing above a lossy adapter can recover what the adapter dropped.
+        //
+        // So: subscribe generically, once per meter, and re-raise with the meter
+        // intact. MeterType and MeterChanged were left alive here as a shim and
+        // then retired by Track B, the track that rebuilt the meters panel, once
+        // MeterToneEngine — their only consumer — had moved onto MeterData.
+
+        private readonly object _meterHookLock = new object();
+
+        /// <summary>Meters already subscribed, by object identity rather than
+        /// index. A removed-then-re-added meter is a NEW Meter object that may
+        /// reuse its index, and identity is the only comparison that hooks it.</summary>
+        private readonly HashSet<Meter> _hookedMeters = new HashSet<Meter>();
+
+        private int _meterSyncTime;
+
+        /// <summary>Every meter the radio currently publishes, or an empty list
+        /// when there is no radio. A snapshot: FlexLib copies under its own lock,
+        /// so the returned list never mutates underneath a caller.</summary>
+        public ImmutableList<Meter> RadioMeters =>
+            theRadio?.GetMeters() ?? ImmutableList<Meter>.Empty;
+
+        /// <summary>Any meter reported a value, with the meter itself.
+        /// <para>Fires at meter rate for every meter the radio publishes, on
+        /// FlexLib's meter thread. Handlers must be cheap and must not block.</para></summary>
+        public delegate void MeterDataDel(object sender, Meter meter, float value);
+
+        /// <summary>Raised for every reading of every meter, meter identity intact.
+        /// The only meter feed there is: the older eight-value MeterChanged path
+        /// was retired in Sprint 32 Track B.</summary>
+        public event MeterDataDel MeterData;
+
+        /// <summary>The SET of meters the radio publishes changed.
+        /// <para>Load-bearing: FlexLib raises nothing when a meter appears, and the
+        /// list GROWS DURING REGISTRATION — an early snapshot catches eleven meters
+        /// with the TX-side ones still to arrive. Bind to this rather than sampling
+        /// the inventory once at construction.</para></summary>
+        public event EventHandler MeterInventoryChanged;
+
+        /// <summary>
+        /// Reconcile our subscriptions with the radio's meter list, and announce
+        /// the list when it changes.
+        /// <para>Throttled to twice a second. It is driven from every meter
+        /// reading (see <see cref="onMeterDataReady"/>) so that ANY streaming
+        /// meter keeps the inventory fresh — the census must not depend on one
+        /// particular meter existing — and also from <c>micData</c>, which is what
+        /// gets it started before anything is hooked.</para>
+        /// </summary>
+        private void syncMeterInventory()
+        {
+            Radio radio = theRadio;
+            if (radio == null) return;
+
+            int now = Environment.TickCount;
+            if (_meterInventoryCount >= 0 && (now - _meterSyncTime) < 500) return;
+
+            bool changed;
+            ImmutableList<Meter> snapshot;
+            try
+            {
+                lock (_meterHookLock)
+                {
+                    _meterSyncTime = now;
+                    snapshot = radio.GetMeters();
+                    changed = snapshot.Count != _meterInventoryCount;
+
+                    foreach (Meter m in snapshot)
+                    {
+                        if (_hookedMeters.Add(m))
+                        {
+                            m.DataReady += onMeterDataReady;
+                            changed = true;
+                        }
+                    }
+
+                    if (!changed) return;
+                    _meterInventoryCount = snapshot.Count;
+
+                    // Meters that have gone away leave dead references behind, and
+                    // this runs for the life of the connection. Prune on the same
+                    // pass that noticed the change; nothing else can notice it.
+                    if (_hookedMeters.Count != snapshot.Count)
+                        _hookedMeters.IntersectWith(snapshot);
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("syncMeterInventory: " + ex.Message, TraceLevel.Warning);
+                return;
+            }
+
+            // Outside the lock. Tracing 102 lines is 102 file writes, and a
+            // handler on MeterInventoryChanged is somebody else's code.
+            traceMeterInventory(snapshot);
+            MeterInventoryChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// One handler for every meter on the radio. Re-raises with the meter
+        /// intact, then lets the reading drive the next inventory reconcile —
+        /// which is what makes late-arriving meters self-healing rather than
+        /// dependent on a poll somebody remembered to start.
+        /// </summary>
+        private void onMeterDataReady(Meter meter, float data)
+        {
+            MeterData?.Invoke(this, meter, data);
+            syncMeterInventory();
+        }
+
+        /// <summary>
+        /// Forget every meter subscription. Called when the radio goes away: the
+        /// Meter objects go with it, and a fresh connect publishes new ones.
+        /// </summary>
+        private void resetMeterInventory()
+        {
+            lock (_meterHookLock)
+            {
+                _hookedMeters.Clear();
+                _meterInventoryCount = -1;
+                _meterSyncTime = 0;
+            }
+        }
+
         /// <summary>
         /// Trace the meter inventory the radio reports about itself, once per
         /// connect.
@@ -7412,76 +7642,26 @@ namespace Radios
         /// hardcoded subset. What an 8600 running four slices reports — how
         /// many, under what names, in what units, and which are per-slice — is
         /// simply unknown.</para>
-        /// <para>Reflection, deliberately, and only here. FlexLib exposes
-        /// <c>FindMeterByName</c> publicly but keeps the list itself private, so
-        /// there is no supported way to enumerate. Editing vendor FlexLib is the
-        /// worse option: every edit has to be re-applied by hand on each upgrade
-        /// (see MIGRATION.md). Treat this as scaffolding — a meter picker that
-        /// offers what the radio really has needs a proper accessor, and that is
-        /// a documented FlexLib patch rather than this. MIGRATION.md carries the
-        /// exact patch, reviewed 2026-08-16.</para>
+        /// <para>Enumerated through <c>Radio.GetMeters()</c>, the JJFlex patch in
+        /// <c>FlexLib_API/FlexLib/Radio.cs</c> (MIGRATION.md reapply item 11).
+        /// This method reached the same private field by reflection until
+        /// 2026-08-19; the patch replaced it, and the reflection was deleted in
+        /// the same commit, because two routes to one private field is how one
+        /// of them rots unnoticed.</para>
         /// </summary>
         /// <remarks>
-        /// Called from <c>micData</c> on every mic-meter event, so the cheap
-        /// count comparison below is load-bearing, not an optimisation.
+        /// <para>Called by <see cref="syncMeterInventory"/> only when the set has
+        /// actually changed, and outside its lock. Re-logging whenever the set
+        /// CHANGES rather than once is deliberate: the first version fired a
+        /// single time off the first mic-meter event, which turned out to
+        /// snapshot the radio mid-registration — eleven meters, with the TX-side
+        /// ones still to arrive. A truncated census is worse than none, because
+        /// the meters subsystem is designed against exactly this list.</para>
         /// </remarks>
-        private void traceMeterInventory()
+        private void traceMeterInventory(ImmutableList<Meter> snapshot)
         {
-            if (theRadio == null) return;
             try
             {
-                // Resolved once. This runs at meter rate, and a GetField by
-                // string on every call is a name lookup per mic-meter event
-                // for a value that cannot change within a process.
-                if (!_meterListFieldResolved)
-                {
-                    _meterListFieldResolved = true;
-                    _meterListField = theRadio.GetType().GetField("_meters",
-                        System.Reflection.BindingFlags.NonPublic |
-                        System.Reflection.BindingFlags.Instance);
-                }
-
-                if (_meterListField?.GetValue(theRadio) is not IEnumerable raw)
-                {
-                    if (_meterInventoryCount == -1)
-                        Tracing.TraceLine(
-                            "meterInventory: cannot reach FlexLib's meter list — layout changed?",
-                            TraceLevel.Warning);
-                    _meterInventoryCount = 0;
-                    return;
-                }
-
-                // Re-log whenever the set CHANGES, not once. The first version of
-                // this fired a single time off the first mic-meter event, which
-                // turned out to snapshot the radio mid-registration: eleven
-                // meters, with the TX-side ones still to arrive. A truncated
-                // census is worse than none, because the meters subsystem is
-                // being designed against exactly this list.
-                //
-                // Snapshot under FlexLib's lock, then trace OUTSIDE it. FlexLib
-                // guards this list with `lock (_meters)`, locking the instance
-                // itself, so locking the same reference is a real handshake
-                // rather than a hopeful one — but 102 TraceLine calls are 102
-                // file writes, and holding the radio's meter lock across them
-                // stalls every meter update and every FindMeterByName in the
-                // radio, at exactly the moment the TX meters are registering.
-                List<Meter> snapshot;
-                lock (raw)
-                {
-                    // The common path: nothing changed, nothing allocated.
-                    if (raw is ICollection col && col.Count == _meterInventoryCount) return;
-
-                    snapshot = new List<Meter>();
-                    foreach (var o in raw)
-                        if (o is Meter m) snapshot.Add(m);
-                }
-
-                // Second guard, for the case where the list is not an
-                // ICollection: without it an unchanged inventory would re-log
-                // in full on every mic-meter event.
-                if (snapshot.Count == _meterInventoryCount) return;
-                _meterInventoryCount = snapshot.Count;
-
                 foreach (var m in snapshot)
                 {
                     Tracing.TraceLine("meterInventory: [" + m.Index + "] " + m.Name
@@ -7498,9 +7678,6 @@ namespace Radios
                 Tracing.TraceLine("meterInventory: " + ex.Message, TraceLevel.Warning);
             }
         }
-
-        private static System.Reflection.FieldInfo _meterListField;
-        private static bool _meterListFieldResolved;
 
         /// <summary>
         /// Subscribe to SC_MIC and SW ALC, lazily — the TX meters register
@@ -7690,7 +7867,6 @@ namespace Radios
         {
             Tracing.TraceLine("PATempDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _PATempData = data;
-            MeterChanged?.Invoke(this, MeterType.PATemp, data);
         }
 
         /// <summary>PA temperature in degrees C.</summary>
@@ -7701,7 +7877,6 @@ namespace Radios
         {
             Tracing.TraceLine("VoltsDataHandler:" + data.ToString(), TraceLevel.Verbose);
             _VoltsData = data;
-            MeterChanged?.Invoke(this, MeterType.Voltage, data);
         }
 
         /// <summary>Supply voltage.</summary>
@@ -7748,7 +7923,6 @@ namespace Radios
                 {
                     Tracing.TraceLine("sMeterData:" + s.Index + ' ' + data.ToString(), TraceLevel.Verbose);
                     parent._SMeter = (int)data;
-                    parent.MeterChanged?.Invoke(parent, MeterType.SMeter, data);
                 }
             }
 
@@ -11694,6 +11868,38 @@ namespace Radios
                 VerbosityLevel.Critical);
         }
 
+        // ── The radio's own save-on-change concept (Sprint 32 Track H, #117) ──
+        //
+        // READ ONLY, ON PURPOSE. This is deliberately a getter with no setter.
+        //
+        // The radio has an autosave concept of its own and REPORTS it: FlexLib
+        // parses "radio auto_save=1|0" into Radio.ProfileAutoSave. That answers
+        // the first question — whether the radio has the feature at all — from
+        // the wire rather than from a guess, and it answers it without writing
+        // anything to a radio that may have other clients on it.
+        //
+        // What it does NOT answer is what the radio actually DOES when the flag
+        // is on: which profile is written, at what moment, and whether a second
+        // MultiFlex client's state is folded in. Those are radio-side semantics.
+        // FlexLib's setter is one line that sends a command, so no amount of
+        // reading our source or theirs can tell us; it needs a bench session.
+        // Until it has had one, nothing here turns it on.
+        //
+        // Note also that FlexLib carries TWO ways to send this and they do not
+        // agree. Radio.ProfileAutoSave sends `profile autosave on|off`
+        // unquoted, and is the half wired to the status parser. The older
+        // Radio.AutoSaveProfile(string) sends `profile autosave "<state>"`,
+        // quoted, with no status handling and no caller anywhere. Whether the
+        // radio accepts the quoted form is itself unverified — so if autosave is
+        // ever driven from here, drive it through the property.
+
+        /// <summary>
+        /// What the radio reports about its own profile autosave setting, or
+        /// null when there is no radio to ask. Never written by this
+        /// application.
+        /// </summary>
+        public bool? RadioProfileAutoSave => theRadio?.ProfileAutoSave;
+
         /// <summary>
         /// Save a global profile.
         /// </summary>
@@ -11742,6 +11948,112 @@ namespace Radios
             }
             // Don't save other profiles.
             return rv;
+        }
+
+        // ── The operator's profile list: add and update (Sprint 32 Track H) ──
+        //
+        // These are the two verbs the Profiles dialog has been stubbed on since
+        // it was written — OnAdd and OnUpdate spoke "not yet available" AFTER
+        // the operator had navigated to the button and pressed it. Without them
+        // Save can only overwrite the profile you are already on, so there was
+        // no way to keep a four-slice layout and build a one-slice layout beside
+        // it.
+        //
+        // WHAT THESE DO NOT DO IS AS IMPORTANT AS WHAT THEY DO. They do not
+        // write anything to the radio. In Jim's design — which the WinForms
+        // Profile dialog still implements and which this restores rather than
+        // replaces — the operator's list is a list of NAMES the operator cares
+        // about, with at most one default per type; the radio-side write is
+        // <see cref="SaveProfile"/>, reached from the dialog's own Save button.
+        // So "add a global profile then save it" is the Save As that was
+        // missing, in two deliberate steps, and neither step can surprise
+        // somebody else's radio.
+        //
+        // One default per type is enforced on the way in, matching the WinForms
+        // dialog. The alternative — two profiles both claiming default — makes
+        // GetProfileInfo's crnt[0] pick silently arbitrary at the next connect.
+
+        /// <summary>
+        /// Add a profile to the operator's list, clearing any other default of
+        /// the same type when this one is marked default. Writes nothing to the
+        /// radio. Returns false when the name is already taken for that type.
+        /// </summary>
+        public bool AddOperatorProfile(Profile_t p, List<Profile_t> lst = null)
+        {
+            if (p == null || string.IsNullOrWhiteSpace(p.Name)) return false;
+            if (lst == null) lst = Callouts?.Profiles;
+            if (lst == null) return false;
+            if (GetProfileByName(p.Name, p.ProfileType, lst) != null) return false;
+
+            Tracing.TraceLine("AddOperatorProfile:" + p.ToString(), TraceLevel.Info);
+            if (p.Default) ClearDefaultOfType(p.ProfileType, lst);
+            lst.Add(p);
+            PersistOperatorProfiles();
+            return true;
+        }
+
+        /// <summary>
+        /// Replace an entry in the operator's list. Writes nothing to the
+        /// radio: renaming here renames the operator's REFERENCE, and a profile
+        /// that already exists on the radio keeps its own name until something
+        /// saves under the new one.
+        /// </summary>
+        public bool UpdateOperatorProfile(
+            Profile_t original, Profile_t replacement, List<Profile_t> lst = null)
+        {
+            if (original == null || replacement == null) return false;
+            if (string.IsNullOrWhiteSpace(replacement.Name)) return false;
+            if (lst == null) lst = Callouts?.Profiles;
+            if (lst == null) return false;
+
+            // The entry may be a rig profile the operator has never adopted —
+            // GetRigProfiles hands back fresh objects that are not in the list.
+            // Updating one of those ADOPTS it, which is the useful reading of
+            // the verb and matches what the operator just described in the
+            // dialog.
+            int at = lst.IndexOf(original);
+            if (at < 0)
+            {
+                Profile_t existing = GetProfileByName(
+                    original.Name, original.ProfileType, lst);
+                at = existing != null ? lst.IndexOf(existing) : -1;
+            }
+
+            // Refuse a rename that collides with a different existing entry.
+            Profile_t clash = GetProfileByName(
+                replacement.Name, replacement.ProfileType, lst);
+            if (clash != null && (at < 0 || !ReferenceEquals(clash, lst[at])))
+                return false;
+
+            Tracing.TraceLine(
+                "UpdateOperatorProfile:" + original.ToString() + " -> " + replacement.ToString(),
+                TraceLevel.Info);
+            if (replacement.Default) ClearDefaultOfType(replacement.ProfileType, lst);
+            if (at >= 0) lst[at] = replacement;
+            else lst.Add(replacement);
+            PersistOperatorProfiles();
+            return true;
+        }
+
+        /// <summary>Clear the default flag on every profile of one type.</summary>
+        private void ClearDefaultOfType(ProfileTypes typ, List<Profile_t> lst)
+        {
+            foreach (Profile_t p in GetProfilesByType(typ, lst)) p.Default = false;
+        }
+
+        /// <summary>
+        /// Ask the application to write the operator's record to disk. A no-op
+        /// when nothing wired the callout, so the Radios layer never has to know
+        /// how the operator's file is stored.
+        /// </summary>
+        private void PersistOperatorProfiles()
+        {
+            try { Callouts?.SaveOperator?.Invoke(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "PersistOperatorProfiles:" + ex.Message, TraceLevel.Error);
+            }
         }
 
         public bool DeleteProfile(Profile_t prof, List<Profile_t> lst = null)
@@ -11797,6 +12109,10 @@ namespace Radios
             if (rv & (p != null))
             {
                 lst.Remove(p);
+                // The WinForms dialog wrote the operator's record after every
+                // delete; the WPF one never did, so a deleted profile came back
+                // on the next launch. (Sprint 32 Track H.)
+                PersistOperatorProfiles();
             }
             return rv;
         }
@@ -11905,6 +12221,9 @@ namespace Radios
             int myRXSliceIndex = VFOToSliceIndex(RXVFO);
             int myTXSliceIndex = VFOToSliceIndex(TXVFO);
             mySliceAdded = false; // need to know when slice added.
+            // #117: this application asked, so the resulting layout is
+            // provisional and the operator gets told so once it settles.
+            NoteOperatorChangedSliceSet();
             q.Enqueue((FunctionDel)(() =>
             {
                 theRadio.RequestPanafall();
@@ -11957,6 +12276,10 @@ namespace Radios
 
             Tracing.TraceLine($"RemoveSlice:letter={slc.Letter} count={MyNumSlices}", TraceLevel.Info);
             mySliceRemoved = false;
+            // #117: the release will succeed and will not survive disconnect.
+            // Noted here, spoken once the set settles — so "release all extras"
+            // still costs one receipt, not one per slice.
+            NoteOperatorChangedSliceSet();
             _pendingRemovals++;
             q.Enqueue((FunctionDel)(() =>
             {
@@ -11974,6 +12297,208 @@ namespace Radios
             }));
             return true;
         }
+
+        // ══ The slice vocabulary, and the provisional-change receipt ══
+        //
+        // Sprint 32 Track H, #58 and #117. Two separate problems that turn out
+        // to share one trigger, so they share one debounce.
+        //
+        // #58 is the CW vocabulary Noel specified on 2026-08-19: a CENSUS of
+        // "<used>/<total>" when the slice set changes, and "SL <letter> <mode>"
+        // when the operator moves to a slice or changes its mode. Both formats
+        // are approved copy and are not to be reworded.
+        //
+        // #117 is the persistence receipt. Releasing a slice succeeds, sounds
+        // successful, and is silently discarded at disconnect, because THE
+        // SLICES ARE NOT OURS: this application contains zero slice-creation
+        // calls, and the radio restores its slice layout from its own global
+        // profile on the next connect. Slice create and delete work correctly —
+        // the defect is that nothing tells the operator the change is
+        // provisional.
+        //
+        // The receipt is deliberately NOT a prompt at disconnect, for two
+        // reasons that were both worked out before any code was written. First,
+        // the disconnect moment is not the power-off moment: a networked radio
+        // does not power down when a client leaves, and under MultiFlex another
+        // operator may still be on it, so an automatic save can capture
+        // somebody else's layout and overwrite a global profile with a state
+        // this operator never chose. Second, an unsaved-changes prompt fires
+        // whether or not anything meaningful changed, so operators learn to
+        // dismiss it reflexively — and a prompt trained to be dismissed is
+        // worse than no prompt, because it creates the belief that the operator
+        // was asked.
+        //
+        // Notify where there is context; prompt only where there is a real
+        // choice. This is the notification.
+
+        /// <summary>
+        /// The trailing clause spoken after a provisional slice change. The
+        /// operator has just heard the change itself from whichever surface
+        /// they used ("Slice D released, 3 active"), so this adds only what
+        /// none of those surfaces could know.
+        /// </summary>
+        private const string ProvisionalSliceChangeReceipt =
+            "This will not survive disconnect unless you save the profile.";
+
+        /// <summary>
+        /// How long the slice set must be quiet before it counts as settled.
+        /// One connect delivers several slices in a burst and
+        /// <see cref="GetProfileInfo"/> can add more over the following seconds,
+        /// so the timer RESTARTS on every change and fires only after the last
+        /// one. That is what turns four arrivals into one census.
+        /// </summary>
+        private const int SliceSetSettleMs = 1500;
+
+        private System.Threading.Timer _sliceSettleTimer;
+        private readonly object _sliceSettleLock = new object();
+
+        /// <summary>
+        /// True while the slice set is churning. Suppresses the per-slice
+        /// announcement, so a bulk replay produces the census and nothing else.
+        /// This is what replaces the old ActiveSlice guard: the announcement is
+        /// silenced because the EVENT is bulk, not because one slice was picked
+        /// out of it as representative.
+        /// </summary>
+        private volatile bool _sliceSetChurning;
+
+        /// <summary>
+        /// Set when this application asked for the slice change, cleared when
+        /// the receipt has been given. Slices arriving from the radio's own
+        /// profile on connect must never produce the receipt — nothing is
+        /// provisional about the layout the radio just restored.
+        /// </summary>
+        private volatile bool _operatorChangedSliceSet;
+
+        /// <summary>
+        /// Note that the slice set has changed and (re)start the settle timer.
+        /// Called from the slice added and removed handlers.
+        /// </summary>
+        private void NoteSliceSetChanged()
+        {
+            _sliceSetChurning = true;
+            lock (_sliceSettleLock)
+            {
+                if (_sliceSettleTimer == null)
+                {
+                    _sliceSettleTimer = new System.Threading.Timer(
+                        _ => OnSliceSetSettled(), null,
+                        SliceSetSettleMs, System.Threading.Timeout.Infinite);
+                }
+                else
+                {
+                    try
+                    {
+                        _sliceSettleTimer.Change(
+                            SliceSetSettleMs, System.Threading.Timeout.Infinite);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+
+        private void OnSliceSetSettled()
+        {
+            _sliceSetChurning = false;
+            bool operatorDid = _operatorChangedSliceSet;
+            _operatorChangedSliceSet = false;
+
+            // Slices also disappear on the way out. Saying anything then is
+            // noise at best and a crash at worst.
+            if (Disconnecting || theRadio == null) return;
+
+            AnnounceSliceCensus();
+            if (operatorDid) SpeakProvisionalSliceChangeReceipt();
+        }
+
+        /// <summary>
+        /// The census: "&lt;used&gt;/&lt;total&gt;" in CW. Three slices open on a
+        /// four-slice radio sends "3/4"; a full radio sends "4/4".
+        /// </summary>
+        /// <remarks>
+        /// Used-over-total rather than a bare free count, recorded so it is not
+        /// re-litigated: THE DENOMINATOR VARIES BY MODEL — two slices on a 6300
+        /// or 8400, four on a 6600 or 8600, eight on a 6700. "One free" means
+        /// something very different on a 6700 than on an 8600 and forces the
+        /// operator to remember which radio they are on to interpret it. "3/4"
+        /// carries both numbers in one token, makes "4/4" read unmistakably as
+        /// full, and leaves the free count trivially derivable.
+        ///
+        /// The total comes from <c>Radio.MaxSlices</c>, the radio's own report
+        /// of its ceiling — NOT from <c>AvailableSlices</c>, which is remaining
+        /// capacity and is the wrong number for a denominator. The one guard is
+        /// for a radio that has not yet answered with its ceiling: rather than
+        /// send "3/0" we fall back to <see cref="TotalMaxSlices"/>, the model
+        /// table, which is right for every model listed there.
+        ///
+        /// The numerator matches the denominator's scope. MaxSlices is a
+        /// property of the RADIO, so the count of slices in use has to be the
+        /// radio's too — under MultiFlex a fraction mixing "mine" over "the
+        /// radio's" would be incoherent.
+        /// </remarks>
+        internal void AnnounceSliceCensus()
+        {
+            if (!ScreenReaderOutput.CwNotificationsEnabled) return;
+            if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;
+            var play = ScreenReaderOutput.PlayCwText;
+            if (play == null) return;
+
+            var radio = theRadio;
+            if (radio == null) return;
+
+            int total = radio.MaxSlices > 0 ? radio.MaxSlices : TotalMaxSlices;
+            int used = radio.SliceList?.Count ?? 0;
+            if (total <= 0) return;
+
+            Tracing.TraceLine(
+                $"AnnounceSliceCensus:{used}/{total} (radio.MaxSlices={radio.MaxSlices} "
+                + $"model={TotalMaxSlices} mine={MyNumSlices})", TraceLevel.Info);
+            _ = play($"{used}/{total}");
+        }
+
+        /// <summary>
+        /// "SL &lt;letter&gt; &lt;mode&gt;" in CW — an identity plus a state, for
+        /// a single slice the operator just arrived on or just re-moded.
+        /// Silent during a bulk change, where the census speaks instead.
+        /// </summary>
+        private void AnnounceSliceIdentity(Slice s)
+        {
+            if (s == null) return;
+            if (_sliceSetChurning) return;
+            if (!ScreenReaderOutput.CwNotificationsEnabled) return;
+            if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;
+            var play = ScreenReaderOutput.PlayCwText;
+            if (play == null) return;
+
+            string letter = s.Letter;
+            string mode = s.DemodMode;
+            if (string.IsNullOrEmpty(letter) || string.IsNullOrEmpty(mode)) return;
+
+            _ = play($"SL {letter} {mode}");
+        }
+
+        /// <summary>
+        /// Say once, after a settled operator-initiated slice change, that the
+        /// change is provisional. Queued rather than interrupting: the surface
+        /// the operator used has already spoken the change itself, and this is
+        /// the second half of that sentence, not a replacement for it.
+        /// </summary>
+        private void SpeakProvisionalSliceChangeReceipt()
+        {
+            if (SuppressSpeech) return;
+            ScreenReaderOutput.Speak(
+                ProvisionalSliceChangeReceipt,
+                Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse);
+        }
+
+        /// <summary>
+        /// Record that THIS application asked for the slice set to change, so
+        /// the settle handler knows to give the persistence receipt. Called by
+        /// <see cref="NewSlice"/> and <see cref="RemoveSlice(Slice)"/> — never
+        /// by the arrival handlers, which also fire for the radio's own
+        /// profile restore on connect.
+        /// </summary>
+        private void NoteOperatorChangedSliceSet() => _operatorChangedSliceSet = true;
 
         /// <summary>
         /// true if can transmit (currently unused)
@@ -13253,6 +13778,21 @@ namespace Radios
             /// List of user's profiles
             /// </summary>
             public List<Profile_t> Profiles;
+
+            /// <summary>
+            /// Ask the application to persist the operator's record, after the
+            /// radio layer has changed <see cref="Profiles"/>.
+            ///
+            /// Added Sprint 32 Track H. The list handed in above is the SAME
+            /// object the application holds, so mutating it here is already
+            /// visible to the app — but only in memory. The WinForms Profile
+            /// dialog wrote the operator's file itself after every add, update
+            /// and delete; the WPF one could not, because the Radios layer sits
+            /// below the application and has no idea where that file lives.
+            /// This is the one line that closes the gap. Optional: unwired means
+            /// changes live for the session and no more.
+            /// </summary>
+            public Action SaveOperator;
         }
         /// <summary>
         /// Callout vector provided at open(). MUST be public: this field
@@ -13436,7 +13976,21 @@ namespace Radios
 
             p.NextValue1 = setNextValue1;
             p.GetSWRText = SWRText;
+
+            // Built here, not on demand, and it lives as long as the rig does.
+            // The meter inventory is a property of the radio rather than of any
+            // window: it has to be following the set from the first connect,
+            // because meters arrive late and nothing announces them.
+            MeterInventory = new MeterInventory(this);
         }
+
+        /// <summary>
+        /// Every meter this radio publishes, with source, range, units, current
+        /// value and last-update time, partitioned by source. Never null, and
+        /// live from construction — bind to its InventoryChanged rather than
+        /// reading it once, because the meter list grows during registration.
+        /// </summary>
+        public MeterInventory MeterInventory { get; }
 
         // main thread region
         #region mainThread
@@ -13749,6 +14303,21 @@ namespace Radios
             // failure out loud. See CheckMicProfileForSilentTx.
             CheckMicProfileForSilentTx();
 
+            // Record the radio's own autosave setting once per connect (Sprint 32
+            // Track H, #117). Reading only — this is here so the question "does
+            // this radio already save its own profiles?" can be answered from a
+            // trace file the operator can send, instead of by turning the
+            // feature on to find out. Cheap, and it is the observation the
+            // autosave decision is waiting on.
+            Tracing.TraceLine(
+                "GetProfileInfo:radio profile autosave="
+                + (RadioProfileAutoSave.HasValue
+                    ? RadioProfileAutoSave.Value.ToString()
+                    : "unknown")
+                + ", global selection="
+                + (theRadio?.ProfileGlobalSelection ?? "none"),
+                TraceLevel.Info);
+
             // Allocate any free slices.
             if (MyNumSlices < initialFreeSlices)
             {
@@ -14032,9 +14601,9 @@ namespace Radios
             }
         }
 
-        /// <summary>Meter data change event — fired from meter callbacks for sonification.</summary>
-        public delegate void MeterChangedDel(object sender, MeterType meter, float value);
-        public event MeterChangedDel MeterChanged;
+        // MeterChangedDel / MeterChanged retired in Sprint 32 Track B. Meter
+        // sonification subscribes to MeterData instead, which carries the Meter
+        // itself; see the meter-inventory section above.
 
         /// <summary>Raw S-meter value in dBm (before S-unit conversion).</summary>
         public int SMeterRaw => _SMeter;
