@@ -149,6 +149,9 @@ namespace JJPortaudio
                 _stopReason = StopReason.None;
                 _faultMessage = "";
                 _finishedSeconds = 0;
+                // Clear it here, not on stop: a later recording that fails
+                // must not be able to report the previous one's file.
+                LastSavedPath = "";
             }
 
             var probe = new MicProbe();
@@ -209,9 +212,24 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// The finished file from the last recording, or empty if that
+        /// recording produced nothing usable.
+        /// </summary>
+        /// <remarks>
+        /// Remembered rather than only returned, because the recorder can stop
+        /// ITSELF — at the length cap, or on a write fault — and the surface
+        /// that then calls <see cref="Stop"/> to tidy up would otherwise be
+        /// told "nothing was captured" about a recording that is sitting
+        /// complete on disk. Announcing a successful take as a failure is a
+        /// worse bug than most failures.
+        /// </remarks>
+        public string LastSavedPath { get; private set; } = "";
+
+        /// <summary>
         /// Stop recording and close the file. Safe when nothing is running and
         /// safe twice. Returns the finished file's path, or empty if there is
-        /// no usable file.
+        /// no usable file — and returns the same answer both times, so a
+        /// caller tidying up after a self-stop hears the truth.
         /// </summary>
         public string Stop() => StopInternal(StopReason.Requested, "");
 
@@ -228,7 +246,9 @@ namespace JJPortaudio
                 path = Path;
                 _probe = null;
                 _writer = null;
-                if (probe == null && writer == null) return "";
+                // Already stopped — by the cap, by a fault, or by an earlier
+                // call. Report what that stop produced rather than nothing.
+                if (probe == null && writer == null) return LastSavedPath;
                 _stopReason = reason;
                 if (!string.IsNullOrEmpty(fault)) _faultMessage = fault;
             }
@@ -265,9 +285,11 @@ namespace JJPortaudio
                     Tracing.TraceLine("MicRecorder: could not remove the empty file: "
                         + ex.Message, TraceLevel.Warning);
                 }
+                LastSavedPath = "";
                 return "";
             }
 
+            LastSavedPath = path;
             return path;
         }
 

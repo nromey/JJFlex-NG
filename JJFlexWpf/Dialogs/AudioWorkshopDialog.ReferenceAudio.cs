@@ -188,12 +188,11 @@ public partial class AudioWorkshopDialog
             if (found >= 0) want = found;
         }
 
+        // One Setup call rather than Setup-then-select: the control raises a
+        // UIA value-change event per call, and a picker that announces itself
+        // twice every time the list is rebuilt is noise, not information.
         _polling = true;
-        try
-        {
-            _refPickControl.Setup("Reference recording", labels.ToArray());
-            if (want < labels.Count) _refPickControl.SelectedIndex = want;
-        }
+        try { _refPickControl.Setup("Reference recording", labels.ToArray(), want); }
         finally { _polling = false; }
 
         UpdateReferenceStatus();
