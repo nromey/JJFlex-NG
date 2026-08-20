@@ -1,133 +1,115 @@
-# Sprint 32 Track A — The meter inventory (foundation)
+# Sprint 32 Track D — Amplifier support
 
-**Worktree:** `C:\dev\jjflex-32a` · **Branch:** `sprint32/track-a`
-**Full design:** `docs/planning/active/elmer-meter-pileup.md`, section "Track A".
-**Read that first.** It carries the reasoning; this file carries the contract.
+**Worktree:** `C:\dev\jjflex-32d` · **Branch:** `sprint32/track-d`
+**Branched off Track A's Phase 1** (`9954c395`), so the meter inventory is
+already in your tree. **Full design:** `docs/planning/active/elmer-meter-pileup.md`,
+section "Track D". Read that first.
 
-## You are the blocking track
+## There is nothing to wait for
 
-Tracks B, C and D cannot start until you report **Phase 1 committed**. Track E is
-waiting specifically on your A4 commit. Get Phase 1 done and reported before you
-touch Phase 2 — a fast Phase 1 unblocks four other agents.
+Noel asked 4O3A directly for developer material on 2026-08-19. Their answer: **it
+is all in FlexLib and they have no code to give.** Driver downloads exist, but no
+SDK and no samples. That is a green light — no NDA, no SDK request, no follow-up.
 
-## Phase 1 — do these four, commit each separately, then REPORT
+It also means **FlexLib is the entire contract, with no spec behind it.** What
+the hardware publishes at runtime is the only authority, which makes your trace
+capture the actual documentation rather than a nice-to-have.
 
-### A1. Apply the FlexLib meter-list patch
+## What Track A already built for you — the partitioning is DONE
 
-`MIGRATION.md` has a section headed **"Not yet applied: a public accessor for the
-meter list (reviewed 2026-08-16)"**. It contains the exact patch, already
-reviewed. **Apply it as written. Do not redesign it.**
+`Meter.Source` already tags every meter by originating device, and Track A's
+inventory already groups on it. **You do not need a new concept.**
 
-It goes in `FlexLib_API/FlexLib/Radio.cs` next to `FindMeterByName`:
+`Radios.MeterGroup` exposes `Source`, `SourceIndex`, `Meters`, `Label`
+("This radio", "Slice N", "Amplifier or tuner 0xNNNNNNNN") and **`Handle`,
+formatted `0x%08X` — Track A formatted it that way deliberately so it matches
+`Amplifier.Handle` and `Tuner.Handle` and you can join on it.**
 
-```csharp
-/// <summary>JJFlex patch: enumerate the radio's meter inventory.</summary>
-public ImmutableList<Meter> GetMeters()
-{
-    lock (_meters)
-        return _meters.ToImmutableList();
-}
-```
+Also available: `FlexBase.MeterInventory.ForHandle(string handle)` and
+`ForSource(string source, int sourceIndex)`.
 
-Same commit, all of it:
-- Mark it `// JJFlex patch`, the way the VitaSocket edits in that file are marked.
-- Add it to MIGRATION.md's numbered reapply list (it becomes item 11) and move the
-  "Not yet applied" section into the applied list, dated today.
-- **Delete the reflection block inside `FlexBase.traceMeterInventory`.** It reaches
-  the same private field by `GetField("_meters", NonPublic | Instance)`. Two routes
-  to one field is how one of them rots. The method keeps its job — tracing the
-  inventory when the set changes — only its access route changes.
+**Contract notes:** BIND to `InventoryChanged`, never sample once — amp meters
+will arrive *after* the radio's own, so a construction-time snapshot will miss
+them entirely. Events fire on FlexLib's meter thread; marshal before WPF.
 
-This is a vendor-tree edit. It is purely additive, so a future 3-way merge cannot
-conflict with it; it will simply need re-adding if a merge takes the vendor file
-wholesale. That is why MIGRATION.md's reapply list matters.
+## D1. Wire the amplifier
 
-### A2. Identity-preserving meter subscription in `FlexBase`
+`FlexLib_API/FlexLib/Amplifier.cs` gives: `Handle`, `IP`, `Port`, `Model`,
+`SerialNumber`, `Ant`, `State` (PowerUp / SelfCheck / Standby / Idle /
+TransmitA / TransmitB / Fault), `IsOperate`, `OutputConfiguredForAntenna(ant)`,
+`FindMeterByIndex`, `FindMeterByName`, `MeterAdded` / `MeterRemoved` events, and
+its own `List<Meter>`.
 
-FlexLib exposes `Meter.DataReady(Meter meter, float data)` — a generic per-meter
-event carrying the meter itself. `FlexBase` currently subscribes to ten *named
-convenience* events (`MicDataReady`, `SWRDataReady`, …), discards the meter
-identity, and re-emits `MeterType`, an 8-value enum.
+Command: `amplifier set <handle> operate=0/1`. Subscription: `sub amplifier all`.
 
-Subscribe generically and raise a new event that carries the `Meter`.
+On `Radio`: `AmplifierList`, `ActiveAmplifier`, `FindAmplifierByHandle`,
+`EinterlockAmplifierHandlesCsv`, `FindMetersByAmplifier(Amplifier)`.
 
-**DO NOT delete `MeterType` or `MeterChanged`.** `MeterToneEngine` and other
-callers read them and **Track B is the only track permitted to retire them**.
-Leaving the old path alive as a shim is deliberate. Removing it here breaks Track
-B mid-flight.
+## D2. DO NOT conflate two different amplifiers
 
-### A3. The `MeterInventory` service
+`HAAPI.cs` is the 8000-series **built-in** amp: `AmpMode`, `AmpFrequency`,
+`AmpModuleGain`, `AmpXmitState`, `AmpIsSelected`, `AmplifierFault` event;
+subscriptions `sub ha_api amplifier` and `sub ha_api fault`.
 
-**Put it in `Radios`, not `JJFlexWpf`.** The layering runs `Radios` *below*
-`JJFlexWpf`, so anything placed in `JJFlexWpf` is unreachable from the radio layer.
+**Noel's 8600 has HAAPI whether or not an external amp is attached.** An external
+4O3A amp is a separate concept on a separate path. Getting these confused will
+produce a UI that claims an amplifier exists on every 8000-series radio.
 
-Per meter, carry: name, `Meter.Source` (`SLC` / `AMP` / `HAAPI`), `SourceIndex`,
-units, range low and high, current value, and a **last-update timestamp**.
-Staleness is a reading, not an absence — Track C's rules depend on being able to
-say "this meter stopped updating."
+## D3. NOT a bug — do not re-raise
 
-Expose the inventory **partitioned by source and source index**. That is how
-amplifier, tuner and per-slice meters separate, and `Meter.Source` already tags
-every meter this way. Track D needs no new concept, only this.
+`FindMetersByTuner` filters on `SOURCE_AMPLIFIER`. **That is correct**: the TGXL
+piggybacks on the amplifier status stream. This is recorded in
+`4o3a-integration.md` and has been re-derived repeatedly by successive sessions.
+**Read that file before flagging anything in this area as a vendor defect.**
 
-**Change notification is the load-bearing part, do not skip it.** FlexLib raises
-NOTHING when a meter appears, and the list GROWS DURING REGISTRATION — an 8600
-reported 102 meters, and an early snapshot catches eleven with the TX-side ones
-still to arrive. `traceMeterInventory` already does a count-and-set comparison for
-exactly this reason. Do that once, centrally, in the service, and raise an event
-when the set changes. Everything downstream binds to the event rather than
-sampling at construction.
+## D4. Tuner — scaffold only, do not guess
 
-### A4. Split `AudioWorkshopDialog.xaml.cs` — Track E is waiting on this
+`Tuner.cs` is complete: `Handle`, `SerialNumber`, `Version`, `Nickname`, `Model`,
+`OneByThree`, `State` (Standby / Operate / Bypass / Fault), `IsOperate`,
+`IsBypass`, `AutoTune()`, `RelayC1`/`RelayC2`/`RelayL`, `PttA`/`PttB`,
+`Dhcp`/`IP`/`Netmask`/`Gateway`/`Port`, `PortAAnt`/`PortBAnt`, its own
+`List<Meter>` with `AddMeter`/`RemoveMeter`. Commands:
+`tgxl set handle=... mode/bypass=...`, `tgxl autotune handle=...`.
 
-4,866 lines in one file, already declared `partial`, never split. `SettingsDialog`
-in the same folder is already split into six per-tab partial files. Follow that
-existing convention: one file per tab, `AudioWorkshopDialog.<Tab>.cs`.
+Both `Amplifier` and `Tuner` carry meter machinery Flex built deliberately, so
+the tuner almost certainly publishes meters. **But there is no TGXL on site** —
+Noel plans to order one from DXE by end of month. Scaffold read-only if cheap;
+**do not invent behaviour you cannot observe.**
 
-**Pure mechanical move. No behaviour change. Its own commit.** Three tracks add a
-Workshop tab this sprint and a fourth restructures its navigation; without this
-split that is four agents editing one region.
+## D5. Deliverable: a for-noel bench procedure
 
-**Do this commit EARLY in Phase 1** — ideally first — and say so in your report,
-because Track E is blocked on it specifically and on nothing else of yours.
+Verification requires moving the amplifier near the radio, on 120V and network,
+to discover what meters it actually publishes. **Building is not blocked;
+verification is.**
 
-## REPORT NOW — then continue to Phase 2
+Write the procedure to `docs/planning/for-noel/` in the established briefing
+format — numbered steps, `**** ` annotation slots for his answers, prose and
+bullets only, **no tables**. It should be runnable as one session rather than an
+improvised evening.
 
-Report: each commit SHA, confirmation that the reflection is deleted, the
-`MeterInventory` public surface (so B, C and D can code against it), and
-explicitly that A4 has landed.
+**Add one item that costs about ninety seconds while he is already at the radio
+with a client connected:** observe what `profile autosave "<state>"` actually
+does. `Radio.AutoSaveProfile` exists in FlexLib, JJ Flexible never calls it, its
+semantics are radio-side and undocumented, and Track H needs the answer. Reading
+our source proves nothing — our method is one line that sends a command.
 
-## Phase 2 — after you have reported
+## You own these files
 
-### A5. Meter Inventory tab in the Workshop
-
-Read-only. Which meters this radio actually has, what each reads now, grouped by
-source, with staleness shown. Ship this BEFORE any decision tree exists — it
-closes the invisible-meter-list finding (commit `d5aecf2b`) and produces the real
-data needed to write good rules.
-
-### A6. Copyable text export of the inventory
-
-Seeds Track C's evidence block; useful alone.
-
-## You own these files — no other track touches them
-
-`FlexLib_API/FlexLib/Radio.cs` (the patch), `MIGRATION.md`, `FlexBase`'s meter
-subscription section, the new `MeterInventory`, and the `AudioWorkshopDialog`
-partial-file split.
+The amplifier and tuner integration (new files preferred), and any Workshop tab
+partial you add. **Do not edit `FlexBase`'s meter section — Track A's, and done.**
+**Do not edit `MetersPanel`, `MeterToneEngine` or `AudioOutputConfig` — Track B
+owns those and is retiring the old enum.**
 
 ## Rules that apply to every track this sprint
 
 - **Reuse the symbols you are told to reuse. If you conclude one should MOVE or
   CHANGE SIGNATURE, report it — do not do it.** A clean `git merge` with zero
-  textual conflict still broke the build in Sprint 30 because one track moved a
-  symbol another was told to reuse. Git cannot see that class of collision.
-- **NO tables, diagrams or ASCII art** in any doc or comment you write. Prose or
-  bullets. The primary user is blind and uses NVDA.
+  textual conflict still broke the build in Sprint 30 for exactly this reason.
+- **NO tables, diagrams or ASCII art** in anything you write, including the bench
+  procedure. Prose or bullets. The primary user is blind and uses NVDA.
 - **Verify builds by the `N Error(s)` summary line**, never by grepping for the
-  word "error" — that matches warning prose and has produced a false "it built"
-  report before.
-- Commit per logical chunk with `Sprint 32 Track A: <description>`.
+  word "error". Expect ~609 pre-existing warnings.
+- Commit per logical chunk with `Sprint 32 Track D: <description>`.
 - Do not merge anything into your branch. The orchestrator runs the merge train.
 
 ## Build
@@ -136,11 +118,12 @@ partial-file split.
 dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal
 ```
 
-Close any running JJFlexRadio first — `Radios.dll` locks. If the build reports
-file-lock errors, that is a running app, not a code defect.
+Close any running JJFlexRadio first — `Radios.dll` locks.
 
 ## Definition of done
 
-Phase 1 reported with SHAs; Phase 2 committed; clean x64 build verified by the
-error-count line; no behaviour change in A4; `MeterType`/`MeterChanged` still
-present and working.
+Amplifier wired and reachable, HAAPI kept distinct from an external amp, tuner
+scaffolded without invented behaviour, amp meters joining the inventory by
+handle, the for-noel bench procedure written, clean x64 build. **Report
+everything you could not verify without the hardware, and everything you had to
+assume.**
