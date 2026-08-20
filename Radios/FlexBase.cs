@@ -7,6 +7,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -1170,6 +1171,16 @@ namespace Radios
             theRadio.HWAlcDataReady += new Radio.MeterDataReadyEventHandler(hwALCData);
             theRadio.ReflectedPowerDataReady += new Radio.MeterDataReadyEventHandler(reflectedPowerData);
             theRadio.PAEffDataReady += new Radio.MeterDataReadyEventHandler(paEffData);
+
+            // Sprint 32 Track A: and now EVERY meter, not just the ten named
+            // convenience events above. Fresh radio, fresh subscriptions. This
+            // first pass usually finds the list still filling — meter
+            // registration runs on after connect — which is exactly why the
+            // reconcile is re-driven from every meter reading rather than
+            // trusted once here.
+            resetMeterInventory();
+            syncMeterInventory();
+
             theRadio.TxBandSettingsAdded += new Radio.TxBandSettingsAddedEventHandler(txBandSettingsHandler);
             theRadio.RXRemoteAudioStreamAdded += new Radio.RXRemoteAudioStreamAddedEventHandler(opusOutputStreamAddedHandler);
             theRadio.TXRemoteAudioStreamAdded += new Radio.TXRemoteAudioStreamAddedEventHandler(opusInputStreamAddedHandler);
@@ -2137,6 +2148,11 @@ namespace Radios
                 // longer tears down the session here; the user's next connect
                 // reuses the live session (faster, fewer SSL handshakes, and
                 // exactly the ownership fix that motivated this sprint).
+
+                // The radio's Meter objects go with the radio. Forget the
+                // subscriptions so the next connect hooks the new ones and the
+                // inventory is re-announced rather than assumed unchanged.
+                resetMeterInventory();
 
                 theRadio = null;
             }
@@ -7315,7 +7331,7 @@ namespace Radios
             _MicData = data;
             // Inventory first so the trace reads in order: what the radio has,
             // then which of the two TX meters we managed to hook out of it.
-            traceMeterInventory(); // cheap no-op unless the meter count has changed
+            syncMeterInventory(); // cheap no-op unless the meter set has changed
             hookTxMeters(); // lazy: SC_MIC / SW ALC meters register late
             Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
             MeterChanged?.Invoke(this, MeterType.Mic, data);
@@ -7400,6 +7416,138 @@ namespace Radios
         public void ResetScMicMax() => _scMicMaxDb = -150f;
         private int _meterInventoryCount = -1;
 
+        // --- The whole meter inventory, identity preserved (Sprint 32 Track A) ---
+        //
+        // FlexLib raises Meter.DataReady(Meter, float) for every meter the radio
+        // publishes — the meter itself comes with the reading, carrying name,
+        // source, source index, units and range. FlexBase historically subscribed
+        // instead to ten NAMED convenience events (MicDataReady, SWRDataReady and
+        // the rest), threw the meter away, and re-emitted MeterType, an eight-value
+        // enum. An 8600 reports 102 meters. Everything past that boundary was
+        // choosing from eight because identity had already been destroyed, and
+        // nothing above a lossy adapter can recover what the adapter dropped.
+        //
+        // So: subscribe generically, once per meter, and re-raise with the meter
+        // intact. MeterType and MeterChanged stay exactly as they were — they are
+        // retired by the track that rebuilds the meters panel, not here, because
+        // MeterToneEngine and other callers still read them.
+
+        private readonly object _meterHookLock = new object();
+
+        /// <summary>Meters already subscribed, by object identity rather than
+        /// index. A removed-then-re-added meter is a NEW Meter object that may
+        /// reuse its index, and identity is the only comparison that hooks it.</summary>
+        private readonly HashSet<Meter> _hookedMeters = new HashSet<Meter>();
+
+        private int _meterSyncTime;
+
+        /// <summary>Every meter the radio currently publishes, or an empty list
+        /// when there is no radio. A snapshot: FlexLib copies under its own lock,
+        /// so the returned list never mutates underneath a caller.</summary>
+        public ImmutableList<Meter> RadioMeters =>
+            theRadio?.GetMeters() ?? ImmutableList<Meter>.Empty;
+
+        /// <summary>Any meter reported a value, with the meter itself.
+        /// <para>Fires at meter rate for every meter the radio publishes, on
+        /// FlexLib's meter thread. Handlers must be cheap and must not block.</para></summary>
+        public delegate void MeterDataDel(object sender, Meter meter, float value);
+
+        /// <summary>Raised for every reading of every meter, meter identity intact.
+        /// See <see cref="MeterChanged"/> for the older eight-value path, which is
+        /// still live.</summary>
+        public event MeterDataDel MeterData;
+
+        /// <summary>The SET of meters the radio publishes changed.
+        /// <para>Load-bearing: FlexLib raises nothing when a meter appears, and the
+        /// list GROWS DURING REGISTRATION — an early snapshot catches eleven meters
+        /// with the TX-side ones still to arrive. Bind to this rather than sampling
+        /// the inventory once at construction.</para></summary>
+        public event EventHandler MeterInventoryChanged;
+
+        /// <summary>
+        /// Reconcile our subscriptions with the radio's meter list, and announce
+        /// the list when it changes.
+        /// <para>Throttled to twice a second. It is driven from every meter
+        /// reading (see <see cref="onMeterDataReady"/>) so that ANY streaming
+        /// meter keeps the inventory fresh — the census must not depend on one
+        /// particular meter existing — and also from <c>micData</c>, which is what
+        /// gets it started before anything is hooked.</para>
+        /// </summary>
+        private void syncMeterInventory()
+        {
+            Radio radio = theRadio;
+            if (radio == null) return;
+
+            int now = Environment.TickCount;
+            if (_meterInventoryCount >= 0 && (now - _meterSyncTime) < 500) return;
+
+            bool changed;
+            ImmutableList<Meter> snapshot;
+            try
+            {
+                lock (_meterHookLock)
+                {
+                    _meterSyncTime = now;
+                    snapshot = radio.GetMeters();
+                    changed = snapshot.Count != _meterInventoryCount;
+
+                    foreach (Meter m in snapshot)
+                    {
+                        if (_hookedMeters.Add(m))
+                        {
+                            m.DataReady += onMeterDataReady;
+                            changed = true;
+                        }
+                    }
+
+                    if (!changed) return;
+                    _meterInventoryCount = snapshot.Count;
+
+                    // Meters that have gone away leave dead references behind, and
+                    // this runs for the life of the connection. Prune on the same
+                    // pass that noticed the change; nothing else can notice it.
+                    if (_hookedMeters.Count != snapshot.Count)
+                        _hookedMeters.IntersectWith(snapshot);
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("syncMeterInventory: " + ex.Message, TraceLevel.Warning);
+                return;
+            }
+
+            // Outside the lock. Tracing 102 lines is 102 file writes, and a
+            // handler on MeterInventoryChanged is somebody else's code.
+            traceMeterInventory(snapshot);
+            MeterInventoryChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// One handler for every meter on the radio. Re-raises with the meter
+        /// intact, then lets the reading drive the next inventory reconcile —
+        /// which is what makes late-arriving meters self-healing rather than
+        /// dependent on a poll somebody remembered to start.
+        /// </summary>
+        private void onMeterDataReady(Meter meter, float data)
+        {
+            MeterData?.Invoke(this, meter, data);
+            syncMeterInventory();
+        }
+
+        /// <summary>
+        /// Forget every meter subscription. Called when the radio goes away: the
+        /// Meter objects go with it, and a fresh connect publishes new ones.
+        /// </summary>
+        private void resetMeterInventory()
+        {
+            lock (_meterHookLock)
+            {
+                _hookedMeters.Clear();
+                _meterInventoryCount = -1;
+                _meterSyncTime = 0;
+            }
+        }
+
         /// <summary>
         /// Trace the meter inventory the radio reports about itself, once per
         /// connect.
@@ -7420,32 +7568,18 @@ namespace Radios
         /// of them rots unnoticed.</para>
         /// </summary>
         /// <remarks>
-        /// Called from <c>micData</c> on every mic-meter event, so the cheap
-        /// count comparison below is load-bearing, not an optimisation.
+        /// <para>Called by <see cref="syncMeterInventory"/> only when the set has
+        /// actually changed, and outside its lock. Re-logging whenever the set
+        /// CHANGES rather than once is deliberate: the first version fired a
+        /// single time off the first mic-meter event, which turned out to
+        /// snapshot the radio mid-registration — eleven meters, with the TX-side
+        /// ones still to arrive. A truncated census is worse than none, because
+        /// the meters subsystem is designed against exactly this list.</para>
         /// </remarks>
-        private void traceMeterInventory()
+        private void traceMeterInventory(ImmutableList<Meter> snapshot)
         {
-            if (theRadio == null) return;
             try
             {
-                // Snapshot under FlexLib's lock, then trace OUTSIDE it.
-                // GetMeters takes `lock (_meters)` and hands back an immutable
-                // copy, so the handshake is real and nothing is held while
-                // tracing — 102 TraceLine calls are 102 file writes, and
-                // holding the radio's meter lock across them would stall every
-                // meter update and every FindMeterByName in the radio, at
-                // exactly the moment the TX meters are registering.
-                var snapshot = theRadio.GetMeters();
-
-                // Re-log whenever the set CHANGES, not once. The first version of
-                // this fired a single time off the first mic-meter event, which
-                // turned out to snapshot the radio mid-registration: eleven
-                // meters, with the TX-side ones still to arrive. A truncated
-                // census is worse than none, because the meters subsystem is
-                // being designed against exactly this list.
-                if (snapshot.Count == _meterInventoryCount) return;
-                _meterInventoryCount = snapshot.Count;
-
                 foreach (var m in snapshot)
                 {
                     Tracing.TraceLine("meterInventory: [" + m.Index + "] " + m.Name
