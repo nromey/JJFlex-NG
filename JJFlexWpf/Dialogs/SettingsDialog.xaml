@@ -827,7 +827,19 @@
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                         <controls:DecorativeText Text="Radio name:" VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <TextBox x:Name="RadioProfileNicknameBox" Width="280"
+                        <!-- MaxLength measured on the bench 8600, 2026-08-20 (Sprint 33
+                             Track D): the radio accepts a nickname of up to FIFTEEN
+                             characters and refuses sixteen outright with error 50000016.
+                             It does not truncate. FlexLib's Radio.Nickname setter sends
+                             the command and never inspects the reply, so without this
+                             limit an operator typing a longer name is told nothing at all
+                             and the radio quietly keeps its old one.
+                             Still open and reported rather than guessed at here: a name
+                             containing a SPACE has the space silently REMOVED — "ALPHA
+                             BRAVO" is stored as "ALPHABRAVO" — because the set command is
+                             space delimited with no quoting. That one needs telling the
+                             operator, which is wording rather than a length. -->
+                        <TextBox x:Name="RadioProfileNicknameBox" Width="280" MaxLength="15"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="Radio name"
                    local:JJFlexHelp.Text="Applied with OK or Apply. Saved to the radio itself when you are connected to it; otherwise only the name shown in this list changes. Leaving this empty keeps the current name."/>

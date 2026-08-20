@@ -46,6 +46,7 @@ namespace JJFlex.TxFactAudit
                     "fingerprint" => Fingerprint(rest),
                     "readings" => Readings(rest),
                     "runbook" => Runbook(),
+                    "nickname" => NicknameProbe.Run(rest, Open, Option),
                     _ => Unknown(command),
                 };
             }
@@ -96,6 +97,10 @@ namespace JJFlex.TxFactAudit
             Console.WriteLine("                      facts are attributed to JJ Flexible rather than to this harness.");
             Console.WriteLine();
             Console.WriteLine("Changes station settings, then puts them back:");
+            Console.WriteLine("  nickname [--host H] [--apply] [--restore-to NAME]");
+            Console.WriteLine("                      How long a radio nickname may be, and what happens to a");
+            Console.WriteLine("                      space in one. Restores the name and confirms the restore");
+            Console.WriteLine("                      from a third, fresh connection. Default restore is K5NER.");
             Console.WriteLine("  fingerprint [--host H] [--apply]");
             Console.WriteLine("                      Sets every settable transmit setting to a value chosen to be");
             Console.WriteLine("                      unmistakable, so ONE capture of the app's evidence block proves");
@@ -743,6 +748,18 @@ namespace JJFlex.TxFactAudit
             using RigWire wire = Open(args);
             Guards.RequireNotTransmitting(wire);
 
+            // A second, independent connection, used ONLY to read. Every
+            // assertion below is made through it.
+            //
+            // Note also what is NOT used here: Guards.RequireSoleOperator. The
+            // radio reports no client objects at all to a non-GUI client, so
+            // that guard sees an empty station and passes unconditionally.
+            // RequireNotTransmitting reads the interlock, which is real
+            // telemetry, and is sound.
+            Console.WriteLine();
+            Console.WriteLine("Opening a second connection to read back through.");
+            using RigWire observer = Open(args);
+
             Console.WriteLine();
             Console.WriteLine(Guards.DescribeCensus(wire));
             Console.WriteLine();
@@ -767,10 +784,19 @@ namespace JJFlex.TxFactAudit
 
                 string command = (spec.SetTemplate ?? "").Replace("{v}", step.Value).Replace("{i}", "");
                 WireReply reply = wire.Send(command);
-                bool stuck = wire.WaitForValue(step.Field, step.Value, TimeSpan.FromSeconds(2));
+
+                // Read back on the OBSERVER, never on the connection that wrote.
+                // The radio broadcasts a status delta to every OTHER client and
+                // not to the one that made the change, so a same-connection
+                // read-back inspects our own stale model and calls it the
+                // radio's answer. That failure reports success, which is the
+                // worst shape a verification can have.
+                string? seen = ReadBack(observer, step.Field, step.Value, TimeSpan.FromSeconds(3));
                 Console.WriteLine($"  {step.Field} to {step.Value}: " +
-                                  (stuck ? "the radio reported it back."
-                                         : $"DID NOT STICK (reply {reply})."));
+                                  (seen == step.Value
+                                       ? "a second connection sees it."
+                                       : $"DID NOT STICK — a second connection still reads " +
+                                         $"{seen ?? "nothing"} (reply {reply})."));
             }
 
             Console.WriteLine();
@@ -787,6 +813,22 @@ namespace JJFlex.TxFactAudit
         // ---------------------------------------------------------------- //
         // Plumbing
         // ---------------------------------------------------------------- //
+
+
+        /// <summary>
+        /// Waits for a field to reach an expected value ON A CONNECTION THAT
+        /// DID NOT WRITE IT, and returns whatever it settled at.
+        ///
+        /// <para>Returning the value rather than a boolean is deliberate: "did
+        /// not stick" and "stuck at something else" are different faults, and a
+        /// harness that collapses them sends the next person looking in the
+        /// wrong place.</para>
+        /// </summary>
+        private static string? ReadBack(RigWire observer, RigField field, string expected, TimeSpan timeout)
+        {
+            observer.WaitForValue(field, expected, timeout);
+            return observer.State.Get(field);
+        }
 
         private static RigWire Open(string[] args)
         {
@@ -834,6 +876,34 @@ namespace JJFlex.TxFactAudit
                 Console.WriteLine("Only one other client is connected, so it is taken to be the application: "
                                   + others[0].Describe());
                 return RigWire.NormaliseHandle(others[0].Handle);
+            }
+
+            // The client list is not available to us at all: the radio reports
+            // no client objects to a non-GUI client, so the census above is
+            // empty however many operators are really connected. Fall back to
+            // the handles stamped on the SLICES, which the radio does send —
+            // client-owned state being globally observable is exactly what
+            // makes this work.
+            var owners = new List<string>();
+            foreach (RigObject slice in wire.State.GetObjects(RigTarget.Slice))
+            {
+                if (slice.OwnerHandle is null) continue;
+                string handle = RigWire.NormaliseHandle(slice.OwnerHandle);
+                if (string.Equals(handle, wire.ClientHandle, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!owners.Contains(handle, StringComparer.OrdinalIgnoreCase)) owners.Add(handle);
+            }
+
+            if (owners.Count == 1)
+            {
+                Console.WriteLine("The radio told us of no clients, but exactly one handle other than ours owns "
+                                  + "a slice, so it is taken to be the application: " + owners[0] + ".");
+                return owners[0];
+            }
+
+            if (owners.Count > 1)
+            {
+                Console.WriteLine($"{owners.Count} handles other than ours own slices ({string.Join(", ", owners)}), "
+                                  + "so which one is the application cannot be worked out from here. Pass --owner.");
             }
 
             return null;
