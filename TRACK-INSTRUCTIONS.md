@@ -96,6 +96,39 @@ skipped with the reason.
 `AudioWorkshopDialog` is the priority: it is the biggest surface, it is split
 across several partial classes, and it is the one that already failed.
 
+## Validate the harness against bugs we ALREADY KNOW ABOUT
+
+A test suite that finds nothing proves nothing. **These are diagnosed, confirmed
+defects live in the code right now — your invariants must catch them, and if they
+do not, the invariant is wrong.**
+
+- **#129, confirmed:** the meters panel builds its slot UI once at construction
+  and never resyncs, so slots exist with no controls in them. Invariant 2 should
+  see an empty subtree; a slot that is focusable with nothing in it should fail.
+- **#132, diagnosed:** in the radio-remove dialog, the destructive radio button
+  is unreachable by Tab. **This one needs an invariant you do not currently
+  have** — every actionable control must be keyboard-reachable, not merely
+  present and named. Add it; a control you cannot reach is invisible to this
+  project's users no matter how well it is labelled.
+- **#109, diagnosed:** TX Controls opens onto nothing because a delegate was
+  declared, called, and never assigned. A window whose content subtree is empty
+  should fail loudly.
+
+**Track H is fixing #129 and Track J is fixing #109 and #132 in parallel with
+you.** That is fine and it is the point: build against the broken state, and when
+their fixes merge your tests should go green on their own. **If a test goes green
+before their fix lands, your invariant is not testing what you think.**
+
+## You are the right instrument for #110
+
+Task #110 wants an inventory of unwired surfaces and says a naive grep produces
+mostly phantoms — which is exactly right, and exactly why a tree walk is the
+correct tool. Track J is producing a CANDIDATE list from static analysis and has
+been told confirmation is yours.
+
+**Take that list and settle it.** A surface that constructs an empty automation
+subtree is genuinely dead; a grep hit is only a rumour.
+
 ## Report findings, do NOT fix them
 
 Where a dialog fails an invariant, record the finding with the control's
