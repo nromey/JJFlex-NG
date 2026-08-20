@@ -63,6 +63,15 @@
                     <StackPanel x:Name="EarconExplorerContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
+
+            <!-- Tab 4: Meter Inventory. Named so code can ask whether it is
+                 selected rather than comparing an index — tabs get reordered. -->
+            <TabItem x:Name="MeterInventoryTab" Header="Meter Inventory"
+                     AutomationProperties.Name="Meter Inventory">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="MeterInventoryContent" Margin="8" />
+                </ScrollViewer>
+            </TabItem>
         </TabControl>
     </DockPanel>
 </local:JJFlexDialog>
