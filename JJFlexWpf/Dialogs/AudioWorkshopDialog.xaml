@@ -70,7 +70,7 @@
              window-level Cycle on 2026-08-10, which does the wrapping properly
              and one level further out. Leaving it here after that turned a fix
              into a cage. The default (Continue) is what lets Tab out. -->
-        <TabControl x:Name="MainTabs" Margin="4"
+        <local:CategoryTabHost x:Name="MainTabs" Margin="4"
                     Style="{StaticResource CategoryTabControl}"
                     KeyboardNavigation.TabIndex="3"
                     AutomationProperties.Name="Workshop categories">
@@ -123,6 +123,6 @@
                     <StackPanel x:Name="DiagnosticsContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
-        </TabControl>
+        </local:CategoryTabHost>
     </DockPanel>
 </local:JJFlexDialog>

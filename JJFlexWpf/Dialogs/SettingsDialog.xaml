@@ -54,7 +54,7 @@
 
         <!-- The categories. Styled headerless: the list above IS the tab
              strip now. -->
-        <TabControl x:Name="SettingsTabs"
+        <local:CategoryTabHost x:Name="SettingsTabs"
                     Style="{StaticResource CategoryTabControl}"
                     KeyboardNavigation.TabIndex="2"
                     AutomationProperties.Name="Settings categories">
@@ -1710,6 +1710,6 @@
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
-        </TabControl>
+        </local:CategoryTabHost>
     </DockPanel>
 </local:JJFlexDialog>
