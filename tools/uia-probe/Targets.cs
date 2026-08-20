@@ -74,6 +74,29 @@ internal static class Targets
     /// automation subtree — which in practice is the dialog on top, not the
     /// main window behind it.
     /// </summary>
+    /// <summary>
+    /// The Win32 class of a standard dialog box, which is what
+    /// <c>MessageBox</c> creates.
+    ///
+    /// <para>Worth naming explicitly because of what Track A hit on
+    /// 2026-08-20: at least one JJFlex dialog puts up a MODAL message box
+    /// during construction, and it blocked their UI thread for ten minutes. It
+    /// presents as a hang, not as a failure — the app is alive, responds to
+    /// nothing, and every keystroke disappears into a box nobody knew was
+    /// there.</para>
+    ///
+    /// <para>A probe that cannot see this reports a run of dead keys and a
+    /// mysterious stall. A probe that can see it says "there is a message box
+    /// in front of you", which is the difference between a diagnosis and a
+    /// shrug.</para>
+    /// </summary>
+    public const string MessageBoxClass = "#32770";
+
+    /// <summary>Any modal message box the process currently has up.</summary>
+    public static WindowInfo? FindMessageBox(int pid) =>
+        Windows(pid).FirstOrDefault(w =>
+            w.Visible && string.Equals(w.ClassName, MessageBoxClass, StringComparison.Ordinal));
+
     public static WindowInfo? Resolve(int pid, string? selector)
     {
         var windows = Windows(pid).Where(w => w.Visible).ToList();

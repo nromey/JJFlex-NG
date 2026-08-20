@@ -1,45 +1,76 @@
 # The Tier 3 seam — Track B presses, Track C observes the radio
 
-Sprint 33. Track B owns the driving half; Track C owns the radio half. This file
-is Track B's side of the contract, written so the merge does not discover two
-different ideas of it.
+Sprint 33. Track B owns the driving half; Track C owns the radio half.
+
+**Status: Track C proposed the seam, and Track B CONFIRMS it.** No counter.
+What follows records the agreement, plus four details that need a number rather
+than a principle.
 
 ## Why the composition, and not two independent tests
 
 A test tool that drives the radio on its own connection is a second MultiFlex
 client inspecting its own per-client state. It would pass while proving nothing.
-The only arrangement that proves the full chain is: **a key pressed in the real
-running JJ Flexible, and the radio then asked whether it actually did the
-thing.** Noel's framing — *"exercise a hotkey or action, see if the radio did
-what it was supposed to."*
+The only arrangement that proves the full chain is a key pressed in the real
+running JJ Flexible, and the radio then asked whether it actually did the thing.
 
-So neither half is a test on its own. Track B can prove a chord reached the
-dispatcher and the app spoke; it cannot prove the radio changed. Track C can
-prove the radio changed; it cannot prove a keystroke caused it.
+Track C's `--owner` filter is the part that makes this real rather than
+decorative: it attributes each radio-side change to a client handle or a
+fragment of the registered program name. Without it a change observed on Track
+C's own connection cannot be distinguished from one it caused itself.
 
-## The primitive
+## Agreed: the whole-sweep correlation mode is the primary path
 
-```
-jjprobe press --chord "Ctrl+J, N" --window "JJ Flexible" --json
-```
+Track C prefers `RigSurface surface watch --seconds N --out radio-trace.txt`
+across the entire key sweep on one connection, correlating offline. Track B
+agrees, and it costs Track B nothing to support, because the sweep already emits
+what correlation needs.
 
-One JSON object on stdout, nothing else. Non-zero exit means do not proceed to
-the radio question.
+Every press in the sweep's JSON report carries:
 
-Track C should shell out to it rather than link against it. The probe has no
-FlexLib reference and Track C's observer does; keeping them in separate
-processes means neither drags the other's dependency graph around, and the
-contract survives either side being rewritten.
+- `chord` — what was pressed.
+- `sentAtUtc` — immediately before the first keystroke leaves.
+- `settledAtUtc` — when the app stopped reacting.
+- `settleMs`, `quiesced` — how long that took, and whether it went quiet on its
+  own or was still churning at the cap.
+- `context` — which Home field the caret was on, and how it got there.
+- `spoke`, `routed`, `uiChanges`, `verdict` — the app-side answer.
 
-## The three-step protocol
+So the offline join is `sentAtUtc` against Track C's millisecond timestamps.
 
-1. **Track C reads the radio property BEFORE.** Not a cached value — a read.
-2. **Track C calls `jjprobe press`** and waits for it to exit.
-3. **Track C reads the radio property AFTER**, and asserts the change.
+### Four details that need numbers, not principles
 
-Step 2 blocks until the app has settled, which is the whole reason the
-primitive exists. `settleMs` and `quiesced` in the result say how long that
-took and whether the app went quiet on its own.
+1. **300 seconds is too short.** The full sweep at `--risk safe,mutates` is 199
+   chords and runs roughly 8 to 10 minutes, plus about 40 seconds of Home-layout
+   walking before it starts. Ask for **900** to be safe, or run
+   `--risk safe` first, which is 41 chords and finishes inside 2 minutes.
+
+2. **Clocks have to agree.** Track B stamps UTC, ISO-8601 round-trip format
+   (`DateTime.UtcNow.ToString("O")`), so `2026-08-20T18:04:11.2340000Z`. If
+   `RigSurface` logs local time the join silently slips by the UTC offset and
+   every correlation is wrong by hours while looking perfectly plausible.
+   Confirm which Track C writes.
+
+3. **A quiet window between presses.** Track B sleeps 150 ms between chords by
+   default (`--between-ms`). If that is too tight to separate two radio changes,
+   say what it should be and Track B will raise it — this is a one-flag change,
+   not a redesign.
+
+4. **`quiesced: false` means discard, not fail.** It says the app was still
+   doing something when the settle cap expired, so the radio reading that
+   follows may belong to the previous press. Rare, but it must not be scored as
+   a mismatch.
+
+## Also agreed, for smaller jobs
+
+- **Per-key `mark` then `diff`** works directly with `jjprobe press --json`,
+  which blocks until the app has settled and then exits. Sequence:
+  `RigSurface surface mark --out before.json`, `jjprobe press --chord "..."
+  --json`, `RigSurface surface diff --since before.json --owner JJFlex`. Roughly
+  twice the wall-clock cost per key, so it earns its place on a short targeted
+  list rather than a sweep.
+- **`await --field ... --equals ... --timeout`** is useful but not required by
+  Track B, because `jjprobe press` already blocks until settled. Reach for it
+  when the radio-side change is expected to lag the app's own settling.
 
 ## What "settled" means, precisely
 
@@ -47,76 +78,58 @@ No UI Automation event from the target process **and** no new bytes in the app's
 trace file, for `--quiet-ms` consecutive milliseconds (default 400), capped at
 `--max-settle-ms` (default 2500).
 
-This matters to Track C because the radio can only be asked after the app has
-finished acting, and a fixed sleep either wastes run time or races the app. If
-`quiesced` comes back **false** the app was still churning when the cap expired
-— treat the radio reading that follows as unreliable rather than as a failure.
+That definition is why the primitive exists: the radio can only be asked after
+the app has finished acting, and a fixed sleep either wastes run time or races
+the app.
 
-## Fields Track C should read
+## Reading `verdict`
 
-- `verdict` — `handled`, `unhandled`, `silent`, `not-sent`, `skipped`.
-  - `handled` — proceed to the radio question.
-  - `unhandled` — **the chord arrived and the dispatcher had no command for it.**
-    Do not ask the radio; the answer is already known and it is a Track B bug.
-  - `silent` — nothing observable at all. Ask the radio anyway: this is exactly
-    the case where a radio-side change would prove the app is doing the work
-    without telling anyone, which is its own finding.
-  - `not-sent` / `skipped` — nothing happened. Do not ask the radio.
-- `settleMs`, `quiesced` — timing, as above.
-- `spoke` — what the app said. Worth recording next to the radio answer: an app
-  that says "Noise Reduction on" while the radio says off is the most valuable
-  single result this sprint can produce.
-- `routed` — what the dispatcher logged.
-- `sentAtUtc`, `settledAtUtc` — for correlating with radio-side timestamps.
+- `handled` — the app did something observable. Ask the radio.
+- `unhandled` — the chord ARRIVED and the dispatcher logged that it had no
+  command for it. Do not ask the radio; the answer is known and it is a
+  Track B-side bug.
+- `silent` — nothing observable at all. **Ask the radio anyway.** This is
+  exactly the case where a radio-side change would prove the app is doing the
+  work without telling anyone, which is its own finding and arguably the most
+  interesting result available this sprint.
+- `not-sent` / `skipped` — nothing happened. Do not ask the radio.
 
-## The transmit gate — Track C has to write the vouch
+## Transmitting chords — Track B's gate, and Track C is not obliged by it
 
-Any chord classified `transmits` is refused unless `--transmit-clearance FILE`
-points at JSON that Track C wrote:
+`jjprobe` refuses to press any chord classified `transmits` unless given
+`--transmit-clearance FILE`: JSON carrying `issuedUtc`, `ceilingWatts`,
+`measuredWatts` and `validForMs`, refused if stale or over ceiling.
 
-```json
-{
-  "issuedUtc": "2026-08-20T18:04:11.2Z",
-  "ceilingWatts": 1,
-  "measuredWatts": 1,
-  "radio": "FLEX-8600 serial ...",
-  "validForMs": 10000
-}
-```
+**Track C is not being asked to write these.** The gate was built on a
+coordinator message that turned out to be misrouted, and it is being kept
+because it is cheap and defensible on its own terms, not because anything was
+agreed. It is a local refusal, not a protocol obligation: if Track C wants to
+compose a transmitting chord it can write the file, and if it would rather own
+the safety question entirely, Track B will drop the gate on request.
 
-`measuredWatts` must be **read back from the radio**, not the value Track C sent
-to it. The probe checks freshness and refuses anything older than `validForMs`.
-
-This exists because of Track G's finding on 2026-08-20:
-`FlexBase.setupFromScratch()` sets `RFPower = 100` unconditionally. It only runs
-when no saved global profile is found, so it will not fire on the current bench
-radio — but a harness keying a radio that has been reset, or one it has never
-seen before, can find itself at full power with nothing having asked for it.
-
-The split is deliberate and neither half can route around the other: the probe
-cannot see the radio, so it cannot issue its own clearance; Track C can see the
-radio, but cannot press a key without going through the probe. **A ceiling you
-set is a wish. A ceiling you read back immediately before keying is a ceiling.**
-
-The eleven transmitting chords, so Track C knows the full list up front:
+Track B has no radio connection by design and cannot issue its own clearance, so
+without a file those eleven chords are simply never pressed. They are:
 `Ctrl+Space`, `Shift+Space`, `Ctrl+J, G`, `Ctrl+Enter` (Audio Workshop), and
 `Ctrl+1` through `Ctrl+7`.
 
-## Things Track B needs from Track C
+Related fact from another track, recorded here because it lands squarely on any
+transmit composition: **there is no MOX status key on the wire.** Transmit state
+has to be synthesised from `interlock state`. Anything waiting on `mox` waits
+forever and then concludes the radio never transmitted.
 
-- **Confirmation that shelling out is acceptable**, or a request for an
-  in-process API instead. Track B's preference is the process boundary, for the
-  dependency reason above.
+## What Track B still needs back
+
+- Which timestamp format `RigSurface` writes (detail 2 above).
 - **Which radio properties map to which chords.** Track B knows what each chord
-  is supposed to do in English, from the inventory Description. Track C knows
-  what to read. That mapping is the one artefact neither track can write alone.
-- **Whether the clearance file shape above is workable**, and what `validForMs`
-  should be in practice.
+  is supposed to do in English, from the inventory `Description`; Track C knows
+  what to read. That mapping is the one artefact neither track can write alone,
+  and it is the only remaining blocker on the composed test.
+- Whether 150 ms between presses is enough separation.
 
-## What Track B is NOT doing
+## What Track B is not doing
 
 - Not connecting to the radio. Ever, in this tool.
-- Not deciding which chords are worth composing. Track B can press any of the
-  243 expanded chords; choosing the ones with a radio-observable consequence is
+- Not choosing which chords are worth composing. Track B can press any of the
+  243 expanded chords; picking the ones with a radio-observable consequence is
   Track C's call.
 - Not fixing anything it finds. Findings are recorded and triaged afterwards.

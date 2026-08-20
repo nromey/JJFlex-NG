@@ -240,6 +240,21 @@ internal static class Sweep
         WindowInfo window = Targets.Resolve(o.Pid, o.WindowSelector)
             ?? throw new InvalidOperationException("no visible window for that process");
 
+        // A modal message box in front of the app makes every result below a
+        // fiction: the keystrokes go into the box, the app looks dead, and the
+        // run reads as a wall of dead keys. Track A lost ten minutes to exactly
+        // this on 2026-08-20 without knowing what it was looking at.
+        WindowInfo? preflightBox = Targets.FindMessageBox(o.Pid);
+        if (preflightBox != null)
+        {
+            report.AbortedBecause =
+                $"a modal message box titled '{preflightBox.Title}' is already up in front of the app. "
+                + "Nothing was pressed: every keystroke would have gone into that box. Dismiss it and run "
+                + "again. Note that at least one dialog raises one of these DURING CONSTRUCTION, so this can "
+                + "appear without anyone having opened anything.";
+            return report;
+        }
+
         // Load the inventory BEFORE touching the keyboard. If reflecting over
         // the build under test is going to fail, it should fail while the run
         // has cost nothing — not forty keystrokes into an authorised window.
@@ -543,7 +558,11 @@ internal static class Sweep
                 }
 
                 stuck = Native.Text(fg);
-                _report.Notes.Add($"'{stuck}' opened and was dismissed with Escape.");
+                bool isMessageBox = string.Equals(Native.Cls(fg), Targets.MessageBoxClass, StringComparison.Ordinal);
+                _report.Notes.Add(isMessageBox
+                    ? $"A MODAL MESSAGE BOX titled '{stuck}' appeared and was dismissed with Escape. A message "
+                      + "box blocks the app's UI thread entirely, so anything measured around it is suspect."
+                    : $"'{stuck}' opened and was dismissed with Escape.");
                 Press.SendQuiet(escape, _window, pauseMs: 250);
             }
             return Native.GetForegroundWindow() == _window.Hwnd;
