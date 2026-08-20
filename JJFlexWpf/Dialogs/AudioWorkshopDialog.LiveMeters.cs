@@ -106,6 +106,16 @@ public partial class AudioWorkshopDialog
         // Also refresh TX Audio tab values when visible
         if (MainTabs.SelectedIndex == 0)
             PollTxAudio();
+
+        // The Meter Inventory tab catches up here when it is showing and a
+        // change arrived while it was being read. Asked by name rather than by
+        // index because tabs get reordered, and a stale index would silently
+        // refresh the wrong tab.
+        if (MeterInventoryTab.IsSelected && _inventoryPending
+            && _inventoryReportBox?.IsKeyboardFocusWithin != true)
+        {
+            RefreshMeterInventory(announce: false);
+        }
     }
 
     private void PollMeters()

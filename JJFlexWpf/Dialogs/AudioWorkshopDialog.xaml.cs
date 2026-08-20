@@ -172,6 +172,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         ApplyTxAudioTabOrder();
         BuildLiveMetersTab();
         BuildEarconExplorerTab();
+        BuildMeterInventoryTab();
 
         // Every section exists now, so set radio-side availability for the rig
         // we already have (or do not have). SetRig covers every change after
@@ -200,6 +201,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // The Core Audio endpoint and its volume callback must not
             // outlive the dialog that subscribed them.
             ReleasePcLevel();
+            // Nor must the meter-inventory subscription: the inventory lives as
+            // long as the rig, so a closed dialog left subscribed is a closed
+            // dialog kept alive by the radio.
+            BindMeterInventory(null);
             _instance = null;
         };
     }
@@ -390,6 +395,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             0 => TxAudioContent,
             1 => LiveMetersContent,
             2 => EarconExplorerContent,
+            3 => MeterInventoryContent,
             _ => null,
         };
         if (panel == null) return found;
@@ -588,6 +594,11 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // A warning about a radio that is gone is a warning about nothing.
             UpdateSilentTxNote();
         }
+
+        // Follow the new rig's meter inventory (or stop following the old one).
+        // Both branches, because a departing radio's meter list is exactly as
+        // wrong to leave on screen as a departing radio's readings.
+        BindMeterInventory(rig);
     }
 
     /// <summary>
