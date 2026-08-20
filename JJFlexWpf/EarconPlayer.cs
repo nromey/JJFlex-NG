@@ -1367,6 +1367,43 @@ namespace JJFlexWpf
             public void Dispose() { }
         }
 
+        // ── Drain observation for the alert channel (Sprint 32 Track H) ──
+        //
+        // Purely additive read-only accessors. They exist because
+        // EarconCwOutput has to know whether audio it submitted has actually
+        // REACHED THE SPEAKER before it resolves a completion — and until this
+        // sprint nothing could ask, so it resolved on a computed duration and
+        // the app-exit farewell was cut off mid-string by the teardown that
+        // followed. See the long comment on EarconCwOutput.WaitForDrain.
+        //
+        // Nothing here mutates the channel; the audio engine's ownership is
+        // unchanged.
+
+        /// <summary>
+        /// Bytes the alert output device reports as actually PLAYED, or -1 when
+        /// there is no channel or the driver will not answer. Rises continuously
+        /// while the app runs, because the mixer always has something (usually
+        /// silence) to hand it — so this is only meaningful as a DIFFERENCE
+        /// measured from a known instant, never as an absolute.
+        /// </summary>
+        internal static long AlertPlayedBytes => _alertChannel?.PlayedBytes ?? -1;
+
+        /// <summary>
+        /// How much audio the alert output device can be holding past the mixer,
+        /// in milliseconds — its buffer size multiplied by its buffer count. This
+        /// is the interval between "the mixer read the last sample" and "the last
+        /// sample was heard", and it is roughly four times the 50 ms tail that
+        /// used to stand in for it.
+        /// </summary>
+        internal static int AlertOutputLatencyMs => _alertChannel?.OutputLatencyMs ?? 200;
+
+        /// <summary>
+        /// Byte rate of the alert mixer's format, for converting a latency in
+        /// milliseconds into an advance in <see cref="AlertPlayedBytes"/>.
+        /// IEEE float samples, so four bytes per sample per channel.
+        /// </summary>
+        internal static int AlertBytesPerSecond => SampleRate * MixerChannels * sizeof(float);
+
         private static void PlayTonePanned(int frequencyHz, int durationMs, float volume, float pan)
         {
             if (AlertMixer == null) { FallbackBeep(frequencyHz, durationMs); return; }
@@ -1616,6 +1653,38 @@ namespace JJFlexWpf
             }
 
             public int DeviceNumber => _deviceNumber;
+
+            /// <summary>
+            /// The device's own report of how many bytes it has played, or -1
+            /// when there is no device or it refuses. Sprint 32 Track H — see
+            /// EarconPlayer.AlertPlayedBytes.
+            /// </summary>
+            public long PlayedBytes
+            {
+                get
+                {
+                    try { return _waveOut?.GetPosition() ?? -1; }
+                    catch { return -1; }
+                }
+            }
+
+            /// <summary>
+            /// Depth of this device's buffer chain in milliseconds. Read from the
+            /// device rather than restated as a constant, so changing
+            /// BufferMilliseconds above cannot silently invalidate the drain wait
+            /// that depends on it.
+            /// </summary>
+            public int OutputLatencyMs
+            {
+                get
+                {
+                    var wo = _waveOut;
+                    if (wo == null) return 200;
+                    int per = wo.BufferMilliseconds > 0 ? wo.BufferMilliseconds : 100;
+                    int count = wo.NumberOfBuffers > 0 ? wo.NumberOfBuffers : 2;
+                    return per * count;
+                }
+            }
 
             public bool Initialize(int deviceNumber)
             {

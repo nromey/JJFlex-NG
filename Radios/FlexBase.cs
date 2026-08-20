@@ -2080,9 +2080,44 @@ namespace Radios
                 ScreenReaderOutput.Speak(
                     msg, Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
             }
+            // ── The exit farewell, and why this path has to WAIT for it ──
+            //
+            // Sprint 32 Track H. Until now this line read
+            //
+            //     _ = ScreenReaderOutput.PlayCwSK?.Invoke();
+            //
+            // which DISCARDS the task: nothing anywhere awaited the farewell it
+            // started. The very next line sets SkAlreadyPlayedThisSession, and
+            // that flag makes ApplicationEvents.MyApplication_Shutdown skip its
+            // own PlayCwSK.Invoke().Wait(5000). So the only code that waited for
+            // the farewell lived exclusively in the path the flag suppresses.
+            //
+            // The guard is not the bug and must stay — it was added for a real
+            // complaint (hearing 73 twice when disconnecting from the menu and
+            // then closing) and it works. What it did NOT do was inherit the
+            // wait. Closing while CONNECTED therefore ran Alt+F4 →
+            // ExitApplication → CloseTheRadio → here → fire-and-forget → teardown
+            // straight through EarconPlayer.Dispose(), and Noel heard "dah dah":
+            // the first two elements of the digit 7, roughly 150 ms of a
+            // two-second string, before the audio device was destroyed under it.
+            //
+            // WHOEVER PLAYS IT OWNS WAITING FOR IT. The wait is deliberately not
+            // hoisted somewhere shared, because the next path that decides to
+            // play SK would inherit exactly this trap. There are two today;
+            // assume a third.
+            //
+            // The wait is placed at the END of Disconnect rather than here, so
+            // the farewell overlaps the disconnect work (main-thread join, radio
+            // disconnect await) that this method has to do anyway. Practically
+            // that costs no added latency at all, while still guaranteeing that
+            // Disconnect does not return until its own farewell has finished or
+            // the bound has expired. Bounded at 5000 ms, matching what Shutdown
+            // already allows: a wedged audio device must never be able to stop a
+            // disconnect, let alone an application exit.
+            Task farewell = null;
             if (ScreenReaderOutput.CwNotificationsEnabled)
             {
-                _ = ScreenReaderOutput.PlayCwSK?.Invoke();
+                farewell = ScreenReaderOutput.PlayCwSK?.Invoke();
                 // Mark SK played for this session so the app-exit Shutdown handler
                 // skips its own SK call. Otherwise the user hears 73-SK twice when
                 // they disconnect via menu and then close the app.
@@ -2140,7 +2175,38 @@ namespace Radios
 
                 theRadio = null;
             }
+
+            // Now collect the farewell started at the top of this method. See the
+            // long comment there: this path plays SK and suppresses the only
+            // other path that knew how to wait, so it has to do the waiting
+            // itself. Bounded, and never allowed to throw — a farewell must not
+            // be able to fail a disconnect.
+            if (farewell != null)
+            {
+                try
+                {
+                    if (!farewell.Wait(SkFarewellWaitMs))
+                    {
+                        Tracing.TraceLine(
+                            "Disconnect:SK farewell did not finish within "
+                            + SkFarewellWaitMs + "ms — continuing teardown",
+                            TraceLevel.Warning);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("Disconnect:SK farewell:" + ex.Message, TraceLevel.Warning);
+                }
+            }
         }
+
+        /// <summary>
+        /// How long any path that plays the SK farewell may wait for it before
+        /// giving up and continuing. Matches the bound
+        /// <c>ApplicationEvents.MyApplication_Shutdown</c> already applies to its
+        /// own call, so the two SK paths cannot drift apart.
+        /// </summary>
+        internal const int SkFarewellWaitMs = 5000;
 
         private bool _IsConnected = false; // set in radioPropertyChangedHandler
         /// <summary>
