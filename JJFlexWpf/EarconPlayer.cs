@@ -875,6 +875,39 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// A toggle just changed state: rising for on, falling for off. The one
+        /// call every operator-facing toggle should make.
+        ///
+        /// Sprint 32 Track E, #128. FeatureOnTone and FeatureOffTone existed and
+        /// were called from fifty-odd places, always as the same if-else written
+        /// out again. Writing it out again is how a road gets missed: a toggle
+        /// reachable by a hotkey, a menu item and a settings checkbox needs the
+        /// tone on all three, and the ones that got forgotten were the roads
+        /// nobody was thinking about while adding the other two. PC audio on and
+        /// off made no sound at all, by any road, which is what surfaced this.
+        ///
+        /// Pass the state the toggle ENDED UP IN, not the state it was in — and
+        /// read it back from wherever the truth lives rather than assuming the
+        /// flip succeeded. Several toggles in this application can decline: PC
+        /// audio refuses to come on when no audio devices are configured, and
+        /// a tone claiming otherwise is worse than silence.
+        /// </summary>
+        public static void ToggleTone(bool isOn)
+        {
+            if (isOn) FeatureOnTone(); else FeatureOffTone();
+        }
+
+        /// <summary>
+        /// The same, for an action that affects every slice at once. Pitched a
+        /// third above the single-slice tones so "all of them" and "this one"
+        /// are separable by ear.
+        /// </summary>
+        public static void ToggleAllTone(bool isOn)
+        {
+            if (isOn) MuteAllOnTone(); else MuteAllOffTone();
+        }
+
+        /// <summary>
         /// Tri-tone ascending — multi-slice mute-all or release-all (any
         /// "affects all my slices at once" action). Pitched roughly a major
         /// third above the single-slice FeatureOnTone so the user can tell
@@ -1780,7 +1813,7 @@ namespace JJFlexWpf
                 int stepSamples = SampleRate * Math.Max(ms, 0) / 1000;
                 if (freq > 0 && ms > 0)
                 {
-                    var mono = VoicedToneSampleProvider.RenderMono(voice, freq, ms, volume);
+                    var mono = RenderStep(voice, freq, ms, volume);
                     int n = Math.Min(mono.Length, buffer.Length - cursor);
                     for (int i = 0; i < n; i++)
                         buffer[cursor + i] += mono[i];
@@ -1788,6 +1821,45 @@ namespace JJFlexWpf
                 cursor += stepSamples;
             }
             return buffer;
+        }
+
+        /// <summary>
+        /// Render one note, then restore the level the caller asked for if the
+        /// engine's own activation fade ate into it.
+        ///
+        /// VoicedToneSampleProvider ramps from silence over a fixed 10 ms every
+        /// time it activates. On a meter tone that is invisible; on a 20 ms
+        /// filter-edge click it is half the sound, and the note never reaches
+        /// the amplitude its tier asked for. Measured, that cost the shortest
+        /// earcons around 5 dB — which is the wrong direction entirely for the
+        /// sounds already hardest to pick out of band noise.
+        ///
+        /// So: measure the peak, and scale UP to the requested amplitude if it
+        /// fell short. Never down. A note long enough to reach full level peaks
+        /// at the requested volume already, so the factor is 1 and nothing
+        /// changes; a noisy voice can peak above it, and is left alone. The
+        /// boost is capped, because a nearly-silent render is a bug and
+        /// amplifying it four hundred times would only make the bug loud.
+        ///
+        /// The 10 ms fade lives in the shared engine and the meters depend on
+        /// it. Correcting here rather than there is deliberate.
+        /// </summary>
+        private static float[] RenderStep(MeterVoice voice, int freq, int ms, float volume)
+        {
+            var mono = VoicedToneSampleProvider.RenderMono(voice, freq, ms, volume);
+            if (volume <= 0f || mono.Length == 0) return mono;
+
+            float peak = 0f;
+            foreach (var sample in mono)
+            {
+                float a = Math.Abs(sample);
+                if (a > peak) peak = a;
+            }
+            if (peak <= 0.0001f || peak >= volume) return mono;
+
+            float gain = Math.Min(volume / peak, 4f);
+            for (int i = 0; i < mono.Length; i++) mono[i] *= gain;
+            return mono;
         }
 
         /// <summary>
@@ -1867,7 +1939,7 @@ namespace JJFlexWpf
                     if (freq > 0 && ms > 0)
                     {
                         var shaped = EarconVoices.DecayingOver(voice, ms);
-                        var mono = VoicedToneSampleProvider.RenderMono(shaped, freq, ms, volume);
+                        var mono = RenderStep(shaped, freq, ms, volume);
                         int n = Math.Min(mono.Length, buffer.Length - cursor);
                         for (int i = 0; i < n; i++)
                             buffer[cursor + i] += mono[i];
