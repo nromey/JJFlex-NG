@@ -17,6 +17,34 @@ state back, assert it changed.
 
 Radio on the bench: a FLEX-8600. **No antenna is connected.**
 
+## THE ARCHITECTURE — read this before writing a line of code
+
+**The tool is an OBSERVER, never a second operator.**
+
+The highest-value mode of this tier is composed with Track B, not standalone:
+**Track B presses the key in the real running JJ Flexible; you ask the radio
+whether it happened.** That is the only arrangement that proves the whole chain —
+key to handler to FlexBase to radio.
+
+**Here is the trap, and it would cost you a day.** If this tool opens its own
+connection to the 8600, it is a SECOND MULTIFLEX CLIENT with its own
+`ClientHandle`. Some radio state is GLOBAL — mic gain, ATU, transmit power, band,
+antenna. Some is PER-CLIENT — which slices are yours, which is your transmit
+slice.
+
+So a standalone tool that creates a slice and asserts its mode is inspecting ITS
+OWN slice, not the one JJ Flexible made. **The test goes green and proves
+nothing at all about the application.** That failure is silent, and it looks
+exactly like success.
+
+**Therefore:** know, for every piece of state you assert on, whether it is global
+or per-client. Write that classification down as part of your deliverable — it
+does not exist anywhere today and Track D needs it too. Where state is
+per-client, the only honest test observes the APP's client, which means composing
+with Track B rather than driving the radio yourself.
+
+Where you do drive the radio directly, confine it to global state, and say so.
+
 ## Part 3a — exercise the whole non-transmitting surface
 
 Mode, filters, slices, AGC, noise blanker, noise reduction, ANF, preamp,
@@ -28,6 +56,12 @@ assert it took, restore.
 **Read the radio's state, not our cached copy.** A test that asserts our own
 property returns what we just set it to proves nothing. The value must come back
 from the radio.
+
+**Coordinate the composed mode with Track B.** B owns pressing keys against the
+live application; you own observing the radio. Agree the seam early — most likely
+B exposes "press this and tell me when it settled," you expose "what does the
+radio say right now." Report the seam you agreed so the merge does not discover
+two different ideas of it.
 
 ## The guards, and none of these are optional
 
