@@ -219,6 +219,11 @@ public partial class MainWindow : UserControl
             return _morseNotifier.PlayString($"{prefix} <SK> ee");
         };
         Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
+        // Sprint 32 Track H (#58): the slice vocabulary sends text, not mode
+        // names — "3/4" for the census and "SL A USB" for a slice or mode
+        // change — so it gets its own honestly-named delegate rather than
+        // pushing sentences through PlayCwMode.
+        Radios.ScreenReaderOutput.PlayCwText = (text) => _morseNotifier.PlayString(text);
 
         // Load user-scope CW settings from BaseConfigDir (root of %AppData%\JJFlexRadio\)
         // so CwNotificationsEnabled + speed + sidetone are set before any connect

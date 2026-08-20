@@ -330,10 +330,18 @@ namespace JJFlexWpf
             return elements;
         }
 
+        // The stroke — dah-di-di-dah-dit. Added Sprint 32 Track H because the
+        // slice census is sent as "<used>/<total>" ("3/4"), and without an
+        // encoding for '/' the parser dropped the character silently and the
+        // census went out as "34". A CW operator already reads this shape
+        // fluently: it is the portable-call prosign.
+        private static readonly byte[] Stroke = { Dah, Dit, Dit, Dah, Dit };
+
         private static byte[]? GetEncodingForChar(char c)
         {
             if (c >= 'A' && c <= 'Z') return Letters[c - 'A'];
             if (c >= '0' && c <= '9') return Digits[c - '0'];
+            if (c == '/') return Stroke;
             // Legacy prosign shortcuts (kept for backward compat with any
             // callers passing '&', '=', '$'). Prefer <AS>/<BT>/<SK> syntax
             // in new code.

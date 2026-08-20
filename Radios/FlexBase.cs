@@ -5659,6 +5659,15 @@ namespace Radios
                 if (disposing)
                 {
                     component.Dispose();
+
+                    // The slice-settle timer (Sprint 32 Track H). Stopped before
+                    // Disconnect so a census cannot be scheduled onto a radio
+                    // that is being torn down.
+                    lock (_sliceSettleLock)
+                    {
+                        try { _sliceSettleTimer?.Dispose(); } catch { }
+                        _sliceSettleTimer = null;
+                    }
                 }
 
                 if (theRadio != null)
@@ -6176,6 +6185,11 @@ namespace Radios
                     case "Active":
                         {
                             Tracing.TraceLine("Active:slice " + s.Index.ToString() + " " + s.Active.ToString(), TraceLevel.Info);
+                            // "or on moving to another slice" — the second half
+                            // of Noel's spec. The radio confirming a slice as
+                            // Active is the honest moment the operator arrived
+                            // on it. See AnnounceSliceIdentity.
+                            if (s.Active) AnnounceSliceIdentity(s);
                         }
                         break;
                     case "DemodMode":
@@ -6188,36 +6202,32 @@ namespace Radios
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
 
-                                // CW mode announcement. Runs alongside speech (not only when
-                                // speech is off) -- CW is a parallel notification channel when
-                                // CwNotificationsEnabled + CwModeAnnounceEnabled. With speech
-                                // on, the operator gets both the spoken mode and the CW mode
-                                // name. With speech off, CW is the only mode announcement.
+                                // The CW mode announcement (#58). Runs alongside speech, not
+                                // only when speech is off — CW is a parallel notification
+                                // channel when CwNotificationsEnabled + CwModeAnnounceEnabled.
                                 //
-                                // THE RADIO'S active slice, not this slice's Active flag (#58).
-                                // Slice.Active is per-slice context — a panadapter's active
-                                // slice — so on a radio with several slices open, SEVERAL are
-                                // legitimately Active at once. FlexLib's initial property sync
-                                // then raises DemodMode for each of them during connect, and
-                                // the operator got one Morse mode announcement per open slice.
-                                // Noel heard it live 2026-08-19 on the bench 8600: "usb usb
-                                // usb fm", four slices, every connect.
+                                // Sprint 32 Track H REPLACED what stood here rather than
+                                // repairing it. The line used to be a bare mode name gated on
+                                // ReferenceEquals(s, theRadio?.ActiveSlice), and that guard was
+                                // the wrong instrument for the wrong problem: it announced a
+                                // PER-SLICE property during a BULK STATE REPLAY, so on connect
+                                // four individually-correct announcements answered a question
+                                // nobody had asked. Noel heard it live 2026-08-19 on the bench
+                                // 8600: "usb usb usb fm", four slices, every connect.
                                 //
-                                // Note this only became AUDIBLE as a storm once the player was
-                                // serialized (EarconCwOutput's single-reader FIFO). Before that
-                                // the four announcements overlapped into garble, which read as
-                                // one broken noise rather than four correct ones. Fixing the
-                                // garbling made the real defect legible — the count was always
-                                // four.
+                                // Filtering to one member and calling it representative is
+                                // arbitrary. Summarising describes what actually happened. So
+                                // connect gets a CENSUS of the set (AnnounceSliceCensus) and a
+                                // slice or mode change gets an IDENTITY plus a STATE — which is
+                                // this call. The letter is IN the message, so nothing has to
+                                // nominate a representative slice at all.
                                 //
-                                // Radio.ActiveSlice is the ONE slice the operator is on, which
-                                // is what an announcement should follow. Speech never stormed
-                                // here because it does not ride this path.
-                                if (ScreenReaderOutput.CwNotificationsEnabled &&
-                                    ScreenReaderOutput.CwModeAnnounceEnabled &&
-                                    ScreenReaderOutput.PlayCwMode != null &&
-                                    ReferenceEquals(s, theRadio?.ActiveSlice))
-                                    _ = ScreenReaderOutput.PlayCwMode(s.DemodMode);
+                                // (The storm only became audible once the player was serialized
+                                // by EarconCwOutput's single-reader FIFO. Before that the four
+                                // announcements overlapped into garble that read as one broken
+                                // noise rather than four correct ones. Fixing the garbling made
+                                // the real defect legible; the count was always four.)
+                                AnnounceSliceIdentity(s);
 
                                 // Firmware leaves NRLOn flag set across mode round-trips but stops
                                 // applying Legacy NR processing. The user-visible workaround is to
@@ -7082,6 +7092,10 @@ namespace Radios
                 }
                 Tracing.TraceLine("sliceAdded:mine " + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                 SliceCountChanged?.Invoke();
+                // #58: opens the bulk window and restarts the settle timer, so
+                // a connect that delivers four slices produces ONE census
+                // instead of four per-slice announcements.
+                NoteSliceSetChanged();
                 if (slc.IsTransmitSlice)
                 {
                     Tracing.TraceLine("sliceAdded:IsTransmitSlice", TraceLevel.Info);
@@ -7144,6 +7158,11 @@ namespace Radios
                     mySliceRemoved = true;
                     Tracing.TraceLine("sliceRemoved:mine, new count:" + ct.ToString() + ':' + slc.ToString(), TraceLevel.Info);
                     SliceCountChanged?.Invoke();
+                    // #58 and #117: one census after the set settles, and — when
+                    // the operator asked for it — the receipt saying the change
+                    // is provisional. Releasing three slices in a burst still
+                    // costs exactly one of each.
+                    NoteSliceSetChanged();
                 }
             }
             else Tracing.TraceLine("sliceRemoved:not mine" + slc.ToString(), TraceLevel.Info);
@@ -11971,6 +11990,9 @@ namespace Radios
             int myRXSliceIndex = VFOToSliceIndex(RXVFO);
             int myTXSliceIndex = VFOToSliceIndex(TXVFO);
             mySliceAdded = false; // need to know when slice added.
+            // #117: this application asked, so the resulting layout is
+            // provisional and the operator gets told so once it settles.
+            NoteOperatorChangedSliceSet();
             q.Enqueue((FunctionDel)(() =>
             {
                 theRadio.RequestPanafall();
@@ -12023,6 +12045,10 @@ namespace Radios
 
             Tracing.TraceLine($"RemoveSlice:letter={slc.Letter} count={MyNumSlices}", TraceLevel.Info);
             mySliceRemoved = false;
+            // #117: the release will succeed and will not survive disconnect.
+            // Noted here, spoken once the set settles — so "release all extras"
+            // still costs one receipt, not one per slice.
+            NoteOperatorChangedSliceSet();
             _pendingRemovals++;
             q.Enqueue((FunctionDel)(() =>
             {
@@ -12040,6 +12066,208 @@ namespace Radios
             }));
             return true;
         }
+
+        // ══ The slice vocabulary, and the provisional-change receipt ══
+        //
+        // Sprint 32 Track H, #58 and #117. Two separate problems that turn out
+        // to share one trigger, so they share one debounce.
+        //
+        // #58 is the CW vocabulary Noel specified on 2026-08-19: a CENSUS of
+        // "<used>/<total>" when the slice set changes, and "SL <letter> <mode>"
+        // when the operator moves to a slice or changes its mode. Both formats
+        // are approved copy and are not to be reworded.
+        //
+        // #117 is the persistence receipt. Releasing a slice succeeds, sounds
+        // successful, and is silently discarded at disconnect, because THE
+        // SLICES ARE NOT OURS: this application contains zero slice-creation
+        // calls, and the radio restores its slice layout from its own global
+        // profile on the next connect. Slice create and delete work correctly —
+        // the defect is that nothing tells the operator the change is
+        // provisional.
+        //
+        // The receipt is deliberately NOT a prompt at disconnect, for two
+        // reasons that were both worked out before any code was written. First,
+        // the disconnect moment is not the power-off moment: a networked radio
+        // does not power down when a client leaves, and under MultiFlex another
+        // operator may still be on it, so an automatic save can capture
+        // somebody else's layout and overwrite a global profile with a state
+        // this operator never chose. Second, an unsaved-changes prompt fires
+        // whether or not anything meaningful changed, so operators learn to
+        // dismiss it reflexively — and a prompt trained to be dismissed is
+        // worse than no prompt, because it creates the belief that the operator
+        // was asked.
+        //
+        // Notify where there is context; prompt only where there is a real
+        // choice. This is the notification.
+
+        /// <summary>
+        /// The trailing clause spoken after a provisional slice change. The
+        /// operator has just heard the change itself from whichever surface
+        /// they used ("Slice D released, 3 active"), so this adds only what
+        /// none of those surfaces could know.
+        /// </summary>
+        private const string ProvisionalSliceChangeReceipt =
+            "This will not survive disconnect unless you save the profile.";
+
+        /// <summary>
+        /// How long the slice set must be quiet before it counts as settled.
+        /// One connect delivers several slices in a burst and
+        /// <see cref="GetProfileInfo"/> can add more over the following seconds,
+        /// so the timer RESTARTS on every change and fires only after the last
+        /// one. That is what turns four arrivals into one census.
+        /// </summary>
+        private const int SliceSetSettleMs = 1500;
+
+        private System.Threading.Timer _sliceSettleTimer;
+        private readonly object _sliceSettleLock = new object();
+
+        /// <summary>
+        /// True while the slice set is churning. Suppresses the per-slice
+        /// announcement, so a bulk replay produces the census and nothing else.
+        /// This is what replaces the old ActiveSlice guard: the announcement is
+        /// silenced because the EVENT is bulk, not because one slice was picked
+        /// out of it as representative.
+        /// </summary>
+        private volatile bool _sliceSetChurning;
+
+        /// <summary>
+        /// Set when this application asked for the slice change, cleared when
+        /// the receipt has been given. Slices arriving from the radio's own
+        /// profile on connect must never produce the receipt — nothing is
+        /// provisional about the layout the radio just restored.
+        /// </summary>
+        private volatile bool _operatorChangedSliceSet;
+
+        /// <summary>
+        /// Note that the slice set has changed and (re)start the settle timer.
+        /// Called from the slice added and removed handlers.
+        /// </summary>
+        private void NoteSliceSetChanged()
+        {
+            _sliceSetChurning = true;
+            lock (_sliceSettleLock)
+            {
+                if (_sliceSettleTimer == null)
+                {
+                    _sliceSettleTimer = new System.Threading.Timer(
+                        _ => OnSliceSetSettled(), null,
+                        SliceSetSettleMs, System.Threading.Timeout.Infinite);
+                }
+                else
+                {
+                    try
+                    {
+                        _sliceSettleTimer.Change(
+                            SliceSetSettleMs, System.Threading.Timeout.Infinite);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+
+        private void OnSliceSetSettled()
+        {
+            _sliceSetChurning = false;
+            bool operatorDid = _operatorChangedSliceSet;
+            _operatorChangedSliceSet = false;
+
+            // Slices also disappear on the way out. Saying anything then is
+            // noise at best and a crash at worst.
+            if (Disconnecting || theRadio == null) return;
+
+            AnnounceSliceCensus();
+            if (operatorDid) SpeakProvisionalSliceChangeReceipt();
+        }
+
+        /// <summary>
+        /// The census: "&lt;used&gt;/&lt;total&gt;" in CW. Three slices open on a
+        /// four-slice radio sends "3/4"; a full radio sends "4/4".
+        /// </summary>
+        /// <remarks>
+        /// Used-over-total rather than a bare free count, recorded so it is not
+        /// re-litigated: THE DENOMINATOR VARIES BY MODEL — two slices on a 6300
+        /// or 8400, four on a 6600 or 8600, eight on a 6700. "One free" means
+        /// something very different on a 6700 than on an 8600 and forces the
+        /// operator to remember which radio they are on to interpret it. "3/4"
+        /// carries both numbers in one token, makes "4/4" read unmistakably as
+        /// full, and leaves the free count trivially derivable.
+        ///
+        /// The total comes from <c>Radio.MaxSlices</c>, the radio's own report
+        /// of its ceiling — NOT from <c>AvailableSlices</c>, which is remaining
+        /// capacity and is the wrong number for a denominator. The one guard is
+        /// for a radio that has not yet answered with its ceiling: rather than
+        /// send "3/0" we fall back to <see cref="TotalMaxSlices"/>, the model
+        /// table, which is right for every model listed there.
+        ///
+        /// The numerator matches the denominator's scope. MaxSlices is a
+        /// property of the RADIO, so the count of slices in use has to be the
+        /// radio's too — under MultiFlex a fraction mixing "mine" over "the
+        /// radio's" would be incoherent.
+        /// </remarks>
+        internal void AnnounceSliceCensus()
+        {
+            if (!ScreenReaderOutput.CwNotificationsEnabled) return;
+            if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;
+            var play = ScreenReaderOutput.PlayCwText;
+            if (play == null) return;
+
+            var radio = theRadio;
+            if (radio == null) return;
+
+            int total = radio.MaxSlices > 0 ? radio.MaxSlices : TotalMaxSlices;
+            int used = radio.SliceList?.Count ?? 0;
+            if (total <= 0) return;
+
+            Tracing.TraceLine(
+                $"AnnounceSliceCensus:{used}/{total} (radio.MaxSlices={radio.MaxSlices} "
+                + $"model={TotalMaxSlices} mine={MyNumSlices})", TraceLevel.Info);
+            _ = play($"{used}/{total}");
+        }
+
+        /// <summary>
+        /// "SL &lt;letter&gt; &lt;mode&gt;" in CW — an identity plus a state, for
+        /// a single slice the operator just arrived on or just re-moded.
+        /// Silent during a bulk change, where the census speaks instead.
+        /// </summary>
+        private void AnnounceSliceIdentity(Slice s)
+        {
+            if (s == null) return;
+            if (_sliceSetChurning) return;
+            if (!ScreenReaderOutput.CwNotificationsEnabled) return;
+            if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;
+            var play = ScreenReaderOutput.PlayCwText;
+            if (play == null) return;
+
+            string letter = s.Letter;
+            string mode = s.DemodMode;
+            if (string.IsNullOrEmpty(letter) || string.IsNullOrEmpty(mode)) return;
+
+            _ = play($"SL {letter} {mode}");
+        }
+
+        /// <summary>
+        /// Say once, after a settled operator-initiated slice change, that the
+        /// change is provisional. Queued rather than interrupting: the surface
+        /// the operator used has already spoken the change itself, and this is
+        /// the second half of that sentence, not a replacement for it.
+        /// </summary>
+        private void SpeakProvisionalSliceChangeReceipt()
+        {
+            if (SuppressSpeech) return;
+            ScreenReaderOutput.Speak(
+                ProvisionalSliceChangeReceipt,
+                Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse);
+        }
+
+        /// <summary>
+        /// Record that THIS application asked for the slice set to change, so
+        /// the settle handler knows to give the persistence receipt. Called by
+        /// <see cref="NewSlice"/> and <see cref="RemoveSlice(Slice)"/> — never
+        /// by the arrival handlers, which also fire for the radio's own
+        /// profile restore on connect.
+        /// </summary>
+        private void NoteOperatorChangedSliceSet() => _operatorChangedSliceSet = true;
 
         /// <summary>
         /// true if can transmit (currently unused)

@@ -871,7 +871,26 @@ namespace Radios
         public static Func<Task>? PlayCwSK { get; set; }
 
         /// <summary>Play a mode name in CW (e.g., "USB", "CW").</summary>
+        /// <remarks>
+        /// Sprint 32 Track H left this in place but stopped calling it. The
+        /// slice vocabulary it served was replaced (see
+        /// <see cref="PlayCwText"/>), and removing a delegate that a second
+        /// track might be wiring is exactly the invisible cross-track
+        /// dependency this sprint is trying not to repeat. It should be retired
+        /// after the merge train, not during it.
+        /// </remarks>
         public static Func<string, Task>? PlayCwMode { get; set; }
+
+        /// <summary>
+        /// Play arbitrary text in CW — letters, digits and the stroke.
+        ///
+        /// Added Sprint 32 Track H (#58) for the slice vocabulary Noel
+        /// specified: a census of "&lt;used&gt;/&lt;total&gt;" when the slice set
+        /// changes, and "SL &lt;letter&gt; &lt;mode&gt;" when the operator moves
+        /// to another slice or changes a mode. Both are text, not modes, which
+        /// is why <see cref="PlayCwMode"/> could not carry them honestly.
+        /// </summary>
+        public static Func<string, Task>? PlayCwText { get; set; }
 
         /// <summary>Whether CW notifications are currently enabled.</summary>
         public static bool CwNotificationsEnabled { get; set; }
