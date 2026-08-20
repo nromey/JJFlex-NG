@@ -65,6 +65,32 @@ diagnoses.
 
 `JJFlexWpf/TxChainPcFacts.cs` collects the PC-side facts. Same treatment.
 
+## WHOSE FACT IS IT? — the MultiFlex trap that would invalidate this whole track
+
+If you connect your own `FlexBase` to the 8600 to read facts, **you are a second
+MultiFlex client with your own `ClientHandle`**, and that changes what your reads
+mean.
+
+Some of the facts in `TxChainFacts.cs` are **GLOBAL station state** — mic gain,
+mic source, mic profile, compander, transmit power, forward power, SWR. Reading
+those from your own connection is legitimate: there is only one of them and it
+belongs to the radio.
+
+Some are **PER-CLIENT** — most obviously `rig.TXSliceLetter` and `rig.TXMode`,
+which describe *which slice is yours*. Read from your own connection, those
+describe YOUR client, not JJ Flexible's. **The fact would come back plausible,
+consistent and completely irrelevant to what the analyzer will report for a real
+operator.** Nothing downstream can catch that, and it looks exactly like success.
+
+**So classify every fact before you verify it: global or per-client.** Track C is
+producing the same classification for radio state generally — share one list, do
+not build two. For per-client facts, the only honest verification observes the
+APPLICATION's client, which means composing with Track B rather than reading from
+a connection of your own.
+
+This is the operator-versus-station-state distinction one layer down: it governs
+a test client exactly as it governs a guest operator.
+
 ## Reuse Track C's snapshot helper — and the rule about that
 
 Track C owns snapshot-and-restore for radio state. **Use its helper. Do not grow
