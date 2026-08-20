@@ -134,127 +134,27 @@ from `SpeedWpm`. This is the same mistake as #143's flat 5000 ms farewell
 timeout; fix it with the same idea, and say in your report whether #143 should
 adopt it too.
 
-**Three things to settle before building:**
+**NOEL DECIDED THESE, 2026-08-20 — do not re-ask:**
 
-1. **Does repeat cancel what is playing?** Speech repeats with `interrupt: true`.
-   `MorseNotifier.Cancel()` exists — but it reaches `_output.Cancel()` on the
-   SHARED `EarconCwOutput`, and a continuous earcon such as ATU progress may be
-   running on it. Noel confirmed CW-plus-ATU-tone is a live combination on
-   2026-08-20. **Verify a CW repeat does not also kill a running earcon.**
-2. **Do prosigns enter the history?** AS, BT and SK are punctuation — wait,
-   connected, closing. Repeating "AS" tells nobody anything. The messages that
-   carry content are the slice census and slice vocabulary added by Track H at
-   `Radios/FlexBase.cs:12442` and `:12469`. **Recommend text only; ask before
-   deciding.**
-3. **Own CW history, or send the last SPOKEN message as CW?** Noel said "similar
-   to repeating speech keys," which reads as its own history. The other reading
-   is nearly free given `PlayString` already handles letters, digits and the
-   stroke — a key that puts ANY announcement into Morse when speech is buried
-   under band noise. **Different features. Ask, do not guess.**
+1. **Its own CW history.** Mirror the speech repeat exactly: walk back through
+   things that were sent AS CW — the slice census, "SL A USB". Not a
+   render-the-last-spoken-message-as-CW key. That idea was offered and he chose
+   this one.
+2. **Text messages only. Prosigns stay out.** AS, BT and SK are punctuation —
+   wait, connected, closing — and repeating them tells an operator nothing
+   actionable. The history holds the census and the slice vocabulary from
+   `Radios/FlexBase.cs:12442` and `:12469`.
 
----
+**One thing still open, and you must SETTLE IT BEFORE BUILDING ON IT:**
 
-## #147 — the sine-versus-modern voice set, and it is NOT a code-path restoration
-
-**Noel, 2026-08-20:** *"Remember also allowing the user to select original sounds
-based on sine or the new sounds as a setting."*
-
-**#147 as filed says the classic path was DELETED and implies restoring it. Do
-not restore it.** Track E removed the old synthesisers in `283a216e` on purpose,
-and bringing back a second code path to maintain forever would undo the best
-thing that sprint did.
-
-**The architecture Track E left behind already supports this setting almost for
-free.** `JJFlexWpf/EarconVoices.cs` defines exactly SEVEN named voices — `Plain`,
-`Press`, `Chime`, `Alarm`, `WarningCalm`, `WarningInsistent`, `WarningUrgent` —
-and `EarconPlayer.cs` references them 35 times. **Every one of the 45 earcons
-names a voice; not one of them carries its own timbre.**
-
-So the setting is: **two definitions for those seven voices, and one setting that
-picks the table.** The classic set is sine-based — `Partials = { 1f }`, flat
-sustain, a simple envelope. The modern set is exactly what ships today. Every
-earcon follows automatically, because each references the NAME and not the data.
-
-The natural place is the definition site itself: turn each static voice into
-something that resolves through the currently-selected set. One file, one
-indirection. Check `DecayingOver` at `EarconVoices.cs:174` still behaves — it
-clones `baseVoice ?? Plain`, so whatever `Plain` resolves to must be a real voice
-at all times, never null and never mid-swap.
-
-**Be honest in the user-facing wording about what this is.** It gives a plain,
-sine-based voice set — which is what the old sounds were like. It is NOT a
-byte-for-byte restoration; some original earcons also differed in duration and
-sequencing, not only timbre. **Do not label it in a way that promises the
-literal old sounds.** If Noel ever wants those exactly, they are in git at
-`283a216e^`, and that is a separate conversation.
-
-**This is the same idea as #145 one layer up.** CW waveform is "how rich should
-the CW be"; the voice set is "how rich should the earcons be." Use one vocabulary
-across both settings so the operator learns the idea once.
-
-## #144 — the connect series sounds unchanged, and the filed diagnosis is wrong
-
-**Noel, by ear:** *"Love the new sounds ... much more to them. Right now they seem
-not to be attached to connecting at least (that's still playing the old
-versions."*
-
-**He heard correctly, but #144's stated cause is wrong — check this yourself
-before acting.** The connect series was NOT skipped by Track E's migration.
-`ConnectPhase1Tone` at `EarconPlayer.cs:580` and its siblings already call
-`PlayVoiced` and `PlayVoicedSequence`. They are on the new engine.
-
-**They are driven by `EarconVoices.Plain`** — `Partials = { 1f, 0.12f }`, a
-fundamental plus one faint harmonic at 12 percent, sustaining flat, described in
-its own source comment as "clean tone with a little warmth." The sounds Noel
-liked use `Press` and the `Warning` family. So the connect series runs the new
-engine through the voice closest to a bare sine, which is why it sounds
-unchanged — because it very nearly is.
-
-**The fix is a voice choice, not wiring.** Give the connect steps and the
-signature double-beep voices with some character to them.
-
-**This is taste, so it needs his ears before it lands.** Do not pick final voices
-unilaterally — build it so he can hear the candidates.
-
-**Which means #113 comes FIRST, and it is cheap now.** The Earcon Explorer does
-NOT reach the connect series: `BuildEarconExplorerTab` at
-`AudioWorkshopDialog.Earcons.cs:65` is still a hardcoded list, and there is not
-one reference to `ConnectPhase` or `ConnectSuccess` anywhere in the Workshop. So
-today Noel cannot audition the sounds you are asking him to judge.
-
-Meanwhile `EarconPlayer.cs` carries **40 `[Earcon(...)]` attributes** — Track E
-annotated nearly the whole vocabulary with display name, category, order and
-description — **and nothing consumes them.** The registry was built and left
-unwired.
-
-So: drive the explorer from those attributes by reflection. The expensive half is
-already done. This also disposes of **#142** for free, because the attributes
-carry proper display names ("Connect step 1") rather than the action-verb button
-labels that make auditioning a sound read like performing the action.
-
-**Continuous earcons need a Start/Stop pair, not a single Play** — ATU progress
-being the case in point, and the one Noel has been testing with.
-
-**And note the interaction with #147:** whatever richer voice you choose for the
-connect series must ALSO have a sine-set counterpart, or selecting the classic
-set will leave the connect tones as the only thing that did not get plainer.
-
-## #115 — audibility, and it is the reason all of this matters
-
-**The short mechanical sounds are camouflaged by band noise, and the modern tier
-sits about 6 dB below the classic one.** So "modern" currently means "richer and
-quieter," and quieter is the wrong direction for a sound competing with receive
-audio.
-
-**Fold the level question into the voice-set work rather than treating it
-separately** — you are rewriting the voice table anyway, and a set that is
-consistently harder to hear is a defect in the set, not a separate task. Whatever
-you do to the modern voices, check them at a realistic listening level against
-actual band noise, not in silence.
-
-This is also the honest argument FOR #147's setting: if an operator genuinely
-cannot pick the modern sounds out of the noise on their station, the plain set is
-not nostalgia, it is accessibility.
+**Does repeat cancel what is playing?** Speech repeats with `interrupt: true`, so
+the obvious answer is yes. But `MorseNotifier.Cancel()` reaches `_output.Cancel()`
+on the SHARED `EarconCwOutput`, and a continuous earcon such as ATU progress may
+be running on it. Noel confirmed on 2026-08-20 that CW-plus-ATU-tone is a live
+combination — he closed the app mid-ATU-tone and the CW came through whole.
+**Verify a CW repeat does not also kill a running earcon.** If it does, that is a
+finding worth reporting on its own, because the same shared-cancel would affect
+anything else that interrupts CW.
 
 ## Binding, and the audit that goes with it
 
