@@ -353,6 +353,7 @@ $buildInfo = [ordered]@{
     lastWriteUtc = $null; fileVersion = $null; productVersion = $null
     headSha = $headSha; branch = $branch; stale = $false
     newestSourceFile = $null; newestSourceUtc = $null
+    newestOutput = $null; newestOutputUtc = $null
 }
 if (Test-Path $ExePath) {
     $exeItem = Get-Item $ExePath
@@ -363,11 +364,41 @@ if (Test-Path $ExePath) {
     if ($newestSource) {
         $buildInfo.newestSourceFile = $newestSource.Path
         $buildInfo.newestSourceUtc  = $newestSource.Utc.ToString('O')
-        if ($exeItem.LastWriteTimeUtc -lt $newestSource.Utc) {
+        # Compare against the newest of OUR build outputs, not the exe alone.
+        # JJ Flexible is an exe plus a dozen project DLLs, and MSBuild rebuilds
+        # only the assemblies whose inputs changed. So an exe OLDER than a
+        # Radios/*.cs edit is what a CORRECT incremental build looks like —
+        # that code compiles into Radios.dll, which did rebuild. Measured
+        # 2026-08-21: source 12:43:38, jjflexible.exe 12:43:15, Radios.dll
+        # 12:43:48. Checking the exe alone fires on nearly every library edit,
+        # and a warning that cries wolf on routine work is one you learn to
+        # click past — which is how a safe false positive becomes a missed
+        # real one.
+        $newestOut = $exeItem.LastWriteTimeUtc
+        $newestOutName = Split-Path $exeItem.FullName -Leaf
+        $appDir = Split-Path $exeItem.FullName -Parent
+        # Only OUR assemblies: a DLL counts if the repo has a project of the
+        # same name. Third-party DLLs are excluded on purpose — a NuGet
+        # restore refreshes them and would inflate the newest-output time,
+        # masking a genuinely stale build.
+        $ourNames = @{}
+        foreach ($proj in (Get-ChildItem $RepoRoot -Recurse -Include *.csproj,*.vbproj -ErrorAction SilentlyContinue)) {
+            $ourNames[[System.IO.Path]::GetFileNameWithoutExtension($proj.Name)] = $true
+        }
+        foreach ($dll in (Get-ChildItem $appDir -Filter *.dll -File -ErrorAction SilentlyContinue)) {
+            if (-not $ourNames.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($dll.Name))) { continue }
+            if ($dll.LastWriteTimeUtc -gt $newestOut) {
+                $newestOut = $dll.LastWriteTimeUtc; $newestOutName = $dll.Name
+            }
+        }
+        $buildInfo.newestOutput    = $newestOutName
+        $buildInfo.newestOutputUtc = $newestOut.ToString('O')
+
+        if ($newestOut -lt $newestSource.Utc) {
             $buildInfo.stale = $true
-            $script:Warnings.Add("STALE BINARY: $($newestSource.Path) was written " +
-                "$($newestSource.Utc.ToString('u')), which is AFTER the exe was built " +
-                "($($exeItem.LastWriteTimeUtc.ToString('u'))) — so the exe cannot contain it. " +
+            $script:Warnings.Add("STALE BUILD: $($newestSource.Path) was written " +
+                "$($newestSource.Utc.ToString('u')), which is AFTER the newest build output " +
+                "($newestOutName, $($newestOut.ToString('u'))) — so no assembly can contain it. " +
                 'Rebuild before trusting anything this run reports about the app.')
         }
     }
@@ -631,7 +662,7 @@ if ($buildInfo.exists) {
     $sum.Add("  built $($buildInfo.lastWriteUtc) (UTC), file version $($buildInfo.fileVersion), " +
              "branch $branch at $headSha")
     if ($buildInfo.stale) {
-        $sum.Add("  WARNING: STALE — $($buildInfo.newestSourceFile) was saved after this exe was built.")
+        $sum.Add("  WARNING: STALE — $($buildInfo.newestSourceFile) was saved after the newest build output ($($buildInfo.newestOutput)).")
     }
 } else {
     $sum.Add('  MISSING — no binary at that path.')

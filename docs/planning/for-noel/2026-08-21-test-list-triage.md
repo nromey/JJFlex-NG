@@ -123,6 +123,24 @@ That is the clearest single example of what changed today. It is also why the
 `Ctrl+F1` block is worth automating early: seven tests that are currently seven
 listening passes, all reduced to one assertion each.
 
+**Checked, and it was not true yet.** Written into this document in the morning
+from reading the recorder's source; measured the same afternoon against a live
+connect transcript, where `intent` appeared on **4 of 32** speech events. The
+recorder omitted the field whenever the call site passed nothing, so an
+assertion keyed on `intent` would have matched almost nothing — and matched it
+*silently*, reporting a clean pass over an empty set.
+
+Fixed the same day: `level`, `intent` and `origin` are now always emitted,
+writing an explicit JSON null when there is no value. Three states stay
+distinguishable — a string is a real value, an explicit null means the call
+site supplied none, and an absent key means a transcript written before the
+fix.
+
+Worth stating plainly because it cuts against this document's own argument: a
+field being in the schema is not the same as a field being populated, and the
+whole case for automating I3 rested on the second. It held, but only after
+someone looked.
+
 ---
 
 ## What I would do with this

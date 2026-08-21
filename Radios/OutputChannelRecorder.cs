@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -14,7 +14,7 @@ namespace Radios
     //  OutputChannelRecorder — the silent verification channel (#171).
     //
     //  Two INDEPENDENT switches, deliberately not a mode enum:
-    //    RenderEnabled  — whether output actually sounds (speech via Tolk,
+    //    RenderEnabled  — whether output actually sounds (speech via Prism,
     //                     earcons/CW via the NAudio mixers). Default true.
     //    RecordEnabled  — whether every output event is appended to a
     //                     JSON Lines transcript. Default false.
@@ -50,7 +50,7 @@ namespace Radios
     /// (milliseconds since the recorder opened, from one shared Stopwatch —
     /// order and adjacency are assertable), and <c>utc</c> (ISO-8601 wall
     /// clock). Event types: <c>session-start</c>, <c>session-end</c>,
-    /// <c>speech</c>, <c>output</c> (speech+braille via Tolk.Output),
+    /// <c>speech</c>, <c>output</c> (speech+braille via the Prism output path),
     /// <c>silence</c>, <c>cw</c>, <c>cw-cancel</c>, <c>earcon</c>,
     /// <c>earcon-start</c>, <c>earcon-stop</c>.
     /// </para>
@@ -88,7 +88,7 @@ namespace Radios
 
         /// <summary>
         /// Whether output actually sounds. False = no audio device is opened
-        /// anywhere (Tolk is never loaded, the NAudio mixers are never
+        /// anywhere (Prism is never loaded, the NAudio mixers are never
         /// created, Console.Beep fallbacks are skipped) — the app is runnable
         /// headless, on a machine with no sound card, while the operator is
         /// using his computer. Default true: production behaviour unchanged.
@@ -267,7 +267,7 @@ namespace Radios
         /// Record one speech event — the exact final text after all gating and
         /// formatting ran. <paramref name="gated"/> = the verbosity filter
         /// dropped it; <paramref name="suppressed"/> = SuppressSpeech was on;
-        /// <paramref name="rendered"/> = it was actually handed to Tolk.
+        /// <paramref name="rendered"/> = it was actually handed to the speech backend.
         /// Interrupt-vs-queue is recorded because order is where the real bugs
         /// live — one shipped defect was controls speaking on focus and cutting
         /// off the group announcement, purely an ordering problem.
@@ -278,13 +278,27 @@ namespace Radios
             Write("speech", w =>
             {
                 w.WriteString("text", text);
-                if (level != null) w.WriteString("level", level);
-                if (intent != null) w.WriteString("intent", intent);
+                // ALWAYS emit level/intent/origin, writing an explicit JSON
+                // null when the call site passed nothing. Omitting a field
+                // collapses two different facts into one appearance: "this
+                // utterance carried no intent" and "this field was never
+                // recorded" look identical to a reader, so an assertion that
+                // keys on intent silently matches nothing instead of failing.
+                //
+                // Found 2026-08-21, and only because someone checked: intent
+                // was present on 4 of 32 events in a live connect transcript,
+                // while the I3 assertion (do dialog titles queue or cut off
+                // speech) was already being planned around that field. Three
+                // states must stay distinguishable — a string is a real value,
+                // an explicit null means the call site supplied none, and an
+                // ABSENT key means a transcript written before this change.
+                if (level  != null) w.WriteString("level",  level);  else w.WriteNull("level");
+                if (intent != null) w.WriteString("intent", intent); else w.WriteNull("intent");
                 w.WriteBoolean("interrupt", interrupt);
                 w.WriteBoolean("gated", gated);
                 w.WriteBoolean("suppressed", suppressed);
                 w.WriteBoolean("rendered", rendered);
-                if (origin != null) w.WriteString("origin", origin);
+                if (origin != null) w.WriteString("origin", origin); else w.WriteNull("origin");
             });
         }
 
