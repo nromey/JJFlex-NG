@@ -1,13 +1,15 @@
 # x64 Native Libraries
 
-This folder holds the x64 native audio libraries: `libopus.dll` and
-`portaudio.dll`. The same recipe builds the x86 pair — substitute `Win32` for
-`x64` and target `runtimes/win-x86/native/`.
+This folder holds the x64 native libraries: `libopus.dll` and `portaudio.dll`
+(audio), and `prism.dll` (speech and braille — the screen-reader backend).
+The same recipes build the x86 set — substitute `Win32` for `x64` and target
+`runtimes/win-x86/native/`.
 
 ## What is currently shipped — verify, do not trust this heading
 
 - **Opus 1.6.1**
 - **PortAudio: master pinned at `a880212` (commit date 2026-08-07)**
+- **Prism v0.18.1, pinned at tag commit `d2998e9281806fe1efd3394971c6e44ac11b9e75`**
 
 **Both DLLs embed a readable version string, so the binary is the authority.**
 `opus_get_version_string()` returns `libopus 1.6.1`, and `Pa_GetVersionText()`
@@ -84,6 +86,40 @@ agree.
 
 CMake ships with Visual Studio if it is not on PATH — look under
 `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`.
+
+### Prism (prism.dll)
+
+```bash
+git clone https://github.com/ethindp/prism.git
+cd prism
+git checkout v0.18.1          # <-- the pinned tag; update this line AND the SHA above when you bump it
+cmake -S . -B build-x64 -A x64
+cmake --build build-x64 --config Release
+# Copy build-x64/Release/prism.dll here (no rename needed)
+```
+
+**Build EXACTLY at the tag, from a clean tree — this is Prism's version of the
+PortAudio trap.** `prism_version_string()` returns CMake's `PROJECT_VERSION`,
+stamped at configure time, so a build made from a working tree past the tag
+still reports the tag. The DLL shipped until 2026-08-21 said `0.17.3` while
+actually being 46 commits newer (`v0.17.3-46-g9ae0ece`) — it even exported
+functions a genuine 0.17.3 could not have. The embedded string is honest ONLY
+when the checkout is exactly the tag, which is why the full commit SHA is
+recorded in the shipped-versions list above and in CLAUDE.md: **the SHA is the
+record, the string is a convenience.** Verify the tree is clean
+(`git status --short` prints nothing) before building.
+
+**Why v0.18.1 specifically:** commit `b1446f4` (in v0.18.0) fixes the NVDA
+backend leaking its RPC binding, which made every `initialize()` after the
+first FAIL — the bug that made screen-reader recovery (#167) impossible on the
+old DLL. An operator whose NVDA started late or restarted could never be
+reconnected to it.
+
+**After a Prism upgrade, verify against `include/prism.h`:** the `PrismConfig`
+struct layout, the `PrismError` enum members, and the backend id constants —
+all mirrored in `Radios/Speech/PrismNative.cs`, and all capable of failing at
+runtime rather than compile time. The struct doc comment there records the
+crash a layout mismatch produces.
 
 ## Where the build trees live
 

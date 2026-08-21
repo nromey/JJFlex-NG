@@ -117,6 +117,14 @@ namespace Radios
                 _available = _backend.HasSpeech;
                 _screenReaderName = _backend.DetectedReader;
 
+                // #167: the channel is no longer fixed at startup. A screen
+                // reader that starts (or restarts) later displaces a lower
+                // tier, and everything up here that cached backend state has
+                // to hear about it - along with the transcript and the
+                // operator themself.
+                if (_backend is Speech.PrismScreenReader prism)
+                    prism.ChannelChanged += OnChannelChanged;
+
                 // The transcript gets the backend and TIER because they are
                 // materially different outcomes to assert on: "spoke via NVDA"
                 // and "spoke via the fallback synthesiser" sound similar right
@@ -1039,11 +1047,50 @@ namespace Radios
         public static bool TryUpgradeChannel()
         {
             if (_backend is not Speech.PrismScreenReader prism) return false;
-            if (!prism.TryUpgradeToUia()) return false;
+            // State refresh, transcript event and any announcement all happen
+            // in OnChannelChanged, which the upgrade raises on success — one
+            // path for every way the channel can move (#167).
+            return prism.TryUpgradeToUia();
+        }
 
-            _available = _backend.HasSpeech;
-            _screenReaderName = _backend.DetectedReader;
-            return true;
+        /// <summary>
+        /// The backend moved to a different channel after startup — the UIA
+        /// upgrade once the main window exists, or a controller reader (NVDA,
+        /// JAWS) arriving late or coming back from a restart (#167). May be
+        /// called from a worker thread.
+        /// </summary>
+        private static void OnChannelChanged(Speech.SpeechTier tier, string? reader)
+        {
+            _available = _backend?.HasSpeech == true;
+            _screenReaderName = _backend?.DetectedReader;
+
+            // The transcript gets a second speech-backend event: the tier
+            // moving from Synthesiser to ScreenReader IS the assertion the
+            // recovery test makes, and it needs no ears.
+            if (OutputChannelRecorder.RecordEnabled)
+            {
+                OutputChannelRecorder.RecordSpeechBackend(
+                    _backend?.BackendName ?? "none", _screenReaderName, tier.ToString(),
+                    _available, _backend?.HasBraille == true);
+            }
+
+            Tracing.TraceLine(
+                $"Speech channel changed: tier={tier}, reader={_screenReaderName ?? "none detected"}, "
+                + $"speech={_available}, braille={_backend?.HasBraille == true}",
+                TraceLevel.Info);
+
+            // Announce ONLY the climb onto the operator's own reader, once and
+            // quietly (queued, Terse). Until this moment they were hearing a
+            // strange voice with no explanation; this line is spoken by the
+            // reader they configured, in their own voice, which is itself most
+            // of the message. The UIA upgrade stays silent - it happens at
+            // startup before anything worth interrupting, and "your reader now
+            // speaks our text" is not something an operator needs narrated.
+            if (tier == Speech.SpeechTier.ScreenReader)
+            {
+                string name = string.IsNullOrEmpty(_screenReaderName) ? "your screen reader" : _screenReaderName;
+                Speak($"Speech now through {name}", Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+            }
         }
 
         public static void TraceBackend()

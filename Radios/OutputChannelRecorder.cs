@@ -289,10 +289,14 @@ namespace Radios
         }
 
         /// <summary>
-        /// Record which speech backend and tier came up. Written once from
-        /// ScreenReaderOutput.Initialize. "Spoke via NVDA" and "spoke via the
-        /// fallback synthesiser" are materially different outcomes for a test
-        /// to assert on — and a backend of "none" with render on is the
+        /// Record which speech backend and tier came up. Written from
+        /// ScreenReaderOutput.Initialize, and again on every later channel
+        /// change (#167) — the UIA upgrade after the window shows, or a screen
+        /// reader arriving late and displacing the synthesiser. "Spoke via
+        /// NVDA" and "spoke via the fallback synthesiser" are materially
+        /// different outcomes for a test to assert on — a tier moving from
+        /// Synthesiser to ScreenReader in the transcript IS the recovery
+        /// assertion — and a backend of "none" with render on is the
         /// app-cannot-talk deployment failure, visible on the first line
         /// anyone reads.
         /// </summary>

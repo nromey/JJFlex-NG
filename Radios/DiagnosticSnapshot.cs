@@ -116,6 +116,21 @@ namespace Radios
         /// <summary>opus_get_version_string() from the loaded libopus.dll, e.g. "libopus 1.6.1".</summary>
         public string OpusVersion { get; private set; }
 
+        /// <summary>
+        /// prism_version_string() from the loaded prism.dll, e.g. "0.18.1".
+        /// Null when prism.dll did not load, or when render is off — the #171
+        /// silent channel promises Prism is never loaded then, and a version
+        /// probe would load it.
+        ///
+        /// Same caveat as PortAudio: the string is stamped at CMake configure
+        /// time from the project version, so a build made past the tag still
+        /// reports the tag — the DLL we shipped until 2026-08-21 said "0.17.3"
+        /// while being 46 commits newer. Honest only because the build policy
+        /// is to build exactly at the pinned tag; the SHA pinned in CLAUDE.md
+        /// is the real identifier.
+        /// </summary>
+        public string PrismVersion { get; private set; }
+
         /// <summary>Raw Pa_GetVersionText() from the loaded portaudio.dll.</summary>
         public string PortAudioVersionText { get; private set; }
 
@@ -280,6 +295,7 @@ namespace Radios
             s.CaptureFlexLib();
             s.CaptureOpus();
             s.CapturePortAudio();
+            s.CapturePrism();
             s.CaptureWebView2();
             s.CaptureEnvironment();
             s.CaptureTracing();
@@ -428,6 +444,27 @@ namespace Radios
             catch { }
         }
 
+        private void CapturePrism()
+        {
+            try
+            {
+                // The #171 silent channel promises prism.dll is NEVER loaded
+                // with render off; a version probe would load it. Honour the
+                // promise and report nothing rather than break it for a
+                // version string.
+                if (!OutputChannelRecorder.RenderEnabled) return;
+
+                // Asks the loaded prism.dll itself — no context needed, the
+                // string is a baked-in constant. Like libopus, the DLL carries
+                // no Windows version resource, so this call is the only
+                // honest answer. #9: every component names its own version.
+                PrismVersion = Speech.PrismNative.ReadUtf8(
+                    Speech.PrismNative.prism_version_string());
+                if (string.IsNullOrEmpty(PrismVersion)) PrismVersion = null;
+            }
+            catch { /* DllNotFound / BadImageFormat → rendered as unavailable */ }
+        }
+
         private void CaptureWebView2()
         {
             try
@@ -495,6 +532,19 @@ namespace Radios
                 // use. "It speaks" turned out not to be evidence of which thing
                 // was speaking.
                 string backend = ScreenReaderOutput.BackendName;
+
+                // Pair the library's SELF-REPORTED version with its identity,
+                // so the Speech line answers both "what library" and "what
+                // engine" in one read: "Prism 0.18.1, using NVDA directly".
+                // Until 2026-08-21 the DLL exported this string and nothing
+                // ever asked — #9 wants every component version honest and
+                // present, and this one was silently absent.
+                if (string.Equals(backend, "Prism", StringComparison.OrdinalIgnoreCase)
+                    && PrismVersion != null)
+                {
+                    backend = backend + " " + PrismVersion;
+                }
+
                 if (string.Equals(backend, "none", StringComparison.OrdinalIgnoreCase))
                 {
                     SpeechEngine = "none — the application has no speech "

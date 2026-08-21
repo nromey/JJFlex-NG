@@ -46,6 +46,12 @@ namespace Radios.Speech
         InvalidAudioFormat,
         InternalBackendLimitExceeded,
         BackendEnteredUndefinedState,
+        // Added upstream between v0.17.x and v0.18.1 (plugin loading). Kept in
+        // step because Count shifts when they are missing, and a shifted enum
+        // maps every later native error to the wrong name in our traces.
+        LibraryLoadFailed,
+        LibraryInvalid,
+        IncompatibleAbi,
         Count,
     }
 
@@ -62,6 +68,25 @@ namespace Radios.Speech
         SupportsPause = 1UL << 8,
         SupportsResume = 1UL << 9,
     }
+
+    /// <summary>
+    /// Mirrors PrismAvailabilityCallback in prism.h: fired by Prism's own
+    /// background enumerator whenever a backend's runtime availability CHANGES
+    /// after startup — the priming sweep records the baseline silently.
+    ///
+    /// This is the mechanism behind screen-reader recovery (#167): NVDA
+    /// starting after us, or restarting after a crash, arrives here rather
+    /// than through any polling of ours.
+    ///
+    /// Fires on Prism's enumerator thread (a COM MTA thread). An exception
+    /// escaping a managed callback into native code kills the process, so the
+    /// managed handler must catch everything; and it must return quickly,
+    /// because it runs inside the poll loop.
+    /// </summary>
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    internal delegate void PrismAvailabilityCallback(
+        IntPtr userdata, ulong backendId, IntPtr name,
+        [MarshalAs(UnmanagedType.U1)] bool available);
 
     /// <summary>
     /// Mirrors PrismConfig in prism.h. Returned BY VALUE from
@@ -171,6 +196,23 @@ namespace Radios.Speech
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr prism_error_string(PrismError error);
+
+        /// <summary>
+        /// The library's own version string, e.g. "0.18.1". Safe without a
+        /// context — it is a baked-in constant. Surfaced on the About page
+        /// because #9 wants every component version reported honestly, and
+        /// until 2026-08-21 the DLL exported this and nothing ever asked.
+        ///
+        /// CAVEAT, learned from PortAudio and then re-learned from Prism
+        /// itself: the string is CMake's PROJECT_VERSION, stamped at configure
+        /// time. A build made from a working tree past the tag still reports
+        /// the tag — the DLL we shipped before 2026-08-21 said "0.17.3" while
+        /// being 46 commits newer. It is honest ONLY because our build policy
+        /// is to build exactly at the pinned tag; the pinned SHA in CLAUDE.md
+        /// is the real identifier.
+        /// </summary>
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern IntPtr prism_version_string();
 
         // ── Backend identifiers (prism.h) ─────────────────────────────────
         // Only the Windows ones we can actually meet are listed. Values are
