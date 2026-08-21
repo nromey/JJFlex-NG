@@ -1349,7 +1349,11 @@ public class NativeMenuBar : IDisposable
         BuildTransmitItems(radioTxSub);
 
         var loggingSub = AddSubmenu(radio, "Logging");
-        AddNotImplemented(loggingSub, "Log Characteristics");
+        // Stub audit (2026-08-21): Log Characteristics opens the real dialog
+        // through the LogFileName command — it works outside Logging mode,
+        // which is exactly where you set a log up. The Logging menu bar
+        // builder explains why the other three stay honest stubs.
+        AddCommand(loggingSub, "Log Characteristics", Radios.CommandValues.LogFileName);
         AddNotImplemented(loggingSub, "Import Log");
         AddNotImplemented(loggingSub, "Export Log");
         AddNotImplemented(loggingSub, "LOTW Merge");
@@ -1745,13 +1749,7 @@ public class NativeMenuBar : IDisposable
         // already working (Ctrl+L, Command Finder) — the menu item was the
         // only dead door. Route through ExecuteCommandCallback so the menu,
         // the hotkey, and the Command Finder share one dispatch path.
-        AddWired(tools, "Station Lookup\tCtrl+L", () =>
-        {
-            if (_window.ExecuteCommandCallback != null)
-                _window.ExecuteCommandCallback(CommandValues.StationLookup);
-            else
-                SpeakAfterMenuClose("Station lookup is not available.");
-        });
+        AddCommand(tools, "Station Lookup\tCtrl+L", CommandValues.StationLookup);
         AddSep(tools);
         AddWired(tools, "Enter Logging Mode", () => _window.EnterLoggingMode());
         AddChecked(tools, "Classic Tuning Mode\tCtrl+Shift+M",
@@ -1870,18 +1868,32 @@ public class NativeMenuBar : IDisposable
         var bar = CreateMenu();
 
         // === Log ===
+        // Stub audit (2026-08-21): five of these answered "not yet
+        // implemented" for features that already work through the command
+        // layer — most visibly Log Statistics, which Ctrl+J, L had been
+        // speaking for sprints while the menu denied it existed. The stubs
+        // that remain are honest: Import/Export/LOTW Merge have WPF dialogs
+        // built (Sprint 9 Track B) but no glue to a log session yet, and
+        // Reset Confirmations has no implementation anywhere.
         var log = AddPopup(bar, "&Log");
-        AddNotImplemented(log, "New Entry");
-        AddNotImplemented(log, "Write Entry");
-        AddNotImplemented(log, "Search Log");
+        AddCommand(log, "New Entry\tCtrl+N", Radios.CommandValues.NewLogEntry);
+        AddCommand(log, "Write Entry\tCtrl+W", Radios.CommandValues.LogFinalize);
+        AddCommand(log, "Search Log\tCtrl+Shift+F", Radios.CommandValues.SearchLog);
+        // Full Log Form's command (LogOpenFullForm, Ctrl+Alt+L) currently
+        // dead-ends in a MainWindow stub that traces and does nothing —
+        // wiring the menu to it would trade an honest "not yet" for a
+        // silent no-op.
         AddNotImplemented(log, "Full Log Form");
         AddSep(log);
-        AddNotImplemented(log, "Log Characteristics");
+        // LogFileName is the working door to the characteristics dialog.
+        // CommandValues.LogCharacteristicsDialog (Ctrl+Shift+N) dead-ends in
+        // the same kind of MainWindow stub as Full Log Form — don't wire it.
+        AddCommand(log, "Log Characteristics", Radios.CommandValues.LogFileName);
         AddNotImplemented(log, "Import Log");
         AddNotImplemented(log, "Export Log");
         AddNotImplemented(log, "LOTW Merge");
         AddSep(log);
-        AddNotImplemented(log, "Log Statistics");
+        AddCommand(log, "Log Statistics\tCtrl+J, L", Radios.CommandValues.LogStats);
         AddSep(log);
         AddNotImplemented(log, "Reset Confirmations");
 
@@ -2042,6 +2054,29 @@ public class NativeMenuBar : IDisposable
     // The handlers stay wired. A disabled item raises no WM_COMMAND so they will
     // not run, but they cost nothing and they are the record of what the item is
     // meant to become.
+
+    /// <summary>
+/// Add a menu item that routes through the registered command layer —
+    /// the same dispatch the hotkeys and the Command Finder use, so the menu
+    /// can never grow its own diverging version of a feature. Exists because
+    /// the Logging menu's Log Statistics item still answered "not yet
+    /// implemented" for sprints after Ctrl+J, L started working: the same
+    /// feature gave two different answers depending on which door you came
+    /// through, and the menu — the door a new operator finds first — was the
+    /// one that lied (stub audit, 2026-08-21).
+    /// </summary>
+    private void AddCommand(IntPtr popup, string text, Radios.CommandValues command)
+    {
+        // Strip the accelerator column and mnemonic marker for speech.
+        string spokenName = text.Split('	')[0].Replace("&", "");
+        AddWired(popup, text, () =>
+        {
+            if (_window.ExecuteCommandCallback != null)
+                _window.ExecuteCommandCallback(command);
+            else
+                SpeakAfterMenuClose($"{spokenName} is not available.");
+        });
+    }
 
     /// <summary>
     /// Add a menu item whose implementation is not wired yet. Greyed, and says

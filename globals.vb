@@ -1684,6 +1684,15 @@ Module globals
             End Sub,
             .SetLogDateTime = Sub() LogEntry.SetLogDateTime(),
             .GetLogFileName = Sub()
+                ' The dialog reads theOp on load, and the other two callers
+                ' (LogClass.Open, PersonalInfo) set it first. This one
+                ' historically did not — on a session where neither of those
+                ' had run yet, theOp was Nothing, the dialog died on load, and
+                ' the exception was swallowed upstream, so the command looked
+                ' like it did nothing at all. Now that the Log Characteristics
+                ' menu items route here too, set it the way the other callers
+                ' do (stub audit, 2026-08-21).
+                LogCharacteristics.theOp = CurrentOp
                 If LogCharacteristics.ShowDialog() = DialogResult.OK Then ConfigContactLog()
             End Sub,
             .SearchLog = Sub()

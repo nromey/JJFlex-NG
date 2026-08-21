@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using WinFormsKeys = System.Windows.Forms.Keys;
 
 namespace JJFlexWpf.Dialogs;
 
@@ -125,11 +126,24 @@ public partial class DefineCommandsDialog : JJFlexDialog
 
     private void ValueBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Ignore modifier-only keys
-        if (e.Key == Key.Tab || e.Key == Key.System ||
-            e.Key == Key.LeftShift || e.Key == Key.RightShift ||
-            e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl ||
-            e.Key == Key.LeftAlt || e.Key == Key.RightAlt)
+        // Tab is refused on purpose, and it is NOT a modifier: it must keep
+        // moving focus, or a keyboard user who lands in this box can never
+        // leave it. Returning without e.Handled lets it navigate normally.
+        if (e.Key == Key.Tab)
+            return;
+
+        // Resolve Alt chords BEFORE filtering. While Alt is held, WPF reports
+        // e.Key as Key.System and hides the real key in e.SystemKey — this
+        // guard used to list Key.System among the "modifier-only" keys, so
+        // every Alt chord an operator tried to assign was silently swallowed.
+        // Same misunderstanding that shipped the dead Alt+L binding on
+        // 2026-08-13. Resolve first, then ignore only a press that really is
+        // a lone modifier (KeysDialog's capture does the same).
+        var pressed = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (pressed is Key.LeftShift or Key.RightShift
+            or Key.LeftCtrl or Key.RightCtrl
+            or Key.LeftAlt or Key.RightAlt
+            or Key.LWin or Key.RWin or Key.Apps)
             return;
 
         if (CommandsListView.SelectedItem is not CommandDisplayItem item)
@@ -139,6 +153,18 @@ public partial class DefineCommandsDialog : JJFlexDialog
 
         // Convert WPF key to WinForms-compatible key value
         int winFormsKey = (int)WpfKeyConverter.ToWinFormsKeys(e);
+
+        // A key the converter has no mapping for comes back as Keys.None, and
+        // letting that fall through would silently CLEAR the binding — the
+        // operator pressed a key and lost their assignment without a word.
+        // Refuse it out loud instead; Delete below is the one deliberate
+        // clear gesture.
+        if ((winFormsKey & (int)WinFormsKeys.KeyCode) == 0)
+        {
+            Speak?.Invoke("That key can't be used here. Press a different key.");
+            return;
+        }
+
         if (winFormsKey == item.KeyValue)
             return;
 
