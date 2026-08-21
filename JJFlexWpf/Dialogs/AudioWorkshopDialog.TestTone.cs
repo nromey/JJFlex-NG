@@ -323,7 +323,13 @@ public partial class AudioWorkshopDialog
         string pb = PassbandCheck(freq, out bool outside);
         if (!string.IsNullOrEmpty(pb)) line.Append(' ').Append(pb);
         _toneOutsideWarned = outside;
+        // #128 sweep audit (2026-08-21): the Ctrl+J, G chord answers an arm
+        // with the feature-on tone (or the warning pair when the tone sits
+        // outside the transmit filter) and this checkbox — the other road
+        // into the same armed state — answered with nothing. Mirror the
+        // chord exactly: warning outranks confirmation, never both.
         if (outside) EarconPlayer.Warning2Beep();
+        else EarconPlayer.FeatureOnTone();
         ScreenReaderOutput.Speak(line.ToString(), VerbosityLevel.Critical, interrupt: true);
         UpdateToneStatus(speakIfNewlyOutside: false);
     }
@@ -341,9 +347,16 @@ public partial class AudioWorkshopDialog
         EarconPlayer.StopTxToneMonitor();
         _toneMonitorSounding = false;
         _toneMonitorProvider = null;
+        // #128: tone only on the spoken (operator-visible) path. The silent
+        // callers are dialog close and radio teardown, where a feature-off
+        // chime would narrate housekeeping — the #58 rule. The chord road
+        // plays its own off-tone in KeyCommands, and never comes through here.
         if (speak)
+        {
+            EarconPlayer.FeatureOffTone();
             ScreenReaderOutput.Speak("Test tone disarmed. Microphone restored.",
                 VerbosityLevel.Critical, interrupt: true);
+        }
     }
 
     /// <summary>Set the arm checkbox without firing its handlers.</summary>
@@ -386,6 +399,13 @@ public partial class AudioWorkshopDialog
     {
         if (_polling) return;
         SaveToneSettings();
+
+        // #128 sweep audit (2026-08-21): an operator-facing boolean answers
+        // back. The tone is especially load-bearing here because the thing
+        // being enabled — the local monitor — only sounds while armed AND
+        // transmitting, so flipping it while unkeyed produces no other
+        // audible change at all.
+        EarconPlayer.ToggleTone(on);
 
         // DELETED: pure state echo of a CheckBox the screen reader already
         // announces.

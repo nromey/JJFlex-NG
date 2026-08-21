@@ -406,6 +406,11 @@ public class NativeMenuBar : IDisposable
             if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
             p.RnnEnabled = !p.RnnEnabled;
             _window.PersistDspSettings();
+            // #128 sweep audit (2026-08-21): this was the one silent road of
+            // four — the Home panel, the Noise Profiles dialog and the Ctrl+J
+            // chord all toned, and an operator who learned the sound from any
+            // of those reads this menu's silence as the command failing.
+            EarconPlayer.ToggleTone(p.RnnEnabled);
             SpeakAfterMenuClose(p.RnnEnabled ? "PC Neural NR on" : "PC Neural NR off");
         }, () => _window.FieldsPanel?.AudioPipeline?.RnnEnabled == true);
         AddChecked(pcSub, "PC Spectral NR\tCtrl+J, Shift+S", () =>
@@ -414,6 +419,9 @@ public class NativeMenuBar : IDisposable
             if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
             p.SpectralEnabled = !p.SpectralEnabled;
             _window.PersistDspSettings();
+            // #128 sweep audit (2026-08-21): same as PC Neural NR above — the
+            // menu was the one silent road of four into this state.
+            EarconPlayer.ToggleTone(p.SpectralEnabled);
             SpeakAfterMenuClose(!p.SpectralEnabled ? "PC Spectral NR off"
                 : p.HasNoiseProfile ? "PC Spectral NR on"
                 : "PC Spectral NR on, no noise profile loaded. Press Control J then Q to capture one.");
@@ -1339,6 +1347,10 @@ public class NativeMenuBar : IDisposable
                 return;
             }
             Rig.LocalPTT = true;
+            // #128: a boolean that just became true answers back. Only the
+            // success path tones — the already-on path above changed nothing,
+            // and the rule is tied to the transition, not to the click.
+            EarconPlayer.ToggleTone(true);
             SpeakAfterMenuClose("Local PTT on");
         }, () => Rig?.LocalPTT == true);
 

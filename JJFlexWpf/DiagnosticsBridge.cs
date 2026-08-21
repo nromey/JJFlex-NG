@@ -152,8 +152,19 @@ namespace JJFlexWpf
                     Speak?.Invoke("Detailed capture is not available.");
                     return;
                 }
-                if (Capturing()) StopCapture?.Invoke();
-                else StartCapture?.Invoke(reason);
+                // #128: the toggle tone lives HERE, at the choke, not at any
+                // of the doors. It lived at the Ctrl+J Ctrl+D chord until the
+                // 2026-08-21 sweep audit, which meant the Settings button and
+                // the Command Finder command flipped the same state silently —
+                // the exact one-road-answers-back inconsistency the sweep
+                // exists to remove. Earcon before the state change on purpose:
+                // a capture toggle is exactly the kind of thing you press
+                // while something else is already talking, and the tone says
+                // the press landed before any sentence starts.
+                bool turningOn = !Capturing();
+                EarconPlayer.ToggleTone(turningOn);
+                if (turningOn) StartCapture?.Invoke(reason);
+                else StopCapture?.Invoke();
             }
             catch
             {

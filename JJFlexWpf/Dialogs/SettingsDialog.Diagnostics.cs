@@ -202,6 +202,12 @@ namespace JJFlexWpf.Dialogs
             bool keep = DiagKeepLogCheckbox.IsChecked == true;
             ApplyDiagnosticChoice(keep, CurrentDetailChoice());
 
+            // #128 sweep audit (2026-08-21): this checkbox applies immediately
+            // (settings are intents), so it answers back like every other live
+            // toggle — it is not covered by the batched-on-OK exception. Tone
+            // before the sentence, which is long by design.
+            EarconPlayer.ToggleTone(keep);
+
             // Turning it OFF speaks a consequence, not just a state. "Off" tells
             // the operator what they pressed; it does not tell them what they
             // have given up, and this is the one setting whose cost only shows
@@ -246,6 +252,9 @@ namespace JJFlexWpf.Dialogs
             try { DiagnosticsBridge.ApplyMeterStream?.Invoke(record); }
             catch { DiagnosticsBridge.Speak?.Invoke("That diagnostic setting could not be saved."); return; }
 
+            // #128: immediate-apply toggle answers back; the failed-save path
+            // above returns before this, so a declined change never chimes.
+            EarconPlayer.ToggleTone(record);
             DiagnosticsBridge.Speak?.Invoke(record
                 ? "Meter stream recording on. Each meter is summarized into the log once a second, peaks included."
                 : "Meter stream recording off. The radio's meter readings are no longer written to the log.");

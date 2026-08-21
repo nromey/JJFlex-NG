@@ -911,6 +911,10 @@ namespace JJFlexWpf.Dialogs
             if (Devices.ShowAdvancedDevices == on) return;
 
             Devices.ShowAdvancedDevices = on;
+            // #128 sweep audit (2026-08-21): operator-facing boolean answers
+            // back — and this one triggers a device re-enumeration whose only
+            // other evidence is combo contents quietly changing.
+            EarconPlayer.ToggleTone(on);
             // A full re-enumeration, not just a picker rebuild: WDM-KS devices
             // are skipped at enumeration time, so they are not in InputDevices
             // to be filtered back in. LoadHostApis runs inside, which is how

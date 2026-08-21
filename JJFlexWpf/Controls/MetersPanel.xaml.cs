@@ -191,8 +191,21 @@ public partial class MetersPanel : UserControl
     /// <summary>Show the panel if it is hidden, hide it if it is showing.</summary>
     public void TogglePanelVisibility()
     {
-        if (Visibility == Visibility.Visible && MetersExpander.IsExpanded) HidePanel();
-        else ShowPanel();
+        // #128: tone at the toggle choke (both roads — Ctrl+M and the menu
+        // item — come through here), matching the Show Field Panel menu item,
+        // which has toned since Sprint 32 Track E. Not in ShowPanel/HidePanel:
+        // those are also navigation calls, and a tone on every programmatic
+        // show would violate the internal-transitions-stay-silent rule (#58).
+        if (Visibility == Visibility.Visible && MetersExpander.IsExpanded)
+        {
+            EarconPlayer.ToggleTone(false);
+            HidePanel();
+        }
+        else
+        {
+            EarconPlayer.ToggleTone(true);
+            ShowPanel();
+        }
     }
 
     #endregion
@@ -593,6 +606,10 @@ public partial class MetersPanel : UserControl
         RefreshSourceChoices();
         LoadSelectedSlot();
         int n = _sourceChoices.Count;
+        // #128: tone before the sentence — the checkbox is operator-facing
+        // and the tone confirms the flip landed even if the count that
+        // follows gets talked over.
+        EarconPlayer.ToggleTone(AllMetersCheck.IsChecked == true);
         ScreenReaderOutput.Speak(
             AllMetersCheck.IsChecked == true
                 ? $"Showing all {n} meters"
@@ -757,6 +774,12 @@ public partial class MetersPanel : UserControl
         bool on = SlotEnabledCheck.IsChecked == true;
         slot.Enabled = on;
         if (!on) slot.ToneProvider.Active = false;
+
+        // #128: an operator-facing boolean answers back. At the handler, not
+        // in MeterSlot.Enabled itself, because the engine also flips slots
+        // programmatically (preset apply, config load) and those transitions
+        // must stay silent — the #58 chime-storm rule.
+        EarconPlayer.ToggleTone(on);
 
         // The selector lists each meter with its state, so it has to follow.
         MeterToneEngine.NotifySlotContentChanged();

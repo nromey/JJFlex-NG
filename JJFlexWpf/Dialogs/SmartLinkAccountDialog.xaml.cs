@@ -172,6 +172,9 @@ namespace JJFlexWpf.Dialogs
             bool enabled = AutoStartRemoteCheck.IsChecked == true;
             item.AutoStartRemote = enabled;
             _callbacks.SetAutoStartRemote(item.FriendlyName, enabled);
+            // #128 sweep audit (2026-08-21): immediate-apply operator toggle
+            // answers back. Tone before the sentence, per the sweep's ordering.
+            EarconPlayer.ToggleTone(enabled);
             _callbacks.ScreenReaderSpeak?.Invoke(enabled
                 ? $"Remote will start automatically when {item.FriendlyName} is the account in use."
                 : $"Remote will wait for the Remote button for {item.FriendlyName}.", true);

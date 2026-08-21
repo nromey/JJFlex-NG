@@ -1015,10 +1015,15 @@ public class KeyCommands
         }
 
         bool wanted = !rig.PCAudio;
+        // PCAudioToggle (globals.vb) is the state change and plays the tone
+        // itself, from the radio's read-back. No tone here: until the #128
+        // sweep audit (2026-08-21) this handler ALSO toned, so the chord road
+        // sounded twice per press while the menu and Settings roads sounded
+        // once — the exact inconsistency the sweep exists to remove. The tone
+        // lives at the state change, not at the control.
         _context.PCAudioToggle();
 
         bool actual = rig.PCAudio;
-        if (actual) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         Radios.ScreenReaderOutput.Speak(
             actual ? "PC audio on"
             : wanted ? "PC audio could not start, still off"
@@ -3758,11 +3763,12 @@ public class KeyCommands
                 Radios.VerbosityLevel.Critical);
             return;
         }
-        // Earcon first, so the operator knows the chord landed even before the
-        // sentence starts — a capture toggle is exactly the kind of thing you
-        // press while something else is already talking.
-        if (DiagnosticsBridge.Capturing()) EarconPlayer.FeatureOffTone();
-        else EarconPlayer.FeatureOnTone();
+        // The tone moved into ToggleCapture itself (#128 sweep audit,
+        // 2026-08-21). It used to live here, which meant the chord toned and
+        // the Diagnostics-tab button and Command Finder command — the other
+        // two doors into the same choke — were silent. All three doors now
+        // inherit the earcon-first behaviour from the one place the state
+        // actually changes.
         DiagnosticsBridge.ToggleCapture("Ctrl+J Ctrl+D");
     }
 

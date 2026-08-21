@@ -640,13 +640,25 @@ namespace JJFlexWpf
             MicAudioReport.VerdictMode =
                 (MicVerdictOutputMode)Math.Clamp(MicVerdictOutput, 0, 2);
 
-            MeterToneEngine.Enabled = MeterTonesEnabled;
-            MeterToneEngine.MasterVolume = MeterMasterVolume;
-            MeterToneEngine.PeakWatcherEnabled = PeakWatcherEnabled;
-            MeterToneEngine.SpeechEnabled = MeterSpeechEnabled;
-            MeterToneEngine.SpeechIntervalSeconds = Math.Clamp(MeterSpeechIntervalSeconds, 1, 10);
-            MeterToneEngine.AutoEnableOnTune = AutoEnableOnTune;
-            MeterToneEngine.SpeechTimerActive = MeterSpeechTimerActive;
+            // #128: restoring saved state is not a toggle. The engine's
+            // operator booleans tone in their setters (so every road answers
+            // back); this is the one writer that must not — a launch that
+            // chimed once per restored setting would be the #58 chime storm.
+            MeterToneEngine.QuietStateRestore = true;
+            try
+            {
+                MeterToneEngine.Enabled = MeterTonesEnabled;
+                MeterToneEngine.MasterVolume = MeterMasterVolume;
+                MeterToneEngine.PeakWatcherEnabled = PeakWatcherEnabled;
+                MeterToneEngine.SpeechEnabled = MeterSpeechEnabled;
+                MeterToneEngine.SpeechIntervalSeconds = Math.Clamp(MeterSpeechIntervalSeconds, 1, 10);
+                MeterToneEngine.AutoEnableOnTune = AutoEnableOnTune;
+                MeterToneEngine.SpeechTimerActive = MeterSpeechTimerActive;
+            }
+            finally
+            {
+                MeterToneEngine.QuietStateRestore = false;
+            }
 
             // Voices before meters: definitions resolve voices by name.
             MeterVoiceLibrary.SetUserVoices(UserVoices);

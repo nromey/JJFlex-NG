@@ -310,6 +310,11 @@ public partial class AudioWorkshopDialog
         rig.TxFileStart();
         _refPassRunning = true;
 
+        // #128 sweep audit (2026-08-21): arm answers back, mirroring the test
+        // tone checkbox one tab over — the two arms are siblings on the same
+        // transmit path and must sound alike. Only the success path tones;
+        // every declined path above reverts the checkbox and warns instead.
+        EarconPlayer.FeatureOnTone();
         ScreenReaderOutput.Speak(
             "Reference armed: " + _refLastDescription
             + ". It replaces your microphone from the start of the recording "
@@ -328,9 +333,15 @@ public partial class AudioWorkshopDialog
         (rig ?? _rig)?.TxFileStop();
         _refPassRunning = false;
         SetReferenceArmSilently(false);
+        // #128: tone only on the spoken (operator-visible) path — the silent
+        // callers are the recording finishing on its own, dialog close, and
+        // radio teardown, none of which is the operator toggling (#58 rule).
         if (speak)
+        {
+            EarconPlayer.FeatureOffTone();
             ScreenReaderOutput.Speak("Reference disarmed. Microphone restored.",
                 VerbosityLevel.Critical, interrupt: true);
+        }
         UpdateReferenceStatus();
     }
 

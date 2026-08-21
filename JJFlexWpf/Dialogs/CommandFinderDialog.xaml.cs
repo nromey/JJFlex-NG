@@ -144,7 +144,13 @@ namespace JJFlexWpf.Dialogs
         {
             // Only filter if already loaded (checkbox fires during init too)
             if (_allCommands.Count > 0)
+            {
+                // #128 sweep audit (2026-08-21): operator-facing boolean
+                // answers back. Inside the loaded guard so the init-time
+                // firing this comment already knew about stays silent.
+                EarconPlayer.ToggleTone(ShowAllScopesCheckBox.IsChecked == true);
                 FilterResults(SearchBox.Text.Trim());
+            }
         }
 
         private static bool MatchesQuery(CommandFinderItem item, string query)

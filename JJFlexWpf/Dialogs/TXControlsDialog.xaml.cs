@@ -107,11 +107,25 @@ public partial class TXControlsDialog : JJFlexDialog
 
     #region TX Request Handlers
 
-    private void TXReqRCACheck_Changed(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Apply one of this dialog's boolean relay/interlock toggles and answer
+    /// back with the toggle tone (#128 sweep audit, 2026-08-21). All eight
+    /// checkboxes in this dialog are immediate radio operations that were
+    /// completely silent — no tone, no speech — while every DSP toggle on the
+    /// Home panel answered back, so a flip here read as the command failing.
+    /// One helper so a checkbox added later cannot be silent by omission.
+    /// The tone sounds the REQUEST: these are write-only delegates with no
+    /// read-back to consult, the same contract the menu bar's ToggleDSP uses.
+    /// </summary>
+    private void ApplyToggle(Action<bool>? setter, bool on)
     {
         if (_loading) return;
-        SetTXReqRCAEnabled?.Invoke(TXReqRCACheck.IsChecked == true);
+        setter?.Invoke(on);
+        EarconPlayer.ToggleTone(on);
     }
+
+    private void TXReqRCACheck_Changed(object sender, RoutedEventArgs e)
+        => ApplyToggle(SetTXReqRCAEnabled, TXReqRCACheck.IsChecked == true);
 
     private void TXReqRCAPolarityCombo_Changed(object sender, SelectionChangedEventArgs e)
     {
@@ -120,10 +134,7 @@ public partial class TXControlsDialog : JJFlexDialog
     }
 
     private void TXReqACCCheck_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        SetTXReqACCEnabled?.Invoke(TXReqACCCheck.IsChecked == true);
-    }
+        => ApplyToggle(SetTXReqACCEnabled, TXReqACCCheck.IsChecked == true);
 
     private void TXReqACCPolarityCombo_Changed(object sender, SelectionChangedEventArgs e)
     {
@@ -136,44 +147,26 @@ public partial class TXControlsDialog : JJFlexDialog
     #region TX Output Handlers
 
     private void TX1RCACheck_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        SetTX1Enabled?.Invoke(TX1RCACheck.IsChecked == true);
-    }
+        => ApplyToggle(SetTX1Enabled, TX1RCACheck.IsChecked == true);
 
     private void TX2RCACheck_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        SetTX2Enabled?.Invoke(TX2RCACheck.IsChecked == true);
-    }
+        => ApplyToggle(SetTX2Enabled, TX2RCACheck.IsChecked == true);
 
     private void TX3RCACheck_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        SetTX3Enabled?.Invoke(TX3RCACheck.IsChecked == true);
-    }
+        => ApplyToggle(SetTX3Enabled, TX3RCACheck.IsChecked == true);
 
     private void TXACCCheck_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        SetTXACCEnabled?.Invoke(TXACCCheck.IsChecked == true);
-    }
+        => ApplyToggle(SetTXACCEnabled, TXACCCheck.IsChecked == true);
 
     #endregion
 
     #region Other Controls Handlers
 
     private void ALCCheck_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        SetHWAlcEnabled?.Invoke(ALCCheck.IsChecked == true);
-    }
+        => ApplyToggle(SetHWAlcEnabled, ALCCheck.IsChecked == true);
 
     private void RemoteOnCheck_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        SetRemoteOnEnabled?.Invoke(RemoteOnCheck.IsChecked == true);
-    }
+        => ApplyToggle(SetRemoteOnEnabled, RemoteOnCheck.IsChecked == true);
 
     #endregion
 

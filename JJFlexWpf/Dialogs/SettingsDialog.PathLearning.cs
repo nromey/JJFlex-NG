@@ -125,6 +125,10 @@ namespace JJFlexWpf.Dialogs
             if (cfg.LearnFromHistory == on) return;
             cfg.LearnFromHistory = on;
 
+            // #128: immediate-apply toggle answers back (settings are
+            // intents — the choice is live now even if the save below
+            // fails, and CommitPathLearning reports that failure in words).
+            EarconPlayer.ToggleTone(on);
             CommitPathLearning(cfg, on
                 ? $"Learning the connection path is on, after {cfg.TrendThreshold} connects in a row the same way."
                 : "Learning the connection path is off. Nothing will be prefilled from history. "

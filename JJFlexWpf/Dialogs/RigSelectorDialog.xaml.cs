@@ -1668,6 +1668,10 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
             radio.LowBW = LowBWCheckBox.IsChecked == true;
+            // #128: an operator-facing boolean answers back. The defensive
+            // resync path above returns before this line, so a checkbox the
+            // code snapped back to off never claims a toggle happened.
+            EarconPlayer.ToggleTone(radio.LowBW);
             RefreshRadiosList();
             // RefreshRadiosList clears + re-adds; restore selection by serial so
             // arrow-key context isn't lost. SelectionChanged will re-sync the
@@ -2992,12 +2996,23 @@ namespace JJFlexWpf.Dialogs
             var enabled = GlobalAutoConnectCheckbox.IsChecked == true;
             _callbacks.SaveGlobalAutoConnect(enabled);
 
-            // Deliberately silent. This is a real CheckBox with the accessible
-            // name "Enable auto-connect on startup", and the screen reader
-            // announces its checked state on every toggle. The suppression flag
-            // above means this handler only runs on a USER toggle — exactly the
-            // moment the reader is already speaking — so saying it again was a
-            // guaranteed double.
+            // #128 sweep audit (2026-08-21): this checkbox is the THIRD road
+            // into the same auto-connect flag the two menu items flip through
+            // MainWindow.ToggleAutoConnect, which has toned since Sprint 32
+            // Track E — and this road was silent. It cannot share that choke
+            // (the state lives in AutoConnectConfig in Radios.dll, which
+            // cannot reach EarconPlayer, and this dialog sets an explicit
+            // value rather than toggling), so the tone rides the handler.
+            EarconPlayer.ToggleTone(enabled);
+
+            // No SPEECH, deliberately. This is a real CheckBox with the
+            // accessible name "Enable auto-connect on startup", and the screen
+            // reader announces its checked state on every toggle. The
+            // suppression flag above means this handler only runs on a USER
+            // toggle — exactly the moment the reader is already speaking — so
+            // saying it again was a guaranteed double. A tone duplicates
+            // nothing: it confirms the SAVE happened, which the checkbox
+            // cannot show.
         }
 
         private void RadiosBox_SelectionChanged(object sender, SelectionChangedEventArgs e)

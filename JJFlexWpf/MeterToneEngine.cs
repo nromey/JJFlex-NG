@@ -83,22 +83,57 @@ namespace JJFlexWpf
         /// <summary>Speech interval in seconds (1-10). How often batched meter values are spoken.</summary>
         public static int SpeechIntervalSeconds { get; set; } = 3;
 
+        /// <summary>
+        /// #128: config restore must not chime. The three operator booleans
+        /// below tone in their SETTERS — the single mutation point — because
+        /// their roads (Home panel checkbox, Meters panel checkbox, menu item)
+        /// are bare property writes with no shared funnel, and Peak Watcher
+        /// proved the failure mode: the Home panel road toned while the Meters
+        /// panel and menu roads flipped the identical state silently
+        /// (2026-08-21 sweep audit). Setter-level means a future fourth road
+        /// cannot be silent. The one non-operator writer is AudioOutputConfig
+        /// restoring saved state at load, which wraps its writes in this flag —
+        /// a launch is not a toggle, and a chime storm at startup is the #58
+        /// failure all over again.
+        ///
+        /// <see cref="Enabled"/> deliberately does NOT get this treatment: it
+        /// is written by OnTuneStarted/OnTuneStopped as an automatic side
+        /// effect of the tune carrier, so its operator tone lives in
+        /// <see cref="ToggleEnabled"/> instead, and every operator road goes
+        /// through that.
+        /// </summary>
+        public static bool QuietStateRestore { get; set; }
+
         /// <summary>Whether the speech timer is actively speaking meter values.</summary>
         public static bool SpeechTimerActive
         {
             get => _speechTimerActive;
             set
             {
+                if (_speechTimerActive == value) return;
                 _speechTimerActive = value;
                 if (value) StartSpeechTimer();
                 else StopSpeechTimer();
+                // #128: every operator road answers back; see QuietStateRestore.
+                if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
             }
         }
         private static bool _speechTimerActive;
         private static System.Windows.Threading.DispatcherTimer? _speechTimer;
 
         /// <summary>When true, enables default meters when TxTune activates.</summary>
-        public static bool AutoEnableOnTune { get; set; }
+        public static bool AutoEnableOnTune
+        {
+            get => _autoEnableOnTune;
+            set
+            {
+                if (_autoEnableOnTune == value) return;
+                _autoEnableOnTune = value;
+                // #128: every operator road answers back; see QuietStateRestore.
+                if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
+            }
+        }
+        private static bool _autoEnableOnTune;
 
         /// <summary>Master volume multiplier for all meter tones (0.0–1.0).</summary>
         public static float MasterVolume { get; set; } = 0.5f;
@@ -148,7 +183,23 @@ namespace JJFlexWpf
         private static int _presetIndex;
 
         // Peak Watcher state
-        public static bool PeakWatcherEnabled { get; set; } = true;
+        //
+        // #128: the setter tones because Peak Watcher has THREE operator roads
+        // — the Home panel checkbox, the Meters panel checkbox, and the Meter
+        // Tones menu item — and until the 2026-08-21 sweep audit only the
+        // first of them made a sound. One tone at the mutation point covers
+        // all three and any road added later. See QuietStateRestore above.
+        public static bool PeakWatcherEnabled
+        {
+            get => _peakWatcherEnabled;
+            set
+            {
+                if (_peakWatcherEnabled == value) return;
+                _peakWatcherEnabled = value;
+                if (!QuietStateRestore) EarconPlayer.ToggleTone(value);
+            }
+        }
+        private static bool _peakWatcherEnabled = true;
         private static long _lastPeakWarningTicks;
         private static long _alcHighStartTicks;
         private static bool _alcSustainedWarning;

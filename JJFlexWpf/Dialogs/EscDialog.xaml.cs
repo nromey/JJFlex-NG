@@ -221,6 +221,11 @@ public partial class EscDialog : JJFlexDialog
     {
         if (_suppressControlEvents) return;
         SetEscEnabled?.Invoke(EscEnabledCheckBox.IsChecked == true);
+        // #128 sweep audit (2026-08-21): an immediate radio toggle answers
+        // back. Read the state back through the getter rather than trusting
+        // the request — the same read-back rule PC audio's roads follow.
+        EarconPlayer.ToggleTone(
+            GetEscEnabled?.Invoke() ?? (EscEnabledCheckBox.IsChecked == true));
         UpdateControlsFromSlice();
     }
 

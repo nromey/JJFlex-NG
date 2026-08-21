@@ -572,8 +572,13 @@ public partial class ScreenFieldsPanel : UserControl
         DspContent.Children.Add(_meterToneCheck);
 
         _peakWatcherCheck = MakeToggle("Peak Watcher");
-        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak("Peak Watcher on", VerbosityLevel.Terse); } };
-        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak("Peak Watcher off", VerbosityLevel.Terse); } };
+        // #128: no tone at this control — PeakWatcherEnabled's setter tones,
+        // so all three of its roads (this checkbox, the Meters panel checkbox,
+        // the menu item) answer back identically. A tone here as well would
+        // sound twice per press, the same defect the sweep audit removed from
+        // the PC audio chord on 2026-08-21.
+        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; ScreenReaderOutput.Speak("Peak Watcher on", VerbosityLevel.Terse); } };
+        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; ScreenReaderOutput.Speak("Peak Watcher off", VerbosityLevel.Terse); } };
         DspContent.Children.Add(_peakWatcherCheck);
     }
 
