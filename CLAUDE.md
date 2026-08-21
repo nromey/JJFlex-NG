@@ -482,6 +482,29 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    (Blind Hams data, rarbox triage) or planning docs that were archived on
    purpose. The number to watch is a NEW entry appearing, not the total.
 
+3d. **AppData config backup:** run `& "C:\dev\JJFlex-NG\backup-appdata-to-nas.ps1"`.
+   Snapshots the operator's CONFIGURATION out of `%AppData%\JJFlexRadio\` to
+   `historical\appdata\` as a dated zip. About 73 files and 0.07 MB compressed,
+   so it costs nothing and can be run freely. Keeps 24 by default.
+
+   **Nothing else covers this directory.** `backup-dev-to-nas.ps1` mirrors
+   `C:\dev`; `backup-claude-state-to-nas.ps1` takes `~\.claude`;
+   `backup-private-to-nas.ps1` takes JJFlex-private. All three live outside
+   `%AppData%`, so until 2026-08-21 the operator's key map, audio config, radio
+   entries and 51 connection profiles existed in exactly one place.
+
+   **Added 2026-08-21 after a background agent's worktree build rewrote
+   `KeyDefs.xml`.** Every instance shares `%AppData%` regardless of which binary
+   started it, so an agent that launches its own build runs that build's
+   config migrations against the operator's LIVE settings. Nothing was
+   obviously broken, but with no prior copy anywhere, "did that damage
+   anything?" could not be answered — and still cannot, for that day.
+
+   Config only by default. `-IncludeDiagnostics` adds `Errors\*.zip` and
+   `Traces\`; raw `.dmp` files are NEVER taken — measured 2026-08-21 at 428 to
+   516 MB each, and the `.zip` bundle beside them is what a support
+   conversation actually reads.
+
 4. **Agent.md update:** Record what happened today and what's next, so the resume path for the next session is clear.
 4a. **Rigmeter snapshot in the seal entry.** Rigmeter moved to its own repository at `C:\dev\rigmeter` in Sprint 30 Track G (2026-08-18); it still targets this repo by default. Run `python C:\dev\rigmeter\rigmeter.py all` and `python C:\dev\rigmeter\rigmeter.py today`, paste a condensed version of both outputs into a "Rigmeter snapshot — end of YYYY-MM-DD" subsection at the bottom of today's Agent.md entry. Format: grand totals (authored vs vendor split), per-project breakdown, per-category totals, fun comparisons, and today's git activity. ALSO run `python C:\dev\rigmeter\rigmeter.py snapshot` to write the structured JSON to NAS at `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json` — this is the durable time-series and the source for `rigmeter growth --use-snapshots <date-a> <date-b>` queries. (Falls back to `%LOCALAPPDATA%\rigmeter\snapshots\` if NAS is unreachable; reconcile later with `rigmeter snapshot --sync`.) The Agent.md text snapshots are human-readable history; the NAS JSON snapshots are machine-queryable. Both accumulate. Skip on docs-only days where rigmeter values would be unchanged from yesterday.
 4b. **After-Action Report (AAR).** Write `C:\Users\nrome\JJFlex-private\after-action-reports\YYYY\MM\YYYY-MM-DD.md` capturing the day's cross-surface activity (main repo + each worktree + external infrastructure). **Lives in JJFlex-private, NOT in the public `docs/` tree** — the file routinely names testers by personal/medical context, references internal sequencing, and would leak through `nromey/JJFlex-NG`. JJFlex-private is already backed up to NAS via `backup-private-to-nas.ps1`. Sections: Snapshot, Theme, Per-surface activity, Decisions and scope changes, Rigmeter today (with branch-scope caveat), Setup for tomorrow. Use bulleted lists / prose only — NEVER tables (screen-reader hostile). Closes the gap rigmeter and Agent.md leave on heavy research days where parallel worktrees accumulate thousands of lines of docs while main sees one commit. Skip rule: if every surface was idle AND no external work AND rigmeter today is empty, no file that day. See `memory/project_after_action_reports.md` for the full convention.
