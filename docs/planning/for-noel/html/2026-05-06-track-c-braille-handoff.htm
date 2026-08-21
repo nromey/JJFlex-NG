@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>2026-05-06-track-c-braille-handoff</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">2026-05-06-track-c-braille-handoff</h1>
+</header>
+<h1 id="track-c-handoff-cross-at-braille-primitive-research">Track C
+handoff — cross-AT braille primitive research</h1>
+<p><strong>Status:</strong> research complete; awaiting Noel’s review
+<strong>Date:</strong> 2026-04-29 <strong>Branch:</strong>
+<code>track/braille-research</code> (not for merge to main without
+review) *Prepared by:** autonomous Track C research agent (Claude Opus
+4.7)</p>
+<p>This is the read-this-first document for Noel. Below: what got done,
+what was found, what to decide, what’s next.</p>
+<h2 id="what-was-researched">What was researched</h2>
+<p>Six phases planned in <code>TRACK-INSTRUCTIONS.md</code>. Five
+completed; the sixth (this doc) closes the track.</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Output</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>NVDA braille primitive survey</td>
+<td><code>nvda-braille-primitive.md</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>JAWS braille primitive survey</td>
+<td><code>jaws-braille-primitive.md</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>OSARA prior art survey</td>
+<td><code>osara-prior-art.md</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Cross-AT abstraction design synthesis</td>
+<td><code>cross-at-primitive-design.md</code> ⭐ deliverable</td>
+</tr>
+<tr>
+<td>5</td>
+<td>NVDA prototype</td>
+<td><code>prototype/</code> directory</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Handoff document</td>
+<td>this file</td>
+</tr>
+</tbody>
+</table>
+<p>(One table — kept as a single index because the layout is small and
+the alternative bullet form is less useful for a six-row matrix. If your
+screen reader objects, tell me and I’ll convert.)</p>
+<h2 id="headline-finding">Headline finding</h2>
+<p><strong>The primitive is buildable, the design is sound, OSARA wants
+it, and Jamie Teh has been waiting for it.</strong> Read
+<code>cross-at-primitive-design.md</code> — that’s the deliverable.</p>
+<p>The primitive’s host-language API is five methods plus two
+properties:</p>
+<pre><code>session.open(elements)        # attach
+session.update(elements)      # full re-render
+session.patch(id, new_text)   # single-element update
+session.dismiss()             # detach
+session.pan(direction)        # programmatic pan (optional)
+session.is_attached           # bool
+session.display_dimensions    # (cols, rows)</code></pre>
+<p><code>DisplayElement</code> is
+<code>(text, id, on_click_callback)</code>. The <code>on_click</code>
+receives <code>(element_id, cell_offset_within_element)</code>. That’s
+the surface every consumer codes against.</p>
+<h2 id="key-surveys-take-aways">Key surveys take-aways</h2>
+<h3 id="nvda-open-well-documented">NVDA (open, well-documented)</h3>
+<ul>
+<li>NVDA exposes a clean <code>Region</code> base class with a
+<code>routeTo(braillePos)</code> callback, organized into
+<code>BrailleBuffer</code> instances managed by
+<code>BrailleHandler</code>. Source available at
+<code>source/braille.py</code>.</li>
+<li>Pattern B (custom <code>Region</code> injected into
+<code>mainBuffer.regions</code>) is the right path for the
+primitive.</li>
+<li>Panning, multi-line text wrap, message coexistence, and positioning
+are all already implemented in NVDA’s own <code>BrailleBuffer</code>. We
+get them for free.</li>
+<li>Extension point <code>pre_writeCells</code> exists for observers; no
+<code>pre_routeTo</code> exists, which is correct — routing dispatch
+happens through the Region object the add-on owns. The Region IS the
+extension surface.</li>
+<li>Add-on packaging: <code>globalPlugins/brailleElement/</code> for the
+library; <code>appModules/JJFlexRadio/</code> for JJFlex-specific
+consumers.</li>
+</ul>
+<h3 id="jaws-closed-walled-docs">JAWS (closed, walled docs)</h3>
+<ul>
+<li>The architecture works the same way conceptually:
+<code>BrailleMessage(text)</code> to render, routing-button event for
+clicks, JAWS owns panning.</li>
+<li><code>.jss</code> script + <code>.jcf</code> gesture binding + DLL
+bridge is the equivalent deployment unit to the NVDA add-on.</li>
+<li><strong>3 function names need verification against
+<code>FSDN.chm</code></strong>: render function (likely
+<code>BrailleMessage</code>), routing-button getter (likely
+<code>GetRoutingButtonIndex</code>), gesture identifier (likely
+<code>RouteCursor</code>). 30-minute lookup with CHM open.</li>
+<li>Tolk already handles the JJFlex linear status line through JAWS —
+the gap on JAWS is <em>only</em> the routing-key callback. The script +
+DLL exists to bridge that gap, not to replace Tolk rendering. **** Is
+this really true? I seem to think that we do output a line, but itw as
+not focussable, and it was not formatted well at all either in JAWS or
+NVDA. I’m not sure taht this assertion is true though.</li>
+</ul>
+<h3
+id="osara-no-current-braille-support-but-the-maintainer-wants-this">OSARA
+(no current braille support, but the maintainer wants this)</h3>
+<ul>
+<li>Jamie Teh’s quote from issue #805: <em>“I’d ideally like to have
+OSARA handling most of the work, just interfacing with some other
+component for the output/input of braille. This way, we get a consistent
+UX in the long-run.”</em> — that <em>component</em> is the cross-AT
+primitive.</li>
+<li>OSARA’s <code>outputMessage</code> uses UIA notifications; it has
+zero braille-specific code today. The primitive is the natural place to
+put it.</li>
+<li>Issue #805 is open (since 2022) — fertile ground for the
+proposal.</li>
+<li>Jamie is <em>also</em> an NVDA core dev; if NVDA-side primitive
+ships clean, he sees it from both sides.</li>
+</ul>
+<h2 id="what-i-recommend-you-decide">What I recommend you decide</h2>
+<p>These are the open design questions from
+<code>cross-at-primitive-design.md</code> §8 — the things that benefit
+from your call before any implementation begins. None block the design’s
+correctness; they shape the rollout.</p>
+<ol type="1">
+<li><p><strong>Naming.</strong> I used <code>brailleElement</code> as
+the working library name. Alternates: <code>brailleStrip</code>,
+<code>tactileLine</code>, <code>brailleStatus</code>. Picking now
+matters — it’s the importable Python package name, the repo name, and
+the user-facing identifier. My recommendation:
+<code>brailleElement</code> keeps the “it’s a clickable element”
+cognitive frame front and center. ****BrailleElement is fine with
+me.</p></li>
+<li><p><strong>Repo location.</strong> Three options: (a) sub-directory
+inside JJFlex until v2; (b) standalone repo from day one; (c) inside an
+OSARA-style umbrella once Jamie blesses it. My recommendation:
+<strong>(b) standalone repo from day one</strong> — separating now
+preempts the refactor when it acquires a second consumer, and presents
+cleanly to Jamie when you reach out. **** Agree, B is where we do it. We
+can include information for Jamie, I can send him information via mail.
+I’d rather send him stuff and try on our end with JJ Flex information
+than play around in Osara, something we’re not experts with.</p></li>
+<li><p><strong>License.</strong> JJFlex is currently mixed-license. The
+primitive should be permissive (MIT or Apache 2.0) to maximize adoption.
+OSARA is GPL but its dependencies can be permissive. JAWS-side script
+also benefits from permissive licensing. My recommendation:
+<strong>MIT</strong> — clean, well-known, blocks nothing. **** I know
+we’re mixed license now, I kind of think I’d like JJ Flexible to be MIT
+license but I’ll have to read and unsderstand how that works. I’m not
+sure on licensing now, I’d rather get something working, something that
+we output a string to braille, and then when clicked with the cursor
+router it says “clicked fartsnoodle” if the line has the word
+fartsnoodle in it.</p></li>
+<li><p><strong>Outreach timing for Jamie Teh.</strong> My recommended
+sequence: (a) implement NVDA add-on as a real shippable product, (b)
+wire JJFlex as the first consumer, (c) write one demo OSARA wouldn’t
+even need to install but could read, then (d) reach out to Jamie with
+concrete artifacts. Don’t pitch theory — pitch the working primitive
+that JJFlex is already running on. ****Yes, we implement a working NVDA
+addon for us, then we contact Jamie if it wors and we can ship him a
+primitive.</p></li>
+<li><p><strong>JAWS [verify] markers.</strong> Three function names need
+CHM verification. You have JAWS installed. Question: do you do the
+lookup, or do we hand it to a tester (Justin? Don?) with CHM access? My
+recommendation: Noel does it personally because it’s a single-day task
+and the verification is fast. Could also be a “first-good-CHM” task to
+delegate to a contributor. **** OI do the lookup. Justin doesn’t use
+JAWS. Can’t you pull up something from this CHM/extract the text from it
+so that you have full access to the FSDN? Is there a way for you to read
+it?</p></li>
+<li><p><strong>Sprint sizing and timing.</strong> Once design is
+approved:</p>
+<ul>
+<li><strong>NVDA add-on + JJFlex consumer</strong> — ~3-5 days. Library
++ JJFlex appModule. Includes test against Focus 40 (you have one; Don
+has one).</li>
+<li><strong>JAWS adapter</strong> — ~2-3 days post-FSDN-verification.
+JSS script + JCF + bridge DLL.</li>
+<li><strong>OSARA outreach</strong> — non-coding, ~1 day to write the
+issue/PR pitch, then async wait for Jamie.</li>
+<li><strong>Total</strong>: about 1 sprint of dedicated work plus async
+OSARA cycle.</li>
+<li><strong>When</strong>: post-foundation phase. The primitive is
+leverage for the future waterfall + customize-home work, not foundation
+work itself. Per your sequencing memos
+(<code>project_foundation_phase.md</code>,
+<code>project_waterfall_signature_feature.md</code>), this lands either
+in a Sprint 28-29 window or post-Customize-Home depending on when you
+want to harvest the OSARA-leverage angle. **** Remember, the day
+nonsense is not a thing when you’re working on it. All this … sequence
+makes sense though.</li>
+</ul></li>
+</ol>
+<h2 id="whats-not-in-this-research">What’s NOT in this research</h2>
+<p>Per <code>TRACK-INSTRUCTIONS.md</code> scope:</p>
+<ul>
+<li><p><strong>No production JJFlex code.</strong> This branch contains
+only <code>docs/planning/track-c/</code>. No changes to
+<code>Radios/</code>, <code>JJFlexWpf/</code>, etc. The branch is
+research-only; no merge to <code>main</code>.</p></li>
+<li><p><strong>No JAWS implementation.</strong> The JAWS adapter design
+exists; the actual implementation needs FSDN-anchored verification
+first. **** I’m not sure why you couldn’t try for a JAWS implementation
+given this info.</p></li>
+<li><p><strong>No tactile graphics / Dot Pad work.</strong> That’s the
+multi-channel braille vision
+(<code>memory/project_multi_braille_output_vision.md</code>). It’s a
+sibling channel, not a consumer of this primitive. Out of Track C scope.
+**** This is fine</p></li>
+<li><p><strong>No macOS / VoiceOver adapter.</strong> v2 of the
+primitive. Mentioned for completeness; not scoped. **** True, we’re not
+even close to Voiceover.</p></li>
+</ul>
+<h2 id="risks-and-watch-outs">Risks and watch-outs</h2>
+<ol type="1">
+<li><p><strong>Design risk: focus boundary management.</strong> The
+NVDA-side Pattern B requires the host (JJFlex appModule) to call
+<code>session.dismiss()</code> when its control loses focus. If the
+appModule forgets, the session stays attached while focus is elsewhere —
+wrong. Mitigated by good consumer-API documentation; verify the JJFlex
+appModule wires <code>event_loseFocus</code> when the implementation
+pass starts. **** Couldn’t we implement a poll of some kind in teh
+appmodule to check if it’s been dismiossed. I’d think we could work
+ithat all out sometime.</p></li>
+<li><p><strong>JAWS verification gap.</strong> Three function names
+cited as <code>[verify in FSDN.chm]</code>. They’re all structurally
+implied and widely cited; the FSDN check confirms spelling. Risk is low
+(the names are wrong but a name <em>exists</em> for each function). If
+the names turn out to be different, the design holds; only the
+implementation strings change. **** We can work this angle.</p></li>
+<li><p><strong>OSARA pitch risk.</strong> Jamie Teh is friendly, but
+he’s also one developer with finite time. The primitive must demonstrate
+real working value (NVDA add-on + JJFlex consumer) before the OSARA
+pitch is worth opening. Don’t pitch theory. **** Indeed. He also reached
+out to me and said … Hey, can we do this? Which I said for sure, that we
+needed it to work for this application, and I said I’d come up with a
+primitive that he could use.</p></li>
+<li><p><strong>Cell-count economics.</strong> The
+<code>cross-at-primitive-design.md</code> §5.6 discoverability decision
+says “everything is clickable; document via help.” This is the right
+call for cell economy but it puts more burden on user education. If user
+testing reveals confusion, v2 might add an opt-in cursor-shape
+indicator. **** That’s fine. I think that one needs a cursor indicator
+that’s opt-in at v1. It’ll also help with new implementation s of the
+line.</p></li>
+<li><p><strong>Versioning.</strong> The primitive’s API can grow over
+time (v2 adds macOS, multi-line, separator-routing, stacked sessions).
+Each is an addition, not a breaking change. Document v1’s API stability
+commitment now so consumers can take a dependency confidently. ****
+agreed.</p></li>
+</ol>
+<h2
+id="recommended-next-sprint-scope-not-committed-up-to-noel">Recommended
+next-sprint scope (not committed; up to Noel)</h2>
+<p>If a future sprint takes this on, here’s what that sprint would look
+like:</p>
+<p><strong>Sprint goals:</strong> - Ship <code>brailleElement</code>
+v0.1 NVDA add-on as a public NVDA add-on. - Wire JJFlex Home (status
+line) to use it as its first consumer. - Write the OSARA pitch issue
+with the working artifacts as evidence.</p>
+<p><strong>Phases (rough):</strong> 1. Stand up the standalone repo. Set
+up <code>manifest.ini</code>, <code>buildVars.py</code>, SCons add-on
+build. ~half day. 2. Port the
+<code>prototype/globalPlugins/brailleElementDemo/</code> code to the
+production library. Add tests. ~1 day. 3. Implement the JJFlex appModule
+consumer. Wire <code>BrailleStatusEngine</code> to push elements through
+<code>session.patch</code>. ~1-2 days. 4. Test against Focus 40 + JAWS
+Tolk path. Capture screen-reader behavior in test matrix. ~half day. 5.
+Write the OSARA #805 reply with prototype link, design doc reference,
+and pitch. ~half day. 6. Resolve the three JAWS <code>[verify]</code>
+items against FSDN.chm. ~half day. 7. Implement the JAWS adapter. ~1-2
+days. 8. Update Agent.md with sprint completion; archive sprint
+plan.</p>
+<p>Fits in roughly one sprint as a non-blocking parallel track to other
+foundation/waterfall work, since the primitive doesn’t share files with
+<code>Radios/</code> or <code>FlexLib_API/</code>.</p>
+<p>**** Can’t we set up a test application that basically outputs a test
+line and then with cursor is clicked it speaks what you clicked? If that
+works, we have proven that (1) you can write a status line to the
+braille display and (2) when you click on the cursor router, it knows
+where you clicked and it’s returned. If this is possible, then we can
+def do it in JJF.</p>
+<h2 id="pointers-for-the-future">Pointers for the future</h2>
+<ul>
+<li>The <code>cross-at-primitive-design.md</code> is the
+<strong>definitive spec</strong>. If you’re building this, that’s where
+the API contract lives.</li>
+<li>The <code>nvda-braille-primitive.md</code> is the NVDA
+implementation reference. It cites line numbers in
+<code>source/braille.py</code>; line numbers will drift as NVDA evolves
+but class/method names are stable.</li>
+<li>The <code>jaws-braille-primitive.md</code> flags every JAWS function
+name with <code>[verify in FSDN.chm]</code> where the public web didn’t
+confirm spelling. Those need to be resolved before JAWS-side
+implementation begins.</li>
+<li>The <code>osara-prior-art.md</code> quotes Jamie Teh’s design
+preferences verbatim. That’s the pitch material when you reach out.</li>
+<li>The <code>prototype/</code> directory has a working sketch
+(NVDA-only, not tested in this session). It demonstrates the design
+holds when wired up.</li>
+</ul>
+<h2 id="outreach-to-jamie-teh-proposed-framing">Outreach to Jamie Teh —
+proposed framing</h2>
+<p>When the time comes, the OSARA #805 reply should be framed as:</p>
+<blockquote>
+<p>Hi Jamie — your comment in #805 about wanting “some other component
+for the output/input of braille” stuck with us. We built that component.
+It’s an NVDA add-on (link to repo) with a 5-method API for displaying
+clickable elements on a braille display. JJFlex (a ham radio control app
+for blind operators) is the first consumer; we’d love OSARA to be the
+second. Design doc here (link). We’ve explicitly designed it so OSARA
+wouldn’t need any screen-reader-specific code — just
+<code>braille_show(elements)</code> calls from your existing C++
+codebase. Happy to chat about a JAWS adapter as well if that interests
+you.</p>
+</blockquote>
+<p>Not a hard sell. A peer-developer offer.</p>
+<h2 id="wrap">Wrap</h2>
+<p>Track C delivered: 5 deliverable docs + a working prototype skeleton,
+~1500 lines of design content, ~250 lines of Python prototype, all on a
+research branch with no production-tree contamination.</p>
+<p>The design is buildable. The OSARA leverage is real. Two design
+questions need your input (naming and repo location) before any
+implementation begins. The JAWS-side verification is a one-day task
+before that adapter ships.</p>
+<p>Read <code>cross-at-primitive-design.md</code> first. Everything else
+supports it.</p>
+</body>
+</html>

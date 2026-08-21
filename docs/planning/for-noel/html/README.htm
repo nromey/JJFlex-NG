@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>README</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">README</h1>
+</header>
+<h1 id="for-noel-review-queue-from-claude-to-noel">for-noel — review
+queue from Claude to Noel</h1>
+<p>This folder holds documents Claude has drafted that need Noel’s
+review. Pair folder is <code>../for-claude/</code>.</p>
+<h2 id="how-the-pair-works">How the pair works</h2>
+<p>Folder names answer “who needs to act next?” — not “where did it
+originate.”</p>
+<ul>
+<li><strong><code>for-noel/</code></strong> (this folder) — Claude has
+put something here; <strong>Noel</strong> needs to read / decide /
+annotate.</li>
+<li><strong><code>for-claude/</code></strong> — Noel has put something
+here; <strong>Claude</strong> needs to act on it.</li>
+</ul>
+<p>Anything sitting in the wrong folder is a state error — it should
+never happen.</p>
+<h2 id="protocol">Protocol</h2>
+<ol type="1">
+<li><strong>Claude drops a doc in <code>for-noel/</code>.</strong> File
+name format: <code>YYYY-MM-DD-short-slug.md</code>. The doc has
+frontmatter or a top-of-file block describing what kind of review is
+needed (decision, info-only, sanity-check, etc.).</li>
+<li><strong>Noel reads it on his own time.</strong> Annotates inline
+using the four-asterisk comment convention (see below).</li>
+<li><strong>Noel MOVES the annotated copy to
+<code>../for-claude/</code>.</strong> Critical step: leaving the
+annotated doc in <code>for-noel/</code> makes it look (to Claude) like
+Noel hasn’t touched it yet. The folder name is the signal — if it’s
+annotated and ready for Claude, it belongs in for-claude.</li>
+<li><strong>Claude processes for-claude.</strong> Reads Noel’s comments,
+then either:
+<ul>
+<li>Files the doc to its permanent home
+(<code>docs/planning/design/</code>,
+<code>docs/planning/agile/archive/</code>, the changelog, a memory
+entry, <code>JJFlex-private/</code>, etc.) and reports the destination
+in chat. Deletes the for-claude copy.</li>
+<li>Re-drafts and returns it to <code>for-noel/</code> for another pass
+if Noel’s comments raise new questions.</li>
+<li>Asks clarifying questions in chat first if the comments are
+ambiguous.</li>
+</ul></li>
+</ol>
+<p>Noel can also drop things in <code>for-claude/</code> directly
+without a prior round-trip — see “What Noel puts in for-claude on his
+own” below.</p>
+<h2 id="comment-convention">Comment convention</h2>
+<p>Lines starting with <code>****</code> (four asterisks + space) are
+Noel speaking to Claude. They can appear anywhere in the document.</p>
+<pre><code>The original paragraph is here.
+
+**** Noel: I disagree with the 60-second escalation. Make it 30.
+
+The next paragraph continues.</code></pre>
+<p>For multi-line comments, prefix every line:</p>
+<pre><code>**** Noel: Two things on this section.
+**** First, the cancel button label should be &quot;Stop&quot; not &quot;Cancel&quot;.
+**** Second, can we land this in 4.1.18 instead?</code></pre>
+<p>A standalone <code>**** ACK</code> line means Noel approves the
+section as-is, no changes requested.</p>
+<p>A standalone <code>**** SKIP</code> line on a numbered question means
+“intentionally not answering this one — move on without it.”
+Distinguishes a skipped question from one Noel forgot.</p>
+<p><strong>Drafting tip for Claude:</strong> when posing a numbered
+question list, leave a <strong>blank line after each question</strong>
+so Noel’s <code>****</code> answer can’t accidentally absorb the next
+question into the same line. Discovered 2026-05-02 when Q3 of a
+stuck-modal digest got swallowed by Q2’s answer.</p>
+<h2 id="what-goes-here">What goes here</h2>
+<ul>
+<li>Design proposals where Noel’s call shapes the implementation</li>
+<li>Research summaries where Noel needs to weigh in before next
+steps</li>
+<li>Strategic frames or product-direction memos</li>
+<li>Checkpoint briefings after long autonomous sessions</li>
+<li>Anything Claude would otherwise lose track of in memory or chat</li>
+</ul>
+<h2 id="what-does-not-go-here">What does NOT go here</h2>
+<ul>
+<li>Code (use git)</li>
+<li>TODO entries (use
+<code>docs/planning/vision/JJFlex-TODO.md</code>)</li>
+<li>Sprint plans (use <code>docs/planning/agile/</code>)</li>
+<li>Changelog entries (use <code>docs/CHANGELOG.md</code>)</li>
+<li>Working notes Claude doesn’t need Noel to read</li>
+<li>Active engineering artifacts (test builds, tester traces) — those go
+in <code>docs/planning/active/&lt;investigation-name&gt;/</code></li>
+</ul>
+<h2 id="privacy">Privacy</h2>
+<p>Files here are committed to git by default. If a doc shouldn’t be
+public (private testers, sensitive customer info, etc.), Claude routes
+it to <code>JJFlex-private/for-noel/</code> instead.</p>
+</body>
+</html>

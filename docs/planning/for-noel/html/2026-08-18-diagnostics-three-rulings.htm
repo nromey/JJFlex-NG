@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>2026-08-18-diagnostics-three-rulings</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">2026-08-18-diagnostics-three-rulings</h1>
+</header>
+<h1 id="three-rulings-the-diagnostics-track-needs-from-you">Three
+rulings the diagnostics track needs from you</h1>
+<blockquote>
+<p><strong>Superseded as the place to answer.</strong> Answer in
+<code>2026-08-19-sprint30-open-questions.md</code>, which consolidates
+every open Sprint 30 question in one file. This file is kept because it
+holds the full reasoning behind its questions, and the unified file
+points back here.</p>
+</blockquote>
+<p><strong>From:</strong> Sprint 30 Track D (front door diagnostics),
+<code>sprint30/track-d</code> <strong>Date:</strong> 2026-08-18
+<strong>Why you:</strong> each of these is a judgement about what the
+app owes an operator, not something the code can settle. All three are
+built and working right now; each one has a decision baked in that I
+would rather you confirmed or overruled than left to be discovered
+later.</p>
+<p>Read this at whatever pace suits — nothing here blocks the merge. If
+you change one, it is a small edit each time.</p>
+<hr />
+<h2
+id="ruling-one-when-may-the-app-delete-a-crash-report-you-never-answered-about">Ruling
+one: when may the app delete a crash report you never answered
+about?</h2>
+<p><strong>What you asked for:</strong> keep the most recent N, and
+never delete one that has not been submitted or explicitly dismissed.
+That is exactly what shipped: three newest kept unconditionally, and
+beyond that a report is only removed once you have either sent it or
+answered “no” to the send prompt.</p>
+<p><strong>The problem with that rule, taken literally.</strong> If the
+send prompt never appears — the app died before it could, or the prompt
+itself failed — the report has no verdict and would be kept forever. A
+machine that crashes that way repeatedly grows without bound, which is
+the exact 1.8 GB problem this work exists to fix.</p>
+<p><strong>What I did, and want you to confirm.</strong> A report with
+no verdict survives everything for <strong>90 days</strong>. After that
+it is removed, and the log says so by name:
+<code>removed UNRESOLVED crash report JJFlexError-....zip (never sent and never dismissed, and older than 90 days)</code>.
+Deleting evidence nobody acted on should never happen quietly, so it
+does not.</p>
+<p><strong>RULED 2026-08-19: one week.</strong> Noel’s answer, given
+over the recommendation below — which argued against shortening.
+Recorded rather than quietly applied, because the counter-argument is
+real and whoever revisits this should see both.</p>
+<p>The counter-argument, preserved: a crash you never saw a prompt for
+is exactly the one worth keeping, so a short window is most likely to
+eat the evidence in the case the feature exists for.</p>
+<p>Why a week is nonetheless defensible, and what makes it safe: the
+keep-newest rule fires FIRST and unconditionally, so the newest
+<code>KeepCrashReports</code> bundles (three by default) are never
+touched by age, verdict or cap. The week therefore never governs the
+crash you just had, or the two before it. It governs the fourth
+unresolved report and older — the pile-up case, where evidence went
+unacted-on while more arrived on top of it. At 200-700 MB per dump that
+is the difference between a folder nobody notices and one that eats a
+laptop.</p>
+<p><strong>If a week later proves too tight, raise
+<code>KeepCrashReports</code>, not the window.</strong> It is already
+operator-configurable on the Diagnostics tab. Going from three to five
+protects two more reports outright, which addresses the counter-argument
+directly; lengthening the age window instead just delays the same
+pile-up.</p>
+<p><strong>Original options as presented, if the ruling is
+revisited:</strong></p>
+<ul>
+<li><strong>Longer.</strong> 180 days, a year. Costs disk on a machine
+that is already having a bad time.</li>
+<li><strong>Never.</strong> Fully honours what you asked for; accepts
+that a pathological machine can fill its disk with dumps. Defensible —
+the crash reporter’s whole value is having the dump when support
+asks.</li>
+<li><strong>Shorter.</strong> I would not: a crash you never saw a
+prompt for is precisely the one worth keeping.</li>
+</ul>
+<p>There is also a manual control on the Diagnostics tab — “Delete crash
+reports I have sent or dismissed” — which never touches an unanswered
+one, whatever the automatic policy says.</p>
+<hr />
+<h2
+id="ruling-two-which-failures-earn-a-window-that-appears-on-its-own">Ruling
+two: which failures earn a window that appears on its own?</h2>
+<p>The app now offers you the diagnostic log at the moment something
+fails. This is the item where every mistake is silent: an offer that
+fires at the wrong moments teaches you to dismiss it permanently, and an
+offer that fails to fire is worse than none at all, because by then you
+believe there is a safety net.</p>
+<p><strong>It offers on four things:</strong></p>
+<ul>
+<li>a setting you changed that did not reach disk (it is live now, gone
+next launch, and today’s only message is “see the trace file for
+details”)</li>
+<li>a connection to a named radio that failed</li>
+<li>audio that would not open, or stopped</li>
+<li>the reporting pipeline itself breaking — a problem report that would
+not build, a capture that would not start</li>
+</ul>
+<p><strong>It stays silent on:</strong> crashes (the crash reporter
+already prompts with a full bundle and an upload choice — two windows
+deep at the worst possible moment is not a kindness), “no radios found”
+(an ordinary state with an obvious next step), login and token
+rejections (your own next action fixes them, and the log carries your
+SmartLink email and JWT fragments, so offering to export raises the
+privacy cost for no diagnostic gain), anything a retry already absorbed,
+corrupt preset files (that message is already honest and actionable),
+and firmware download failures (re-downloadable by definition).</p>
+<p><strong>And regardless of kind it stays silent:</strong> while you
+are transmitting, after shutdown has begun, when the diagnostic log is
+off, after two offers in one session, and forever after you answer “Not
+now” even once.</p>
+<p><strong>What I want from you:</strong> tell me if any of those four
+should not interrupt you, or if something in the silent list should. The
+two-per-session cap and the one-“Not now”-ends-it rule are also
+judgements — say if either feels wrong.</p>
+<hr />
+<h2
+id="ruling-three-delete-the-old-tracing-dialog-now-or-keep-it-one-release">Ruling
+three: delete the old tracing dialog now, or keep it one release?</h2>
+<p>The ratified design retires the WPF trace dialog outright. Nothing
+opens it any more — Help → Tracing is gone, replaced by Tools →
+Diagnostics.</p>
+<p>I <strong>kept the file</strong> rather than deleting it, corrected:
+it now reads the live tracing state instead of assuming tracing is off,
+routes start and stop through the session-aware path instead of flipping
+the switch behind the archive’s back, and defaults to the real log file
+instead of <code>Documents\JJRadioTrace.txt</code>.</p>
+<p><strong>Why keep it:</strong> this sprint merges five tracks, the
+Settings dialog is the surface most likely to need backing out at merge
+time, and a corrected fallback sitting in the tree is cheaper than
+rebuilding one under pressure. Same reasoning as keeping
+<code>AuthForm</code> when WebView2 replaced it.</p>
+<p><strong>Why you might disagree:</strong> it is dead code, and dead
+code with a plausible name is how somebody wires it back up by accident
+in six months.</p>
+<p>Say the word and it goes. Otherwise it should be deleted once 4.1.17
+has shipped with the Diagnostics tab — that instruction is in the file’s
+own header comment so it does not get forgotten.</p>
+<hr />
+<h2 id="one-thing-you-should-know-that-is-not-a-ruling">One thing you
+should know that is not a ruling</h2>
+<p><code>%AppData%\JJFlexRadio</code> on this machine currently holds
+<strong>34 loose log text files, 35 MB</strong>, and the automatic prune
+is working correctly. Those files are all from today. The one-day
+plain-text window is what keeps them; a day with thirty launches
+produces thirty files, every one of them already saved compressed in the
+Traces folder.</p>
+<p>So the earlier read that auto-pruning “misses the loose files” was
+not right — it covers them, it just has a one-day horizon. Which is why
+the manual “Delete loose log text files” button explicitly deletes files
+newer than that horizon too. That is the control that was actually
+missing.</p>
+</body>
+</html>

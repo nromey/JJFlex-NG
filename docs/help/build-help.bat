@@ -35,8 +35,26 @@ if exist "%CHANGELOG_SRC%" (
     copy /Y "%CHANGELOG_SRC%" "%CHANGELOG_DST%" >nul
 )
 
-REM Convert Markdown to HTML
-REM Option 1: Use pandoc if available
+REM ---------------------------------------------------------------------------
+REM Convert Markdown to HTML.
+REM
+REM Pandoc is the intended converter and has been since this script was written.
+REM It silently fell back to convert-md.ps1 for months on any machine without it
+REM -- one line in a sixty-file scroll -- and nobody noticed, so every shipped
+REM help page was built by the fallback.
+REM
+REM That matters because the fallback is a line-by-line regex converter: a bold
+REM phrase spanning two source lines never matches, and renders as literal
+REM asterisks that a screen reader reads aloud. Same for italics, links and code
+REM spans. It also emits one paragraph per source line.
+REM
+REM So a missing pandoc is now an ERROR, exactly like a missing HTML Help
+REM Workshop above. Shipping quietly worse help is not an acceptable default.
+REM Pass /fallback to use the regex converter deliberately.
+REM ---------------------------------------------------------------------------
+set "ALLOW_FALLBACK="
+if /I "%~1"=="/fallback" set "ALLOW_FALLBACK=1"
+
 where pandoc >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     echo Using pandoc for Markdown conversion...
@@ -45,7 +63,25 @@ if %ERRORLEVEL% equ 0 (
         pandoc "%%f" -f markdown -t html --standalone --css=../style.css -o "%PAGESDIR%\%%~nf.htm" --metadata title="%%~nf"
     )
 ) else (
-    echo Pandoc not found. Using PowerShell Markdown converter...
+    if not defined ALLOW_FALLBACK (
+        echo.
+        echo ERROR: pandoc is not installed, and it is the intended Markdown converter.
+        echo.
+        echo   Install it with:  winget install --id JohnMacFarlane.Pandoc
+        echo.
+        echo The PowerShell fallback converter produces WORSE help pages -- bold text
+        echo spanning two source lines renders as literal asterisks, which a screen
+        echo reader reads out. Building help without pandoc would ship that.
+        echo.
+        echo If you genuinely need the fallback, run:  build-help.bat /fallback
+        echo.
+        exit /b 1
+    )
+    echo.
+    echo WARNING: pandoc not found and /fallback was given.
+    echo WARNING: using the regex converter -- bold across line breaks will render
+    echo WARNING: as literal asterisks. Do not ship these pages.
+    echo.
     powershell -ExecutionPolicy Bypass -File "%HELPDIR%convert-md.ps1" "%MDDIR%" "%PAGESDIR%"
 )
 

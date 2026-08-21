@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>2026-05-04-foundation-drop-test-pull</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">2026-05-04-foundation-drop-test-pull</h1>
+</header>
+<h1 id="pre-4.2.0-foundation-drop-test-pull">Pre-4.2.0 Foundation Drop —
+Test Pull</h1>
+<p><strong>Type:</strong> test execution doc (you read each test, do the
+action, write your result on the <code>****</code> line below it)
+<strong>Build (post-cherry-pick to main, 2026-05-08 evening):</strong>
+All 28 tests run against <strong>main</strong>, commit
+<code>28e2eaec</code>. Code-only cherry-pick from
+<code>sprint28/home-key-qsk</code> landed on main: 10 commits, all the
+foundation-drop fixes + stuck-modal escape + 7 bug-bundle fixes + design
+followup. Docs/memory/seals from sprint28 stay parked there until the
+4.2-fold (per the keep-main-clean conversation 2026-05-08).</p>
+<p>To test: 1. From <code>C:\dev\JJFlex-NG</code>:
+<code>git checkout main &amp;&amp; git pull</code> (handle your local
+working-tree changes first if any — stash, commit, or checkout-discard
+as appropriate). 2.
+<code>dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal</code>
+for a Debug build, OR <code>-c Release</code> if you want Release. 3.
+Exe lands at
+<code>bin\x64\Debug\net10.0-windows\win-x64\JJFlexRadio.exe</code> (or
+Release path). 4. Run through all 6 sessions of tests below.</p>
+<p><strong>Test 23 has a known spec-vs-implementation
+difference</strong> — see Test 23’s note for what was actually shipped.
+<strong>When done:</strong> move this doc to <code>for-claude/</code>.
+I’ll translate <code>****</code> results into the matrix at
+<code>docs/planning/agile/pre-4.2-foundation-drop-test-matrix.md</code>
+and propose the foundation drop merge to main if everything looks clean.
+<strong>Skip-friendly:</strong> any test you can’t run, write
+<code>**** SKIP &lt;reason&gt;</code> and move on. Tests are independent
+— skipping one doesn’t invalidate the others. <strong>Want to talk
+through one instead?</strong> Just stop and ask in chat — happy to walk
+through any specific test interactively rather than have you fight
+through this doc.</p>
+<hr />
+<h2 id="session-1-quick-solo-wins">Session 1 — Quick solo wins</h2>
+<h3 id="cw-prosign-pause-between-sk-and-ee">1. CW prosign pause between
+SK and EE</h3>
+<p>Exit JJFlex (any state, no radio needed). Listen to the CW close.
+Should be <code>73 SK &lt;pause&gt; EE</code> — audible gap between SK
+and EE, AND the EE itself plays.</p>
+<hr />
+<h3 id="playcwsk-ee-on-three-exit-paths">2. PlayCwSK ee on three exit
+paths</h3>
+<p>Three sub-tests: (a) launch with no radio + exit, (b) launch +
+connect + exit, (c) launch + connect + disconnect + exit. All three
+should produce the EE in the close. Pre-fix dropped EE on (a) and
+(c).</p>
+<hr />
+<h3 id="morse-plays-exactly-once-on-disconnect">3. 73 Morse plays
+exactly once on disconnect</h3>
+<p>Connect to your radio, then disconnect (Radio menu → Disconnect). 73
+Morse should play exactly once. Pre-fix played twice.</p>
+<hr />
+<h3 id="dialog-escape-produces-maincontent-not-pane">4. Dialog Escape
+produces “MainContent” not “pane”</h3>
+<p>Press <code>Ctrl+F</code> to open Set Frequency dialog. Press
+<code>Escape</code>. NVDA should announce “MainContent” (or whatever
+named focus target) — NOT generic “pane.”</p>
+<hr />
+<h3 id="slice-and-slice-operations-purpose-naming">5. Slice and Slice
+Operations purpose-naming</h3>
+<p>Focus the Slice field — should say “Slice selector: slice A active.”
+Focus Slice Operations — should say “Slice operations: slice A
+controls.” Test in BOTH Classic and Modern tuning modes.</p>
+<hr />
+<h3 id="squelch-level-skip-when-squelch-is-off">6. Squelch Level skip
+when Squelch is off</h3>
+<p>Connected, focus on Home. Toggle Squelch OFF. Arrow-nav through Home
+— should skip the Squelch Level field. Toggle Squelch ON — Squelch Level
+back in the order.</p>
+<hr />
+<h3 id="classic-and-modern-field-order-parity">7. Classic and Modern
+field-order parity</h3>
+<p>Switch to Classic, arrow-nav through Home, note the order. Switch to
+Modern, arrow-nav. Shared fields should appear in the same relative
+order. Mute/Volume are intentionally Classic-only — that’s by
+design.</p>
+<hr />
+<hr />
+<h2 id="session-2-no-radio-guards-and-stuck-modal-core">Session 2 —
+No-radio guards and stuck-modal core</h2>
+<h3
+id="universal-home-keys-speak-when-pressed-outside-home-with-no-radio">8.
+Universal Home keys speak when pressed outside Home with no radio</h3>
+<p>Disconnect any radio. Move focus OUT of Home (into a menu, settings
+dialog, etc.). Press <code>R</code>, <code>M</code>, <code>X</code>,
+<code>Q</code>, <code>V</code>, <code>=</code> in turn. Each should
+produce no-radio guidance speech. Pre-fix: silent.</p>
+<hr />
+<h3
+id="universal-home-keys-still-work-when-radio-is-connected-regression-check">9.
+Universal Home keys still work when radio IS connected (regression
+check)</h3>
+<p>Reconnect to your radio, focus on a Home field. Press each of
+<code>R</code>, <code>M</code>, <code>X</code>, <code>Q</code>,
+<code>V</code>, <code>=</code>. Each should fire its NORMAL
+field-handler behavior (Mute toggle, Slice cycle, etc.). The new
+no-radio guard must not block normal operation.</p>
+<hr />
+<h3 id="cancel-during-normal-connect-escape-on-the-modal">10. Cancel
+during normal connect (Escape on the modal)</h3>
+<p>Disconnect. Then connect to your radio. While JJFlex shows the
+Connecting dialog, press <code>Escape</code>. Should hear “Connection
+attempt cancelled” at Critical verbosity, modal closes, focus returns to
+radio selector. (If your local connect is too fast to catch, do this
+against Don’s radio in Session 3.)</p>
+<hr />
+<h3 id="verbosity-opt-out">11. Verbosity opt-out</h3>
+<p>Settings → Notifications → “Speak connection progress” toggle to OFF.
+Connect — should hear NO phase progress speech, NO counting earcons.
+Toggle back ON, reconnect — phase speech and earcons return.</p>
+<hr />
+<h3 id="successful-fast-connect-must-remain-unobtrusive">12. Successful
+fast connect must remain unobtrusive</h3>
+<p>Local connect with verbosity defaults and “Speak connection progress”
+ON. Modal should open and close within ~500ms. Phase announcements
+should NOT fire for the fast common case (gated on
+phase-takes-longer-than-500ms).</p>
+<hr />
+<h3 id="both-modal-entry-points-work">13. Both modal entry points
+work</h3>
+<p>Test (a): Auto-Connect enabled, launch JJFlex — modal behaves
+correctly, closes on success. Test (b): manually disconnect + manually
+reconnect via Radio menu — modal behaves correctly, closes on
+success.</p>
+<hr />
+<hr />
+<h2 id="session-3-with-don-over-smartlink">Session 3 — With Don over
+SmartLink</h2>
+<h3 id="cancel-during-slice-acquisition-wait">14. Cancel during
+slice-acquisition wait</h3>
+<p>Don connects to his 6300 first (slices held). You attempt to connect
+to the same radio. Modal text should transition past “Connecting…” to
+slice-unavailability text. Press <code>Escape</code>. Should cancel
+cleanly + radio side cleans up your GUIClient (next attempt should not
+find stale state).</p>
+<hr />
+<h3 id="phase-transitions-on-a-slow-network">15. Phase transitions on a
+slow network</h3>
+<p>Connect to Don’s 6300 over SmartLink. Listen for phase progression:
+phase 1 earcon (1 tone) → phase 2 earcon (1+1 tones) → phase 3 earcon
+(1+1+1 tones). Earcons should be auditorially distinct from existing
+pitch-melody earcons (these are simple count-based).</p>
+<hr />
+<hr />
+<h2 id="session-4-forced-stuck-conditions-optional">Session 4 — Forced
+stuck conditions (optional)</h2>
+<p>These need a deliberately-broken connect (slice held forever, radio
+killed mid-connect, network cable yanked). Skip-friendly if you don’t
+want to engineer the failure mode.</p>
+<h3 id="second-escalation-dialog">16. 60-second escalation dialog</h3>
+<p>Force a stuck condition (Don holds slice indefinitely, OR power off
+your radio mid-connect, OR pull network cable). Wait 60 seconds.
+Escalation dialog should appear with <strong>diagnostic-rich
+text</strong> from <code>ConnectionProfiler</code> events — radio model,
+stuck phase, etc. Choose “Keep waiting” — another 60s elapses before
+next escalation.</p>
+<hr />
+<h3 id="minute-hard-auto-cancel">17. 5-minute hard auto-cancel</h3>
+<p>Continuation of test 16. Keep “Keep waiting”-ing through escalations
+until 5 minutes total wall-clock. JJFlex should unilaterally Disconnect,
+speak “Connection attempt timed out — cancelled” at Critical, return
+focus to radio selector. <strong>DEFER-friendly</strong>: if test 10
+worked, this most likely works (same mechanic + timer). Mark
+<code>**** SKIP code-confidence</code> if you’d rather not sit through 5
+minutes.</p>
+<hr />
+<hr />
+<h2 id="session-5-cross-track-integration">Session 5 — Cross-track
+integration</h2>
+<h3 id="stuck-modal-escape-plus-no-radio-guards-together">18.
+Stuck-modal escape PLUS no-radio guards together</h3>
+<p>No radio connected. Press <code>Escape</code> from various contexts
+(Home, dialogs, menus). Should NOT spuriously speak “Connection attempt
+cancelled” (no connection to cancel). Either no-radio guidance OR normal
+context-specific Escape behavior.</p>
+<hr />
+<h3 id="morse-ee-fix-pause-all-compose-cleanly">19. 73-Morse + ee fix +
+pause all compose cleanly</h3>
+<p>Connect, then disconnect. The disconnect should produce: 73 plays
+exactly once (test 3), <code>73 SK &lt;pause&gt; EE</code> cadence (test
+1), AND the EE plays (test 2). All three CW changes touched adjacent
+code; verify they compose.</p>
+<hr />
+<hr />
+<h2
+id="session-6-sprint-28-design-followup-runswithoutradio-action-aware-no-radio">Session
+6 — Sprint 28 design-followup (RunsWithoutRadio + action-aware
+no-radio)</h2>
+<p><strong>Requires post-design-followup-merge build.</strong> Track is
+running on auto in <code>C:\dev\jjflex-bug-bundle</code> on branch
+<code>sprint28/bug-bundle-design-followup</code>. When done, it merges
+into <code>sprint28/home-key-qsk</code> and the new commit becomes the
+build target. If you’re testing before that merge, mark every test 20–28
+as <code>**** SKIP build-not-ready-yet</code> and continue.</p>
+<p><strong>What this session validates:</strong> - (a)
+<code>RunsWithoutRadio</code> flag — <code>SetFreq</code> and
+<code>ShowMemory</code> now run with no radio connected so easter eggs
+and just-typing-a-frequency-to-remember-it still work. - (b)
+Action-aware no-radio announcement — generic “JJ Flexible Home, no radio
+connected” is replaced by “Unable to [change band], JJ Flexible Home no
+radio connected” sourced from each command’s
+<code>ShortActionLabel</code>.</p>
+<h3 id="setfreq-with-no-radio-opens-dialog-silently">20. SetFreq with no
+radio opens dialog silently</h3>
+<p>Disconnect any radio. Press <code>Ctrl+F</code>. Set Frequency dialog
+opens. <strong>No “no radio” announcement at the open</strong> — the
+dialog just appears and your screen reader announces the dialog’s own
+focus target normally. Pre-fix: would have spoken “JJ Flexible Home, no
+radio connected” and never opened the dialog.</p>
+<hr />
+<h3 id="setfreq-easter-egg-input-still-works-with-no-radio">21. SetFreq
+easter-egg input still works with no radio</h3>
+<p>Continuation of test 20. With the freq dialog open and no radio
+connected, type your easter-egg trigger (e.g., <code>cqtest</code>) and
+confirm. The easter egg fires normally — same behavior as if a radio
+were connected.</p>
+<hr />
+<h3
+id="setfreq-apply-time-announcement-when-typing-a-real-frequency-with-no-radio">22.
+SetFreq apply-time announcement when typing a real frequency with no
+radio</h3>
+<p>Continuation of test 20. With no radio and the freq dialog open, type
+a real frequency (e.g., <code>14250.00</code>) and confirm. At apply
+time the announcement should be something like “no radio, can’t tune” —
+the failure message is moved from open-time to apply-time. Verify the
+announcement doesn’t try to interpret the typed frequency as something
+it isn’t (no “tuning to 14.25” before the failure speech).</p>
+<hr />
+<h3
+id="showmemory-with-no-radio-revised-implementation-chose-action-aware-speech-not-silent-dialog">23.
+ShowMemory with no radio (REVISED — implementation chose action-aware
+speech, not silent dialog)</h3>
+<p>Disconnect any radio. Trigger ShowMemory (your bound key for it).
+<strong>Implementation shipped with action-aware speech, not silent
+dialog</strong>: the keystroke produces the action-aware announcement
+<em>“Unable to show memories, JJ Flexible Home no radio connected”</em>
+(or the appropriate verbosity-tier form) and the dialog does NOT open.
+Reasoning: memory data lives radio-side, so opening an empty viewer is
+more confusing than a clear failure announcement.</p>
+<p>What to verify: the announcement names “show memories” (not the
+generic “JJ Flexible Home, no radio connected”), and the keystroke does
+not silently fail (no-silent-keystrokes rule). The dialog NOT opening is
+the intended behavior, not a bug.</p>
+<p>If you’d prefer the original spec behavior (dialog opens silently,
+allows browsing locally-cached memory data when there is some), that’s a
+separate small change — flag it on the <code>****</code> line and we’ll
+plan a follow-up. Today’s behavior matches the no-silent-keystrokes
+principle and the data-lives-radio-side reality.</p>
+<hr />
+<h3 id="action-aware-no-radio-announcement-at-verbose-verbosity">24.
+Action-aware no-radio announcement at Verbose verbosity</h3>
+<p>Settings → Notifications → verbosity = Verbose. Disconnect. Press
+<code>Ctrl+B</code> (ChangeBand). Should hear: <strong>“Unable to change
+band, JJ Flexible Home no radio connected.”</strong> The action label
+(“change band”) leads, the venue (“JJ Flexible Home”) and the failure
+(“no radio connected”) follow. Pre-fix: just “JJ Flexible Home, no radio
+connected” with no action context.</p>
+<hr />
+<h3 id="action-aware-announcement-at-terse-verbosity">25. Action-aware
+announcement at Terse verbosity</h3>
+<p>Same setup as test 24, switch verbosity to Terse. Press
+<code>Ctrl+B</code>. Should hear something like <strong>“change band, no
+radio”</strong> — action label still leads, venue + failure abbreviated.
+Exact phrasing is at the build session’s discretion (whatever the helper
+produces at Terse).</p>
+<hr />
+<h3 id="action-aware-announcement-at-critical-only-verbosity">26.
+Action-aware announcement at Critical-only verbosity</h3>
+<p>Same setup as test 24, switch verbosity to Critical (the lowest).
+Press <code>Ctrl+B</code>. Should still hear an action-led phrase — not
+silence. The exact form may be even shorter (e.g., “change band, no
+radio”) but the action label MUST appear; this is the
+most-information-with-least-words case.</p>
+<hr />
+<h3 id="multiple-action-labels-sample-a-few">27. Multiple action labels
+— sample a few</h3>
+<p>With no radio and at Verbose verbosity, sample these and confirm each
+speaks its action label: - Tune key — should say “Unable to [tune action
+label], …” - RIT toggle key — should say “Unable to [RIT toggle label],
+…” - One band-other-than-Ctrl+B (e.g., 40m direct key) — should say
+“Unable to [its action label], …”</p>
+<p>You don’t need to memorize the labels; just confirm each one’s
+announcement names what you tried to do, not just “no radio
+connected.”</p>
+<hr />
+<h3
+id="regression-command-without-shortactionlabel-falls-back-cleanly">28.
+Regression — command without ShortActionLabel falls back cleanly</h3>
+<p>Some commands may not have a populated <code>ShortActionLabel</code>
+yet (vocabulary work continues into Sprint 29). Find one such command
+(or the build session will list a couple in its commit messages). Press
+it with no radio. The announcement should fall back to <strong>the plain
+“JJ Flexible Home, no radio connected”</strong> (today’s behavior) — NOT
+speak “Unable to , JJ Flexible Home…” with an empty label, NOT crash,
+NOT go silent.</p>
+<hr />
+<hr />
+<h2 id="after-youre-done">After you’re done</h2>
+<p>Total: 28 tests across 6 sessions. Skip Session 4 if you’re not in
+the mood for forced-stuck-condition setup; skip Session 3 if Don isn’t
+available; skip Session 6 if the design-followup track hasn’t merged yet
+(mark each <code>**** SKIP build-not-ready-yet</code>). Sessions 1, 2,
+5, 6 are pure solo and cover most of the ground.</p>
+<p>Move this doc to <code>for-claude/</code> when done. I’ll: 1.
+Translate <code>****</code> answers into the matrix’s PASS/FAIL/DEFER
+convention. 2. Update
+<code>docs/planning/agile/pre-4.2-foundation-drop-test-matrix.md</code>
+with verified state (Session 6 results extend the matrix with new test
+rows). 3. Promote any FAIL results into TODO entries in
+<code>JJFlex-TODO.md</code>. 4. If everything’s clean (or only minor
+FAILs that can ship-and-fix-forward), propose the
+<code>sprint28/home-key-qsk → main</code> merge.</p>
+<hr />
+<h2 id="cross-references">Cross-references</h2>
+<ul>
+<li><code>docs/planning/agile/pre-4.2-foundation-drop-test-matrix.md</code>
+— same tests, dense matrix format, for storage / accumulation</li>
+<li><code>docs/planning/agile/pre-4.2-foundation-drop-guided-walkthrough.md</code>
+— alternate format (long-form prose walkthrough) for Don/Justin if they
+prefer that shape</li>
+<li><code>memory/feedback_test_matrix_vs_guided_paper.md</code> — the
+convention this pull doc enacts</li>
+<li><code>memory/project_stuck_modal_escape_design.md</code> — design
+behind tests 10-17</li>
+<li><code>memory/project_no_silent_keystrokes_rule.md</code> — design
+behind tests 8-9</li>
+<li><code>docs/planning/active/sprint28-design-followup-track-instructions.md</code>
+— spec behind Session 6 (tests 20-28)</li>
+<li><code>memory/project_short_action_labels_vocabulary.md</code> — the
+<code>ShortActionLabel</code> infrastructure tests 24-28 exercise</li>
+</ul>
+</body>
+</html>

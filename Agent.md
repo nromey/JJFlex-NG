@@ -9,6 +9,174 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-20 — THE DAY EVERYTHING REPORTED SUCCESS
+
+*Sprint 33 (`barefoot-harness-pileup`) planned, executed across ELEVEN tracks,
+and merged. On `sprint33/track-a`: **75 commits today, 113 files,
++19,367/−205** against the `honest-tx-audio` base at `ff6a80ee`. Build clean,
+`Radios.Tests` 223 passed / 0 failed. Merge had one real conflict (F×K, two
+files, both additive). `honest-tx-audio` itself took 15 commits.*
+
+**Theme: silent success — the failure class where a thing reports it worked and
+did not.** This was the sprint's stated theme and it kept turning up unbidden,
+including three times in my own work during the seal. It is not a bug type, it
+is a *reporting* type, and it defeats every check that trusts a return value.
+
+### The catalogue, because the pattern is the finding
+
+- `dotnet test --no-build` exits **0** with nothing to test.
+- `stream create` has **no reply handler**, so the radio's answer is discarded.
+- A restore path compared **old against old** and passed.
+- A meter published its **initialiser as a measurement**.
+- `build-help.bat` **silently fell back** to a worse converter when pandoc was absent.
+- **#139 CONFIRMED:** `HWALC` returned **7,345 readings of exactly 0.0** across a
+  full transmission, against thresholds of 0.5 and 0.8. A meter that never once
+  reported a measurement scored as perfect health.
+- The analyzer's **seven ungated facts** — the headline. Forward power
+  initialised to **−150 dBm**, below the meter's declared floor of 0.0, produced
+  a confident *"almost no power is leaving it"*. SWR initialised to **0**, below
+  its floor of 1.0, produced a false all-clear.
+- **And the radio itself** (evening, #164): `transmit set rfpower=12` returned
+  `R|0|` — accepted — and the value never left 0. Sampled every 250 ms for three
+  seconds. Not reverted; never applied.
+
+### What the radio taught us
+
+- **The meter list is a property of the moment.** 11 meters with no station
+  client, 102 with one. A harness that enumerates before registering sees a
+  different radio than the operator does.
+- **Every transmit-chain meter appears four times, one per slice, byte-identical
+  —** and both of our lookups are first-match.
+- **The radio sends no status delta to the client that made the change.** It
+  broadcasts to every *other* client. A single-connection harness structurally
+  cannot verify its own writes. This is why Tier 3 is an **observer composed
+  with Tier 2**, never a standalone driver.
+
+### #140 falsified, and it was mine to get wrong
+
+I had recorded #140 as *"confirmed root cause"* of the honest-tx-audio saga —
+the TX stream created with no compression parameter. **Track G falsified it using
+evidence already in the repo**: diag 710 got `compression=OPUS`, shipping
+SmartSDR sends the identical bare command, and the saga was resolved 2026-08-11
+because `MicData` is `COD-/MIC` and blind to PC audio. I had written the brief
+from a stale research-queue paragraph without re-reading the resolution.
+
+### The approval pass — seven items, one at a time
+
+Five produced changes, committed as `f9e24cd9`. Disconnect prompt and menu
+confirm reworded (the shared-state sentence CUT from the disconnect — Noel:
+*"we're saying things over and over. I think they'd probably get it"*). The
+slice census now **speaks** instead of existing only in Morse behind a
+CW setting that is off by default, and both slice messages open with **SL** so
+the numbers arrive with a subject. Remove-dialog body announces "read only"
+(a labelled workaround — the honest AutomationPeer fix is ~45 instances across
+24 files), and the confirm button's accessible name tracks the selected scope
+while the visible label stays "Remove".
+
+Item 6 (`no-power-out` threshold) resolved as **change nothing** → #163.
+Item 7 turned out to be **the wrong question** → #158 rewritten.
+
+### The evening probe, and why the control mattered
+
+Noel: *"Why not just try to set the power to like 0.3 or 12.3 something like
+that see if it sticks."* Three raw-TCP probes. The first two would have let me
+report *"Flex rejects decimals"* — **fabricated**, because the integer control
+also failed to stick. The control is the only reason we know the probe was
+invalid rather than the answer being no. Filed as #163 and #164.
+
+Established regardless: main `rfpower` is **int** both directions in FlexLib,
+and a fractional reading from the radio would hit `int.TryParse`, fail, `continue`,
+and **silently keep the stale value** with the only trace going to
+`Debug.WriteLine`. Transverter drive is a different command entirely —
+`xvtr set N max_power=%.2f`, fractional dBm, −10.00 to +15.00. The 8600's
+measured 0.036 W floor is **15.56 dBm**, essentially the top of that range: the
+radio's minimum power output *is* the transverter drive spec.
+
+### Cross-surface activity
+
+- **`honest-tx-audio`** — 15 commits. Dirty at seal: `docs/help/build-help.bat`,
+  plus the untracked consolidated report and `for-noel/html/`.
+- **All eleven sprint33 worktrees committed today** — a:75, b:23, c:19, d:29,
+  e:14, f:20, g:19, h:21, i:18, j:19, k:21. All clean at seal.
+- **Memory** — 15 entries touched, 239 files total. Two originated in **other
+  sessions**: `project_jjflexible_connect` (2c733a0a) and
+  `project_waterfall_signature_feature` (a6e8d516). Found and fixed **two literal
+  formfeed bytes** in `feedback_deliver_to_reachable_surfaces.md` where
+  `docs\planning\for-noel` had been eaten by `\f` — a future session pasting that
+  command would have hit a path that does not exist. `MEMORY.md` 9,955 bytes,
+  under the 12KB threshold.
+- **Other `C:\dev` repos — no commits anywhere today.** Standing unpushed work,
+  which is **Noel's call, not the sealing session's**: Civ VI Access 45 unpushed
+  + 2 dirty, Freight Fate 16 unpushed + 1 dirty, every `ff-*` worktree 16
+  unpushed, rigmeter 1 unpushed, OniAccess 205 dirty (uncommitted).
+- **Planning docs touched** — `active/elmer-meter-pileup.md` (08:59),
+  `for-noel/2026-08-19-amplifier-bench-session.md` (09:12),
+  `active/barefoot-harness-pileup.md` (13:57), consolidated report (17:47).
+- **for-noel round trip** — all **24** docs converted to HTML with pandoc 3.10.2.
+  Noel: *"They'll get read faster and I can open up the source if I want to
+  comment."* `build-help.bat` now **exits 1** on missing pandoc instead of
+  silently degrading; `/fallback` is opt-in and prints three warnings.
+- **External** — NAS backups all run tonight. **No Dropbox publish** (no new
+  debug build produced today). Dependency advisory check: **28 projects, zero
+  NU1902/NU1903** — the 2026-08-17 SharpCompress advisory is resolved.
+
+### Two mistakes of mine worth keeping
+
+**I published the consolidated report as an Artifact** — *"Wait the artifact I
+can't read"* — and narrated palette and typefaces to a blind user. Memory had
+every fact needed to prevent it; a tool's generic framing outranked a specific
+known fact about the person. Captured in
+`feedback_deliver_to_reachable_surfaces.md`, and verified tonight to be linked
+from `index_dev_practices.md` rather than orphaned.
+
+**Also:** attributed #59's stray FM slice to the active slice. Noel: *"No, FM was
+slice D and A was active."* The real gap — that nothing announces the slices you
+are **not** on — is #160.
+
+### Rigmeter snapshot — end of 2026-08-20
+
+*Branch-scope caveat: measured on `honest-tx-audio` at `ff6a80ee`, which does
+**not** include the Sprint 33 merge. The sprint's +19,367 lines sit on
+`sprint33/track-a` and are not in these totals.*
+
+- **Authored:** 1,094 files, 264,827 lines, 1,548,460 words, 13,234,317 chars
+- **Vendor:** 189 files, 55,683 lines
+- **Combined:** 1,283 files, 320,510 lines
+- Largest authored projects: `JJFlexWpf` 74,953 lines / 259 files, `docs` 69,597
+  lines / 301 files, `Radios` 41,065 lines / 101 files, `main_app` 38,253 lines
+- By category, authored: code 172,641 · docs 71,996 · text_data 12,713 · build 7,477
+- Languages, authored: C# 140,904 (81.6%), VB 21,445 (12.4%), XAML 7,545 (4.4%),
+  Python 2,747 (1.6%)
+- **Today, `honest-tx-audio` only:** 15 commits, 12 unique files, +8,446/−1,209,
+  net +7,237
+- **Today, `sprint33/track-a`:** 75 commits, 113 files, +19,367/−205
+- NAS snapshot: `historical\stats\2026-08-20-ff6a80ee.json`
+
+### Setup for tomorrow
+
+1. **`sprint33/track-a` is NOT merged to `honest-tx-audio` yet.** That is the
+   first decision tomorrow.
+2. **CW vocabulary as a grammar (#161)** before it grows further, and the
+   **keyed dictionary per channel (#162)** — speech, CW, braille, haptics. Noel
+   ratified the shape: subject before value, every channel; braille may be
+   contracted or uncontracted so we cannot know how much fits; flashed messages
+   persist as long as the display is configured to.
+3. **#158** — `?` reserved at every layer speaking what is valid there, `H`
+   opening the Command Finder scoped, search scope following position, and the
+   hard requirement that a scoped search **name its scope and widen on zero
+   results** rather than reporting an empty list.
+4. **`Ctrl+J, E` has never been pressed on a real build.** Track F's CW repeat.
+   Compiling is not verification.
+5. **`JJFlexWpf.Tests` still blocked by #159** (ExportDialog sets DialogResult
+   from its Loaded handler and took the whole test host down).
+6. **Help pages not yet rebuilt with pandoc** — needs a fresh terminal so
+   `build-help.bat` sees it on PATH.
+7. **When the dummy load arrives**, measure the genuine dead-key floor and pin
+   the real number in `tx-chain-rules.txt`. Every threshold in stage 12 is a
+   guess until then, and the file's own BENCH comment says so.
+
+---
+
 ## END-OF-DAY SEAL — 2026-08-19 — THE DAY EVERY GUARD WAS CORRECT AND EVERY OUTCOME WAS WRONG
 
 *63 commits, 100 files, +14,230/−4,212 on `honest-tx-audio`, all pushed. Working

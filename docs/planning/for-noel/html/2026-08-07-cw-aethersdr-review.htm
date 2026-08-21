@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>2026-08-07-cw-aethersdr-review</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">2026-08-07-cw-aethersdr-review</h1>
+</header>
+<h1 id="aethersdr-cw-implementation-review">AetherSDR CW Implementation
+Review</h1>
+<p>Research memo for the JJFlexRadio CW pipeline rewrite (keyboard
+iambic/straight/bug keying, remote keying, receive decode).</p>
+<p>Source reviewed: <code>C:\dev\AetherSDR</code> at commit
+<code>3a1f59ea</code> (upstream 2026-08-05), pulled fresh 2026-08-07
+15:57 (fast-forward <code>3de702dc</code> → <code>3a1f59ea</code>). The
+pull range contains <strong>no new CW keying or decode work</strong> —
+the only CW-adjacent change is mic-source narrowing in
+<code>PhoneCwApplet</code> (phone side). Everything below reflects the
+fresh tree.</p>
+<h2 id="what-aethersdr-is-and-the-license-line-we-must-not-cross">What
+AetherSDR is, and the license line we must not cross</h2>
+<p>AetherSDR is a cross-platform (Linux/macOS/Windows) FlexRadio client
+in C++20/Qt6. It does <strong>not</strong> use FlexLib — it speaks the
+SmartSDR wire protocol natively, and its comments repeatedly cite
+FlexLib source lines (<code>CWX.cs:54-83</code>,
+<code>Radio.cs:8890-8965</code>, <code>NetCWStream.AddTXData</code>) as
+protocol documentation. That matters twice over for us:</p>
+<ul>
+<li><strong>License: GPL-3.0.</strong> JJFlexRadio bundles proprietary
+vendor FlexLib and is not GPL-compatible. We may borrow
+<em>architecture, protocol facts, and independently re-implemented
+ideas</em>; we may <strong>not</strong> copy code, and per our
+no-vendor-derivative-commits rule nothing derived from their files goes
+into our repo verbatim.</li>
+<li><strong>The exceptions are their bundled third-party libraries with
+permissive licenses.</strong> The CW decoder is <strong>ggmorse (MIT,
+Georgi Gerganov, github.com/ggerganov/ggmorse)</strong> — directly
+usable by us. Their MIDI layer is rtmidi (MIT), not that we need
+it.</li>
+<li>Best of all: everything they reverse-implemented on the wire,
+<strong>we already have first-party in C#</strong>. Our bundled FlexLib
+4.1.5 contains <code>FlexLib_API/FlexLib/NetCWStream.cs</code> and the
+CW key/PTT methods in <code>Radio.cs</code>. AetherSDR is best read as a
+field-tested <em>annotation layer</em> over the FlexLib code we already
+ship.</li>
+</ul>
+<h2 id="the-core-architectural-idea-two-keyers-one-truth">The core
+architectural idea: two keyers, one truth</h2>
+<p>This is the single most borrowable pattern in the codebase. The
+radio’s DSP produces the on-air RF from raw key edges; the client runs
+an <strong>identical, parallel keyer locally whose only job is
+sidetone</strong>.</p>
+<ul>
+<li>The radio’s keyed-audio round trip is 30–100 ms locally and 50–200
+ms with jitter over the network — unusable for paddle work at speed. So
+the client gates a locally generated sine sidetone within one audio
+callback (~5–10 ms) of the key event.</li>
+<li>The local iambic engine and the radio run at the same WPM, so their
+element timing stays phase-aligned within about one element. Their
+comments are explicit that if they drift it does not matter: “sidetone
+is informational only — the radio produces the actual on-air CW.”</li>
+<li>The same pattern is reused for typed CW: a
+<code>CwxLocalKeyer</code> converts the sent text into a dit/dah element
+schedule locally and gates the same sidetone, so the operator
+<em>hears</em> what the radio’s CWX queue is keying. For a
+screen-reader-first client this is exactly the audible-confirmation
+channel we want.</li>
+</ul>
+<h2 id="keying-how-paddle-and-straight-key-actually-work">Keying: how
+paddle and straight key actually work</h2>
+<p>Protocol facts (all confirmed against radios in their comments):</p>
+<ul>
+<li>The wire accepts only a single key state — <code>cw key 1</code> /
+<code>cw key 0</code>. There is <strong>no two-argument dit/dah paddle
+form</strong>; FlexLib likewise only ever sends single edges.
+<strong>Iambic timing is the client’s job.</strong> The client-side
+keyer emits per-element key edges and the radio just follows them.</li>
+<li>Straight key is the same command, driven directly by the input
+edge.</li>
+<li>Break-in semantics: with <code>cw break_in 1</code> (QSK) a
+<code>cw key 1</code> itself triggers TX and <code>break_in_delay</code>
+holds the relay between elements. With break-in off, the operator
+asserts PTT explicitly via <code>cw ptt 1</code> / <code>cw ptt 0</code>
+(their “Space PTT” idiom, MOX, or hardware PTT). Their iambic keyer
+deliberately <strong>never auto-PTTs</strong> — doing so would override
+break-in-off and force-drop the QSK hang on release. Worth adopting as a
+rule.</li>
+</ul>
+<p>Their <code>IambicKeyer</code> (src/core/IambicKeyer.h/.cpp) is a
+clean reference state machine:</p>
+<ul>
+<li>Modes A and B implemented; mode B via “memory bits” latched when the
+opposite paddle is squeezed mid-element. Header notes Ultimatic / Bug /
+Straight <em>keyer emulation</em> modes are deferred to a later phase —
+so full-iambic JJFlex would actually leapfrog them on bug mode.</li>
+<li>Paddle swap, WPM clamped 5–60, unit time = 1200 / WPM ms.</li>
+<li>Two lock-free callbacks: key-down change (gates the sidetone
+atomically from the worker thread) and paddle event (forwarded to the
+radio thread via queued invocation).</li>
+</ul>
+<h3 id="timing-discipline-the-hard-won-lesson">Timing discipline — the
+hard-won lesson</h3>
+<p>Both of their keyers run on a <strong>dedicated worker thread using
+absolute steady-clock deadlines</strong> (<code>sleep_until</code> /
+interruptible condition-variable waits), drift-corrected against a run
+epoch so a late wake is followed by a shorter wait. They abandoned Qt
+event-loop timers after shipping the bug: under panadapter paint plus
+VITA-49 burst load, the GUI loop coalesced timer firings and audibly
+clipped CW elements (their issue #3623; “QTimer’s jitter is too high for
+CW”). Two separate keyers independently converged on this design.</p>
+<p>Direct translation for us: never time CW elements with
+<code>System.Windows.Forms.Timer</code> or <code>DispatcherTimer</code>.
+Use a dedicated thread, <code>Stopwatch</code>-based absolute deadlines,
+and a high-resolution waitable timer (or <code>timeBeginPeriod</code>
+awareness) on Windows. Element edges then go out via FlexLib’s netCW
+path, and the sidetone gate is flipped through a lock-free atomic read
+by the audio callback.</p>
+<h2
+id="transport-the-netcw-stream-low-latency-and-remote-keying">Transport:
+the NetCW stream (low-latency and remote keying)</h2>
+<p>This is the part most relevant to our remote-keying goal, and our
+FlexLib already implements it (<code>NetCWStream.cs</code>) — AetherSDR
+documents <em>how it behaves</em>:</p>
+<ul>
+<li>On connect the client issues <code>stream create netcw</code> and
+records the returned stream id. If the radio refuses (older firmware),
+every key command falls back to TCP as
+<code>cw key immediate 0/1</code>.</li>
+<li>With the stream up, each key edge is sent over <strong>UDP</strong>
+as a VITA-49 ExtDataWithStream packet (FlexRadio OUI 0x1C2D, class
+0x534C.03E3) whose payload is the ASCII command decorated with timing
+metadata:
+<code>cw key 1 time=0x&lt;hex&gt; index=&lt;N&gt; client_handle=0x&lt;H&gt;</code>.</li>
+<li><code>time</code> is a <strong>16-bit relative millisecond
+clock</strong>, not an epoch — reset after a 3 s idle gap, with 0x0000
+accepted by the radio as a resync marker. <code>index</code> is a
+monotonically increasing dedup counter.</li>
+<li>Each edge is transmitted as <strong>four redundant UDP copies at
+0/5/10/15 ms</strong>, plus the same decorated command once over TCP as
+a reliable backstop. The radio dedupes on the ASCII
+<code>index=N</code>. Subtle trap they hit: each UDP copy must carry a
+<strong>unique VITA packet_count</strong> — identical counts get
+discarded as duplicates by the radio’s VITA layer before the dedup logic
+ever sees them (FlexLib increments packet_count per send, which is why
+FlexLib works).</li>
+<li>Hex fields are formatted uppercase; they observed the radio’s
+<code>client_handle</code> parsing to be case-sensitive.</li>
+</ul>
+<p>The redundancy-plus-TCP-backstop design is precisely what makes
+remote (WAN) keying tolerable: a lost UDP edge is covered within 15 ms,
+and TCP guarantees eventual consistency so a key-up can never be
+permanently lost (stuck carrier). Since our FlexLib does this for us,
+our job is mainly to <em>verify</em> our FlexLib version behaves this
+way and route all key edges through it rather than plain TCP
+commands.</p>
+<h2
+id="input-sources-everything-funnels-to-three-momentary-actions">Input
+sources — everything funnels to three momentary actions</h2>
+<p>All physical inputs converge on three app-level momentary states —
+straight key, left paddle, right paddle — and from there into the local
+keyer (when running) or a straight-key fallback:</p>
+<ul>
+<li><strong>Keyboard.</strong> Registered as bindable shortcut actions
+with <strong>null handlers</strong>, processed instead by an
+application-level event filter so both KeyPress and KeyRelease edges are
+seen; auto-repeat events are discarded. Standout detail:
+<strong>modifier-tolerant release</strong>. If a combo binding (say
+Ctrl+.) is released modifier-first, the release event’s sequence no
+longer matches the binding and a naive implementation leaves TX keyed.
+Their filter matches the base key of any <em>active</em> CW momentary
+action on release and releases it — “fail safe to RX.” Any keyboard
+keying we build must replicate this, plus their blanket cancel path
+(TX-cancel clears all key/paddle state, resets the keyer, silences the
+sidetone, and sends key-up and PTT-off).</li>
+<li><strong>Keying actions are marked as TX-capable at
+registration</strong> (<code>keysTx</code> flag; their
+<code>TxKeyingMarker</code> property is the widget-level equivalent) so
+the automation bridge refuses to invoke them without an explicit
+allow-TX environment gate. Cheap, worthwhile safety pattern for anything
+scriptable.</li>
+<li><strong>MIDI.</strong> rtmidi bindings for cwkey/cwdit/cwdah (value
+&gt; 0.5 = pressed) feed the same three setters. A cheap USB MIDI
+footswitch or keyer becomes a paddle.</li>
+<li><strong>Serial control lines.</strong> CTS/DSR/DCD are
+user-assignable as straight key, dit, dah, or PTT inputs with per-line
+polarity and debounce; a physical paddle wired to a USB-serial adapter’s
+control pins keys the PC directly. On Windows they run a dedicated
+pin-watcher thread. This is a low-cost, high-value input path for hams
+with real paddles and remote radios.</li>
+</ul>
+<p>Every input event carries a <strong>trace id and source
+timestamp</strong> threaded through the whole chain (input → keyer →
+netcw send, with per-hop latency logging under a dedicated
+<code>aether.cw</code> log category). When a tester says “my keying
+stutters,” this is how they diagnose it. Strongly recommend building the
+same instrumentation into our pipeline from day one.</p>
+<h2 id="sidetone-generation">Sidetone generation</h2>
+<p><code>CwSidetoneGenerator</code>
+(src/core/CwSidetoneGenerator.h/.cpp):</p>
+<ul>
+<li>Pure sine with a <strong>raised-cosine amplitude ramp</strong>
+(configurable 0–50 ms, default 5 ms) through an Idle → RampUp → Sustain
+→ RampDown state machine — no clicks, proper CW envelope.</li>
+<li>All parameters (<code>enabled</code>, pitch 100–4000 Hz, volume,
+stereo pan, shaping) are atomics so the UI thread adjusts them without
+locking the audio thread; the key gate itself is a lock-free atomic
+flipped straight from the keyer worker.</li>
+<li>Mixed additively into the RX output stream inside the audio
+callback, <strong>or</strong> routed to a dedicated low-latency sink:
+they abstract a <code>CwSidetoneSinkBackend</code> with a Qt Multimedia
+implementation (cross-platform but ~50 ms OS-mixer tax) and a
+<strong>PortAudio direct-callback implementation at sub-5 ms</strong>.
+We already ship JJPortaudio — the low-latency path is naturally
+ours.</li>
+<li>The generator <strong>follows the radio’s own settings in
+lockstep</strong> — sidetone on/off, <code>cw pitch</code>, monitor gain
+(<code>transmit set mon_gain_cw=</code>), monitor pan
+(<code>mon_pan_cw=</code>) — with the radio authoritative. One set of
+knobs, two renderers.</li>
+</ul>
+<h2
+id="typed-cw-their-cwx-layer-hazards-our-legacy-code-likely-shares">Typed
+CW (their CWX layer) — hazards our legacy code likely shares</h2>
+<p>Wire vocabulary: <code>cwx send "text" &lt;block&gt;</code> with
+spaces DEL-encoded as 0x7F, <code>cwx macro save/send N</code> (12
+macros), <code>cwx erase N</code>, <code>cwx clear</code>,
+<code>cwx wpm</code>, <code>cwx delay</code>,
+<code>cwx qsk_enabled</code>. Per-word speed modifiers
+(<code>+</code>/<code>-</code> prefixes) are expanded client-side into
+interleaved <code>cwx wpm</code> and <code>cwx send</code> segments,
+restoring base WPM afterward — including swallowing the radio’s echo of
+each transient wpm change so the UI speed control doesn’t flicker.</p>
+<p>Two hard-won findings worth stealing outright:</p>
+<ul>
+<li><strong>The <code>cwx queue=</code> status the protocol implies is
+never actually sent by firmware</strong> (observed on FLEX-6500 fw
+4.2.20). Their replacement: the reply to <code>cwx send</code> carries
+<code>radio_index</code>, which is the <strong>insertion-start
+(first-char) queue position</strong> of the batch, so the batch’s last
+character sits at <code>radio_index + nChars - 1</code>; they watch
+<code>cwx sent=</code> climb to that value to detect queue drain. An
+epoch counter invalidates stale replies after ESC/clear/disconnect.</li>
+<li><strong>Stuck-TX hazard:</strong> with <code>sync_cwx=1</code>,
+after the CWX buffer drains the radio still requires an explicit
+<code>xmit 0</code> from the client — otherwise it holds TX for the full
+hardware interlock timeout (~60 seconds). Their drain watch releases MOX
+exactly once per armed batch, using a latch that survives QSK interlock
+flicker mid-macro. If our inherited typed-CW code keys via CWX, this
+failure mode is worth auditing for immediately.</li>
+</ul>
+<p>UX details that translate well to a screen-reader client: Escape
+always aborts sending (matches our stuck-modal rule); per-message
+history with a sent-character counter advanced by <code>cwx sent=</code>
+status (we could speak progress instead of painting bubbles); live mode
+sends each typed character immediately, routed through the reply path so
+the drain watch stays armed even in a typing-only session.</p>
+<h2 id="cw-decode">CW decode</h2>
+<p>Client-side, via <strong>ggmorse</strong> (MIT — usable by us
+directly; C++ with a small API, feed PCM in, get characters plus
+estimated pitch/speed out):</p>
+<ul>
+<li><code>CwDecoder</code> wraps ggmorse on a worker thread with a
+4-second mono int16 ring buffer at 24 kHz. Auto-estimates pitch and
+speed, with UI lock buttons and configurable pitch/speed ranges to stop
+the estimator wandering; a per-character “cost” (confidence) value gates
+garbage below a threshold.</li>
+<li><strong>Two decoder instances.</strong> The RX instance is fed from
+a normalized RX demod audio bus (deliberately bound once to the model
+layer, not to the per-connection stream object, so reconnects and
+backend swaps can’t silently kill the feed — they shipped that bug and
+left the lesson in a comment). The feed is gated live on the enable
+toggle rather than by connect/disconnect churn.</li>
+<li><strong>TX self-decode is the sleeper accessibility
+feature.</strong> The sidetone generator has a sample-tap mirror; those
+samples (the operator’s exact keyed envelope) feed a second decoder
+whose pitch and speed are <em>forced</em> to the known configured values
+(<code>setKnownParameters</code>) rather than estimated. Result: the app
+decodes what the operator actually keyed — paddle, straight key, or CWX
+— and can display or, in our case, speak it back. For a blind CW
+operator this is verification that what went on the air is what they
+meant.</li>
+<li><code>CwCallsignSpotter</code> sits on the decoded text stream:
+rolling 160-character window, fires only when the callsign after “DE”
+appears <strong>twice in a row</strong> (a single garbled character
+correctly suppresses the spot), 120 s per-call re-spot suppression, 3 s
+settle timer. Simple, robust, and directly reusable as a spoken “station
+identified” event.</li>
+</ul>
+<h2 id="radio-level-cw-settings-vocabulary-used">Radio-level CW settings
+vocabulary used</h2>
+<p>For completeness, the radio-level commands they drive (all present in
+our FlexLib as properties): <code>cw wpm</code>, <code>cw pitch</code>,
+<code>cw break_in</code>, <code>cw break_in_delay</code>,
+<code>cw sidetone</code>, <code>cw iambic</code>,
+<code>cw mode &lt;0|1&gt;</code> (iambic A/B), <code>cw swap</code>,
+<code>cw cwl_enabled</code>,
+<code>transmit set mon_gain_cw= / mon_pan_cw=</code>, plus
+<code>slice auto_tune</code> for CW autotune.</p>
+<h2 id="recommendations-for-the-jjflex-rewrite">Recommendations for the
+JJFlex rewrite</h2>
+<ul>
+<li><strong>Adopt the dual-keyer architecture wholesale</strong> (as a
+pattern): local iambic/straight engine on a dedicated thread → lock-free
+sidetone gate + per-element key edges through FlexLib’s netCW path. Read
+our own <code>NetCWStream.cs</code> and <code>Radio.cs</code> CW methods
+first — they are the canonical C# implementation of everything AetherSDR
+reverse-built.</li>
+<li><strong>Timing on a dedicated thread with absolute
+deadlines</strong>; treat their QTimer post-mortem as a standing warning
+against any UI-thread or event-loop timer in the element scheduler.</li>
+<li><strong>Fail-safe release rules:</strong> modifier-tolerant key
+release, a single cancel path that clears everything, no auto-PTT from
+the keyer, drain-release for typed CW (60 s stuck-TX hazard), and
+TX-keying markers on any automatable control.</li>
+<li><strong>Sidetone through JJPortaudio</strong> with raised-cosine
+shaping and radio-lockstep pitch/gain; keep the sample tap so TX
+self-decode comes almost free.</li>
+<li><strong>Use ggmorse for decode</strong> (MIT; P/Invoke wrapper or
+port) with the two-instance RX + TX-self-decode layout, pitch/speed
+locks, and the doubled-callsign spotter as a speech event.</li>
+<li><strong>Instrument from day one:</strong> trace ids and per-hop
+latency logging across input → keyer → wire, under a dedicated trace
+category — it is the only way to debug remote keying complaints.</li>
+<li><strong>License discipline:</strong> patterns and protocol facts
+only from AetherSDR (GPL-3.0); no code, no derived files in-repo.
+ggmorse and rtmidi are MIT and fair game.</li>
+</ul>
+</body>
+</html>

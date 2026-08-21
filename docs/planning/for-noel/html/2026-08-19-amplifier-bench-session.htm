@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>2026-08-19-amplifier-bench-session</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">2026-08-19-amplifier-bench-session</h1>
+</header>
+<h1
+id="amplifier-bench-session-what-the-power-genius-xl-actually-publishes">Amplifier
+bench session — what the Power Genius XL actually publishes</h1>
+<p><strong>Date:</strong> 2026-08-19 <strong>Task:</strong> #125
+(amplifier and tuner support), plus one add-on for Track H
+<strong>Build:</strong> any build carrying Sprint 32 Track D. The Audio
+Workshop has a new <strong>Amplifier</strong> tab; if it is not there,
+the build is too old. <strong>Radio:</strong> the 8600. <strong>Hardware
+needed:</strong> the Power Genius XL, moved near the radio, on 120 volts
+and on the same network as the radio. A dummy load, or an antenna you
+are content to key into at low power.</p>
+<p>Mark results inline with <code>****</code>.</p>
+<hr />
+<h2 id="why-this-session-exists">Why this session exists</h2>
+<p>4O3A were asked directly for developer material on 2026-08-19. Their
+answer was that it is all in FlexLib and they have no code to give — no
+SDK, no samples, no spec document. That is a green light rather than a
+gap, and it has one hard consequence: <strong>FlexLib is the entire
+contract, and what the hardware publishes at runtime is the only
+documentation that will ever exist.</strong></p>
+<p>So everything built this sprint is written against FlexLib’s headers,
+and not one field of it has been seen arriving from a real amplifier.
+This session is not a nice-to-have verification pass. It IS the
+specification, and the capture you take is the document.</p>
+<p><strong>There is no Tuner Genius XL on site, and this session cannot
+stand in for one.</strong> The tuner rides the same status stream as the
+amplifier, which is suggestive and is not evidence. Everything about
+what a TGXL publishes stays unverified until one exists in the shack,
+and nothing here should be read as covering it.</p>
+<hr />
+<h2 id="where-to-look-and-what-to-save">Where to look, and what to
+save</h2>
+<p>Two artifacts. Take both, every time the procedure says to.</p>
+<p><strong>The Amplifier tab.</strong> Audio Workshop, last tab, called
+<strong>Amplifier</strong>. It holds one read-only edit called
+<strong>Details</strong> with the whole picture in it: model, serial,
+network address, antenna map, state, and every meter the amplifier
+publishes with its units and range. It is one tab stop, so you can read
+it at your own pace with review keys, and <strong>Ctrl+A then Ctrl+C
+copies the lot</strong> into whatever you want to paste it in. That copy
+is the primary artifact — please paste it into a text file each time
+rather than reading numbers back to me.</p>
+<p><strong>The trace.</strong> <code>Ctrl+J, Ctrl+D</code> starts a
+detailed capture and the same chord stops it. The meter inventory is
+written to the trace once per connect and again whenever the set of
+meters changes, one line per meter, so an amplifier’s meters arriving
+mid-session shows up there as a second block. Save each session’s trace
+from the Saved Diagnostic Logs window (Settings, Diagnostics tab).</p>
+<p>One warning about reading the trace yourself: the trace prints a
+meter’s source index in <strong>decimal</strong>, while a handle is
+written in hex everywhere else. The Amplifier tab does that conversion
+for you and groups each amplifier’s meters under its own name. Trust the
+tab; keep the trace for me.</p>
+<hr />
+<h2 id="part-0-baseline-without-the-amplifier">Part 0 — Baseline,
+WITHOUT the amplifier</h2>
+<p>This is the half everybody forgets, and skipping it makes the rest of
+the session almost worthless: without it there is no “before” to
+subtract, and a meter list with an amplifier in it is just a long
+list.</p>
+<ol type="1">
+<li>Leave the amplifier <strong>powered off and unplugged from the
+network.</strong> Off is not enough on its own if it still holds a
+network address.</li>
+</ol>
+<hr />
+<ol start="2" type="1">
+<li>Start JJ Flexible and connect to the 8600 normally.</li>
+</ol>
+<hr />
+<ol start="3" type="1">
+<li>Start a detailed capture with <code>Ctrl+J, Ctrl+D</code>.</li>
+</ol>
+<hr />
+<ol start="4" type="1">
+<li>Open the Audio Workshop, go to the <strong>Amplifier</strong> tab,
+read the Details box. It should say plainly that no external amplifier
+and no external tuner is reported. <strong>If it says anything else,
+stop and tell me</strong> — that would mean we are detecting something
+that is not there, which is the single worst outcome this design can
+produce.</li>
+</ol>
+<hr />
+<ol start="5" type="1">
+<li>Copy the Details box (Ctrl+A, Ctrl+C) and paste it into a file
+called something like <code>amp-baseline.txt</code>.</li>
+</ol>
+<hr />
+<ol start="6" type="1">
+<li>Stop the capture and save the trace. Name it so you can tell it from
+the next one.</li>
+</ol>
+<hr />
+<hr />
+<h2 id="part-1-power-the-amplifier-up-and-watch-it-arrive">Part 1 —
+Power the amplifier up and watch it arrive</h2>
+<ol type="1">
+<li>Plug the amplifier into the network and into 120 volts, and power it
+on. Leave JJ Flexible connected and running while you do — <strong>do
+not restart the app.</strong> Whether the amplifier appears in a running
+session, without a reconnect, is one of the things being tested.</li>
+</ol>
+<hr />
+<ol start="2" type="1">
+<li>Start a fresh detailed capture BEFORE you power it on if you can
+manage the ordering; if not, start one now. The arrival is the
+interesting part.</li>
+</ol>
+<hr />
+<ol start="3" type="1">
+<li>Sit on the Amplifier tab and let it refresh. It re-reads once a
+second while the tab is on screen. <strong>How long after power-on does
+the amplifier appear?</strong> Roughly is fine — the useful distinction
+is “immediately”, “after its self-check finishes”, or “not until I
+reconnected”.</li>
+</ol>
+<hr />
+<ol start="4" type="1">
+<li><p>When it appears, read the Details box. Answer these from it:</p>
+<ul>
+<li>What <strong>model</strong> string does it report?</li>
+</ul>
+<hr />
+<ul>
+<li>What <strong>serial number</strong>?</li>
+</ul>
+<hr />
+<ul>
+<li>What <strong>network address and port</strong>?</li>
+</ul>
+<hr />
+<ul>
+<li>What <strong>antenna map</strong> does it show? The line reads
+“Antenna map, radio port to amplifier output” followed by the raw pairs
+the amplifier sent. <strong>Does that pairing match how the amplifier is
+actually cabled and configured?</strong> This one matters — the whole
+line is presented raw because nobody here has ever seen a real one, and
+if the halves are the other way round I need to know.</li>
+</ul>
+<hr />
+<ul>
+<li>What <strong>state</strong> does it report while idle and
+untouched?</li>
+</ul>
+<hr /></li>
+<li><p><strong>The headline question: how many meters does it publish,
+and what are they?</strong> Copy the whole Details box into a file
+called something like <code>amp-present.txt</code>. The difference
+between this and the baseline file is the answer to the question this
+entire session exists for.</p></li>
+</ol>
+<hr />
+<ol start="6" type="1">
+<li>If the meter list is <strong>empty</strong> — the box says it
+publishes no meters to this radio — that is a real and important result,
+not a failure. Say so and move on. It would mean the amplifier reports
+status but not measurements, and several assumptions downstream would
+have to change.</li>
+</ol>
+<hr />
+<hr />
+<h2 id="part-2-standby-and-operate">Part 2 — Standby and operate</h2>
+<p>The Amplifier tab has one control, an <strong>Operate</strong>
+checkbox. It is the only thing this build can command, and it sends the
+amplifier’s own operate command.</p>
+<ol type="1">
+<li>With the amplifier idle, <strong>check the Operate box.</strong>
+What happens at the amplifier — physically, audibly, and on its own
+front panel?</li>
+</ol>
+<hr />
+<ol start="2" type="1">
+<li>Does the tab’s state line follow within a second or so? The checkbox
+deliberately does not assume the state it asked for; it shows what the
+amplifier reports back. <strong>If the box flips and the state line does
+not follow, tell me</strong> — that gap is the failure mode worth
+catching.</li>
+</ol>
+<hr />
+<ol start="3" type="1">
+<li><strong>Uncheck it.</strong> Does it go back to standby, and does
+the tab follow?</li>
+</ol>
+<hr />
+<ol start="4" type="1">
+<li>Try it once more while the amplifier is still finishing its power-up
+self check, if you can catch that window. Does the command get refused,
+queued, or ignored?</li>
+</ol>
+<hr />
+<hr />
+<h2 id="part-3-transmit-briefly-into-a-dummy-load">Part 3 — Transmit,
+briefly, into a dummy load</h2>
+<p>Low power. This is about which meters move, not about output.</p>
+<ol type="1">
+<li>Put the amplifier in operate, select the antenna port it is
+configured for, and key up briefly at low power into the dummy
+load.</li>
+</ol>
+<hr />
+<ol start="2" type="1">
+<li>Watch the Amplifier tab’s Details box during and just after.
+<strong>Which meters moved?</strong> Names and rough values are
+enough.</li>
+</ol>
+<hr />
+<ol start="3" type="1">
+<li>Does the state line change to a transmitting state while you are
+keyed, and <strong>does it distinguish port A from port B</strong>?
+FlexLib has separate states for the two and I would like to know they
+are real.</li>
+</ol>
+<hr />
+<ol start="4" type="1">
+<li>Is there anything in the amplifier’s meter list that reads like
+forward power, reflected power, SWR, temperature, voltage or current?
+Name the ones you can identify from their names and units.</li>
+</ol>
+<hr />
+<ol start="5" type="1">
+<li>Do the amplifier’s meters keep updating between transmits, or do
+they go quiet? The tab shows how long ago each meter last updated, so
+this is readable rather than a guess.</li>
+</ol>
+<hr />
+<hr />
+<h2 id="part-4-take-it-away-again">Part 4 — Take it away again</h2>
+<ol type="1">
+<li>Power the amplifier off while JJ Flexible stays connected.</li>
+</ol>
+<hr />
+<ol start="2" type="1">
+<li>Does the Amplifier tab go back to saying there is none? Does it take
+a while?</li>
+</ol>
+<hr />
+<ol start="3" type="1">
+<li>Do its meters disappear from the meter list, or do they linger as
+stale entries?</li>
+</ol>
+<hr />
+<ol start="4" type="1">
+<li>Stop the capture and save the trace.</li>
+</ol>
+<hr />
+<hr />
+<h2 id="part-5-the-one-thing-that-is-not-about-the-amplifier">Part 5 —
+The one thing that is NOT about the amplifier</h2>
+<p><strong>Track H needs this and it cannot be got from reading our own
+source.</strong> It is short, and you are already sitting at the radio
+with a client connected.</p>
+<p>Some background so the steps make sense. The radio has a profile
+autosave setting. FlexLib has two ways to touch it and they disagree: a
+<strong>property</strong> that sends the command unquoted and is wired
+to the status parser, and a <strong>method</strong> that sends it quoted
+and has no status handling and no caller anywhere. The property is the
+real one, and because the radio reports the setting back on its own
+status stream, <strong>“is autosave on?” is already answerable from the
+wire and is not what I need from you.</strong></p>
+<p>What nobody can answer from source is what autosave actually
+DOES.</p>
+<ol type="1">
+<li>Start a detailed capture. Most of what follows lands in the trace,
+so you do not have to judge any of it at the bench — you mostly have to
+make the events happen while the capture is running.</li>
+</ol>
+<hr />
+<ol start="2" type="1">
+<li>Turn profile autosave <strong>on</strong> using SmartSDR (that is
+where the setting has a real UI today). Note which <strong>global
+profile</strong> is selected at the time.</li>
+</ol>
+<hr />
+<ol start="3" type="1">
+<li>Change something distinctive and easy to describe — a slice
+frequency, the transmit power, a filter width. Something you would
+notice coming back.</li>
+</ol>
+<hr />
+<ol start="4" type="1">
+<li>Disconnect cleanly. Reconnect. <strong>Did the change come
+back?</strong> And is the global profile still the same one, or did the
+radio switch or create one?</li>
+</ol>
+<hr />
+<ol start="5" type="1">
+<li><p><strong>The high-value one, worth more than the other three
+together.</strong> The global profile is global, but a disconnect is per
+client — so what happens when two clients are connected and only one
+leaves?</p>
+<ul>
+<li>Connect a <strong>second</strong> client to the radio at the same
+time. SmartSDR on another machine is the easiest; a second JJ Flexible
+instance works too if that is more convenient.</li>
+</ul>
+<hr />
+<ul>
+<li>On the second client, change something distinctive that the first
+client is NOT touching.</li>
+</ul>
+<hr />
+<ul>
+<li>Disconnect <strong>only the second client</strong>, leaving the
+first one connected.</li>
+</ul>
+<hr />
+<ul>
+<li>Now reconnect the second client. <strong>Did its change
+survive?</strong> And more importantly: <strong>did anything the FIRST
+client was doing get folded into the saved profile, or overwritten by
+it?</strong></li>
+</ul>
+<hr /></li>
+<li><p>Turn autosave back off if that is how you normally run, and stop
+the capture and save the trace.</p></li>
+</ol>
+<hr />
+<p>This decides whether Track H can ever turn autosave on safely on the
+operator’s behalf. If a second client’s disconnect writes the global
+profile, then an autosave that looks harmless in a single-client shack
+quietly rewrites state out from under whoever is still connected.</p>
+<hr />
+<h2 id="what-i-am-not-asking-you-to-do">What I am NOT asking you to
+do</h2>
+<ul>
+<li><strong>Nothing with a tuner.</strong> There is no TGXL here. When
+one arrives this procedure gets a sibling; the amplifier capture does
+not substitute for it.</li>
+<li><strong>Nothing that makes the amplifier fault.</strong> You cannot
+make an amplifier fault to order and you should not try. Fault handling
+is exactly the path a simulator earns its place on, which is a later
+piece of work.</li>
+<li><strong>No judgement on whether the meter list is “right”.</strong>
+There is nothing to compare it against. Whatever it reports IS the
+specification, and my job is to write it down accurately.</li>
+</ul>
+</body>
+</html>

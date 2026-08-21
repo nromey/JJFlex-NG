@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc 3.10.2" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>2026-08-19-sprint32-copy-and-one-number</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      white-space: pre-wrap;
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: 1.5em;}
+    div.column{flex: auto;}
+    @media screen {
+    div.columns{gap: min(4vw, 1.5em);}
+    div.column{overflow-x: auto;}
+    }
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">2026-08-19-sprint32-copy-and-one-number</h1>
+</header>
+<h1 id="sprint-32-copy-to-approve-and-one-number-to-judge-by-ear">Sprint
+32 — copy to approve, and one number to judge by ear</h1>
+<p>Written 2026-08-19 by the orchestrator, from Track H’s completion
+report.</p>
+<p><strong>Nothing here is blocking.</strong> Every item shipped with
+existing behaviour intact; Track H proposed wording rather than
+inventing it, per the standing rule that user-facing prose is yours. If
+you never answer an item, the current text stands.</p>
+<p>Answer by number, in any order, a few at a time.</p>
+<p>Mark your answers after the <code>****</code> on each line.</p>
+<hr />
+<h2
+id="the-one-that-is-not-copy-it-needs-your-ear-not-your-judgement">The
+one that is not copy — it needs your ear, not your judgement</h2>
+<p><strong>1. What counts as “a bulk slice change”?</strong></p>
+<p>The CW census now fires once after the slice set settles, rather than
+once per slice. “Settled” is currently <strong>1500 ms</strong> of quiet
+(<code>SliceSetSettleMs</code>).</p>
+<p>Track H’s own words: this is the one number here that wants your ear
+rather than reasoning. Too short and a slow connect sends two censuses;
+too long and the announcement feels detached from what you just did.</p>
+<p>The test is cheap: connect, and release a slice. If you ever hear two
+censuses where you expected one, it is too short. If the census feels
+like it arrives after you have moved on, it is too long.</p>
+<hr />
+<hr />
+<h2 id="the-receipt-when-you-release-a-slice">The receipt, when you
+release a slice</h2>
+<p>Currently it says, as its own queued sentence following the existing
+announcement (“Slice D released, 3 active”):</p>
+<blockquote>
+<p>This will not survive disconnect unless you save the profile.</p>
+</blockquote>
+<p><strong>2. Should it name where to go?</strong> You could not find
+Radio → Profiles, and the receipt does not name it. Proposed as a
+Chatty-verbosity-only tail:</p>
+<blockquote>
+<p>The Radio menu’s Profiles item saves it.</p>
+</blockquote>
+<p>Chatty-only so Terse and Normal operators are not read a menu path
+every time.</p>
+<hr />
+<p><strong>3. Should it carry the MultiFlex caveat?</strong> Saving the
+global profile captures the radio’s <em>whole</em> state, including
+another operator’s slices if someone else is connected. That is a real
+hazard and currently unsaid. It is also a sentence most operators will
+never need, since most are the only client.</p>
+<p>No wording proposed — the question is whether it belongs at all, and
+if so whether it is Chatty-only too.</p>
+<hr />
+<hr />
+<h2 id="new-copy-track-h-introduced-which-you-have-not-seen">New copy
+Track H introduced, which you have not seen</h2>
+<p><strong>4. A guard when selecting a profile the radio does not
+have.</strong> The old WinForms dialog refused with <em>“You must select
+a global profile currently on the radio.”</em> The WPF dialog has no
+guard at all. That old wording also clashes with the dialog’s own voice,
+which deliberately rewrote “you must select” as <em>“Pick a profile in
+the list first.”</em></p>
+<p>Proposed:</p>
+<blockquote>
+<p>That profile is not on this radio yet. Save it first.</p>
+</blockquote>
+<hr />
+<p><strong>5. A <code>" (on radio)"</code> suffix</strong> on merged rig
+profiles, mirroring the existing <code>" (default)"</code> convention.
+New copy, but consistent with what is there.</p>
+<hr />
+<p><strong>6. A <code>" - not yet implemented"</code> label
+suffix</strong>, mirroring the shipped <code>" - coming soon"</code>.
+This is part of fixing nineteen menu items that announced their own
+absence only <em>after</em> you had navigated to them and pressed — they
+now grey the item and put the state in the label, so the reason arrives
+with the name as you pass it.</p>
+<hr />
+<hr />
+<h2 id="a-help-entry-that-is-now-understated">A help entry that is now
+understated</h2>
+<p><strong>7. Ctrl+F4.</strong> Repeat-last-message used to hold exactly
+one message. It now holds ten, and pressing again within six seconds
+walks back through earlier ones, wrapping at the oldest.</p>
+<p>Both <code>KeyCommands</code> and the keyboard reference still say
+<strong>“Repeat the last spoken message”</strong> — which hides the
+feature, since nothing tells you to press it twice.</p>
+<p>Proposed:</p>
+<blockquote>
+<p>Repeat recent messages, pressing again for earlier ones.</p>
+</blockquote>
+<p>Track G owns that file and will make the edit; this is the wording
+question.</p>
+<hr />
+<hr />
+<h2 id="for-the-record-needing-no-answer">For the record, needing no
+answer</h2>
+<p>Track H found and fixed three defects nobody had reported, all in the
+Profiles dialog: it never showed the radio’s own profiles (which also
+meant the Add uniqueness check could not see them, so Save would
+silently overwrite a radio profile); Delete never persisted, so deleted
+profiles came back next launch; and Save vanished entirely on non-global
+types instead of disabling.</p>
+<p>It also found that <code>MorseNotifier</code> had no <code>/</code>
+character. Without adding it, your <code>3/4</code> census would have
+gone out as <strong>“34”</strong> — a silently wrong announcement that
+would have sounded plausible.</p>
+</body>
+</html>
