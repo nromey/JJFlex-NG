@@ -1,7 +1,27 @@
 # Bench session plan — 2026-08-22, the dummy load arrives
 
-Written 2026-08-21. The load ships to Memphis and is out for delivery tomorrow
-by 14:00. You are clear through Sunday.
+Written 2026-08-21. UPS delivers **Saturday 2026-08-22 between 14:00 and
+18:00**. Your wife is out during the day through late Sunday afternoon, so
+Saturday evening and all of Sunday daytime are available.
+
+**RUN THIS AS TWO SESSIONS, NOT ONE.**
+
+**Saturday, whenever it lands.** Connect the load, confirm the connection, and
+run **Test 0**. That is two keyings and about five minutes — worth doing even if
+the truck shows at 17:45, because Test 0 decides whether the meter chain reads
+at all, and every other test in this document is void if it does not. Finding
+that out Saturday evening beats discovering it mid-session Sunday morning. If
+there is daylight left after it, carry on into Tests 1 and 2 — those three
+together produce every number stage 12 is currently guessing at.
+
+**Sunday daytime.** Whatever Saturday did not reach, then Tests 3 through 7.
+Those are the interesting ones and deserve fresh attention rather than being
+rushed at the end of Saturday.
+
+**Why the split matters:** if Test 0 fails, you have a full day to find out why
+the meters lie instead of losing the whole session. Monday then stays free for
+the build and full test pass, which keeps a real buffer before **Don's radio
+returns Tuesday 2026-08-25** and he needs a build.
 
 This plan exists because on 2026-08-21 three attempts to run an automated test
 produced zero valid data, and every failure was the same shape: an instrument
