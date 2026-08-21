@@ -433,10 +433,69 @@ namespace JJFlexWpf
         /// The meter the Peak Watcher guards. Historically this was
         /// <c>MeterType.ALC</c>, which was fed by the radio's HWALC meter — the
         /// external-amplifier ALC line. Naming it here keeps the behaviour
-        /// bit-identical across the move off the eight-value event. Whether the
-        /// watcher SHOULD instead follow the software ALC (the real transmit
-        /// drive) is a live question, and not this track's to answer.
+        /// bit-identical across the move off the eight-value event.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The live question this comment used to pose is now answered, and
+        /// the answer is that this watcher does not do what its name promises.
+        /// Measured on the bench 8600, 2026-08-20 (Sprint 33 Track D).</b>
+        /// </para>
+        /// <para>
+        /// The radio describes HWALC as source <c>TX-</c> index 5, "Voltage",
+        /// units dBFS, range -150 to 20. It is the voltage on the external
+        /// amplifier's ALC jack. The radio ALSO publishes a meter named plainly
+        /// <c>ALC</c>, source <c>TX-</c> index 0, dBFS, range -150 to 20 — that
+        /// one is the transmit drive after software levelling, it is what
+        /// <c>FlexBase.SwAlcDb</c> already carries, and nothing watches it.
+        /// </para>
+        /// <para>
+        /// <b>The caveat that had to be cleared, and how.</b> With no station
+        /// client connected the radio publishes only eleven meters, HWALC among
+        /// them and no plain ALC at all — so a census taken then shows exactly
+        /// one ALC-ish meter and supports the wrong conclusion, that the
+        /// software ALC does not exist on this radio and the watcher had no
+        /// better choice. It does exist. Both were seen together in the
+        /// thirty-five-meter state, the one that also carries the per-slice
+        /// receive meters and the rest of the transmit signal chain. HWALC is
+        /// present in BOTH states; ALC appears with the transmit chain. So the
+        /// two are genuinely distinct meters and the watcher is on the wrong
+        /// one, rather than on the only one available.
+        /// </para>
+        /// <para>
+        /// So for an operator with no amplifier connected — the default, and
+        /// Noel's bench — HWALC sits dead and this watcher can never fire. The
+        /// control is labelled "Peak Watcher (ALC safety alerts)" and the
+        /// warnings speak as "ALC high" and "ALC warning", so an operator would
+        /// reasonably believe they are being guarded against overdriving their
+        /// transmitter. They are not being guarded against anything.
+        /// </para>
+        /// <para>
+        /// <b>The thresholds are in the wrong units as well.</b>
+        /// <see cref="AlcWarningThreshold"/> and
+        /// <see cref="AlcCriticalThreshold"/> are 0.5 and 0.8 — the shape of a
+        /// zero-to-one fraction — and they are compared straight against a
+        /// reading in decibels relative to full scale. Half a dB ABOVE full
+        /// scale is not the trip point anybody chose.
+        /// </para>
+        /// <para>
+        /// <b>What must NOT happen is repointing this constant at ALC.</b>
+        /// Noel decided on 2026-08-11 that HWALC stays surfaced as AMPLIFIER
+        /// ALC, because older amplifiers without network control genuinely use
+        /// the RCA line for overdrive protection and those operators need it.
+        /// The transmit-drive guardrail is a SECOND thing, not a replacement,
+        /// and it needs its own wording so an operator can tell which of the
+        /// two just spoke. That is a design change with user-facing speech in
+        /// it, so Track D reported it rather than making it.
+        /// </para>
+        /// <para>
+        /// The same conflation has a second surface:
+        /// <see cref="GetMeterSpeechSummary"/> reads <c>_rig.ALC</c>, which is
+        /// also HWALC, and announces it as a bare "ALC". Its guard of
+        /// <c>&gt; 0.01</c> is the same units mistake, so in practice that line
+        /// is never spoken at all.
+        /// </para>
+        /// </remarks>
         private const string PeakWatcherMeterName = "HWALC";
 
         private static void OnMeterData(object sender, Meter meter, float value)

@@ -332,10 +332,37 @@ namespace Radios
                 {
                     if (dir != null && Directory.Exists(dir))
                     {
-                        Directory.Delete(dir, recursive: true);
-                        Tracing.TraceLine(
-                            $"KnownRadioRoster.Remove({serial}): profile directory deleted",
-                            System.Diagnostics.TraceLevel.Info);
+                        // Sprint 33 Track J: prove the target really is one
+                        // radio's own directory before recursively deleting it.
+                        // SanitizeRadioId now refuses dots-only ids, which was
+                        // the one known way to make this path escape upward, but
+                        // a recursive delete should not depend on a sanitiser
+                        // somewhere else staying correct. Belt and braces on the
+                        // only operation in the app that destroys operator data.
+                        var radiosRoot = Path.Combine(baseDir!, "radios");
+                        var fullTarget = Path.GetFullPath(dir);
+                        var fullRoot = Path.GetFullPath(radiosRoot);
+                        var rootPrefix = fullRoot.TrimEnd(Path.DirectorySeparatorChar)
+                                       + Path.DirectorySeparatorChar;
+
+                        if (!fullTarget.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+                            || fullTarget.TrimEnd(Path.DirectorySeparatorChar)
+                                .Equals(fullRoot.TrimEnd(Path.DirectorySeparatorChar),
+                                        StringComparison.OrdinalIgnoreCase))
+                        {
+                            Tracing.TraceLine(
+                                $"KnownRadioRoster.Remove({serial}): REFUSED destructive delete, "
+                                + $"resolved target '{fullTarget}' is not inside '{fullRoot}'",
+                                System.Diagnostics.TraceLevel.Error);
+                            ok = false;
+                        }
+                        else
+                        {
+                            Directory.Delete(dir, recursive: true);
+                            Tracing.TraceLine(
+                                $"KnownRadioRoster.Remove({serial}): profile directory deleted",
+                                System.Diagnostics.TraceLevel.Info);
+                        }
                     }
                 }
                 else if (dir != null && Directory.Exists(dir))

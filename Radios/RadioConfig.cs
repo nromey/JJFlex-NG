@@ -916,7 +916,22 @@ namespace Radios
             {
                 sb.Append(char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '_');
             }
-            return sb.ToString();
+
+            // Sprint 33 Track J. '.' is an allowed character, so an id of ".."
+            // survived sanitising intact and Path.Combine(base, "radios", "..")
+            // resolves to the base directory itself. KnownRadioRoster.Remove
+            // does a recursive delete on exactly that path under the
+            // destructive scope, which would have taken every radio's settings
+            // rather than one radio's. That scope only became selectable in
+            // Sprint 32 Track G, so this was newly reachable rather than a
+            // long-standing live hazard -- but a directory id that is nothing
+            // but dots is never a real radio and has no business round-tripping.
+            var sanitized = sb.ToString();
+            if (sanitized.Trim('.').Length == 0)
+            {
+                return "_unknown";
+            }
+            return sanitized;
         }
     }
 }

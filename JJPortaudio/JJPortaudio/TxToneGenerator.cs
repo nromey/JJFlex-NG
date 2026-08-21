@@ -30,8 +30,20 @@ namespace JJPortaudio
     /// the state transitions are tolerant of a command landing mid-buffer
     /// (worst case a ramp restarts — inaudible). No locks in the audio path.
     /// </summary>
-    public class TxToneGenerator
+    public class TxToneGenerator : ITxInputSource
     {
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Always true. The tone is a CALIBRATED reference — −10 dBFS in must
+        /// read −10 dBFS on the radio's SC_MIC meter — and a gate or a
+        /// speech-trained noise reducer shaping a synthesized sine would
+        /// quietly break that property, with nothing in a sine for the reducer
+        /// to clean anyway. This used to be a hardcoded special case in the
+        /// input callback; Sprint 33 Track I moved the answer to the source
+        /// that actually knows it, so a voice file could answer differently.
+        /// </remarks>
+        public bool BypassesConditioning => true;
+
         // States. The audio thread advances fades forward; the UI thread only
         // requests engage (-> MicFadeOut) or release (-> ToneFadeOut).
         private const int StIdle = 0;        // mic passes untouched

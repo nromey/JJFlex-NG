@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -1457,6 +1457,30 @@ public class NativeMenuBar : IDisposable
                 });
             }
 
+            // ── Making the change stick, from where the change was made ──
+            //
+            // Sprint 33 Track K, #117 and #59. New Slice and Release Active
+            // Slice both work, both say so, and neither survives a disconnect,
+            // because the radio restores its slice layout from its own global
+            // profile on the next connect. Sprint 32 added the spoken receipt
+            // that says so. What no surface said was what to DO about it.
+            //
+            // Noel, who owns the radio: "I don't know ... what I need to do in
+            // JJ Flexible to get it to stick in the radio." The procedure
+            // existed the whole time, four steps away on a different menu. An
+            // answer that far from the question is not discoverable, so the
+            // answer moves to the question — same reasoning, and the same
+            // idiom, as the "See MultiFlex Clients on the Radio menu" pointer a
+            // few lines above.
+            //
+            // The label says STATION and not SLICE deliberately. This writes a
+            // global profile, which is the whole station — every slice, and
+            // everything else the radio keeps in there. An operator who came
+            // here thinking about one slice has to learn that in the label, not
+            // afterwards from the consequences.
+            AddSep(selSub);
+            AddWired(selSub, "Save Station Setup to Radio", SaveStationSetupFromMenu);
+
             // QB Track I — Transmit Slice submenu, mirroring Selection: one
             // entry per slice with the checkmark on the current TX slice,
             // plus an explicit clear. This is the discoverable door for what
@@ -2149,6 +2173,18 @@ public class NativeMenuBar : IDisposable
         var rig = Rig;
         string? radioName = null;
 
+        // Sprint 33 Track K. The offer goes HERE and not inside
+        // FlexBase.Disconnect, which is the obvious-looking place and is wrong:
+        // Disconnect is also reached from Dispose and from application
+        // shutdown, where putting up a modal means a dialog owned by a window
+        // that is being torn down underneath it. This is the deliberate,
+        // operator-initiated path, on the UI thread, with the application still
+        // fully alive — the only place the question can be asked safely.
+        //
+        // Before SuppressSpeech is set, so the offer's own announcements are
+        // heard, and before CloseRadioCallback, which disposes the rig.
+        OfferStationSaveBeforeDisconnect(rig);
+
         if (rig != null)
         {
             radioName = NonEmpty(rig.RadioNickname);
@@ -2338,6 +2374,23 @@ public class NativeMenuBar : IDisposable
                 rootConfig.CwModeAnnounce = audioConfig.CwModeAnnounce;
                 rootConfig.CwSidetoneHz = audioConfig.CwSidetoneHz;
                 rootConfig.CwSpeedWpm = audioConfig.CwSpeedWpm;
+                // Sprint 33 Track K. Settings are intents, not commands: the
+                // operator may well turn this on while disconnected — it is a
+                // preference ABOUT disconnecting — and without this line it
+                // would be accepted, announced, and silently lost, which is the
+                // exact defect class the intents rule exists to prevent.
+                rootConfig.OfferStationSaveOnDisconnect =
+                    audioConfig.OfferStationSaveOnDisconnect;
+                // Sprint 33 Track F: the pitch source, the keying
+                // waveform and the alert voice set are user-scope for
+                // the same reason the four above are — they describe
+                // this operator's ears, not this radio. Left out of
+                // this list they would apply until the next restart
+                // and then quietly revert, which is worse than not
+                // offering them.
+                rootConfig.CwPitchFollowsRadio = audioConfig.CwPitchFollowsRadio;
+                rootConfig.CwWaveform = audioConfig.CwWaveform;
+                rootConfig.EarconVoiceSet = audioConfig.EarconVoiceSet;
                 rootConfig.Save(rootConfigDir);
             }
         };
@@ -2706,6 +2759,155 @@ public class NativeMenuBar : IDisposable
 
         var dialog = new Dialogs.ProfileDialog(callbacks);
         dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// Slice ▸ Save Station Setup to Radio — the one-step answer to "how do I
+    /// make this stick", reachable from the menu where the operator changed the
+    /// thing they want to keep.
+    /// </summary>
+    /// <remarks>
+    /// <para>This CONFIRMS rather than just doing it, and the confirmation is
+    /// not ceremony. The operator has no other way to learn which global
+    /// profile the radio currently has loaded — that name appears in no status
+    /// line and no announcement — so the prompt is the only surface that
+    /// answers "into what?" before the write happens rather than after. It also
+    /// carries the scope correction: an operator who arrived here after
+    /// releasing one slice is about to store the entire station.</para>
+    ///
+    /// <para>No suppressKey. A "don't show again" on this one would remove the
+    /// only place the target profile is ever named, which is precisely the
+    /// knowledge gap this exists to close — and the dialog's own rule is that
+    /// suppression is for teaching text whose outcome is re-readable
+    /// elsewhere. This outcome is not.</para>
+    ///
+    /// <para>The refusal path speaks the blocker instead of greying the item
+    /// out. Settings are intents: the operator asked a reasonable question and
+    /// deserves the reason, and "another operator is connected" is information
+    /// they very much want, not a reason to go quiet.</para>
+    /// </remarks>
+    private void SaveStationSetupFromMenu()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+
+        var blocker = Rig.StationLayoutSaveBlocker();
+        if (blocker != null)
+        {
+            SpeakAfterMenuClose(blocker, Radios.VerbosityLevel.Critical);
+            return;
+        }
+
+        string profileName = Rig.CurrentGlobalProfileName;
+
+        // ── APPROVED BY NOEL, 2026-08-20 (Sprint 33 Track K) ──
+        // THIS ROUTE CARRIES THE SHARED-STATE SENTENCE and the disconnect offer
+        // does not. That split is deliberate: the disconnect prompt interrupts
+        // someone who is already leaving, so it earns only what prevents a
+        // mistake, while this is a menu item the operator deliberately chose and
+        // has room to explain properly. If the sentence is ever removed from
+        // here it has to go back there — the two were traded against each other.
+        //
+        // "what you changed" rather than "the slice you changed": several slices
+        // may have moved, or one may have been released.
+        //
+        // An explicit noLabel, because the default "No" does not say what
+        // happens. "Don't save" states the outcome, matching the disconnect
+        // prompt's "Disconnect without saving".
+        var confirm = new Dialogs.ConfirmActionDialog(
+            "Save Station Setup",
+            $"This saves your station setup into the radio's global profile "
+            + $"named {profileName}.",
+            warnings: new[]
+            {
+                "It stores the whole station, not just what you changed: "
+                + "every slice, its frequency and its mode.",
+                $"Whatever {profileName} held before is replaced. The radio "
+                + "loads it again the next time you connect — and so does "
+                + "anyone else who connects to this radio."
+            },
+            question: $"Save your station setup into {profileName}?",
+            yesLabel: "_Save to radio",
+            noLabel: "_Don't save");
+
+        if (confirm.ShowDialog() != true)
+        {
+            SpeakAfterMenuClose("Nothing was saved");
+            return;
+        }
+
+        var error = Rig.SaveCurrentStationLayout();
+        SpeakAfterMenuClose(
+            error ?? $"Station setup saved to {profileName}",
+            Radios.VerbosityLevel.Critical);
+    }
+
+    /// <summary>
+    /// Offer to save the station layout on the way out, when the operator has
+    /// turned that on and there is genuinely something to ask about.
+    /// </summary>
+    /// <remarks>
+    /// <para>Silent and instant in every case but one: <see
+    /// cref="Radios.FlexBase.ShouldOfferStationLayoutSave"/> is false unless
+    /// the setting is on, the operator changed the slice set this session, the
+    /// radio is theirs, and they are the only operator on it. A disconnect
+    /// where any of that fails looks exactly like it did before this shipped.
+    /// </para>
+    ///
+    /// <para>No is a real answer and is honoured without argument — no second
+    /// prompt, no "are you sure". The operator disconnecting is not asking to
+    /// negotiate.</para>
+    /// </remarks>
+    private void OfferStationSaveBeforeDisconnect(Radios.FlexBase? rig)
+    {
+        if (rig == null) return;
+
+        bool shouldOffer;
+        try { shouldOffer = rig.ShouldOfferStationLayoutSave(); }
+        catch { return; }   // an offer must never be able to block a disconnect
+        if (!shouldOffer) return;
+
+        string profileName = rig.CurrentGlobalProfileName;
+
+        // ── APPROVED BY NOEL, 2026-08-20 (Sprint 33 Track K) ──
+        // Two changes from the draft, both his.
+        //
+        // "slice settings or frequencies" rather than "the slices" — the offer
+        // fires on any slice-set change including a release, so naming what
+        // actually changed is truer than naming the objects.
+        //
+        // THE SHARED-STATE WARNING WAS CUT FROM THIS PROMPT and kept on the
+        // menu route only. It is factually correct — a global profile is
+        // station state, and everyone who connects does get it — but this offer
+        // is gated on the radio being the operator's OWN, so the audience is
+        // other people using their radio, which for most operators is nobody.
+        // A disconnect prompt interrupts someone who is already leaving, so it
+        // earns only the sentence that prevents a mistake. The menu item is a
+        // deliberate act with room for the fuller explanation, and keeps it.
+        //
+        // Also dropped: "to keep the station from losing settings". The station
+        // never had them, so nothing is being lost.
+        var confirm = new Dialogs.ConfirmActionDialog(
+            "Save Station Setup Before Disconnecting",
+            "You changed slice settings or frequencies on this radio without "
+            + "saving them to a profile. Those changes live only in this "
+            + "session — the radio goes back to its stored setup the next time "
+            + $"you connect. Save them to {profileName} to keep them.",
+            warnings: new[]
+            {
+                "This saves the whole station, not just what you changed: "
+                + "every slice, its frequency and its mode. Whatever "
+                + $"{profileName} held before is replaced."
+            },
+            question: $"Save your station setup into {profileName} before disconnecting?",
+            yesLabel: "_Save and disconnect",
+            noLabel: "_Disconnect without saving");
+
+        if (confirm.ShowDialog() != true) return;
+
+        var error = rig.SaveCurrentStationLayout();
+        SpeakAfterMenuClose(
+            error ?? $"Station setup saved to {profileName}",
+            Radios.VerbosityLevel.Critical);
     }
 
     /// <summary>

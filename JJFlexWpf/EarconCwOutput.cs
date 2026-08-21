@@ -97,13 +97,14 @@ namespace JJFlexWpf
             int sidetoneHz,
             float volume,
             int riseFallMs,
+            MeterVoice? markVoice,
             CancellationToken ct)
         {
             if (elements == null) throw new ArgumentNullException(nameof(elements));
             if (elements.Count == 0) return Task.CompletedTask;
 
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var item = new QueuedSequence(elements, sidetoneHz, volume, riseFallMs, ct, tcs);
+            var item = new QueuedSequence(elements, sidetoneHz, volume, riseFallMs, markVoice, ct, tcs);
 
             System.Threading.Interlocked.Increment(ref _outstanding);
             if (!_queue.Writer.TryWrite(item))
@@ -193,7 +194,8 @@ namespace JJFlexWpf
                 if (el.Type == CwElementType.Mark)
                 {
                     providers.Add(new CwToneSampleProvider(
-                        sr, item.SidetoneHz, el.DurationMs, item.RiseFallMs, item.Volume));
+                        sr, item.SidetoneHz, el.DurationMs, item.RiseFallMs, item.Volume,
+                        item.MarkVoice));
                 }
                 else
                 {
@@ -369,6 +371,7 @@ namespace JJFlexWpf
             public QueuedSequence(
                 IReadOnlyList<CwElement> elements,
                 int sidetoneHz, float volume, int riseFallMs,
+                MeterVoice? markVoice,
                 CancellationToken callerToken,
                 TaskCompletionSource completion)
             {
@@ -376,6 +379,7 @@ namespace JJFlexWpf
                 SidetoneHz = sidetoneHz;
                 Volume = volume;
                 RiseFallMs = riseFallMs;
+                MarkVoice = markVoice;
                 CallerToken = callerToken;
                 Completion = completion;
             }
@@ -384,6 +388,15 @@ namespace JJFlexWpf
             public int SidetoneHz { get; }
             public float Volume { get; }
             public int RiseFallMs { get; }
+
+            /// <summary>
+            /// The spectrum captured when the sequence was ENQUEUED, not when it
+            /// plays. An operator auditioning waveforms in Settings can change
+            /// the choice while a queued sequence is still waiting, and a
+            /// sequence that changed timbre halfway down the queue would be a
+            /// puzzle rather than a preview.
+            /// </summary>
+            public MeterVoice? MarkVoice { get; }
             public CancellationToken CallerToken { get; }
             public TaskCompletionSource Completion { get; }
         }

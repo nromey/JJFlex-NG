@@ -579,10 +579,14 @@ namespace JJPortaudio
             public OpusCallback OpusInputHandler;
             public AudioSentCallback AudioSent;
             public bool SilentPeriod = false;
-            // Audio Track C: optional TX test-tone source. When engaged, its
+            // Audio Track C: optional TX injection source. When engaged, its
             // samples REPLACE the mic capture in inputCallback ahead of the
             // Opus encode (the mic is discarded, never mixed).
-            public TxToneGenerator ToneSource;
+            // Sprint 33 Track I: this was typed TxToneGenerator. The slot was
+            // never really about tones — it is the one place anything can
+            // stand in for the microphone — so it is now ITxInputSource,
+            // shared by the test tone and the reference-file player.
+            public ITxInputSource ToneSource;
             // Track I: optional TX conditioning processor (NR + gate), run
             // AFTER the tone injection point and BEFORE the meter, so the
             // meter still measures what genuinely goes to the encoder.
@@ -699,7 +703,7 @@ namespace JJPortaudio
             get { return CBData.AudioSent; }
             set { CBData.AudioSent = value; }
         }
-        internal TxToneGenerator ToneSource
+        internal ITxInputSource ToneSource
         {
             get { return CBData?.ToneSource; }
             set { var cb = CBData; if (cb != null) cb.ToneSource = value; }
@@ -1147,21 +1151,29 @@ namespace JJPortaudio
                                 buf[i] = *(inPtr++);
                             }
                         }
-                        // Audio Track C: TX test tone. When engaged this
-                        // REPLACES the mic samples in buf (mute-by-discard,
-                        // never a mix) before the Opus encode, so the tone
-                        // rides the identical encode-and-send path the mic
-                        // does — an honest test of the whole TX chain.
+                        // Audio Track C: TX injection. When a source is engaged
+                        // this REPLACES the mic samples in buf (mute-by-discard,
+                        // never a mix) before the Opus encode, so whatever is
+                        // injected rides the identical encode-and-send path the
+                        // mic does — an honest test of the whole TX chain.
                         data.ToneSource?.Process(buf, (int)data.OpusFrameSZ, data.SampleRate);
                         // Track I: TX conditioning (NR + gate) — the third
-                        // thing at this insertion point. The tone injects,
-                        // this MODIFIES, the meter observes. Skipped while
-                        // the test tone is engaged: the tone is a calibrated
+                        // thing at this insertion point. The source injects,
+                        // this MODIFIES, the meter observes.
+                        //
+                        // Sprint 33 Track I: whether to stand this down is now
+                        // the SOURCE's answer, not an assumption about tones.
+                        // A test tone says yes, because it is a calibrated
                         // reference (-10 dBFS must read -10 on SC_MIC) and
                         // conditioning a synthesized sine would quietly break
-                        // that property — there is no room in it to clean.
+                        // that property — there is no room noise in it to
+                        // clean. A recorded VOICE says no: the whole point of
+                        // playing a known voice down this path is to measure
+                        // the chain a voice really travels.
                         if (data.InputProcessor != null
-                            && (data.ToneSource == null || !data.ToneSource.Engaged))
+                            && (data.ToneSource == null
+                                || !data.ToneSource.Engaged
+                                || !data.ToneSource.BypassesConditioning))
                         {
                             data.InputProcessor(buf, (int)data.OpusFrameSZ, data.SampleRate);
                         }

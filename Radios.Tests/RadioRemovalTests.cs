@@ -256,6 +256,39 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void ADottedSerialCannotClimbOutOfTheRadiosFolder()
+        {
+            // Sprint 33 Track J. '.' is a legal character in a sanitised radio
+            // id, so ".." used to survive sanitising unchanged and
+            // Path.Combine(base, "radios", "..") resolves to the base directory
+            // itself — the parent of every radio's folder. Under the
+            // destructive scope that is a recursive delete of the operator's
+            // entire settings tree instead of one radio's, and the destructive
+            // scope only became reachable by keyboard in Sprint 32 Track G.
+            //
+            // The sibling test above covers the empty serial. This is the same
+            // class of bug through a serial that is not empty at all.
+            GiveTheRadioAProfileAndAHistory();
+            var somethingElse = Path.Combine(_dir, "personal-data.xml");
+            File.WriteAllText(somethingElse, "not a radio, must survive");
+
+            foreach (var climber in new[] { "..", ".", "...", " .. " })
+            {
+                KnownRadioRoster.Remove(climber, deleteSettings: true);
+
+                Assert.True(Directory.Exists(_dir));
+                Assert.True(File.Exists(somethingElse));
+                Assert.True(Directory.Exists(Path.Combine(_dir, "radios")));
+                Assert.True(Directory.Exists(ProfileDir(_dir, Serial)));
+            }
+
+            // And the real radio still removes normally afterwards.
+            Assert.True(KnownRadioRoster.Remove(Serial, deleteSettings: true));
+            Assert.False(Directory.Exists(ProfileDir(_dir, Serial)));
+            Assert.True(File.Exists(somethingElse));
+        }
+
+        [Fact]
         public void AConfigWrittenBeforeRemovalExistedIsNotHidden()
         {
             // HiddenFromList defaulting to false is what makes the upgrade a

@@ -281,6 +281,56 @@ namespace Radios
 
         /// <summary>One meter by the radio's name for it, or null. Case-insensitive,
         /// because meter names arrive in whatever case the radio used.</summary>
+        /// <remarks>
+        /// <para>
+        /// <b>METER NAMES ARE NOT UNIQUE, AND THIS RETURNS THE FIRST ONE.</b>
+        /// Measured on the bench FLEX-8600 on 2026-08-20 with a station client
+        /// connected and four slices open: the radio published <b>102 meters</b>,
+        /// and every transmit-chain meter appeared <b>four times</b> — one copy
+        /// per slice. There were four <c>SC_MIC</c> descriptors, at indices 24,
+        /// 48, 72 and 91, and four each of <c>ALC</c>, <c>CODEC</c>,
+        /// <c>COMPPEAK</c>, <c>SC_FILT_1</c>, <c>SC_FILT_2</c>, <c>AFTEREQ</c>,
+        /// <c>TX_AGC</c>, <c>TXAGC</c>, <c>RM_TX_AGC</c>, <c>B4RAMP</c>,
+        /// <c>AFRAMP</c>, <c>POST_P</c> and <c>ATTN_FPGA</c>.
+        /// </para>
+        /// <para>
+        /// The four copies are <b>byte-identical in their descriptors</b>: same
+        /// name, same units, same range, same description "Signal", and all of
+        /// them reporting source <c>TX-</c> index <b>0</b>. Nothing in the
+        /// descriptor distinguishes them. So there is no correct choice to make
+        /// here — only a first one.
+        /// </para>
+        /// <para>
+        /// <b>Both lookup paths take the first match and neither knows the
+        /// others exist.</b> The <see cref="Rebuild"/> loop below is
+        /// first-name-wins, and FlexLib's own <c>Radio.FindMeterByName</c> is a
+        /// <c>FirstOrDefault</c>. <c>FlexBase.hookTxMeters</c> therefore
+        /// subscribes to index 24 and never sees 48, 72 or 91.
+        /// </para>
+        /// <para>
+        /// <b>It works today because the first copy happens to be the one that
+        /// streams</b> — confirmed by a real keying on 2026-08-20, where SC_MIC
+        /// moved from its floor to -10.8 dBFS. Nothing guarantees that. On a
+        /// radio, a firmware, or a slice arrangement where the streaming copy is
+        /// not the lowest-indexed one, <c>ScMicDb</c> would sit at its sentinel
+        /// forever while three identical meters reported normally, and the
+        /// analyzer would say the radio hears nothing. That is the same
+        /// silent-wrong-instrument shape as reading the codec MIC meter for a
+        /// PC-audio operator, which cost this project two days — one level down,
+        /// and currently invisible because it is masked by an ordering
+        /// coincidence.
+        /// </para>
+        /// <para>
+        /// <b>Not fixed here, deliberately.</b> Choosing among identical
+        /// descriptors needs a rule nobody has established yet — most likely
+        /// "the copy belonging to the transmit slice", which means correlating
+        /// meter index against slice ownership, and that is a design decision
+        /// rather than a wiring correction. A caller that needs certainty should
+        /// use <see cref="All"/> and pick deliberately. Anything relying on
+        /// <see cref="Find"/> for a transmit-chain meter is relying on the
+        /// ordering coincidence above.
+        /// </para>
+        /// </remarks>
         public MeterReading Find(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
@@ -349,8 +399,13 @@ namespace Radios
                     if (byMeter.ContainsKey(m)) continue;
                     byMeter[m] = r;
                     all.Add(r);
-                    // First name wins. Duplicate meter names are the radio's
-                    // business, not ours, and the full list still carries both.
+                    // First name wins, and on a real radio that is a coin toss
+                    // rather than a formality: an 8600 with four slices open
+                    // publishes FOUR byte-identical SC_MIC descriptors (indices
+                    // 24, 48, 72, 91 as measured 2026-08-20), all claiming
+                    // source TX- index 0. See the remarks on Find for why this
+                    // currently works and why it is fragile. The full list still
+                    // carries every copy, so a caller that needs to choose can.
                     if (r.Name.Length != 0 && !byName.ContainsKey(r.Name))
                         byName[r.Name] = r;
                 }

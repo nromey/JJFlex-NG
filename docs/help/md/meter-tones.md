@@ -4,7 +4,9 @@ Meter tones give you audio feedback for signal strength, power output, SWR, ALC,
 
 ## Opening the Meters Panel
 
-Press `Ctrl+M` to open (or close) the Meters Panel. When the panel is open, you will see a set of meter slots you can configure. Each slot maps a single radio meter to an audio tone.
+Press `Ctrl+M` to open (or close) the Meters Panel. This opens and closes the panel and nothing else — it does not start or stop your meter tones. The tone switch is `Ctrl+J` then `T`, or `Ctrl+Alt+M`.
+
+The panel starts with a **Meter** list: pick which of your meters you want to work on, and every control below it belongs to that meter. You are not tabbing through one set of controls per meter — there is one set, and it points at whichever meter you chose. Press `Delete` on the Meter list to remove the one you are on; it asks first, because there is no undo.
 
 ## Meter-Related Hotkeys
 
@@ -22,17 +24,20 @@ A few shortcuts work on meters from anywhere in the application:
 
 When meter tones are enabled, JJ Flexible Radio Access converts meter readings into audio tones. The pitch of the tone rises and falls with the meter reading, giving you an intuitive sense of signal strength, power output, or whatever meter you are monitoring at the time.
 
-## Meter Slots
+## What You Can Set Per Meter
 
-The Meters Panel supports up to 8 meter slots. Each slot has these configurable settings:
+You can have up to 8 meters at once. Each one has these settings:
 
-- **Meter source** — what the slot monitors: S-Meter, forward power, ALC, SWR, compression, microphone level, and others.
-- **Waveform type** — the shape of the audio tone: Sine (smooth), Square (buzzy), or Sawtooth (bright and edgy). Different waveforms make it easier to distinguish multiple meters playing at the same time.
-- **Stereo pan** — where the tone plays in the stereo field: Left, Center, or Right. Panning different meters to different ears helps you keep them apart in your head.
-- **Base frequency** — the base pitch of the tone in hertz. The actual pitch varies up and down from this base as the meter reading changes.
-- **Enabled checkbox** — turn individual slots on or off without having to delete them.
+- **Source** — which of the radio's own meters this tone follows, named the way the radio names it. The short list holds the ones most operators want. Tick **Show every meter this radio reports** to reach all of them — on an 8600 that is over a hundred — grouped by where they come from: the radio itself, each slice, and any amplifier or tuner. Underneath the list, a line of detail tells you that meter's range, its units, and what it is reading right now.
+- **Active slice versus a numbered slice.** Some meters, the S-meter among them, belong to a slice rather than to the radio as a whole. Those appear twice: once as **Active slice**, which follows whichever slice you are listening to, and once per numbered slice if you would rather pin it to one receiver. Active slice is listed first because it is what most people want.
+- **Voice** — the timbre this meter speaks with: Pure, Hollow, Reedy, Organ, Bell, Trill, Raspy, Thin, Square, Breath, Ring, Two-Tone, Swell, Pulsing and Urgent. Timbre is what tells two meters apart, so give meters you listen to together clearly different voices.
+- **When it sounds** — always, only while receiving, or only while transmitting. A transmit meter that sounds on receive is just noise.
+- **Pan** — where the tone sits in the stereo field, running smoothly from full left through centre to full right, and announced in words rather than as a bare number. Never make pan the only difference between two meters: mono listeners and anyone with asymmetric hearing loss lose it completely. That is what voices are for.
+- **Volume** — how loud this meter is, before the master meter volume is applied.
+- **Lowest pitch and highest pitch** — the tones you hear at the bottom and the top of this meter's range, in hertz.
+- **This meter sounds** — whether this meter's tone plays at all, without having to delete it.
 
-Use the **Add** button to create a new slot, and the **Remove** button to delete one. The **Test** button plays a two-second preview of that slot's tone, so you can hear what it will sound like before you go on the air.
+Use **Add Meter** to create another, and **Delete** to remove the one you are on. **Test** plays a two-second preview of that meter's tone, so you can hear what it will sound like before you go on the air.
 
 ## Meter Presets
 

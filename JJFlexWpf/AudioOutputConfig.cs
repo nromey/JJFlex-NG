@@ -171,6 +171,31 @@ namespace JJFlexWpf
         /// <summary>CW sidetone frequency in Hz (400-1200, default 700).</summary>
         public int CwSidetoneHz { get; set; } = 700;
 
+        /// <summary>
+        /// Follow the connected radio's own CW sidetone pitch instead of
+        /// <see cref="CwSidetoneHz"/> (#146). Falls back to the configured tone
+        /// whenever no radio has reported a pitch — being disconnected is a
+        /// normal state, not an error. Default false, which is the behaviour
+        /// every existing config file already has.
+        /// </summary>
+        public bool CwPitchFollowsRadio { get; set; }
+
+        /// <summary>
+        /// The spectrum CW notification marks are keyed with (#145), by id from
+        /// <see cref="EarconVoices.CwWaveforms"/>. "Sine" is the sound that
+        /// shipped. An unrecognised value resolves back to Sine rather than
+        /// producing silence.
+        /// </summary>
+        public string CwWaveform { get; set; } = EarconVoices.DefaultCwWaveformId;
+
+        /// <summary>
+        /// Which set of alert-voice definitions is live (#147): 0 = Modern (the
+        /// rebuilt sounds, and the default), 1 = Classic (the plain sine-based
+        /// set they replaced). Stored as an int for XML serialization; see
+        /// <see cref="EarconVoiceSet"/>.
+        /// </summary>
+        public int EarconVoiceSet { get; set; } = (int)JJFlexWpf.EarconVoiceSet.Modern;
+
         /// <summary>CW notification speed in WPM (10-30, default 20).</summary>
         public int CwSpeedWpm { get; set; } = 20;
 
@@ -195,6 +220,29 @@ namespace JJFlexWpf
         /// turn it off.
         /// </summary>
         public bool SpeakConnectionProgress { get; set; } = true;
+
+        /// <summary>
+        /// Offer to save the station layout into the radio's global profile
+        /// when the operator disconnects, having changed the slice set during
+        /// the session.
+        ///
+        /// <para>DEFAULT FALSE, deliberately, and it is the one setting here
+        /// whose default is an argument rather than a taste. A global profile
+        /// is STATION state — one per radio, shared by every client that
+        /// connects — so what gets saved is never just "my slices". Sprint 32
+        /// weighed a disconnect prompt and shipped a spoken notice instead, on
+        /// the grounds that a prompt firing on every disconnect gets dismissed
+        /// reflexively. That notice stays the shipped behaviour for everyone;
+        /// this switch adds the question for the operator who asks for it, and
+        /// the gates in FlexBase.ShouldOfferStationLayoutSave keep it from
+        /// firing when nothing changed, when another operator is connected, or
+        /// on a radio the operator has not marked as theirs.</para>
+        ///
+        /// <para>Absent from an older audioConfig.xml this deserialises to
+        /// false, which is exactly the behaviour that file was written
+        /// under.</para>
+        /// </summary>
+        public bool OfferStationSaveOnDisconnect { get; set; }
 
         /// <summary>Whether braille status line is enabled.</summary>
         public bool BrailleEnabled { get; set; }
@@ -550,6 +598,15 @@ namespace JJFlexWpf
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.TuningAndFilters, EarconTuningEnabled);
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.CommandsAndConfirmations, EarconCommandsEnabled);
             EarconPlayer.SetCategoryEnabled(EarconPlayer.EarconCategory.Warnings, EarconWarningsEnabled);
+            // #147 — which set of voice definitions the earcons resolve
+            // against. Applied before anything can make a sound, and clamped
+            // rather than cast blind: a hand-edited config saying 7 should get
+            // the shipped sounds, not an exception on the audio path.
+            EarconVoices.ActiveSet =
+                EarconVoiceSet == (int)JJFlexWpf.EarconVoiceSet.Classic
+                    ? JJFlexWpf.EarconVoiceSet.Classic
+                    : JJFlexWpf.EarconVoiceSet.Modern;
+
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
@@ -569,6 +626,13 @@ namespace JJFlexWpf
             // corrupted file falls back to the default rather than opening a
             // stream the codec cannot follow.
             Radios.FlexBase.OpusTxSampleRateSetting = (uint)OpusTxSampleRate;
+
+            // Same shape again: the disconnect offer is decided inside the
+            // Radios layer, which cannot see this class, so the preference
+            // crosses as a static. One knob for every radio and every
+            // connection — the per-radio half of the decision is ownership,
+            // and that already lives in RadioConfig.
+            Radios.FlexBase.OfferStationSaveOnDisconnect = OfferStationSaveOnDisconnect;
 
             // Mic-verdict wording, same reasoning: every surface that reads a
             // level out loud asks MicAudioReport, so the preference lives
@@ -607,6 +671,7 @@ namespace JJFlexWpf
             MeterSpeechIntervalSeconds = MeterToneEngine.SpeechIntervalSeconds;
             AutoEnableOnTune = MeterToneEngine.AutoEnableOnTune;
             EarconsEnabled = EarconPlayer.EarconsEnabled;
+            EarconVoiceSet = (int)EarconVoices.ActiveSet;
             EarconConnectionEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.Connection);
             EarconTransmitEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.Transmit);
             EarconDialogsEnabled = EarconPlayer.GetCategoryEnabled(EarconPlayer.EarconCategory.DialogsAndPanels);

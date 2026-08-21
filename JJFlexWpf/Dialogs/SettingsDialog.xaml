@@ -416,11 +416,41 @@
                                   Style="{StaticResource DialogComboBox}"
                                   AutomationProperties.Name="Alert audio output device, also used for CW notifications"/>
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <controls:DecorativeText Text="Alert tone set:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="AlertToneSetCombo" Width="280"
+                                  Style="{StaticResource DialogComboBox}"
+                                  SelectionChanged="AlertToneSetCombo_SelectionChanged"
+                                  AutomationProperties.Name="Alert tone set, modern or classic"
+                   local:JJFlexHelp.Text="arrow through to hear each one. Classic is the plain tones the alert sounds had before they were rebuilt"/>
+                    </StackPanel>
                     <CheckBox x:Name="CwNotificationsCheck"
                               Content="Enable CW notifications (AS, BT, SK prosigns)"
                               Margin="0,0,0,4"
                               AutomationProperties.Name="Enable Morse code notifications for connection events"
                    local:JJFlexHelp.Text="played through the alert device"/>
+                    <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
+                        <controls:DecorativeText Text="CW pitch:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="CwPitchSourceCombo" Width="280"
+                                  Style="{StaticResource DialogComboBox}"
+                                  SelectionChanged="CwPitchSourceCombo_SelectionChanged"
+                                  AutomationProperties.Name="CW notification pitch source"
+                   local:JJFlexHelp.Text="follow the radio's own sidetone, or use the frequency below. With no radio connected the frequency below is used"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="20,0,0,4">
+                        <controls:DecorativeText Text="CW tone shape:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="CwWaveformCombo" Width="280"
+                                  Style="{StaticResource DialogComboBox}"
+                                  SelectionChanged="CwWaveformCombo_SelectionChanged"
+                                  AutomationProperties.Name="CW notification tone shape"
+                   local:JJFlexHelp.Text="arrow through to hear each one. A richer shape is harder for band noise to hide, and harder to mistake for received CW"/>
+                    </StackPanel>
                     <Grid Margin="20,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -827,7 +857,19 @@
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                         <controls:DecorativeText Text="Radio name:" VerticalAlignment="Center"
                                    Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
-                        <TextBox x:Name="RadioProfileNicknameBox" Width="280"
+                        <!-- MaxLength measured on the bench 8600, 2026-08-20 (Sprint 33
+                             Track D): the radio accepts a nickname of up to FIFTEEN
+                             characters and refuses sixteen outright with error 50000016.
+                             It does not truncate. FlexLib's Radio.Nickname setter sends
+                             the command and never inspects the reply, so without this
+                             limit an operator typing a longer name is told nothing at all
+                             and the radio quietly keeps its old one.
+                             Still open and reported rather than guessed at here: a name
+                             containing a SPACE has the space silently REMOVED — "ALPHA
+                             BRAVO" is stored as "ALPHABRAVO" — because the set command is
+                             space delimited with no quoting. That one needs telling the
+                             operator, which is wording rather than a length. -->
+                        <TextBox x:Name="RadioProfileNicknameBox" Width="280" MaxLength="15"
                                  Style="{StaticResource DialogTextBox}"
                                  AutomationProperties.Name="Radio name"
                    local:JJFlexHelp.Text="Applied with OK or Apply. Saved to the radio itself when you are connected to it; otherwise only the name shown in this list changes. Leaving this empty keeps the current name."/>
@@ -1401,6 +1443,27 @@
                               Margin="0,0,0,8"
                               AutomationProperties.Name="Speak connection progress"
                    local:JJFlexHelp.Text="When checked, JJ Flex announces each connection phase and plays a counting tone (1, 2, then 3 tones) as the connect proceeds. Critical messages (errors, cancel, timeout) always speak regardless of this setting."/>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- Sprint 33 Track K (#117, #59). Off by default, and that
+                         is the whole design: what every operator gets is the
+                         spoken "this will not survive disconnect" notice, and
+                         this switch is for the operator who wants the radio-like
+                         behaviour and says so. It offers; it never saves on its
+                         own. The help text has to carry the shared-state warning
+                         because a global profile belongs to the radio, not to
+                         the person who happened to disconnect last. -->
+                    <TextBlock Text="Saving Your Setup to the Radio" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="OfferStationSaveOnDisconnectCheck"
+                              Content="Offer to save my setup to the radio when I disconnect"
+                              Margin="0,0,0,8"
+                              AutomationProperties.Name="Offer to save my setup to the radio when I disconnect"
+                   local:JJFlexHelp.Text="Slices you add or release live only in the current session — the radio restores its own stored setup the next time you connect. When checked, JJ Flex asks on the way out whether to save your setup into the radio, so it comes back the way you left it. It only ever asks; it never saves on its own. It stays quiet when you changed nothing, when another operator is connected to the same radio, and on any radio you have not marked as yours on the Radios tab. You can save at any time without this, from Save Station Setup to Radio on the Slice menu."/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Style="{StaticResource DialogLabel}"
+                               Text="What gets saved is the radio's global profile, which is the whole station — every slice, its frequency and its mode — and it is shared with everyone who connects to that radio, not just you."/>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

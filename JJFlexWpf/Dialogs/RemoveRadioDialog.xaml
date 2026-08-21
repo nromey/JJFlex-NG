@@ -36,7 +36,17 @@
                  VerticalScrollBarVisibility="Auto"
                  MaxHeight="300"
                  Margin="0,0,0,12"
-                 AutomationProperties.Name="What removing this radio does"/>
+                 AutomationProperties.Name="What removing this radio does, read only"/>
+        <!-- "read only" IS IN THE NAME ON PURPOSE (Noel, 2026-08-20). The box
+             genuinely is read-only, but a TextBox still announces as "edit", so
+             it sounds changeable. The only true fix is swapping the
+             AutomationPeer — and that sacrifices the arrow-key line-by-line
+             reading this dialog depends on, and would be systemic anyway: about
+             45 instances across 24 files.
+             This is a WORKAROUND, labelled as one. It costs one attribute, keeps
+             arrow-key reading, and gets the constraint spoken before the wrong
+             role is. If the peer question is ever solved properly, take this out
+             rather than leaving both. -->
 
         <!-- Own navigation group so the arrows wrap inside the pair instead of
              walking out into the buttons. Same fix as the SmartLink mode radios
@@ -83,7 +93,6 @@
                     Content="_Remove"
                     MinWidth="90" Height="28" Margin="0,0,8,0"
                     IsDefault="False"
-                    AutomationProperties.Name="Remove"
                     AutomationProperties.AcceleratorKey="Alt+R"
                     Click="OkButton_Click"/>
             <Button x:Name="CancelButton"

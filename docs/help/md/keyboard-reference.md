@@ -65,6 +65,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | M | Open the memories dialog |
 | T | Toggle meter tones on/off |
 | Shift+T | Toggle alert sounds (earcons) on/off |
+| E | Echo the CW notifications you just heard — press again to step further back (see "CW echo" below) |
 | Shift+A through Shift+H | Jump to that slice from anywhere (Shift+F is reserved for the RX filter readout) |
 | ? or H | List all JJ Command layer commands |
 | Escape | Close the JJ Command layer |
@@ -99,6 +100,14 @@ Arms or disarms the Audio Workshop's TX test tone from anywhere, using your save
 ### Noise capture — Ctrl+J, then Q
 
 Captures a noise profile for PC Spectral NR: three seconds (adjustable, 1 to 5) of what your band sounds like with nobody talking, so the spectral engine knows exactly what to subtract. Find a quiet spot on the band, press `Ctrl+J` then `Q`, and listen — it announces the start, counts the seconds out loud as they pass, and tells you when the profile is captured and whether Spectral NR is using it. Press `Q` again mid-capture to cancel. The capture listens to the radio audio playing through this computer, so PC audio has to be on — if it isn't, the capture says so instead of pretending. A finished capture saves itself and comes back on your next connect; naming and managing profiles lives in the Noise Profiles dialog (Slice menu, DSP, PC Noise Reduction). The full story is on the PC-Side Noise Reduction help page.
+
+### CW echo — Ctrl+J, then E
+
+Ctrl+F4 walks back through the last ten things the app *said*. This is the same idea for the last ten things it *sent in CW* — the slice census, "SL A USB", anything the app keyed at you. Press `Ctrl+J` then `E` and it re-sends the most recent one. Press it again and you step back another message, and another, wrapping round to the newest when you run off the end.
+
+The two histories are kept apart on purpose. If you're running with speech off and CW notifications on, everything you've heard is in the CW list and nothing is in the speech list, so one key for both would spend most of its presses telling you about messages you never heard.
+
+Two things worth knowing. The prosigns — AS, BT, SK — stay out of the history. They're punctuation, not information, and re-sending "closing" out of the blue tells you nothing you can act on. And "press again to step back" gives you the same generous window the speech version does, but measured from the moment the CW *finishes* rather than from when you pressed. That matters if you run slow code: at 10 words per minute "SL A USB" takes nearly nine seconds to send, and a window that started ticking at the keypress would have expired before you'd finished listening to it.
 
 One more thing about the JJ layer: it works inside dialogs now. Press `Ctrl+J` in the Audio Workshop — or any other dialog — and the layer answers exactly as it does from Home. The mic check was built with that in mind, since the workshop is precisely where you sit while adjusting mic gain.
 
@@ -140,7 +149,7 @@ These keys work when you're in either Classic or Modern tuning mode:
 | Ctrl+P | Adjust audio panning |
 | Ctrl+Shift+T | Toggle the tune carrier on/off |
 | Ctrl+T | Start an automatic tuning unit (ATU) tune cycle |
-| Ctrl+Alt+M | Toggle meter sonification tones |
+| Ctrl+Alt+M | Toggle meter tones on or off. The same switch as Ctrl+J then T, and it now says the same thing either way |
 | Ctrl+Alt+P | Cycle the meter tone preset (RX, TX, Full Monitor) |
 | Ctrl+Alt+V | Speak the current meter values |
 | Shift+M | Mute or unmute every slice at once |
@@ -468,7 +477,8 @@ Some commands ship without a key, and it is worth knowing that this is not one l
 **Already have a key, just not their own one.** These answer to the JJ key, so
 you may not need to bind anything: show memories (`Ctrl+J`, `M`), log
 statistics (`Ctrl+J`, `L`), speak TX filter width (`Ctrl+J`, `F`), toggle meter
-tones (`Ctrl+J`, `T`), and PC audio on/off (`Ctrl+J`, `Ctrl+A`).
+tones (`Ctrl+J`, `T`), PC audio on/off (`Ctrl+J`, `Ctrl+A`), and echo recent CW
+(`Ctrl+J`, `E`).
 
 **Live somewhere better than a key.** Audio devices, ATU memories, reboot
 radio, and transmit controls all open something, and the menu that opens them

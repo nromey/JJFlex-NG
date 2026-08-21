@@ -1728,8 +1728,30 @@ Module globals
                     RigControl, AddressOf WpfMainWindow.powerNowOff)
             End Sub,
             .ShowTXControls = Sub()
-                If RigControl Is Nothing Then Return
-                RigControl.ShowTXControlsDialog?.Invoke()
+                ' Sprint 33 Track J (#109). Both exits from here used to be
+                ' silent: no radio returned without a word, and the
+                ' ?.Invoke() below was a guaranteed no-op because nothing
+                ' ever assigned ShowTXControlsDialog. The command is
+                ' reachable from Command Finder, so an operator could run it
+                ' and get nothing at all — no window, no speech, no way to
+                ' tell a bug from a feature that was never built. That
+                ' violates the no-silent-keystrokes rule twice over.
+                If RigControl Is Nothing Then
+                    Radios.ScreenReaderOutput.SpeakNoRadioConnected("show transmit controls")
+                    Return
+                End If
+                If RigControl.ShowTXControlsDialog Is Nothing Then
+                    ' Assigned in MainWindow.OnRadioStarted. Reaching here
+                    ' means the command ran before post-start wiring.
+                    Radios.ScreenReaderOutput.Speak("Transmit controls are not available yet",
+                                                    Radios.VerbosityLevel.Critical, True)
+                    Return
+                End If
+                Try
+                    RigControl.ShowTXControlsDialog.Invoke()
+                Catch ex As Exception
+                    Tracing.TraceLine("TX controls display:" & ex.Message, TraceLevel.Error)
+                End Try
                 WpfMainWindow.FreqOut.FocusDisplay()
             End Sub,
             .AudioSetup = Sub() GetNewAudioDevices(),

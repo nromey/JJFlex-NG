@@ -114,6 +114,11 @@ public partial class MainWindow : UserControl
         // of the values they read are set later, during startup.
         Dialogs.AudioWorkshopDialog.OpenAudioDevices = () => AudioSetupCallback?.Invoke();
         Dialogs.AudioWorkshopDialog.AudioDevicesPath = () => AudioDevicesFilePath;
+        // Sprint 33 Track I: the recorder records the microphone the operator
+        // already chose. Pointing it at the same setting the rest of the audio
+        // path reads is what stops "which microphone am I recording" from
+        // becoming a second thing to configure and a second thing to get wrong.
+        RecordingNarrator.AudioDevicesPath = () => AudioDevicesFilePath;
 
         // Preset persistence — the operator-scoped store the presets model has
         // always assumed and nothing ever connected (see the note on
@@ -224,6 +229,20 @@ public partial class MainWindow : UserControl
         // change — so it gets its own honestly-named delegate rather than
         // pushing sentences through PlayCwMode.
         Radios.ScreenReaderOutput.PlayCwText = (text) => _morseNotifier.PlayString(text);
+        // Sprint 33 Track F (#153): the CW repeat cancels what is keying before
+        // it re-sends, exactly as the speech repeat emits with interrupt. This
+        // reaches EarconCwOutput and nothing else — a continuous earcon such as
+        // the ATU progress tone is a separate input on the alert mixer and
+        // keeps running, which was verified rather than assumed.
+        Radios.ScreenReaderOutput.CancelCw = () => _morseNotifier.Cancel();
+        // (#146) The radio announces its CW sidetone pitch on connect, on every
+        // change, and as null on disconnect. Whether the notifier USES it is the
+        // operator's setting; the notifier holds both numbers and picks.
+        Radios.ScreenReaderOutput.RadioCwPitchChanged = (hz) =>
+        {
+            _lastRadioCwPitchHz = hz;
+            _morseNotifier.RadioSidetoneHz = hz;
+        };
 
         // Load user-scope CW settings from BaseConfigDir (root of %AppData%\JJFlexRadio\)
         // so CwNotificationsEnabled + speed + sidetone are set before any connect
@@ -238,15 +257,24 @@ public partial class MainWindow : UserControl
             if (System.IO.Directory.Exists(baseConfigDir))
             {
                 var userConfig = AudioOutputConfig.Load(baseConfigDir);
-                _morseNotifier.SidetoneHz = Math.Clamp(userConfig.CwSidetoneHz, 400, 1200);
-                // Sprint 26 Phase 6: soft cap raised from 30 to 60 WPM. CW experts
-                // operate at 35-45+ WPM and the notifier's PARIS math handles
-                // anything decodable. Minimum stays at 10 WPM — below that the
-                // dit lengths become UI-distracting slow.
-                _morseNotifier.SpeedWpm = Math.Clamp(userConfig.CwSpeedWpm, 10, 60);
-                Radios.ScreenReaderOutput.CwNotificationsEnabled = userConfig.CwNotificationsEnabled;
-                Radios.ScreenReaderOutput.CwModeAnnounceEnabled = userConfig.CwModeAnnounce;
+                ApplyCwNotifierSettings(userConfig);
                 Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled = userConfig.SpeakConnectionProgress;
+                // Sprint 33 Track K. Loaded here, from ROOT, for the same
+                // reason the CW flags above are: it has to be in place before
+                // the first disconnect, and the per-radio config that would
+                // otherwise carry it is not read until PowerOn.
+                Radios.FlexBase.OfferStationSaveOnDisconnect =
+                    userConfig.OfferStationSaveOnDisconnect;
+                // #147, and here for the same reason the CW settings are:
+                // AudioOutputConfig.Apply() runs on CONNECT, so an operator who
+                // chose the Classic set would hear the Modern one on every
+                // dialog ding and JJ-key tone between launch and their first
+                // connect — including the whole of a session that never
+                // connects at all.
+                EarconVoices.ActiveSet =
+                    userConfig.EarconVoiceSet == (int)EarconVoiceSet.Classic
+                        ? EarconVoiceSet.Classic
+                        : EarconVoiceSet.Modern;
             }
         }
         catch (Exception ex)
@@ -731,15 +759,42 @@ public partial class MainWindow : UserControl
         // Settings-while-running case, same as the braille pattern above.
         if (CurrentAudioConfig != null)
         {
-            _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
-            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
-            Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
-            Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+            ApplyCwNotifierSettings(CurrentAudioConfig);
             Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled = CurrentAudioConfig.SpeakConnectionProgress;
         }
 
         // Reflect any "Show panadapter" change immediately (toggle acts live)
         ApplyPanadapterVisibility();
+    }
+
+    /// <summary>
+    /// Push the operator's CW notification preferences at the notifier and the
+    /// screen-reader layer.
+    ///
+    /// Three call sites used to hold their own copy of these lines — the
+    /// constructor, the Settings-while-running path and the connect path — and
+    /// Sprint 33 Track F was about to make it nine. Copies of a settings
+    /// application drift silently: the one that gets forgotten does not fail,
+    /// it quietly keeps yesterday's value, which is the description-drift
+    /// defect wearing a different hat. One method, three callers.
+    ///
+    /// The clamps are deliberately different from each other. Sidetone is
+    /// 400–1200 because that is what the settings field promises. Speed is
+    /// 10–60: Sprint 26 raised the cap from 30 because CW experts operate at
+    /// 35–45 and the PARIS math handles anything decodable, and the floor stays
+    /// at 10 because below that the dit lengths are distracting rather than
+    /// slow. The RADIO's pitch is deliberately not clamped to the same band —
+    /// see MorseNotifier.EffectiveSidetoneHz.
+    /// </summary>
+    private void ApplyCwNotifierSettings(AudioOutputConfig cfg)
+    {
+        if (cfg == null) return;
+        _morseNotifier.SidetoneHz = Math.Clamp(cfg.CwSidetoneHz, 400, 1200);
+        _morseNotifier.SpeedWpm = Math.Clamp(cfg.CwSpeedWpm, 10, 60);
+        _morseNotifier.FollowRadioSidetone = cfg.CwPitchFollowsRadio;
+        _morseNotifier.MarkVoice = EarconVoices.ResolveCwWaveform(cfg.CwWaveform).Voice;
+        Radios.ScreenReaderOutput.CwNotificationsEnabled = cfg.CwNotificationsEnabled;
+        Radios.ScreenReaderOutput.CwModeAnnounceEnabled = cfg.CwModeAnnounce;
     }
 
     /// <summary>
@@ -1867,6 +1922,9 @@ public partial class MainWindow : UserControl
             // QB Track L: RadioInfoDialog (General + Feature Availability tabs)
             // — never assigned since Sprint 11, leaving the menu door dead.
             RigControl.ShowRadioInfoDialog = ShowRadioInfoDialog;
+            // Sprint 33 Track J (#109): TXControlsDialog — same bug again,
+            // declared and invoked since Sprint 11, never assigned.
+            RigControl.ShowTXControlsDialog = ShowTXControlsDialog;
         }
 
         // Disable controls initially — PowerNowOn enables them when radio powers on
@@ -2406,6 +2464,49 @@ public partial class MainWindow : UserControl
     /// Called from the VB exit sequence, which owns the shutdown order.
     /// </summary>
     public bool WaitForCwIdle(int maxWaitMs) => _cwOutput.WaitForIdle(maxWaitMs);
+
+    /// <summary>
+    /// The last CW sidetone pitch a radio reported, or null when none has.
+    /// Static so the Settings preview can be honest about the disconnected
+    /// case without needing a MainWindow instance: previewing "follow the
+    /// radio" with no radio has to sound exactly like the real thing does,
+    /// which is the configured tone and no complaint about it.
+    /// </summary>
+    private static int? _lastRadioCwPitchHz;
+
+    /// <summary>
+    /// Play a short CW sample with the settings currently showing in the
+    /// Settings dialog, without disturbing the live notifier (#145, #146).
+    ///
+    /// A throwaway notifier over the SHARED output, so the sample queues behind
+    /// anything real that is already keying rather than cutting it off. An
+    /// operator auditioning tone shapes mid-connect should not be able to
+    /// silence the connect prosigns by doing so.
+    ///
+    /// "V" is the sample because it is the character every CW operator has
+    /// heard ten thousand times as a test — di-di-di-dah — so nothing about the
+    /// pattern distracts from the timbre, which is the thing being judged.
+    /// </summary>
+    public static void PreviewCwTone(string? waveformId, bool followRadioPitch,
+        int configuredHz, int speedWpm)
+    {
+        try
+        {
+            var preview = new MorseNotifier(_cwOutput)
+            {
+                SidetoneHz = Math.Clamp(configuredHz, 400, 1200),
+                SpeedWpm = Math.Clamp(speedWpm, 10, 60),
+                FollowRadioSidetone = followRadioPitch,
+                RadioSidetoneHz = _lastRadioCwPitchHz,
+                MarkVoice = EarconVoices.ResolveCwWaveform(waveformId).Voice,
+            };
+            _ = preview.PlayString("V");
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine($"PreviewCwTone failed: {ex.Message}", TraceLevel.Warning);
+        }
+    }
 
     /// <summary>
     /// Expose FreqOutHandlers for Settings dialog tuning step access.
@@ -3382,10 +3483,7 @@ public partial class MainWindow : UserControl
             ApplyPanadapterVisibility();
 
             // Apply CW notification config
-            _morseNotifier.SidetoneHz = Math.Clamp(CurrentAudioConfig.CwSidetoneHz, 400, 1200);
-            _morseNotifier.SpeedWpm = Math.Clamp(CurrentAudioConfig.CwSpeedWpm, 10, 60);
-            Radios.ScreenReaderOutput.CwNotificationsEnabled = CurrentAudioConfig.CwNotificationsEnabled;
-            Radios.ScreenReaderOutput.CwModeAnnounceEnabled = CurrentAudioConfig.CwModeAnnounce;
+            ApplyCwNotifierSettings(CurrentAudioConfig);
 
             // Migrate CW settings to root on every connect. CW is user-scope (not per-radio)
             // but historically lived only in per-radio config. The MainWindow constructor
@@ -3406,6 +3504,16 @@ public partial class MainWindow : UserControl
                     rootConfig.CwModeAnnounce = CurrentAudioConfig.CwModeAnnounce;
                     rootConfig.CwSidetoneHz = CurrentAudioConfig.CwSidetoneHz;
                     rootConfig.CwSpeedWpm = CurrentAudioConfig.CwSpeedWpm;
+                    // Sprint 33 Track F: the pitch source, the keying
+                    // waveform and the alert voice set are user-scope for
+                    // the same reason the four above are — they describe
+                    // this operator's ears, not this radio. Left out of
+                    // this list they would apply until the next restart
+                    // and then quietly revert, which is worse than not
+                    // offering them.
+                    rootConfig.CwPitchFollowsRadio = CurrentAudioConfig.CwPitchFollowsRadio;
+                    rootConfig.CwWaveform = CurrentAudioConfig.CwWaveform;
+                    rootConfig.EarconVoiceSet = CurrentAudioConfig.EarconVoiceSet;
                     rootConfig.Save(baseConfigDir);
                 }
             }
@@ -3885,6 +3993,69 @@ public partial class MainWindow : UserControl
         {
             gotoHome();
         }
+    }
+
+    /// <summary>
+    /// Show the WPF TXControlsDialog with delegates wired to the current radio.
+    /// Sprint 33 Track J (#109): the Sprint 9 Track B dialog was complete, and
+    /// FlexBase.ShowTXControlsDialog was declared and invoked from globals.vb,
+    /// but nothing ever assigned it. The null-conditional call meant the TX
+    /// Controls door did nothing at all — no window, no speech, nothing for a
+    /// screen reader to report. Exactly the ShowRadioInfoDialog bug below.
+    /// The WinForms original (Radios\TXControls.cs) was deleted when this
+    /// replaced it, so this was the only remaining route to these settings.
+    /// Wired in OnRadioStarted alongside the other two.
+    /// </summary>
+    private void ShowTXControlsDialog()
+    {
+        var rig = RigControl;
+        if (rig == null)
+        {
+            Radios.ScreenReaderOutput.Speak("No radio connected.",
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var dialog = new Dialogs.TXControlsDialog();
+
+        // TX request inputs
+        dialog.GetTXReqRCAEnabled = () => rig.TXReqRCAEnabled;
+        dialog.SetTXReqRCAEnabled = v => rig.TXReqRCAEnabled = v;
+        dialog.GetTXReqRCAPolarity = () => rig.TXReqRCAPolarity;
+        dialog.SetTXReqRCAPolarity = v => rig.TXReqRCAPolarity = v;
+        dialog.GetTXReqACCEnabled = () => rig.TXReqACCEnabled;
+        dialog.SetTXReqACCEnabled = v => rig.TXReqACCEnabled = v;
+        dialog.GetTXReqACCPolarity = () => rig.TXReqACCPolarity;
+        dialog.SetTXReqACCPolarity = v => rig.TXReqACCPolarity = v;
+
+        // TX outputs, enable plus delay
+        dialog.GetTX1Enabled = () => rig.TX1Enabled;
+        dialog.SetTX1Enabled = v => rig.TX1Enabled = v;
+        dialog.GetTX1Delay = () => rig.TX1Delay;
+        dialog.SetTX1Delay = v => rig.TX1Delay = v;
+
+        dialog.GetTX2Enabled = () => rig.TX2Enabled;
+        dialog.SetTX2Enabled = v => rig.TX2Enabled = v;
+        dialog.GetTX2Delay = () => rig.TX2Delay;
+        dialog.SetTX2Delay = v => rig.TX2Delay = v;
+
+        dialog.GetTX3Enabled = () => rig.TX3Enabled;
+        dialog.SetTX3Enabled = v => rig.TX3Enabled = v;
+        dialog.GetTX3Delay = () => rig.TX3Delay;
+        dialog.SetTX3Delay = v => rig.TX3Delay = v;
+
+        dialog.GetTXACCEnabled = () => rig.TXACCEnabled;
+        dialog.SetTXACCEnabled = v => rig.TXACCEnabled = v;
+        dialog.GetTXACCDelay = () => rig.TXACCDelay;
+        dialog.SetTXACCDelay = v => rig.TXACCDelay = v;
+
+        // Hardware ALC and remote-on
+        dialog.GetHWAlcEnabled = () => rig.HWAlcEnabled;
+        dialog.SetHWAlcEnabled = v => rig.HWAlcEnabled = v;
+        dialog.GetRemoteOnEnabled = () => rig.RemoteOnEnabled;
+        dialog.SetRemoteOnEnabled = v => rig.RemoteOnEnabled = v;
+
+        dialog.ShowDialog();
     }
 
     /// <summary>
@@ -4935,10 +5106,6 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Show the earcon scratchpad — easter egg triggered by typing "cqtest" in Ctrl+F.
-    /// Mutes the radio while open so you can hear the sounds you're designing.
-    /// </summary>
-    /// <summary>
     /// Handle calibration reference entered via JJ Ctrl+F frequency input.
     /// Delegates to FreqOutHandlers if available, otherwise handles directly.
     /// </summary>
@@ -4957,24 +5124,35 @@ public partial class MainWindow : UserControl
         }
     }
 
+    /// <summary>
+    /// Show the Earcon Scratchpad — the audio bench. Also reachable from the
+    /// Audio menu, and by typing "cqtest" into Ctrl+F.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This deliberately does NOT mute the radio (#138).</b> It used to,
+    /// muting the slice on the way in and restoring on the way out, on the
+    /// reasoning that you cannot hear a quiet earcon over band noise. That was
+    /// right when the scratchpad only played a sound so you could confirm it
+    /// existed. It stopped being right when the scratchpad became the bench for
+    /// deciding whether an earcon is AUDIBLE ENOUGH — because the thing it has
+    /// to be audible over is exactly the receive audio the mute was removing.
+    /// Judging an alert against silence and then shipping it into a pileup is
+    /// how an alert that tests fine turns out to be inaudible in use.
+    /// </para>
+    /// <para>
+    /// The operator's own mute is theirs either way: the universal <c>M</c>
+    /// toggles the active slice and <c>Shift+M</c> every slice, and unlike this
+    /// method they leave the radio in the state the operator chose rather than
+    /// in the state a dialog chose for them.
+    /// The Audio menu route never muted, so the two ways in now behave the
+    /// same, which they did not before.
+    /// </para>
+    /// </remarks>
     public void ShowEarconScratchpad()
     {
-        // Save and mute radio so earcon sounds are audible
-        bool wasMuted = RigControl?.SliceMute ?? true;
-        if (RigControl != null && !wasMuted)
-            RigControl.SliceMute = true;
-
-        try
-        {
-            var dialog = new Dialogs.EarconScratchpadDialog();
-            dialog.ShowDialog();
-        }
-        finally
-        {
-            // Restore previous mute state
-            if (RigControl != null && !wasMuted)
-                RigControl.SliceMute = false;
-        }
+        var dialog = new Dialogs.EarconScratchpadDialog();
+        dialog.ShowDialog();
     }
 
     /// <summary>

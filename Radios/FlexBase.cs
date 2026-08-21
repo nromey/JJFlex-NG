@@ -724,6 +724,229 @@ namespace Radios
             }
         }
 
+        #region Transmit control settings (TX Controls dialog)
+
+        // Sprint 33 Track J, #109. TXControlsDialog was built in Sprint 9 Track B
+        // against fourteen FlexLib properties, but only RemoteOnEnabled above
+        // ever got a wrapper, and theRadio is internal — so the app side had no
+        // way to reach the other thirteen and the dialog was never wired up.
+        // Same shape as RemoteOnEnabled: read through to the radio, return a
+        // benign default when nothing is connected, trace every write.
+        //
+        // These are radio-persistent settings, not per-session state. The RCA
+        // and ACC jacks they control only do anything if something is physically
+        // wired to them, which the dialog cannot know and does not claim.
+
+        /// <summary>TX request input on the RCA jack. False when no radio.</summary>
+        public bool TXReqRCAEnabled
+        {
+            get => theRadio?.TXReqRCAEnabled ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TXReqRCAEnabled set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TXReqRCAEnabled = value;
+                Tracing.TraceLine($"TXReqRCAEnabled set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX request RCA polarity. True = active high, false = active low.</summary>
+        public bool TXReqRCAPolarity
+        {
+            get => theRadio?.TXReqRCAPolarity ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TXReqRCAPolarity set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TXReqRCAPolarity = value;
+                Tracing.TraceLine($"TXReqRCAPolarity set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX request input on the accessory connector. False when no radio.</summary>
+        public bool TXReqACCEnabled
+        {
+            get => theRadio?.TXReqACCEnabled ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TXReqACCEnabled set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TXReqACCEnabled = value;
+                Tracing.TraceLine($"TXReqACCEnabled set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX request ACC polarity. True = active high, false = active low.</summary>
+        public bool TXReqACCPolarity
+        {
+            get => theRadio?.TXReqACCPolarity ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TXReqACCPolarity set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TXReqACCPolarity = value;
+                Tracing.TraceLine($"TXReqACCPolarity set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX1 RCA output enable. False when no radio.</summary>
+        public bool TX1Enabled
+        {
+            get => theRadio?.TX1Enabled ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TX1Enabled set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TX1Enabled = value;
+                Tracing.TraceLine($"TX1Enabled set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX1 RCA output delay in milliseconds. Zero when no radio.</summary>
+        public int TX1Delay
+        {
+            get => theRadio?.TX1Delay ?? 0;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TX1Delay set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TX1Delay = value;
+                Tracing.TraceLine($"TX1Delay set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX2 RCA output enable. False when no radio.</summary>
+        public bool TX2Enabled
+        {
+            get => theRadio?.TX2Enabled ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TX2Enabled set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TX2Enabled = value;
+                Tracing.TraceLine($"TX2Enabled set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX2 RCA output delay in milliseconds. Zero when no radio.</summary>
+        public int TX2Delay
+        {
+            get => theRadio?.TX2Delay ?? 0;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TX2Delay set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TX2Delay = value;
+                Tracing.TraceLine($"TX2Delay set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX3 RCA output enable. False when no radio.</summary>
+        public bool TX3Enabled
+        {
+            get => theRadio?.TX3Enabled ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TX3Enabled set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TX3Enabled = value;
+                Tracing.TraceLine($"TX3Enabled set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX3 RCA output delay in milliseconds. Zero when no radio.</summary>
+        public int TX3Delay
+        {
+            get => theRadio?.TX3Delay ?? 0;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TX3Delay set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TX3Delay = value;
+                Tracing.TraceLine($"TX3Delay set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX accessory-connector output enable. False when no radio.</summary>
+        public bool TXACCEnabled
+        {
+            get => theRadio?.TXACCEnabled ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TXACCEnabled set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TXACCEnabled = value;
+                Tracing.TraceLine($"TXACCEnabled set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>TX accessory-connector output delay in milliseconds. Zero when no radio.</summary>
+        public int TXACCDelay
+        {
+            get => theRadio?.TXACCDelay ?? 0;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("TXACCDelay set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.TXACCDelay = value;
+                Tracing.TraceLine($"TXACCDelay set: {value}", TraceLevel.Info);
+            }
+        }
+
+        /// <summary>Hardware ALC (automatic level control) enable. False when no radio.</summary>
+        public bool HWAlcEnabled
+        {
+            get => theRadio?.HWAlcEnabled ?? false;
+            set
+            {
+                if (theRadio == null)
+                {
+                    Tracing.TraceLine("HWAlcEnabled set: no radio connected", TraceLevel.Warning);
+                    return;
+                }
+                theRadio.HWAlcEnabled = value;
+                Tracing.TraceLine($"HWAlcEnabled set: {value}", TraceLevel.Info);
+            }
+        }
+
+        #endregion
+
         /// <summary>
         /// Sprint 27 Track A / Phase A.3 — true when a SmartLink account is
         /// currently bound to this connection. UI code that persists per-
@@ -5758,6 +5981,24 @@ namespace Radios
         public event ConnectedDel ConnectedEvent;
         private void raiseConnectedEvent(bool connected)
         {
+            // #146: the notifier's "follow the radio's sidetone" option needs a
+            // pitch the moment a radio arrives, not only when the operator next
+            // changes it on the front panel. This is the one place both
+            // transitions pass through, so it is the one place that has to
+            // remember. Disconnect pushes null, which is how "there is nothing
+            // to follow, use the configured tone" is said — a normal state, and
+            // nothing announces anything about it.
+            try
+            {
+                ScreenReaderOutput.RadioCwPitchChanged?.Invoke(
+                    connected ? theRadio?.CWPitch : (int?)null);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("raiseConnectedEvent: CW pitch notify failed:" + ex.Message,
+                    TraceLevel.Warning);
+            }
+
             if (ConnectedEvent != null)
             {
                 Tracing.TraceLine("raiseConnectedEvent:" + connected.ToString(), TraceLevel.Info);
@@ -6016,6 +6257,15 @@ namespace Radios
                     {
                         Tracing.TraceLine("CWPitch:" + r.CWPitch, TraceLevel.Info);
                         if (useCWMon) CWMon.Frequency = (uint)r.CWPitch;
+                        // #146: the CW MONITOR has followed this pitch for
+                        // years — the line above. The CW NOTIFIER was simply
+                        // never wired to the same event. Announced rather than
+                        // pushed at anyone in particular; whoever cares hooks it.
+                        try { ScreenReaderOutput.RadioCwPitchChanged?.Invoke(r.CWPitch); }
+                        catch (Exception ex)
+                        {
+                            Tracing.TraceLine("CWPitch notify failed:" + ex.Message, TraceLevel.Warning);
+                        }
                     }
                     break;
                 case "CWSpeed":
@@ -11932,10 +12182,46 @@ namespace Radios
             return rv;
         }
 
+        // ── The one automatic write that already existed, and its one gap ──
+        //
+        // Sprint 33 Track K found this while auditing #117 and it is worth
+        // stating plainly, because it is the only path in the application that
+        // writes a global profile without anybody pressing anything.
+        //
+        // What arms it: GetProfileInfo, on connect, looks for the operator's
+        // DEFAULT global profile on the radio. If the radio has it, it is
+        // loaded. If the radio does NOT have it, the operator has named a
+        // profile that does not exist yet, so newGlobalProfile records the name
+        // and Dispose creates it on the way out. That is create-on-first-use,
+        // it only ever writes a name the radio did not already have, and it
+        // therefore cannot overwrite an existing profile. Good.
+        //
+        // THE GAP IS THE CONTENTS, NOT THE NAME. The profile is created from
+        // whatever the station looks like at teardown, and under MultiFlex that
+        // includes slices belonging to another operator who is still connected.
+        // Nothing is overwritten today — but the operator's default profile is
+        // now a snapshot of somebody else's station, and it gets loaded on every
+        // subsequent connect. The damage is silent, permanent until noticed, and
+        // arrives disguised as the feature working.
+        //
+        // So it takes the same refusal the operator-facing save takes. On a
+        // single-operator station — the normal case, and the case this was
+        // written for — behaviour is unchanged. The feature is not removed; it
+        // is prevented from capturing a station it cannot describe correctly.
         private bool saveNewGlobalProfile()
         {
             Tracing.TraceLine("saveNewGlobalProfile", TraceLevel.Info);
             bool rv = false;
+
+            if (!string.IsNullOrEmpty(newGlobalProfile) && !OnlyStation)
+            {
+                Tracing.TraceLine(
+                    "saveNewGlobalProfile:skipped, another operator is connected; "
+                    + "would have created " + newGlobalProfile
+                    + " from a station that is not solely ours", TraceLevel.Warning);
+                return false;
+            }
+
             List<Profile_t> crnt = GetProfilesByType(ProfileTypes.global, GetDefaultProfiles());
             foreach (Profile_t p in crnt)
             {
@@ -11948,6 +12234,233 @@ namespace Radios
             }
             // Don't save other profiles.
             return rv;
+        }
+
+        // ══ Saving the station layout: the one-step verb (Sprint 33 Track K) ══
+        //
+        // #117 and #59. Sprint 32 Track H established that the transport works,
+        // un-stubbed the dialog's Add and Update verbs, and added the spoken
+        // receipt that tells the operator a slice change is provisional. What
+        // it did NOT close is the half Noel named himself: "I don't know ...
+        // what I need to do in JJ Flexible to get it to stick in the radio."
+        //
+        // He owns the radio and could not name the procedure, which is the
+        // finding. The procedure exists — open Radio ▸ Profiles, find the
+        // global entry matching the profile the radio currently has loaded,
+        // select it, press Save — and every step of it requires knowing
+        // something the receipt does not say. A receipt that names a thing the
+        // operator cannot find is a receipt for a dead end.
+        //
+        // So this is the verb that procedure was missing: save the global
+        // profile the radio ALREADY HAS LOADED, under the name it already has,
+        // without asking the operator to identify it first. That is what every
+        // other radio means by "it saves stuff when you turn it off", minus the
+        // automatic part, which is deliberately not here — see below.
+        //
+        // WHY THE NAME COMES FROM THE RADIO AND NOT FROM THE OPERATOR'S LIST.
+        // ProfileGlobalSelection is the radio's own report of which global
+        // profile is loaded. The operator's list is a list of names the
+        // operator cares about and may be empty, may be stale, and under
+        // MultiFlex may not describe what is loaded at all — another client can
+        // have selected a different profile since we connected. Saving to the
+        // loaded name is the only reading of "save this" that cannot silently
+        // write over a profile the operator was not looking at.
+
+        /// <summary>
+        /// The global profile the radio currently has loaded, or null when
+        /// there is no radio or the radio has not reported a selection.
+        /// </summary>
+        public string CurrentGlobalProfileName
+        {
+            get
+            {
+                string name = theRadio?.ProfileGlobalSelection;
+                return string.IsNullOrWhiteSpace(name) ? null : name;
+            }
+        }
+
+        /// <summary>
+        /// Set when this application changed the station's slice set during
+        /// this connection, and NOT cleared by the spoken receipt. Distinct
+        /// from the receipt's own flag on purpose: the receipt fires once per
+        /// settled change and clears itself, whereas this has to survive until
+        /// disconnect so the save offer can ask "did anything actually change?"
+        /// and stay silent when the answer is no.
+        /// </summary>
+        public bool OperatorChangedStationThisSession { get; private set; }
+
+        /// <summary>
+        /// Why the station layout cannot be saved right now, or null when it
+        /// can. A reason string rather than a bool because every caller here
+        /// has to TELL the operator — a save verb that silently does nothing is
+        /// the defect this track exists to close, not a pattern to repeat.
+        /// </summary>
+        public string StationLayoutSaveBlocker()
+        {
+            if (theRadio == null || !IsConnected)
+                return "There is no radio connected to save to.";
+
+            // The MultiFlex refusal, and it is the load-bearing one.
+            //
+            // A global profile is STATION state: one per radio, shared by
+            // everyone who connects. Saving it captures the whole station as it
+            // looks at this instant — including slices belonging to another
+            // operator who is on the radio right now and did not ask for their
+            // layout to be written into the owner's profile. There is no way to
+            // save "only my part", because the radio has no such concept.
+            //
+            // Note the fail-safe direction: OnlyStation is false until the GUI
+            // client list has been parsed at least once, so an early call
+            // refuses rather than guesses. Refusing costs the operator one
+            // retry; guessing wrong costs somebody their layout.
+            if (!OnlyStation)
+                return "Another operator is connected to this radio. "
+                     + "Saving now would store their setup as well as yours.";
+
+            if (CurrentGlobalProfileName == null)
+                return "This radio has no global profile loaded, so there is "
+                     + "nothing to save into. Use Radio, then Profiles, to make one.";
+
+            return null;
+        }
+
+        /// <summary>
+        /// Save the station layout into the global profile the radio currently
+        /// has loaded. Returns null on success, or the reason it did not happen.
+        /// Writes to the radio, and only ever when something asked it to —
+        /// there is no caller on any automatic path.
+        /// </summary>
+        public string SaveCurrentStationLayout()
+        {
+            string blocker = StationLayoutSaveBlocker();
+            if (blocker != null)
+            {
+                Tracing.TraceLine(
+                    "SaveCurrentStationLayout:refused:" + blocker, TraceLevel.Info);
+                return blocker;
+            }
+
+            string name = CurrentGlobalProfileName;
+            Tracing.TraceLine(
+                "SaveCurrentStationLayout:saving global profile " + name, TraceLevel.Info);
+
+            // Default:false — this is the radio's loaded profile, and marking it
+            // the operator's default is a separate decision they did not make
+            // by pressing Save.
+            // HOW MUCH THIS ACTUALLY CONFIRMS — read before trusting the
+            // receipt this returns to.
+            //
+            // SaveProfile(immediately: true) waits for the queued command to be
+            // ISSUED, not for the radio to acknowledge that it stored anything.
+            // Its false return means only "that was not a global profile",
+            // which cannot happen here. So a null return from this method means
+            // "the save command went out", and the announcement built on it is
+            // making a slightly stronger claim than the evidence supports.
+            //
+            // Compare DeleteProfile a few hundred lines up, which DOES confirm:
+            // it awaits the name disappearing from ProfileGlobalList and
+            // reports honestly when it does not. Save has no equivalent
+            // readback in FlexLib today — ProfileGlobalList still contains the
+            // name whether or not the contents were rewritten, and nothing
+            // exposes a modified time.
+            //
+            // Flagged for the bench rather than guessed at: if the radio does
+            // emit something observable on a successful global save, this is
+            // where to await it, and the receipt wording should follow whatever
+            // that turns out to allow. Until then the failure mode is a save
+            // that is announced and did not happen, which is exactly the class
+            // of thing this application says it does not do.
+            if (!SaveProfile(new Profile_t(name, ProfileTypes.global, false), true))
+                return "The radio did not accept the save.";
+
+            // The layout on the radio now matches what the operator has, so the
+            // offer has nothing left to ask about.
+            OperatorChangedStationThisSession = false;
+            return null;
+        }
+
+        // ══ The disconnect offer, and why it is OFF by default ══
+        //
+        // Noel, raising it and doubting it in the same breath: "We could also
+        // have a setting that if there's been a change to the radio, it could
+        // offer to save the profile. I'm not sure I'd do this, but generally,
+        // if you tune the radio or any radio, when you turn it off, it saves
+        // stuff."
+        //
+        // Both halves of that are right, which is why this is a SETTING and why
+        // it ships off. The expectation is real — every other radio remembers
+        // what you did to it, and an operator who releases a slice and finds it
+        // back tomorrow concludes the application is broken. But Sprint 32
+        // Track H considered a disconnect prompt and deliberately shipped a
+        // spoken notification instead, on reasoning that still holds:
+        //
+        //   1. Disconnect is not power-off. A networked radio keeps running.
+        //   2. Under MultiFlex somebody else may still be on it.
+        //   3. A prompt that fires whether or not anything changed gets
+        //      dismissed reflexively — and a prompt trained to be dismissed is
+        //      worse than none, because it creates the belief that the operator
+        //      was asked.
+        //
+        // This does not overturn that. Track H's notification remains what
+        // every operator gets. What this adds is the switch Noel described, for
+        // the operator who wants radio-like behaviour and says so — and the
+        // gates below answer objections 2 and 3 outright rather than accepting
+        // them. It never fires when another operator is connected, and it never
+        // fires when nothing changed.
+        //
+        // OFFER, NEVER SAVE. Nothing in this application saves a global profile
+        // because a session ended. A global profile is station state shared by
+        // everyone who connects, so an automatic write at disconnect would let
+        // whoever happened to leave last redefine the station for everybody,
+        // silently, having never been asked. The setting controls whether the
+        // QUESTION is asked. The answer is always the operator's.
+
+        /// <summary>
+        /// Whether the operator has asked to be offered a station-layout save
+        /// when they disconnect. App-level, one knob for every radio and every
+        /// connection, in the shape of the other cross-layer settings on this
+        /// class. Default false: the shipped behaviour stays Sprint 32's spoken
+        /// notification until somebody deliberately turns this on.
+        /// </summary>
+        public static bool OfferStationSaveOnDisconnect { get; set; }
+
+        /// <summary>
+        /// Whether to offer a station-layout save right now. Every condition
+        /// must hold, and each one is a separate objection being answered.
+        /// </summary>
+        public bool ShouldOfferStationLayoutSave()
+        {
+            // The operator asked for the question.
+            if (!OfferStationSaveOnDisconnect) return false;
+
+            // Something to ask ABOUT. An offer on a session where the operator
+            // never touched the slice set is the reflexive-dismissal trap, and
+            // this is the line that keeps it shut.
+            if (!OperatorChangedStationThisSession) return false;
+
+            // Saveable at all: connected, sole operator, a profile loaded to
+            // save into. Carries the MultiFlex refusal, so the offer cannot
+            // become the trap it exists to avoid.
+            if (StationLayoutSaveBlocker() != null) return false;
+
+            // Ownership, and this gate belongs on the OFFER but not on the menu
+            // item. RadioConfig.MayCreateRadioSideState governs writes "the
+            // operator did not individually request" — a proactive prompt at
+            // disconnect is exactly that, while choosing Save Station Setup
+            // from a menu is the individual request itself. On a radio never
+            // declared as theirs, JJ Flexible does not raise the subject.
+            var radio = theRadio;
+            if (radio == null) return false;
+            if (RadioConfig.OwnershipOf(radio.Serial) != RadioOwnership.Mine)
+            {
+                Tracing.TraceLine(
+                    "ShouldOfferStationLayoutSave:not offering, radio "
+                    + radio.Serial + " is not declared as the operator's",
+                    TraceLevel.Info);
+                return false;
+            }
+
+            return true;
         }
 
         // ── The operator's profile list: add and update (Sprint 32 Track H) ──
@@ -12411,8 +12924,8 @@ namespace Radios
         }
 
         /// <summary>
-        /// The census: "&lt;used&gt;/&lt;total&gt;" in CW. Three slices open on a
-        /// four-slice radio sends "3/4"; a full radio sends "4/4".
+        /// The census: "SL &lt;used&gt;/&lt;total&gt;" in CW. Three slices open on
+        /// a four-slice radio sends "SL 3/4"; a full radio sends "SL 4/4".
         /// </summary>
         /// <remarks>
         /// Used-over-total rather than a bare free count, recorded so it is not
@@ -12437,11 +12950,6 @@ namespace Radios
         /// </remarks>
         internal void AnnounceSliceCensus()
         {
-            if (!ScreenReaderOutput.CwNotificationsEnabled) return;
-            if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;
-            var play = ScreenReaderOutput.PlayCwText;
-            if (play == null) return;
-
             var radio = theRadio;
             if (radio == null) return;
 
@@ -12452,7 +12960,86 @@ namespace Radios
             Tracing.TraceLine(
                 $"AnnounceSliceCensus:{used}/{total} (radio.MaxSlices={radio.MaxSlices} "
                 + $"model={TotalMaxSlices} mine={MyNumSlices})", TraceLevel.Info);
-            _ = play($"{used}/{total}");
+
+            // SPOKEN CENSUS ADDED 2026-08-20 BY NOEL. Until now this fact
+            // existed ONLY in Morse, and CW notifications are off by default —
+            // so an operator who had not turned them on was never told their
+            // slice count at all. The speech half is therefore NOT gated on the
+            // CW settings; it stands on its own and the CW below is the extra.
+            //
+            // Two wordings, his: the fuller form is Chatty, and Terse gets the
+            // compressed one. Same fact, and the level decides how much of the
+            // sentence you have to listen to.
+            //
+            // Terse level (not Critical): the enum documents Terse as value
+            // changes and band/mode, which is exactly what a slice count is.
+            // THE ACTIVE SLICE RIDES ALONG, 2026-08-20, Noel. It says where you
+            // have landed: the count alone tells you how many slices exist and
+            // nothing about which one you are on or what it is doing.
+            //
+            // Read from the radio's own `active` slice status rather than
+            // inferred, because a global profile can restore a non-A slice as
+            // active — so this is real information, not a constant.
+            //
+            // WHAT THIS DOES NOT SOLVE, recorded so it is not miscredited later:
+            // #59 was four slices on connect with slice D in FM, and slice A —
+            // USB — was the active one. So an active-slice announcement would
+            // have said "SL A USB" and the FM on D would have stayed exactly as
+            // hidden as it was. The non-active slices remain unannounced, and
+            // that gap is still open.
+            Slice active = null;
+            lock (mySlices)
+                foreach (var s in mySlices) if (s != null && s.Active) { active = s; break; }
+
+            string letter = active?.Letter;
+            string mode = active?.DemodMode;
+            bool haveActive = !string.IsNullOrEmpty(letter) && !string.IsNullOrEmpty(mode);
+
+            if (!SuppressSpeech)
+            {
+                // Chatty gets the fuller sentence AND the active slice; Terse
+                // gets the count alone. A transient no-active-slice state during
+                // connect drops the clause silently rather than announcing an
+                // absence nobody asked about.
+                string spoken;
+                if (ScreenReaderOutput.CurrentVerbosity >= VerbosityLevel.Chatty)
+                {
+                    spoken = $"{used} {(used == 1 ? "slice" : "slices")} out of {total} used";
+                    if (haveActive) spoken += $", slice {letter} {mode}";
+                }
+                else
+                {
+                    spoken = $"{used} out of {total} {(total == 1 ? "slice" : "slices")}";
+                }
+                ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse);
+            }
+
+            if (!ScreenReaderOutput.CwNotificationsEnabled) return;
+            if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;
+            if (ScreenReaderOutput.PlayCwText == null) return;
+            // SendCwText rather than the delegate directly (#153): it is the one
+            // point where CW text reaches the notifier, so it is where the
+            // repeat history is recorded. Calling the delegate would still make
+            // the sound and would silently leave this message unrepeatable.
+            //
+            // "SL" PREFIX ADDED 2026-08-20 BY NOEL. A bare "4/4" is a fraction
+            // with no subject: you hear it and have to already know what was
+            // being counted. Prefixing makes the census self-describing, and it
+            // matches AnnounceSliceIdentity's "SL A USB" so both halves of the
+            // slice vocabulary open the same way. Two characters buys a message
+            // that stands on its own.
+            //
+            // The active slice is appended as a SECOND "SL" group rather than
+            // running on — "SL 4/4 SL A USB" reads as two facts, where
+            // "SL 4/4 A USB" would read as one confused one.
+            //
+            // Sent as ONE string, not two calls: SendCwText records a repeat
+            // history entry per call (#153), so two calls would mean pressing
+            // Ctrl+J, E twice to hear back a single connect. One string, one
+            // entry, whole summary.
+            string cw = $"SL {used}/{total}";
+            if (haveActive) cw += $" SL {letter} {mode}";
+            _ = ScreenReaderOutput.SendCwText(cw);
         }
 
         /// <summary>
@@ -12473,7 +13060,9 @@ namespace Radios
             string mode = s.DemodMode;
             if (string.IsNullOrEmpty(letter) || string.IsNullOrEmpty(mode)) return;
 
-            _ = play($"SL {letter} {mode}");
+            // See AnnounceSliceCensus — SendCwText is what puts this in the
+            // repeat history (#153).
+            _ = ScreenReaderOutput.SendCwText($"SL {letter} {mode}");
         }
 
         /// <summary>
@@ -12498,7 +13087,20 @@ namespace Radios
         /// by the arrival handlers, which also fire for the radio's own
         /// profile restore on connect.
         /// </summary>
-        private void NoteOperatorChangedSliceSet() => _operatorChangedSliceSet = true;
+        private void NoteOperatorChangedSliceSet()
+        {
+            _operatorChangedSliceSet = true;
+
+            // Sprint 33 Track K. The same trigger, recorded a second time with a
+            // different lifetime: _operatorChangedSliceSet is consumed by the
+            // next settled census and cleared, while this one has to last until
+            // the operator disconnects, because that is when the save offer asks
+            // whether there was anything to offer about. Set here rather than in
+            // the arrival handlers for exactly the reason the flag above is —
+            // slices restored by the radio's own profile on connect are not a
+            // change this operator made, and must never make the offer appear.
+            OperatorChangedStationThisSession = true;
+        }
 
         /// <summary>
         /// true if can transmit (currently unused)
@@ -12732,6 +13334,23 @@ namespace Radios
         private void opusInputStreamAddedHandler(TXRemoteAudioStream stream)
         {
             Tracing.TraceLine("opusInputStreamAddedHandler:" + stream.ClientHandle + ' ' + stream.StreamID.ToString(), TraceLevel.Info);
+            // Sprint 33 Track G: record what the radio agreed to, in its own
+            // words. We encode Opus unconditionally, so a stream the radio did
+            // not open as opus means every packet we send is being read as raw
+            // PCM at the far end — silent transmit with no other symptom. That
+            // was a two-day suspect precisely because nothing ever printed this
+            // line; it is cheap, it runs once per stream, and it turns an
+            // assumption about a radio-side default into an observation.
+            Tracing.TraceLine("opusInputStreamAddedHandler:radio opened the TX stream with compression="
+                + (stream.CompressionSetting ?? "(the radio sent no compression key)")
+                + ", status line was \"" + (stream.LastStatusLine ?? "") + "\"",
+                stream.IsCompressed ? TraceLevel.Info : TraceLevel.Error);
+            if (!stream.IsCompressed)
+            {
+                Tracing.TraceLine("opusInputStreamAddedHandler:the radio did NOT open this stream as opus,"
+                    + " but every transmit packet we send is Opus — expect silent transmit",
+                    TraceLevel.Error);
+            }
             txStream = stream;
         }
 
@@ -12970,13 +13589,56 @@ namespace Radios
 
             // Setup the transmit audio, after the rx audio, but don't start the I/O.
             txStream = null;
-            theRadio.RequestRemoteAudioTXStream(); // see opusInputStreamAddedHandler
+            // Sprint 33 Track G, 2026-08-20: declare the compression we are
+            // actually going to send. Everything that reaches AddTXData below
+            // comes out of the Opus encoder in sendOpusInput, so "opus" is a
+            // statement of fact, not a preference. The bare create this used to
+            // send left the radio to pick a default we never read back — see
+            // the JJFlex patch note on Radio.RequestRemoteAudioTXStream.
+            theRadio.RequestRemoteAudioTXStream(true); // see opusInputStreamAddedHandler
             if (!await(() =>
                 {
                     return (txStream != null) || Disconnecting || stopRemoteAudio;
-                }, 10000))
+                }, 10000)
+                && !Disconnecting && !stopRemoteAudio)
             {
-                Tracing.TraceLine("remoteAudioProc: didn't get RemoteAudioTXStream from radio", TraceLevel.Error);
+                // Sprint 33 Track G: fall back to the vendor-stock bare create.
+                //
+                // `stream create` gets no reply handler, so a radio that
+                // REFUSES the compression argument refuses it silently — the
+                // stream simply never arrives and we land here. The failure
+                // path below tears down the whole remote-audio session, receive
+                // audio included, so an unaccepted parameter would cost an
+                // operator all their audio rather than just transmit.
+                //
+                // A FLEX-8600 accepts it, but Don is on a 6300 and firmware
+                // vintages vary, so this is deliberately not tested by assuming
+                // the bench radio speaks for every radio. Retrying bare means
+                // the worst case of this patch is exactly the behaviour that
+                // shipped before it: whatever default the radio picks.
+                Tracing.TraceLine("remoteAudioProc: no TX stream after asking for compression=opus;"
+                    + " retrying with the bare create this radio may be expecting", TraceLevel.Error);
+#pragma warning disable CS0618 // Deliberate: the point of the retry is to reproduce vendor-stock behaviour exactly.
+                theRadio.RequestRemoteAudioTXStream();
+#pragma warning restore CS0618
+                if (!await(() =>
+                    {
+                        return (txStream != null) || Disconnecting || stopRemoteAudio;
+                    }, 10000))
+                {
+                    Tracing.TraceLine("remoteAudioProc: didn't get RemoteAudioTXStream from radio"
+                        + " (neither the explicit-compression nor the bare create was answered)",
+                        TraceLevel.Error);
+                    goto remoteDone;
+                }
+                Tracing.TraceLine("remoteAudioProc: this radio answered the bare create but not the"
+                    + " explicit-compression one — report it, that is a firmware difference worth knowing",
+                    TraceLevel.Error);
+            }
+            if (txStream == null)
+            {
+                // Disconnecting or stopping raced us; nothing to set up.
+                Tracing.TraceLine("remoteAudioProc: TX stream setup abandoned", TraceLevel.Info);
                 goto remoteDone;
             }
             opusInputChannel = new audioChannelData(txStream, "JJFlexRadio.OpusInputChan");
@@ -13015,9 +13677,11 @@ namespace Radios
                         ? " — the device refused the requested " + txRate + " Hz"
                         : ""), TraceLevel.Info);
             }
-            // Audio Track C: hand the persistent TX test-tone generator to the
-            // input stream so an engaged tone replaces the mic at the encoder.
-            opusInputChannel.PortAudioStream.InputToneSource = txToneGen;
+            // Audio Track C: hand the persistent TX injection sources to the
+            // input stream so an engaged one replaces the mic at the encoder.
+            // Sprint 33 Track I: this used to be the tone generator alone; it
+            // is now the mux carrying the tone and the reference-voice player.
+            opusInputChannel.PortAudioStream.InputSource = TxInputSources;
             // Track I: hand the persistent TX conditioning chain (NR + gate +
             // residual tap) to the same stream. It runs AFTER the tone
             // injection point (and is skipped entirely while a tone is
@@ -13231,6 +13895,22 @@ namespace Radios
         // encode-and-send path the mic does.
         private readonly JJPortaudio.TxToneGenerator txToneGen = new JJPortaudio.TxToneGenerator();
 
+        // Sprint 33 Track I: the reference-voice player, owned here for the
+        // same reason the tone generator is — it must survive the TX channel
+        // stopping and starting across key cycles, because a known file
+        // played across two key-downs has to be the same file both times.
+        private readonly JJPortaudio.TxFilePlayer txFilePlayer = new JJPortaudio.TxFilePlayer();
+
+        // Both stand in for the microphone at the same point in the input
+        // callback, so they share the slot through a mux. The tone is listed
+        // first: it is a calibrated reference, and if somebody has both going
+        // the calibrated thing is the one that should survive.
+        // Built on demand rather than in a field initialiser, which cannot
+        // reference the two fields it needs.
+        private JJPortaudio.TxInputSourceMux _txInputSources;
+        private JJPortaudio.TxInputSourceMux TxInputSources =>
+            _txInputSources ??= new JJPortaudio.TxInputSourceMux(txToneGen, txFilePlayer);
+
         // Track I: the TX conditioning chain (noise reduction + gate +
         // residual monitor tap), owned here like the tone generator and the
         // LUFS meter so it survives channel stop/start across key cycles.
@@ -13309,6 +13989,49 @@ namespace Radios
                     return "The radio is in CW mode, where PC transmit audio does not run. Switch to a voice mode first.";
                 return "";
             }
+        }
+
+        /// <summary>
+        /// Sprint 33 Track I: the reference-voice player that stands in for
+        /// the microphone in the transmit stream. The UI loads content into it
+        /// and starts and stops it; the audio path picks it up automatically,
+        /// exactly as it does the test tone.
+        /// </summary>
+        /// <remarks>
+        /// Exposed as the object rather than mirrored property by property.
+        /// The tone generator's surface here is a set of pass-through
+        /// properties written before there was a second source, and repeating
+        /// that for every future source is how a rig class turns into a
+        /// forwarding table. What genuinely belongs to the rig — whether the
+        /// path can carry audio at all — is
+        /// <see cref="TxTonePathTrouble"/>, and it is already shared.
+        /// </remarks>
+        public JJPortaudio.TxFilePlayer TxFilePlayer => txFilePlayer;
+
+        /// <summary>
+        /// True while a known recording is being transmitted in place of the
+        /// microphone.
+        /// </summary>
+        public bool TxFilePlaying => txFilePlayer.Engaged;
+
+        /// <summary>
+        /// Start transmitting the loaded recording in place of the
+        /// microphone. Takes effect immediately if transmitting, otherwise at
+        /// the next key-down.
+        /// </summary>
+        public void TxFileStart()
+        {
+            Tracing.TraceLine("TxFileStart: \"" + txFilePlayer.ContentName + "\", "
+                + txFilePlayer.ContentSeconds.ToString("F1") + " s at "
+                + txFilePlayer.ContentSampleRate + " Hz", TraceLevel.Info);
+            txFilePlayer.Start();
+        }
+
+        /// <summary>Stop transmitting the recording and restore the microphone.</summary>
+        public void TxFileStop()
+        {
+            Tracing.TraceLine("TxFileStop", TraceLevel.Info);
+            txFilePlayer.Stop();
         }
         #endregion
 

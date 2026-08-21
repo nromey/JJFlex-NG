@@ -234,10 +234,20 @@ set "ZIP_PATH=%TEMP%\%ZIP_NAME%"
 set "NOTES_NAME=NOTES-%APPVER%-debug.txt"
 set "NOTES_PATH=%TEMP%\%NOTES_NAME%"
 
+REM Delegated to scripts\build-debug-zip.ps1, which uses System.IO.Compression
+REM directly instead of Compress-Archive. Compress-Archive lives in a SCRIPT
+REM module, so it silently refuses to load under a Restricted execution policy
+REM and the zip step failed on this machine every time. See the header of that
+REM helper for the full diagnosis. -ExecutionPolicy Bypass is required for the
+REM helper itself to run, exactly as for the NOTES helper below.
 echo Creating zip: %ZIP_PATH%
-powershell -NoProfile -Command "Compress-Archive -Path '%CD%\%BIN_DIR%\*' -DestinationPath '%ZIP_PATH%' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-zip.ps1" -SourceDir "%CD%\%BIN_DIR%" -DestPath "%ZIP_PATH%"
 if errorlevel 1 (
-    echo ERROR: zip failed ^(is jjflexible.exe locked by a running instance?^)
+    echo.
+    echo ERROR: zip failed. The reason is printed directly above by the zip helper.
+    echo   It is NOT a running instance of the app: this script already checked
+    echo   for that before building and would have stopped with exit code 6.
+    echo.
     exit /b 5
 )
 

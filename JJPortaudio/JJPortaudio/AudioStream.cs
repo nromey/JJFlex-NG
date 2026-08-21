@@ -54,12 +54,19 @@ namespace JJPortaudio
         public Action<float[]>? PostDecodeProcessor { get; set; }
 
         /// <summary>
-        /// Audio Track C: optional TX test-tone source for input streams.
-        /// When set and engaged, generated samples REPLACE the microphone
-        /// samples in the input callback ahead of the Opus encode — the mic
-        /// is discarded (muted), never mixed. Set after OpenOpus.
+        /// Audio Track C: optional TX injection source for input streams.
+        /// When set and engaged, its samples REPLACE the microphone samples in
+        /// the input callback ahead of the Opus encode — the mic is discarded
+        /// (muted), never mixed. Set after OpenOpus.
         /// </summary>
-        public TxToneGenerator InputToneSource
+        /// <remarks>
+        /// Sprint 33 Track I: this used to be typed <see cref="TxToneGenerator"/>
+        /// and named <c>InputToneSource</c> for it. It is the one place
+        /// anything can stand in for the microphone, so it now takes
+        /// <see cref="ITxInputSource"/> — the test tone, the reference-voice
+        /// player, or a <see cref="TxInputSourceMux"/> carrying several.
+        /// </remarks>
+        public ITxInputSource InputSource
         {
             get { return (aud != null) ? aud.ToneSource : null; }
             set { if (aud != null) aud.ToneSource = value; }

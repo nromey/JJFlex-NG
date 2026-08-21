@@ -196,7 +196,11 @@ namespace Radios.ChainChecks
             if (reading == null)
             {
                 return Absent(name, label,
-                    "this radio does not publish a meter named " + meterName,
+                    // "is not publishing", not "does not publish". The meter set
+                    // is not a fixed property of the model: measured on the bench
+                    // 8600 on 2026-08-20, a radio with no station client shows
+                    // eleven meters and the same radio with one shows thirty-five.
+                    "the radio is not currently publishing a meter named " + meterName,
                     "the radio");
             }
 
