@@ -19,10 +19,15 @@ internal enum Derivation
 
 internal sealed record ExpandedChord(Chord Chord, Derivation Derivation);
 
+/// <summary>ReservedElsewhere holds chords the inventory carved OUT of this
+/// row's range (FixedKeyEntry.ExcludedKeys): they expand fine, they must not be
+/// pressed under this row's description, and they must not vanish silently —
+/// a silent exclusion reads as coverage.</summary>
 internal sealed record Expansion(
     string KeyDisplay,
     IReadOnlyList<ExpandedChord> Chords,
-    string? Residue);
+    string? Residue,
+    IReadOnlyList<ExpandedChord>? ReservedElsewhere = null);
 
 /// <summary>
 /// Turns <c>KeyInventory.FixedKeyEntry.KeyDisplay</c> into concrete pressable
@@ -44,6 +49,34 @@ internal sealed record Expansion(
 internal static class KeyDisplayExpander
 {
     private const string LeaderPrefix = "Ctrl+J, ";
+
+    /// <summary>
+    /// Expand an inventory entry, honouring its machine-readable exclusions.
+    ///
+    /// <para>A written range can carve chords out of itself: "Ctrl+J, Shift+A
+    /// through Shift+H" excludes Shift+F, which is the RX filter width chord.
+    /// Until 2026-08-21 that fact lived only as an English aside in the
+    /// Description, so the expansion pressed Ctrl+J, Shift+F as a slice jump
+    /// and the dry run listed the chord twice as two different commands. The
+    /// exclusion is now data (FixedKeyEntry.ExcludedKeys), and the carved-out
+    /// chords come back in <see cref="Expansion.ReservedElsewhere"/> so the
+    /// report can say they were skipped rather than quietly dropping them.</para>
+    /// </summary>
+    public static Expansion Expand(InventoryEntry entry)
+    {
+        Expansion x = Expand(entry.KeyDisplay);
+        if (entry.ExcludedKeys.Count == 0 || x.Chords.Count == 0) return x;
+
+        var keep = new List<ExpandedChord>();
+        var reserved = new List<ExpandedChord>();
+        foreach (ExpandedChord ec in x.Chords)
+        {
+            bool excluded = entry.ExcludedKeys.Any(k =>
+                string.Equals(k.Trim(), ec.Chord.Display, StringComparison.OrdinalIgnoreCase));
+            (excluded ? reserved : keep).Add(ec);
+        }
+        return reserved.Count == 0 ? x : x with { Chords = keep, ReservedElsewhere = reserved };
+    }
 
     public static Expansion Expand(string keyDisplay)
     {

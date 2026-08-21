@@ -170,7 +170,7 @@ internal static class Sweep
             if (o.ContextFilter != null
                 && !entry.Context.Contains(o.ContextFilter, StringComparison.OrdinalIgnoreCase)) continue;
 
-            Expansion expansion = KeyDisplayExpander.Expand(entry.KeyDisplay);
+            Expansion expansion = KeyDisplayExpander.Expand(entry);
             if (expansion.Residue != null)
             {
                 wontPress.Add($"{entry.ContextLabel} \"{entry.KeyDisplay}\" — {expansion.Residue}");
@@ -181,6 +181,9 @@ internal static class Sweep
                 wontPress.Add($"{entry.ContextLabel} \"{entry.KeyDisplay}\" — lives {where}");
                 continue;
             }
+            foreach (ExpandedChord ec in expansion.ReservedElsewhere ?? Array.Empty<ExpandedChord>())
+                wontPress.Add($"{ec.Chord.Display} ({entry.Context}) — inside the written range "
+                    + $"\"{entry.KeyDisplay}\" but excluded by the inventory: it belongs to another command");
 
             foreach (ExpandedChord ec in expansion.Chords)
             {
@@ -277,6 +280,23 @@ internal static class Sweep
         report.Notes.Add($"Attached to {System.IO.Path.GetFileName(traceLog)} — instance {header.Instance}, "
             + $"trace level {header.Level}, session started {header.StartedAt:HH:mm:ss}, built from {header.AppDir}.");
 
+        // Observe the file the app is WRITING, which is not always the file the
+        // header search found. A build that predates CaptureState lines never
+        // identifies a post-boot session, so the header lands on the archived
+        // boot session while the app writes a fresh file under the fixed name —
+        // and run 2 on 2026-08-21 measured a morning of key presses against
+        // exactly such a corpse. The live file's name is a pure function of the
+        // instance number, so no guessing is involved.
+        string? liveLog = TraceLog.LiveLogForInstance(header.Instance);
+        if (liveLog != null && !string.Equals(liveLog, traceLog, StringComparison.OrdinalIgnoreCase))
+        {
+            report.Notes.Add($"The session header lives in {System.IO.Path.GetFileName(traceLog)}, which is a "
+                + $"finished file; the log actually being written is {System.IO.Path.GetFileName(liveLog)}, and "
+                + "every observation below reads that one. It is the file named at the top of this report.");
+            traceLog = liveLog;
+            report.TraceLogPath = traceLog;
+        }
+
         // One subscription for the whole sweep. Subscribing costs real time, and
         // doing it twice per press would spend more of the operator's authorised
         // run wiring up event handlers than pressing keys.
@@ -291,7 +311,7 @@ internal static class Sweep
         // A key that never reaches the dispatcher and a key the dispatcher
         // rejects look identical without this channel, and telling them apart is
         // the entire point of the sweep.
-        var priming = TraceLog.ReadSince(traceLog, Math.Max(0, TraceLog.Length(traceLog) - 262144));
+        var priming = TraceLog.ReadSince(traceLog!, Math.Max(0, TraceLog.Length(traceLog!) - 262144));
         if (TraceLog.Routing(priming).Count == 0)
             report.Notes.Add("No DoCommand or Leader lines in the last 256 KB of that log yet. The routing "
                 + "channel may still be fine — the app may simply not have had a key pressed at it — but if "
@@ -311,31 +331,125 @@ internal static class Sweep
         //    one that needs a detailed capture, and it is not optional cover —
         //    the Home field keys never reach the dispatcher at all, so an
         //    utterance is the only evidence they exist.
-        if (traceLog != null)
+        //
+        //    Whether that capture is ALREADY running is read out of the log,
+        //    never inferred from how its bytes happen to look. The old check
+        //    sniffed the last 64 KB for utterances; on 2026-08-21 a capture at
+        //    Verbose had a meter firehose that pushed all speech out of any
+        //    64 KB window, the check said "not verbose", and the sweep pressed
+        //    the toggle at a capture that was running — stopping the very
+        //    channel it was trying to start.
         {
-            var recent = TraceLog.ReadSince(traceLog, Math.Max(0, TraceLog.Length(traceLog) - 65536));
-            bool alreadyVerbose = TraceLog.LooksVerbose(recent);
+            string liveHead = TraceLog.HeadLine(traceLog!);
+            (TraceLog.CaptureState legacyState, bool legacyVerbose) = TraceLog.LegacyStateFromHead(liveHead);
 
-            if (alreadyVerbose)
+            bool markerKnown = header.Capture != TraceLog.CaptureState.Unknown;
+            bool captureOn = markerKnown
+                ? header.Capture == TraceLog.CaptureState.On
+                : legacyState == TraceLog.CaptureState.On;
+            bool alreadyVerbose = captureOn
+                || (markerKnown ? TraceLog.LevelIsVerbose(header.Level) : legacyVerbose);
+
+            if (captureOn)
             {
                 report.SpeechChannelVerified = true;
-                report.Notes.Add("A detailed capture was already running, so the speech channel was live before "
-                    + "the sweep started. Ctrl+J, Ctrl+D was NOT pressed — pressing it would have stopped the "
-                    + "capture and taken the channel away.");
+                report.Notes.Add(markerKnown
+                    ? "The log's own CaptureState line says a detailed capture is already running, so the speech "
+                      + "channel was live before the sweep started. Ctrl+J, Ctrl+D was NOT pressed — pressing it "
+                      + "would have stopped the capture and taken the channel away."
+                    : "This build predates CaptureState lines, but the live log opens with 'Detailed capture "
+                      + "started', so a capture is already running. Ctrl+J, Ctrl+D was NOT pressed — pressing it "
+                      + "would have stopped the operator's capture.");
+            }
+            else if (alreadyVerbose)
+            {
+                report.SpeechChannelVerified = true;
+                report.Notes.Add("No capture is running, but the standing log is already at Verbose detail, so "
+                    + "the speech channel is live as it stands. Ctrl+J, Ctrl+D was NOT pressed — it would have "
+                    + "started a capture nothing here needs.");
             }
             else if (o.StartCapture)
             {
                 report.Presses.Add(ctx.Measured("Ctrl+J, Ctrl+D", "start detailed capture", "preflight"));
-                traceLog = TraceLog.FindCurrent() ?? traceLog;   // capture may open a new file
-                report.TraceLogPath = traceLog;
-                ctx.TraceLogPath = traceLog;
 
-                var after = TraceLog.ReadSince(traceLog, Math.Max(0, TraceLog.Length(traceLog) - 65536));
-                report.SpeechChannelVerified = TraceLog.LooksVerbose(after);
-                report.Notes.Add(report.SpeechChannelVerified
-                    ? "Verbose lines appeared after Ctrl+J, Ctrl+D, so that chord works and the speech channel "
-                      + "is live. Proven by reading the log back, not by the chord merely having done something."
-                    : "No Verbose lines after Ctrl+J, Ctrl+D. The Home field keys below cannot be judged.");
+                // The toggle archives the old session and opens a FRESH file
+                // under the same name, so success has exactly one honest proof:
+                // a new session announcing itself, saying the toggle went the
+                // intended DIRECTION. Run 1 on 2026-08-21 pressed, re-found "the
+                // newest file" by mtime — the freshly archived corpse — read the
+                // old Verbose lines in it, and reported the channel live moments
+                // after switching it off.
+                TraceLog.CaptureState confirmed = TraceLog.CaptureState.Unknown;
+                bool viaMarker = false;
+                for (int waited = 0; waited < 5000 && confirmed == TraceLog.CaptureState.Unknown; waited += 250)
+                {
+                    Thread.Sleep(250);
+
+                    TraceLog.TraceHeader? h2 = TraceLog.FindForApp(appDir);
+                    if (h2 != null && h2.Capture != TraceLog.CaptureState.Unknown)
+                    {
+                        if (h2.Capture == TraceLog.CaptureState.On)
+                        {
+                            confirmed = TraceLog.CaptureState.On;
+                            viaMarker = true;
+                            break;
+                        }
+                        if (h2.StartedAt > header.StartedAt)
+                        {
+                            confirmed = TraceLog.CaptureState.Off;   // new session, wrong direction
+                            viaMarker = true;
+                            break;
+                        }
+                    }
+
+                    // Pre-marker build: the only announcement is the prose line
+                    // the fresh file opens with. The head changing at all proves
+                    // a new session replaced the old one under the same name.
+                    string? l2 = TraceLog.LiveLogForInstance(header.Instance);
+                    string head2 = l2 != null ? TraceLog.HeadLine(l2) : "";
+                    if (head2.Length > 0 && !string.Equals(head2, liveHead, StringComparison.Ordinal))
+                    {
+                        (TraceLog.CaptureState s2, _) = TraceLog.LegacyStateFromHead(head2);
+                        if (s2 != TraceLog.CaptureState.Unknown) { confirmed = s2; break; }
+                    }
+                }
+
+                string? liveNow = TraceLog.LiveLogForInstance(header.Instance);
+                if (liveNow != null)
+                {
+                    traceLog = liveNow;
+                    report.TraceLogPath = traceLog;
+                    ctx.TraceLogPath = traceLog;
+                }
+
+                if (confirmed == TraceLog.CaptureState.On)
+                {
+                    report.SpeechChannelVerified = true;
+                    report.Notes.Add((viaMarker
+                        ? "Ctrl+J, Ctrl+D started a detailed capture: the fresh log's CaptureState line says "
+                          + "capture=on."
+                        : "Ctrl+J, Ctrl+D started a detailed capture: the fresh log opens with 'Detailed capture "
+                          + "started' (inferred from that prose line — this build predates CaptureState lines).")
+                        + $" The speech channel is live. Observations attach to "
+                        + $"{System.IO.Path.GetFileName(traceLog)}, the file named at the top of this report.");
+                }
+                else if (confirmed == TraceLog.CaptureState.Off)
+                {
+                    report.SpeechChannelVerified = false;
+                    report.Notes.Add("Ctrl+J, Ctrl+D was pressed and a NEW session opened WITHOUT a capture — "
+                        + "the toggle went the wrong direction, or the capture failed to start. If a capture was "
+                        + "running that this preflight failed to detect, THIS PRESS STOPPED IT; its text is "
+                        + "archived in Saved Diagnostic Logs, and pressing Ctrl+J, Ctrl+D once restarts it. "
+                        + "The Home field keys below cannot be judged.");
+                }
+                else
+                {
+                    report.SpeechChannelVerified = false;
+                    report.Notes.Add("Ctrl+J, Ctrl+D was pressed, but no fresh trace session announced itself "
+                        + "within 5 seconds, so the sweep CANNOT CONFIRM the capture started. Reported as not "
+                        + "live rather than assumed — a pressed toggle is not a verified transition. The Home "
+                        + "field keys below cannot be judged.");
+                }
             }
             else
             {
@@ -382,12 +496,16 @@ internal static class Sweep
 
             foreach (InventoryEntry entry in group)
             {
-                Expansion expansion = KeyDisplayExpander.Expand(entry.KeyDisplay);
+                Expansion expansion = KeyDisplayExpander.Expand(entry);
                 if (expansion.Residue != null)
                 {
                     report.Unexpandable.Add($"{entry.ContextLabel}: \"{entry.KeyDisplay}\" — {expansion.Residue}");
                     continue;
                 }
+                foreach (ExpandedChord ec in expansion.ReservedElsewhere ?? Array.Empty<ExpandedChord>())
+                    report.Skipped.Add($"{ec.Chord.Display} ({entry.ContextLabel}) — inside the written range "
+                        + $"\"{entry.KeyDisplay}\" but excluded by the inventory: it belongs to another command "
+                        + "and is pressed under that command's own row instead");
 
                 foreach (ExpandedChord ec in expansion.Chords)
                 {

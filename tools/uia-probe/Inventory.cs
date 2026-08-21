@@ -4,14 +4,19 @@ using System.Runtime.Loader;
 
 namespace JJFlex.UiaProbe;
 
-/// <summary>One row of KeyInventory, read out of a built JJFlexWpf.dll.</summary>
+/// <summary>One row of KeyInventory, read out of a built JJFlexWpf.dll.
+/// ExcludedKeys names the chords inside this row's written range that belong
+/// to another command — machine-readable since 2026-08-21, when the probe
+/// pressed Ctrl+J, Shift+F as a slice jump because the exclusion existed only
+/// as an English aside in the Description.</summary>
 internal sealed record InventoryEntry(
     string Context,
     string ContextLabel,
     string KeyDisplay,
     string Description,
     string Scope,
-    string Group);
+    string Group,
+    IReadOnlyList<string> ExcludedKeys);
 
 /// <summary>One registry command that ships with no key, and the stated reason.</summary>
 internal sealed record UnboundEntry(string Command, string Reason, string Detail);
@@ -92,7 +97,8 @@ internal static class Inventory
                 Str(t, item, "KeyDisplay"),
                 Str(t, item, "Description"),
                 Str(t, item, "Scope"),
-                Str(t, item, "Group")));
+                Str(t, item, "Group"),
+                Strings(t, item, "ExcludedKeys")));
         }
         return rows;
     }
@@ -135,4 +141,12 @@ internal static class Inventory
 
     private static string Str(Type t, object item, string prop) =>
         t.GetProperty(prop)?.GetValue(item)?.ToString() ?? "";
+
+    /// <summary>String-array property, tolerating a build old enough not to
+    /// have it — an absent property is an empty list, not an error, so the
+    /// probe still runs against installed builds that predate the field.</summary>
+    private static string[] Strings(Type t, object item, string prop) =>
+        t.GetProperty(prop)?.GetValue(item) is System.Collections.IEnumerable seq and not string
+            ? seq.Cast<object?>().Select(o => o?.ToString() ?? "").Where(s => s.Length > 0).ToArray()
+            : Array.Empty<string>();
 }

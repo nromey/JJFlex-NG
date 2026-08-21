@@ -158,7 +158,7 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
     private static int CmdFocus(Args a)
     {
         int pid = ResolvePid(a);
-        Snapshot s = Observe.Capture(pid, TraceLog.FindCurrent(), digest: false);
+        Snapshot s = Observe.Capture(pid, TraceLog.FindLiveLog(), digest: false);
         Console.WriteLine($"foreground window: \"{s.ForegroundTitle}\"");
         Console.WriteLine($"focused in pid {pid}: {s.FocusControlType} name=\"{s.FocusName}\" "
             + $"id=\"{s.FocusAutomationId}\" class={s.FocusClassName}");
@@ -229,7 +229,14 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             Console.Error.WriteLine("jjprobe: no trace file found for that process — routing and speech "
                 + "cannot be observed. Run `jjprobe trace --all` to see what is on disk.");
 
-        PressResult r = Press.Send(pid, chord, window, header?.Path,
+        // Observe the live file, not the file the header happens to sit in —
+        // on pre-CaptureState builds those differ for every post-boot session,
+        // and watching the finished one reports every press as silent.
+        string? observeLog = header != null
+            ? TraceLog.LiveLogForInstance(header.Instance) ?? header.Path
+            : null;
+
+        PressResult r = Press.Send(pid, chord, window, observeLog,
             a.Int("quiet-ms", 400), a.Int("max-settle-ms", 2500), digest: !a.Flag("no-digest"),
             risk, LoadClearance(a));
 
@@ -306,13 +313,16 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
 
         foreach (InventoryEntry e in rows)
         {
-            Expansion x = KeyDisplayExpander.Expand(e.KeyDisplay);
+            Expansion x = KeyDisplayExpander.Expand(e);
             if (x.Residue != null)
             {
                 residue++;
                 lines.Add($"UNEXPANDABLE  {e.ContextLabel}: \"{e.KeyDisplay}\" — {x.Residue}");
                 continue;
             }
+            foreach (ExpandedChord c in x.ReservedElsewhere ?? Array.Empty<ExpandedChord>())
+                lines.Add($"EXCLUDED      {c.Chord.Display}  [{e.Context}] — inside \"{e.KeyDisplay}\" but "
+                    + "carved out by the inventory; it belongs to another command's row");
             foreach (ExpandedChord c in x.Chords)
             {
                 total++;
@@ -354,8 +364,16 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
                 .ToList();
             Console.WriteLine($"{all.Count} trace file(s) with a readable session header, newest session first:");
             foreach (var h in all)
-                Console.WriteLine($"  {Path.GetFileName(h.Path)} — instance {h.Instance}, level {h.Level}, "
+            {
+                string captureNote = h.Capture switch
+                {
+                    TraceLog.CaptureState.On => ", capture ON",
+                    TraceLog.CaptureState.Off => ", capture off",
+                    _ => "",
+                };
+                Console.WriteLine($"  {Path.GetFileName(h.Path)} — instance {h.Instance}, level {h.Level}{captureNote}, "
                     + $"started {h.StartedAt:yyyy-MM-dd HH:mm:ss}, built from {h.AppDir}");
+            }
             return 0;
         }
 
@@ -375,14 +393,44 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
         Console.WriteLine($"  instance {found.Instance}, session started {found.StartedAt:yyyy-MM-dd HH:mm:ss}, "
             + $"trace level {found.Level}");
 
-        var recent = TraceLog.ReadSince(found.Path, Math.Max(0, TraceLog.Length(found.Path) - 262144));
+        // Read from the file the app is WRITING, which the header search cannot
+        // always name: builds that predate CaptureState lines leave post-boot
+        // sessions anonymous, so the header can sit in a finished file while
+        // the live one grows next to it under the fixed instance name.
+        string readFrom = TraceLog.LiveLogForInstance(found.Instance) ?? found.Path;
+        if (!string.Equals(readFrom, found.Path, StringComparison.OrdinalIgnoreCase))
+            Console.WriteLine($"  live log: {readFrom} (the header above is in a finished file; "
+                + "channels below are read from the live one)");
+
+        // Capture state: the marker if this build writes one, the prose line
+        // each session opens with if not, and honesty about which was used.
+        string head = TraceLog.HeadLine(readFrom);
+        (TraceLog.CaptureState legacyState, bool legacyVerbose) = TraceLog.LegacyStateFromHead(head);
+        // A marker-era header describes the current SESSION even when rotation
+        // has moved the live bytes to a fresh file, so it outranks head-line
+        // inference whenever it exists at all.
+        bool markerKnown = found.Capture != TraceLog.CaptureState.Unknown;
+        TraceLog.CaptureState captureState = markerKnown ? found.Capture : legacyState;
+        bool speechLive = captureState == TraceLog.CaptureState.On
+            || (markerKnown ? TraceLog.LevelIsVerbose(found.Level) : legacyVerbose);
+
+        Console.WriteLine($"  capture state:   " + (captureState, markerKnown) switch
+        {
+            (TraceLog.CaptureState.On, true) => "detailed capture RUNNING (the log's CaptureState line says so)",
+            (TraceLog.CaptureState.On, false) => "detailed capture RUNNING (inferred from the session's opening "
+                + "line — this build predates CaptureState lines)",
+            (TraceLog.CaptureState.Off, true) => "no capture (the log's CaptureState line says so)",
+            (TraceLog.CaptureState.Off, false) => "no capture (inferred from the session's opening line)",
+            _ => "UNKNOWN — neither a CaptureState line nor a recognisable session opening",
+        });
+
+        var recent = TraceLog.ReadSince(readFrom, Math.Max(0, TraceLog.Length(readFrom) - 262144));
         int routing = TraceLog.Routing(recent).Count;
-        bool verbose = TraceLog.LooksVerbose(recent);
 
         Console.WriteLine($"  routing channel: {(routing > 0 ? "READABLE" : "no DoCommand or Leader lines yet")} "
             + $"({routing} in the last 256 KB)");
-        Console.WriteLine($"  speech channel:  {(verbose ? "LIVE" : "NOT LIVE — needs a detailed capture (Ctrl+J, Ctrl+D)")}");
-        Console.WriteLine(verbose || routing > 0
+        Console.WriteLine($"  speech channel:  {(speechLive ? "LIVE" : "NOT LIVE — needs a detailed capture (Ctrl+J, Ctrl+D)")}");
+        Console.WriteLine(speechLive || routing > 0
             ? "Good enough to sweep."
             : "Not worth sweeping yet: neither channel would show anything.");
         return 0;

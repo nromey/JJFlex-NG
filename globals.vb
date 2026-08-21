@@ -518,6 +518,67 @@ Module globals
     Friend Const CaptureOutcomeDetailPrefix As String = "Detailed capture: "
 
     ''' <summary>
+    ''' CaptureState — the one line an outside reader can trust about this log.
+    '''
+    ''' Written at every transition: boot, capture start, capture stop, standing
+    ''' log resume, detail-level change, and (with level=Off) as the last line
+    ''' of any session being sealed for archive. The LAST CaptureState line in a
+    ''' file is therefore the truth about that file: capture=on means a detailed
+    ''' capture is writing it right now, level names the trace detail, and a
+    ''' sealed file always ends saying capture=off level=Off.
+    '''
+    ''' This exists because inferring the state from outside was proven wrong on
+    ''' 2026-08-21: jjprobe judged "is a capture running" by sniffing the last
+    ''' 64 KB of the log for Verbose utterances — which the meter firehose had
+    ''' long since pushed out of any 64 KB window — pressed Ctrl+J, Ctrl+D to
+    ''' "start" a capture, toggled the one already running, then read old
+    ''' Verbose lines out of the archived file and reported the speech channel
+    ''' healthy. The app knows its own state; from now on it says so where any
+    ''' reader of the file can find it.
+    '''
+    ''' The wording is a CONTRACT with tools/uia-probe (TraceLog.ParseStateMarker
+    ''' in Observe.cs): one line, key=value, scalar fields first and the two
+    ''' paths last because paths contain spaces —
+    ''' CaptureState: capture=on|off level=[TraceLevel] instance=[N]
+    ''' started=[session start, ISO 8601 UTC] version=[app version]
+    ''' app=[full path of the app assembly] file=[full path being written]
+    ''' Change either side only in step with the other.
+    ''' </summary>
+    ''' <param name="captureOn">Explicit state, for the moments when
+    ''' DetailedCaptureRunning has not caught up with the transition being
+    ''' recorded (sealing a capture that is still nominally running).</param>
+    ''' <param name="levelOverride">Explicit level, for the seal marker —
+    ''' TraceLevel.Off means "this file is finished, nobody is writing it".</param>
+    Friend Sub TraceCaptureStateMarker(Optional captureOn As Boolean? = Nothing,
+                                       Optional levelOverride As TraceLevel? = Nothing)
+        Try
+            If Not Tracing.On Then Return
+            Dim isOn As Boolean = If(captureOn, DetailedCaptureRunning)
+            Dim lvl As TraceLevel = If(levelOverride, Tracing.TheSwitch.Level)
+            Dim asmPath As String = If(myAssembly IsNot Nothing,
+                                       myAssembly.Location,
+                                       Assembly.GetEntryAssembly()?.Location)
+            Dim sess As TraceSession = TraceSessionContext.Current
+            Dim startedIso As String = If(sess IsNot Nothing,
+                sess.BootTimeUtc.ToString("O", CultureInfo.InvariantCulture),
+                Date.UtcNow.ToString("O", CultureInfo.InvariantCulture))
+            ' The no-level TraceLine overload on purpose: a state line that only
+            ' appears at some detail levels is a state line a reader cannot rely
+            ' on finding.
+            Tracing.TraceLine(
+                "CaptureState: capture=" & If(isOn, "on", "off") &
+                " level=" & lvl.ToString() &
+                " instance=" & ProgramInstance.ToString(CultureInfo.InvariantCulture) &
+                " started=" & startedIso &
+                " version=" & If(myVersion IsNot Nothing, myVersion.ToString(), "unknown") &
+                " app=" & If(asmPath, String.Empty) &
+                " file=" & If(Tracing.TraceFile, String.Empty))
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
     ''' Start a detailed capture: archive whatever session is open, begin a
     ''' fresh one at maximum detail, and remember the standing level so Stop can
     ''' put it back.
@@ -555,6 +616,7 @@ Module globals
             LastUserTraceFile = Tracing.TraceFile
             Tracing.TraceLine(
                 $"Detailed capture started {Date.Now:O} reason={reason} level={Tracing.TheSwitch.Level}")
+            TraceCaptureStateMarker()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
             _captureStartedLocal = Nothing
@@ -614,6 +676,7 @@ Module globals
                 BeginNewTraceSession()
                 Tracing.TraceLine(
                     $"Diagnostic log resumed at {Tracing.TheSwitch.Level} after a detailed capture")
+                TraceCaptureStateMarker()
             End If
 
             spoken = $"Capture saved: {FormatClock(started)}, about {DescribeMinutes(minutes)}."
@@ -672,9 +735,14 @@ Module globals
                     Tracing.On = True
                     BeginNewTraceSession()
                     Tracing.TraceLine($"Diagnostic log turned on at {Tracing.TheSwitch.Level}")
+                    TraceCaptureStateMarker()
                 Else
                     Tracing.TraceLine($"Diagnostic log detail is now {Tracing.TheSwitch.Level}", TraceLevel.Info)
                     Tracing.TheSwitch.Level = DiagnosticsSettings.TraceLevel
+                    ' Level changed mid-session, so the state line at the top of
+                    ' this file is stale. Re-stamp: the last CaptureState line
+                    ' in a file is the one a reader trusts.
+                    TraceCaptureStateMarker()
                 End If
             ElseIf wasOn Then
                 Tracing.TraceLine("Diagnostic log turned off by the operator")
@@ -754,6 +822,7 @@ Module globals
             Tracing.On = True
             BeginNewTraceSession()
             Tracing.TraceLine($"Diagnostic log resumed ({reason}) at {Tracing.TheSwitch.Level}")
+            TraceCaptureStateMarker()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
         End Try
@@ -807,6 +876,16 @@ Module globals
             If Not String.IsNullOrEmpty(outcome) Then
                 session.MarkOutcome(outcome, detail)
             End If
+
+            ' Seal the file with a state line saying nobody writes it any more.
+            ' A finished capture is full of Verbose lines that look exactly like
+            ' a running one — on 2026-08-21 jjprobe read such a corpse moments
+            ' after the capture was toggled off and reported the speech channel
+            ' live. capture=off level=Off as the file's last CaptureState line
+            ' is what makes a corpse distinguishable from a capture in flight.
+            ' Written BEFORE the rotation snapshot below: this line is itself a
+            ' write, and a write can rotate, which would stale the part number.
+            TraceCaptureStateMarker(captureOn:=False, levelOverride:=TraceLevel.Off)
 
             ' Capture rotation state before closing the listener — Tracing.On =
             ' False disposes it and the part number goes with it.
@@ -1474,6 +1553,12 @@ Module globals
             Tracing.On = True
             BeginNewTraceSession()
             Tracing.TraceLine("Boot Tracing on instance:" & ProgramInstance & " " & myAssembly.Location & " " & myVersion.ToString() & " " & Date.Now & " level=" & bootLevel.ToString)
+            ' The boot header above identifies the build; this states the log's
+            ' state in the machine-readable form every later session also gets.
+            ' Post-boot sessions (captures, resumes) have ONLY the CaptureState
+            ' line — the boot header is written exactly once per launch, which
+            ' is how capture files ended up anonymous until 2026-08-21.
+            TraceCaptureStateMarker()
         End If
 
         Tracing.TraceLine("GetConfigInfo:" & BaseConfigDir, TraceLevel.Info)

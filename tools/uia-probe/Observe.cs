@@ -360,14 +360,32 @@ internal sealed class ActivityWatcher : IDisposable
 /// Verbose is NOT on by default: every trace file on this machine at Info
 /// contains zero ScreenReaderOutput lines, so a detailed capture has to be
 /// running for this channel to exist.</para>
+///
+/// <para><b>Whether that capture IS running is read, never inferred.</b> The
+/// app stamps every log transition with a <c>CaptureState:</c> line (written in
+/// globals.vb, TraceCaptureStateMarker — the two are a contract), and the last
+/// such line in a file is the truth about that file. Inference was tried and it
+/// destroyed evidence: on 2026-08-21 the sweep sniffed the last 64 KB for
+/// utterances to decide whether a capture was on, found none because the
+/// Verbose meter firehose had pushed all speech out of the window, and pressed
+/// the toggle at a capture that was already running.</para>
 /// </summary>
 internal static class TraceLog
 {
     public static string AppDataDir =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio");
 
-    /// <summary>What a trace file's session header says about who wrote it.</summary>
-    internal sealed record TraceHeader(string Path, int Instance, string AppDir, string Level, DateTime StartedAt);
+    /// <summary>Whether a detailed capture is writing a file, as the file's own
+    /// CaptureState line states it. Unknown means the build predates the line —
+    /// judge by <see cref="LegacyStateFromHead"/> then, and say which evidence
+    /// was used.</summary>
+    internal enum CaptureState { Unknown, On, Off }
+
+    /// <summary>What a trace file's session header says about who wrote it —
+    /// and, when the build is new enough to write CaptureState lines, what
+    /// state the log was last in.</summary>
+    internal sealed record TraceHeader(string Path, int Instance, string AppDir, string Level,
+        DateTime StartedAt, CaptureState Capture = CaptureState.Unknown);
 
     /// <summary>
     /// Find the trace file belonging to a SPECIFIC running app, by reading each
@@ -395,13 +413,16 @@ internal static class TraceLog
     /// question actually being asked, and it carries the trace level so a caller
     /// can tell whether speech will be visible before relying on it.</para>
     ///
-    /// <para>Three filename shapes are searched, because there are three
-    /// surfaces: the always-on boot trace at the fixed name
-    /// JJFlexRadioTrace.txt; the second-instance boot trace at
-    /// JJFlexRadio2Trace.txt, which matters precisely when a sweep runs
-    /// alongside a copy the operator already had open; and the timestamped
-    /// session captures JJFlexRadioTrace-yyyyMMdd-HHmmss.txt that Settings,
-    /// Diagnostics produces.</para>
+    /// <para>Three filename shapes are searched, and two of them are corpses:
+    /// only the fixed names JJFlexRadioTrace.txt / JJFlexRadio2Trace.txt are
+    /// ever LIVE. The timestamped JJFlexRadioTrace-yyyyMMdd-HHmmss.txt files
+    /// are the plain-text remains of FINISHED sessions (the app archives a
+    /// session and renames its text aside; the stamp is that session's start,
+    /// not a capture the operator is running) — got wrong on 2026-08-21, when
+    /// a stamped corpse full of Verbose lines was read as a live capture.
+    /// Corpses are still worth reading headers from, because their session
+    /// start times lose to the live session's and their CaptureState seal says
+    /// level=Off; what they must never be is attached to for observation.</para>
     /// </summary>
     public static TraceHeader? FindForApp(string appDir)
     {
@@ -442,9 +463,18 @@ internal static class TraceLog
     }
 
     private const string HeaderMarker = "Boot Tracing on instance:";
+    private const string StateMarkerPrefix = "CaptureState: capture=";
 
     /// <summary>
-    /// Read the LAST session header in a file — that is the current session.
+    /// Read a file's LAST self-identification — that is the current state.
+    ///
+    /// <para>Two generations of line qualify. Every log transition since the
+    /// 2026-08-21 fix writes a <c>CaptureState:</c> line carrying identity AND
+    /// capture state; older builds wrote only the boot header, exactly once per
+    /// launch, which is why their post-boot session files (captures, resumes)
+    /// are anonymous and this method returns null for them. Whichever line
+    /// appears LATER in the file wins — a mid-session detail change re-stamps,
+    /// and the newest stamp is the truth.</para>
     ///
     /// <para>Reads the tail first and only falls back to the head, because these
     /// files get very large: a marathon session on 2026-08-07 left an 11.7 GB
@@ -454,15 +484,27 @@ internal static class TraceLog
     {
         foreach (string chunk in ReadEnds(path))
         {
-            int at = chunk.LastIndexOf(HeaderMarker, StringComparison.Ordinal);
-            if (at < 0) continue;
+            int stateAt = chunk.LastIndexOf(StateMarkerPrefix, StringComparison.Ordinal);
+            int bootAt = chunk.LastIndexOf(HeaderMarker, StringComparison.Ordinal);
 
-            int lineEnd = chunk.IndexOf('\n', at);
-            string line = lineEnd < 0 ? chunk[at..] : chunk[at..lineEnd];
-            TraceHeader? parsed = ParseHeader(path, line);
-            if (parsed != null) return parsed;
+            if (stateAt >= 0 && stateAt > bootAt)
+            {
+                TraceHeader? parsed = ParseStateMarker(path, LineFrom(chunk, stateAt));
+                if (parsed != null) return parsed;
+            }
+            if (bootAt >= 0)
+            {
+                TraceHeader? parsed = ParseHeader(path, LineFrom(chunk, bootAt));
+                if (parsed != null) return parsed;
+            }
         }
         return null;
+    }
+
+    private static string LineFrom(string chunk, int at)
+    {
+        int lineEnd = chunk.IndexOf('\n', at);
+        return lineEnd < 0 ? chunk[at..] : chunk[at..lineEnd];
     }
 
     private static IEnumerable<string> ReadEnds(string path)
@@ -475,13 +517,15 @@ internal static class TraceLog
                 FileShare.ReadWrite | FileShare.Delete);
             long len = fs.Length;
 
-            if (len > Window)
-            {
-                fs.Seek(len - Window, SeekOrigin.Begin);
-                var buf = new byte[Window];
-                int n = fs.Read(buf, 0, Window);
-                tail = Encoding.UTF8.GetString(buf, 0, n);
-            }
+            // The tail window is read even when it overlaps the head: the last
+            // CaptureState line in the file is the one that counts, and a file
+            // between 64 KB and the window size used to fall through to a
+            // head-only read that could hand back a stale earlier stamp.
+            long tailStart = Math.Max(0, len - Window);
+            fs.Seek(tailStart, SeekOrigin.Begin);
+            var buf = new byte[(int)Math.Min(len, Window)];
+            int n = fs.Read(buf, 0, buf.Length);
+            tail = Encoding.UTF8.GetString(buf, 0, n);
 
             fs.Seek(0, SeekOrigin.Begin);
             var headBuf = new byte[(int)Math.Min(len, 64 * 1024)];
@@ -493,6 +537,69 @@ internal static class TraceLog
 
         if (tail != null) yield return tail;
         if (head != null) yield return head;
+    }
+
+    /// <summary>
+    /// Parse the app's CaptureState line. The format is the contract written by
+    /// globals.vb's TraceCaptureStateMarker — change either side only in step
+    /// with the other:
+    /// <c>CaptureState: capture=on|off level=&lt;TraceLevel&gt; instance=&lt;N&gt;
+    /// started=&lt;ISO 8601 UTC&gt; version=&lt;v&gt; app=&lt;path&gt; file=&lt;path&gt;</c>.
+    /// Scalars come first; the two paths come last because paths contain
+    /// spaces, so <c>app=</c> ends where the final <c>file=</c> begins. Returns
+    /// null rather than guessing, for the same reason ParseHeader does.
+    /// </summary>
+    private static TraceHeader? ParseStateMarker(string path, string line)
+    {
+        int at = line.IndexOf(StateMarkerPrefix, StringComparison.Ordinal);
+        if (at < 0) return null;
+        string rest = line[(at + "CaptureState: ".Length)..].Trim();
+
+        int appAt = rest.IndexOf(" app=", StringComparison.Ordinal);
+        string scalars = appAt < 0 ? rest : rest[..appAt];
+
+        string? Get(string key)
+        {
+            int k = scalars.IndexOf(key + "=", StringComparison.Ordinal);
+            if (k < 0) return null;
+            int start = k + key.Length + 1;
+            int end = scalars.IndexOf(' ', start);
+            return end < 0 ? scalars[start..] : scalars[start..end];
+        }
+
+        CaptureState capture = Get("capture") switch
+        {
+            "on" => CaptureState.On,
+            "off" => CaptureState.Off,
+            _ => CaptureState.Unknown,
+        };
+        if (capture == CaptureState.Unknown) return null;
+
+        if (!int.TryParse(Get("instance"), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out int instance)) return null;
+
+        string level = Get("level") ?? "";
+
+        if (appAt < 0) return null;
+        int fileAt = rest.LastIndexOf(" file=", StringComparison.Ordinal);
+        string appPath = (fileAt > appAt
+            ? rest[(appAt + " app=".Length)..fileAt]
+            : rest[(appAt + " app=".Length)..]).Trim();
+        string appDir = System.IO.Path.GetDirectoryName(appPath) ?? "";
+        if (appDir.Length == 0) return null;
+
+        DateTime started = DateTime.MinValue;
+        if (DateTime.TryParse(Get("started"), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out DateTime parsedStart))
+        {
+            started = parsedStart.Kind == DateTimeKind.Unspecified ? parsedStart : parsedStart.ToLocalTime();
+        }
+        if (started == DateTime.MinValue)
+        {
+            try { started = File.GetLastWriteTime(path); } catch (IOException) { }
+        }
+
+        return new TraceHeader(path, instance, appDir, level, started, capture);
     }
 
     /// <summary>
@@ -543,23 +650,97 @@ internal static class TraceLog
     }
 
     /// <summary>
-    /// Newest trace regardless of which app wrote it. Only for commands that
-    /// have no process context; anything that knows its pid must use
-    /// <see cref="FindForApp"/>, for the reasons in its remarks.
+    /// The live log for a specific app instance. No searching and no sorting:
+    /// the app writes instance 1 to JJFlexRadioTrace.txt and instance N to
+    /// JJFlexRadioNTrace.txt, so the name is a pure function of the instance
+    /// number, and the instance is in every header this class parses.
     /// </summary>
-    public static string? FindCurrent()
+    public static string? LiveLogForInstance(int instance)
+    {
+        string name = instance > 1
+            ? $"JJFlexRadio{instance}Trace.txt"
+            : "JJFlexRadioTrace.txt";
+        string path = Path.Combine(AppDataDir, name);
+        try { return File.Exists(path) ? path : null; }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>
+    /// Newest LIVE log — a file some app could still be writing. Only for
+    /// commands with no process context; anything that knows its pid must go
+    /// through <see cref="FindForApp"/> and <see cref="LiveLogForInstance"/>.
+    ///
+    /// <para>This replaced FindCurrent, which took the newest of EVERY trace
+    /// file by write time. That glob included the stamped corpses of finished
+    /// sessions, and a corpse can outrank the live file: Windows does not
+    /// reliably update an open file's directory mtime, while a just-archived
+    /// file's mtime is the moment it died. On 2026-08-21 that handed the sweep
+    /// a dead capture full of Verbose lines seconds after the live capture was
+    /// toggled, and the report claimed a speech channel it did not have. Only
+    /// the fixed instance names can be live, so only they are considered.</para>
+    /// </summary>
+    public static string? FindLiveLog()
     {
         try
         {
             var dir = new DirectoryInfo(AppDataDir);
             if (!dir.Exists) return null;
-            return dir.GetFiles("JJFlexRadio*Trace*.txt")
+            return dir.GetFiles("JJFlexRadio*Trace.txt")
+                      .Where(f => System.Text.RegularExpressions.Regex.IsMatch(
+                          f.Name, @"^JJFlexRadio\d*Trace\.txt$"))
                       .OrderByDescending(f => f.LastWriteTimeUtc)
                       .FirstOrDefault()?.FullName;
         }
         catch (IOException) { return null; }
         catch (UnauthorizedAccessException) { return null; }
     }
+
+    /// <summary>
+    /// The first line of a file. For a trace log this is a session fingerprint:
+    /// every session opens with either the boot header, "Detailed capture
+    /// started ...", or "Diagnostic log resumed ...", each behind a
+    /// ticks-since-launch prefix that differs between sessions — so "the head
+    /// changed" is proof a new session replaced the old one under the same
+    /// file name, which no mtime or length comparison can establish.
+    /// </summary>
+    public static string HeadLine(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var buf = new byte[512];
+            int n = fs.Read(buf, 0, buf.Length);
+            string s = Encoding.UTF8.GetString(buf, 0, n);
+            int nl = s.IndexOf('\n');
+            return (nl < 0 ? s : s[..nl]).TrimEnd('\r');
+        }
+        catch (IOException) { return ""; }
+        catch (UnauthorizedAccessException) { return ""; }
+    }
+
+    /// <summary>
+    /// Best-effort capture state for a build too old to write CaptureState
+    /// lines, inferred from the prose line each session opens with. Weaker than
+    /// the marker — it is inference, and any report that leans on it must say
+    /// so — but the lines themselves are written unconditionally, so when the
+    /// head names a transition it can be believed.
+    /// </summary>
+    public static (CaptureState State, bool Verbose) LegacyStateFromHead(string headLine)
+    {
+        if (headLine.Contains("Detailed capture started", StringComparison.Ordinal))
+            return (CaptureState.On, true);   // a capture is always Verbose
+        if (headLine.Contains("Diagnostic log resumed", StringComparison.Ordinal))
+            return (CaptureState.Off, headLine.Contains("at Verbose", StringComparison.Ordinal));
+        if (headLine.Contains(HeaderMarker, StringComparison.Ordinal))
+            return (CaptureState.Off, headLine.Contains("level=Verbose", StringComparison.Ordinal));
+        return (CaptureState.Unknown, false);
+    }
+
+    /// <summary>The level name at which speech becomes visible.</summary>
+    public static bool LevelIsVerbose(string level) =>
+        string.Equals(level, "Verbose", StringComparison.OrdinalIgnoreCase);
 
     public static long Length(string path)
     {

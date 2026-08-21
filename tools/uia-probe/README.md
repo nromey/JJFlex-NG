@@ -153,12 +153,33 @@ makes speech observable from outside without changing a line of app code.
 **Precondition:** the `Spoke` lines are Verbose and the default level is Info.
 Measured on this machine: every trace file at Info contains **zero**
 `ScreenReaderOutput` lines. A detailed capture raises the level, so `sweep`
-starts one with `Ctrl+J, Ctrl+D` and then *reads the log back* to confirm
-Verbose lines are actually appearing — not merely that the chord did something,
-which any side effect would satisfy. Without that check a whole sweep can report
-"no observable effect" for every key and be measuring nothing but its own
-misconfiguration, which is why the report says up front whether each channel was
-live.
+starts one with `Ctrl+J, Ctrl+D` — but only after establishing one is not
+already running, because the chord is a TOGGLE and pressing it at a running
+capture stops it.
+
+Whether a capture is running is **read, never inferred**. The app stamps every
+log transition with a line the probe treats as a contract (written by
+`TraceCaptureStateMarker` in `globals.vb`, parsed by `TraceLog.ParseStateMarker`
+in `Observe.cs`):
+
+```
+CaptureState: capture=on|off level=<TraceLevel> instance=<N> started=<ISO 8601 UTC> version=<v> app=<path to the app assembly> file=<path being written>
+```
+
+The last such line in a file is the truth about that file, and a file sealed
+for archive always ends with `capture=off level=Off`. After pressing the
+toggle, the sweep waits for the FRESH session to announce itself and reports
+the direction the toggle actually went; if no announcement arrives, it says the
+transition could not be confirmed rather than assuming it. On builds that
+predate the marker, state is inferred from the prose line every session opens
+with, and the report says the weaker evidence was used.
+
+The history that forced this: the old check sniffed the last 64 KB for
+utterances. On 2026-08-21 a running capture's Verbose meter firehose had pushed
+all speech out of that window, so the sweep pressed the toggle at a live
+capture, then re-found "the newest file" by mtime — the freshly archived
+corpse, still full of old Verbose lines — and reported the speech channel
+healthy moments after switching it off.
 
 ## Which commands can take your keyboard, and which provably cannot
 

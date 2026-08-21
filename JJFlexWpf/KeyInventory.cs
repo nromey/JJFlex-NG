@@ -47,6 +47,19 @@ public static class KeyInventory
         /// </summary>
         public string MenuText { get; init; } = "";
 
+        /// <summary>
+        /// Chords that fall inside this entry's written RANGE but do not belong
+        /// to it, as exact KeyDisplay strings ("Ctrl+J, Shift+F"). Stated as
+        /// data because a Description aside is invisible to every tool that
+        /// expands ranges: on 2026-08-21 jjprobe expanded "Ctrl+J, Shift+A
+        /// through Shift+H" into eight chords and pressed Ctrl+J, Shift+F
+        /// believing it was a slice jump — "(Shift+F is reserved)" was right
+        /// there in the Description, and no parser can be asked to read English
+        /// prose. The aside stays in the Description for human ears; this field
+        /// is the same fact for machines.
+        /// </summary>
+        public string[] ExcludedKeys { get; init; } = Array.Empty<string>();
+
         public FixedKeyEntry() { }
         public FixedKeyEntry(string context, string contextLabel, string key,
             string description, string[] keywords, string scope = "Radio", string group = "FieldKeys")
@@ -385,7 +398,8 @@ public static class KeyInventory
         new("Leader", "Leader key", "Ctrl+J, Shift+T", "Toggle alert sounds (earcons)",
             new[] { "earcon", "alert", "sounds", "leader", "toggle" }, "Global", "Audio"),
         new("Leader", "Leader key", "Ctrl+J, Shift+A through Shift+H", "Jump to that slice from anywhere (Shift+F is reserved)",
-            new[] { "slice", "jump", "leader", "letter" }, "Radio", "General"),
+            new[] { "slice", "jump", "leader", "letter" }, "Radio", "General")
+            { ExcludedKeys = new[] { "Ctrl+J, Shift+F" } },
         new("Leader", "Leader key", "Ctrl+J, H or ?", "List the leader key commands",
             new[] { "leader", "help", "list" }, "Global", "help"),
         new("Leader", "Leader key", "Ctrl+J, Escape", "Cancel leader mode",
