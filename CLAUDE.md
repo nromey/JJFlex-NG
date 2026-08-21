@@ -464,6 +464,17 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
 4a. **Rigmeter snapshot in the seal entry.** Rigmeter moved to its own repository at `C:\dev\rigmeter` in Sprint 30 Track G (2026-08-18); it still targets this repo by default. Run `python C:\dev\rigmeter\rigmeter.py all` and `python C:\dev\rigmeter\rigmeter.py today`, paste a condensed version of both outputs into a "Rigmeter snapshot — end of YYYY-MM-DD" subsection at the bottom of today's Agent.md entry. Format: grand totals (authored vs vendor split), per-project breakdown, per-category totals, fun comparisons, and today's git activity. ALSO run `python C:\dev\rigmeter\rigmeter.py snapshot` to write the structured JSON to NAS at `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json` — this is the durable time-series and the source for `rigmeter growth --use-snapshots <date-a> <date-b>` queries. (Falls back to `%LOCALAPPDATA%\rigmeter\snapshots\` if NAS is unreachable; reconcile later with `rigmeter snapshot --sync`.) The Agent.md text snapshots are human-readable history; the NAS JSON snapshots are machine-queryable. Both accumulate. Skip on docs-only days where rigmeter values would be unchanged from yesterday.
 4b. **After-Action Report (AAR).** Write `C:\Users\nrome\JJFlex-private\after-action-reports\YYYY\MM\YYYY-MM-DD.md` capturing the day's cross-surface activity (main repo + each worktree + external infrastructure). **Lives in JJFlex-private, NOT in the public `docs/` tree** — the file routinely names testers by personal/medical context, references internal sequencing, and would leak through `nromey/JJFlex-NG`. JJFlex-private is already backed up to NAS via `backup-private-to-nas.ps1`. Sections: Snapshot, Theme, Per-surface activity, Decisions and scope changes, Rigmeter today (with branch-scope caveat), Setup for tomorrow. Use bulleted lists / prose only — NEVER tables (screen-reader hostile). Closes the gap rigmeter and Agent.md leave on heavy research days where parallel worktrees accumulate thousands of lines of docs while main sees one commit. Skip rule: if every surface was idle AND no external work AND rigmeter today is empty, no file that day. See `memory/project_after_action_reports.md` for the full convention.
 5. **Commit the day's changes and push the feature branch to origin.** Stage specific files (never `-A` / `.`), commit with the end-of-day seal message format (`End-of-day seal YYYY-MM-DD: <summary>`), then `git push origin <current-branch>`. Pushing is durability insurance — without it, an unbacked-up local repo loses every un-pushed commit if the machine fails. Push to `origin` (nromey's fork), NEVER `upstream` (KevinSShaffer). Feature-branch pushes are backup moves, not release moves — no merge to main implied.
+
+   **Push EVERY live track branch too, not just the current one.** Sprint track
+   branches live in worktrees and are easy to forget precisely because they are
+   not checked out where you are standing. One command covers them:
+   `git push origin sprintN/track-a sprintN/track-b ...`, then verify each with
+   `git rev-parse` local against `origin/`. Do NOT assume merging a track into
+   the sprint branch makes pushing it redundant — that assumption is only true
+   if the merge actually happened, which is what step 4 of Phase 4 now checks.
+   **Added 2026-08-20:** the Sprint 33 seal found two tracks unmerged, and the
+   only reason the discovery cost minutes rather than a day's work is that all
+   eleven branches had just been pushed.
 6. **CLAUDE.md drift check:** If the day's work exposed stale guidance in CLAUDE.md (e.g. referenced a retired script, missed a new workflow), flag for update.
 
 **When a second seal runs on the same calendar date.** Late-night sessions that
@@ -622,8 +633,33 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    git merge sprintN/track-c --no-ff -m "Merge Track C into Track A"
    ```
 3. **Post-merge build verification** — clean build after each merge to catch integration issues. If build fails, Claude fixes conflicts/issues before merging the next track.
-4. **Status updates** — Claude tells the user after each merge completes (e.g., "Track B merged into A, build clean. Waiting for Track C.")
-5. **Final merge to main:**
+4. **CONTAINMENT SWEEP — mandatory before declaring a sprint merged.** Prove every
+   track branch is an ancestor of the target. A clean merge is evidence about the
+   branches you merged and says NOTHING about one you never invoked:
+
+   ```bash
+   for b in b c d e f g h i j k; do
+     h=$(git rev-parse sprintN/track-$b)
+     git merge-base --is-ancestor $h HEAD \
+       && echo "track-$b: contained" || echo "track-$b: NOT CONTAINED"
+   done
+   ```
+
+   If a track is not contained, `git log --oneline HEAD..sprintN/track-X` says
+   whether it legitimately advanced past its merge point or was never merged at
+   all — **if the track's FIRST commit is in that list, the merge never ran.**
+
+   **Added 2026-08-20, after Sprint 33 sealed with two of eleven tracks
+   unmerged** — Track D (11 commits, 3,085 insertions, including the sprint's
+   headline fix) and Track G (442 insertions touching vendored FlexLib). Nothing
+   flagged it: no operation failed, the build passed because absent code is
+   referenced by nothing, and every track agent genuinely finished and reported
+   done. Worst of all, **the two missing files were TEST files, so the suite was
+   smaller and greener** — a falling test count reads as success. The gap lives
+   between "track finished" and "track landed" and nobody owned that edge.
+   See `memory/feedback_verify_merge_containment.md`.
+5. **Status updates** — Claude tells the user after each merge completes (e.g., "Track B merged into A, build clean. Waiting for Track C.")
+6. **Final merge to main:**
    ```batch
    git checkout main
    git merge sprintN/track-a --no-ff -m "Sprint N: [description]"
