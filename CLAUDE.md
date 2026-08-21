@@ -460,6 +460,28 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    SharpCompress 0.40.0 sat in the tree with a known moderate-severity
    vulnerability, surfacing in eighteen projects, unnoticed because nobody ever
    ran the check.
+3c. **Memory drift check:** run `& "C:\dev\JJFlex-NG\check-memory-drift.ps1"`.
+   Seconds, and it is the only automated defence against the project's dominant
+   defect class. It walks every memory entry, extracts the file paths each one
+   names, and reports the ones no tree contains. **These are CANDIDATES, not
+   errors** — a missing path can mean the entry is stale, or that it describes
+   something deliberately removed. Judge, then either fix the entry or stamp it
+   `RESOLVED`/`SHIPPED`/`SUPERSEDED` so it stops flagging and the archive sweep
+   in 1a can find it.
+
+   Added 2026-08-21. Its first run found three real drifts in minutes, **two of
+   them in this file**: the keyboard audit told you to grep `KeyCommands.vb`
+   (it is `JJFlexWpf/KeyCommands.cs`, and a literal grep returns nothing, which
+   reads as "no key bindings changed" and silently skips the audit); the
+   SmartLink section promised a legacy `AuthForm.cs` fallback that was deleted
+   in `ba6b2e2b`; and eleven memory entries named `KeyCommands.vb` or
+   `publish-daily-to-dropbox.ps1`, neither of which exists.
+
+   **Do not chase the count to zero.** Roughly half the remaining hits are
+   entries legitimately naming files in estates this machine does not hold
+   (Blind Hams data, rarbox triage) or planning docs that were archived on
+   purpose. The number to watch is a NEW entry appearing, not the total.
+
 4. **Agent.md update:** Record what happened today and what's next, so the resume path for the next session is clear.
 4a. **Rigmeter snapshot in the seal entry.** Rigmeter moved to its own repository at `C:\dev\rigmeter` in Sprint 30 Track G (2026-08-18); it still targets this repo by default. Run `python C:\dev\rigmeter\rigmeter.py all` and `python C:\dev\rigmeter\rigmeter.py today`, paste a condensed version of both outputs into a "Rigmeter snapshot — end of YYYY-MM-DD" subsection at the bottom of today's Agent.md entry. Format: grand totals (authored vs vendor split), per-project breakdown, per-category totals, fun comparisons, and today's git activity. ALSO run `python C:\dev\rigmeter\rigmeter.py snapshot` to write the structured JSON to NAS at `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json` — this is the durable time-series and the source for `rigmeter growth --use-snapshots <date-a> <date-b>` queries. (Falls back to `%LOCALAPPDATA%\rigmeter\snapshots\` if NAS is unreachable; reconcile later with `rigmeter snapshot --sync`.) The Agent.md text snapshots are human-readable history; the NAS JSON snapshots are machine-queryable. Both accumulate. Skip on docs-only days where rigmeter values would be unchanged from yesterday.
 4b. **After-Action Report (AAR).** Write `C:\Users\nrome\JJFlex-private\after-action-reports\YYYY\MM\YYYY-MM-DD.md` capturing the day's cross-surface activity (main repo + each worktree + external infrastructure). **Lives in JJFlex-private, NOT in the public `docs/` tree** — the file routinely names testers by personal/medical context, references internal sequencing, and would leak through `nromey/JJFlex-NG`. JJFlex-private is already backed up to NAS via `backup-private-to-nas.ps1`. Sections: Snapshot, Theme, Per-surface activity, Decisions and scope changes, Rigmeter today (with branch-scope caveat), Setup for tomorrow. Use bulleted lists / prose only — NEVER tables (screen-reader hostile). Closes the gap rigmeter and Agent.md leave on heavy research days where parallel worktrees accumulate thousands of lines of docs while main sees one commit. Skip rule: if every surface was idle AND no external work AND rigmeter today is empty, no file that day. See `memory/project_after_action_reports.md` for the full convention.
@@ -530,8 +552,12 @@ Both can coexist. Tester `--publish` satisfies tester needs; end-of-day nightly 
 - Tracing code: `JJTrace\Tracing.cs`
 
 ### Debug Remote/SmartLink
-1. Check `AuthFormWebView2.cs` for Auth0 flow (uses WebView2/Edge)
-2. Legacy `AuthForm.cs` (IE-based) kept as fallback, marked `[Obsolete]`
+1. Check `Radios/AuthFormWebView2.cs` for Auth0 flow (uses WebView2/Edge)
+2. **There is no fallback.** The IE-based `AuthForm.cs` was DELETED in `ba6b2e2b`
+   ("Delete the IE-based AuthForm; WebView2 has been the real auth path for
+   months"). This line claimed it was "kept as fallback, marked `[Obsolete]`"
+   until 2026-08-21 — do not go looking for it, and do not plan a fallback path
+   around it
 3. Verify TLS 1.2+ in network traces
 4. See `docs/remote-migration.md` for current state
 
@@ -686,7 +712,12 @@ Any sprint that adds, removes, or remaps a keyboard binding MUST pass this audit
 
 Audit checklist:
 
-1. **Grep the sprint's diff for key-binding changes.** Search for new or modified entries in `KeyCommands.vb`, `RegisterScope`, `KeyBinding` attributes, and any Modern/Classic menu builders. Produce a list of affected keys + their new meanings.
+1. **Grep the sprint's diff for key-binding changes.** Search for new or modified entries in `JJFlexWpf/KeyCommands.cs`, `RegisterScope`, `KeyBinding` attributes, and any Modern/Classic menu builders. Produce a list of affected keys + their new meanings.
+
+   **This said `KeyCommands.vb` until 2026-08-21 and no such file exists** — it
+   is C#, and it lives in `JJFlexWpf/`. A literal grep for the old name returns
+   nothing, which reads as "no key bindings changed" and silently skips the
+   audit. Six memory entries carried the same wrong name; all corrected.
 
 2. **Update `docs/help/md/keyboard-reference.md`.** Every new binding gets a line in the appropriate scope section (Global / Radio / Logging / Home / Home Region sub-sections). Every removed binding gets its line deleted. Every remapped binding has its meaning updated.
 
