@@ -1,0 +1,129 @@
+FlexLib API Report: remote_audio_tx streams cannot declare compression
+======================================================================
+File:         FlexLib/Radio.cs  (RequestRemoteAudioTXStream)
+              FlexLib/TXRemoteAudioStream.cs  (StatusUpdate)
+              FlexLib/RXRemoteAudioStream.cs  (StatusUpdate)
+Present in:   v4.1.5.39794 and v4.2.20.41343 (unchanged across that upgrade)
+Severity:     Not a crash and not a data-loss bug. An API asymmetry that
+              costs client authors real debugging time.
+Reporter:     Noel Romey (K5NER), JJ Flexible Radio Access
+Date:         2026-08-20
+
+
+Summary
+-------
+The receive side of the remote-audio API lets a client state its
+compression explicitly. The transmit side does not. A client that
+encodes Opus for transmit has no supported way to say so, and must
+rely on an undocumented radio-side default.
+
+Concretely, Radio.cs offers:
+
+    [Obsolete("Use RequestRXRemoteAudioStream(bool isCompressed) ...")]
+    public void RequestRXRemoteAudioStream()
+    public void RequestRXRemoteAudioStream(bool isCompressed)
+
+and, for transmit, only:
+
+    public void RequestRemoteAudioTXStream()
+
+which sends a bare "stream create type=remote_audio_tx" with no
+compression parameter, carries no [Obsolete] marker, and has no
+overload.
+
+
+Why this looks like an oversight rather than a design choice
+------------------------------------------------------------
+1. The wire protocol already accepts the parameter in both directions.
+   FlexLib's own protocol comment on the "stream" status parser reads:
+
+       stream <streamid> type=<remote_audio_rx|remote_audio_tx>
+              compression=<none|opus> client_handle=<handle>
+
+2. TXRemoteAudioStream.StatusUpdate already parses a "compression="
+   key out of the radio's reply and exposes it as IsCompressed. The
+   library is prepared to be told; it just never asks.
+
+3. The RX path was explicitly modernised — the parameterless version
+   deprecated, with wording telling callers to be explicit — and the
+   TX path was left as it was. The deprecation notice on one and not
+   the other is what makes this read as unfinished rather than
+   intentional.
+
+
+Impact
+------
+The practical cost is diagnostic, and it is not small.
+
+A client sending Opus into a stream whose compression it never
+declared has no way, from the API, to know whether the radio agreed.
+If a radio ever defaulted such a stream to compression=none, the
+client would be sending Opus frames into a stream the radio reads as
+PCM. The predicted symptom set is: the create succeeds, the radio
+acknowledges the stream, the packets are well formed and correctly
+addressed, and no transmit audio arrives. Every one of those points
+away from the client.
+
+That is not hypothetical reasoning about where a bug might hide. This
+exact asymmetry consumed a meaningful share of a multi-day transmit
+audio investigation on our side, precisely because it is upstream of
+everything a packet capture can see, and because nothing in the API
+surface invites you to check it.
+
+For the record, and in fairness: on a FLEX-8600 the default is benign.
+A create sent with no compression argument is answered with
+compression=OPUS, and shipping SmartSDR sends the same bare command.
+Both were observed directly on the command channel, in plain text, on
+2026-08-10. So this is not a report of broken behaviour. It is a
+report that correct behaviour is currently reachable only by trusting
+a default that the API neither documents nor lets you state.
+
+
+Suggested fix
+-------------
+Mirror the RX shape exactly:
+
+    [Obsolete("Use RequestRemoteAudioTXStream(bool isCompressed) to
+    explicitly specifiy whether to use compression")]
+    public void RequestRemoteAudioTXStream()
+
+    public void RequestRemoteAudioTXStream(bool isCompressed)
+        -> "stream create type=remote_audio_tx compression=opus"
+        or "stream create type=remote_audio_tx compression=none"
+
+This is what we have applied locally as a marked patch. It is purely
+additive apart from the attribute.
+
+
+Second, smaller finding in the same area
+----------------------------------------
+The two stream classes disagree about what a valid compression value
+looks like.
+
+    RXRemoteAudioStream:  IsCompressed = value == "OPUS"
+    TXRemoteAudioStream:  IsCompressed = value.ToLower() == "opus"
+
+RX compares case-sensitively against an upper-case literal; TX
+lower-cases first and is therefore tolerant of either. The protocol
+comment quoted above documents the value in lower case, while the
+radio we have observed answers in upper case, so RX happens to work —
+but the two directions cannot both be right about the contract, and a
+firmware that answered in the documented lower case would silently
+flip RX's IsCompressed to false.
+
+Nothing inside FlexLib consumes either IsCompressed, so this is
+currently latent rather than active. It is worth aligning both on a
+case-insensitive comparison while the file is open.
+
+
+A note on error visibility, offered as context rather than a request
+-------------------------------------------------------------------
+"stream create" is sent through SendCommand with no reply handler, so
+a radio that rejects a create rejects it silently from the client's
+point of view: the stream simply never arrives and the client waits
+out its own timeout. That is a reasonable design for a fire-and-forget
+command channel, but it does mean an unaccepted parameter is
+indistinguishable from a lost packet or a busy radio. We handle it on
+our side by retrying without the parameter. Mentioned only because it
+compounds the first finding: the API neither lets you state the value
+nor tells you if the value you stated was refused.

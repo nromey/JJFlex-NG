@@ -6529,10 +6529,52 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // --- JJFlex patch: explicit TX compression (Sprint 33 Track G, 2026-08-20) ---
+        //
+        // Vendor stock offers RequestRXRemoteAudioStream(bool isCompressed) but
+        // no TX equivalent: the RX path was given an explicit compression
+        // argument and the parameterless version deprecated, and nobody came
+        // back for TX. So a client that encodes Opus for transmit had no
+        // supported way to SAY so, and simply sent Opus into a stream whose
+        // compression it never declared.
+        //
+        // The wire format accepts it on both directions — see the protocol
+        // comment on the "stream" status parser in ParseStatus,
+        // "type=<remote_audio_rx|remote_audio_tx> compression=<none|opus>" —
+        // and TXRemoteAudioStream.StatusUpdate already parses the compression=
+        // key the radio answers with. Only the request omitted it.
+        //
+        // NOTE, so this patch is not mistaken for a bug fix it is not: an
+        // FLEX-8600 answers a create sent WITHOUT the argument with
+        // compression=OPUS, and shipping SmartSDR sends the same bare command
+        // (both wire-observed, 2026-08-10). Declaring it changes no observed
+        // behaviour on that radio. This is about not depending on an
+        // undocumented default that costs nothing to state, and about the API
+        // asymmetry being a trap for the next client author.
+        //
+        // Mirrors the RX shape deliberately, down to the [Obsolete] wording, so
+        // this file has one idiom rather than two. See MIGRATION.md — purely
+        // additive apart from the attribute, so a 3-way merge on the next
+        // vendor drop should not conflict, but it needs re-adding if Radio.cs
+        // is ever taken wholesale.
+        [Obsolete("Use RequestRemoteAudioTXStream(bool isCompressed) to explicitly specifiy whether to use compression")]
         public void RequestRemoteAudioTXStream()
         {
             SendCommand("stream create type=remote_audio_tx");
         }
+
+        public void RequestRemoteAudioTXStream(bool isCompressed)
+        {
+            if (isCompressed)
+            {
+                SendCommand("stream create type=remote_audio_tx compression=opus");
+            }
+            else
+            {
+                SendCommand("stream create type=remote_audio_tx compression=none");
+            }
+        }
+        // --- end JJFlex patch ---
         #endregion
 
         #region DAXIQStream Routines

@@ -166,9 +166,26 @@ namespace Flex.Smoothlake.FlexLib
             }
         }
 
+        // --- JJFlex patch: keep the radio's own words (Sprint 33 Track G, 2026-08-20) ---
+        //
+        // IsCompressed is a bool, so it cannot tell "the radio answered
+        // compression=none" apart from "the radio never sent a compression key
+        // at all" — both leave it false. That distinction is the entire
+        // question when a stream is created without declaring compression, and
+        // answering it by inference is how this stream became a two-day
+        // suspect in the PC-audio transmit hunt. Null until the radio says
+        // something; the raw status line is kept alongside so an unexpected
+        // answer is readable rather than guessed at.
+        //
+        // Purely additive — no vendor line changes. See MIGRATION.md.
+        public string CompressionSetting { get; private set; }
+        public string LastStatusLine { get; private set; }
+        // --- end JJFlex patch ---
+
         public void StatusUpdate(string s)
         {
             bool set_radio_ack = false;
+            LastStatusLine = s; // JJFlex patch: see CompressionSetting above
             string[] words = s.Split(' ');
 
             foreach (string kv in words)
@@ -186,6 +203,7 @@ namespace Flex.Smoothlake.FlexLib
                 switch (key.ToLower())
                 {
                     case "compression":
+                        CompressionSetting = value; // JJFlex patch: the radio's own word, unparsed
                         IsCompressed = value.ToLower() == "opus" ? true : false;
                         break;
 
