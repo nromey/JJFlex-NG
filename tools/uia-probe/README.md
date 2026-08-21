@@ -181,6 +181,19 @@ capture, then re-found "the newest file" by mtime — the freshly archived
 corpse, still full of old Verbose lines — and reported the speech channel
 healthy moments after switching it off.
 
+**A capture the sweep starts, the sweep also stops** (`CaptureGuard`, #173).
+Verbose capture with a radio connected costs roughly 1 MB per minute, and a
+sweep that walked away from one left the operator's running for about 75
+minutes — archived sessions of 72.6 MB and 50.0 MB in one morning. So the sweep
+records the state at preflight and restores it on the way out: from a `finally`
+around the run, and from ProcessExit and Ctrl+C for the paths no `finally`
+survives, the same hooks that release stuck modifiers. The turn-off is
+confirmed the same way the turn-on is — a fresh session announcing itself in
+the off direction — and a restore that cannot be confirmed says so loudly on
+stderr and in the report, with the state things were left in. A capture that
+was **already running** when the sweep started belongs to the operator and is
+left exactly as found.
+
 ## Which commands can take your keyboard, and which provably cannot
 
 Only two commands inject synthetic input: `press` and `sweep`. Everything else
@@ -190,7 +203,9 @@ Only two commands inject synthetic input: `press` and `sweep`. Everything else
 That is enforced rather than asserted. `Native.SendKeyEvent` is the single
 injection point, it is called from exactly one file, and it returns immediately
 unless `Native.InjectionArmed` has been set, which only the two typing commands
-do. The distinction is worth the four lines because of how Windows draws it:
+do — plus one codicil: `CaptureGuard` re-arms at exit to press the capture
+toggle back off, and it can only have been armed from inside an armed `sweep`.
+It is that sweep's cleanup, not a third typist. The distinction is worth the four lines because of how Windows draws it:
 
 - **Focus is per message queue.** `SetFocus` can only target a window created by
   the calling thread, and off-foreground it changes that thread's own focus

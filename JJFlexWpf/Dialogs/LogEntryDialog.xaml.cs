@@ -111,8 +111,10 @@ public partial class LogEntryDialog : JJFlexDialog
             Title = "Log Entry Form";
             if (StartSession?.Invoke() != true)
             {
-                DialogResult = false;
-                Close();
+                // Never a bare DialogResult assignment from Loaded: that threw
+                // on windows realised with Show() and aborted the Tier 1 dialog
+                // suite on 2026-08-20/21 — see JJFlexDialog.CloseWithResult (#159).
+                CloseWithResult(false);
                 return;
             }
             if (FilePosition != -1)

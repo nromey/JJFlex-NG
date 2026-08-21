@@ -26,8 +26,10 @@ namespace JJFlexWpf.Dialogs
             if (ScanNames == null || ScanNames.Length == 0)
             {
                 MessageBox.Show("No scans were saved.", Title, MessageBoxButton.OK, MessageBoxImage.Information);
-                DialogResult = false;
-                Close();
+                // Never a bare DialogResult assignment from Loaded: that threw
+                // on windows realised with Show() and aborted the Tier 1 dialog
+                // suite on 2026-08-20/21 — see JJFlexDialog.CloseWithResult (#159).
+                CloseWithResult(false);
                 return;
             }
             NameListBox.ItemsSource = ScanNames;

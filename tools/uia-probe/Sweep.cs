@@ -235,6 +235,28 @@ internal static class Sweep
             Pid = o.Pid,
         };
 
+        try
+        {
+            return RunCore(o, report);
+        }
+        finally
+        {
+            // Read the original state first, restore it on the way out — in a
+            // finally so it restores when the run throws or aborts, and again
+            // from ProcessExit and Ctrl+C in Program.cs for the paths no finally
+            // survives. Before this (#173) a sweep that turned the capture on
+            // walked away from it: roughly 1 MB per minute for as long as
+            // nobody noticed, and on 2026-08-21 that was about 75 minutes and
+            // two archived sessions of 72.6 MB and 50.0 MB. A capture the
+            // OPERATOR started is never touched — the guard only arms when the
+            // sweep itself pressed the toggle.
+            CaptureGuard.RestoreIfArmed(msg => report.Notes.Add(msg));
+        }
+    }
+
+    private static SweepReport RunCore(SweepOptions o, SweepReport report)
+    {
+
         string appDir = o.AppDir ?? Inventory.AppDirOf(o.Pid)
             ?? throw new InvalidOperationException(
                 "could not work out the app directory for that process — pass --appdir");
@@ -373,6 +395,13 @@ internal static class Sweep
             }
             else if (o.StartCapture)
             {
+                // Armed BEFORE the press, not after confirmation: a crash or
+                // Ctrl+C inside the confirmation window below must still turn
+                // the capture off. The guard re-reads the state at restore
+                // time, so arming early cannot make it press a toggle whose
+                // capture never started (#173).
+                CaptureGuard.Arm(o.Pid, window, appDir, header.Instance);
+
                 report.Presses.Add(ctx.Measured("Ctrl+J, Ctrl+D", "start detailed capture", "preflight"));
 
                 // The toggle archives the old session and opens a FRESH file
@@ -438,6 +467,11 @@ internal static class Sweep
                 }
                 else if (confirmed == TraceLog.CaptureState.Off)
                 {
+                    // Nothing of ours is running, so there is nothing to
+                    // restore — and a blind press at exit could stop a capture
+                    // the operator restarts by hand in the meantime (#173).
+                    CaptureGuard.Disarm();
+
                     report.SpeechChannelVerified = false;
                     report.Notes.Add("Ctrl+J, Ctrl+D was pressed and a NEW session opened WITHOUT a capture — "
                         + "the toggle went the wrong direction, or the capture failed to start. If a capture was "

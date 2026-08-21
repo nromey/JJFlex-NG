@@ -19,8 +19,14 @@ namespace JJFlexWpf.Dialogs
         {
             if (StationNames == null || StationNames.Count == 0)
             {
-                DialogResult = false;
-                Close();
+                // Never a bare DialogResult assignment from Loaded: that threw
+                // on windows realised with Show() and aborted the Tier 1 dialog
+                // suite on 2026-08-20/21 — see JJFlexDialog.CloseWithResult (#159).
+                // Note this exit is SILENT — the window opens and vanishes with
+                // no explanation. Tolerable only because the caller is expected
+                // to guard; if that ever proves false, say why, the way
+                // SelectScanDialog announces "No scans were saved."
+                CloseWithResult(false);
                 return;
             }
             StationsList.ItemsSource = StationNames;

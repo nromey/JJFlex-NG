@@ -144,8 +144,12 @@ namespace JJFlexWpf.Dialogs
                     "Authentication Error",
                     $"The sign-in browser could not be started.\n\n{ex.Message}\n\n" +
                     "Make sure the WebView2 Runtime is installed.");
-                DialogResult = false;
-                Close();
+                // Never a bare DialogResult assignment from a Loaded path: that
+                // threw on windows realised with Show() and aborted the Tier 1
+                // dialog suite on 2026-08-20/21 — see JJFlexDialog.CloseWithResult
+                // (#159). Worse here: this handler is async, so the throw would
+                // surface as an unhandled dispatcher exception.
+                CloseWithResult(false);
             }
         }
 

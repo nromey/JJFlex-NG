@@ -41,26 +41,37 @@ public partial class ExportDialog : JJFlexDialog
         Loaded += ExportDialog_Loaded;
     }
 
+    // Early exits happen at Loaded on purpose: this is the WinForms
+    // ExportForm's Load-time flow carried over — bail out when there is no log
+    // to export, and treat cancelling the output picker as cancelling the
+    // export. What could NOT carry over is assigning DialogResult directly:
+    // in WPF that throws on any window not opened with ShowDialog(), and on
+    // 2026-08-20/21 exactly that throw, fired from here during realisation,
+    // aborted the Tier 1 dialog suite (#159). CloseWithResult is the guarded
+    // route that works under both Show() and ShowDialog().
     private void ExportDialog_Loaded(object sender, RoutedEventArgs e)
     {
         string logFile = GetLogFileName?.Invoke() ?? "";
         if (string.IsNullOrEmpty(logFile))
         {
-            MessageBox.Show("You must specify a log file.", "Export",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            DialogResult = false;
-            Close();
+            // Say WHY before vanishing. A dialog that opens and instantly
+            // closes with no explanation is a silent absence to a screen
+            // reader user — the honest guard in LogStats.ShowLogStats is the
+            // model. State the condition, not an instruction to the developer.
+            MessageBox.Show("There is no log file to export. Set up a log file first.",
+                "Export Log", MessageBoxButton.OK, MessageBoxImage.Warning);
+            CloseWithResult(false);
             return;
         }
 
         FromName.Text = logFile;
 
-        // Pick output file
+        // Pick output file. A cancelled picker needs no message: the operator
+        // just cancelled it themselves.
         _outputFile = PickOutputFile?.Invoke(logFile);
         if (string.IsNullOrEmpty(_outputFile))
         {
-            DialogResult = false;
-            Close();
+            CloseWithResult(false);
             return;
         }
 
@@ -75,13 +86,11 @@ public partial class ExportDialog : JJFlexDialog
 
         bool success = DoExport?.Invoke(_outputFile!) ?? false;
 
-        DialogResult = success;
-        Close();
+        CloseWithResult(success);
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
-        Close();
+        CloseWithResult(false);
     }
 }

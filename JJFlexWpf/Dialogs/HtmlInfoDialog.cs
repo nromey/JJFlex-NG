@@ -195,8 +195,13 @@ document.addEventListener('keydown', function (e) {
             // empty window.
             System.Diagnostics.Trace.WriteLine($"HtmlInfoDialog: WebView2 init failed: {ex.Message}");
             _initFailed = true;
-            if (DialogResult == null) DialogResult = false;
-            Close();
+            // Never a bare DialogResult assignment from a Loaded path: that
+            // threw on windows realised with Show() and aborted the Tier 1
+            // dialog suite on 2026-08-20/21 — see JJFlexDialog.CloseWithResult
+            // (#159). Worse here: this handler is async, so the throw would
+            // surface as an unhandled dispatcher exception.
+            if (DialogResult == null) CloseWithResult(false);
+            else Close();
         }
     }
 

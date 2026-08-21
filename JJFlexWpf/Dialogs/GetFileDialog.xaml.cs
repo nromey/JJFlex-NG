@@ -30,6 +30,10 @@ namespace JJFlexWpf.Dialogs
             Loaded += OnLoaded;
         }
 
+        // Early exits here go through CloseWithResult, never a bare
+        // DialogResult assignment: assigning from Loaded threw on windows
+        // realised with Show() and aborted the Tier 1 dialog suite on
+        // 2026-08-20/21 — see JJFlexDialog.CloseWithResult (#159).
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             bool selected = false;
@@ -47,8 +51,7 @@ namespace JJFlexWpf.Dialogs
 
                 if (ofd.ShowDialog() != true)
                 {
-                    DialogResult = false;
-                    Close();
+                    CloseWithResult(false);
                     return;
                 }
 
@@ -71,8 +74,7 @@ namespace JJFlexWpf.Dialogs
                 selected = true;
             }
 
-            DialogResult = true;
-            Close();
+            CloseWithResult(true);
         }
     }
 }

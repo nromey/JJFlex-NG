@@ -66,12 +66,33 @@ namespace JJFlexWpf
         {
             if (e.Key == Key.Escape)
             {
-                // DialogResult throws InvalidOperationException on non-modal windows (Show vs ShowDialog).
-                // ConnectingDialog is non-modal, so guard with try/catch.
-                try { DialogResult = false; } catch (InvalidOperationException) { }
-                Close();
+                CloseWithResult(false);
                 e.Handled = true;
             }
+        }
+
+        /// <summary>
+        /// Close the dialog, recording <paramref name="result"/> when the window
+        /// is modal and simply closing when it is not. Use this instead of
+        /// assigning <see cref="Window.DialogResult"/> directly.
+        ///
+        /// <para><b>Why it exists (#159).</b> WPF's DialogResult setter throws
+        /// InvalidOperationException on any window that was not opened with
+        /// ShowDialog(). A dialog cannot know how it was opened: ConnectingDialog
+        /// is legitimately shown non-modally, and the Tier 1 accessibility suite
+        /// realises every dialog with Show(). Several dialogs assigned
+        /// DialogResult from their Loaded handler as an early exit — a WinForms
+        /// idiom ported literally — and on 2026-08-20 and again on 2026-08-21
+        /// the resulting throw during window realisation aborted the whole
+        /// suite, the second time leaving Export Log and ATU Memories windows
+        /// stranded on the operator's screen mid-session. The try/catch is the
+        /// same guard the Escape handler above has carried since
+        /// ConnectingDialog went non-modal; this puts it in one named place.</para>
+        /// </summary>
+        protected void CloseWithResult(bool result)
+        {
+            try { DialogResult = result; } catch (InvalidOperationException) { }
+            Close();
         }
 
         /// <summary>
@@ -206,11 +227,12 @@ namespace JJFlexWpf
             okButton.Click += (s, e) =>
             {
                 onOk?.Invoke();
-                // If the onOk handler didn't set DialogResult, set it now
+                // If the onOk handler didn't set DialogResult, record it now.
+                // Via CloseWithResult, so a dialog realised with Show() closes
+                // instead of throwing — see that method's comment (#159).
                 if (DialogResult == null)
                 {
-                    DialogResult = true;
-                    Close();
+                    CloseWithResult(true);
                 }
             };
 
@@ -229,8 +251,7 @@ namespace JJFlexWpf
                 onCancel?.Invoke();
                 if (DialogResult == null)
                 {
-                    DialogResult = false;
-                    Close();
+                    CloseWithResult(false);
                 }
             };
 

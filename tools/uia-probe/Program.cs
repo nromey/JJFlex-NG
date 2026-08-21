@@ -19,8 +19,23 @@ internal static class Program
         // Whatever happens below — a crash, a Ctrl+C, an unhandled exception in
         // a UIA callback — modifiers come back up. A stuck Alt on a blind
         // operator's desktop is silent and makes every later keystroke wrong.
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => Native.ReleaseAllModifiers();
-        Console.CancelKeyPress += (_, _) => Native.ReleaseAllModifiers();
+        //
+        // The capture guard rides the same hooks for the same reason (#173): a
+        // detailed capture the sweep turned on and walked away from is the same
+        // category of mess as a stuck Alt, slower and measured in gigabytes —
+        // roughly 1 MB a minute, and the operator's ran about 75 minutes on
+        // 2026-08-21 before anyone noticed. Restore runs first because it may
+        // press the toggle chord, then modifiers come up behind it.
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            CaptureGuard.RestoreIfArmed(null);
+            Native.ReleaseAllModifiers();
+        };
+        Console.CancelKeyPress += (_, _) =>
+        {
+            CaptureGuard.RestoreIfArmed(null);
+            Native.ReleaseAllModifiers();
+        };
 
         // Reports quote what the app said, and the app speaks in prose with
         // em dashes and curly quotes in it. On the console's default code page
@@ -75,7 +90,10 @@ internal static class Program
     /// <para>Deliberately explicit rather than ambient. Everything else in this
     /// tool observes; only these two type. Marking the boundary in one place
     /// means the claim "the read-only commands cannot take your keyboard" is
-    /// checkable by reading four lines instead of auditing the whole program.</para>
+    /// checkable by reading four lines instead of auditing the whole program.
+    /// One codicil: <see cref="CaptureGuard"/> may press the capture toggle at
+    /// exit, and it can only have been armed from inside an armed sweep — it is
+    /// that sweep's cleanup, not a third typist.</para>
     /// </summary>
     private static int Armed(Func<Args, int> command, Args a)
     {

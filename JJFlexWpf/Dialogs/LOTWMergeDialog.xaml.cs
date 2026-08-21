@@ -48,6 +48,10 @@ namespace JJFlexWpf.Dialogs
             Closing += OnClosing;
         }
 
+        // Early exits here go through CloseWithResult, never a bare
+        // DialogResult assignment: assigning from Loaded threw on windows
+        // realised with Show() and aborted the Tier 1 dialog suite on
+        // 2026-08-20/21 — see JJFlexDialog.CloseWithResult (#159).
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             // Prompt for LOTW file
@@ -59,8 +63,7 @@ namespace JJFlexWpf.Dialogs
             };
             if (ofd.ShowDialog() != true)
             {
-                DialogResult = false;
-                Close();
+                CloseWithResult(false);
                 return;
             }
             _lotwFilePath = ofd.FileName;
@@ -71,8 +74,7 @@ namespace JJFlexWpf.Dialogs
             if (lotwError != null)
             {
                 MessageBox.Show(lotwError, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
-                DialogResult = false;
-                Close();
+                CloseWithResult(false);
                 return;
             }
 
@@ -81,8 +83,7 @@ namespace JJFlexWpf.Dialogs
             if (logError != null)
             {
                 MessageBox.Show(logError, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
-                DialogResult = false;
-                Close();
+                CloseWithResult(false);
                 return;
             }
 

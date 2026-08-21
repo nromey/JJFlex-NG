@@ -41,26 +41,31 @@ public partial class ImportDialog : JJFlexDialog
         Loaded += ImportDialog_Loaded;
     }
 
+    // ExportDialog's twin, including the bug it carried: the WinForms
+    // Load-time early exit assigned DialogResult directly, which in WPF throws
+    // on any window not opened with ShowDialog() and aborted the Tier 1 dialog
+    // suite on 2026-08-20/21 (#159). CloseWithResult is the guarded route; the
+    // message states the real condition so the operator hears WHY the window
+    // went away instead of experiencing a silent absence.
     private void ImportDialog_Loaded(object sender, RoutedEventArgs e)
     {
         string logFile = GetLogFileName?.Invoke() ?? "";
         if (string.IsNullOrEmpty(logFile))
         {
-            MessageBox.Show("You must specify a log file.", "Import",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            DialogResult = false;
-            Close();
+            MessageBox.Show("There is no log file to import into. Set up a log file first.",
+                "Import Log", MessageBoxButton.OK, MessageBoxImage.Warning);
+            CloseWithResult(false);
             return;
         }
 
         ToName.Text = logFile;
 
-        // Pick input file
+        // Pick input file. A cancelled picker needs no message: the operator
+        // just cancelled it themselves.
         _inputFile = PickInputFile?.Invoke(logFile);
         if (string.IsNullOrEmpty(_inputFile))
         {
-            DialogResult = false;
-            Close();
+            CloseWithResult(false);
             return;
         }
 
@@ -75,23 +80,17 @@ public partial class ImportDialog : JJFlexDialog
 
         bool success = DoImport?.Invoke(_inputFile!) ?? false;
 
-        if (success)
-        {
-            DialogResult = true;
-        }
-        else
+        if (!success)
         {
             MessageBox.Show("Import did not complete successfully.", "Import",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
-            DialogResult = false;
         }
 
-        Close();
+        CloseWithResult(success);
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
-        Close();
+        CloseWithResult(false);
     }
 }
