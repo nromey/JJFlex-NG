@@ -169,7 +169,64 @@ namespace JJTrace
 
         public override void WriteLine(string message)
         {
+            // ── The vendor frame-gap firehose, coalesced ────────────────────
+            //
+            // FlexLib's Panadapter.cs calls Debug.WriteLine("Expected frame N
+            // but got frame M") on every dropped FFT frame — unconditional, no
+            // trace level, and FlexLib_API is vendored so the call site cannot
+            // be touched. Measured 2026-08-21 (task #170): 66,653 of the
+            // 71,600 lines in one 22-minute Info-level session were this line —
+            // 96% of the standing log, at Info, where the meter stream never
+            // even fires. This listener is the one chokepoint we own that every
+            // such line passes through, so the coalescing lives here: one
+            // PanFrameGaps summary per second at most, carrying the count, the
+            // span, and the last raw line. The raw text is kept inside the
+            // summary on purpose — a grep for "Expected frame" still finds the
+            // evidence, it just finds one line instead of six hundred.
+            if (message != null
+                && message.StartsWith("Expected frame ", StringComparison.Ordinal)
+                && message.Contains("but got frame", StringComparison.Ordinal))
+            {
+                string summary = CoalesceFrameGap(message);
+                if (summary != null) Write(summary + Environment.NewLine);
+                return;
+            }
+
             Write(message + Environment.NewLine);
+        }
+
+        // Frame-gap coalescing state. Guarded by its own lock, taken only in
+        // WriteLine and always BEFORE _sync (via Write) — never the other way —
+        // so the listener's lock discipline is unchanged.
+        private readonly object _gapSync = new object();
+        private int _gapCount;
+        private int _gapWindowStart;
+
+        /// <summary>
+        /// Fold one vendor dropped-frame line into the running window. Returns
+        /// the summary to write when the window is at least a second old,
+        /// otherwise null. Emission is driven by arrival, like the meter
+        /// stream's: a burst emits once a second, and after a quiet stretch the
+        /// next gap line flushes the old window with its true span — so the
+        /// count is never lost, only the exact timing inside the window.
+        /// </summary>
+        private string CoalesceFrameGap(string rawLine)
+        {
+            const int WindowMs = 1000;
+            lock (_gapSync)
+            {
+                if (_gapCount == 0) _gapWindowStart = Environment.TickCount;
+                _gapCount++;
+
+                int elapsed = Environment.TickCount - _gapWindowStart;
+                if (elapsed < WindowMs) return null;
+
+                string summary = "PanFrameGaps: n=" + _gapCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + " over " + (elapsed / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)
+                    + "s last=\"" + rawLine + "\"";
+                _gapCount = 0;
+                return summary;
+            }
         }
 
         public override void Flush()

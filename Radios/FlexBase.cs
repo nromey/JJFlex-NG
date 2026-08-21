@@ -6642,7 +6642,19 @@ namespace Radios
             }
             if (myClient(p.ClientHandle))
             {
-                Tracing.TraceLine("panPropertyChanged:mine " + e.PropertyName, TraceLevel.Verbose);
+                // The FFT packet counters change on every dropped or received
+                // frame, so the blanket property-change line below traced them
+                // at packet rate: 30,277 "panPropertyChanged:mine
+                // FFTPacketErrorCount" lines in one 10 MB stretch of the
+                // 2026-08-21 capture, second only to the meter stream. A line
+                // saying "the packet counter changed" carries no information —
+                // the dropped-frame evidence is the coalesced PanFrameGaps
+                // summary the trace listener writes — so the two counters are
+                // excluded here and every other property still traces.
+                if (e.PropertyName != "FFTPacketErrorCount" && e.PropertyName != "FFTPacketTotalCount")
+                {
+                    Tracing.TraceLine("panPropertyChanged:mine " + e.PropertyName, TraceLevel.Verbose);
+                }
                 switch (e.PropertyName)
                 {
                     case "Bandwidth":
@@ -7633,7 +7645,7 @@ namespace Radios
 
         private void forwardPowerData(float data)
         {
-            Tracing.TraceLine("forwardPower:" + data.ToString(), TraceLevel.Verbose);
+            meterTrace.Report("forwardPower:", data);
             // The change guard here existed only to avoid re-raising
             // MeterChanged for a repeated value. With that event gone the
             // comparison decides nothing, so the assignment stands alone.
@@ -7646,7 +7658,7 @@ namespace Radios
 
         private void sWRData(float data)
         {
-            Tracing.TraceLine("SWRData:" + data.ToString(), TraceLevel.Verbose);
+            meterTrace.Report("SWRData:", data);
             _SWR = data;
         }
 
@@ -7668,13 +7680,13 @@ namespace Radios
             // then which of the two TX meters we managed to hook out of it.
             syncMeterInventory(); // cheap no-op unless the meter set has changed
             hookTxMeters(); // lazy: SC_MIC / SW ALC meters register late
-            Tracing.TraceLine("micData:" + data.ToString(), TraceLevel.Verbose);
+            meterTrace.Report("micData:", data);
         }
 
         internal float _MicPeakData;
         private void micPeakData(float data)
         {
-            Tracing.TraceLine("micPeakData:" + data.ToString(), TraceLevel.Verbose);
+            meterTrace.Report("micPeakData:", data);
             _MicPeakData = data;
         }
 
@@ -7684,7 +7696,7 @@ namespace Radios
 
         private void compPeakData(float data)
         {
-            Tracing.TraceLine("compPeakData:" + data.ToString(), TraceLevel.Verbose);
+            meterTrace.Report("compPeakData:", data);
             _CompPeakData = data;
         }
 
@@ -7701,7 +7713,7 @@ namespace Radios
         private void hwALCData(float data)
         {
             _ALC = data;
-            Tracing.TraceLine("hwALCData:" + data.ToString(), TraceLevel.Verbose);
+            meterTrace.Report("hwALCData:", data);
         }
 
         // --- Transmit-audio meters (2026-08-11) ------------------------------
@@ -7765,6 +7777,14 @@ namespace Radios
         // MeterToneEngine — their only consumer — had moved onto MeterData.
 
         private readonly object _meterHookLock = new object();
+
+        /// <summary>
+        /// The opt-in, once-a-second, min/max/last meter stream — task #170.
+        /// The eight per-packet meter handlers report through this instead of
+        /// tracing raw lines; see MeterTraceStream for the incident and the
+        /// measured numbers (49% of a 52 MB capture was these lines).
+        /// </summary>
+        private readonly MeterTraceStream meterTrace = new MeterTraceStream();
 
         /// <summary>Meters already subscribed, by object identity rather than
         /// index. A removed-then-re-added meter is a NEW Meter object that may
@@ -8138,7 +8158,7 @@ namespace Radios
 
         private void reflectedPowerData(float data)
         {
-            Tracing.TraceLine("reflectedPower:" + data.ToString(), TraceLevel.Verbose);
+            meterTrace.Report("reflectedPower:", data);
             _ReflectedPower = data;
         }
 
@@ -8166,12 +8186,19 @@ namespace Radios
         {
             private Slice s;
             private FlexBase parent;
+
+            // The channel key is built once here, not per reading: this handler
+            // runs at meter rate, and the whole point of MeterTraceStream's
+            // disabled fast path is that a reading costs one flag check — a
+            // string concatenation per packet would give that back.
+            private readonly string traceChannel;
+
             public void sMeterData(float data)
             {
                 // Only report for the active slice.
                 if (s.Active)
                 {
-                    Tracing.TraceLine("sMeterData:" + s.Index + ' ' + data.ToString(), TraceLevel.Verbose);
+                    parent.meterTrace.Report(traceChannel, data);
                     parent._SMeter = (int)data;
                 }
             }
@@ -8180,6 +8207,7 @@ namespace Radios
             {
                 parent = p;
                 s = slc;
+                traceChannel = "sMeterData:" + slc.Index;
             }
         }
 

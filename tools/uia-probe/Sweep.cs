@@ -311,9 +311,12 @@ internal static class Sweep
         // A key that never reaches the dispatcher and a key the dispatcher
         // rejects look identical without this channel, and telling them apart is
         // the entire point of the sweep.
-        var priming = TraceLog.ReadSince(traceLog!, Math.Max(0, TraceLog.Length(traceLog!) - 262144));
-        if (TraceLog.Routing(priming).Count == 0)
-            report.Notes.Add("No DoCommand or Leader lines in the last 256 KB of that log yet. The routing "
+        // Session-scoped, not byte-scoped: the 256 KB tail this used to read
+        // was a time window sized by the noisiest subsystem, and on 2026-08-21
+        // it hid DoCommand lines that were sitting 45 seconds into the session.
+        var (primingLines, primingScope) = TraceLog.SessionLines(traceLog!);
+        if (TraceLog.Routing(primingLines).Count == 0)
+            report.Notes.Add($"No DoCommand or Leader lines {primingScope} in that log yet. The routing "
                 + "channel may still be fine — the app may simply not have had a key pressed at it — but if "
                 + "results below are uniformly silent, suspect the channel before the key map.");
 

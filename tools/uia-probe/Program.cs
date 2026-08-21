@@ -424,11 +424,15 @@ Exit codes: 0 ok · 1 error · 2 usage · 3 pressed but never settled ·
             _ => "UNKNOWN — neither a CaptureState line nor a recognisable session opening",
         });
 
-        var recent = TraceLog.ReadSince(readFrom, Math.Max(0, TraceLog.Length(readFrom) - 262144));
-        int routing = TraceLog.Routing(recent).Count;
+        // Session-scoped, not byte-scoped. The old read took the last 256 KB
+        // and on 2026-08-21 answered "0" for a session whose DoCommand lines
+        // sat 45 seconds in — the firehose had pushed them out of the window,
+        // and the probe told the operator the opposite of the truth.
+        var (sessionLines, scope) = TraceLog.SessionLines(readFrom);
+        int routing = TraceLog.Routing(sessionLines).Count;
 
         Console.WriteLine($"  routing channel: {(routing > 0 ? "READABLE" : "no DoCommand or Leader lines yet")} "
-            + $"({routing} in the last 256 KB)");
+            + $"({routing} {scope})");
         Console.WriteLine($"  speech channel:  {(speechLive ? "LIVE" : "NOT LIVE — needs a detailed capture (Ctrl+J, Ctrl+D)")}");
         Console.WriteLine(speechLive || routing > 0
             ? "Good enough to sweep."

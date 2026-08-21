@@ -17,6 +17,12 @@ There are two detail levels:
 
 If you've used earlier versions of JJ Flexible, you may remember a Tracing dialog with five detail levels with names only a programmer could love. That dialog is retired. Two honest choices and a capture button replace it, and they cover everything the five levels did.
 
+## The meter stream — a bench-session switch
+
+Your radio streams meter readings continuously — mic level, SWR, forward and reflected power, ALC, the S-meter — many times a second, whether you're transmitting or just listening. **"Record the meter stream"** on the Diagnostics tab writes those readings into the log, summarized once a second per meter with the lowest, highest, and latest value in that second. Peaks survive the summary, which matters: a one-instant spike is exactly what transmit troubleshooting wants to see.
+
+Leave it off day to day — it's off by default. Turn it on when you're at the bench working a transmit-audio or SWR question, where those numbers are the whole point, and turn it off when you're done. (Earlier versions poured the raw stream into every Detailed log and capture, which is a big part of why those files grew so alarmingly fast. Now the meters are recorded only when you ask, and far more compactly.)
+
 ## Detailed capture — the "watch this" button
 
 A capture is for when you can make the problem happen. Start a capture, reproduce the problem, stop the capture — and everything the app did in between is recorded at maximum detail and saved as its own named session, separate from the everyday log.

@@ -1668,6 +1668,22 @@
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,8"
                                        Text="Records nearly everything the app does. Files grow fast. Use it when the developer asks, or use a detailed capture instead."/>
 
+                            <!-- Task #170 — the bench-session switch. The raw
+                                 per-packet meter lines used to ride along at
+                                 Detailed and drown everything else (25.7 MB of
+                                 one 52.4 MB capture); now the stream is opt-in
+                                 here, summarized to one line per meter per
+                                 second, and off by default. -->
+                            <CheckBox x:Name="DiagMeterStreamCheck"
+                                      Content="Record the meter stream (for bench sessions)"
+                                      Margin="0,4,0,4"
+                                      AutomationProperties.Name="Record the meter stream, for bench sessions"
+                   local:JJFlexHelp.Text="Writes the radio's live meter readings into the log — mic level, S W R, forward and reflected power, A L C, S meter — summarized once a second with the lowest, highest, and latest value, so peaks survive. Turn it on for a bench session where those numbers are the evidence; leave it off day to day, because it grows the log fast for readings nobody asked to keep."
+                                      Checked="DiagMeterStreamCheck_Changed"
+                                      Unchecked="DiagMeterStreamCheck_Changed"/>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,8"
+                                       Text="Writes the radio's live meter readings into the log, summarized once a second with lowest, highest, and latest, so peaks survive. Turn it on for a bench session; leave it off day to day."/>
+
                             <TextBlock x:Name="DiagPathText"
                                        TextWrapping="Wrap" Margin="0,4,0,6"
                                        Text="The live log location is not available."

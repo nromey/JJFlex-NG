@@ -31,9 +31,11 @@ namespace JJFlex.TxFactAudit
         /// load-bearing.</summary>
         public required DateTime StartedAt { get; init; }
 
-        /// <summary>The trace level the session booted at. Verbose is the one
-        /// that carries per-meter lines; Info carries only the correlated
-        /// transmit snapshot.</summary>
+        /// <summary>The trace level the session booted at. In traces from
+        /// before 2026-08-21 Verbose is the level that carried the raw
+        /// per-meter lines; since task #170 those lines follow the operator's
+        /// "Record the meter stream" switch instead and no level brings them
+        /// back. Every level carries the correlated transmit snapshot.</summary>
         public required string Level { get; init; }
 
         /// <summary>True for the fixed-name live log, which exists while the app

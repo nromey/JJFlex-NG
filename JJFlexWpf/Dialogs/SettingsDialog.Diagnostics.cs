@@ -105,6 +105,10 @@ namespace JJFlexWpf.Dialogs
                 DiagDetailNormalRadio.IsChecked = detail == 0;
                 DiagDetailDetailedRadio.IsChecked = detail == 1;
 
+                bool meterStream = false;
+                try { meterStream = DiagnosticsBridge.MeterStream?.Invoke() ?? false; } catch { }
+                DiagMeterStreamCheck.IsChecked = meterStream;
+
                 string live = SafeCall(DiagnosticsBridge.LiveLogPath);
                 string folder = SafeCall(DiagnosticsBridge.LogFolder);
                 if (!string.IsNullOrEmpty(live))
@@ -226,6 +230,25 @@ namespace JJFlexWpf.Dialogs
         {
             try { DiagnosticsBridge.ApplySettings?.Invoke(keep, detail); }
             catch { DiagnosticsBridge.Speak?.Invoke("That diagnostic setting could not be saved."); }
+        }
+
+        /// <summary>
+        /// The bench-session meter stream switch (task #170). Speaks what was
+        /// actually chosen and what it costs, both ways: "on" names the once-a-
+        /// second summary so the operator knows the log will not balloon the
+        /// way the old raw stream did, and "off" says the readings stop, so
+        /// meter lines ending mid-bench is never a mystery.
+        /// </summary>
+        private void DiagMeterStreamCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_diagSuppressEvents) return;
+            bool record = DiagMeterStreamCheck.IsChecked == true;
+            try { DiagnosticsBridge.ApplyMeterStream?.Invoke(record); }
+            catch { DiagnosticsBridge.Speak?.Invoke("That diagnostic setting could not be saved."); return; }
+
+            DiagnosticsBridge.Speak?.Invoke(record
+                ? "Meter stream recording on. Each meter is summarized into the log once a second, peaks included."
+                : "Meter stream recording off. The radio's meter readings are no longer written to the log.");
         }
 
         private void DiagCopyPathButton_Click(object sender, RoutedEventArgs e)

@@ -48,6 +48,14 @@ namespace JJFlexWpf
         /// <summary>Apply and persist (keepLog, detailLevel) immediately.</summary>
         public static Action<bool, int>? ApplySettings { get; set; }
 
+        /// <summary>The operator's standing "record the meter stream" choice —
+        /// the bench-session switch that puts the radio's continuous meter
+        /// readings into the log, coalesced (task #170).</summary>
+        public static Func<bool>? MeterStream { get; set; }
+
+        /// <summary>Apply and persist the meter stream choice immediately.</summary>
+        public static Action<bool>? ApplyMeterStream { get; set; }
+
         // StartLogAt / StopLog removed Sprint 31 (#103). They existed for the
         // retired trace dialog's "pick a file, pick a level, start" flow and
         // nothing else ever called them — not even that dialog, in the end,

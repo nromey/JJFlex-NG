@@ -30,9 +30,19 @@ Read the safety section before anything else.
 2. Jumpers: two if the amp goes in line, one otherwise. You said you have four
    or five.
 3. JJ Flexible running on a **fresh build**, connected to the radio.
-4. A detailed capture is **NOT** needed for most of this and actively hurts —
-   it writes roughly 700 KB per minute (#170). Individual tests say when to
-   turn it on.
+4. **TURN ON "Record the meter stream (for bench sessions)"** in Settings,
+   Diagnostics. This is new as of 2026-08-21 and **every test below depends on
+   it**. Per-meter lines are now OFF by default and a detailed capture alone
+   will NOT produce them — that was deliberate, because the old behaviour wrote
+   roughly 1 MB per minute and buried everything else (#170).
+
+   With the switch on you get one line per meter per second carrying **min, max,
+   last and sample count**, e.g. `micData: min=-120 max=-3.5 last=-18 n=42`.
+   Coalesced, not raw — but the **max** is preserved, which is what transmit
+   diagnosis actually cares about. Costs about 26 KB per minute.
+
+   If the meter lines are not appearing, check this switch before suspecting
+   anything else.
 
 ---
 

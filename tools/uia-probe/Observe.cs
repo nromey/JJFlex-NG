@@ -749,6 +749,164 @@ internal static class TraceLog
         catch (UnauthorizedAccessException) { return -1; }
     }
 
+    // ── Session-scoped reading (task #170, fix B) ────────────────────────
+    //
+    // Byte-scoped tail windows are banned from this class's consumers now,
+    // and the incident that banned them is worth keeping in full: on
+    // 2026-08-21 `jjprobe trace` reported "routing channel: no DoCommand or
+    // Leader lines yet (0 in the last 256 KB)" while a direct tail of the
+    // SAME file returned four DoCommand lines. They sat 41–45 seconds into
+    // the session; the log was already 562 KB; the firehose had pushed them
+    // out of the window; and the probe concluded "Not worth sweeping yet" —
+    // exactly backwards. A byte-scoped window is a time window whose duration
+    // is set by the noisiest subsystem. Nobody chose 256 KB to mean "about
+    // 40 seconds", but that is what it meant that morning.
+    //
+    // The replacement scope is the SESSION, which since the CaptureState work
+    // is congruent with the FILE: every log transition (capture start/stop,
+    // resume, settings change) archives the old session's file away and opens
+    // a fresh one under the live name, so reading a live log from offset zero
+    // IS reading from the start of the current session. Mid-session size
+    // rotation can move early bytes into a part file, in which case offset
+    // zero is still every session byte that remains under the live name.
+
+    /// <summary>
+    /// Lines of the current session, streamed lazily so a caller counting
+    /// matches never holds a 50 MB session in memory. Whole session by
+    /// default; a genuinely enormous file (the 2026-08-07 marathon left an
+    /// 11.7 GB one) is capped by TIME, not bytes — the tick prefix every app
+    /// line carries locates the tail window — and <c>Scope</c> says exactly
+    /// which of the two a report is claiming.
+    /// </summary>
+    public static (IEnumerable<string> Lines, string Scope) SessionLines(string path)
+    {
+        // Generous on purpose: streaming 128 MB takes a moment and lies to
+        // nobody. Only past this does the time cap start trimming, because a
+        // multi-gigabyte linear scan makes the probe a tool nobody runs twice.
+        const long wholeSessionCap = 128 * 1024 * 1024;
+        TimeSpan window = TimeSpan.FromMinutes(30);
+
+        long len = Length(path);
+        if (len < 0) return (Enumerable.Empty<string>(), "this session (unreadable)");
+        if (len <= wholeSessionCap) return (StreamSession(path, 0), "this session");
+
+        long offset = SessionTailOffset(path, window);
+        if (offset <= 0) return (StreamSession(path, 0), "this session");
+        return (StreamSession(path, offset),
+            $"in about the last {(int)window.TotalMinutes} minutes of a {len / (1024 * 1024)} MB session");
+    }
+
+    /// <summary>
+    /// Stream a file's lines from <paramref name="fromOffset"/>, sharing the
+    /// file so the live log can be read while the app holds it open — the
+    /// same sharing every reader in this class uses, because File.ReadLines
+    /// opens FileShare.Read and loses a race with the writer.
+    /// </summary>
+    public static IEnumerable<string> StreamSession(string path, long fromOffset)
+    {
+        FileStream? fs = null;
+        StreamReader? reader = null;
+        try
+        {
+            fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            if (fromOffset > 0 && fromOffset <= fs.Length) fs.Seek(fromOffset, SeekOrigin.Begin);
+            reader = new StreamReader(fs, Encoding.UTF8);
+        }
+        catch (IOException) { reader?.Dispose(); fs?.Dispose(); yield break; }
+        catch (UnauthorizedAccessException) { reader?.Dispose(); fs?.Dispose(); yield break; }
+
+        using (reader)
+        {
+            while (true)
+            {
+                string? line = null;
+                try { line = reader.ReadLine(); }
+                catch (IOException) { }
+                if (line == null) yield break;
+                yield return line;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Byte offset where roughly the last <paramref name="window"/> of an
+    /// enormous session begins, found by binary-searching the millisecond
+    /// tick prefix the app stamps on every line. NOTE the prefix is
+    /// milliseconds since the PROCESS started, not the session or the wall
+    /// clock — a grep for HH:MM:SS matches nothing in these files, which is
+    /// its own silent-absence trap and caught a session on 2026-08-21. Only
+    /// differences between ticks mean anything, and differences are all this
+    /// needs. Vendor lines (FlexLib's Debug.WriteLine output) carry no tick;
+    /// the probe just reads past them to the next stamped line.
+    /// </summary>
+    internal static long SessionTailOffset(string path, TimeSpan window)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            long len = fs.Length;
+
+            long? lastTick = TickNear(fs, Math.Max(0, len - 64 * 1024), len, last: true);
+            if (lastTick == null) return 0;
+            long cutoff = lastTick.Value - (long)window.TotalMilliseconds;
+
+            long? firstTick = TickNear(fs, 0, Math.Min(len, 64 * 1024), last: false);
+            if (firstTick == null || firstTick.Value >= cutoff) return 0;
+
+            long lo = 0, hi = len;
+            while (hi - lo > 64 * 1024)
+            {
+                long mid = lo + (hi - lo) / 2;
+                long? tick = TickNear(fs, mid, Math.Min(len, mid + 64 * 1024), last: false);
+                if (tick == null) { lo = mid; continue; } // unstampable region: move forward
+                if (tick.Value >= cutoff) hi = mid; else lo = mid;
+            }
+            return lo;
+        }
+        catch (IOException) { return 0; }
+        catch (UnauthorizedAccessException) { return 0; }
+    }
+
+    /// <summary>First (or last) parseable tick prefix on a line boundary in
+    /// [from, to) of an open stream, or null when the region has none.</summary>
+    private static long? TickNear(FileStream fs, long from, long to, bool last)
+    {
+        int size = (int)Math.Min(to - from, 64 * 1024);
+        if (size <= 0) return null;
+        fs.Seek(from, SeekOrigin.Begin);
+        var buf = new byte[size];
+        int n = fs.Read(buf, 0, size);
+        string chunk = Encoding.UTF8.GetString(buf, 0, n);
+
+        long? found = null;
+        int at = 0;
+        if (from != 0)
+        {
+            // A mid-file probe almost always lands inside a line; the first
+            // newline is where honest parsing can start.
+            int firstNl = chunk.IndexOf('\n');
+            if (firstNl < 0) return null;
+            at = firstNl + 1;
+        }
+        while (at < chunk.Length)
+        {
+            int end = at;
+            while (end < chunk.Length && chunk[end] >= '0' && chunk[end] <= '9') end++;
+            if (end > at && end < chunk.Length && chunk[end] == ' '
+                && long.TryParse(chunk[at..end], out long tick))
+            {
+                found = tick;
+                if (!last) return found;
+            }
+            int next = chunk.IndexOf('\n', at);
+            if (next < 0) break;
+            at = next + 1;
+        }
+        return found;
+    }
+
     /// <summary>Read everything appended since <paramref name="fromOffset"/>.</summary>
     public static List<string> ReadSince(string path, long fromOffset)
     {

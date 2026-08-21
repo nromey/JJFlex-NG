@@ -62,6 +62,19 @@ namespace Radios
         public DiagnosticDetail DetailLevel { get; set; } = DiagnosticDetail.Normal;
 
         /// <summary>
+        /// Record the radio's continuous meter stream into the diagnostic log —
+        /// mic level, SWR, forward and reflected power, ALC, S-meter — as one
+        /// min/max/last summary line per meter per second (see
+        /// MeterTraceStream). Off by default, deliberately: the raw stream was
+        /// measured at 25.7 MB of one 52.4 MB capture on 2026-08-21 (task
+        /// #170), and its volume was pushing every other line out of any
+        /// tail-window a log reader used. Turn it on from Settings →
+        /// Diagnostics for a bench session, where these values are exactly the
+        /// evidence wanted and file size is nobody's problem.
+        /// </summary>
+        public bool RecordMeterStream { get; set; } = false;
+
+        /// <summary>
         /// How many crash reports to keep in %AppData%\JJFlexRadio\Errors.
         ///
         /// The count matters more than the age here: a full-memory dump runs

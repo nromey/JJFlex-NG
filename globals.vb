@@ -457,6 +457,8 @@ Module globals
             JJFlexWpf.DiagnosticsBridge.StopCapture = Sub() StopDetailedCapture()
             JJFlexWpf.DiagnosticsBridge.ApplySettings =
                 Sub(keep, detail) ApplyDiagnosticLogSettings(keep, CType(detail, Radios.DiagnosticDetail))
+            JJFlexWpf.DiagnosticsBridge.MeterStream = Function() DiagnosticsSettings.RecordMeterStream
+            JJFlexWpf.DiagnosticsBridge.ApplyMeterStream = Sub(record) ApplyMeterStreamSetting(record)
             JJFlexWpf.DiagnosticsBridge.LiveLogPath =
                 Function() If(Tracing.TraceFile, If(BootTrace, BootTraceFileName, String.Empty))
             JJFlexWpf.DiagnosticsBridge.LogFolder = Function() BaseConfigDir
@@ -753,6 +755,35 @@ Module globals
             Tracing.ErrTraceOnly(ex)
         End Try
 
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
+    ''' <summary>
+    ''' Apply a changed "record the meter stream" choice immediately and persist
+    ''' it — same intent semantics as ApplyDiagnosticLogSettings, separate sub
+    ''' because it governs a different thing: not how much the app records about
+    ''' ITSELF, but whether the radio's continuous meter readings go into the
+    ''' log at all (coalesced, one line per meter per second — MeterTraceStream
+    ''' holds the design and the 2026-08-21 numbers that forced it).
+    '''
+    ''' The transition is traced unconditionally, in both directions: a reader
+    ''' of the file needs to know that meter lines stopping mid-session means
+    ''' the operator turned them off, not that the meters died.
+    ''' </summary>
+    Friend Sub ApplyMeterStreamSetting(record As Boolean)
+        DiagnosticsSettings.RecordMeterStream = record
+        Radios.MeterTraceStream.Enabled = record
+        If Not DiagnosticsSettings.Save(BaseConfigDir) Then
+            Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
+                "Your meter stream setting could not be saved",
+                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "Something stopped the settings file from being written.")
+        End If
+        Try
+            Tracing.TraceLine("MeterStream: recording=" & If(record, "on", "off"))
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
         RaiseDiagnosticLogStateChanged()
     End Sub
 
@@ -1515,6 +1546,11 @@ Module globals
         ' could never govern boot. Absent file = defaults = exactly the previous
         ' behaviour, so upgrading changes nobody's experience.
         DiagnosticsSettings = Radios.DiagnosticsConfig.Load(BaseConfigDir)
+        ' The meter stream flag rides with the settings load: the flag lives as
+        ' a static in Radios (FlexBase's handlers read it at meter rate on
+        ' FlexLib's packet thread) and this is the one place boot knows what the
+        ' operator chose. Off by default — see DiagnosticsConfig.RecordMeterStream.
+        Radios.MeterTraceStream.Enabled = DiagnosticsSettings.RecordMeterStream
         WireDiagnosticsBridge()
 
         ' The debugger guard stays an AND-term: attach-time behaviour is

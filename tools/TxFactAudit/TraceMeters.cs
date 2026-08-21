@@ -44,9 +44,14 @@ namespace JJFlex.TxFactAudit
     /// <c>traceTxMeters</c> opens with <c>if (!Transmit) return;</c>, so there
     /// are NO lines while receiving — an absence of lines means no transmission
     /// was traced, and reporting that as "the meters are unreadable" would be
-    /// its own fabricated fact. And at the default Info level only this
-    /// correlated line exists; SWR, the codec MIC meter and HWALC are traced at
-    /// Verbose, which is what the Detailed diagnostic capture turns on.</para>
+    /// its own fabricated fact. And the per-meter lines exist only when the
+    /// operator has turned on "Record the meter stream" on Settings →
+    /// Diagnostics (task #170) — no trace level brings them back, because
+    /// their raw form was measured at half of a 52 MB capture and made
+    /// opt-in. When the switch is on they arrive COALESCED, one line per
+    /// meter per second: <c>micData: min=-120 max=-118.4 last=-119 n=34</c>.
+    /// Traces from before 2026-08-21 carry the raw per-packet form
+    /// (<c>micData:-120</c>) at Verbose; this reader parses both.</para>
     /// </summary>
     public static class TraceMeters
     {
@@ -54,9 +59,10 @@ namespace JJFlex.TxFactAudit
             @"^(?<tick>\d+)\s+\[[^\]]*\]\s+txMeters:\s+SC_MIC=(?<sc>-?[\d.]+)\s+\(peak\s+(?<peak>-?[\d.]+)\)\s+SWALC=(?<alc>-?[\d.]+)\s+fwd=(?<fwd>-?[\d.]+)\s+dBm",
             RegexOptions.Compiled);
 
-        /// <summary>The per-meter lines that only exist at Verbose. Named here
-        /// so a run that has them can say so and a run that does not can say
-        /// which level it would need.</summary>
+        /// <summary>The per-meter lines that only exist while meter-stream
+        /// recording is on (raw at Verbose in pre-2026-08-21 traces). Named
+        /// here so a run that has them can say so and a run that does not can
+        /// say which switch it would need.</summary>
         private static readonly (string Key, string Meter)[] VerboseMeters =
         {
             ("micData:", "MIC — the analog codec path"),
@@ -71,6 +77,14 @@ namespace JJFlex.TxFactAudit
             @"\]\s+(?<key>micData|micPeakData|compPeakData|SWRData|forwardPower|hwALCData):\s*(?<v>-?[\d.]+)",
             RegexOptions.Compiled);
 
+        /// <summary>The coalesced form MeterTraceStream writes since 2026-08-21:
+        /// one line per meter per second, min/max/last plus the sample count.
+        /// The format is a contract with Radios/MeterTraceStream.cs — change
+        /// either side only in step with the other.</summary>
+        private static readonly Regex CoalescedValue = new(
+            @"\]\s+(?<key>micData|micPeakData|compPeakData|SWRData|forwardPower|hwALCData):\s+min=(?<min>-?[\d.]+)\s+max=(?<max>-?[\d.]+)\s+last=(?<last>-?[\d.]+)\s+n=(?<n>\d+)",
+            RegexOptions.Compiled);
+
         /// <summary>What one trace had to say about the transmit meters.</summary>
         public sealed class Reading
         {
@@ -79,7 +93,28 @@ namespace JJFlex.TxFactAudit
             public Dictionary<string, List<double>> VerboseSamples { get; } =
                 new(StringComparer.OrdinalIgnoreCase);
 
+            /// <summary>Underlying readings per meter, which is NOT the sample
+            /// list's count once coalesced lines are involved: one coalesced
+            /// line contributes min, max and last to the sample list but
+            /// carries <c>n</c> raw readings. This holds the honest total.</summary>
+            public Dictionary<string, long> ReadingCounts { get; } =
+                new(StringComparer.OrdinalIgnoreCase);
+
             public bool AnyTransmission => TxLines.Count > 0;
+
+            internal void AddSample(string key, double value, long readings)
+            {
+                if (!VerboseSamples.TryGetValue(key, out List<double>? samples))
+                {
+                    samples = new List<double>();
+                    VerboseSamples[key] = samples;
+                }
+                samples.Add(value);
+                ReadingCounts.TryGetValue(key, out long total);
+                // Min/max/last from one coalesced line are three views of the
+                // same n readings — count them once, on the call that says so.
+                if (readings > 0) ReadingCounts[key] = total + readings;
+            }
         }
 
         /// <summary>
@@ -109,16 +144,24 @@ namespace JJFlex.TxFactAudit
                     continue;
                 }
 
+                // Coalesced first (the format the app writes now); the raw
+                // per-packet form still parses because archived traces are
+                // full of it and this tool reads archives.
+                Match c = CoalescedValue.Match(line);
+                if (c.Success)
+                {
+                    string key = c.Groups["key"].Value;
+                    long n = long.TryParse(c.Groups["n"].Value, out long parsed) ? parsed : 1;
+                    result.AddSample(key, Num(c.Groups["min"].Value), n);
+                    result.AddSample(key, Num(c.Groups["max"].Value), 0);
+                    result.AddSample(key, Num(c.Groups["last"].Value), 0);
+                    continue;
+                }
+
                 Match v = VerboseValue.Match(line);
                 if (v.Success)
                 {
-                    string key = v.Groups["key"].Value;
-                    if (!result.VerboseSamples.TryGetValue(key, out List<double>? samples))
-                    {
-                        samples = new List<double>();
-                        result.VerboseSamples[key] = samples;
-                    }
-                    samples.Add(Num(v.Groups["v"].Value));
+                    result.AddSample(v.Groups["key"].Value, Num(v.Groups["v"].Value), 1);
                 }
             }
 
@@ -192,13 +235,15 @@ namespace JJFlex.TxFactAudit
                 }
             }
 
-            write("Per-meter lines, which exist only at Verbose:");
+            write("Per-meter lines, which exist only while meter-stream recording is on:");
             if (r.VerboseSamples.Count == 0)
             {
-                write($"  none. This session booted at level {session.Level}.");
-                write("  SWR, the codec MIC meter and HWALC are traced at Verbose and are simply not in");
-                write("  this file. That is a gap in the CAPTURE, not a finding about those meters —");
-                write("  start a Detailed diagnostic capture before transmitting to get them.");
+                write("  none. SWR, the codec MIC meter and HWALC reach the trace only when the operator");
+                write("  has turned on 'Record the meter stream' on Settings > Diagnostics — since task");
+                write("  #170 no trace level brings them back, and a Detailed capture alone is NOT enough");
+                write("  any more. That is a gap in the RECORDING, not a finding about those meters —");
+                write("  turn the switch on before the bench run to get them. (Traces from before");
+                write($"  2026-08-21 carried them at Verbose instead; this session booted at level {session.Level}.)");
             }
             else
             {
@@ -207,7 +252,12 @@ namespace JJFlex.TxFactAudit
                     string name = key.TrimEnd(':');
                     if (r.VerboseSamples.TryGetValue(name, out List<double>? samples) && samples.Count > 0)
                     {
-                        write($"  {meter}: {samples.Count} readings, "
+                        // The reading count and the sample-list length diverge
+                        // on coalesced traces: each line is three samples but n
+                        // readings. Report readings — that is what happened at
+                        // the radio.
+                        long readings = r.ReadingCounts.TryGetValue(name, out long n) ? n : samples.Count;
+                        write($"  {meter}: {readings} readings, "
                               + $"lowest {samples.Min():0.##}, highest {samples.Max():0.##}, "
                               + $"last {samples[^1]:0.##}.");
                     }
