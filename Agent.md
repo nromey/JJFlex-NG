@@ -11,11 +11,53 @@ This document captures the current state of JJ-Flex repository and active work.
 
 ## END-OF-DAY SEAL — 2026-08-20 — THE DAY EVERYTHING REPORTED SUCCESS
 
-*Sprint 33 (`barefoot-harness-pileup`) planned, executed across ELEVEN tracks,
-and merged. On `sprint33/track-a`: **75 commits today, 113 files,
-+19,367/−205** against the `honest-tx-audio` base at `ff6a80ee`. Build clean,
-`Radios.Tests` 223 passed / 0 failed. Merge had one real conflict (F×K, two
-files, both additive). `honest-tx-audio` itself took 15 commits.*
+*Sprint 33 (`barefoot-harness-pileup`) planned and executed across ELEVEN tracks.
+**NINE merged into `sprint33/track-a`; Tracks D and G did NOT — see the
+correction immediately below, found during this seal.** On `sprint33/track-a`:
+**75 commits today, 113 files, +19,367/−205** against the `honest-tx-audio` base
+at `ff6a80ee`. Build clean on what IS merged, `Radios.Tests` 223 passed / 0
+failed. The one real merge conflict was F×K, two files, both additive.
+`honest-tx-audio` itself took 15 commits. All eleven track branches are pushed
+to origin.*
+
+### CORRECTION, found while sealing: two tracks were never merged
+
+**I stated during the day that all tracks were merged. That was wrong**, and I
+had already written it into this entry, the AAR, and the pushed seal commit
+before the check caught it. The check that caught it was a `merge-base
+--is-ancestor` sweep of every track branch against `track-a` — which is now a
+mandatory step, because a clean `git merge` of nine branches tells you nothing
+about the two you never ran.
+
+`sprint33/track-d` has **11 commits and 3,085 insertions** absent from track-a,
+and `sprint33/track-g` has **4 commits and 442 insertions**. Their *first*
+commits are missing too, so these were never merged at all — not merged-then-
+advanced.
+
+**This matters more than a normal miss, because Track D holds several of the
+findings reported tonight as delivered work:**
+
+- `Radios/ChainChecks/TxChainFacts.cs` (+198) — **the seven ungated facts fix**
+- `Radios/MeterInventory.cs` (+59) — the meter-list-is-a-moment work
+- `Radios/ChainChecks/DiagnosticFact.cs`, `JJFlexWpf/MeterToneEngine.cs`
+- **`Radios.Tests/ChainAnalyzerTests.cs` (+124) and
+  `Radios.Tests/ForwardPowerUnitsTests.cs` (+107)** — so **the "223 passed"
+  figure never included these two files**. They have never run.
+- `tools/TxFactAudit/` — an entire new tool, ~2,400 lines across five files
+- Commits settling #139 and the nickname-limit findings
+
+Track G's absent work: `FlexLib_API/FlexLib/Radio.cs` (+42),
+`TXRemoteAudioStream.cs` (+18), `Radios/FlexBase.cs` (+66), `MIGRATION.md`,
+and the upstream TX-compression report.
+
+**Nothing is lost — all eleven branches were pushed to origin during the seal.**
+No merge was attempted tonight: 3,500 lines across two tracks, one of which
+touches vendored FlexLib, is not a thing to start at the end of a day.
+
+**This is the day's own theme landing on me.** I reported a merge as complete
+without verifying containment, which is exactly the ack-is-not-a-measurement
+defect catalogued below. Nine successful merges reported success for the whole
+operation.
 
 **Theme: silent success — the failure class where a thing reports it worked and
 did not.** This was the sprint's stated theme and it kept turning up unbidden,
@@ -154,8 +196,19 @@ are **not** on — is #160.
 
 ### Setup for tomorrow
 
-1. **`sprint33/track-a` is NOT merged to `honest-tx-audio` yet.** That is the
-   first decision tomorrow.
+1. **FIRST: merge `sprint33/track-d` and `sprint33/track-g` into
+   `sprint33/track-a`.** They were never merged (see the correction above).
+   Track D is 3,085 insertions including the ungated-facts fix and two test
+   files that have never run; Track G is 442 insertions touching vendored
+   FlexLib, so re-check the TLS wrapper per `MIGRATION.md` after it lands.
+   Build after each merge — a clean merge is not evidence the result compiles —
+   and re-run `Radios.Tests`, which should climb above 223 once D's two test
+   files are present.
+2. **THEN decide whether `sprint33/track-a` merges to `honest-tx-audio`.** Not
+   before D and G are in, or the branch ships incomplete.
+3. **Re-run the containment sweep after any multi-track merge** —
+   `git merge-base --is-ancestor <track> HEAD` for every track. That is what
+   caught tonight's gap and nothing else would have.
 2. **CW vocabulary as a grammar (#161)** before it grows further, and the
    **keyed dictionary per channel (#162)** — speech, CW, braille, haptics. Noel
    ratified the shape: subject before value, every channel; braille may be
