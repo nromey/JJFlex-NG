@@ -3553,9 +3553,29 @@ public partial class MainWindow : UserControl
                 });
             }
 
-            // MultiFlex client connect/disconnect earcons
-            Radios.ScreenReaderOutput.PlayClientConnectedEarcon = () => EarconPlayer.PlayChirp(600, 900, 120, 0.2f);
-            Radios.ScreenReaderOutput.PlayClientDisconnectedEarcon = () => EarconPlayer.PlayChirp(900, 600, 120, 0.2f);
+            // MultiFlex client connect/disconnect earcons. These bypass the
+            // EarconCategory gates (direct chirps), so the #171 transcript
+            // record happens here, where the earcon's identity is known.
+            Radios.ScreenReaderOutput.PlayClientConnectedEarcon = () =>
+            {
+                if (Radios.OutputChannelRecorder.RecordEnabled)
+                    Radios.OutputChannelRecorder.RecordEarcon(
+                        "ClientConnectedEarcon", "ungated", true,
+                        EarconPlayer.EarconsEnabled && EarconPlayer.AlertChannelLive
+                            && Radios.OutputChannelRecorder.RenderEnabled,
+                        600, 120, detail: "chirp to 900Hz");
+                EarconPlayer.PlayChirp(600, 900, 120, 0.2f);
+            };
+            Radios.ScreenReaderOutput.PlayClientDisconnectedEarcon = () =>
+            {
+                if (Radios.OutputChannelRecorder.RecordEnabled)
+                    Radios.OutputChannelRecorder.RecordEarcon(
+                        "ClientDisconnectedEarcon", "ungated", true,
+                        EarconPlayer.EarconsEnabled && EarconPlayer.AlertChannelLive
+                            && Radios.OutputChannelRecorder.RenderEnabled,
+                        900, 120, detail: "chirp to 600Hz");
+                EarconPlayer.PlayChirp(900, 600, 120, 0.2f);
+            };
 
             // Warning alarm, for the radio layer's unprompted warnings (#111)
             Radios.ScreenReaderOutput.PlayWarningAlarmEarcon = () => EarconPlayer.WarningAlarmTone();

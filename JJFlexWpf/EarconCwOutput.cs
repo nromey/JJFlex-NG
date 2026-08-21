@@ -183,6 +183,19 @@ namespace JJFlexWpf
                 return;
             }
 
+            // #171 silent verification channel: with render off there is no
+            // mixer and nothing to hear, so don't burn wall-clock time pacing
+            // a waveform that doesn't exist - a 20 WPM prosign is ~1.5 s per
+            // event, which is exactly the settle-window tax the silent channel
+            // exists to kill. The notification was already recorded at the
+            // MorseNotifier level. (When render is ON but earcons are gated
+            // off, the wait still runs - production timing is untouched.)
+            if (!Radios.OutputChannelRecorder.RenderEnabled)
+            {
+                item.Completion.TrySetResult();
+                return;
+            }
+
             int totalMs = 0;
             var providers = new List<ISampleProvider>(item.Elements.Count);
             int sr = EarconPlayer.MixerSampleRate;

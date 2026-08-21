@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using JJTrace;
 
@@ -84,6 +86,28 @@ namespace Radios
         {
             if (_initialized) return;
 
+            // #171 silent verification channel: with render off, Prism is never
+            // loaded - no native DLL, no screen reader hookup, nothing that can
+            // sound or steal the operator's reader. The DivertedScreenReader
+            // reports HasSpeech=true so every policy layer above the backend
+            // runs exactly as production; only the hand-off goes nowhere.
+            if (!OutputChannelRecorder.RenderEnabled)
+            {
+                _backend = new Speech.DivertedScreenReader();
+                _available = true;
+                _screenReaderName = null;
+                _initialized = true;
+                Tracing.TraceLine(
+                    "ScreenReaderOutput: render disabled - Prism not loaded, speech diverted to transcript",
+                    TraceLevel.Info);
+                if (OutputChannelRecorder.RecordEnabled)
+                {
+                    OutputChannelRecorder.RecordSpeechBackend(
+                        _backend.BackendName, null, "diverted", true, false);
+                }
+                return;
+            }
+
             try
             {
                 // Backend selection lives in the factory. Everything above this
@@ -92,6 +116,18 @@ namespace Radios
                 _backend = Speech.ScreenReaderFactory.Create();
                 _available = _backend.HasSpeech;
                 _screenReaderName = _backend.DetectedReader;
+
+                // The transcript gets the backend and TIER because they are
+                // materially different outcomes to assert on: "spoke via NVDA"
+                // and "spoke via the fallback synthesiser" sound similar right
+                // up until two voices collide - and backend "none" with render
+                // on is the app-cannot-talk deployment failure.
+                if (OutputChannelRecorder.RecordEnabled)
+                {
+                    OutputChannelRecorder.RecordSpeechBackend(
+                        _backend.BackendName, _screenReaderName, Tier.ToString(),
+                        _available, _backend.HasBraille);
+                }
 
                 Tracing.TraceLine(
                     $"ScreenReaderOutput: {_backend.BackendName} backend, reader "
@@ -113,13 +149,15 @@ namespace Radios
         }
 
         /// <summary>
-        /// Speak a message through the active screen reader.
-        /// </summary>
-        /// <param name="message">The message to speak</param>
-        /// <param name="interrupt">If true, interrupts any current speech</param>
-        /// <summary>
-        /// When true, Speak() calls are silently dropped. Used during menu transitions
-        /// to prevent NVDA stutter from focus change events.
+        /// When true, Speak() calls are not sounded. Since the #171 recorded
+        /// channel landed, "suppressed" means DIVERTED, not dropped: when a
+        /// transcript is open the message is still recorded (with
+        /// <c>suppressed: true</c>) so a test can see it fired. Used during
+        /// menu transitions to prevent NVDA stutter from focus change events.
+        /// Note this is distinct from FlexBase.SuppressSpeech, an instance
+        /// flag that guards call sites BEFORE Speak() - those messages
+        /// genuinely never fire (background connection tests) and never reach
+        /// the transcript.
         /// </summary>
         public static bool SuppressSpeech { get; set; }
 
@@ -203,6 +241,8 @@ namespace Radios
 
             /// <summary>See the repeatWhileHeld parameter on Speak.</summary>
             public bool RepeatWhileHeld;
+            /// <summary>Call site of the newest value, for the transcript.</summary>
+            public string? Origin;
             public System.Threading.Timer? Timer;
         }
 
@@ -240,10 +280,21 @@ namespace Radios
             Speech.SpeechIntent intent,
             VerbosityLevel level = VerbosityLevel.Terse,
             string? coalesceKey = null,
-            bool repeatWhileHeld = false)
+            bool repeatWhileHeld = false,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
         {
             if (string.IsNullOrEmpty(message)) return;
-            if ((int)level > (int)CurrentVerbosity) return;
+            string origin = FormatOrigin(callerFile, callerLine, callerMember);
+            if ((int)level > (int)CurrentVerbosity)
+            {
+                // Recorded rather than vanishing: "fired but the verbosity
+                // filter dropped it" and "never fired" sound identical (like
+                // nothing) and need different fixes.
+                RecordGated(message, level, intent, origin);
+                return;
+            }
 
             switch (intent)
             {
@@ -252,7 +303,7 @@ namespace Radios
                     // stale can play on top of a transmit warning.
                     DiscardPending();
                     try { _backend?.Silence(); } catch { }
-                    Emit(message, interrupt: true);
+                    Emit(message, interrupt: true, intent, level, origin);
                     return;
 
                 case Speech.SpeechIntent.Latest:
@@ -262,18 +313,18 @@ namespace Radios
                             $"ScreenReaderOutput: Latest without a coalesce key - "
                             + $"treating as Interrupt: '{message}'",
                             TraceLevel.Warning);
-                        Emit(message, interrupt: true);
+                        Emit(message, interrupt: true, intent, level, origin);
                         return;
                     }
-                    Coalesce(coalesceKey!, message, level, repeatWhileHeld);
+                    Coalesce(coalesceKey!, message, level, repeatWhileHeld, origin);
                     return;
 
                 case Speech.SpeechIntent.Queue:
-                    Emit(message, interrupt: false);
+                    Emit(message, interrupt: false, intent, level, origin);
                     return;
 
                 default:
-                    Emit(message, interrupt: true);
+                    Emit(message, interrupt: true, intent, level, origin);
                     return;
             }
         }
@@ -298,7 +349,8 @@ namespace Radios
         /// reader we cannot take it back.
         /// </summary>
         private static void Coalesce(
-            string key, string message, VerbosityLevel level, bool repeatWhileHeld = false)
+            string key, string message, VerbosityLevel level, bool repeatWhileHeld = false,
+            string? origin = null)
         {
             lock (_pendingLock)
             {
@@ -307,6 +359,7 @@ namespace Radios
                     existing.Message = message;
                     existing.Level = level;
                     existing.RepeatWhileHeld = repeatWhileHeld;
+                    existing.Origin = origin;
 
                     // A repeating entry must NOT have its timer pushed out by
                     // each new keypress: the operator is holding the key, so
@@ -336,7 +389,7 @@ namespace Radios
                 if (!sweeping && RemainingGapMs(key) == 0)
                 {
                     _lastByKey[key] = (message, DateTime.UtcNow);
-                    Emit(message, interrupt: true);
+                    Emit(message, interrupt: true, Speech.SpeechIntent.Latest, level, origin);
                     return;
                 }
 
@@ -348,6 +401,7 @@ namespace Radios
                     Message = message,
                     Level = level,
                     RepeatWhileHeld = repeatWhileHeld,
+                    Origin = origin,
                 };
                 _pending[key] = entry;
                 entry.Timer = new System.Threading.Timer(
@@ -403,7 +457,12 @@ namespace Radios
             entry.Timer?.Dispose();
             if ((int)entry.Level <= (int)CurrentVerbosity)
             {
-                Emit(entry.Message, interrupt: true);
+                Emit(entry.Message, interrupt: true, Speech.SpeechIntent.Latest, entry.Level, entry.Origin);
+            }
+            else
+            {
+                // The verbosity setting moved while this value was pending.
+                RecordGated(entry.Message, entry.Level, Speech.SpeechIntent.Latest, entry.Origin);
             }
         }
 
@@ -440,25 +499,64 @@ namespace Radios
         /// intent funnels through here, so suppression, the last-message
         /// history and tracing cannot be bypassed by adding a new intent.
         /// </summary>
-        private static void Emit(string message, bool interrupt)
+        private static void Emit(string message, bool interrupt,
+            Speech.SpeechIntent? intent = null, VerbosityLevel? level = null, string? origin = null)
         {
-            if (SuppressSpeech) return;
+            bool suppressed = SuppressSpeech;
+            bool rendered = false;
 
-            try
+            if (!suppressed)
             {
-                if (!_initialized) Initialize();
-                if (!_available) return;
+                try
+                {
+                    if (!_initialized) Initialize();
+                    if (_available)
+                    {
+                        _backend?.Speak(message, interrupt);
+                        Remember(message);
+                        // rendered means "actually sounded": with render off the
+                        // diverted backend accepted the text and discarded it,
+                        // and the transcript must not claim otherwise.
+                        rendered = OutputChannelRecorder.RenderEnabled;
+                        Tracing.TraceLine(
+                            $"ScreenReaderOutput: Spoke '{message}' (interrupt={interrupt})",
+                            TraceLevel.Verbose);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"ScreenReaderOutput: Error speaking - {ex.Message}", TraceLevel.Warning);
+                }
+            }
 
-                _backend?.Speak(message, interrupt);
-                Remember(message);
-                Tracing.TraceLine(
-                    $"ScreenReaderOutput: Spoke '{message}' (interrupt={interrupt})",
-                    TraceLevel.Verbose);
-            }
-            catch (Exception ex)
+            // #171: every utterance is recorded AFTER the render attempt so
+            // the rendered flag is truthful. A suppressed message is diverted,
+            // not dropped - the transcript shows it fired.
+            if (OutputChannelRecorder.RecordEnabled)
             {
-                Tracing.TraceLine($"ScreenReaderOutput: Error speaking - {ex.Message}", TraceLevel.Warning);
+                OutputChannelRecorder.RecordSpeech(message, level?.ToString(), intent?.ToString(),
+                    interrupt, gated: false, suppressed, rendered, origin);
             }
+        }
+
+        /// <summary>Record a verbosity-gated utterance - fired but filtered.</summary>
+        private static void RecordGated(string message, VerbosityLevel level,
+            Speech.SpeechIntent? intent, string? origin)
+        {
+            if (!OutputChannelRecorder.RecordEnabled) return;
+            OutputChannelRecorder.RecordSpeech(message, level.ToString(), intent?.ToString(),
+                interrupt: false, gated: true, suppressed: SuppressSpeech, rendered: false, origin);
+        }
+
+        // Compact call-site tag for transcript events, e.g. "FlexBase.cs:1878 Start".
+        // Caller-info attributes make this free at runtime - no stack walk.
+        private static string FormatOrigin(string callerFile, int callerLine, string callerMember)
+        {
+            string name;
+            try { name = Path.GetFileName(callerFile); }
+            catch { name = callerFile; }
+            if (string.IsNullOrEmpty(name)) return callerMember;
+            return $"{name}:{callerLine} {callerMember}";
         }
 
         /// <summary>
@@ -472,29 +570,15 @@ namespace Radios
         /// exactly what not-interrupting has always done. So this overload
         /// changes NO behaviour; it only renames it.
         /// </summary>
-        public static void Speak(string message, bool interrupt = false)
+        public static void Speak(string message, bool interrupt = false,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
         {
             if (string.IsNullOrEmpty(message)) return;
-            if (SuppressSpeech) return;
-
-            try
-            {
-                if (!_initialized)
-                {
-                    Initialize();
-                }
-
-                if (_available)
-                {
-                    _backend?.Speak(message, interrupt);
-                    Remember(message);
-                    Tracing.TraceLine($"ScreenReaderOutput: Spoke '{message}'", TraceLevel.Verbose);
-                }
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine($"ScreenReaderOutput: Error speaking - {ex.Message}", TraceLevel.Warning);
-            }
+            // This body used to be a verbatim copy of Emit's; delegating keeps
+            // behaviour identical and gives the #171 transcript one funnel.
+            Emit(message, interrupt, null, null, FormatOrigin(callerFile, callerLine, callerMember));
         }
 
         /// <summary>
@@ -505,10 +589,19 @@ namespace Radios
         /// <param name="message">The message to speak</param>
         /// <param name="level">Verbosity level — Critical always spoken, Terse at Terse+, Chatty at Chatty only</param>
         /// <param name="interrupt">If true, interrupts any current speech</param>
-        public static void Speak(string message, VerbosityLevel level, bool interrupt = false)
+        public static void Speak(string message, VerbosityLevel level, bool interrupt = false,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
         {
-            if ((int)level > (int)CurrentVerbosity) return;
-            Speak(message, interrupt);
+            if (string.IsNullOrEmpty(message)) return;
+            string origin = FormatOrigin(callerFile, callerLine, callerMember);
+            if ((int)level > (int)CurrentVerbosity)
+            {
+                RecordGated(message, level, null, origin);
+                return;
+            }
+            Emit(message, interrupt, null, level, origin);
         }
 
         /// <summary>
@@ -626,10 +719,14 @@ namespace Radios
         /// </summary>
         /// <param name="message">The message to output</param>
         /// <param name="interrupt">If true, interrupts any current speech</param>
-        public static void Output(string message, bool interrupt = false)
+        public static void Output(string message, bool interrupt = false,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
         {
             if (string.IsNullOrEmpty(message)) return;
 
+            bool rendered = false;
             try
             {
                 if (!_initialized)
@@ -640,12 +737,19 @@ namespace Radios
                 if (_available)
                 {
                     _backend?.Output(message, interrupt);
+                    rendered = OutputChannelRecorder.RenderEnabled;
                     Tracing.TraceLine($"ScreenReaderOutput: Output '{message}'", TraceLevel.Verbose);
                 }
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"ScreenReaderOutput: Error outputting - {ex.Message}", TraceLevel.Warning);
+            }
+
+            if (OutputChannelRecorder.RecordEnabled)
+            {
+                OutputChannelRecorder.RecordBrailleOutput(message, interrupt, rendered,
+                    FormatOrigin(callerFile, callerLine, callerMember));
             }
         }
 
@@ -654,9 +758,18 @@ namespace Radios
         /// Use this for important messages that shouldn't be cut off.
         /// </summary>
         /// <param name="message">The message to speak</param>
-        public static void SpeakAndWait(string message)
+        public static void SpeakAndWait(string message,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
         {
-            Speak(message);
+            // Caller info passed through explicitly, or the transcript would
+            // stamp every SpeakAndWait utterance as originating here.
+            Speak(message, false, callerFile, callerLine, callerMember);
+
+            // With render off there is nothing to wait for - the settle window
+            // is exactly the per-press cost the silent channel exists to kill.
+            if (!OutputChannelRecorder.RenderEnabled) return;
 
             // Estimate how long the message takes to speak
             int delayMs = Math.Max(MinDelayMs, Math.Min(MaxDelayMs, message.Length * MsPerCharacter));
@@ -667,9 +780,15 @@ namespace Radios
         /// Speak a message and wait asynchronously. Use in async methods.
         /// </summary>
         /// <param name="message">The message to speak</param>
-        public static async Task SpeakAndWaitAsync(string message)
+        public static async Task SpeakAndWaitAsync(string message,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
         {
-            Speak(message);
+            Speak(message, false, callerFile, callerLine, callerMember);
+
+            // Same rule as SpeakAndWait: no render, no settle window.
+            if (!OutputChannelRecorder.RenderEnabled) return;
 
             // Estimate how long the message takes to speak
             int delayMs = Math.Max(MinDelayMs, Math.Min(MaxDelayMs, message.Length * MsPerCharacter));
@@ -679,7 +798,10 @@ namespace Radios
         /// <summary>
         /// Stop any current speech.
         /// </summary>
-        public static void Silence()
+        public static void Silence(
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
         {
             try
             {
@@ -689,6 +811,13 @@ namespace Radios
                 }
             }
             catch { /* ignore */ }
+
+            // Recorded because an explicit silence is a cutoff: a transcript
+            // reader chasing "it stopped mid-sentence" needs this line.
+            if (OutputChannelRecorder.RecordEnabled)
+            {
+                OutputChannelRecorder.RecordSilence(FormatOrigin(callerFile, callerLine, callerMember));
+            }
         }
 
         /// <summary>

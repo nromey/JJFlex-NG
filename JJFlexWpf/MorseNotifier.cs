@@ -203,16 +203,25 @@ namespace JJFlexWpf
         // --- Public API ---
 
         /// <summary>Play the AS prosign (wait / connection in progress).</summary>
-        public Task PlayAS(CancellationToken ct = default) =>
-            PlayCharacter(ProsignAS, ct);
+        public Task PlayAS(CancellationToken ct = default)
+        {
+            RecordCw("<AS>");
+            return PlayCharacter(ProsignAS, ct);
+        }
 
         /// <summary>Play the BT prosign (break / connected).</summary>
-        public Task PlayBT(CancellationToken ct = default) =>
-            PlayCharacter(ProsignBT, ct);
+        public Task PlayBT(CancellationToken ct = default)
+        {
+            RecordCw("<BT>");
+            return PlayCharacter(ProsignBT, ct);
+        }
 
         /// <summary>Play the SK prosign (end of contact / app closing).</summary>
-        public Task PlaySK(CancellationToken ct = default) =>
-            PlayCharacter(ProsignSK, ct);
+        public Task PlaySK(CancellationToken ct = default)
+        {
+            RecordCw("<SK>");
+            return PlayCharacter(ProsignSK, ct);
+        }
 
         /// <summary>
         /// Queue an inter-utterance gap of <paramref name="dits"/> dit-lengths at
@@ -252,6 +261,7 @@ namespace JJFlexWpf
         {
             if (string.IsNullOrEmpty(text)) return;
 
+            RecordCw(text);
             try
             {
                 var elements = BuildStringElements(text);
@@ -284,10 +294,32 @@ namespace JJFlexWpf
         /// </summary>
         public void Cancel()
         {
+            // Recorded because an interrupted sequence is a cutoff story - a
+            // transcript with a cw event and no cw-cancel means it keyed to
+            // completion; cw then cw-cancel means someone cut it off.
+            if (Radios.OutputChannelRecorder.RecordEnabled)
+                Radios.OutputChannelRecorder.RecordCwCancel();
             _output.Cancel();
         }
 
         // --- Internal ---
+
+        // #171 transcript: the CW channel records the TEXT that would be keyed -
+        // "73 <SK>" is the assertion, not a waveform - plus the operator-
+        // selectable parameters in force (WPM, effective pitch, mark voice,
+        // envelope), because a wrong-shape regression is otherwise inaudible
+        // to a test. Runs before element building so a gated-off or render-off
+        // run still shows the notification fired.
+        private void RecordCw(string text)
+        {
+            if (!Radios.OutputChannelRecorder.RecordEnabled) return;
+            bool rendered = Radios.OutputChannelRecorder.RenderEnabled
+                && EarconPlayer.EarconsEnabled && EarconPlayer.AlertChannelLive;
+            Radios.OutputChannelRecorder.RecordCw(
+                text, Math.Max(SpeedWpm, 5), EffectiveSidetoneHz,
+                MarkVoice?.Name is { Length: > 0 } voice ? voice : "sine",
+                RiseFallMs, Volume, rendered);
+        }
 
         private async Task PlayCharacter(byte[] encodedChar, CancellationToken ct)
         {

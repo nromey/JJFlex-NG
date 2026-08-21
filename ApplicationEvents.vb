@@ -34,6 +34,24 @@ Namespace My
             AddHandler System.Windows.Forms.Application.ThreadException, AddressOf CrashReporter.OnThreadException
             AddHandler AppDomain.CurrentDomain.UnhandledException, AddressOf CrashReporter.OnUnhandledException
 
+            ' #171 silent verification channel - set the render/record switches
+            ' BEFORE any output subsystem initializes, because ScreenReaderOutput
+            ' and EarconPlayer both consult RenderEnabled to decide whether to
+            ' bring up Prism and open audio devices at all. Two independent
+            ' switches, deliberately not a mode: render off alone is the fast
+            ' automated path (nothing sounds, nothing steals the operator's
+            ' screen reader); record on alone transcribes exactly what a human
+            ' hears; both together give a "that sounded wrong" report its event
+            ' stream. The parse itself lives in ParseStartupSwitches - one
+            ' source of truth, because Application.Designer.vb also parses at
+            ' construction time to exempt render-off instances from
+            ' single-instance forwarding. Configure writes the session-start
+            ' marker the instant the transcript opens - a reader treats a
+            ' transcript without that marker as a broken instrument, never as
+            ' "no output".
+            Dim outputSwitches = Radios.OutputChannelRecorder.ParseStartupSwitches(e.CommandLine)
+            Radios.OutputChannelRecorder.Configure(outputSwitches.Render, outputSwitches.Record, outputSwitches.RecordPath)
+
             ' Initialize screen reader output (Prism) for accessibility announcements.
             Radios.ScreenReaderOutput.Initialize()
 
@@ -363,6 +381,12 @@ Namespace My
             JJFlexWpf.EarconPlayer.Dispose()
             ' Clean up screen reader resources.
             Radios.ScreenReaderOutput.Shutdown()
+            ' Seal the output transcript (session-end marker). Last of the
+            ' output teardown on purpose: the CW farewell and any final speech
+            ' above still land in the transcript. A transcript that ends
+            ' without this marker means the app crashed or was killed - every
+            ' line before it is still valid, each was flushed as written.
+            Radios.OutputChannelRecorder.Close()
             ' Belt-and-suspenders archive: if ExitApplication wasn't reached (e.g.
             ' shutdown via WPF route that bypasses Form-side Closing handlers), the
             ' session is still active here. Idempotent — no-op if ExitApplication

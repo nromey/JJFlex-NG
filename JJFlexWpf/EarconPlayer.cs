@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -158,6 +159,34 @@ namespace JJFlexWpf
 
         // Convenience accessors for the channel mixers
         private static MixingSampleProvider? AlertMixer => _alertChannel?.Mixer;
+
+        /// <summary>
+        /// Whether the alert channel has a live mixer (a real audio device is
+        /// open behind it). False when render is off or channel init failed.
+        /// Used by MorseNotifier and MainWindow to stamp transcript events with
+        /// an honest "rendered" flag.
+        /// </summary>
+        internal static bool AlertChannelLive => AlertMixer != null;
+
+        /// <summary>
+        /// The #171 recording gate. Same answer as <see cref="On"/>, but the
+        /// question and its answer land in the output transcript first: earcon
+        /// NAME (the public method, via CallerMemberName), its category, and
+        /// whether the gates let it through. The gate/rendered pair is the
+        /// point - an event with gate false is "fired but gated off", an
+        /// absent event is "never fired". Those sound identical (like nothing)
+        /// and need different fixes.
+        /// </summary>
+        private static bool Gate(EarconCategory category, [CallerMemberName] string earconName = "")
+        {
+            bool on = On(category);
+            if (Radios.OutputChannelRecorder.RecordEnabled)
+            {
+                bool rendered = on && AlertMixer != null && Radios.OutputChannelRecorder.RenderEnabled;
+                Radios.OutputChannelRecorder.RecordEarcon(earconName, category.ToString(), on, rendered);
+            }
+            return on;
+        }
         private static MixingSampleProvider? MeterMixer => _meterChannel?.Mixer;
 
         /// <summary>
@@ -169,17 +198,34 @@ namespace JJFlexWpf
             if (_initialized) return;
             try
             {
-                // Create alert channel (earcons, beeps, PTT tones)
-                _alertChannel = new AudioChannel();
-                _alertChannel.Initialize(_alertDeviceNumber);
+                // #171 silent verification channel: with render off, no
+                // WaveOutEvent is ever created - no audio device opened,
+                // runnable headless and on machines with no sound card. Every
+                // Play* method already tolerates a null mixer, so earcons flow
+                // through their normal call paths and are recorded to the
+                // transcript; only the device hand-off is gone. The embedded
+                // sounds ARE still loaded below: several earcons choose
+                // between a wav and a synthesized fallback based on load
+                // success, and a silent run must take the branch production
+                // takes - exercise everything, divert only the last step.
+                if (Radios.OutputChannelRecorder.RenderEnabled)
+                {
+                    // Create alert channel (earcons, beeps, PTT tones)
+                    _alertChannel = new AudioChannel();
+                    _alertChannel.Initialize(_alertDeviceNumber);
 
-                // Create meter channel (continuous tones from MeterToneEngine)
-                // If meter device is -1 (same as alerts), use alert device
-                _meterChannel = new AudioChannel();
-                int meterDevice = _meterDeviceNumber == -1 ? _alertDeviceNumber : _meterDeviceNumber;
-                _meterChannel.Initialize(meterDevice);
+                    // Create meter channel (continuous tones from MeterToneEngine)
+                    // If meter device is -1 (same as alerts), use alert device
+                    _meterChannel = new AudioChannel();
+                    int meterDevice = _meterDeviceNumber == -1 ? _alertDeviceNumber : _meterDeviceNumber;
+                    _meterChannel.Initialize(meterDevice);
 
-                UpdateChannelVolumes();
+                    UpdateChannelVolumes();
+                }
+                else
+                {
+                    Trace.WriteLine("EarconPlayer: render disabled - audio channels not created, earcons diverted to transcript");
+                }
 
                 // Load embedded sounds
                 _clickSound = LoadEmbeddedSound("JJFlexWpf.Sounds.click.wav");
@@ -513,7 +559,7 @@ namespace JJFlexWpf
             Description = "First long-transmission warning. Mellow and steady.")]
         public static void Warning1Beep()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             PlayVoiced(EarconVoices.WarningCalm, 800, 150, VolumeSoft);
         }
 
@@ -522,7 +568,7 @@ namespace JJFlexWpf
             Description = "Second long-transmission warning. Brighter, and it pulses twice.")]
         public static void Warning2Beep()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             PlayVoiced(EarconVoices.WarningInsistent, 1000, 200, VolumeNormal);
         }
 
@@ -531,7 +577,7 @@ namespace JJFlexWpf
             Description = "Final long-transmission warning. Harsh, metallic, hammering.")]
         public static void OhCrapBeep()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             PlayVoiced(EarconVoices.WarningUrgent, 1200, 250, VolumeStrong);
         }
 
@@ -540,7 +586,7 @@ namespace JJFlexWpf
             Description = "Rising pair. You are transmitting.")]
         public static void TxStartTone()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (400, 50), (0, 20), (800, 50) }, VolumeNormal);
         }
@@ -550,7 +596,7 @@ namespace JJFlexWpf
             Description = "Falling pair. You have stopped transmitting.")]
         public static void TxStopTone()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (800, 50), (0, 20), (400, 50) }, VolumeNormal);
         }
@@ -560,7 +606,7 @@ namespace JJFlexWpf
             Description = "Transmission was cut off rather than ended.")]
         public static void HardKillTone()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (1000, 100), (0, 30), (600, 200) }, VolumeStrong);
         }
@@ -579,7 +625,7 @@ namespace JJFlexWpf
             Description = "One counting tone. The link is up and negotiating.")]
         public static void ConnectPhase1Tone()
         {
-            if (!On(EarconCategory.Connection)) return;
+            if (!Gate(EarconCategory.Connection)) return;
             PlayVoiced(EarconVoices.Plain, ConnectPhaseTonePitchHz, ConnectPhaseToneMs, ConnectPhaseToneVolume);
         }
 
@@ -588,7 +634,7 @@ namespace JJFlexWpf
             Description = "Two counting tones. Transport is up, waiting for a slice.")]
         public static void ConnectPhase2Tone()
         {
-            if (!On(EarconCategory.Connection)) return;
+            if (!Gate(EarconCategory.Connection)) return;
             PlayVoicedSequence(EarconVoices.Plain, new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
@@ -602,7 +648,7 @@ namespace JJFlexWpf
             Description = "Three counting tones. Slice acquired, station name pending.")]
         public static void ConnectPhase3Tone()
         {
-            if (!On(EarconCategory.Connection)) return;
+            if (!Gate(EarconCategory.Connection)) return;
             PlayVoicedSequence(EarconVoices.Plain, new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
@@ -628,7 +674,7 @@ namespace JJFlexWpf
                         + "however it started.")]
         public static void ConnectSuccessTone()
         {
-            if (!On(EarconCategory.Connection)) return;
+            if (!Gate(EarconCategory.Connection)) return;
             PlayVoicedSequence(EarconVoices.Plain, new[]
             {
                 (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
@@ -640,7 +686,7 @@ namespace JJFlexWpf
         /// <summary>Parameterized connect-phase counting tone (1..N identical tones).</summary>
         public static void ConnectPhaseTone(int count)
         {
-            if (!On(EarconCategory.Connection)) return;
+            if (!Gate(EarconCategory.Connection)) return;
             if (count <= 0) return;
             var seq = new (int, int)[Math.Max(1, count * 2 - 1)];
             int idx = 0;
@@ -820,7 +866,7 @@ namespace JJFlexWpf
             Description = "The action you asked for went through.")]
         public static void ConfirmTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             if (_confirmSound != null)
                 PlayCachedSound(_confirmSound);
             else
@@ -833,7 +879,7 @@ namespace JJFlexWpf
             Description = "End of frequency entry, in mechanical keyboard mode.")]
         public static void TypewriterBellTone()
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             if (_typewriterBellSound != null)
                 PlayCachedSound(_typewriterBellSound);
             else
@@ -845,7 +891,7 @@ namespace JJFlexWpf
             Description = "Tuning has reached the edge of the band.")]
         public static void BandBoundaryBeep()
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (600, 50), (0, 30), (600, 50) }, VolumeNormal);
         }
@@ -855,7 +901,7 @@ namespace JJFlexWpf
             Description = "Filter edge adjustment mode has started.")]
         public static void FilterEdgeEnterTone()
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             if (_modeEnterSound != null)
                 PlayCachedSound(_modeEnterSound);
             else
@@ -867,7 +913,7 @@ namespace JJFlexWpf
             Description = "Filter edge adjustment mode has ended.")]
         public static void FilterEdgeExitTone()
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             if (_modeExitSound != null)
                 PlayCachedSound(_modeExitSound);
             else
@@ -881,7 +927,7 @@ namespace JJFlexWpf
         /// <param name="isLowEdge">True for low/left edge, false for high/right edge.</param>
         public static void FilterEdgeMoveTone(bool isLowEdge)
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             float pan = isLowEdge ? -0.7f : 0.7f;
             if (_slideSound != null)
                 PlayCachedSoundPanned(_slideSound, pan);
@@ -898,7 +944,7 @@ namespace JJFlexWpf
             Description = "The unpanned fallback, used when the code does not know which edge moved.")]
         public static void FilterEdgeMoveTone()
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             if (_slideSound != null)
                 PlayCachedSound(_slideSound);
             else if (_filterEdgeMoveSound != null)
@@ -915,7 +961,7 @@ namespace JJFlexWpf
         /// <param name="isLowEdge">True for low/left boundary, false for high/right boundary.</param>
         public static void FilterBoundaryHitTone(bool isLowEdge)
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             float pan = isLowEdge ? -0.8f : 0.8f;
             if (_zipSound != null)
             {
@@ -937,7 +983,7 @@ namespace JJFlexWpf
             Description = "The passband is closing in. One descending sweep.")]
         public static void FilterSqueezeTone()
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             if (AlertMixer == null) return;
             try
             {
@@ -959,7 +1005,7 @@ namespace JJFlexWpf
             Description = "The passband is opening up. Two ascending sweeps a note apart.")]
         public static void FilterStretchTone()
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             if (AlertMixer == null) return;
             try
             {
@@ -1019,7 +1065,7 @@ namespace JJFlexWpf
             Description = "The JJ leader layer is listening for the next key.")]
         public static void LeaderEnterTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayChirp(400, 600, 80, VolumeNormal);
         }
 
@@ -1028,7 +1074,7 @@ namespace JJFlexWpf
             Description = "Rising pair. A toggle just turned on.")]
         public static void FeatureOnTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (500, 60), (0, 40), (700, 60) }, VolumeNormal);
         }
@@ -1038,7 +1084,7 @@ namespace JJFlexWpf
             Description = "Falling pair. A toggle just turned off.")]
         public static void FeatureOffTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (700, 60), (0, 40), (500, 60) }, VolumeNormal);
         }
@@ -1086,7 +1132,7 @@ namespace JJFlexWpf
             Description = "Rising triad, a third above the single-slice tone. Affects every slice.")]
         public static void MuteAllOnTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (625, 55), (0, 30), (785, 55), (0, 30), (940, 55) }, VolumeNormal);
         }
@@ -1098,7 +1144,7 @@ namespace JJFlexWpf
             Description = "Falling triad. The mirror of all-slices-on.")]
         public static void MuteAllOffTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (940, 55), (0, 30), (785, 55), (0, 30), (625, 55) }, VolumeNormal);
         }
@@ -1108,7 +1154,7 @@ namespace JJFlexWpf
             Description = "Rising pair when a dialog or popup opens.")]
         public static void DialogOpenTone()
         {
-            if (!On(EarconCategory.DialogsAndPanels)) return;
+            if (!Gate(EarconCategory.DialogsAndPanels)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (600, 50), (0, 30), (900, 50) }, VolumeSoft);
         }
@@ -1118,7 +1164,7 @@ namespace JJFlexWpf
             Description = "Falling pair when a dialog or popup closes.")]
         public static void DialogCloseTone()
         {
-            if (!On(EarconCategory.DialogsAndPanels)) return;
+            if (!Gate(EarconCategory.DialogsAndPanels)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (900, 50), (0, 30), (600, 50) }, VolumeSoft);
         }
@@ -1145,7 +1191,7 @@ namespace JJFlexWpf
                         + "list will still be there in an hour.")]
         public static void ProblemRecordedTone()
         {
-            if (!On(EarconCategory.Warnings)) return;
+            if (!Gate(EarconCategory.Warnings)) return;
             PlayVoicedSequence(EarconVoices.Plain,
                 new[] { (440, 90), (0, 50), (370, 130) }, VolumeNormal);
         }
@@ -1184,7 +1230,7 @@ namespace JJFlexWpf
                         + "Long and harmonic, so it cannot be mistaken for a toggle.")]
         public static void WarningAlarmTone()
         {
-            if (!On(EarconCategory.Warnings)) return;
+            if (!Gate(EarconCategory.Warnings)) return;
             PlayVoiced(EarconVoices.Alarm, 800, 750, VolumeStrong);
         }
 
@@ -1193,7 +1239,7 @@ namespace JJFlexWpf
             Description = "Low thunk. That key means nothing in the leader layer.")]
         public static void LeaderInvalidTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecay(EarconVoices.Press, 200, 100, VolumeNormal);
         }
 
@@ -1202,7 +1248,7 @@ namespace JJFlexWpf
             Description = "Soft falling chirp. The leader layer gave up waiting.")]
         public static void LeaderCancelTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayChirp(500, 300, 150, VolumeSoft);
         }
 
@@ -1211,7 +1257,7 @@ namespace JJFlexWpf
             Description = "Double chime. The leader layer is about to list what it can do.")]
         public static void LeaderHelpTone()
         {
-            if (!On(EarconCategory.CommandsAndConfirmations)) return;
+            if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (800, 80), (0, 40), (1000, 80) }, VolumeNormal);
         }
@@ -1229,7 +1275,7 @@ namespace JJFlexWpf
             Description = "Rising sweep with a tracking band of noise, when a group re-expands.")]
         public static void PlayExpand()
         {
-            if (!On(EarconCategory.DialogsAndPanels)) return;
+            if (!Gate(EarconCategory.DialogsAndPanels)) return;
             if (AlertMixer == null) { FallbackBeep(800, 100); return; }
             try
             {
@@ -1262,7 +1308,7 @@ namespace JJFlexWpf
             Description = "Falling sweep, the mirror of expand, on a single-Escape collapse.")]
         public static void PlayCollapse()
         {
-            if (!On(EarconCategory.DialogsAndPanels)) return;
+            if (!Gate(EarconCategory.DialogsAndPanels)) return;
             if (AlertMixer == null) { FallbackBeep(500, 100); return; }
             try
             {
@@ -1298,7 +1344,7 @@ namespace JJFlexWpf
             Description = "Two struck notes falling, on a double-Escape collapse-all.")]
         public static void PlayCollapseAll()
         {
-            if (!On(EarconCategory.DialogsAndPanels)) return;
+            if (!Gate(EarconCategory.DialogsAndPanels)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (1200, 220), (0, 30), (400, 250) }, VolumeStrong);
         }
@@ -1314,6 +1360,15 @@ namespace JJFlexWpf
         // MeterVoiceLibrary.FromLegacyWaveform exists precisely to say so. The
         // voiced provider is already stereo with live equal-power panning, so
         // the MonoToStereo wrapper goes away too.
+        // Logical "the app believes this continuous earcon is sounding" state,
+        // tracked separately from the provider objects because in render-off
+        // mode no provider ever exists. The first silent verification run
+        // (2026-08-21) keyed the stop event on the provider and produced an
+        // unmatched earcon-start - a false positive of the exact bug class the
+        // start/stop pairing exists to catch.
+        private static bool _atuProgressStarted;
+        private static bool _txToneMonitorStarted;
+
         private static VoicedToneSampleProvider? _atuProgressProvider;
 
         /// <summary>
@@ -1330,8 +1385,25 @@ namespace JJFlexWpf
                         + "Start and Stop rather than a single Play.")]
         public static void StartATUProgressEarcon()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            // Continuous earcon: start and stop are SEPARATE transcript
+            // events, because a tone that outlives its stop is a real bug this
+            // project has had and an unmatched earcon-start is exactly how a
+            // test sees it. A gated-off fire records as a plain earcon event
+            // (no start), so the start/stop pairing stays clean.
+            bool atuGateOn = On(EarconCategory.Transmit);
+            if (!atuGateOn)
+            {
+                if (Radios.OutputChannelRecorder.RecordEnabled)
+                    Radios.OutputChannelRecorder.RecordEarcon(
+                        "ATUProgress", nameof(EarconCategory.Transmit), false, false);
+                return;
+            }
             StopATUProgressEarcon(); // Stop any existing progress earcon
+            _atuProgressStarted = true;
+            if (Radios.OutputChannelRecorder.RecordEnabled)
+                Radios.OutputChannelRecorder.RecordEarconStart(
+                    "ATUProgress", nameof(EarconCategory.Transmit), true,
+                    AlertMixer != null && Radios.OutputChannelRecorder.RenderEnabled, 450);
             if (AlertMixer == null) return;
             try
             {
@@ -1358,6 +1430,17 @@ namespace JJFlexWpf
         /// </summary>
         public static void StopATUProgressEarcon()
         {
+            // Real stops only, keyed on the logical flag rather than the
+            // provider - in render-off mode the provider never exists, and the
+            // provider-keyed version left every silent transcript with an
+            // unmatched start.
+            if (_atuProgressStarted)
+            {
+                _atuProgressStarted = false;
+                if (Radios.OutputChannelRecorder.RecordEnabled)
+                    Radios.OutputChannelRecorder.RecordEarconStop(
+                        "ATUProgress", nameof(EarconCategory.Transmit));
+            }
             var provider = _atuProgressProvider;
             if (provider == null) return;
             JJTrace.Tracing.TraceLine("EarconPlayer: ATU progress earcon stopped");
@@ -1395,6 +1478,13 @@ namespace JJFlexWpf
         public static ContinuousToneSampleProvider? StartTxToneMonitor(float frequencyHz)
         {
             StopTxToneMonitor();
+            // Same start/stop pairing contract as the ATU progress earcon.
+            // Deliberately outside the category gates (TX confirmation).
+            _txToneMonitorStarted = true;
+            if (Radios.OutputChannelRecorder.RecordEnabled)
+                Radios.OutputChannelRecorder.RecordEarconStart(
+                    "TxToneMonitor", "ungated", true,
+                    AlertMixer != null && Radios.OutputChannelRecorder.RenderEnabled, frequencyHz);
             if (AlertMixer == null) return null;
             try
             {
@@ -1416,6 +1506,13 @@ namespace JJFlexWpf
         /// <summary>Stop the TX test-tone local monitor (10 ms fade, then remove).</summary>
         public static void StopTxToneMonitor()
         {
+            // Real stops only, keyed on the logical flag - see StopATUProgressEarcon.
+            if (_txToneMonitorStarted)
+            {
+                _txToneMonitorStarted = false;
+                if (Radios.OutputChannelRecorder.RecordEnabled)
+                    Radios.OutputChannelRecorder.RecordEarconStop("TxToneMonitor", "ungated");
+            }
             if (_txToneMonitorProvider != null)
             {
                 _txToneMonitorProvider.Active = false;
@@ -1439,7 +1536,7 @@ namespace JJFlexWpf
             Description = "Rising major triad. The tuner found a match.")]
         public static void ATUSuccessTone()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             // C5=523, E5=659, G5=784 — rising major triad
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (523, 50), (659, 50), (784, 80) }, VolumeNormal);
@@ -1450,7 +1547,7 @@ namespace JJFlexWpf
             Description = "Descending minor. The tuner gave up.")]
         public static void ATUFailTone()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             // E5=659, C5=523, A4=440 — descending
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (659, 60), (523, 60), (440, 100) }, VolumeStrong);
@@ -1461,7 +1558,7 @@ namespace JJFlexWpf
             Description = "The tune carrier has started.")]
         public static void TuneOnTone()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             PlayChirp(400, 700, 100, VolumeNormal);
         }
 
@@ -1470,7 +1567,7 @@ namespace JJFlexWpf
             Description = "The tune carrier has stopped.")]
         public static void TuneOffTone()
         {
-            if (!On(EarconCategory.Transmit)) return;
+            if (!Gate(EarconCategory.Transmit)) return;
             PlayChirp(700, 400, 100, VolumeNormal);
         }
 
@@ -1491,7 +1588,7 @@ namespace JJFlexWpf
             Description = "A struck chime confirming a typed frequency.")]
         public static void DingTone()
         {
-            if (!On(EarconCategory.TuningAndFilters)) return;
+            if (!Gate(EarconCategory.TuningAndFilters)) return;
             PlayVoicedDecay(EarconVoices.Chime, 1000, 250, VolumeNormal);
         }
 
@@ -1680,6 +1777,17 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayTypingSound(char digit, TypingSoundMode mode)
         {
+            // Outside the EarconCategory gates on purpose (typing sounds have
+            // their own mode setting), so recorded here: mode Off is this
+            // family's gate. One event per keystroke sound - human-paced.
+            if (Radios.OutputChannelRecorder.RecordEnabled)
+            {
+                bool typingOn = mode != TypingSoundMode.Off;
+                Radios.OutputChannelRecorder.RecordEarcon(
+                    "TypingSound", "typing", typingOn,
+                    typingOn && AlertMixer != null && Radios.OutputChannelRecorder.RenderEnabled,
+                    detail: $"{mode} '{digit}'");
+            }
             switch (mode)
             {
                 case TypingSoundMode.Beep:
@@ -2336,6 +2444,9 @@ namespace JJFlexWpf
 
         private static void FallbackBeep(int frequencyHz, int durationMs)
         {
+            // Render-off means NO audio path at all - Console.Beep is still an
+            // audio device as far as a blind operator's ears are concerned.
+            if (!Radios.OutputChannelRecorder.RenderEnabled) return;
             try { Console.Beep(frequencyHz, durationMs); }
             catch { }
         }
