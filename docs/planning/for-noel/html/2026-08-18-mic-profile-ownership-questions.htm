@@ -1,254 +1,71 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>2026-08-18-mic-profile-ownership-questions</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      white-space: pre-wrap;
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: 1.5em;}
-    div.column{flex: auto;}
-    @media screen {
-    div.columns{gap: min(4vw, 1.5em);}
-    div.column{overflow-x: auto;}
-    }
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-  </style>
+<meta charset="utf-8">
+<title>Mic profile ownership — the questions only you can answer</title>
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-<header id="title-block-header">
-<h1 class="title">2026-08-18-mic-profile-ownership-questions</h1>
-</header>
-<h1 id="mic-profile-ownership-the-questions-only-you-can-answer">Mic
-profile ownership — the questions only you can answer</h1>
-<blockquote>
-<p><strong>Superseded as the place to answer.</strong> Answer in
-<code>2026-08-19-sprint30-open-questions.md</code>, which consolidates
-every open Sprint 30 question in one file. This file is kept because it
-holds the full reasoning behind its questions, and the unified file
-points back here.</p>
-</blockquote>
-<p>Track B, Sprint 30 (2026-08-18). The full design is in
-<code>docs/planning/design/Mic-Profile-Ownership.md</code>; these are
-its decision points, one at a time. Nothing below is implemented — the
-ownership flag lives in RadioConfig.cs, which is Track A’s file this
-sprint, and the design is not ratified until you say so.</p>
-<h2 id="ratify-the-ownership-model">1. Ratify the ownership model?</h2>
-<p>Ownership is a per-radio flag you set — “this radio is mine to write
-to” — stored in the serial-keyed per-radio config. Registration or local
-discovery may suggest a first answer; neither ever decides it. The
-Margaret test killed the derive-it idea: you connected to her radio
-using her account, so to SmartLink you WERE the owner. Unset means guest
-behaviour, which is the safe default.</p>
+<h1>Mic profile ownership — the questions only you can answer</h1>
+<p>> <strong>Superseded as the place to answer.</strong> Answer in <code>2026-08-19-sprint30-open-questions.md</code>, which consolidates every open</p>
+<p>> Sprint 30 question in one file. This file is kept because it holds the full</p>
+<p>> reasoning behind its questions, and the unified file points back here.</p>
+<p>Track B, Sprint 30 (2026-08-18). The full design is in</p>
+<p><code>docs/planning/design/Mic-Profile-Ownership.md</code>; these are its decision</p>
+<p>points, one at a time. Nothing below is implemented — the ownership flag</p>
+<p>lives in RadioConfig.cs, which is Track A's file this sprint, and the design</p>
+<p>is not ratified until you say so.</p>
+<h2>1. Ratify the ownership model?</h2>
+<p>Ownership is a per-radio flag you set — "this radio is mine to write to" —</p>
+<p>stored in the serial-keyed per-radio config. Registration or local discovery</p>
+<p>may suggest a first answer; neither ever decides it. The Margaret test killed</p>
+<p>the derive-it idea: you connected to her radio using her account, so to</p>
+<p>SmartLink you WERE the owner. Unset means guest behaviour, which is the safe</p>
+<p>default.</p>
 <p>Say yes, no, or amend.</p>
-<h2 id="two-destinations-two-verbs">2. Two destinations, two verbs?</h2>
-<p>Saving a microphone profile in the Workshop stays PC-side and always
-safe, on anyone’s radio. Writing anything to the radio itself becomes a
-separate, explicitly named action that only appears on radios you have
-marked as yours. The save dialog’s current “create a mic profile ON THE
-RADIO” option would move under that second verb.</p>
-<p>The cost: on your own rig, doing both takes one more step than a
-combined save would. The benefit: no Save ever needs a moment’s thought
-about whose radio you are on.</p>
-<h2 id="what-should-the-ownership-question-feel-like">3. What should the
-ownership question feel like?</h2>
-<p>The flag has to be set once per radio. Options, roughly in order of
-my preference:</p>
+<h2>2. Two destinations, two verbs?</h2>
+<p>Saving a microphone profile in the Workshop stays PC-side and always safe, on</p>
+<p>anyone's radio. Writing anything to the radio itself becomes a separate,</p>
+<p>explicitly named action that only appears on radios you have marked as yours.</p>
+<p>The save dialog's current "create a mic profile ON THE RADIO" option would</p>
+<p>move under that second verb.</p>
+<p>The cost: on your own rig, doing both takes one more step than a combined</p>
+<p>save would. The benefit: no Save ever needs a moment's thought about whose</p>
+<p>radio you are on.</p>
+<h2>3. What should the ownership question feel like?</h2>
+<p>The flag has to be set once per radio. Options, roughly in order of my</p>
+<p>preference:</p>
 <ul>
-<li>Ask once at a natural moment — the first time an action would need
-it (for example the first time you reach for the write-to-radio verb),
-never as a connect-time interruption.</li>
-<li>A field on the per-radio Settings panel you set proactively.</li>
-<li>Both: the panel field exists, and the first gated action offers to
-set it.</li>
+<li>Ask once at a natural moment — the first time an action would need it (for</li>
 </ul>
-<h2 id="the-silent-tx-auto-select-apply-offer-or-park">4. The silent-TX
-auto-select — apply, offer, or park?</h2>
-<p>The <code>diag/don-audio-708</code> fix is real: an empty mic-profile
-selection means PC transmit audio modulates nothing, and SmartSDR users
-never see it because SmartSDR keeps “Default” loaded. Proposed: on
-radios marked yours it applies silently; on any other radio the app says
-“this radio has no mic profile selected, so computer transmit audio will
-not modulate — load Default?” and does nothing without a yes. Until the
-flag exists it stays parked entirely, which means the silent-TX failure
-remains live on affected radios — worth weighing if you want an interim
-announce-only version (no write, just the warning) ahead of the
-flag.</p>
-<h2 id="one-question-the-implemented-code-already-half-answers">5. One
-question the implemented code already half-answers</h2>
-<p>Task #44 asked whether picking a mic profile should offer the
-radio-side chain too or stay strictly PC-side. What shipped: applying a
-profile applies your PC half always, and the radio half only where a
-binding for THIS radio exists — the binding you created is the consent.
-My recommendation is to keep that (bindings keep working regardless of
-the ownership flag; the flag gates creating NEW radio-side state), but
-it deserves your explicit blessing since it is a write to radio state
-that a bare flag reading would forbid.</p>
-<h2 id="the-registration-eviction-unknown-bench-day">6. The
-registration-eviction unknown (bench day)</h2>
-<p>Can one radio be registered to two SmartLink accounts? If
-registration is exclusive, registering a friend’s radio would silently
-evict them — the app should refuse that without a warning regardless of
-everything above. Margaret’s radio is the ready-made test. Folded into
-#95.</p>
+<p>  example the first time you reach for the write-to-radio verb), never as a</p>
+<p>  connect-time interruption.</p>
+<ul>
+<li>A field on the per-radio Settings panel you set proactively.</li>
+<li>Both: the panel field exists, and the first gated action offers to set it.</li>
+</ul>
+<h2>4. The silent-TX auto-select — apply, offer, or park?</h2>
+<p>The <code>diag/don-audio-708</code> fix is real: an empty mic-profile selection means PC</p>
+<p>transmit audio modulates nothing, and SmartSDR users never see it because</p>
+<p>SmartSDR keeps "Default" loaded. Proposed: on radios marked yours it applies</p>
+<p>silently; on any other radio the app says "this radio has no mic profile</p>
+<p>selected, so computer transmit audio will not modulate — load Default?" and</p>
+<p>does nothing without a yes. Until the flag exists it stays parked entirely,</p>
+<p>which means the silent-TX failure remains live on affected radios — worth</p>
+<p>weighing if you want an interim announce-only version (no write, just the</p>
+<p>warning) ahead of the flag.</p>
+<h2>5. One question the implemented code already half-answers</h2>
+<p>Task #44 asked whether picking a mic profile should offer the radio-side</p>
+<p>chain too or stay strictly PC-side. What shipped: applying a profile applies</p>
+<p>your PC half always, and the radio half only where a binding for THIS radio</p>
+<p>exists — the binding you created is the consent. My recommendation is to keep</p>
+<p>that (bindings keep working regardless of the ownership flag; the flag gates</p>
+<p>creating NEW radio-side state), but it deserves your explicit blessing since</p>
+<p>it is a write to radio state that a bare flag reading would forbid.</p>
+<h2>6. The registration-eviction unknown (bench day)</h2>
+<p>Can one radio be registered to two SmartLink accounts? If registration is</p>
+<p>exclusive, registering a friend's radio would silently evict them — the app</p>
+<p>should refuse that without a warning regardless of everything above.</p>
+<p>Margaret's radio is the ready-made test. Folded into #95.</p>
 </body>
 </html>

@@ -1,328 +1,152 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>2026-08-19-orphan-process-test</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      white-space: pre-wrap;
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: 1.5em;}
-    div.column{flex: auto;}
-    @media screen {
-    div.columns{gap: min(4vw, 1.5em);}
-    div.column{overflow-x: auto;}
-    }
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-  </style>
+<meta charset="utf-8">
+<title>Orphan process test — does jjflexible.exe outlive its window?</title>
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-<header id="title-block-header">
-<h1 class="title">2026-08-19-orphan-process-test</h1>
-</header>
-<h1
-id="orphan-process-test-does-jjflexible.exe-outlive-its-window">Orphan
-process test — does jjflexible.exe outlive its window?</h1>
-<p><strong>Date:</strong> 2026-08-19 <strong>Task:</strong> #21
-<strong>Build:</strong> any current build. The fix under test is #14
-(the <code>Audio.Finished()</code> timeout loop that could never time
-out) plus the foreground-thread and teardown-order work.
-<strong>Radio:</strong> any. PC audio is the part that matters, not
-which rig.</p>
-<blockquote>
-<p><strong>RUN THIS ON THE LAPTOP.</strong> Corrected 2026-08-19 — Noel:
-“shouldn’t we be doing all these tests on the laptop itself since that
-was the problem machine?” Yes. The laptop is where the survivor has
-actually been seen; the ms-02 never showed it. Testing on the machine
-where a bug does not occur is testing where the bug is not.</p>
-<p><strong>The real prerequisite is therefore a current build ON THE
-LAPTOP</strong>, which does not exist yet. That is a distribution step,
-not a testing one, and it blocks everything below.</p>
-<p>Run order once the laptop has a build: <strong>laptop first</strong>,
-ms-02 only as a comparison afterwards. If the laptop is dirty and the
-ms-02 clean, that is a timing race and the difference between the
-machines is the clue.</p>
-<p><strong>SHELVED 2026-08-19</strong> pending a laptop build.</p>
-</blockquote>
-<p>Mark results inline with <code>****</code>.</p>
-<hr />
-<h2 id="why-the-setup-is-fussy">Why the setup is fussy</h2>
-<p><code>startRemoteAudioThread()</code> has <strong>exactly one
-caller</strong> — the <code>PCAudio</code> property setter. If PC audio
-is off, that thread never starts, so there is nothing that could be
-orphaned and <strong>a clean result proves nothing at all</strong>.</p>
-<p>That is why this test has sat unrun: every casual attempt happened to
-have PC audio off.</p>
-<p><strong>Second reason it is fussy:</strong> you have never seen the
-ghost on the ms-02, only on the laptop, and not on the laptop recently
-either. So a single clean pass is weak evidence. The variants below
-exist to make a negative result mean something.</p>
-<hr />
-<h2 id="setup-do-this-once">Setup — do this once</h2>
-<ol type="1">
-<li>Settings, Audio: set PC audio for this radio to <strong>Always on
-for this radio</strong> (not “as I left it”). That removes any chance of
-connecting with it off.</li>
+<h1>Orphan process test — does jjflexible.exe outlive its window?</h1>
+<p><strong>Date:</strong> 2026-08-19</p>
+<p><strong>Task:</strong> #21</p>
+<p><strong>Build:</strong> any current build. The fix under test is #14 (the <code>Audio.Finished()</code></p>
+<p>timeout loop that could never time out) plus the foreground-thread and</p>
+<p>teardown-order work.</p>
+<p><strong>Radio:</strong> any. PC audio is the part that matters, not which rig.</p>
+<p>> <strong>RUN THIS ON THE LAPTOP.</strong> Corrected 2026-08-19 — Noel: "shouldn't we be</p>
+<p>> doing all these tests on the laptop itself since that was the problem</p>
+<p>> machine?" Yes. The laptop is where the survivor has actually been seen; the</p>
+<p>> ms-02 never showed it. Testing on the machine where a bug does not occur is</p>
+<p>> testing where the bug is not.</p>
+<p>></p>
+<p>> <strong>The real prerequisite is therefore a current build ON THE LAPTOP</strong>, which</p>
+<p>> does not exist yet. That is a distribution step, not a testing one, and it</p>
+<p>> blocks everything below.</p>
+<p>></p>
+<p>> Run order once the laptop has a build: <strong>laptop first</strong>, ms-02 only as a</p>
+<p>> comparison afterwards. If the laptop is dirty and the ms-02 clean, that is a</p>
+<p>> timing race and the difference between the machines is the clue.</p>
+<p>></p>
+<p>> <strong>SHELVED 2026-08-19</strong> pending a laptop build.</p>
+<p>Mark results inline with <code><em>*</em>* </code>.</p>
+<p>---</p>
+<h2>Why the setup is fussy</h2>
+<p><code>startRemoteAudioThread()</code> has <strong>exactly one caller</strong> — the <code>PCAudio</code> property</p>
+<p>setter. If PC audio is off, that thread never starts, so there is nothing that</p>
+<p>could be orphaned and <strong>a clean result proves nothing at all</strong>.</p>
+<p>That is why this test has sat unrun: every casual attempt happened to have PC</p>
+<p>audio off.</p>
+<p><strong>Second reason it is fussy:</strong> you have never seen the ghost on the ms-02, only</p>
+<p>on the laptop, and not on the laptop recently either. So a single clean pass is</p>
+<p>weak evidence. The variants below exist to make a negative result mean</p>
+<p>something.</p>
+<p>---</p>
+<h2>Setup — do this once</h2>
+<ol>
+<li>Settings, Audio: set PC audio for this radio to <strong>Always on for this radio</strong></li>
 </ol>
-<hr />
-<ol start="2" type="1">
+<p>   (not "as I left it"). That removes any chance of connecting with it off.</p>
+<p><em>*</em>* </p>
+<ol>
 <li>Note the exact time. Useful when reading the trace afterwards.</li>
 </ol>
-<hr />
-<ol start="3" type="1">
-<li>Have a PowerShell window open and ready with this, so you can run it
-the instant the app window disappears:</li>
+<p><em>*</em>* </p>
+<ol>
+<li>Have a PowerShell window open and ready with this, so you can run it the</li>
 </ol>
-<pre><code>Get-Process jjflexible -ErrorAction SilentlyContinue | Select-Object Id, StartTime</code></pre>
+<p>   instant the app window disappears:</p>
+<p><code>`</code></p>
+<p>Get-Process jjflexible -ErrorAction SilentlyContinue | Select-Object Id, StartTime</p>
+<p><code>`</code></p>
 <p>Empty output means no process. Any line means a survivor.</p>
-<p><strong>Task Manager works just as well</strong> — look for
-<code>jjflexible.exe</code> under Details or Processes once the window
-is gone. Use whichever you would rather navigate; the PowerShell version
-is only quicker because it prints nothing when the answer is “no
-survivor”.</p>
-<hr />
-<hr />
-<h2 id="run-1-critical-close-while-connected-audio-flowing">RUN 1 —
-CRITICAL: close while connected, audio flowing</h2>
+<p><strong>Task Manager works just as well</strong> — look for <code>jjflexible.exe</code> under Details or</p>
+<p>Processes once the window is gone. Use whichever you would rather navigate; the</p>
+<p>PowerShell version is only quicker because it prints nothing when the answer is</p>
+<p>"no survivor".</p>
+<p><em>*</em>* </p>
+<p>---</p>
+<h2>RUN 1 — CRITICAL: close while connected, audio flowing</h2>
 <p>The canonical case.</p>
-<ol type="1">
+<ol>
 <li>Launch, connect to the radio.</li>
-<li><strong>Confirm you can actually hear radio audio.</strong> Do not
-skip this — it is the only proof PC audio really started. Audio being
-<em>switched on</em> is not the same as audio <em>running</em>.</li>
+<li><strong>Confirm you can actually hear radio audio.</strong> Do not skip this — it is the</li>
+</ol>
+<p>   only proof PC audio really started. Audio being <em>switched on</em> is not the same</p>
+<p>   as audio <em>running</em>.</p>
+<ol>
 <li>Leave it playing for at least 30 seconds.</li>
 <li>Close the app the way you normally would.</li>
 <li>Run the PowerShell check.</li>
 </ol>
-<p>**** RUN 1 RESULT (process survived: yes / no):</p>
-<hr />
-<h2 id="run-2-high-disconnect-first-then-close">RUN 2 — HIGH: disconnect
-first, then close</h2>
-<p>Distinguishes “teardown on disconnect” from “teardown on exit”. If
-Run 1 is clean and this one is not, the bug moved rather than went
-away.</p>
-<ol type="1">
+<p><em>*</em>* RUN 1 RESULT (process survived: yes / no):</p>
+<p>---</p>
+<h2>RUN 2 — HIGH: disconnect first, then close</h2>
+<p>Distinguishes "teardown on disconnect" from "teardown on exit". If Run 1 is</p>
+<p>clean and this one is not, the bug moved rather than went away.</p>
+<ol>
 <li>Launch, connect, confirm audio, leave 30 seconds.</li>
-<li><strong>Disconnect from the radio</strong> and wait a few
-seconds.</li>
+<li><strong>Disconnect from the radio</strong> and wait a few seconds.</li>
 <li>Close the app.</li>
 <li>Check.</li>
 </ol>
-<p>**** RUN 2 RESULT:</p>
-<hr />
-<h2 id="run-3-high-close-by-a-different-route">RUN 3 — HIGH: close by a
-different route</h2>
-<p>The exit path matters — a window close, a menu exit and an Alt+F4 do
-not necessarily run the same teardown.</p>
-<ol type="1">
+<p><em>*</em>* RUN 2 RESULT:</p>
+<p>---</p>
+<h2>RUN 3 — HIGH: close by a different route</h2>
+<p>The exit path matters — a window close, a menu exit and an Alt+F4 do not</p>
+<p>necessarily run the same teardown.</p>
+<ol>
 <li>Launch, connect, confirm audio.</li>
-<li>Close using a <strong>different method</strong> from Run 1 — if you
-used the window close, use File then Exit, or Alt+F4.</li>
+<li>Close using a <strong>different method</strong> from Run 1 — if you used the window close,</li>
+</ol>
+<p>   use File then Exit, or Alt+F4.</p>
+<ol>
 <li>Check.</li>
 </ol>
-<p>**** RUN 3 RESULT (and say which method you used):</p>
-<hr />
-<h2 id="run-4-the-ms-02-for-comparison-only">RUN 4 — the ms-02, for
-comparison only</h2>
-<p>Runs 1 to 3 belong on the LAPTOP (see the note at the top). This run
-repeats Run 1 on the ms-02 purely to compare.</p>
-<p>It matters only if the laptop was dirty: a laptop-dirty, ms-02-clean
-pair means a timing race, and the difference between the two machines —
-speed, audio device count, driver stack — is where the answer lives.</p>
-<p>**** RUN 4 RESULT:</p>
-<hr />
-<h2 id="if-a-process-does-survive">If a process DOES survive</h2>
-<p>Do not kill it immediately — it is more useful alive for a
-minute:</p>
-<ol type="1">
-<li>Note its <strong>Id</strong> and <strong>StartTime</strong> from the
-check above.</li>
+<p><em>*</em>* RUN 3 RESULT (and say which method you used):</p>
+<p>---</p>
+<h2>RUN 4 — the ms-02, for comparison only</h2>
+<p>Runs 1 to 3 belong on the LAPTOP (see the note at the top). This run repeats</p>
+<p>Run 1 on the ms-02 purely to compare.</p>
+<p>It matters only if the laptop was dirty: a laptop-dirty, ms-02-clean pair means</p>
+<p>a timing race, and the difference between the two machines — speed, audio device</p>
+<p>count, driver stack — is where the answer lives.</p>
+<p><em>*</em>* RUN 4 RESULT:</p>
+<p>---</p>
+<h2>If a process DOES survive</h2>
+<p>Do not kill it immediately — it is more useful alive for a minute:</p>
+<ol>
+<li>Note its <strong>Id</strong> and <strong>StartTime</strong> from the check above.</li>
 <li>Grab a snapshot of what it is doing:</li>
 </ol>
-<pre><code>Get-Process jjflexible | Select-Object Id, CPU, Threads, WorkingSet</code></pre>
-<p>A survivor burning CPU is a spinning loop; one at zero CPU with
-threads alive is a thread that never got the signal to stop. Different
-bugs.</p>
-<p>**** SURVIVOR DETAIL:</p>
-<ol start="3" type="1">
+<p><code>`</code></p>
+<p>Get-Process jjflexible | Select-Object Id, CPU, Threads, WorkingSet</p>
+<p><code>`</code></p>
+<p>A survivor burning CPU is a spinning loop; one at zero CPU with threads alive is</p>
+<p>a thread that never got the signal to stop. Different bugs.</p>
+<p><em>*</em>* SURVIVOR DETAIL:</p>
+<ol>
 <li>Then kill it: <code>Stop-Process -Name jjflexible</code></li>
 </ol>
-<hr />
-<h2 id="afterwards">Afterwards</h2>
-<p>Send the trace. The teardown sequence is logged, and with the time
-noted in setup step 2 the relevant section is easy to find.</p>
-<p>**** ANYTHING ELSE NOTICED:</p>
-<hr />
-<h2 id="what-the-results-will-mean">What the results will mean</h2>
+<p>---</p>
+<h2>Afterwards</h2>
+<p>Send the trace. The teardown sequence is logged, and with the time noted in</p>
+<p>setup step 2 the relevant section is easy to find.</p>
+<p><em>*</em>* ANYTHING ELSE NOTICED:</p>
+<p>---</p>
+<h2>What the results will mean</h2>
 <ul>
-<li><strong>All four clean</strong> — good evidence the fix holds, and
-the strongest statement we can make without a reproduction. #21 closes
-as fixed-not-reproduced, with the runs recorded so a future regression
-has a baseline.</li>
-<li><strong>Any run dirty</strong> — we have a live reproduction with a
-known exit path, which is far more valuable than four clean passes. That
-is the outcome to hope for if the bug still exists at all.</li>
-<li><strong>Laptop dirty, ms-02 clean</strong> — a timing race. Machine
-speed or audio device count is the variable, and that narrows the search
-considerably.</li>
+<li><strong>All four clean</strong> — good evidence the fix holds, and the strongest statement</li>
 </ul>
+<p>  we can make without a reproduction. #21 closes as fixed-not-reproduced, with</p>
+<p>  the runs recorded so a future regression has a baseline.</p>
+<ul>
+<li><strong>Any run dirty</strong> — we have a live reproduction with a known exit path, which</li>
+</ul>
+<p>  is far more valuable than four clean passes. That is the outcome to hope for</p>
+<p>  if the bug still exists at all.</p>
+<ul>
+<li><strong>Laptop dirty, ms-02 clean</strong> — a timing race. Machine speed or audio device</li>
+</ul>
+<p>  count is the variable, and that narrows the search considerably.</p>
 </body>
 </html>

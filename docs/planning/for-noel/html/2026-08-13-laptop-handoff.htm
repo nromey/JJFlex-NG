@@ -1,302 +1,115 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>2026-08-13-laptop-handoff</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      white-space: pre-wrap;
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: 1.5em;}
-    div.column{flex: auto;}
-    @media screen {
-    div.columns{gap: min(4vw, 1.5em);}
-    div.column{overflow-x: auto;}
-    }
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-  </style>
+<meta charset="utf-8">
+<title>Laptop handoff — 2026-08-13 morning</title>
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-<header id="title-block-header">
-<h1 class="title">2026-08-13-laptop-handoff</h1>
-</header>
-<h1 id="laptop-handoff-2026-08-13-morning">Laptop handoff — 2026-08-13
-morning</h1>
-<p>Read this on the laptop. It covers getting the build there, what
-changed, and what to do with it. The tests themselves are in the
-companion file,
-<code>2026-08-13-laptop-mic-and-headset-tests.md</code>.</p>
-<p>If you are running a Claude session on the laptop, hand it this file
-— it is written to work as context for either of you.</p>
-<h2 id="build-identity">Build identity</h2>
-<p><strong>Version 4.1.16.829, Debug, x64.</strong> Built on the dev box
-the morning of 2026-08-13, from branch <code>honest-tx-audio</code>.</p>
-<p>Self-contained: the .NET runtime ships inside it, so the laptop needs
-no runtime install. Unzip and run.</p>
-<h2 id="getting-it-onto-the-laptop">Getting it onto the laptop</h2>
-<p>The zip is on the NAS, which is the archive every debug build lands
-in automatically:</p>
-<pre><code>\\nas.macaw-jazz.ts.net\jjflex\historical\4.1.16.829\x64-debug\</code></pre>
+<h1>Laptop handoff — 2026-08-13 morning</h1>
+<p>Read this on the laptop. It covers getting the build there, what changed, and</p>
+<p>what to do with it. The tests themselves are in the companion file,</p>
+<p><code>2026-08-13-laptop-mic-and-headset-tests.md</code>.</p>
+<p>If you are running a Claude session on the laptop, hand it this file — it is</p>
+<p>written to work as context for either of you.</p>
+<h2>Build identity</h2>
+<p><strong>Version 4.1.16.829, Debug, x64.</strong> Built on the dev box the morning of</p>
+<p>2026-08-13, from branch <code>honest-tx-audio</code>.</p>
+<p>Self-contained: the .NET runtime ships inside it, so the laptop needs no</p>
+<p>runtime install. Unzip and run.</p>
+<h2>Getting it onto the laptop</h2>
+<p>The zip is on the NAS, which is the archive every debug build lands in</p>
+<p>automatically:</p>
+<p>    \\nas.macaw-jazz.ts.net\jjflex\historical\4.1.16.829\x64-debug\</p>
 <p>Inside that folder:</p>
 <ul>
-<li><code>JJFlex_4.1.16.829_x64_debug_20260813-0501.zip</code> — the
-build, 75.7 MB</li>
-<li><code>NOTES-4.1.16.829-debug_20260813-0501.txt</code> — the short
-operator-facing summary</li>
-<li><code>jjflexible.exe</code> and <code>jjflexible.pdb</code> — loose,
-for symbolicating a crash</li>
+<li><code>JJFlex_4.1.16.829_x64_debug_20260813-0501.zip</code> — the build, 75.7 MB</li>
+<li><code>NOTES-4.1.16.829-debug_20260813-0501.txt</code> — the short operator-facing summary</li>
+<li><code>jjflexible.exe</code> and <code>jjflexible.pdb</code> — loose, for symbolicating a crash</li>
 </ul>
-<p>The zip and NOTES carry a timestamp because they are never
-overwritten — if a second build lands under this same version today,
-both copies survive and the timestamp is what tells them apart. The
-loose exe and pdb do get refreshed.</p>
-<p><strong>This was deliberately NOT published to Dropbox.</strong>
-Dropbox <code>debug\</code> is the tester broadcast channel — that is
-Don’s copy, and pushing to it is a decision you make, not a side effect
-of a build. Say the word and I will publish; the build is ready either
-way.</p>
-<p>On the laptop: open the NAS path, copy the zip somewhere local, unzip
-it, run <code>jjflexible.exe</code> from the unzipped folder. Do not run
-it from inside the zip.</p>
-<p>If the NAS is not reachable from the laptop, check Tailscale is up.
-That is the usual cause and it is quicker to check than to work
-around.</p>
-<h2 id="what-is-in-this-build-that-has-never-met-a-microphone">What is
-in this build that has never met a microphone</h2>
-<p>Everything below shipped over the last two days and has been
-exercised only by the compiler. That is the whole reason for this
-session.</p>
+<p>The zip and NOTES carry a timestamp because they are never overwritten — if a</p>
+<p>second build lands under this same version today, both copies survive and the</p>
+<p>timestamp is what tells them apart. The loose exe and pdb do get refreshed.</p>
+<p><strong>This was deliberately NOT published to Dropbox.</strong> Dropbox <code>debug\</code> is the</p>
+<p>tester broadcast channel — that is Don's copy, and pushing to it is a decision</p>
+<p>you make, not a side effect of a build. Say the word and I will publish; the</p>
+<p>build is ready either way.</p>
+<p>On the laptop: open the NAS path, copy the zip somewhere local, unzip it, run</p>
+<p><code>jjflexible.exe</code> from the unzipped folder. Do not run it from inside the zip.</p>
+<p>If the NAS is not reachable from the laptop, check Tailscale is up. That is the</p>
+<p>usual cause and it is quicker to check than to work around.</p>
+<h2>What is in this build that has never met a microphone</h2>
+<p>Everything below shipped over the last two days and has been exercised only by</p>
+<p>the compiler. That is the whole reason for this session.</p>
 <ul>
-<li>The Audio Workshop’s “This Computer” section, and the walk-through
-ordering of the whole TX Audio tab</li>
-<li>The Microphone Check, including Windows microphone-privacy
-detection</li>
-<li>Device folding in the picker — duplicates collapsed, unplugged
-devices flagged</li>
-<li>Both audio numbers together, peak in dBFS and loudness in LUFS</li>
-<li>Noise-floor detection and its “the room is close behind your voice”
-note</li>
-<li>The preset toolbar, with save and load that are actually wired to
-storage</li>
+<li>The Audio Workshop's "This Computer" section, and the walk-through ordering</li>
 </ul>
-<h2
-id="this-mornings-fix-and-why-it-changes-what-you-should-watch-for">This
-morning’s fix, and why it changes what you should watch for</h2>
-<p>The Opus encoder was being built from the sample rate JJ Flex
-<em>asked</em> the device for. The check of whether the device would
-actually accept that rate happened later, on a different thread, and
-quietly changed the rate without telling anything downstream.</p>
-<p>So a microphone that refused 48 kHz got a stream running at its own
-rate, feeding a codec still convinced it was 48 kHz. Nothing failed and
-nothing was logged. The audio just came out roughly eight percent wrong,
-forever — which sounds like a <strong>regular, rhythmic
-stutter</strong>, not like a broken feature. That is precisely why it
-survived: it sounds like a network problem.</p>
+<p>  of the whole TX Audio tab</p>
+<ul>
+<li>The Microphone Check, including Windows microphone-privacy detection</li>
+<li>Device folding in the picker — duplicates collapsed, unplugged devices</li>
+</ul>
+<p>  flagged</p>
+<ul>
+<li>Both audio numbers together, peak in dBFS and loudness in LUFS</li>
+<li>Noise-floor detection and its "the room is close behind your voice" note</li>
+<li>The preset toolbar, with save and load that are actually wired to storage</li>
+</ul>
+<h2>This morning's fix, and why it changes what you should watch for</h2>
+<p>The Opus encoder was being built from the sample rate JJ Flex <em>asked</em> the</p>
+<p>device for. The check of whether the device would actually accept that rate</p>
+<p>happened later, on a different thread, and quietly changed the rate without</p>
+<p>telling anything downstream.</p>
+<p>So a microphone that refused 48 kHz got a stream running at its own rate,</p>
+<p>feeding a codec still convinced it was 48 kHz. Nothing failed and nothing was</p>
+<p>logged. The audio just came out roughly eight percent wrong, forever — which</p>
+<p>sounds like a <strong>regular, rhythmic stutter</strong>, not like a broken feature. That is</p>
+<p>precisely why it survived: it sounds like a network problem.</p>
 <p>Three consequences for your testing:</p>
-<ol type="1">
-<li><strong>The rate now gets settled first.</strong> Everything derived
-from it follows the device rather than the request.</li>
-<li><strong>Opus has no 44.1 kHz mode at all.</strong> So if Windows has
-a device at 44.1 kHz, that device genuinely cannot carry transmit audio
-— this is not something the app can paper over today. The Microphone
-Check now says so up front. Making 44.1 kHz devices work is a separate
-piece of work, already on the list.</li>
-<li><strong>A microphone that will not open now announces itself
-once</strong>, keeps receive audio running, and stops retrying. Before,
-it said nothing at all: you would key up, transmit silence, and be told
-nothing was wrong.</li>
+<ol>
+<li><strong>The rate now gets settled first.</strong> Everything derived from it follows the</li>
 </ol>
-<h2 id="the-single-most-valuable-thing-you-can-tell-me">The single most
-valuable thing you can tell me</h2>
+<p>   device rather than the request.</p>
+<ol>
+<li><strong>Opus has no 44.1 kHz mode at all.</strong> So if Windows has a device at 44.1</li>
+</ol>
+<p>   kHz, that device genuinely cannot carry transmit audio — this is not</p>
+<p>   something the app can paper over today. The Microphone Check now says so up</p>
+<p>   front. Making 44.1 kHz devices work is a separate piece of work, already on</p>
+<p>   the list.</p>
+<ol>
+<li><strong>A microphone that will not open now announces itself once</strong>, keeps receive</li>
+</ol>
+<p>   audio running, and stops retrying. Before, it said nothing at all: you would</p>
+<p>   key up, transmit silence, and be told nothing was wrong.</p>
+<h2>The single most valuable thing you can tell me</h2>
 <p><strong>What rate is your USB headset running at?</strong></p>
-<p>Start the Microphone Check and read the first line. If it says only
-“Microphone check running. Listening.” you are at 48 kHz and clear. If
-it goes on to mention 44.1 kHz, we have learned something important
-before you keyed up, which is the entire point of the check
-existing.</p>
+<p>Start the Microphone Check and read the first line. If it says only</p>
+<p>"Microphone check running. Listening." you are at 48 kHz and clear. If it goes</p>
+<p>on to mention 44.1 kHz, we have learned something important before you keyed</p>
+<p>up, which is the entire point of the check existing.</p>
 <p>Everything else in the test file can follow from there.</p>
-<h2 id="reporting-back">Reporting back</h2>
-<p><strong>Report to the session on the dev box, not to a Claude on the
-laptop.</strong> That session made this morning’s fix, knows what each
-test is actually probing, and has the repo and the build in front of it
-— a laptop session would start from this document alone, which is a
-summary rather than the reasoning. The laptop is the device under test;
-it does not need to be where the work happens.</p>
-<p>Both this file and the test file are on the NAS alongside the build,
-so the round-trip is: annotate the test file in the <code>****</code>
-slots on the laptop, save it back to the NAS folder, and the dev-box
-session reads it from there.</p>
-<p>Or just come back to the desk and say “walk me through these” and I
-will run them one at a time in chat — same tests, no file at all. That
-is usually faster for anything fiddly.</p>
-<p>If something crashes, the trace is at
-<code>%AppData%\JJFlexRadio\JJFlexRadioTrace.txt</code>, and the loose
-<code>.pdb</code> on the NAS next to the zip is what symbolicates
-it.</p>
-<h2 id="not-in-this-build">Not in this build</h2>
+<h2>Reporting back</h2>
+<p><strong>Report to the session on the dev box, not to a Claude on the laptop.</strong> That</p>
+<p>session made this morning's fix, knows what each test is actually probing, and</p>
+<p>has the repo and the build in front of it — a laptop session would start from</p>
+<p>this document alone, which is a summary rather than the reasoning. The laptop</p>
+<p>is the device under test; it does not need to be where the work happens.</p>
+<p>Both this file and the test file are on the NAS alongside the build, so the</p>
+<p>round-trip is: annotate the test file in the <code><em>*</em>* </code> slots on the laptop, save</p>
+<p>it back to the NAS folder, and the dev-box session reads it from there.</p>
+<p>Or just come back to the desk and say "walk me through these" and I will run</p>
+<p>them one at a time in chat — same tests, no file at all. That is usually</p>
+<p>faster for anything fiddly.</p>
+<p>If something crashes, the trace is at</p>
+<p><code>%AppData%\JJFlexRadio\JJFlexRadioTrace.txt</code>, and the loose <code>.pdb</code> on the NAS</p>
+<p>next to the zip is what symbolicates it.</p>
+<h2>Not in this build</h2>
 <ul>
 <li>Transverter work is not fleshed out</li>
 <li>Noise gate and RNNoise are not here yet</li>
-<li>The two-numbers help page still opens with its draft marker, on
-purpose — it has not had a human pass</li>
+<li>The two-numbers help page still opens with its draft marker, on purpose —</li>
 </ul>
+<p>  it has not had a human pass</p>
 </body>
 </html>

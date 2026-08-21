@@ -1,555 +1,350 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>2026-08-07-cw-decode-survey</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      white-space: pre-wrap;
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: 1.5em;}
-    div.column{flex: auto;}
-    @media screen {
-    div.columns{gap: min(4vw, 1.5em);}
-    div.column{overflow-x: auto;}
-    }
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-  </style>
+<meta charset="utf-8">
+<title>CW Decode Survey — Options for RX Morse-to-Text in JJ Flexible Radio Access</title>
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-<header id="title-block-header">
-<h1 class="title">2026-08-07-cw-decode-survey</h1>
-</header>
-<h1
-id="cw-decode-survey-options-for-rx-morse-to-text-in-jj-flexible-radio-access">CW
-Decode Survey — Options for RX Morse-to-Text in JJ Flexible Radio
-Access</h1>
-<p>Research pull, 2026-08-07. Fulfils the “CW decode roadmap” research
-item queued in the 2026-05-04 CW keying design pass
-(<code>memory/project_cw_keying_design.md</code>). Scope: survey
-existing decoders (FLDIGI, MRP40, CW Skimmer, open-source and ML
-decoders, DIY DSP), assess decode quality / latency / licensing /
-integration approach for a .NET 10 screen-reader-first Windows app, and
-recommend a roadmap.</p>
-<p>Reminder of the TX/RX split: text-based CW
-<strong>transmission</strong> already works in JJF for Flex radios. This
-document is entirely about the unbuilt RX path — turning received CW
-audio into text.</p>
-<h2 id="where-the-audio-comes-from-what-we-already-have">Where the audio
-comes from (what we already have)</h2>
-<p>The integration story is unusually good because the plumbing already
-exists:</p>
+<h1>CW Decode Survey — Options for RX Morse-to-Text in JJ Flexible Radio Access</h1>
+<p>Research pull, 2026-08-07. Fulfils the "CW decode roadmap" research item queued in the</p>
+<p>2026-05-04 CW keying design pass (<code>memory/project_cw_keying_design.md</code>). Scope: survey</p>
+<p>existing decoders (FLDIGI, MRP40, CW Skimmer, open-source and ML decoders, DIY DSP),</p>
+<p>assess decode quality / latency / licensing / integration approach for a .NET 10</p>
+<p>screen-reader-first Windows app, and recommend a roadmap.</p>
+<p>Reminder of the TX/RX split: text-based CW <strong>transmission</strong> already works in JJF for</p>
+<p>Flex radios. This document is entirely about the unbuilt RX path — turning received</p>
+<p>CW audio into text.</p>
+<h2>Where the audio comes from (what we already have)</h2>
+<p>The integration story is unusually good because the plumbing already exists:</p>
 <ul>
-<li><strong>Primary tap — the Opus RX stream.</strong>
-<code>FlexBase</code> requests an <code>RXRemoteAudioStream</code> (48
-kHz Opus), decodes it through <code>JJPortaudio</code>, and exposes a
-<code>PostDecodeProcessor</code> hook (<code>Radios/FlexBase.cs</code>
-around line 348/9205,
-<code>JJPortaudio/JJPortaudio/AudioStream.cs</code> line 37) that hands
-every decoded buffer to a <code>float[]</code> delegate on the
-<code>remoteAudioProc</code> thread.
-<code>JJFlexWpf/RxAudioPipeline.cs</code> already rides this hook for
-spectral subtraction + RNNoise. A CW decode engine is just another
-consumer on this tap. Crucially, this path works identically for
-<strong>local and SmartLink</strong> connections — Don can test over
-SmartLink on day one. Opus compression is not a problem for CW: a keyed
-sine tone survives Opus far better than it survives the ionosphere.</li>
-<li><strong>Secondary tap — FlexLib DAX streams, no DAX driver
-needed.</strong> The vendored FlexLib has <code>DAXRXAudioStream</code>
-(<code>FlexLib_API/FlexLib/DAXRXAudioStream.cs</code>): uncompressed
-per-slice float audio over VITA-49, consumed in-process — the Windows
-DAX driver and SmartSDR are NOT required. The app stopped using DAX for
-its main audio path (“We’re not using DAX any more”,
-<code>FlexBase.cs:9180</code>), but as a decoder feed it has a unique
-property: it is <strong>per-slice</strong>. That enables decoding slice
-B while listening to slice A — monitor a CW sked frequency in text while
-ragchewing on phone. Limitations: LAN only (DAX does not traverse
-SmartLink), and it costs a DAX resource on MultiFlex radios.</li>
-<li><strong>Decoder placement relative to the existing DSP
-chain.</strong> RNNoise is speech-trained and already auto-disables in
-CW mode (<code>NoiseReductionProvider.AutoDisableNonVoice</code>), so
-tapping post-pipeline is acceptable today, but the decoder should tap
-the <strong>raw</strong> buffer (before spectral subtraction / RNNoise)
-so future voice-oriented DSP can never eat the tone. Spectral
-subtraction in particular could help <em>or</em> hurt a tone detector;
-keep the feeds independent.</li>
-<li><strong>What the decoder must supply itself:</strong> tone-frequency
-acquisition (the sidetone pitch depends on where the user tuned; expect
-roughly 300–900 Hz) and WPM tracking. The radio and FlexLib provide
-neither for received signals. Narrowing the RX filter (already a JJF
-control) is the user’s best pre-filter and costs us nothing.</li>
+<li><strong>Primary tap — the Opus RX stream.</strong> <code>FlexBase</code> requests an <code>RXRemoteAudioStream</code></li>
 </ul>
-<h2 id="candidate-survey">Candidate survey</h2>
-<h3 id="fldigis-cw-modem">FLDIGI’s CW modem</h3>
+<p>  (48 kHz Opus), decodes it through <code>JJPortaudio</code>, and exposes a</p>
+<p>  <code>PostDecodeProcessor</code> hook (<code>Radios/FlexBase.cs</code> around line 348/9205,</p>
+<p>  <code>JJPortaudio/JJPortaudio/AudioStream.cs</code> line 37) that hands every decoded buffer</p>
+<p>  to a <code>float[]</code> delegate on the <code>remoteAudioProc</code> thread. <code>JJFlexWpf/RxAudioPipeline.cs</code></p>
+<p>  already rides this hook for spectral subtraction + RNNoise. A CW decode engine is</p>
+<p>  just another consumer on this tap. Crucially, this path works identically for</p>
+<p>  <strong>local and SmartLink</strong> connections — Don can test over SmartLink on day one.</p>
+<p>  Opus compression is not a problem for CW: a keyed sine tone survives Opus far</p>
+<p>  better than it survives the ionosphere.</p>
 <ul>
-<li><strong>What it is.</strong> The CW mode inside fldigi (w1hkj),
-GPLv3+. Decoder architecture: decimated FFT/sinc low-pass filtering plus
-a matched filter sized to the tracked WPM, with threshold-based
-mark/space detection and an adaptive speed tracker (5–200 WPM claimed).
-AG1LE (Mauri, the fldigi CW contributor) has documented experiments
-layering Self-Organizing Map classification and a Bayesian decoder on
-top; the Bayesian work largely stayed experimental.</li>
-<li><strong>Decode quality.</strong> Fair on clean-to-moderate signals
-with steady machine-sent keying. On noisy HF with QSB it is well behind
-a trained ear, and it is famously brittle on hand-sent/bug timing. e04’s
-published comparison (below) places fldigi behind both CW Skimmer and
-their neural decoder on real off-air recordings.</li>
-<li><strong>Out-of-process use.</strong> fldigi has a mature XML-RPC
-server (default 127.0.0.1:7362); <code>text.get_rx</code> style calls
-let an external app poll decoded text, and pyFldigi/fldigi-shell prove
-the pattern. So yes, usable out-of-process without touching its
-GUI.</li>
-<li><strong>Why it still loses for us.</strong> Three structural
-problems. First, audio routing: fldigi reads a sound <em>device</em>, so
-feeding it our RX stream means a virtual audio cable (VB-Cable) or the
-FlexRadio DAX driver — exactly the multi-app plumbing friction the
-friction-tax principle exists to kill. Second, accessibility: fldigi is
-FLTK-based, and FLTK exposes essentially nothing to UIA/MSAA — the
-fldigi UI is a black hole for NVDA/JAWS users, so any setup step that
-requires touching it is a non-starter for our audience. Third, it drags
-a whole digimode suite along for one modem. Extracting the GPL C++ modem
-source into our MIT app is license-incompatible for in-process linking;
-porting the <em>algorithm</em> (ideas are not copyrightable, but a
-line-by-line port is a derivative work) is legally murky and not worth
-it when better-quality options exist.</li>
+<li><strong>Secondary tap — FlexLib DAX streams, no DAX driver needed.</strong> The vendored FlexLib</li>
 </ul>
-<h3 id="mrp40-polar-electric">MRP40 (Polar Electric)</h3>
+<p>  has <code>DAXRXAudioStream</code> (<code>FlexLib_API/FlexLib/DAXRXAudioStream.cs</code>): uncompressed</p>
+<p>  per-slice float audio over VITA-49, consumed in-process — the Windows DAX driver</p>
+<p>  and SmartSDR are NOT required. The app stopped using DAX for its main audio path</p>
+<p>  ("We're not using DAX any more", <code>FlexBase.cs:9180</code>), but as a decoder feed it has</p>
+<p>  a unique property: it is <strong>per-slice</strong>. That enables decoding slice B while</p>
+<p>  listening to slice A — monitor a CW sked frequency in text while ragchewing on</p>
+<p>  phone. Limitations: LAN only (DAX does not traverse SmartLink), and it costs a DAX</p>
+<p>  resource on MultiFlex radios.</p>
 <ul>
-<li>Commercial Windows sound-card decoder with a good reputation on
-weak/QRM signals among contest and QRQ operators. Closed source, 30-day
-trial, paid per-user unlock code licensed to a single user on a single
-computer.</li>
-<li><strong>No API, no text export interface, no automation
-surface.</strong> It is a GUI end-user product. There is nothing to
-integrate against short of screen-scraping another process’s window —
-fragile and absurd for a screen-reader app.</li>
-<li>Verdict: useful as a <em>quality benchmark</em> when we evaluate our
-own engine, not an integration candidate. (Same verdict applies to
-CWGet/DXsoft — shareware, GUI-only.)</li>
+<li><strong>Decoder placement relative to the existing DSP chain.</strong> RNNoise is speech-trained</li>
 </ul>
-<h3 id="cw-skimmer-ve3nea-afreet">CW Skimmer (VE3NEA / Afreet)</h3>
+<p>  and already auto-disables in CW mode (<code>NoiseReductionProvider.AutoDisableNonVoice</code>),</p>
+<p>  so tapping post-pipeline is acceptable today, but the decoder should tap the <strong>raw</strong></p>
+<p>  buffer (before spectral subtraction / RNNoise) so future voice-oriented DSP can</p>
+<p>  never eat the tone. Spectral subtraction in particular could help <em>or</em> hurt a</p>
+<p>  tone detector; keep the feeds independent.</p>
 <ul>
-<li>The quality ceiling for classical DSP: multi-channel Bayesian
-decoding across an entire band segment, very sensitive, $75 license
-after trial, closed source.</li>
-<li>Its only machine interface is a built-in Telnet <em>cluster</em>
-server that emits time-stamped callsign spots (frequency, WPM, SNR) —
-not a continuous decoded-text stream for one QSO. Great for a future
-“who is on the band” feature; wrong shape for “read me this QSO.”</li>
-<li>Strategically interesting fact: its author, Alex Shovkoplyas VE3NEA,
-published DeepCW (below) under MIT — the classical-DSP champion moved to
-neural decoding himself.</li>
+<li><strong>What the decoder must supply itself:</strong> tone-frequency acquisition (the sidetone</li>
 </ul>
-<h3 id="ggmorse-ggerganov-mit">GGMorse (ggerganov, MIT)</h3>
+<p>  pitch depends on where the user tuned; expect roughly 300–900 Hz) and WPM tracking.</p>
+<p>  The radio and FlexLib provide neither for received signals. Narrowing the RX filter</p>
+<p>  (already a JJF control) is the user's best pre-filter and costs us nothing.</p>
+<h2>Candidate survey</h2>
+<h3>FLDIGI's CW modem</h3>
 <ul>
-<li>Small C/C++ real-time decoding library by Georgi Gerganov (of
-whisper.cpp fame). Automatic pitch detection (200–1200 Hz) and automatic
-speed detection (5–55 WPM), CMake build, clean C-style API surface, MIT
-license. Exactly the shape of thing we can P/Invoke the way we already
-P/Invoke RNNoise (<code>RNNoise.NET</code> precedent) and ship in
-<code>runtimes/win-x64|x86/native/</code> next to opus and
-portaudio.</li>
-<li><strong>Honest quality assessment:</strong> it was built for
-acoustic device-to-device transmission, not HF. On real off-air
-recordings it trails fldigi and CW Skimmer in e04’s comparison. The
-author himself flags the external-project API as rough (v0.1.0). Fine
-for a plumbing spike and clean signals; not the destination engine.</li>
+<li><strong>What it is.</strong> The CW mode inside fldigi (w1hkj), GPLv3+. Decoder architecture:</li>
 </ul>
-<h3
-id="small-.net-morse-libraries-morsesharp-dmorse-cwlibrary-audiomorsedecoder">Small
-.NET morse libraries (MorseSharp, dmorse, CWLibrary,
-AudioMorseDecoder…)</h3>
+<p>  decimated FFT/sinc low-pass filtering plus a matched filter sized to the tracked</p>
+<p>  WPM, with threshold-based mark/space detection and an adaptive speed tracker</p>
+<p>  (5–200 WPM claimed). AG1LE (Mauri, the fldigi CW contributor) has documented</p>
+<p>  experiments layering Self-Organizing Map classification and a Bayesian decoder on</p>
+<p>  top; the Bayesian work largely stayed experimental.</p>
 <ul>
-<li>Surveyed and dismissed for the decode path: they are overwhelmingly
-text↔︎code translators and audio <em>generators</em>. The few that
-attempt audio decode (e.g. AudioMorseDecoder with NAudio) are file-based
-hobby decoders, explicitly noise-intolerant, unmaintained. Nothing here
-beats writing our own DSP loop.</li>
+<li><strong>Decode quality.</strong> Fair on clean-to-moderate signals with steady machine-sent</li>
 </ul>
-<h3 id="ml-decoders-the-interesting-shelf">ML decoders — the interesting
-shelf</h3>
+<p>  keying. On noisy HF with QSB it is well behind a trained ear, and it is famously</p>
+<p>  brittle on hand-sent/bug timing. e04's published comparison (below) places fldigi</p>
+<p>  behind both CW Skimmer and their neural decoder on real off-air recordings.</p>
 <ul>
-<li><strong>DeepCW (VE3NEA, MIT).</strong> Training + validation
-pipeline in Jupyter/Keras (<code>data_generation</code>,
-<code>model</code> with <code>weights.h5</code> +
-<code>training_settings.py</code>, <code>validation</code>). It is a
-research repo, not a product — but it is an <strong>MIT-licensed,
-reproducible training recipe from the CW Skimmer author</strong>. A
-Keras model exports to ONNX mechanically. This is the seed for a
-license-clean model of our own.</li>
-<li><strong>e04’s DeepCW web decoder + deepcw-engine.</strong> Browser
-app (web-deep-cw-decoder / cw.e04.workers.dev) with a separately
-published inference engine: <code>model.onnx</code> + JSON metadata,
-<strong>input = 3200 Hz mono PCM</strong>, Python and Node examples on
-onnxruntime. Claims 0.00% character error from 0 down to −4 dB SNR at
-all tested speeds with graceful degradation below, plus published
-comparisons showing it beating CW Skimmer, fldigi, and ggmorse on real
-YouTube off-air recordings. Multi-channel and real-time in a browser —
-so compute cost is trivial for a desktop CPU. <strong>License:
-AGPL-3.0-only</strong> on the engine (the web repo shows no license
-grant at all). AGPL is fine out-of-process with published source, but
-in-process linking into MIT JJFlex is off the table, and “no license” on
-the web repo means we treat that code as all-rights-reserved.</li>
-<li><strong>Research lineage</strong> confirming the approach is sound,
-not a one-off: AG1LE’s decade of Bayesian/ML Morse posts, a 2024 NATO
-STO paper hitting ~1.7% character error with RNNs on audio, several
-CNN/LSTM spectrogram decoders on GitHub. The consistent finding: learned
-decoders dominate classical DSP precisely in the regime we care about —
-QSB fades, QRM, and sloppy hand keying.</li>
-<li><strong>Why this matters for us specifically:</strong> ONNX Runtime
-(<code>Microsoft.ML.OnnxRuntime</code>, MIT, first-class C# API,
-CPU-only is plenty for a 3.2 kHz single-channel model) makes in-process
-neural inference a NuGet reference, not an adventure. We already ship
-neural inference on the RX path (RNNoise). The DSP model-pack
-distribution scheme
-(<code>memory/project_dsp_model_pack_distribution.md</code>) already
-contemplates shipping downloadable model files.</li>
+<li><strong>Out-of-process use.</strong> fldigi has a mature XML-RPC server (default</li>
 </ul>
-<h3 id="diy-dsp-goertzelfft-adaptive-wpm">DIY DSP (Goertzel/FFT +
-adaptive WPM)</h3>
+<p>  127.0.0.1:7362); <code>text.get_rx</code> style calls let an external app poll decoded text,</p>
+<p>  and pyFldigi/fldigi-shell prove the pattern. So yes, usable out-of-process without</p>
+<p>  touching its GUI.</p>
 <ul>
-<li>The classical recipe: decimate the 48 kHz tap to ~8 kHz; run a
-Goertzel bank (or small sliding FFT) at and around the detected tone;
-compare center vs. adjacent bins to reject broadband noise; envelope the
-magnitude; adaptive threshold with hysteresis for mark/space; classify
-element and gap durations against a tracked dit clock (running average
-or simple k-means over recent marks); emit characters on inter-character
-gaps and spaces on word gaps. The k3ng keyer and dozens of Arduino
-projects prove the whole thing fits in a few hundred lines and runs in
-microseconds per block — on a desktop CPU it is free.</li>
-<li><strong>Quality ceiling is well documented:</strong> clean
-machine-sent CW at stable speed decodes near-perfectly; noisy HF yields
-“a few clear words in a pile of gibberish”; QSB flutters the threshold;
-hand keying wanders the WPM tracker (one documented build tracked a 40
-WPM signal that drifted to a perceived 52 under noise). This is a
-fair-weather decoder. But it is 100% ours, MIT-clean, zero dependencies,
-and forces us to build every piece of plumbing and UX the real engine
-will need.</li>
+<li><strong>Why it still loses for us.</strong> Three structural problems. First, audio routing:</li>
 </ul>
-<h2 id="licensing-summary">Licensing summary</h2>
+<p>  fldigi reads a sound <em>device</em>, so feeding it our RX stream means a virtual audio</p>
+<p>  cable (VB-Cable) or the FlexRadio DAX driver — exactly the multi-app plumbing</p>
+<p>  friction the friction-tax principle exists to kill. Second, accessibility: fldigi</p>
+<p>  is FLTK-based, and FLTK exposes essentially nothing to UIA/MSAA — the fldigi UI is</p>
+<p>  a black hole for NVDA/JAWS users, so any setup step that requires touching it is a</p>
+<p>  non-starter for our audience. Third, it drags a whole digimode suite along for one</p>
+<p>  modem. Extracting the GPL C++ modem source into our MIT app is license-incompatible</p>
+<p>  for in-process linking; porting the <em>algorithm</em> (ideas are not copyrightable, but</p>
+<p>  a line-by-line port is a derivative work) is legally murky and not worth it when</p>
+<p>  better-quality options exist.</p>
+<h3>MRP40 (Polar Electric)</h3>
 <ul>
-<li>JJFlexRadio is MIT (<code>LICENSE.txt</code>). In-process code must
-be MIT-compatible.</li>
-<li>Compatible in-process: our own DSP (obviously), ggmorse (MIT), ONNX
-Runtime (MIT), VE3NEA DeepCW pipeline and anything we train from it
-(MIT), RNNoise-style native wrappers (BSD).</li>
-<li>Out-of-process only: fldigi (GPLv3, XML-RPC boundary is fine), e04
-deepcw-engine (AGPL-3.0 — separate process + provide source; also means
-we cannot fold its weights into the app binary, since the model file
-itself carries the license).</li>
-<li>Not integrable at any boundary: MRP40, CWGet (closed, no interface);
-CW Skimmer (closed; Telnet spots only, usable later for a band-spots
-feature under its normal paid license).</li>
+<li>Commercial Windows sound-card decoder with a good reputation on weak/QRM signals</li>
 </ul>
-<h2 id="latency">Latency</h2>
+<p>  among contest and QRQ operators. Closed source, 30-day trial, paid per-user unlock</p>
+<p>  code licensed to a single user on a single computer.</p>
 <ul>
-<li>Morse itself sets the floor: a character is only decidable after an
-inter-character gap (3 dits) and a word after 7 dits. At 20 WPM (dit =
-60 ms) that is ~180 ms past the last element for a character and ~420 ms
-for a word; at 35 WPM roughly half that. Everything else is small
-change: Goertzel block latency is single-digit milliseconds; a chunked
-neural model adds one chunk (order 100–500 ms). Conclusion: every
-candidate is comfortably real-time for reading along; latency is a
-non-issue compared to the presentation-layer choices below. The only
-latency-sensitive consumer would be QSK-style interaction, which decode
-does not serve anyway.</li>
+<li><strong>No API, no text export interface, no automation surface.</strong> It is a GUI end-user</li>
 </ul>
-<h2
-id="screen-reader-presentation-the-part-nobody-else-has-done-well">Screen-reader
-presentation (the part nobody else has done well)</h2>
-<p>Every decoder above ships a scrolling visual text box and calls it
-done. For our users the presentation layer is half the feature, and it
-is engine-independent — build it once, swap engines underneath.</p>
+<p>  product. There is nothing to integrate against short of screen-scraping another</p>
+<p>  process's window — fragile and absurd for a screen-reader app.</p>
 <ul>
-<li><strong>Transcript buffer is the primary surface, not
-speech.</strong> An append-only, read-only text control (plain WinForms
-TextBox multiline is already fully navigable with NVDA review commands)
-reachable by hotkey, holding the last few kilobytes of decode with
-optional timestamps and a copy-to-clipboard action. Speech is ephemeral;
-QSB gibberish means users <em>will</em> re-read to reconstruct a
-callsign. The buffer is also the deaf-blind surface via braille
-review.</li>
-<li><strong>Live announcements are word-buffered, never
-per-character.</strong> Emit on word gap. Per-character speech at 25 WPM
-is a firehose no synthesizer survives. Feed announcements through the
-existing announcement infrastructure (centralized utterances) as
-<em>low-priority, interruptible</em> speech that never preempts
-user-initiated announcements — the no-silent-keystrokes rule must keep
-winning. When speech falls behind decode (it will, above ~30 WPM),
-coalesce: drop stale words from the speech queue, keep the transcript
-complete. Verbosity modes per the verbosity architecture: off / words /
-everything, per-radio, default off (flexibility principle: togglable,
-conservative default).</li>
-<li><strong>Braille routing is the sleeper feature.</strong> Streaming
-decoded words to a braille display region (BrailleElement /
-multi-braille output vision) gives deaf-blind operators direct CW
-reception — no other CW decoder on the market even considers this. The
-CW notification memory already envisions CW-as-haptics relay; decode
-feeding braille is the same abstraction (message vs. delivery) pointed
-the other direction.</li>
-<li><strong>Decoder confidence belongs in the UI.</strong> Expose
-tracked WPM and tone frequency as readable status fields (they double as
-tuning aids: “locked, 22 WPM, 640 Hz” tells the user the decoder found
-the signal). An ML engine’s per-character confidence can gate speech
-(speak only confident words; transcript gets everything, with a marker
-convention for low-confidence runs — textual markers, never visual-only
-styling).</li>
+<li>Verdict: useful as a <em>quality benchmark</em> when we evaluate our own engine, not an</li>
 </ul>
-<h2 id="integration-approaches-ranked">Integration approaches,
-ranked</h2>
-<ol type="1">
-<li><strong>In-process C# engine behind an interface.</strong> Define
-<code>ICwDecoder</code> (or similar): push <code>float[]</code> + sample
-rate in; events out for character, word, tracked WPM, tone frequency,
-lock state. Both the DIY DSP engine and an ONNX engine implement it; the
-presentation layer neither knows nor cares. This matches every existing
-pattern in the codebase (<code>PostDecodeProcessor</code> tap, RNNoise
-provider, engine swap via settings).</li>
-<li><strong>P/Invoke native library</strong> (ggmorse) — proven pattern
-here (RNNoise, opus, portaudio), fine for a spike, but ggmorse’s HF
-quality makes it a dead end as the shipped engine.</li>
-<li><strong>Out-of-process AGPL engine over stdio/localhost</strong>
-(e04 deepcw-engine) — legally clean, and the model-pack distribution
-scheme could deliver it as an optional download, but it drags a
-Python/Node runtime along and adds a process to manage. Interim measure
-at best; superseded the day we have our own ONNX model.</li>
-<li><strong>External tool bridges</strong> (fldigi XML-RPC, CW Skimmer
-Telnet) — power-user options we could document, not product features.
-fldigi’s FLTK UI being invisible to screen readers and the
-virtual-audio-cable requirement disqualify it as anything we
-<em>recommend</em> to our audience.</li>
+<p>  integration candidate. (Same verdict applies to CWGet/DXsoft — shareware,</p>
+<p>  GUI-only.)</p>
+<h3>CW Skimmer (VE3NEA / Afreet)</h3>
+<ul>
+<li>The quality ceiling for classical DSP: multi-channel Bayesian decoding across an</li>
+</ul>
+<p>  entire band segment, very sensitive, $75 license after trial, closed source.</p>
+<ul>
+<li>Its only machine interface is a built-in Telnet <em>cluster</em> server that emits</li>
+</ul>
+<p>  time-stamped callsign spots (frequency, WPM, SNR) — not a continuous decoded-text</p>
+<p>  stream for one QSO. Great for a future "who is on the band" feature; wrong shape</p>
+<p>  for "read me this QSO."</p>
+<ul>
+<li>Strategically interesting fact: its author, Alex Shovkoplyas VE3NEA, published</li>
+</ul>
+<p>  DeepCW (below) under MIT — the classical-DSP champion moved to neural decoding</p>
+<p>  himself.</p>
+<h3>GGMorse (ggerganov, MIT)</h3>
+<ul>
+<li>Small C/C++ real-time decoding library by Georgi Gerganov (of whisper.cpp fame).</li>
+</ul>
+<p>  Automatic pitch detection (200–1200 Hz) and automatic speed detection (5–55 WPM),</p>
+<p>  CMake build, clean C-style API surface, MIT license. Exactly the shape of thing we</p>
+<p>  can P/Invoke the way we already P/Invoke RNNoise (<code>RNNoise.NET</code> precedent) and</p>
+<p>  ship in <code>runtimes/win-x64|x86/native/</code> next to opus and portaudio.</p>
+<ul>
+<li><strong>Honest quality assessment:</strong> it was built for acoustic device-to-device</li>
+</ul>
+<p>  transmission, not HF. On real off-air recordings it trails fldigi and CW Skimmer</p>
+<p>  in e04's comparison. The author himself flags the external-project API as rough</p>
+<p>  (v0.1.0). Fine for a plumbing spike and clean signals; not the destination engine.</p>
+<h3>Small .NET morse libraries (MorseSharp, dmorse, CWLibrary, AudioMorseDecoder…)</h3>
+<ul>
+<li>Surveyed and dismissed for the decode path: they are overwhelmingly text↔code</li>
+</ul>
+<p>  translators and audio <em>generators</em>. The few that attempt audio decode (e.g.</p>
+<p>  AudioMorseDecoder with NAudio) are file-based hobby decoders, explicitly</p>
+<p>  noise-intolerant, unmaintained. Nothing here beats writing our own DSP loop.</p>
+<h3>ML decoders — the interesting shelf</h3>
+<ul>
+<li><strong>DeepCW (VE3NEA, MIT).</strong> Training + validation pipeline in Jupyter/Keras</li>
+</ul>
+<p>  (<code>data_generation</code>, <code>model</code> with <code>weights.h5</code> + <code>training_settings.py</code>,</p>
+<p>  <code>validation</code>). It is a research repo, not a product — but it is an **MIT-licensed,</p>
+<p>  reproducible training recipe from the CW Skimmer author**. A Keras model exports</p>
+<p>  to ONNX mechanically. This is the seed for a license-clean model of our own.</p>
+<ul>
+<li><strong>e04's DeepCW web decoder + deepcw-engine.</strong> Browser app</li>
+</ul>
+<p>  (web-deep-cw-decoder / cw.e04.workers.dev) with a separately published inference</p>
+<p>  engine: <code>model.onnx</code> + JSON metadata, <strong>input = 3200 Hz mono PCM</strong>, Python and</p>
+<p>  Node examples on onnxruntime. Claims 0.00% character error from 0 down to −4 dB</p>
+<p>  SNR at all tested speeds with graceful degradation below, plus published</p>
+<p>  comparisons showing it beating CW Skimmer, fldigi, and ggmorse on real YouTube</p>
+<p>  off-air recordings. Multi-channel and real-time in a browser — so compute cost is</p>
+<p>  trivial for a desktop CPU. <strong>License: AGPL-3.0-only</strong> on the engine (the web repo</p>
+<p>  shows no license grant at all). AGPL is fine out-of-process with published source,</p>
+<p>  but in-process linking into MIT JJFlex is off the table, and "no license" on the</p>
+<p>  web repo means we treat that code as all-rights-reserved.</p>
+<ul>
+<li><strong>Research lineage</strong> confirming the approach is sound, not a one-off: AG1LE's</li>
+</ul>
+<p>  decade of Bayesian/ML Morse posts, a 2024 NATO STO paper hitting ~1.7% character</p>
+<p>  error with RNNs on audio, several CNN/LSTM spectrogram decoders on GitHub. The</p>
+<p>  consistent finding: learned decoders dominate classical DSP precisely in the</p>
+<p>  regime we care about — QSB fades, QRM, and sloppy hand keying.</p>
+<ul>
+<li><strong>Why this matters for us specifically:</strong> ONNX Runtime</li>
+</ul>
+<p>  (<code>Microsoft.ML.OnnxRuntime</code>, MIT, first-class C# API, CPU-only is plenty for a</p>
+<p>  3.2 kHz single-channel model) makes in-process neural inference a NuGet reference,</p>
+<p>  not an adventure. We already ship neural inference on the RX path (RNNoise). The</p>
+<p>  DSP model-pack distribution scheme (<code>memory/project_dsp_model_pack_distribution.md</code>)</p>
+<p>  already contemplates shipping downloadable model files.</p>
+<h3>DIY DSP (Goertzel/FFT + adaptive WPM)</h3>
+<ul>
+<li>The classical recipe: decimate the 48 kHz tap to ~8 kHz; run a Goertzel bank (or</li>
+</ul>
+<p>  small sliding FFT) at and around the detected tone; compare center vs. adjacent</p>
+<p>  bins to reject broadband noise; envelope the magnitude; adaptive threshold with</p>
+<p>  hysteresis for mark/space; classify element and gap durations against a tracked</p>
+<p>  dit clock (running average or simple k-means over recent marks); emit characters</p>
+<p>  on inter-character gaps and spaces on word gaps. The k3ng keyer and dozens of</p>
+<p>  Arduino projects prove the whole thing fits in a few hundred lines and runs in</p>
+<p>  microseconds per block — on a desktop CPU it is free.</p>
+<ul>
+<li><strong>Quality ceiling is well documented:</strong> clean machine-sent CW at stable speed</li>
+</ul>
+<p>  decodes near-perfectly; noisy HF yields "a few clear words in a pile of</p>
+<p>  gibberish"; QSB flutters the threshold; hand keying wanders the WPM tracker (one</p>
+<p>  documented build tracked a 40 WPM signal that drifted to a perceived 52 under</p>
+<p>  noise). This is a fair-weather decoder. But it is 100% ours, MIT-clean, zero</p>
+<p>  dependencies, and forces us to build every piece of plumbing and UX the real</p>
+<p>  engine will need.</p>
+<h2>Licensing summary</h2>
+<ul>
+<li>JJFlexRadio is MIT (<code>LICENSE.txt</code>). In-process code must be MIT-compatible.</li>
+<li>Compatible in-process: our own DSP (obviously), ggmorse (MIT), ONNX Runtime (MIT),</li>
+</ul>
+<p>  VE3NEA DeepCW pipeline and anything we train from it (MIT), RNNoise-style native</p>
+<p>  wrappers (BSD).</p>
+<ul>
+<li>Out-of-process only: fldigi (GPLv3, XML-RPC boundary is fine), e04 deepcw-engine</li>
+</ul>
+<p>  (AGPL-3.0 — separate process + provide source; also means we cannot fold its</p>
+<p>  weights into the app binary, since the model file itself carries the license).</p>
+<ul>
+<li>Not integrable at any boundary: MRP40, CWGet (closed, no interface); CW Skimmer</li>
+</ul>
+<p>  (closed; Telnet spots only, usable later for a band-spots feature under its normal</p>
+<p>  paid license).</p>
+<h2>Latency</h2>
+<ul>
+<li>Morse itself sets the floor: a character is only decidable after an</li>
+</ul>
+<p>  inter-character gap (3 dits) and a word after 7 dits. At 20 WPM (dit = 60 ms)</p>
+<p>  that is ~180 ms past the last element for a character and ~420 ms for a word; at</p>
+<p>  35 WPM roughly half that. Everything else is small change: Goertzel block latency</p>
+<p>  is single-digit milliseconds; a chunked neural model adds one chunk (order</p>
+<p>  100–500 ms). Conclusion: every candidate is comfortably real-time for reading</p>
+<p>  along; latency is a non-issue compared to the presentation-layer choices below.</p>
+<p>  The only latency-sensitive consumer would be QSK-style interaction, which decode</p>
+<p>  does not serve anyway.</p>
+<h2>Screen-reader presentation (the part nobody else has done well)</h2>
+<p>Every decoder above ships a scrolling visual text box and calls it done. For our</p>
+<p>users the presentation layer is half the feature, and it is engine-independent —</p>
+<p>build it once, swap engines underneath.</p>
+<ul>
+<li><strong>Transcript buffer is the primary surface, not speech.</strong> An append-only,</li>
+</ul>
+<p>  read-only text control (plain WinForms TextBox multiline is already fully</p>
+<p>  navigable with NVDA review commands) reachable by hotkey, holding the last few</p>
+<p>  kilobytes of decode with optional timestamps and a copy-to-clipboard action.</p>
+<p>  Speech is ephemeral; QSB gibberish means users <em>will</em> re-read to reconstruct a</p>
+<p>  callsign. The buffer is also the deaf-blind surface via braille review.</p>
+<ul>
+<li><strong>Live announcements are word-buffered, never per-character.</strong> Emit on word gap.</li>
+</ul>
+<p>  Per-character speech at 25 WPM is a firehose no synthesizer survives. Feed</p>
+<p>  announcements through the existing announcement infrastructure (centralized</p>
+<p>  utterances) as <em>low-priority, interruptible</em> speech that never preempts</p>
+<p>  user-initiated announcements — the no-silent-keystrokes rule must keep winning.</p>
+<p>  When speech falls behind decode (it will, above ~30 WPM), coalesce: drop stale</p>
+<p>  words from the speech queue, keep the transcript complete. Verbosity modes per</p>
+<p>  the verbosity architecture: off / words / everything, per-radio, default off</p>
+<p>  (flexibility principle: togglable, conservative default).</p>
+<ul>
+<li><strong>Braille routing is the sleeper feature.</strong> Streaming decoded words to a braille</li>
+</ul>
+<p>  display region (BrailleElement / multi-braille output vision) gives deaf-blind</p>
+<p>  operators direct CW reception — no other CW decoder on the market even considers</p>
+<p>  this. The CW notification memory already envisions CW-as-haptics relay; decode</p>
+<p>  feeding braille is the same abstraction (message vs. delivery) pointed the other</p>
+<p>  direction.</p>
+<ul>
+<li><strong>Decoder confidence belongs in the UI.</strong> Expose tracked WPM and tone frequency</li>
+</ul>
+<p>  as readable status fields (they double as tuning aids: "locked, 22 WPM, 640 Hz"</p>
+<p>  tells the user the decoder found the signal). An ML engine's per-character</p>
+<p>  confidence can gate speech (speak only confident words; transcript gets</p>
+<p>  everything, with a marker convention for low-confidence runs — textual markers,</p>
+<p>  never visual-only styling).</p>
+<h2>Integration approaches, ranked</h2>
+<ol>
+<li><strong>In-process C# engine behind an interface.</strong> Define <code>ICwDecoder</code> (or similar):</li>
 </ol>
-<h2 id="recommended-roadmap">Recommended roadmap</h2>
+<p>   push <code>float[]</code> + sample rate in; events out for character, word, tracked WPM,</p>
+<p>   tone frequency, lock state. Both the DIY DSP engine and an ONNX engine implement</p>
+<p>   it; the presentation layer neither knows nor cares. This matches every existing</p>
+<p>   pattern in the codebase (<code>PostDecodeProcessor</code> tap, RNNoise provider, engine</p>
+<p>   swap via settings).</p>
+<ol>
+<li><strong>P/Invoke native library</strong> (ggmorse) — proven pattern here (RNNoise, opus,</li>
+</ol>
+<p>   portaudio), fine for a spike, but ggmorse's HF quality makes it a dead end as</p>
+<p>   the shipped engine.</p>
+<ol>
+<li><strong>Out-of-process AGPL engine over stdio/localhost</strong> (e04 deepcw-engine) — legally</li>
+</ol>
+<p>   clean, and the model-pack distribution scheme could deliver it as an optional</p>
+<p>   download, but it drags a Python/Node runtime along and adds a process to manage.</p>
+<p>   Interim measure at best; superseded the day we have our own ONNX model.</p>
+<ol>
+<li><strong>External tool bridges</strong> (fldigi XML-RPC, CW Skimmer Telnet) — power-user</li>
+</ol>
+<p>   options we could document, not product features. fldigi's FLTK UI being</p>
+<p>   invisible to screen readers and the virtual-audio-cable requirement disqualify</p>
+<p>   it as anything we <em>recommend</em> to our audience.</p>
+<h2>Recommended roadmap</h2>
 <ul>
-<li><strong>Step 1 — cheapest credible: ship the plumbing with a DIY DSP
-engine.</strong> Build <code>ICwDecoder</code> + the
-Goertzel/adaptive-WPM engine in C# (a few hundred lines, MIT, zero deps)
-on the raw <code>PostDecodeProcessor</code> tap, plus the full
-presentation layer (transcript buffer, word-buffered speech, WPM/pitch
-status, per-radio toggle, default off, marked experimental). This is
-honest as a “practice-quality decoder” — it will read W1AW code practice
-and clean machine-sent CW well, and it gets the UX in front of Don and
-Mark immediately. Every line of it (tap, interface, transcript, speech,
-braille route) is load-bearing for the real engine later. Optionally
-stand up a throwaway ggmorse P/Invoke harness for offline file-based
-comparison, without shipping it.</li>
-<li><strong>Step 2 — build the benchmark before the better
-engine.</strong> Assemble a scoring corpus: W1AW code-practice archives
-(known text = free ground truth), plus recorded off-air contest/QSO
-audio with hand transcripts, plus synthesized CW swept across
-SNR/QSB/QRM/keying-style axes (VE3NEA’s MIT data-generation notebook
-does exactly this). Score character error rate per engine per SNR. This
-corpus is what makes “our decoder got better” a fact instead of a
-feeling, and it is how we benchmark against MRP40/CW Skimmer without
-integrating them.</li>
-<li><strong>Step 3 — long-term bet: our own neural engine, in-process
-via ONNX Runtime.</strong> Start from VE3NEA’s MIT training pipeline,
-adopt e04’s proven deployment shape (small model, 3.2 kHz mono input,
-chunked streaming inference), train with aggressive QSB/QRM/hand-keying
-augmentation, export Keras→ONNX, run it behind <code>ICwDecoder</code>
-with <code>Microsoft.ML.OnnxRuntime</code> (CPU). Distribute weights
-through the model-pack channel. Training a model this small is
-CPU-feasible (roarbox’s 40 cores are sitting right there). Result:
-MIT-clean end to end, no extra process, no extra runtime, and — on the
-published evidence — decode quality at or above CW Skimmer’s on
-single-channel QSOs, inside a screen-reader-first client. Nobody else in
-the market has that combination.</li>
-<li><strong>Explicitly not on the roadmap:</strong> MRP40/CWGet
-integration (no interface), fldigi as a dependency (accessibility +
-friction), extracting GPL modem code in-process (license), CW Skimmer
-Telnet (park until a band-spots feature wants it).</li>
+<li><strong>Step 1 — cheapest credible: ship the plumbing with a DIY DSP engine.</strong> Build</li>
 </ul>
-<h2 id="sources">Sources</h2>
+<p>  <code>ICwDecoder</code> + the Goertzel/adaptive-WPM engine in C# (a few hundred lines, MIT,</p>
+<p>  zero deps) on the raw <code>PostDecodeProcessor</code> tap, plus the full presentation layer</p>
+<p>  (transcript buffer, word-buffered speech, WPM/pitch status, per-radio toggle,</p>
+<p>  default off, marked experimental). This is honest as a "practice-quality decoder"</p>
+<p>  — it will read W1AW code practice and clean machine-sent CW well, and it gets the</p>
+<p>  UX in front of Don and Mark immediately. Every line of it (tap, interface,</p>
+<p>  transcript, speech, braille route) is load-bearing for the real engine later.</p>
+<p>  Optionally stand up a throwaway ggmorse P/Invoke harness for offline file-based</p>
+<p>  comparison, without shipping it.</p>
 <ul>
-<li>fldigi CW configuration and capabilities:
-http://www.w1hkj.com/FldigiHelp/cw_configuration_page.html and
-https://www.w1hkj.org/FldigiHelp/cw_configuration_page.html</li>
-<li>fldigi XML-RPC:
-https://www.w1hkj.org/FldigiHelp/xmlrpc_control_page.html ,
-https://sourceforge.net/p/fldigi/wiki/api_for_xmlrpc_socket_services/ ,
-https://github.com/KM4YRI/pyFldigi</li>
-<li>AG1LE decoder research (matched filter, SOM, Bayesian):
-http://ag1le.blogspot.com/2012/05/fldigi-matched-filter-and-som-decoder.html
-, http://ag1le.blogspot.com/2014/07/new-morse-decoder-part-6.html ,
-https://ag1le.blogspot.com/2012/06/ultimate-morse-code-decoder.html</li>
-<li>MRP40: https://www.polar-electric.com/Morse/MRP40-EN/ ,
-http://www.polar-electric.com/Morse/MRP40-EN/LoadPRM-EN.html</li>
-<li>CW Skimmer: https://en.wikipedia.org/wiki/CW_Skimmer ,
-https://www.reversebeacon.net/genn.php?a=skimmer ,
-http://dxatlas.com/CWSkimmer/Files/CwSkimmer.pdf</li>
+<li><strong>Step 2 — build the benchmark before the better engine.</strong> Assemble a scoring</li>
+</ul>
+<p>  corpus: W1AW code-practice archives (known text = free ground truth), plus</p>
+<p>  recorded off-air contest/QSO audio with hand transcripts, plus synthesized CW</p>
+<p>  swept across SNR/QSB/QRM/keying-style axes (VE3NEA's MIT data-generation notebook</p>
+<p>  does exactly this). Score character error rate per engine per SNR. This corpus is</p>
+<p>  what makes "our decoder got better" a fact instead of a feeling, and it is how we</p>
+<p>  benchmark against MRP40/CW Skimmer without integrating them.</p>
+<ul>
+<li><strong>Step 3 — long-term bet: our own neural engine, in-process via ONNX Runtime.</strong></li>
+</ul>
+<p>  Start from VE3NEA's MIT training pipeline, adopt e04's proven deployment shape</p>
+<p>  (small model, 3.2 kHz mono input, chunked streaming inference), train with</p>
+<p>  aggressive QSB/QRM/hand-keying augmentation, export Keras→ONNX, run it behind</p>
+<p>  <code>ICwDecoder</code> with <code>Microsoft.ML.OnnxRuntime</code> (CPU). Distribute weights through</p>
+<p>  the model-pack channel. Training a model this small is CPU-feasible (roarbox's 40</p>
+<p>  cores are sitting right there). Result: MIT-clean end to end, no extra process,</p>
+<p>  no extra runtime, and — on the published evidence — decode quality at or above CW</p>
+<p>  Skimmer's on single-channel QSOs, inside a screen-reader-first client. Nobody</p>
+<p>  else in the market has that combination.</p>
+<ul>
+<li><strong>Explicitly not on the roadmap:</strong> MRP40/CWGet integration (no interface),</li>
+</ul>
+<p>  fldigi as a dependency (accessibility + friction), extracting GPL modem code</p>
+<p>  in-process (license), CW Skimmer Telnet (park until a band-spots feature wants</p>
+<p>  it).</p>
+<h2>Sources</h2>
+<ul>
+<li>fldigi CW configuration and capabilities: http://www.w1hkj.com/FldigiHelp/cw_configuration_page.html and https://www.w1hkj.org/FldigiHelp/cw_configuration_page.html</li>
+<li>fldigi XML-RPC: https://www.w1hkj.org/FldigiHelp/xmlrpc_control_page.html , https://sourceforge.net/p/fldigi/wiki/api_for_xmlrpc_socket_services/ , https://github.com/KM4YRI/pyFldigi</li>
+<li>AG1LE decoder research (matched filter, SOM, Bayesian): http://ag1le.blogspot.com/2012/05/fldigi-matched-filter-and-som-decoder.html , http://ag1le.blogspot.com/2014/07/new-morse-decoder-part-6.html , https://ag1le.blogspot.com/2012/06/ultimate-morse-code-decoder.html</li>
+<li>MRP40: https://www.polar-electric.com/Morse/MRP40-EN/ , http://www.polar-electric.com/Morse/MRP40-EN/LoadPRM-EN.html</li>
+<li>CW Skimmer: https://en.wikipedia.org/wiki/CW_Skimmer , https://www.reversebeacon.net/genn.php?a=skimmer , http://dxatlas.com/CWSkimmer/Files/CwSkimmer.pdf</li>
 <li>GGMorse: https://github.com/ggerganov/ggmorse</li>
-<li>VE3NEA DeepCW (MIT training pipeline):
-https://github.com/VE3NEA/DeepCW</li>
-<li>e04 DeepCW web decoder and engine (AGPL-3.0):
-https://github.com/e04/web-deep-cw-decoder ,
-https://github.com/e04/deepcw-engine , https://cw.e04.workers.dev/</li>
-<li>NATO STO RNN Morse transcription paper:
-https://www.sto.nato.int/document/human-like-morse-code-decoding-using-machine-learning/</li>
-<li>Goertzel CW decoder builds: https://fletch.scot/radio/goertzel.html
-, https://github.com/k3ng/k3ng_cw_keyer/wiki/385-Feature:-CW-Decoder ,
-https://yu2zz.wordpress.com/2026/02/22/dsp-morse-decoder-trainer-with-arduino/</li>
-<li>.NET morse libraries (dismissed for decode):
-https://github.com/p6laris/MorseSharp , https://github.com/855309/dmorse
-, https://github.com/jstoddard/CWLibrary ,
-https://git.starbeamrainbowlabs.com/sbrl/AudioMorseDecoder</li>
+<li>VE3NEA DeepCW (MIT training pipeline): https://github.com/VE3NEA/DeepCW</li>
+<li>e04 DeepCW web decoder and engine (AGPL-3.0): https://github.com/e04/web-deep-cw-decoder , https://github.com/e04/deepcw-engine , https://cw.e04.workers.dev/</li>
+<li>NATO STO RNN Morse transcription paper: https://www.sto.nato.int/document/human-like-morse-code-decoding-using-machine-learning/</li>
+<li>Goertzel CW decoder builds: https://fletch.scot/radio/goertzel.html , https://github.com/k3ng/k3ng_cw_keyer/wiki/385-Feature:-CW-Decoder , https://yu2zz.wordpress.com/2026/02/22/dsp-morse-decoder-trainer-with-arduino/</li>
+<li>.NET morse libraries (dismissed for decode): https://github.com/p6laris/MorseSharp , https://github.com/855309/dmorse , https://github.com/jstoddard/CWLibrary , https://git.starbeamrainbowlabs.com/sbrl/AudioMorseDecoder</li>
 </ul>
 </body>
 </html>

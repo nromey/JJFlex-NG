@@ -1,781 +1,163 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>2026-08-06-radio-audio-settings-research</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      white-space: pre-wrap;
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: 1.5em;}
-    div.column{flex: auto;}
-    @media screen {
-    div.columns{gap: min(4vw, 1.5em);}
-    div.column{overflow-x: auto;}
-    }
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-  </style>
+<meta charset="utf-8">
+<title>Radio Audio Device Picker — Migration Research for Settings → Audio</title>
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-<header id="title-block-header">
-<h1 class="title">2026-08-06-radio-audio-settings-research</h1>
-</header>
-<h1
-id="radio-audio-device-picker-migration-research-for-settings-audio">Radio
-Audio Device Picker — Migration Research for Settings → Audio</h1>
-<p><strong>Date:</strong> 2026-08-06. <strong>Branch surveyed:</strong>
-<code>track/flexlib-4220</code>. <strong>Purpose:</strong> plan the
-absorption of the JJ-written “Radio Audio Device” picker (JJPortaudio
-<code>devList</code> form + <code>Devices</code> engine +
-<code>audioDevices.xml</code>) into the modern Settings dialog’s Audio
-tab. All claims below carry file paths and line numbers from the current
-branch. Prose and bullets only, per house rules.</p>
-<hr />
-<h2 id="what-this-thing-is-in-one-paragraph">1. What this thing is, in
-one paragraph</h2>
-<p>When “PC audio” is on, JJFlexRadio streams the radio’s receive audio
-to the computer’s speakers and the computer’s microphone back to the
-radio, over Opus, through PortAudio. The pair of sound devices used for
-that — one input (PC mic, becomes TX audio) and one output (radio RX
-audio playback) — is chosen in a tiny WinForms dialog that dates to the
-original 2024-03-03 project import (<code>git log --follow</code> on
-<code>JJPortaudio/JJPortaudio/devList.cs</code> bottoms out at commit
-<code>e68dabc5</code>, “Add project files” — this is Jim-era code,
-confirming “JJ written”). The choice persists in
-<code>audioDevices.xml</code>. Nothing else in the app uses these two
-devices: earcons, meter tones, and CW notifications all go through
-NAudio via <code>EarconPlayer</code>, and the comment at
-<code>Radios\FlexBase.cs:8767</code> confirms DAX is not used. There is
-no CW-sidetone or DAX device in this picker — it is exactly two devices,
-PC-side, for the PC-audio path.</p>
-<h2 id="current-state-inventory">2. Current-state inventory</h2>
-<h3 id="the-form-and-engine-jjportaudio-project-c">2.1 The form and
-engine (JJPortaudio project, C#)</h3>
+<h1>Radio Audio Device Picker — Migration Research for Settings → Audio</h1>
+<p><strong>Date:</strong> 2026-08-06. <strong>Branch surveyed:</strong> <code>track/flexlib-4220</code>. <strong>Purpose:</strong> plan the absorption of the JJ-written "Radio Audio Device" picker (JJPortaudio <code>devList</code> form + <code>Devices</code> engine + <code>audioDevices.xml</code>) into the modern Settings dialog's Audio tab. All claims below carry file paths and line numbers from the current branch. Prose and bullets only, per house rules.</p>
+<p>---</p>
+<h2>1. What this thing is, in one paragraph</h2>
+<p>When "PC audio" is on, JJFlexRadio streams the radio's receive audio to the computer's speakers and the computer's microphone back to the radio, over Opus, through PortAudio. The pair of sound devices used for that — one input (PC mic, becomes TX audio) and one output (radio RX audio playback) — is chosen in a tiny WinForms dialog that dates to the original 2024-03-03 project import (<code>git log --follow</code> on <code>JJPortaudio/JJPortaudio/devList.cs</code> bottoms out at commit <code>e68dabc5</code>, "Add project files" — this is Jim-era code, confirming "JJ written"). The choice persists in <code>audioDevices.xml</code>. Nothing else in the app uses these two devices: earcons, meter tones, and CW notifications all go through NAudio via <code>EarconPlayer</code>, and the comment at <code>Radios\FlexBase.cs:8767</code> confirms DAX is not used. There is no CW-sidetone or DAX device in this picker — it is exactly two devices, PC-side, for the PC-audio path.</p>
+<h2>2. Current-state inventory</h2>
+<h3>2.1 The form and engine (JJPortaudio project, C#)</h3>
 <ul>
-<li><code>JJPortaudio\JJPortaudio\devList.cs</code> — the picker form
-logic. WinForms <code>Form</code>, <code>internal</code> to the
-JJPortaudio assembly (line 17). One ListBox, Select and Cancel buttons.
-The form’s title bar carries the actual instruction: “Select input
-device” or “Select output device” (lines 19-20, set at 84 and 89).
-Selecting nothing and pressing Select raises a <code>MessageBox</code>
-“You must select a device” (lines 23, 102).</li>
-<li><code>JJPortaudio\JJPortaudio\devList.designer.cs</code> — the
-designer half. ListBox has <code>AccessibleName = "device list"</code>
-and <code>AccessibleRole.List</code> (lines 48-49); the “Device list”
-label (line 44) is visual-only, not programmatically associated; the
-buttons rely on their <code>Text</code> for names (lines 64, 76). Cancel
-is wired as the form’s <code>CancelButton</code> (line 84), so Escape
-works.</li>
-<li><code>JJPortaudio\JJPortaudio\devList.resx</code> — designer
-resources.</li>
-<li><code>JJPortaudio\JJPortaudio\Devices.cs</code> — the engine and
-persistence. Public class wrapping:
-<ul>
-<li><code>Device</code> abstraction (lines 30-45): a full snapshot of
-the PortAudio device info — name, host API, channel counts, latencies,
-default sample rate — plus <code>DevinfoID</code> (the PortAudio index,
-re-resolved each session).</li>
-<li><code>cfg</code> (lines 48-51): the serialized shape — an array of
-exactly two <code>Device</code> slots, input then output.</li>
-<li><code>Setup()</code> (lines 86-99): initializes PortAudio, builds
-the device lists, then reads the config file if present.</li>
-<li><code>readCFG</code>/<code>writeCFG</code> (lines 101-146): plain
-<code>XmlSerializer</code> load/save of <code>cfg</code>.</li>
-<li><code>GetConfiguredDevice(type, getNew)</code> (lines 154-164):
-returns the saved device if it still exists on the system; optionally
-launches the picker if not.</li>
-<li><code>getNewDevice(type)</code> (lines 171-201): shows the
-<code>devList</code> form modally, saves the choice to disk immediately
-on OK (line 196).</li>
-</ul></li>
-<li>Device enumeration lives in <code>devList.Setup()</code> (static,
-lines 125-228): <code>Pa_Initialize</code>,
-<code>Pa_GetDeviceCount</code>, <code>Pa_GetDeviceInfo</code> per
-device, <code>Pa_Terminate</code> at the end — a snapshot, not a live
-subscription. Two load-bearing filters:
-<ul>
-<li><strong>Stereo-only.</strong> Input devices must have exactly 2
-input channels (line 187, and line 153 for the default); output devices
-exactly 2 output channels (lines 167, 203). A mono USB headset mic is
-invisible to this picker. The remark at line 122-124 says so: “we only
-handle stereo devices at present.”</li>
-<li><strong>Default device pinned first</strong> with a “Default:”
-display prefix (lines 42, 146-174), deduplicated from the main sweep
-(lines 190-215).</li>
-</ul></li>
-<li>Missing-device handling: <code>FindDevice</code> (lines 235-250)
-matches the saved device against the live system by <strong>name plus
-both channel counts</strong>, then rewrites <code>DevinfoID</code> — so
-PortAudio index reshuffles between sessions are tolerated, but a renamed
-or absent device makes <code>GetConfiguredDevice</code> return
-null.</li>
-<li>No-devices-at-all handling: a bare <code>MessageBox</code> “No audio
-devices were detected by PortAudio…” (line 222) and <code>Setup()</code>
-returns false.</li>
+<li><code>JJPortaudio\JJPortaudio\devList.cs</code> — the picker form logic. WinForms <code>Form</code>, <code>internal</code> to the JJPortaudio assembly (line 17). One ListBox, Select and Cancel buttons. The form's title bar carries the actual instruction: "Select input device" or "Select output device" (lines 19-20, set at 84 and 89). Selecting nothing and pressing Select raises a <code>MessageBox</code> "You must select a device" (lines 23, 102).</li>
+<li><code>JJPortaudio\JJPortaudio\devList.designer.cs</code> — the designer half. ListBox has <code>AccessibleName = "device list"</code> and <code>AccessibleRole.List</code> (lines 48-49); the "Device list" label (line 44) is visual-only, not programmatically associated; the buttons rely on their <code>Text</code> for names (lines 64, 76). Cancel is wired as the form's <code>CancelButton</code> (line 84), so Escape works.</li>
+<li><code>JJPortaudio\JJPortaudio\devList.resx</code> — designer resources.</li>
+<li><code>JJPortaudio\JJPortaudio\Devices.cs</code> — the engine and persistence. Public class wrapping:</li>
+<li><code>Device</code> abstraction (lines 30-45): a full snapshot of the PortAudio device info — name, host API, channel counts, latencies, default sample rate — plus <code>DevinfoID</code> (the PortAudio index, re-resolved each session).</li>
+<li><code>cfg</code> (lines 48-51): the serialized shape — an array of exactly two <code>Device</code> slots, input then output.</li>
+<li><code>Setup()</code> (lines 86-99): initializes PortAudio, builds the device lists, then reads the config file if present.</li>
+<li><code>readCFG</code>/<code>writeCFG</code> (lines 101-146): plain <code>XmlSerializer</code> load/save of <code>cfg</code>.</li>
+<li><code>GetConfiguredDevice(type, getNew)</code> (lines 154-164): returns the saved device if it still exists on the system; optionally launches the picker if not.</li>
+<li><code>getNewDevice(type)</code> (lines 171-201): shows the <code>devList</code> form modally, saves the choice to disk immediately on OK (line 196).</li>
+<li>Device enumeration lives in <code>devList.Setup()</code> (static, lines 125-228): <code>Pa_Initialize</code>, <code>Pa_GetDeviceCount</code>, <code>Pa_GetDeviceInfo</code> per device, <code>Pa_Terminate</code> at the end — a snapshot, not a live subscription. Two load-bearing filters:</li>
+<li><strong>Stereo-only.</strong> Input devices must have exactly 2 input channels (line 187, and line 153 for the default); output devices exactly 2 output channels (lines 167, 203). A mono USB headset mic is invisible to this picker. The remark at line 122-124 says so: "we only handle stereo devices at present."</li>
+<li><strong>Default device pinned first</strong> with a "Default: " display prefix (lines 42, 146-174), deduplicated from the main sweep (lines 190-215).</li>
+<li>Missing-device handling: <code>FindDevice</code> (lines 235-250) matches the saved device against the live system by <strong>name plus both channel counts</strong>, then rewrites <code>DevinfoID</code> — so PortAudio index reshuffles between sessions are tolerated, but a renamed or absent device makes <code>GetConfiguredDevice</code> return null.</li>
+<li>No-devices-at-all handling: a bare <code>MessageBox</code> "No audio devices were detected by PortAudio..." (line 222) and <code>Setup()</code> returns false.</li>
 </ul>
-<h3 id="persistence-audiodevices.xml">2.2 Persistence:
-audioDevices.xml</h3>
+<h3>2.2 Persistence: audioDevices.xml</h3>
 <ul>
-<li>Filename constant
-<code>audioDevicesBasename = "audioDevices.xml"</code> at
-<code>globals.vb:1736</code>; full path assembled at
-<code>globals.vb:686</code> as
-<code>BaseConfigDir &amp; "\audioDevices.xml"</code>, where
-<code>BaseConfigDir</code> is <code>%AppData%\JJFlexRadio</code>
-(<code>globals.vb:651-652</code>).</li>
-<li><strong>Keying: none.</strong> One file per Windows user profile per
-machine. Not per-operator (unlike the
-<code>k5ner_Noel_Romey_*.xml</code> family), not per-radio (unlike the
-new <code>radios\&lt;serial&gt;\config.xml</code> store), not
-per-account. Two operators on one PC share it; one operator’s two radios
-share it.</li>
-<li>Schema (verified against the live file on this machine): root
-<code>cfg</code>, containing <code>devs</code> with two
-<code>Device</code> elements — the input device then the output device —
-each carrying <code>DevinfoID</code>, <code>Type</code>,
-<code>Name</code>, <code>hostApi</code>, channel counts, four latency
-values, and <code>defaultSampleRate</code>. The <code>Name</code> +
-channel counts are the durable identity; <code>DevinfoID</code> is
-advisory and re-resolved by <code>FindDevice</code> each run.</li>
-<li>The file is written by exactly one code path:
-<code>Devices.getNewDevice</code> → <code>writeCFG</code>
-(<code>Devices.cs:196</code>), i.e. only when the user OKs the
-picker.</li>
+<li>Filename constant <code>audioDevicesBasename = "audioDevices.xml"</code> at <code>globals.vb:1736</code>; full path assembled at <code>globals.vb:686</code> as <code>BaseConfigDir & "\audioDevices.xml"</code>, where <code>BaseConfigDir</code> is <code>%AppData%\JJFlexRadio</code> (<code>globals.vb:651-652</code>).</li>
+<li><strong>Keying: none.</strong> One file per Windows user profile per machine. Not per-operator (unlike the <code>k5ner_Noel_Romey_*.xml</code> family), not per-radio (unlike the new <code>radios\<serial>\config.xml</code> store), not per-account. Two operators on one PC share it; one operator's two radios share it.</li>
+<li>Schema (verified against the live file on this machine): root <code>cfg</code>, containing <code>devs</code> with two <code>Device</code> elements — the input device then the output device — each carrying <code>DevinfoID</code>, <code>Type</code>, <code>Name</code>, <code>hostApi</code>, channel counts, four latency values, and <code>defaultSampleRate</code>. The <code>Name</code> + channel counts are the durable identity; <code>DevinfoID</code> is advisory and re-resolved by <code>FindDevice</code> each run.</li>
+<li>The file is written by exactly one code path: <code>Devices.getNewDevice</code> → <code>writeCFG</code> (<code>Devices.cs:196</code>), i.e. only when the user OKs the picker.</li>
 </ul>
-<h3 id="how-the-form-is-reached-four-paths">2.3 How the form is reached
-(four paths)</h3>
+<h3>2.3 How the form is reached (four paths)</h3>
 <ul>
-<li><strong>Menu.</strong>
-<code>JJFlexWpf\NativeMenuBar.cs:629-630</code>: “Radio Audio Device”
-item, added by <code>BuildAudioItems</code> (line 555), which feeds both
-the top-level “Audio” popup (lines 1102-1103) and the Slice → Audio
-submenu (lines 962-963). Deliberately placed outside the
-<code>Rig != null</code> guard — the doc comment at 552-553 says device
-setup is “always available (no radio required).” It invokes
-<code>MainWindow.AudioSetupCallback</code>
-(<code>JJFlexWpf\MainWindow.xaml.cs:1216</code>), wired at
-<code>ApplicationEvents.vb:111</code> to <code>GetNewAudioDevices</code>
-in <code>globals.vb</code>.</li>
-<li><strong>Command Finder / hotkey.</strong>
-<code>JJFlexWpf\KeyCommands.cs:256-258</code> registers “Select audio
-device” (<code>CommandValues.AudioSetup</code>,
-<code>Radios\KeyCommandTypes.cs:66</code>) with keywords
-audio/device/setup/settings/configure/preferences/sound; default binding
-is <code>Keys.None</code> (<code>KeyCommands.cs:995</code>), scope Radio
-— so it is discoverable through Ctrl+/ but has no key out of the box,
-and it is correctly absent from
-<code>docs/help/md/keyboard-reference.md</code>. The handler flows
-through <code>KeyCommandContext.AudioSetup</code>
-(<code>JJFlexWpf\KeyCommandContext.cs:72</code>), populated at
-<code>globals.vb:914</code>.</li>
-<li><strong>First-audio-use prompt (partial).</strong>
-<code>globals.vb:1771-1809</code>
-<code>EnsureAudioDevicesConfigured(prompt)</code>: checks both
-configured devices; if either is missing and <code>prompt</code> is
-true, asks “Audio devices are not configured. Select input and output
-devices now?” via MessageBox, then runs the two pickers. Called from
-exactly one place: the <code>globals.PCAudio</code> property setter
-(<code>globals.vb:1763</code>).</li>
-<li><strong>Silent fallback inside the audio thread.</strong>
-<code>Radios\FlexBase.cs:8744-8764</code>
-(<code>remoteAudioProc</code>): builds its own <code>Devices</code> from
-<code>Callouts.AudioDevicesFile</code> (plumbed via
-<code>OpenParms.AudioDevicesFile</code>, <code>globals.vb:2333</code>,
-declared at <code>Radios\AllRadios.cs:2486</code>) and calls
-<code>GetConfiguredDevice(type, getNew: true)</code> — which will pop
-the WinForms picker <strong>from the RemoteAudio background
-thread</strong> (started at <code>FlexBase.cs:8688-8696</code>, no
-<code>SetApartmentState(STA)</code>, priority Highest, no owner window).
-This is the path a first-run machine actually hits.</li>
+<li><strong>Menu.</strong> <code>JJFlexWpf\NativeMenuBar.cs:629-630</code>: "Radio Audio Device" item, added by <code>BuildAudioItems</code> (line 555), which feeds both the top-level "Audio" popup (lines 1102-1103) and the Slice → Audio submenu (lines 962-963). Deliberately placed outside the <code>Rig != null</code> guard — the doc comment at 552-553 says device setup is "always available (no radio required)." It invokes <code>MainWindow.AudioSetupCallback</code> (<code>JJFlexWpf\MainWindow.xaml.cs:1216</code>), wired at <code>ApplicationEvents.vb:111</code> to <code>GetNewAudioDevices</code> in <code>globals.vb</code>.</li>
+<li><strong>Command Finder / hotkey.</strong> <code>JJFlexWpf\KeyCommands.cs:256-258</code> registers "Select audio device" (<code>CommandValues.AudioSetup</code>, <code>Radios\KeyCommandTypes.cs:66</code>) with keywords audio/device/setup/settings/configure/preferences/sound; default binding is <code>Keys.None</code> (<code>KeyCommands.cs:995</code>), scope Radio — so it is discoverable through Ctrl+/ but has no key out of the box, and it is correctly absent from <code>docs/help/md/keyboard-reference.md</code>. The handler flows through <code>KeyCommandContext.AudioSetup</code> (<code>JJFlexWpf\KeyCommandContext.cs:72</code>), populated at <code>globals.vb:914</code>.</li>
+<li><strong>First-audio-use prompt (partial).</strong> <code>globals.vb:1771-1809</code> <code>EnsureAudioDevicesConfigured(prompt)</code>: checks both configured devices; if either is missing and <code>prompt</code> is true, asks "Audio devices are not configured. Select input and output devices now?" via MessageBox, then runs the two pickers. Called from exactly one place: the <code>globals.PCAudio</code> property setter (<code>globals.vb:1763</code>).</li>
+<li><strong>Silent fallback inside the audio thread.</strong> <code>Radios\FlexBase.cs:8744-8764</code> (<code>remoteAudioProc</code>): builds its own <code>Devices</code> from <code>Callouts.AudioDevicesFile</code> (plumbed via <code>OpenParms.AudioDevicesFile</code>, <code>globals.vb:2333</code>, declared at <code>Radios\AllRadios.cs:2486</code>) and calls <code>GetConfiguredDevice(type, getNew: true)</code> — which will pop the WinForms picker <strong>from the RemoteAudio background thread</strong> (started at <code>FlexBase.cs:8688-8696</code>, no <code>SetApartmentState(STA)</code>, priority Highest, no owner window). This is the path a first-run machine actually hits.</li>
 </ul>
-<p>The driver of all this, <code>GetNewAudioDevices</code>
-(<code>globals.vb:1740-1745</code>), has a UX wart worth killing during
-migration: it calls <code>getNewDevice(input)</code> then
-<code>getNewDevice(output)</code> unconditionally, so cancelling the
-input picker still marches you into the output picker.
-(<code>EnsureAudioDevicesConfigured</code> gets this right — it bails
-after a cancelled input at lines 1798-1801.) Also note
-<code>InputAudioDevice</code>/<code>OutputAudioDevice</code>
-(<code>globals.vb:1738</code>) are write-only vestiges — nothing reads
-them; FlexBase always re-reads the XML through its own
-<code>Devices</code> instance.</p>
-<h3 id="who-bypasses-the-first-run-guard">2.4 Who bypasses the first-run
-guard</h3>
-<p>The <code>EnsureAudioDevicesConfigured</code> prompt only protects
-the <code>globals.PCAudio</code> property. Both interactive PC-audio
-toggles skip it:</p>
+<p>The driver of all this, <code>GetNewAudioDevices</code> (<code>globals.vb:1740-1745</code>), has a UX wart worth killing during migration: it calls <code>getNewDevice(input)</code> then <code>getNewDevice(output)</code> unconditionally, so cancelling the input picker still marches you into the output picker. (<code>EnsureAudioDevicesConfigured</code> gets this right — it bails after a cancelled input at lines 1798-1801.) Also note <code>InputAudioDevice</code>/<code>OutputAudioDevice</code> (<code>globals.vb:1738</code>) are write-only vestiges — nothing reads them; FlexBase always re-reads the XML through its own <code>Devices</code> instance.</p>
+<h3>2.4 Who bypasses the first-run guard</h3>
+<p>The <code>EnsureAudioDevicesConfigured</code> prompt only protects the <code>globals.PCAudio</code> property. Both interactive PC-audio toggles skip it:</p>
 <ul>
-<li>The hotkey context toggle at <code>globals.vb:917-919</code> sets
-<code>RigControl.PCAudio</code> directly.</li>
-<li>The menu item “PC Audio On/Off” at
-<code>NativeMenuBar.cs:594-599</code> sets <code>Rig.PCAudio</code>
-directly.</li>
+<li>The hotkey context toggle at <code>globals.vb:917-919</code> sets <code>RigControl.PCAudio</code> directly.</li>
+<li>The menu item "PC Audio On/Off" at <code>NativeMenuBar.cs:594-599</code> sets <code>Rig.PCAudio</code> directly.</li>
 </ul>
-<p>And the connect path: <code>FlexBase.mainThreadProc</code>
-auto-enables PC audio on remote connects at
-<code>FlexBase.cs:9634-9637</code>
-(<code>if (RemoteRig &amp; !PCAudio) { PCAudio = true; }</code>), while
-a second, older enable site in the connected handler is commented out at
-<code>FlexBase.cs:738</code> (<code>//PCAudio = true;</code>). The
-research queue
-(<code>docs/planning/active/research-queue.md:53-58</code>) asserts PC
-audio is “NOT auto-enabled on remote connect (the line is commented
-out)” — that matches line 738 but not 9634, which is live code. Either
-the queue note over-generalized from line 738, or
-<code>mainThreadProc</code>’s enable is failing silently in the field
-(its failure mode is exactly <code>remoteAudioProc</code> bailing at
-8746-8764 with only trace lines). <strong>This needs a live verification
-before the migration ships</strong>, because it decides what the
-first-run rescue flow must handle (see risks and open question 5).
-Whichever way it resolves, on a machine with no
-<code>audioDevices.xml</code> the current behavior is: remote connect →
-background thread → raw prompt-less WinForms picker (or a silent
-trace-only failure) — precisely the ms-02 situation flagged at
-<code>research-queue.md:55-58</code>.</p>
-<h2 id="what-settings-audio-already-holds">3. What Settings → Audio
-already holds</h2>
-<p>The Audio tab
-(<code>JJFlexWpf\Dialogs\SettingsDialog.xaml:202-303</code>) currently
-contains, top to bottom: master volume (207-209), an Alerts group with
-alert volume and the <strong>Alert device</strong> combo (213-226), a
-Meter Tones group with volume, <strong>Meter device</strong> combo,
-preset combo, Peak Watcher and meter-speech checkboxes (230-259),
-Frequency Entry typing sound (263-273), a Braille Display group
-(277-291), and an Audio Workshop launcher button (295-300). Every
-control has an <code>AutomationProperties.Name</code>; the tab scrolls
-in a <code>ScrollViewer</code>.</p>
+<p>And the connect path: <code>FlexBase.mainThreadProc</code> auto-enables PC audio on remote connects at <code>FlexBase.cs:9634-9637</code> (<code>if (RemoteRig & !PCAudio) { PCAudio = true; }</code>), while a second, older enable site in the connected handler is commented out at <code>FlexBase.cs:738</code> (<code>//PCAudio = true;</code>). The research queue (<code>docs/planning/active/research-queue.md:53-58</code>) asserts PC audio is "NOT auto-enabled on remote connect (the line is commented out)" — that matches line 738 but not 9634, which is live code. Either the queue note over-generalized from line 738, or <code>mainThreadProc</code>'s enable is failing silently in the field (its failure mode is exactly <code>remoteAudioProc</code> bailing at 8746-8764 with only trace lines). <strong>This needs a live verification before the migration ships</strong>, because it decides what the first-run rescue flow must handle (see risks and open question 5). Whichever way it resolves, on a machine with no <code>audioDevices.xml</code> the current behavior is: remote connect → background thread → raw prompt-less WinForms picker (or a silent trace-only failure) — precisely the ms-02 situation flagged at <code>research-queue.md:55-58</code>.</p>
+<h2>3. What Settings → Audio already holds</h2>
+<p>The Audio tab (<code>JJFlexWpf\Dialogs\SettingsDialog.xaml:202-303</code>) currently contains, top to bottom: master volume (207-209), an Alerts group with alert volume and the <strong>Alert device</strong> combo (213-226), a Meter Tones group with volume, <strong>Meter device</strong> combo, preset combo, Peak Watcher and meter-speech checkboxes (230-259), Frequency Entry typing sound (263-273), a Braille Display group (277-291), and an Audio Workshop launcher button (295-300). Every control has an <code>AutomationProperties.Name</code>; the tab scrolls in a <code>ScrollViewer</code>.</p>
 <p>Key facts for the merge:</p>
 <ul>
-<li><strong>The existing device combos are NAudio, not
-PortAudio.</strong> They are populated from
-<code>EarconPlayer.GetOutputDevices()</code>
-(<code>SettingsDialog.xaml.cs:196-226</code>) and store NAudio device
-numbers into <code>AudioOutputConfig.EarconDeviceNumber</code> /
-<code>MeterDeviceNumber</code> on OK
-(<code>SettingsDialog.xaml.cs:982-1010</code>). <code>-1</code> means
-“Windows default” / “Same as Alerts”
-(<code>JJFlexWpf\AudioOutputConfig.cs:17, 35</code>). The radio-audio
-picker’s PortAudio enumeration is a different stack that can render
-different display names for the same physical hardware — the merged tab
-will put both stacks side by side.</li>
-<li><strong>Its persistence is <code>audioConfig.xml</code>,
-per-operator-ish with a root/Radios dual-copy dance.</strong>
-<code>AudioOutputConfig.Load/Save</code>
-(<code>AudioOutputConfig.cs:150-183</code>) write
-<code>audioConfig.xml</code> into whatever directory the caller passes.
-In practice two copies exist: root (<code>%AppData%\JJFlexRadio</code>)
-and the connected config dir (<code>OpenParms.ConfigDirectory</code> =
-<code>BaseConfigDir\Radios</code>, <code>globals.vb:2332</code>).
-<code>NativeMenuBar.ShowSettingsDialog</code>
-(<code>NativeMenuBar.cs:1478-1569</code>) loads per-radio when connected
-and merges user-global fields from root, saves user-scope fields back to
-root on OK (1554-1564); <code>MainWindow</code> saves the full config to
-the connected dir at PowerOff (<code>MainWindow.xaml.cs:481-485</code>)
-and loads it at PowerOn (2295) with a CW migrate-to-root pass
-(2325-2343). This duality has already produced real bugs (the ms-02 CW
-silence, <code>research-queue.md:485-509</code>; the TuningHash unlock
-miss in <code>Agent.md:2206</code>). Worth knowing before choosing to
-fold anything new into it.</li>
-<li><strong>Audio Workshop does not overlap.</strong> Despite the help
-page’s phrasing (“pick which output device your radio audio flows to”,
-<code>docs/help/md/audio-workshop.md:3</code>), the dialog itself is TX
-audio sculpting, live meters, and earcon exploration
-(<code>JJFlexWpf\Dialogs\AudioWorkshopDialog.xaml.cs:11-14, 24-52</code>)
-— radio-side controls, no PC device selection anywhere in it (zero
-matches for Device/PortAudio/NAudio in its code-behind). The help page
-should be corrected as a side effect of this work.</li>
-<li><strong>The Settings plumbing the new controls will ride on already
-exists:</strong> <code>OpenSettings(tab)</code> can open the dialog
-directly at a named tab (<code>NativeMenuBar.cs:1473</code>), and the
-dialog is a <code>JJFlexDialog</code> (Escape-closable per house
-rule).</li>
+<li><strong>The existing device combos are NAudio, not PortAudio.</strong> They are populated from <code>EarconPlayer.GetOutputDevices()</code> (<code>SettingsDialog.xaml.cs:196-226</code>) and store NAudio device numbers into <code>AudioOutputConfig.EarconDeviceNumber</code> / <code>MeterDeviceNumber</code> on OK (<code>SettingsDialog.xaml.cs:982-1010</code>). <code>-1</code> means "Windows default" / "Same as Alerts" (<code>JJFlexWpf\AudioOutputConfig.cs:17, 35</code>). The radio-audio picker's PortAudio enumeration is a different stack that can render different display names for the same physical hardware — the merged tab will put both stacks side by side.</li>
+<li><strong>Its persistence is <code>audioConfig.xml</code>, per-operator-ish with a root/Radios dual-copy dance.</strong> <code>AudioOutputConfig.Load/Save</code> (<code>AudioOutputConfig.cs:150-183</code>) write <code>audioConfig.xml</code> into whatever directory the caller passes. In practice two copies exist: root (<code>%AppData%\JJFlexRadio</code>) and the connected config dir (<code>OpenParms.ConfigDirectory</code> = <code>BaseConfigDir\Radios</code>, <code>globals.vb:2332</code>). <code>NativeMenuBar.ShowSettingsDialog</code> (<code>NativeMenuBar.cs:1478-1569</code>) loads per-radio when connected and merges user-global fields from root, saves user-scope fields back to root on OK (1554-1564); <code>MainWindow</code> saves the full config to the connected dir at PowerOff (<code>MainWindow.xaml.cs:481-485</code>) and loads it at PowerOn (2295) with a CW migrate-to-root pass (2325-2343). This duality has already produced real bugs (the ms-02 CW silence, <code>research-queue.md:485-509</code>; the TuningHash unlock miss in <code>Agent.md:2206</code>). Worth knowing before choosing to fold anything new into it.</li>
+<li><strong>Audio Workshop does not overlap.</strong> Despite the help page's phrasing ("pick which output device your radio audio flows to", <code>docs/help/md/audio-workshop.md:3</code>), the dialog itself is TX audio sculpting, live meters, and earcon exploration (<code>JJFlexWpf\Dialogs\AudioWorkshopDialog.xaml.cs:11-14, 24-52</code>) — radio-side controls, no PC device selection anywhere in it (zero matches for Device/PortAudio/NAudio in its code-behind). The help page should be corrected as a side effect of this work.</li>
+<li><strong>The Settings plumbing the new controls will ride on already exists:</strong> <code>OpenSettings(tab)</code> can open the dialog directly at a named tab (<code>NativeMenuBar.cs:1473</code>), and the dialog is a <code>JJFlexDialog</code> (Escape-closable per house rule).</li>
 </ul>
-<h2 id="accessibility-state-of-the-current-picker-honestly">4.
-Accessibility state of the current picker, honestly</h2>
+<h2>4. Accessibility state of the current picker, honestly</h2>
 <p>It is better than nothing and worse than the house standard:</p>
 <ul>
-<li>WinForms, modal, sequential: two dialogs in a row (input, then
-output) with no announcement that a second one is coming, and — via the
-menu path — no announcement of why a dialog appeared at all. The window
-title is the only context, and it does the heavy lifting (devList.cs:84,
-89).</li>
-<li>The ListBox is labeled (“device list”, role List — designer 48-49),
-but generically: it does not say <em>input</em> or <em>output</em>; a
-screen reader user who missed the title change hears the same control
-both times. The static label “Device list” is not associated with the
-ListBox.</li>
-<li>Buttons are fine by accident (WinForms exposes <code>Text</code>),
-Escape works (CancelButton wired, designer 84). Tab order is sane (label
-10, list 11, Select 90, Cancel 99) with no dead controls.</li>
-<li>Zero <code>ScreenReaderOutput</code> integration: no announcement of
-the resulting choice, no confirmation that anything saved, no speech
-when validation fails (a MessageBox appears instead).</li>
-<li>Errors are raw MessageBoxes from library code
-(<code>devList.cs:102, 133, 142, 222</code>) — including, on the
-<code>remoteAudioProc</code> path, from a background non-STA thread with
-no owner window, where focus handoff to NVDA is unreliable and the
-dialog can land behind the main window. This same thread can show the
-full picker (FlexBase.cs:8752, 8759 with
-<code>getNew: true</code>).</li>
-<li>The stereo-only filter silently hides devices; there is no “your
-device exists but was filtered out” affordance, which reads to a user as
-“JJ Flex can’t see my headset.”</li>
+<li>WinForms, modal, sequential: two dialogs in a row (input, then output) with no announcement that a second one is coming, and — via the menu path — no announcement of why a dialog appeared at all. The window title is the only context, and it does the heavy lifting (devList.cs:84, 89).</li>
+<li>The ListBox is labeled ("device list", role List — designer 48-49), but generically: it does not say <em>input</em> or <em>output</em>; a screen reader user who missed the title change hears the same control both times. The static label "Device list" is not associated with the ListBox.</li>
+<li>Buttons are fine by accident (WinForms exposes <code>Text</code>), Escape works (CancelButton wired, designer 84). Tab order is sane (label 10, list 11, Select 90, Cancel 99) with no dead controls.</li>
+<li>Zero <code>ScreenReaderOutput</code> integration: no announcement of the resulting choice, no confirmation that anything saved, no speech when validation fails (a MessageBox appears instead).</li>
+<li>Errors are raw MessageBoxes from library code (<code>devList.cs:102, 133, 142, 222</code>) — including, on the <code>remoteAudioProc</code> path, from a background non-STA thread with no owner window, where focus handoff to NVDA is unreliable and the dialog can land behind the main window. This same thread can show the full picker (FlexBase.cs:8752, 8759 with <code>getNew: true</code>).</li>
+<li>The stereo-only filter silently hides devices; there is no "your device exists but was filtered out" affordance, which reads to a user as "JJ Flex can't see my headset."</li>
 </ul>
-<h2 id="proposed-migration">5. Proposed migration</h2>
-<h3 id="what-moves-into-settings-audio">5.1 What moves into Settings →
-Audio</h3>
-<p>Add a new group at the <strong>top</strong> of the Audio tab (it is
-the most consequential audio decision on the page): heading “Radio Audio
-(PC audio devices)”, containing:</p>
+<h2>5. Proposed migration</h2>
+<h3>5.1 What moves into Settings → Audio</h3>
+<p>Add a new group at the <strong>top</strong> of the Audio tab (it is the most consequential audio decision on the page): heading "Radio Audio (PC audio devices)", containing:</p>
 <ul>
-<li><strong>Output device combo</strong> — “Radio receive audio plays
-through”. First, because RX audio is what most users configure this
-for.</li>
-<li><strong>Input device combo</strong> — “Microphone sent to the
-radio”.</li>
-<li>A one-line state readout per combo when unconfigured: the combo
-shows a “Not configured” placeholder item rather than silently
-defaulting.</li>
-<li>A <strong>Refresh devices</strong> button (PortAudio enumeration is
-a snapshot; see risks) that re-enumerates and announces “Device list
-refreshed, N output and M input devices” via
-<code>ScreenReaderOutput</code>.</li>
+<li><strong>Output device combo</strong> — "Radio receive audio plays through". First, because RX audio is what most users configure this for.</li>
+<li><strong>Input device combo</strong> — "Microphone sent to the radio".</li>
+<li>A one-line state readout per combo when unconfigured: the combo shows a "Not configured" placeholder item rather than silently defaulting.</li>
+<li>A <strong>Refresh devices</strong> button (PortAudio enumeration is a snapshot; see risks) that re-enumerates and announces "Device list refreshed, N output and M input devices" via <code>ScreenReaderOutput</code>.</li>
 </ul>
-<p>Engine work to support it: add a UI-free enumeration API to
-<code>JJPortaudio.Devices</code> (lift the guts of
-<code>devList.Setup()</code> — lines 125-228 — into
-<code>Devices</code>, returning the two lists; today they are
-<code>internal static</code> fields on the form class,
-<code>devList.cs:52-53</code>). Add a
-<code>SetConfiguredDevice(type, device)</code> that writes through
-<code>writeCFG</code>. The <code>devList</code> form then has no
-remaining reason to exist (see 5.3). This keeps
-<code>Devices.cs</code>’s persistence, matching
-(<code>FindDevice</code>), and <code>cfg</code> schema completely intact
-— FlexBase’s consumption path (<code>FlexBase.cs:8744-8764</code>) does
-not change at all.</p>
-<p>Apply semantics: selections save on Settings OK (same as the rest of
-the tab). If PC audio is running when the devices change, offer to
-restart the audio path (stop/start via the existing <code>PCAudio</code>
-setter round-trip) and announce the result; if not running, the next
-start picks the new devices up naturally since
-<code>remoteAudioProc</code> re-reads the file every start.</p>
-<h3 id="what-the-existing-entry-points-become">5.2 What the existing
-entry points become</h3>
+<p>Engine work to support it: add a UI-free enumeration API to <code>JJPortaudio.Devices</code> (lift the guts of <code>devList.Setup()</code> — lines 125-228 — into <code>Devices</code>, returning the two lists; today they are <code>internal static</code> fields on the form class, <code>devList.cs:52-53</code>). Add a <code>SetConfiguredDevice(type, device)</code> that writes through <code>writeCFG</code>. The <code>devList</code> form then has no remaining reason to exist (see 5.3). This keeps <code>Devices.cs</code>'s persistence, matching (<code>FindDevice</code>), and <code>cfg</code> schema completely intact — FlexBase's consumption path (<code>FlexBase.cs:8744-8764</code>) does not change at all.</p>
+<p>Apply semantics: selections save on Settings OK (same as the rest of the tab). If PC audio is running when the devices change, offer to restart the audio path (stop/start via the existing <code>PCAudio</code> setter round-trip) and announce the result; if not running, the next start picks the new devices up naturally since <code>remoteAudioProc</code> re-reads the file every start.</p>
+<h3>5.2 What the existing entry points become</h3>
 <ul>
-<li><strong>Menu item stays, retargeted.</strong> “Radio Audio Device”
-(<code>NativeMenuBar.cs:629</code>) becomes “Radio Audio Devices…” and
-calls <code>OpenSettings("Audio")</code>. Muscle memory and help docs
-keep a working path; the destination is just better.</li>
-<li><strong>Command Finder entry stays</strong> (“Select audio device”,
-<code>KeyCommands.cs:256-258</code>) with the same keywords, retargeted
-the same way.</li>
-<li><strong>First-run rescue changes shape.</strong>
-<code>EnsureAudioDevicesConfigured</code> (<code>globals.vb:1771</code>)
-keeps its role but its yes-branch opens Settings at the Audio tab
-(focused on the output combo) instead of chaining two naked pickers. The
-two direct-toggle bypasses (<code>globals.vb:917-919</code>,
-<code>NativeMenuBar.cs:594-599</code>) get routed through the
-ensure-check so every road to PC-audio-on passes the same gate.</li>
-<li><strong>The background-thread picker dies.</strong>
-<code>remoteAudioProc</code>’s <code>getNew: true</code>
-(FlexBase.cs:8752, 8759) becomes <code>getNew: false</code>; on null it
-surfaces a Critical spoken announcement on the UI thread — “PC audio
-needs a sound device. Press Enter to choose one in Settings” (or an
-advisory dialog with an Open Settings button, the pattern
-<code>OpenSettings</code> was built for per
-<code>NativeMenuBar.cs:1470-1472</code>) — instead of either popping
-WinForms UI from a worker thread or dying with only a trace line. This
-also fixes the silent-failure mode where “no RX antenna” masquerades as
-an audio-path failure (<code>research-queue.md:56-58</code>).</li>
+<li><strong>Menu item stays, retargeted.</strong> "Radio Audio Device" (<code>NativeMenuBar.cs:629</code>) becomes "Radio Audio Devices..." and calls <code>OpenSettings("Audio")</code>. Muscle memory and help docs keep a working path; the destination is just better.</li>
+<li><strong>Command Finder entry stays</strong> ("Select audio device", <code>KeyCommands.cs:256-258</code>) with the same keywords, retargeted the same way.</li>
+<li><strong>First-run rescue changes shape.</strong> <code>EnsureAudioDevicesConfigured</code> (<code>globals.vb:1771</code>) keeps its role but its yes-branch opens Settings at the Audio tab (focused on the output combo) instead of chaining two naked pickers. The two direct-toggle bypasses (<code>globals.vb:917-919</code>, <code>NativeMenuBar.cs:594-599</code>) get routed through the ensure-check so every road to PC-audio-on passes the same gate.</li>
+<li><strong>The background-thread picker dies.</strong> <code>remoteAudioProc</code>'s <code>getNew: true</code> (FlexBase.cs:8752, 8759) becomes <code>getNew: false</code>; on null it surfaces a Critical spoken announcement on the UI thread — "PC audio needs a sound device. Press Enter to choose one in Settings" (or an advisory dialog with an Open Settings button, the pattern <code>OpenSettings</code> was built for per <code>NativeMenuBar.cs:1470-1472</code>) — instead of either popping WinForms UI from a worker thread or dying with only a trace line. This also fixes the silent-failure mode where "no RX antenna" masquerades as an audio-path failure (<code>research-queue.md:56-58</code>).</li>
 </ul>
-<h3 id="what-dies-what-stays-for-compatibility">5.3 What dies, what
-stays for compatibility</h3>
+<h3>5.3 What dies, what stays for compatibility</h3>
 <ul>
-<li><strong>Dies:</strong> the <code>devList</code> form
-(<code>devList.cs</code>, <code>devList.designer.cs</code>,
-<code>devList.resx</code>), the two-modals-in-a-row UX, the
-cancel-input-still-asks-output wart in <code>GetNewAudioDevices</code>
-(<code>globals.vb:1740-1745</code>), the raw MessageBoxes as primary UX,
-and the vestigial
-<code>globals.InputAudioDevice</code>/<code>OutputAudioDevice</code>
-fields (<code>globals.vb:1738</code>). Recommendation: fully absorb — do
-<strong>not</strong> keep the old form as a first-run rescue. A rescue
-path that routes to Settings is strictly better for screen reader users
-than a rescue path that resurrects the unlabeled-context modal, and
-keeping the form alive means maintaining two device-selection UIs
-forever. The form is <code>internal</code> to JJPortaudio with exactly
-one consumer (<code>Devices</code>), so removal is contained.</li>
-<li><strong>Stays:</strong> <code>Devices.cs</code> engine essentially
-whole (enumeration relocated, persistence untouched),
-<code>audioDevices.xml</code> in place and format,
-<code>Callouts.AudioDevicesFile</code> plumbing
-(<code>AllRadios.cs:2486</code>, <code>globals.vb:2333</code>), and the
-<code>remoteAudioProc</code> consumption pattern.</li>
+<li><strong>Dies:</strong> the <code>devList</code> form (<code>devList.cs</code>, <code>devList.designer.cs</code>, <code>devList.resx</code>), the two-modals-in-a-row UX, the cancel-input-still-asks-output wart in <code>GetNewAudioDevices</code> (<code>globals.vb:1740-1745</code>), the raw MessageBoxes as primary UX, and the vestigial <code>globals.InputAudioDevice</code>/<code>OutputAudioDevice</code> fields (<code>globals.vb:1738</code>). Recommendation: fully absorb — do <strong>not</strong> keep the old form as a first-run rescue. A rescue path that routes to Settings is strictly better for screen reader users than a rescue path that resurrects the unlabeled-context modal, and keeping the form alive means maintaining two device-selection UIs forever. The form is <code>internal</code> to JJPortaudio with exactly one consumer (<code>Devices</code>), so removal is contained.</li>
+<li><strong>Stays:</strong> <code>Devices.cs</code> engine essentially whole (enumeration relocated, persistence untouched), <code>audioDevices.xml</code> in place and format, <code>Callouts.AudioDevicesFile</code> plumbing (<code>AllRadios.cs:2486</code>, <code>globals.vb:2333</code>), and the <code>remoteAudioProc</code> consumption pattern.</li>
 </ul>
-<h2 id="persistence-plan">6. Persistence plan</h2>
-<p><strong>Recommendation: keep <code>audioDevices.xml</code> exactly
-as-is — same path, same schema, same single writer.</strong>
-Reasoning:</p>
+<h2>6. Persistence plan</h2>
+<p><strong>Recommendation: keep <code>audioDevices.xml</code> exactly as-is — same path, same schema, same single writer.</strong> Reasoning:</p>
 <ul>
-<li><strong>The scope is already correct.</strong> Sound cards are a
-property of the machine. The file lives once per Windows profile at
-<code>%AppData%\JJFlexRadio\audioDevices.xml</code>, unkeyed — which is
-exactly what the per-radio principle (memory
-<code>project_per_radio_config_serial_keyed.md</code>) prescribes for
-non-radio-state config. Migrating it anywhere would be motion without
-improvement.</li>
-<li><strong>Folding into <code>audioConfig.xml</code> would make the
-scope wrong.</strong> <code>AudioOutputConfig</code> lives in the
-root/Radios dual-copy arrangement
-(<code>NativeMenuBar.cs:1493-1522</code>,
-<code>MainWindow.xaml.cs:2295, 2325-2343</code>, PowerOff save at
-481-485) that has already caused two field bugs by letting machine-truth
-and per-context copies drift. Device identity is machine truth; putting
-it inside a file that exists in two copies invites the exact class of
-bug the CW flag just exhibited. Also <code>AudioOutputConfig</code> is a
-JJFlexWpf type while the consumer of device config is the Radios layer —
-folding in would add a cross-assembly dependency for zero user
-benefit.</li>
-<li><strong>Folding into <code>RadioConfig</code> (the new serial-keyed
-store, <code>Radios\RadioConfig.cs:29-45</code>) would be the wrong axis
-entirely.</strong> Two operators of one radio do not share a sound card;
-one operator’s two radios do. The new store’s own doc comment draws this
-line correctly (“settings that describe THE RADIO … rather than the
-operator”, RadioConfig.cs:35-39). Audio devices are the canonical
-counter-example. No per-radio device override should ship in v1 — if a
-concrete need appears later (say, a dedicated headset only when
-operating the remote 6300), <code>RadioConfig</code> can grow an
-optional override that shadows the machine file, and the migration cost
-of adding that later is near zero precisely because the machine file
-stays authoritative.</li>
-<li><strong>Migration cost of keeping it: zero.</strong> Existing
-installs (Don’s, the laptop) keep working with no upgrade step. The only
-writer moves from <code>devList</code>-OK to Settings-OK; the bytes are
-identical.</li>
-<li>One deliberate schema-adjacent improvement is allowed without
-breaking anything: tolerate a missing/partial file gracefully in the new
-UI (it already loads defaults — <code>Devices.Setup</code> skips
-<code>readCFG</code> when the file is absent,
-<code>Devices.cs:93-96</code>), and treat “device not found by
-<code>FindDevice</code>” as a first-class displayed state rather than a
-null.</li>
+<li><strong>The scope is already correct.</strong> Sound cards are a property of the machine. The file lives once per Windows profile at <code>%AppData%\JJFlexRadio\audioDevices.xml</code>, unkeyed — which is exactly what the per-radio principle (memory <code>project_per_radio_config_serial_keyed.md</code>) prescribes for non-radio-state config. Migrating it anywhere would be motion without improvement.</li>
+<li><strong>Folding into <code>audioConfig.xml</code> would make the scope wrong.</strong> <code>AudioOutputConfig</code> lives in the root/Radios dual-copy arrangement (<code>NativeMenuBar.cs:1493-1522</code>, <code>MainWindow.xaml.cs:2295, 2325-2343</code>, PowerOff save at 481-485) that has already caused two field bugs by letting machine-truth and per-context copies drift. Device identity is machine truth; putting it inside a file that exists in two copies invites the exact class of bug the CW flag just exhibited. Also <code>AudioOutputConfig</code> is a JJFlexWpf type while the consumer of device config is the Radios layer — folding in would add a cross-assembly dependency for zero user benefit.</li>
+<li><strong>Folding into <code>RadioConfig</code> (the new serial-keyed store, <code>Radios\RadioConfig.cs:29-45</code>) would be the wrong axis entirely.</strong> Two operators of one radio do not share a sound card; one operator's two radios do. The new store's own doc comment draws this line correctly ("settings that describe THE RADIO ... rather than the operator", RadioConfig.cs:35-39). Audio devices are the canonical counter-example. No per-radio device override should ship in v1 — if a concrete need appears later (say, a dedicated headset only when operating the remote 6300), <code>RadioConfig</code> can grow an optional override that shadows the machine file, and the migration cost of adding that later is near zero precisely because the machine file stays authoritative.</li>
+<li><strong>Migration cost of keeping it: zero.</strong> Existing installs (Don's, the laptop) keep working with no upgrade step. The only writer moves from <code>devList</code>-OK to Settings-OK; the bytes are identical.</li>
+<li>One deliberate schema-adjacent improvement is allowed without breaking anything: tolerate a missing/partial file gracefully in the new UI (it already loads defaults — <code>Devices.Setup</code> skips <code>readCFG</code> when the file is absent, <code>Devices.cs:93-96</code>), and treat "device not found by <code>FindDevice</code>" as a first-class displayed state rather than a null.</li>
 </ul>
-<h2 id="accessibility-notes-for-the-new-surface">7. Accessibility notes
-for the new surface</h2>
+<h2>7. Accessibility notes for the new surface</h2>
 <ul>
-<li>Both combos get explicit <code>AutomationProperties.Name</code>
-phrased by function, not plumbing: “Radio receive audio output device”,
-“Microphone input device sent to the radio”. Follow the existing tab’s
-label-plus-combo <code>StackPanel</code> pattern
-(<code>SettingsDialog.xaml:219-226</code>).</li>
-<li>The group heading is a <code>TextBlock</code> in the established
-<code>DialogLabel</code> semibold style so it reads as a section
-landmark in tab order context, matching “Alerts” and “Meter Tones”.</li>
-<li><strong>No dead controls in tab order:</strong> if PortAudio reports
-zero usable devices, replace the combos with a single explanatory
-TextBlock (“No stereo audio devices were detected…”) and keep the
-Refresh button; do not present empty disabled combos.</li>
-<li>Selection changes announce via <code>ScreenReaderOutput.Speak</code>
-on commit (Settings OK), e.g. “Radio audio output: Main Output 1/2
-Audient EVO8” — matching the house rule that every change speaks. The
-combos themselves are native WPF, so NVDA reads item changes while
-browsing; the announcement covers the <em>applied</em> state.</li>
-<li>Preserve the “Default:” concept but as data, not decoration: first
-item “(Windows default) — <resolved name>” so the user hears what
-default actually resolves to today.</li>
-<li>The vanished-device state must be audible: if the saved device fails
-<code>FindDevice</code>, the combo shows and announces “Saved device not
-connected: Mic | Line 1/2 (Audient EVO8)” as the selected-but-flagged
-item rather than silently snapping to index 0 — silent remapping is how
-a blind operator ends up transmitting from the wrong mic.</li>
-<li>The rescue announcement path (5.2) uses Critical priority with
-interrupt, consistent with the connect-progress speech conventions in
-<code>AudioOutputConfig.SpeakConnectionProgress</code>
-(<code>AudioOutputConfig.cs:117-126</code>).</li>
-<li>Escape-closability comes free with <code>JJFlexDialog</code>; no
-long-running work happens in the tab (enumeration is fast; do it on open
-and on Refresh only).</li>
+<li>Both combos get explicit <code>AutomationProperties.Name</code> phrased by function, not plumbing: "Radio receive audio output device", "Microphone input device sent to the radio". Follow the existing tab's label-plus-combo <code>StackPanel</code> pattern (<code>SettingsDialog.xaml:219-226</code>).</li>
+<li>The group heading is a <code>TextBlock</code> in the established <code>DialogLabel</code> semibold style so it reads as a section landmark in tab order context, matching "Alerts" and "Meter Tones".</li>
+<li><strong>No dead controls in tab order:</strong> if PortAudio reports zero usable devices, replace the combos with a single explanatory TextBlock ("No stereo audio devices were detected...") and keep the Refresh button; do not present empty disabled combos.</li>
+<li>Selection changes announce via <code>ScreenReaderOutput.Speak</code> on commit (Settings OK), e.g. "Radio audio output: Main Output 1/2 Audient EVO8" — matching the house rule that every change speaks. The combos themselves are native WPF, so NVDA reads item changes while browsing; the announcement covers the <em>applied</em> state.</li>
+<li>Preserve the "Default:" concept but as data, not decoration: first item "(Windows default) — <resolved name>" so the user hears what default actually resolves to today.</li>
+<li>The vanished-device state must be audible: if the saved device fails <code>FindDevice</code>, the combo shows and announces "Saved device not connected: Mic | Line 1/2 (Audient EVO8)" as the selected-but-flagged item rather than silently snapping to index 0 — silent remapping is how a blind operator ends up transmitting from the wrong mic.</li>
+<li>The rescue announcement path (5.2) uses Critical priority with interrupt, consistent with the connect-progress speech conventions in <code>AudioOutputConfig.SpeakConnectionProgress</code> (<code>AudioOutputConfig.cs:117-126</code>).</li>
+<li>Escape-closability comes free with <code>JJFlexDialog</code>; no long-running work happens in the tab (enumeration is fast; do it on open and on Refresh only).</li>
 </ul>
-<h2 id="risks">8. Risks</h2>
+<h2>8. Risks</h2>
 <ul>
-<li><strong>First-run flow on a machine with no
-<code>audioDevices.xml</code> (the live ms-02 case,
-<code>research-queue.md:55-58</code>).</strong> Today that machine
-either gets background-thread WinForms pickers mid-connect or a silent
-audio failure dressed up as “no RX antenna”. The migration replaces this
-with a spoken, focusable route into Settings — but the auto-enable
-ambiguity (FlexBase.cs:9634 live vs :738 commented; queue note claims no
-auto-enable) must be resolved first, because it determines whether the
-rescue fires during connect or only when the user first toggles PC
-audio. Test matrix must include: fresh profile, remote connect, LAN
-connect, PC-audio toggle by menu, by hotkey, by Settings.</li>
-<li><strong>Device hot-plug.</strong> PortAudio enumeration is a
-<code>Pa_Initialize</code> snapshot (<code>devList.cs:131, 226</code>);
-<code>known-issues.md:17</code> already documents that JJ Flex misses
-hot-plugged devices until restart. The Refresh button mitigates inside
-Settings, but a device yanked while PC audio is streaming still lands in
-<code>remoteAudioProc</code>’s failure path. Out of scope to fix
-streaming-time recovery here; in scope to make the failure speak.</li>
-<li><strong>Saved device vanished.</strong> <code>FindDevice</code>
-(Devices.cs:235-250) returns false; with the picker gone, policy is
-needed: recommend fall back to the Windows default device with a
-Critical announcement, never block the connect, and reflect the fallback
-in Settings as the flagged state (section 7). The alternative —
-hard-stop until the user re-picks — punishes the common “docked laptop
-left the USB hub” case.</li>
-<li><strong>Stereo-only filter surprises.</strong> Mono headset mics and
-&gt;2-channel interfaces are invisible (devList.cs:187, 203). If the
-filter is kept, the new UI must say so (“Only stereo devices are
-listed”); if relaxed, <code>JJPortaudio.Audio</code>’s stream-open path
-needs verification that it handles mono capture (the Opus path runs at
-48k stereo, <code>FlexBase.cs:8589</code>). Relaxing input to “1 or 2
-channels” is probably the single highest-value functional change
-available in this migration, and also the riskiest one — keep it a
-separately testable commit.</li>
-<li><strong>Two enumeration stacks, adjacent combos.</strong> The NAudio
-names (Alert/Meter devices) and PortAudio names (radio audio) for the
-same hardware will differ in the merged tab. Not fixable cheaply;
-mitigate with the group headings making the domains obvious (“Alerts”,
-“Radio Audio”).</li>
-<li><strong>Threading regression risk is retired, not created:</strong>
-removing the worker-thread <code>ShowDialog</code>
-(FlexBase.cs:8752/8759) deletes the only non-UI-thread UI in the audio
-path. Nothing new runs off-thread.</li>
-<li><strong>x86 + x64 native <code>portaudio.dll</code>
-resolution</strong> is untouched (<code>runtimes/</code> +
-<code>NativeLoader.vb</code>), since the enumeration still goes through
-the same PortAudioSharp binding.</li>
+<li><strong>First-run flow on a machine with no <code>audioDevices.xml</code> (the live ms-02 case, <code>research-queue.md:55-58</code>).</strong> Today that machine either gets background-thread WinForms pickers mid-connect or a silent audio failure dressed up as "no RX antenna". The migration replaces this with a spoken, focusable route into Settings — but the auto-enable ambiguity (FlexBase.cs:9634 live vs :738 commented; queue note claims no auto-enable) must be resolved first, because it determines whether the rescue fires during connect or only when the user first toggles PC audio. Test matrix must include: fresh profile, remote connect, LAN connect, PC-audio toggle by menu, by hotkey, by Settings.</li>
+<li><strong>Device hot-plug.</strong> PortAudio enumeration is a <code>Pa_Initialize</code> snapshot (<code>devList.cs:131, 226</code>); <code>known-issues.md:17</code> already documents that JJ Flex misses hot-plugged devices until restart. The Refresh button mitigates inside Settings, but a device yanked while PC audio is streaming still lands in <code>remoteAudioProc</code>'s failure path. Out of scope to fix streaming-time recovery here; in scope to make the failure speak.</li>
+<li><strong>Saved device vanished.</strong> <code>FindDevice</code> (Devices.cs:235-250) returns false; with the picker gone, policy is needed: recommend fall back to the Windows default device with a Critical announcement, never block the connect, and reflect the fallback in Settings as the flagged state (section 7). The alternative — hard-stop until the user re-picks — punishes the common "docked laptop left the USB hub" case.</li>
+<li><strong>Stereo-only filter surprises.</strong> Mono headset mics and >2-channel interfaces are invisible (devList.cs:187, 203). If the filter is kept, the new UI must say so ("Only stereo devices are listed"); if relaxed, <code>JJPortaudio.Audio</code>'s stream-open path needs verification that it handles mono capture (the Opus path runs at 48k stereo, <code>FlexBase.cs:8589</code>). Relaxing input to "1 or 2 channels" is probably the single highest-value functional change available in this migration, and also the riskiest one — keep it a separately testable commit.</li>
+<li><strong>Two enumeration stacks, adjacent combos.</strong> The NAudio names (Alert/Meter devices) and PortAudio names (radio audio) for the same hardware will differ in the merged tab. Not fixable cheaply; mitigate with the group headings making the domains obvious ("Alerts", "Radio Audio").</li>
+<li><strong>Threading regression risk is retired, not created:</strong> removing the worker-thread <code>ShowDialog</code> (FlexBase.cs:8752/8759) deletes the only non-UI-thread UI in the audio path. Nothing new runs off-thread.</li>
+<li><strong>x86 + x64 native <code>portaudio.dll</code> resolution</strong> is untouched (<code>runtimes/</code> + <code>NativeLoader.vb</code>), since the enumeration still goes through the same PortAudioSharp binding.</li>
 </ul>
-<h2 id="open-questions-for-noel">9. Open questions for Noel</h2>
-<ol type="1">
-<li><strong>Fully retire the old <code>devList</code> form, or keep it
-compiled as an emergency fallback?</strong> Recommendation: retire it
-completely. Its only consumer is <code>Devices.getNewDevice</code>; the
-rescue path becomes “announce + open Settings → Audio”, which is
-strictly more accessible than the old modal, and keeping both means
-every future device-UX change is done twice. Git history preserves it if
-nostalgia strikes.</li>
-<li><strong>Keep <code>audioDevices.xml</code> as a standalone
-machine-scope file?</strong> Recommendation: yes, unchanged (section 6).
-It is the only audio config in the app whose scope is already right; the
-root/Radios <code>audioConfig.xml</code> duality is the store that
-deserves future cleanup, and this migration should not enter that
-swamp.</li>
-<li><strong>Relax the stereo-only device filter?</strong>
-Recommendation: yes for input (accept 1-2 channels — mono USB headset
-mics are the most common blind-operator hardware there is), keep output
-stereo-only for now. Gate it behind verification that
-<code>JJPortaudio.Audio</code>’s capture path upmixes mono cleanly; ship
-as its own commit so it can be reverted independently of the UI
-move.</li>
-<li><strong>Policy when the saved device is missing at PC-audio
-start?</strong> Recommendation: fall back to the Windows default device,
-announce at Critical (“Saved radio audio output not found, using Windows
-default”), keep the saved entry in the file so the device is re-adopted
-when it reappears. Never block or silently fail the connect.</li>
-<li><strong>Should remote connect auto-enable PC audio?</strong> The
-code says yes (<code>FlexBase.cs:9634-9637</code> is live), the
-2026-08-05 field note says it doesn’t happen
-(<code>research-queue.md:53-58</code> cites the commented line 738).
-Recommendation: first verify which is true on the wire (one trace with a
-remote connect answers it), then keep auto-enable <strong>conditional on
-devices being configured</strong> — configured machines get audio
-without ceremony (friction-tax principle), unconfigured machines get the
-spoken Settings rescue instead of a mid-connect dialog ambush.</li>
-<li><strong>Any appetite for per-radio audio device overrides in
-<code>RadioConfig</code>?</strong> Recommendation: no for v1. Sound
-cards are machine-scope; the serial-keyed store just got its first
-tenant (connection preference) and should stay lean. Revisit only if a
-real two-radio-two-headset workflow shows up.</li>
-<li><strong>Does the “Radio Audio Device” menu item survive as a
-Settings shortcut?</strong> Recommendation: yes — rename to “Radio Audio
-Devices…” and point it at <code>OpenSettings("Audio")</code>. It costs
-one line, preserves every documented path (including the whats-new
-history and Don’s habits), and the Command Finder entry retargets
-identically.</li>
+<h2>9. Open questions for Noel</h2>
+<ol>
+<li><strong>Fully retire the old <code>devList</code> form, or keep it compiled as an emergency fallback?</strong> Recommendation: retire it completely. Its only consumer is <code>Devices.getNewDevice</code>; the rescue path becomes "announce + open Settings → Audio", which is strictly more accessible than the old modal, and keeping both means every future device-UX change is done twice. Git history preserves it if nostalgia strikes.</li>
+<li><strong>Keep <code>audioDevices.xml</code> as a standalone machine-scope file?</strong> Recommendation: yes, unchanged (section 6). It is the only audio config in the app whose scope is already right; the root/Radios <code>audioConfig.xml</code> duality is the store that deserves future cleanup, and this migration should not enter that swamp.</li>
+<li><strong>Relax the stereo-only device filter?</strong> Recommendation: yes for input (accept 1-2 channels — mono USB headset mics are the most common blind-operator hardware there is), keep output stereo-only for now. Gate it behind verification that <code>JJPortaudio.Audio</code>'s capture path upmixes mono cleanly; ship as its own commit so it can be reverted independently of the UI move.</li>
+<li><strong>Policy when the saved device is missing at PC-audio start?</strong> Recommendation: fall back to the Windows default device, announce at Critical ("Saved radio audio output not found, using Windows default"), keep the saved entry in the file so the device is re-adopted when it reappears. Never block or silently fail the connect.</li>
+<li><strong>Should remote connect auto-enable PC audio?</strong> The code says yes (<code>FlexBase.cs:9634-9637</code> is live), the 2026-08-05 field note says it doesn't happen (<code>research-queue.md:53-58</code> cites the commented line 738). Recommendation: first verify which is true on the wire (one trace with a remote connect answers it), then keep auto-enable <strong>conditional on devices being configured</strong> — configured machines get audio without ceremony (friction-tax principle), unconfigured machines get the spoken Settings rescue instead of a mid-connect dialog ambush.</li>
+<li><strong>Any appetite for per-radio audio device overrides in <code>RadioConfig</code>?</strong> Recommendation: no for v1. Sound cards are machine-scope; the serial-keyed store just got its first tenant (connection preference) and should stay lean. Revisit only if a real two-radio-two-headset workflow shows up.</li>
+<li><strong>Does the "Radio Audio Device" menu item survive as a Settings shortcut?</strong> Recommendation: yes — rename to "Radio Audio Devices..." and point it at <code>OpenSettings("Audio")</code>. It costs one line, preserves every documented path (including the whats-new history and Don's habits), and the Command Finder entry retargets identically.</li>
 </ol>
-<h2
-id="addendum-noel-2026-08-06-device-identity-must-survive-reshuffles">Addendum
-— Noel, 2026-08-06: device identity must survive reshuffles</h2>
-<p>Requirement added after the research round: the saved device
-selection must survive the device LIST changing shape — a USB headset
-re-plugged into a different port, a new audio cable or interface
-arriving, a device removed. PortAudio device indexes reorder in all of
-those cases, so persistence by index is wrong by construction.
-Implementation implications:</p>
+<h2>Addendum — Noel, 2026-08-06: device identity must survive reshuffles</h2>
+<p>Requirement added after the research round: the saved device selection must</p>
+<p>survive the device LIST changing shape — a USB headset re-plugged into a</p>
+<p>different port, a new audio cable or interface arriving, a device removed.</p>
+<p>PortAudio device indexes reorder in all of those cases, so persistence by</p>
+<p>index is wrong by construction. Implementation implications:</p>
 <ul>
-<li>Persist stable identity (device name plus host API at minimum;
-whatever else PortAudio exposes that is stable), never a bare
-index.</li>
-<li>Re-resolve identity to a current index at startup AND on
-device-change events, not just once.</li>
-<li>A reshuffle that still contains the saved device must rebind to it
-silently and correctly — the user did nothing wrong and hears
-nothing.</li>
-<li>Only when the saved device is genuinely gone does the
-announced-fallback path fire (Windows default plus a spoken notice, per
-the main proposal). The failure mode to design against is silently
-binding to the WRONG device because an index moved — worst case that is
-TX audio into the wrong output.</li>
+<li>Persist stable identity (device name plus host API at minimum; whatever</li>
 </ul>
+<p>  else PortAudio exposes that is stable), never a bare index.</p>
+<ul>
+<li>Re-resolve identity to a current index at startup AND on device-change</li>
+</ul>
+<p>  events, not just once.</p>
+<ul>
+<li>A reshuffle that still contains the saved device must rebind to it</li>
+</ul>
+<p>  silently and correctly — the user did nothing wrong and hears nothing.</p>
+<ul>
+<li>Only when the saved device is genuinely gone does the announced-fallback</li>
+</ul>
+<p>  path fire (Windows default plus a spoken notice, per the main proposal).</p>
+<p>  The failure mode to design against is silently binding to the WRONG</p>
+<p>  device because an index moved — worst case that is TX audio into the</p>
+<p>  wrong output.</p>
 </body>
 </html>

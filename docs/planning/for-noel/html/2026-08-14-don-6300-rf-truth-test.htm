@@ -1,548 +1,397 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>2026-08-14-don-6300-rf-truth-test</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      white-space: pre-wrap;
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: 1.5em;}
-    div.column{flex: auto;}
-    @media screen {
-    div.columns{gap: min(4vw, 1.5em);}
-    div.column{overflow-x: auto;}
-    }
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-  </style>
+<meta charset="utf-8">
+<title>RF truth test on Don's 6300 — does audio actually become watts?</title>
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-<header id="title-block-header">
-<h1 class="title">2026-08-14-don-6300-rf-truth-test</h1>
-</header>
-<h1 id="rf-truth-test-on-dons-6300-does-audio-actually-become-watts">RF
-truth test on Don’s 6300 — does audio actually become watts?</h1>
-<p><strong>Date drafted:</strong> 2026-08-14. <strong>Run from:</strong>
-the ms-02, connected to Don’s FLEX-6300 over SmartLink. <strong>Noel
-drives or supervises live</strong> — there is transmitting in this card,
-so the control operator is in the room, always.</p>
-<h2 id="why-this-test-exists">Why this test exists</h2>
-<p>Don hears his own voice on TX monitor and his Microphone Check
-reports a valid LUFS number. Those two witnesses together prove
-everything from his microphone through the radio’s transmit DSP: capture
-is good, the audio crosses SmartLink, the radio decodes it, the DSP
-processes it, and the radio genuinely enters transmit state (MON only
-plays while keyed, and a half-duplex 6300 has no other way for him to
-hear himself). What neither witness can see is the last segment: DSP to
-modulator to power amplifier to antenna. Forward power is measured by
-the radio’s own hardware directional coupler at the PA — a physical RF
-sensor that shares nothing with the audio path. It is the arbiter.</p>
-<p>The experiment is a control and a treatment. Dead air on SSB should
-produce essentially no forward power. The treatment is not a steady tone
-but a <strong>patterned one</strong> — three 2-second bursts separated
-by 1-second silences — because a rhythm is unarguable: if the
-forward-power meter pulses in that exact cadence, the audio chain is
-driving the RF and nothing else explains the reading.</p>
-<h2 id="the-machinery-built-and-verified-2026-08-14">The machinery
-(built and verified 2026-08-14)</h2>
-<p>Same rig as the transverter test: Virtual Audio Cable, with the app
-capturing <strong>Line 1</strong> as its PC transmit input. Nothing
-playing into Line 1 is dead air; files played into it are the test
-signals. Verified working on the ms-02.</p>
+<h1>RF truth test on Don's 6300 — does audio actually become watts?</h1>
+<p><strong>Date drafted:</strong> 2026-08-14. <strong>Run from:</strong> the ms-02, connected to Don's</p>
+<p>FLEX-6300 over SmartLink. <strong>Noel drives or supervises live</strong> — there is</p>
+<p>transmitting in this card, so the control operator is in the room, always.</p>
+<h2>Why this test exists</h2>
+<p>Don hears his own voice on TX monitor and his Microphone Check reports a valid</p>
+<p>LUFS number. Those two witnesses together prove everything from his microphone</p>
+<p>through the radio's transmit DSP: capture is good, the audio crosses SmartLink,</p>
+<p>the radio decodes it, the DSP processes it, and the radio genuinely enters</p>
+<p>transmit state (MON only plays while keyed, and a half-duplex 6300 has no other</p>
+<p>way for him to hear himself). What neither witness can see is the last segment:</p>
+<p>DSP to modulator to power amplifier to antenna. Forward power is measured by</p>
+<p>the radio's own hardware directional coupler at the PA — a physical RF sensor</p>
+<p>that shares nothing with the audio path. It is the arbiter.</p>
+<p>The experiment is a control and a treatment. Dead air on SSB should produce</p>
+<p>essentially no forward power. The treatment is not a steady tone but a</p>
+<p><strong>patterned one</strong> — three 2-second bursts separated by 1-second silences —</p>
+<p>because a rhythm is unarguable: if the forward-power meter pulses in that</p>
+<p>exact cadence, the audio chain is driving the RF and nothing else explains</p>
+<p>the reading.</p>
+<h2>The machinery (built and verified 2026-08-14)</h2>
+<p>Same rig as the transverter test: Virtual Audio Cable, with the app capturing</p>
+<p><strong>Line 1</strong> as its PC transmit input. Nothing playing into Line 1 is dead air;</p>
+<p>files played into it are the test signals. Verified working on the ms-02.</p>
 <ul>
-<li><code>tools\rigbench\make_pattern_tone.py</code> — generated
-<code>C:\temp\tone-pattern-700.wav</code>: 9.5 s, three 2-second bursts
-of 700 Hz at −10 dBFS with 1-second gaps, a 1-second lead-in so keying
-settles before the first burst, and 10 ms fade ramps on every burst edge
-so the pattern doesn’t key-click on the air.</li>
-<li><code>tools\rigbench\VacPlay\</code> — plays a file into a
-<em>named</em> render device (default “Line 1”) without touching the
-Windows default output, so NVDA’s speech never gets dragged into the
-cable. Handles both the WAV and the m4a. <code>VacPlay.exe --list</code>
-shows devices.</li>
-<li><strong>The recorded ID</strong> —
-<code>C:\temp\id_k5ner.m4a</code>, 2.1 s, verified playing through
-VacPlay.</li>
-<li><strong>Two tone sources on purpose.</strong> The Line 1 pattern
-enters at the microphone, so it exercises Don’s actual path: capture,
-Opus, network, radio DSP, RF. The Workshop’s built-in test tone injects
-app-side, bypassing capture. If the pattern produces no power but the
-built-in tone does, the fault is in PC capture — one comparison
-localizes it.</li>
+<li><code>tools\rigbench\make_pattern_tone.py</code> — generated</li>
 </ul>
-<p>Still needed from Noel: <strong>a window when Don’s radio is
-on.</strong> As of the 2026-08-13 seal it was off (the #74 REM ON
-thread). The whole card takes a few minutes of radio time once
-connected.</p>
-<h2 id="what-i-set-up-at-the-keyboard-on-the-day">What I set up at the
-keyboard on the day</h2>
+<p>  <code>C:\temp\tone-pattern-700.wav</code>: 9.5 s, three 2-second bursts of 700 Hz at</p>
+<p>  −10 dBFS with 1-second gaps, a 1-second lead-in so keying settles before</p>
+<p>  the first burst, and 10 ms fade ramps on every burst edge so the pattern</p>
+<p>  doesn't key-click on the air.</p>
 <ul>
-<li>Transmit source set to PC audio, input device <strong>Line 1
-(Virtual Audio Cable)</strong>. Microphone Check run first to confirm
-the device opens and reports its rate. Expect it to note the line is
-delivering exact digital zeroes — for once that is not suspicious, it is
-the point: digital silence is the purest dead air there is.</li>
-<li>Tracing on at Verbose before connecting. Forward power traces every
-change at Verbose, so the trace file becomes a logged power-versus-time
-series for the whole session — the instrument record, better than an
-eyeballed number. With the pattern playing, the trace should show three
-power rises of about two seconds spaced one second apart,
-timestamped.</li>
-<li>One note on tooling scope: the <code>rigbench</code> wire scripts
-(<code>snapshot.py</code>, <code>txset.py</code>) speak raw TCP on the
-LAN and cannot reach a SmartLink radio, so on Don’s 6300 the step-0
-snapshot is read through the app itself. They remain available for any
-rerun on the bench 8600.</li>
+<li><code>tools\rigbench\VacPlay\</code> — plays a file into a <em>named</em> render device</li>
 </ul>
-<h2 id="step-0-snapshot-the-radio-as-don-left-it-no-transmitting">Step 0
-— snapshot the radio as Don left it (no transmitting)</h2>
-<p>On connect, before changing anything, record: RF power slider, tune
-power, transmit antenna port, mode, and ATU state. <strong>If Don’s RF
-power slider is at or near zero, stop — that may be the entire
-mystery</strong>, and we learned it without keying up. Whatever we find,
-write it down so we can restore his settings at the end.</p>
-<h2 id="step-1-dead-air-the-control">Step 1 — dead air (the
-control)</h2>
-<ol type="1">
-<li>Tune to a clear frequency on 80 meters, LSB. Listen for at least 30
-seconds first.</li>
+<p>  (default "Line 1") without touching the Windows default output, so NVDA's</p>
+<p>  speech never gets dragged into the cable. Handles both the WAV and the m4a.</p>
+<p>  <code>VacPlay.exe --list</code> shows devices.</p>
+<ul>
+<li><strong>The recorded ID</strong> — <code>C:\temp\id_k5ner.m4a</code>, 2.1 s, verified playing</li>
+</ul>
+<p>  through VacPlay.</p>
+<ul>
+<li><strong>Two tone sources on purpose.</strong> The Line 1 pattern enters at the</li>
+</ul>
+<p>  microphone, so it exercises Don's actual path: capture, Opus, network,</p>
+<p>  radio DSP, RF. The Workshop's built-in test tone injects app-side,</p>
+<p>  bypassing capture. If the pattern produces no power but the built-in tone</p>
+<p>  does, the fault is in PC capture — one comparison localizes it.</p>
+<p>Still needed from Noel: <strong>a window when Don's radio is on.</strong> As of the</p>
+<p>2026-08-13 seal it was off (the #74 REM ON thread). The whole card takes a</p>
+<p>few minutes of radio time once connected.</p>
+<h2>What I set up at the keyboard on the day</h2>
+<ul>
+<li>Transmit source set to PC audio, input device **Line 1 (Virtual Audio</li>
+</ul>
+<p>  Cable)**. Microphone Check run first to confirm the device opens and</p>
+<p>  reports its rate. Expect it to note the line is delivering exact digital</p>
+<p>  zeroes — for once that is not suspicious, it is the point: digital silence</p>
+<p>  is the purest dead air there is.</p>
+<ul>
+<li>Tracing on at Verbose before connecting. Forward power traces every change</li>
+</ul>
+<p>  at Verbose, so the trace file becomes a logged power-versus-time series for</p>
+<p>  the whole session — the instrument record, better than an eyeballed number.</p>
+<p>  With the pattern playing, the trace should show three power rises of about</p>
+<p>  two seconds spaced one second apart, timestamped.</p>
+<ul>
+<li>One note on tooling scope: the <code>rigbench</code> wire scripts (<code>snapshot.py</code>,</li>
+</ul>
+<p>  <code>txset.py</code>) speak raw TCP on the LAN and cannot reach a SmartLink radio,</p>
+<p>  so on Don's 6300 the step-0 snapshot is read through the app itself. They</p>
+<p>  remain available for any rerun on the bench 8600.</p>
+<h2>Step 0 — snapshot the radio as Don left it (no transmitting)</h2>
+<p>On connect, before changing anything, record: RF power slider, tune power,</p>
+<p>transmit antenna port, mode, and ATU state. **If Don's RF power slider is at or</p>
+<p>near zero, stop — that may be the entire mystery**, and we learned it without</p>
+<p>keying up. Whatever we find, write it down so we can restore his settings at</p>
+<p>the end.</p>
+<h2>Step 1 — dead air (the control)</h2>
+<ol>
+<li>Tune to a clear frequency on 80 meters, LSB. Listen for at least 30</li>
+</ol>
+<p>   seconds first.</p>
+<ol>
 <li>Set RF power to 1 watt.</li>
-<li>Key up for about 30 seconds with nothing playing into the cable —
-true dead air.</li>
-<li>Read forward power <strong>in dBm</strong>, from the Workshop’s
-Forward Power line or the trace. Note SWR alongside it.</li>
+<li>Key up for about 30 seconds with nothing playing into the cable — true</li>
 </ol>
-<p>Expected: essentially nothing. On SSB, no audio means no RF. This
-step proves the meter isn’t stuck and gives us the silence baseline in
-dBm.</p>
-<p><strong>Do not use the integer watts readout for this card.</strong>
-The S-meter-as-power display rounds to whole watts, and at 1 watt with a
-modest tone drive the true output may be a few hundred milliwatts —
-which rounds to a displayed zero and looks exactly like the failure we
-came to find. The dBm figure is the honest one at these levels.</p>
-<h2 id="step-2-the-pattern-the-treatment">Step 2 — the pattern (the
-treatment)</h2>
-<ol start="5" type="1">
-<li>Key up. After a beat, I run
-<code>VacPlay.exe C:\temp\tone-pattern-700.wav</code> — three 2-second
-bursts of 700 Hz, 1-second gaps, about ten seconds total.</li>
-<li>Watch forward power in dBm through the run. The reading should
-<strong>pulse in the pattern’s rhythm</strong>: up for two seconds, down
-for one, three times. The Verbose trace catches the same rhythm with
-timestamps.</li>
+<p>   dead air.</p>
+<ol>
+<li>Read forward power <strong>in dBm</strong>, from the Workshop's Forward Power line or</li>
+</ol>
+<p>   the trace. Note SWR alongside it.</p>
+<p>Expected: essentially nothing. On SSB, no audio means no RF. This step proves</p>
+<p>the meter isn't stuck and gives us the silence baseline in dBm.</p>
+<p><strong>Do not use the integer watts readout for this card.</strong> The S-meter-as-power</p>
+<p>display rounds to whole watts, and at 1 watt with a modest tone drive the true</p>
+<p>output may be a few hundred milliwatts — which rounds to a displayed zero and</p>
+<p>looks exactly like the failure we came to find. The dBm figure is the honest</p>
+<p>one at these levels.</p>
+<h2>Step 2 — the pattern (the treatment)</h2>
+<ol>
+<li>Key up. After a beat, I run</li>
+</ol>
+<p>   <code>VacPlay.exe C:\temp\tone-pattern-700.wav</code> — three 2-second bursts of</p>
+<p>   700 Hz, 1-second gaps, about ten seconds total.</p>
+<ol>
+<li>Watch forward power in dBm through the run. The reading should **pulse in</li>
+</ol>
+<p>   the pattern's rhythm**: up for two seconds, down for one, three times.</p>
+<p>   The Verbose trace catches the same rhythm with timestamps.</p>
+<ol>
 <li>Unkey. Note SWR from during the bursts.</li>
-<li><strong>Only if step 6 showed nothing:</strong> re-key with the
-Workshop’s built-in test tone armed (700 Hz, default −10 dBFS) for 15
-seconds. Power with the built-in tone but not with the pattern means the
-fault is in PC capture; nothing with either means the break is
-radio-side of the app.</li>
+<li><strong>Only if step 6 showed nothing:</strong> re-key with the Workshop's built-in</li>
 </ol>
-<h2 id="step-3-identify-and-close">Step 3 — identify and close</h2>
-<ol start="9" type="1">
-<li>While still keyed (or on a fresh key-down), I run
-<code>VacPlay.exe C:\temp\id_k5ner.m4a</code> — 2.1 seconds — then
-unkey.</li>
+<p>   test tone armed (700 Hz, default −10 dBFS) for 15 seconds. Power with the</p>
+<p>   built-in tone but not with the pattern means the fault is in PC capture;</p>
+<p>   nothing with either means the break is radio-side of the app.</p>
+<h2>Step 3 — identify and close</h2>
+<ol>
+<li>While still keyed (or on a fresh key-down), I run</li>
+</ol>
+<p>   <code>VacPlay.exe C:\temp\id_k5ner.m4a</code> — 2.1 seconds — then unkey.</p>
+<ol>
 <li>Restore every setting recorded in step 0.</li>
 <li>Save the trace — it is the record of the whole run.</li>
 </ol>
-<h2 id="reading-the-result">Reading the result</h2>
+<h2>Reading the result</h2>
 <ul>
-<li><strong>Dead air near nothing, power pulses in the pattern’s
-rhythm:</strong> the radio and the RF path are honest end to end,
-including the capture and network path this test rode in on. The
-remaining variable in Don’s case is only his own client-side state —
-which step 0 may already have explained.</li>
-<li><strong>Both near nothing:</strong> we have reproduced a no-RF
-condition on command, with Verbose traces running and a known-good audio
-source. That is a real find, and the trace, the step-0 snapshot, and the
-step-8 built-in-tone comparison are exactly the evidence needed to chase
-it.</li>
-<li><strong>Dead air shows real power:</strong> the mode isn’t SSB or
-something is feeding audio we didn’t intend — stop and check the step-0
-snapshot before drawing any conclusion.</li>
+<li><strong>Dead air near nothing, power pulses in the pattern's rhythm:</strong> the radio</li>
 </ul>
-<p>One caveat to hold honestly: this reading rides our API connection
-and our display code, so it is a different sensor but the same reporting
-pipe. It kills the “audio never becomes RF” hypothesis. If the result
-ever demands an arbiter fully outside the software, the next rung is a
-KiwiSDR or WebSDR on the band while the tone runs — third-party
-hardware, off the air — and the final rung is the physical watt meter at
-the radio.</p>
-<h2
-id="import-block-for-the-master-task-list-end-of-2026-08-14-session">Import
-block for the master task list (end of 2026-08-14 session)</h2>
-<p>Written for the master conversation to convert into tasks. Numbered,
-self-contained, most important first. The detailed findings bullets
-below this section carry the supporting evidence.</p>
-<p><strong>Resume point (as of 2026-08-14 afternoon):</strong> the 8600
-A/B is queued behind ONE fix — and it is the AT&amp;T gateway, not the
-ASUS. Verified by browser recon: the ASUS rules are complete and the
-master toggle is ON (25678 TCP → 192.168.50.100:4994, 25678 UDP → 4993),
-the radio answers on 4994 inside the LAN, <code>wan set</code> applied.
-But the ASUS WAN IP is <strong>192.168.1.68 — double NAT</strong>: the
-BGW320-500’s IP Passthrough is no longer engaging (device list shows the
-ASUS WAN, MAC c8:7f:54:46:78:70, with Allocation “dhcp”, not
-passthrough; a second stale ASUS MAC …:6c, unused since June 20, may be
-what passthrough is still fixed to). ROOT CAUSE CONFIRMED (Noel read the
-page): IP Passthrough is ON, DHCPS-fixed to
-<strong>c8:7f:54:46:78:6c</strong> — an ASUS MAC unused since
-<strong>June 20</strong>. The ASUS’s live WAN port is c8:7f:54:46:78:70,
-so the gateway has been holding the public IP for a port that never
-asks, and the network has been silently double-NATed since June 20 — NOT
-since yesterday’s outage. Fix: change the fixed MAC to …:70, or switch
-to DHCPS-dynamic (recommended — only one device lives behind the
-gateway, and dynamic cannot rot when the ASUS’s WAN MAC changes again).
-Save triggers the gateway restart (few minutes house-wide outage) —
-timed around the tutoring session. Then ASUS WAN renew → public IP →
-rarbox knock → laptop A/B. FOOTNOTE for the 2026-08-06 hole-punch
-capture analysis (punch-capture-results-20260806.md, and the
-source-latch design in memory/project_hole_punch_wiring_gap.md): that
-session unknowingly ran on this same double NAT. The “home NAT rewrote
-the radio’s UDP source port — the rewriting NAT is the ASUS” conclusion
-should be re-examined; the BGW320 was also in the path. The source-latch
-fix remains valid either way, but the attribution and any topology
-assumptions built on “AT&amp;T is passthrough” date from a period when
-it silently was not. Then: re-knock from rarbox (5 s), laptop SmartLink
-connect (signed in as nromey@fastmail.com; roster may need its refresh),
-and the TX-audio A/B — MOX with PC audio, monitor and forward power as
-witnesses.</p>
-<p><strong>A/B VERDICT (2026-08-14 evening): WAN TX audio
-WORKS.</strong> Laptop via exit node → SmartLink → forwarded ports → the
-8600: keyed with PC audio and heard the delayed monitor echo, identical
-to LAN. Client, SmartLink, and the Opus upstream transport are all
-proven good end to end. The fault isolates to Don’s end: (1) Tony’s
-router’s handling of sustained inbound UDP (flood/DoS protection — fits
-the measured asymmetry: inbound trickle passes, outbound 100 pps passes,
-inbound 100 pps dies), (2) Don’s 6300 itself (firmware / radio-side TX
-stream handling — Flex support’s radio-side telemetry is the
-instrument), (3) long-shot radio config surviving reboots. Support-call
-posture: known-good client and transport proven against an 8600 on the
-identical path; failure reproduces on Don’s radio in SmartSDR
-itself.</p>
-<p><strong>State of the mystery itself (not a task, context for
-everything else):</strong> the PC side is fully proven — pattern tone
-into VAC Line 1 arrives at the app’s meter at exactly −10 dBFS. The
-radio side is proven broken over SmartLink to Don’s 6300: with
-mic_selection correctly PC, monitor on at level 80, TX audio from BOTH
-JJ Flex AND SmartSDR never reaches the radio’s TX chain (silent monitor,
-forward power at coupler floor), while the identical stack over LAN to
-the 8600 works. SmartSDR failing too acquits JJ Flex’s client code. Open
-A/B: port-forward the 8600, connect via exit node over SmartLink,
-repeat. If it fails there we have a bench-reproducible systemic WAN
-TX-audio failure; if it works, the variable is Don’s radio or Tony’s
-inbound-UDP handling (suspect: router UDP flood protection —
-registration trickle passes, 100 pps audio may not). Also ask Don: has
-he ever completed a phone QSO over SmartLink on this radio? If yes, this
-is state-dependent, not structural.</p>
-<ol type="1">
-<li><strong>Presence check broken after client remove/re-add</strong> —
-authority gate denies a local operator. Trace-proven; fix is matching by
-ClientHandle. Details in the findings bullet below. Likely shared root
-with roster double-Enter and station binding. HIGH.</li>
-<li><strong>Settings → Network: OK silently discards unapplied
-port-forward edits</strong> — settings-are-intents violation.
-Apply-on-OK or warn.</li>
-<li><strong>Settings → Network: display the router mapping</strong> —
-“external TCP port → radio IP port 4994, external UDP port → radio port
-4993.” Also fix the drifted doc comment on
-<code>FlexBase.SetSmartLinkPortForwarding</code> that claims the radio
-listens on the entered ports.</li>
-<li><strong>Microphone Check device picker hides mono capture
-devices</strong> — the two-channel filter excludes the device class a
-microphone picker exists for (VAC lines are mono MME; many real mics are
-mono).</li>
-<li><strong>Roster connect needs two Enters</strong> (refresh, then
-connect) — fold the refresh into the first Enter.</li>
-<li><strong>RemoteAudio transmit loop busy-spins</strong> —
-<code>startOpusInputChannel</code> heartbeat traced 3.36M lines in 4
-minutes (~14,000 calls/sec) during TX; the loop needs a sleep and the
-per-call trace needs a guard. This is also what rotates 256 MB trace
-parts in ~20 s during transmit.</li>
-<li><strong>SC_MIC and SW ALC meters are not trace-instrumented</strong>
-— the two handlers store values only
-(<code>FlexBase.cs:6958-6965</code>). Today’s debugging was blind on the
-radio-side audio meter; two TraceLine calls fix it.</li>
-<li><strong>Assert mic_selection=PC while PC TX audio runs, and warn on
-divergence.</strong> The one-shot set at opus-output start can be
-reverted by a later profile load; nothing re-asserts and nothing warns
-while the app streams audio the radio ignores. (Today mic was PC, so
-this was not the bug — but the hole is real and it is the arc’s thesis:
-never stream TX audio silently into a closed gate.)</li>
-<li><strong>Forward-power readout: integer watts rounds sub-watt RF to
-zero</strong> — Jim’s S-meter-as-power display
-(<code>FlexBase.cs:7196</code>). At low power with modest drive, real RF
-displays as 0 W and mimics no-transmit. Offer dBm or tenths.</li>
-<li><strong>Trace parts rotation ate the live analysis twice</strong> —
-parts rotate by size with a <code>continues from part N</code> header;
-any tooling tailing the live file must follow rotations. Note for the
-diagnostic-log surface work, not necessarily its own task.</li>
-<li><strong>VAC cable wedge (external, environmental):</strong> the
-Virtual Audio Cable driver on the ms-02 delivered digital silence to all
-capture clients until a default-device switch forced an engine stream
-rebuild. Not a JJ Flex bug — but it produced a morning of honest-looking
-silence, and the app’s “check microphone” warning was the only thing
-that spoke truth. Design note: the silent-capture detection earned its
-keep today; keep investing in it.</li>
-<li><strong>Roster never falls back to SmartLink for a known-local radio
-that is unreachable (trace-proven, laptop, 12:07 session).</strong>
-Laptop on exit node: discovery drained 0 packets, both connect attempts
-took the LOCAL branch, hung ~20-30 s, “rig’s open failed” — and the
-trace contains ZERO SmartLink activity: no account load, no session, no
-radio list, while the same radio showed status=Available on SmartLink
-from another machine. The selector’s path machinery (PreferRemotePath,
-“Remote via SmartLink” combo) only engages for dual-homed rows, and WAN
-availability is never learned because the roster does not open the
-per-radio SmartLink session before classifying the radio offline. Design
-intent (Noel): local first, then automatically try SmartLink. HIGH —
-this is the headline roster defect behind today’s double-Enter and
-offline-display complaints.</li>
-<li><strong>Updater manifest 404</strong> —
-<code>https://data.jjflexible.radio/jjflex-app-manifest.json</code>
-returns 404 Not Found (laptop trace, update check at startup). Either
-the manifest is not deployed to R2 yet or the path is wrong.</li>
-<li><strong>Re-run the hole-punch test on the restored single-NAT
-topology.</strong> The 2026-08-06 punch failure (radio’s UDP source port
-rewritten) was measured through an unknown double NAT; with passthrough
-restored the rewrite may be gone entirely — and if so, the rarbox exit
-node becomes a valid punch-test network (its old limitation only applied
-to asymmetric return UDP) and Tier-0 zero-router-config connectivity may
-already work, with or without the untested source-latch fix. Requires
-temporarily clearing the 8600’s forwarded-port advertisement to force
-the punch path — schedule deliberately, not casually. VARIANT B — the
-Tony-free router discriminator for Don’s radio: punch bypasses the
-static forward and its inbound policy, so TX audio working via punch but
-not via the forward convicts Tony’s router’s inbound-UDP handling;
-failing both ways points at the radio. SAFETY PREREQUISITE: patch a
-debug connect override into our client first (dial known tls/udp ports
-directly, ignoring the SmartLink advertisement) so Don’s radio stays
-reachable to restore <code>wan set</code> if punch fails to connect. Do
-not clear Don’s advertisement without that retreat path in hand.
-Context: lowBW is NOT a rate experiment —
-<code>client low_bw_connect</code> only thins radio-to-client traffic;
-TX framing is unchanged. And honest counter-evidence to the router
-theory: UDP registration keepalives survived a 5.6-minute keyed session
-on the same inbound path — a crude rate-limiter should have starved
-them.</li>
-<li><strong>Tooling built today (exists, works, document/keep):</strong>
-<code>tools/rigbench/make_pattern_tone.py</code> (2s-on/1s-off ×3
-pattern at −10 dBFS, click-free ramps),
-<code>tools/rigbench/VacPlay</code> (plays a file into a named render
-device without touching the Windows default — NVDA-safe),
-<code>C:\temp\tone-pattern-700.wav</code>,
-<code>C:\temp\id_k5ner.m4a</code>.</li>
+<p>  and the RF path are honest end to end, including the capture and network</p>
+<p>  path this test rode in on. The remaining variable in Don's case is only his</p>
+<p>  own client-side state — which step 0 may already have explained.</p>
+<ul>
+<li><strong>Both near nothing:</strong> we have reproduced a no-RF condition on command,</li>
+</ul>
+<p>  with Verbose traces running and a known-good audio source. That is a real</p>
+<p>  find, and the trace, the step-0 snapshot, and the step-8 built-in-tone</p>
+<p>  comparison are exactly the evidence needed to chase it.</p>
+<ul>
+<li><strong>Dead air shows real power:</strong> the mode isn't SSB or something is feeding</li>
+</ul>
+<p>  audio we didn't intend — stop and check the step-0 snapshot before drawing</p>
+<p>  any conclusion.</p>
+<p>One caveat to hold honestly: this reading rides our API connection and our</p>
+<p>display code, so it is a different sensor but the same reporting pipe. It</p>
+<p>kills the "audio never becomes RF" hypothesis. If the result ever demands an</p>
+<p>arbiter fully outside the software, the next rung is a KiwiSDR or WebSDR on</p>
+<p>the band while the tone runs — third-party hardware, off the air — and the</p>
+<p>final rung is the physical watt meter at the radio.</p>
+<h2>Import block for the master task list (end of 2026-08-14 session)</h2>
+<p>Written for the master conversation to convert into tasks. Numbered,</p>
+<p>self-contained, most important first. The detailed findings bullets below</p>
+<p>this section carry the supporting evidence.</p>
+<p><strong>Resume point (as of 2026-08-14 afternoon):</strong> the 8600 A/B is queued</p>
+<p>behind ONE fix — and it is the AT&T gateway, not the ASUS. Verified by</p>
+<p>browser recon: the ASUS rules are complete and the master toggle is ON</p>
+<p>(25678 TCP → 192.168.50.100:4994, 25678 UDP → 4993), the radio answers</p>
+<p>on 4994 inside the LAN, <code>wan set</code> applied. But the ASUS WAN IP is</p>
+<p><strong>192.168.1.68 — double NAT</strong>: the BGW320-500's IP Passthrough is no</p>
+<p>longer engaging (device list shows the ASUS WAN, MAC c8:7f:54:46:78:70,</p>
+<p>with Allocation "dhcp", not passthrough; a second stale ASUS MAC</p>
+<p>…:6c, unused since June 20, may be what passthrough is still fixed to).</p>
+<p>ROOT CAUSE CONFIRMED (Noel read the page): IP Passthrough is ON,</p>
+<p>DHCPS-fixed to <strong>c8:7f:54:46:78:6c</strong> — an ASUS MAC unused since</p>
+<p><strong>June 20</strong>. The ASUS's live WAN port is c8:7f:54:46:78:70, so the</p>
+<p>gateway has been holding the public IP for a port that never asks, and</p>
+<p>the network has been silently double-NATed since June 20 — NOT since</p>
+<p>yesterday's outage. Fix: change the fixed MAC to …:70, or switch to</p>
+<p>DHCPS-dynamic (recommended — only one device lives behind the gateway,</p>
+<p>and dynamic cannot rot when the ASUS's WAN MAC changes again). Save</p>
+<p>triggers the gateway restart (few minutes house-wide outage) — timed</p>
+<p>around the tutoring session. Then ASUS WAN renew → public IP → rarbox</p>
+<p>knock → laptop A/B.</p>
+<p>FOOTNOTE for the 2026-08-06 hole-punch capture analysis</p>
+<p>(punch-capture-results-20260806.md, and the source-latch design in</p>
+<p>memory/project_hole_punch_wiring_gap.md): that session unknowingly ran</p>
+<p>on this same double NAT. The "home NAT rewrote the radio's UDP source</p>
+<p>port — the rewriting NAT is the ASUS" conclusion should be re-examined;</p>
+<p>the BGW320 was also in the path. The source-latch fix remains valid</p>
+<p>either way, but the attribution and any topology assumptions built on</p>
+<p>"AT&T is passthrough" date from a period when it silently was not.</p>
+<p>Then: re-knock from rarbox (5 s), laptop SmartLink connect (signed in as</p>
+<p>nromey@fastmail.com; roster may need its refresh), and the TX-audio A/B —</p>
+<p>MOX with PC audio, monitor and forward power as witnesses.</p>
+<p><strong>A/B VERDICT (2026-08-14 evening): WAN TX audio WORKS.</strong> Laptop via exit</p>
+<p>node → SmartLink → forwarded ports → the 8600: keyed with PC audio and</p>
+<p>heard the delayed monitor echo, identical to LAN. Client, SmartLink,</p>
+<p>and the Opus upstream transport are all proven good end to end. The</p>
+<p>fault isolates to Don's end: (1) Tony's router's handling of sustained</p>
+<p>inbound UDP (flood/DoS protection — fits the measured asymmetry:</p>
+<p>inbound trickle passes, outbound 100 pps passes, inbound 100 pps dies),</p>
+<p>(2) Don's 6300 itself (firmware / radio-side TX stream handling — Flex</p>
+<p>support's radio-side telemetry is the instrument), (3) long-shot radio</p>
+<p>config surviving reboots. Support-call posture: known-good client and</p>
+<p>transport proven against an 8600 on the identical path; failure</p>
+<p>reproduces on Don's radio in SmartSDR itself.</p>
+<p><strong>State of the mystery itself (not a task, context for everything else):</strong></p>
+<p>the PC side is fully proven — pattern tone into VAC Line 1 arrives at the</p>
+<p>app's meter at exactly −10 dBFS. The radio side is proven broken over</p>
+<p>SmartLink to Don's 6300: with mic_selection correctly PC, monitor on at</p>
+<p>level 80, TX audio from BOTH JJ Flex AND SmartSDR never reaches the</p>
+<p>radio's TX chain (silent monitor, forward power at coupler floor), while</p>
+<p>the identical stack over LAN to the 8600 works. SmartSDR failing too</p>
+<p>acquits JJ Flex's client code. Open A/B: port-forward the 8600, connect</p>
+<p>via exit node over SmartLink, repeat. If it fails there we have a</p>
+<p>bench-reproducible systemic WAN TX-audio failure; if it works, the</p>
+<p>variable is Don's radio or Tony's inbound-UDP handling (suspect: router</p>
+<p>UDP flood protection — registration trickle passes, 100 pps audio may</p>
+<p>not). Also ask Don: has he ever completed a phone QSO over SmartLink on</p>
+<p>this radio? If yes, this is state-dependent, not structural.</p>
+<ol>
+<li><strong>Presence check broken after client remove/re-add</strong> — authority gate</li>
 </ol>
-<h2 id="findings-from-the-live-run-2026-08-14">Findings from the live
-run (2026-08-14)</h2>
+<p>   denies a local operator. Trace-proven; fix is matching by ClientHandle.</p>
+<p>   Details in the findings bullet below. Likely shared root with roster</p>
+<p>   double-Enter and station binding. HIGH.</p>
+<ol>
+<li>**Settings → Network: OK silently discards unapplied port-forward</li>
+</ol>
+<p>   edits** — settings-are-intents violation. Apply-on-OK or warn.</p>
+<ol>
+<li><strong>Settings → Network: display the router mapping</strong> — "external TCP port</li>
+</ol>
+<p>   → radio IP port 4994, external UDP port → radio port 4993." Also fix</p>
+<p>   the drifted doc comment on <code>FlexBase.SetSmartLinkPortForwarding</code> that</p>
+<p>   claims the radio listens on the entered ports.</p>
+<ol>
+<li><strong>Microphone Check device picker hides mono capture devices</strong> — the</li>
+</ol>
+<p>   two-channel filter excludes the device class a microphone picker exists</p>
+<p>   for (VAC lines are mono MME; many real mics are mono).</p>
+<ol>
+<li><strong>Roster connect needs two Enters</strong> (refresh, then connect) — fold the</li>
+</ol>
+<p>   refresh into the first Enter.</p>
+<ol>
+<li><strong>RemoteAudio transmit loop busy-spins</strong> — <code>startOpusInputChannel</code></li>
+</ol>
+<p>   heartbeat traced 3.36M lines in 4 minutes (~14,000 calls/sec) during</p>
+<p>   TX; the loop needs a sleep and the per-call trace needs a guard. This</p>
+<p>   is also what rotates 256 MB trace parts in ~20 s during transmit.</p>
+<ol>
+<li><strong>SC_MIC and SW ALC meters are not trace-instrumented</strong> — the two</li>
+</ol>
+<p>   handlers store values only (<code>FlexBase.cs:6958-6965</code>). Today's debugging</p>
+<p>   was blind on the radio-side audio meter; two TraceLine calls fix it.</p>
+<ol>
+<li>**Assert mic_selection=PC while PC TX audio runs, and warn on</li>
+</ol>
+<p>   divergence.** The one-shot set at opus-output start can be reverted by</p>
+<p>   a later profile load; nothing re-asserts and nothing warns while the</p>
+<p>   app streams audio the radio ignores. (Today mic was PC, so this was</p>
+<p>   not the bug — but the hole is real and it is the arc's thesis: never</p>
+<p>   stream TX audio silently into a closed gate.)</p>
+<ol>
+<li><strong>Forward-power readout: integer watts rounds sub-watt RF to zero</strong> —</li>
+</ol>
+<p>   Jim's S-meter-as-power display (<code>FlexBase.cs:7196</code>). At low power with</p>
+<p>   modest drive, real RF displays as 0 W and mimics no-transmit. Offer</p>
+<p>   dBm or tenths.</p>
+<ol>
+<li><strong>Trace parts rotation ate the live analysis twice</strong> — parts rotate</li>
+</ol>
+<p>    by size with a <code>continues from part N</code> header; any tooling tailing</p>
+<p>    the live file must follow rotations. Note for the diagnostic-log</p>
+<p>    surface work, not necessarily its own task.</p>
+<ol>
+<li><strong>VAC cable wedge (external, environmental):</strong> the Virtual Audio</li>
+</ol>
+<p>    Cable driver on the ms-02 delivered digital silence to all capture</p>
+<p>    clients until a default-device switch forced an engine stream rebuild.</p>
+<p>    Not a JJ Flex bug — but it produced a morning of honest-looking</p>
+<p>    silence, and the app's "check microphone" warning was the only thing</p>
+<p>    that spoke truth. Design note: the silent-capture detection earned</p>
+<p>    its keep today; keep investing in it.</p>
+<ol>
+<li>**Roster never falls back to SmartLink for a known-local radio that is</li>
+</ol>
+<p>    unreachable (trace-proven, laptop, 12:07 session).** Laptop on exit</p>
+<p>    node: discovery drained 0 packets, both connect attempts took the</p>
+<p>    LOCAL branch, hung ~20-30 s, "rig's open failed" — and the trace</p>
+<p>    contains ZERO SmartLink activity: no account load, no session, no</p>
+<p>    radio list, while the same radio showed status=Available on SmartLink</p>
+<p>    from another machine. The selector's path machinery (PreferRemotePath,</p>
+<p>    "Remote via SmartLink" combo) only engages for dual-homed rows, and</p>
+<p>    WAN availability is never learned because the roster does not open the</p>
+<p>    per-radio SmartLink session before classifying the radio offline.</p>
+<p>    Design intent (Noel): local first, then automatically try SmartLink.</p>
+<p>    HIGH — this is the headline roster defect behind today's double-Enter</p>
+<p>    and offline-display complaints.</p>
+<ol>
+<li><strong>Updater manifest 404</strong> — <code>https://data.jjflexible.radio/jjflex-app-manifest.json</code></li>
+</ol>
+<p>    returns 404 Not Found (laptop trace, update check at startup). Either</p>
+<p>    the manifest is not deployed to R2 yet or the path is wrong.</p>
+<ol>
+<li><strong>Re-run the hole-punch test on the restored single-NAT topology.</strong></li>
+</ol>
+<p>    The 2026-08-06 punch failure (radio's UDP source port rewritten) was</p>
+<p>    measured through an unknown double NAT; with passthrough restored the</p>
+<p>    rewrite may be gone entirely — and if so, the rarbox exit node becomes</p>
+<p>    a valid punch-test network (its old limitation only applied to</p>
+<p>    asymmetric return UDP) and Tier-0 zero-router-config connectivity may</p>
+<p>    already work, with or without the untested source-latch fix. Requires</p>
+<p>    temporarily clearing the 8600's forwarded-port advertisement to force</p>
+<p>    the punch path — schedule deliberately, not casually.</p>
+<p>    VARIANT B — the Tony-free router discriminator for Don's radio: punch</p>
+<p>    bypasses the static forward and its inbound policy, so TX audio</p>
+<p>    working via punch but not via the forward convicts Tony's router's</p>
+<p>    inbound-UDP handling; failing both ways points at the radio. SAFETY</p>
+<p>    PREREQUISITE: patch a debug connect override into our client first</p>
+<p>    (dial known tls/udp ports directly, ignoring the SmartLink</p>
+<p>    advertisement) so Don's radio stays reachable to restore <code>wan set</code></p>
+<p>    if punch fails to connect. Do not clear Don's advertisement without</p>
+<p>    that retreat path in hand. Context: lowBW is NOT a rate experiment —</p>
+<p>    <code>client low_bw_connect</code> only thins radio-to-client traffic; TX</p>
+<p>    framing is unchanged. And honest counter-evidence to the router</p>
+<p>    theory: UDP registration keepalives survived a 5.6-minute keyed</p>
+<p>    session on the same inbound path — a crude rate-limiter should have</p>
+<p>    starved them.</p>
+<ol>
+<li><strong>Tooling built today (exists, works, document/keep):</strong></li>
+</ol>
+<p>    <code>tools/rigbench/make_pattern_tone.py</code> (2s-on/1s-off ×3 pattern at</p>
+<p>    −10 dBFS, click-free ramps), <code>tools/rigbench/VacPlay</code> (plays a file</p>
+<p>    into a named render device without touching the Windows default —</p>
+<p>    NVDA-safe), <code>C:\temp\tone-pattern-700.wav</code>, <code>C:\temp\id_k5ner.m4a</code>.</p>
+<h2>Findings from the live run (2026-08-14)</h2>
 <ul>
-<li><p><strong>Device picker hides mono capture devices.</strong> The
-Microphone Check’s basic device list refused to show the VAC Line
-devices, claiming they need two channels. VAC lines are MME and
-single-channel — and most real microphones are mono too, so a
-two-channel requirement in a <em>microphone</em> picker filters out the
-device class it exists for. Noel worked around it via the Advanced
-toggle and selected Line 1. To file: revisit the channel-count filter in
-the device selector; mono capture devices must appear in basic
-mode.</p></li>
-<li><p><strong>Double-Enter to connect via the new roster.</strong>
-Connecting to Don’s 6300 through the roster took Enter on the radio
-(which appears to run a SmartLink refresh) and then Enter again to
-actually connect. One Enter should mean “connect,” with any needed
-refresh folded inside it. To file.</p></li>
-<li><p><strong>OK silently discards unapplied port-forward
-edits.</strong> Settings → Network: Noel typed a port, hit OK (not
-Apply), and the dialog closed without sending anything or saying so.
-Settings are intents: dirty port-forward fields on OK should apply (with
-the existing confirmation) or at least warn. To file.</p></li>
-<li><p><strong>Network tab should state the router mapping.</strong>
-Correct guidance: forward the chosen external TCP port to the radio’s
-LAN IP port 4994 (TLS) and the external UDP port to the radio’s port
-4993 (WAN data). The doc comment on
-<code>FlexBase.SetSmartLinkPortForwarding</code> claims the radio
-listens on the entered ports — that is description drift and misled the
-live debugging session; fix the comment too.</p></li>
-<li><p><strong>Account switching friction.</strong> The ms-02 stays
-logged into SmartLink as Don; switching to Noel’s own account to reach
-the 8600 over WAN is clumsy under the new roster code. Compound item
-with the double-Enter connect finding above.</p></li>
-<li><p><strong>Presence check fails after the client remove/re-add dance
-(root of the authority denial).</strong> Trace-proven on the 8600, LAN:
-gui client added with full clientId, isLocalPtt=True, myClient=True —
-then removed at ~1.4 s (station-name binding) and re-added with an EMPTY
-clientId, myClient=False, isLocalPtt=False, same ClientHandle
-(1384667612). <code>IsCurrentClientLocalPtt</code> then reads the
-impostor record and <code>RequirePortSettingsAuthority</code> denies a
-local operator. Fix: resolve “my client” by ClientHandle (survives
-re-add), not by clientId (omitted in the re-add status). Likely shared
-root with the roster double-Enter and station-binding
-weirdness.</p></li>
+<li><strong>Device picker hides mono capture devices.</strong> The Microphone Check's basic</li>
 </ul>
-<h2 id="legality-and-courtesy-notes">Legality and courtesy notes</h2>
+<p>  device list refused to show the VAC Line devices, claiming they need two</p>
+<p>  channels. VAC lines are MME and single-channel — and most real microphones</p>
+<p>  are mono too, so a two-channel requirement in a <em>microphone</em> picker filters</p>
+<p>  out the device class it exists for. Noel worked around it via the Advanced</p>
+<p>  toggle and selected Line 1. To file: revisit the channel-count filter in</p>
+<p>  the device selector; mono capture devices must appear in basic mode.</p>
 <ul>
-<li>1 watt, clear frequency, listen before transmitting, each key-down
-under a minute except the 30-second control, ID before unkeying at the
-end. Total transmit time is well under ten minutes, so a single closing
-ID covers it.</li>
-<li>80 meters at 1 watt of tone is inaudible beyond the neighborhood in
-daylight; if the session runs at night and that bothers anyone, drop to
-an even quieter corner of the band.</li>
+<li><strong>Double-Enter to connect via the new roster.</strong> Connecting to Don's 6300</li>
 </ul>
+<p>  through the roster took Enter on the radio (which appears to run a</p>
+<p>  SmartLink refresh) and then Enter again to actually connect. One Enter</p>
+<p>  should mean "connect," with any needed refresh folded inside it. To file.</p>
+<ul>
+<li><strong>OK silently discards unapplied port-forward edits.</strong> Settings → Network:</li>
+</ul>
+<p>  Noel typed a port, hit OK (not Apply), and the dialog closed without</p>
+<p>  sending anything or saying so. Settings are intents: dirty port-forward</p>
+<p>  fields on OK should apply (with the existing confirmation) or at least</p>
+<p>  warn. To file.</p>
+<ul>
+<li><strong>Network tab should state the router mapping.</strong> Correct guidance:</li>
+</ul>
+<p>  forward the chosen external TCP port to the radio's LAN IP port 4994</p>
+<p>  (TLS) and the external UDP port to the radio's port 4993 (WAN data).</p>
+<p>  The doc comment on <code>FlexBase.SetSmartLinkPortForwarding</code> claims the radio</p>
+<p>  listens on the entered ports — that is description drift and misled the</p>
+<p>  live debugging session; fix the comment too.</p>
+<ul>
+<li><strong>Account switching friction.</strong> The ms-02 stays logged into SmartLink as</li>
+</ul>
+<p>  Don; switching to Noel's own account to reach the 8600 over WAN is</p>
+<p>  clumsy under the new roster code. Compound item with the double-Enter</p>
+<p>  connect finding above.</p>
+<ul>
+<li>**Presence check fails after the client remove/re-add dance (root of the</li>
+</ul>
+<p>  authority denial).** Trace-proven on the 8600, LAN: gui client added with</p>
+<p>  full clientId, isLocalPtt=True, myClient=True — then removed at ~1.4 s</p>
+<p>  (station-name binding) and re-added with an EMPTY clientId, myClient=False,</p>
+<p>  isLocalPtt=False, same ClientHandle (1384667612). <code>IsCurrentClientLocalPtt</code></p>
+<p>  then reads the impostor record and <code>RequirePortSettingsAuthority</code> denies a</p>
+<p>  local operator. Fix: resolve "my client" by ClientHandle (survives re-add),</p>
+<p>  not by clientId (omitted in the re-add status). Likely shared root with the</p>
+<p>  roster double-Enter and station-binding weirdness.</p>
+<h2>Legality and courtesy notes</h2>
+<ul>
+<li>1 watt, clear frequency, listen before transmitting, each key-down under a</li>
+</ul>
+<p>  minute except the 30-second control, ID before unkeying at the end. Total</p>
+<p>  transmit time is well under ten minutes, so a single closing ID covers it.</p>
+<ul>
+<li>80 meters at 1 watt of tone is inaudible beyond the neighborhood in</li>
+</ul>
+<p>  daylight; if the session runs at night and that bothers anyone, drop to an</p>
+<p>  even quieter corner of the band.</p>
 </body>
 </html>

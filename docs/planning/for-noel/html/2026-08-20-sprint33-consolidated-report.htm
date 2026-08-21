@@ -1,580 +1,344 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>2026-08-20-sprint33-consolidated-report</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      white-space: pre-wrap;
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: 1.5em;}
-    div.column{flex: auto;}
-    @media screen {
-    div.columns{gap: min(4vw, 1.5em);}
-    div.column{overflow-x: auto;}
-    }
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-  </style>
+<meta charset="utf-8">
+<title>Sprint 33 consolidated report — barefoot harness pileup</title>
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-<header id="title-block-header">
-<h1 class="title">2026-08-20-sprint33-consolidated-report</h1>
-</header>
-<h1 id="sprint-33-consolidated-report-barefoot-harness-pileup">Sprint 33
-consolidated report — barefoot harness pileup</h1>
-<p><strong>20 August 2026.</strong> Eleven parallel tracks built the
-three-tier test suite, and it immediately found that the transmit
-analyzer had been lying in both directions.</p>
-<hr />
-<h2 id="the-one-sentence-version">The one-sentence version</h2>
-<p><strong>Every confident static diagnosis made today was wrong. Every
-measurement was right.</strong> Each truth surfaced the same way: two
-independent channels disagreeing until one of them turned out to be
-reading the wrong thing.</p>
-<p>That is the sprint’s actual product. Not the test suite — the ability
-to GENERATE DISAGREEMENTS instead of relying on one reading being
-careful enough.</p>
-<hr />
-<h2 id="what-we-found-today">What we found today</h2>
-<h3 id="the-analyzer-would-have-told-don-two-opposite-lies">The analyzer
-would have told Don two opposite lies</h3>
-<p>Seven of the fifty-seven facts the transmit analyzer collects were
-publishing values the radio had never reported. Two are mirror images of
-each other.</p>
-<p><strong>Forward power had no gate at all.</strong>
-<code>_PowerDBM</code> initialises to minus 150 dBm — <em>below the
-meter’s own declared floor of 0.0</em>, a value the radio physically
-cannot send. That converts to about 1e-18 watts and formats as “0”. The
-<code>no-power-out</code> rule fires below 0.1 W. So a meter that had
-simply never spoken produced <em>“your radio is transmitting but almost
-no power is leaving it”</em> — in the same evidence block where the
-meter fact correctly reported that the meter had never spoken.</p>
-<p><strong>SWR had no gate and no initialiser, publishing 0.</strong>
-The SWR meter’s declared range starts at 1.0, so 0 was provably never a
-reading. <code>high-swr</code> tests “above 3.” A silent meter read as a
-perfect antenna.</p>
-<p>A false alarm about your transmitter, and a false all-clear about
-your antenna, from the same defect at opposite ends.</p>
-<p>All seven now gate on <code>HasReading</code>, with tests locking
-both halves — a silent meter must not fire the rule, AND a meter
-genuinely at its floor still must.</p>
-<p>The other five: <code>codec-mic</code> published 0 dBFS, which is
-full scale — the loudest value on the scale. Three meter facts gated on
-the meter <em>existing</em> while reading fields that only move if
-FlexLib’s case-sensitive lookup found them, while the gate asked
-case-insensitively — two conditions, one checked. And
-<code>meter-revpwr</code> asked for <code>REVPWR</code> when the radio
-publishes <code>REFPWR</code>, so it was permanently absent, telling
-operators in a high-SWR evidence block that their radio has no
-reflected-power meter.</p>
-<h3 id="the-honest-tx-audio-bug-finally-measured-rather-than-argued">The
-honest-tx-audio bug, finally measured rather than argued</h3>
-<p>During a five-second keying, the codec MIC meter read minus 120 to
-minus 70.3 dBFS while <code>SC_MIC</code> read minus 10.8 dBFS AT THE
-SAME INSTANTS. Sixty to a hundred and ten decibels of gap.</p>
-<p>The meter everyone stared at for two days was that far from the one
-actually hearing the audio. The audio was fine the whole time.</p>
-<h3 id="the-alc-safety-alert-cannot-fire.-ever.">The ALC safety alert
-cannot fire. Ever.</h3>
-<p>The TX Peak Watcher guards <code>HWALC</code> — source
-<code>TX-</code> index 5, the amplifier jack. Across a full transmission
-it returned <strong>7,345 readings and every single one was
-0.0</strong>. Its thresholds are 0.5 and 0.8.</p>
-<p>Meanwhile a plain <code>ALC</code> meter sits directly beside it at
-source index 0, and swung 2.5 dB in the same window. The watcher is on
-the wrong meter, not the only one. The checkbox says “ALC safety
-alerts”; operators believe they are protected against overdriving and
-are not.</p>
-<p>Also worth knowing: those thresholds are 0.5 and 0.8 — zero-to-one
-fractions compared against decibels.</p>
-<p>Not fixed, deliberately: you ruled on 2026-08-11 that HWALC stays
-surfaced as amplifier ALC. The answer is a SECOND guard with its own
-wording, which is your copy to approve.</p>
-<h3
-id="four-identical-copies-of-every-transmit-meter-and-both-lookups-take-the-first">Four
-identical copies of every transmit meter, and both lookups take the
-first</h3>
-<p>With a station client connected the radio publishes <strong>102
-meters</strong>, not the 35 predicted. Every transmit-chain meter
-appears <strong>four times, once per slice</strong> — four
-<code>SC_MIC</code> at indices 24, 48, 72 and 91, byte-identical in
-their descriptors, nothing to tell them apart.</p>
-<p><code>MeterInventory.Find</code> is first-name-wins. FlexLib’s
-<code>FindMeterByName</code> is a <code>FirstOrDefault</code>. The app
-subscribes to index 24 and never learns the others exist.</p>
-<p><strong>It works only because the first copy happens to be the one
-that streams.</strong> Nothing guarantees that. On a radio where it is
-not, <code>ScMicDb</code> sits at its sentinel forever while three
-identical meters report normally — and every diagnosis downstream is
-built on a meter that was never going to move. The same
-silent-wrong-instrument shape as the codec MIC bug, one level down,
-masked by an ordering coincidence.</p>
-<p>Written up durably in the remarks on
-<code>MeterInventory.Find</code>, where the next person reading meter
-code will land. Not fixed — choosing among identical descriptors needs a
-rule nobody has established, and that is a design decision.</p>
-<h3
-id="removing-a-radio-could-have-deleted-your-entire-settings-tree">Removing
-a radio could have deleted your entire settings tree</h3>
-<p><code>SanitizeRadioId</code> treats <code>.</code> as legal, so a
-serial of <code>..</code> survives intact.
-<code>Path.Combine(base, "radios", "..")</code> then resolves to the
-BASE DIRECTORY — the parent of every radio’s folder — and the
-destructive scope calls
-<code>Directory.Delete(dir, recursive: true)</code> on exactly that.</p>
-<p>Sprint 32 made that path keyboard-reachable. Nobody checked what was
-at the end of it.</p>
-<p>Two independent guards now: the sanitiser refuses dots-only ids, and
-removal proves the target is strictly inside <code>radios\</code> before
-deleting. Verified in both directions — removing either guard makes the
-new test fail.</p>
-<h3
-id="the-s-meter-reads-not-reported-by-this-radio-on-a-radio-reporting-it">The
-S-meter reads “not reported by this radio” on a radio reporting it</h3>
-<p>A slice source index of minus 1 means “follow whichever slice I’m
-listening to.” Every default carries it; every migrated config carries
-it. But choices built from a live reading copied the slice’s REAL
-number, and <code>Matches</code> requires equality. Minus 1 never equals
-0.</p>
-<p>So with a radio connected, no slice meter could match its own
-definition, and the panel fell through to its unknown-meter
-fallback.</p>
-<p><strong>The tone was right the whole time</strong> — the tone engine
-resolves minus 1 correctly. Sound and screen disagreed, and only the
-screen talks to the operator.</p>
-<p>The picker now offers an “Active slice” entry per slice meter, which
-makes the setting every default ships with SELECTABLE for the first time
-rather than reachable by accident.</p>
-<h3 id="your-radios-floor-is-36-milliwatts.-the-rule-trips-at-100.">Your
-radio’s floor is 36 milliwatts. The rule trips at 100.</h3>
-<p>At <code>rfpower = 0</code> — the minimum setting, not “off” — the
-8600 measured 15.6 to 22.6 dBm across a real transmission. That is 0.036
-to 0.182 watts, and a standalone trace caught the range going to 30.6
-dBm.</p>
-<p>The <code>no-power-out</code> threshold of a tenth of a watt sits
-INSIDE that range rather than below it. The rule cannot distinguish
-“barely transmitting” from “the operator chose minimum power.” A guard
-(<code>needs rf-power-setting above 0</code>) hides it today — and that
-guard bites exactly the transverter and QRP case.</p>
-<p><strong>This one needs your ruling.</strong> What counts as “no power
-out” is a judgement with verdict wording attached. It is now a measured
-number rather than a guess.</p>
-<h3 id="one-dialog-crashed-the-entire-test-host">One dialog crashed the
-entire test host</h3>
-<p><code>ExportDialog_Loaded</code> sets <code>DialogResult</code>,
-which can only be set on a window shown via <code>ShowDialog()</code>.
-Shown any other way it throws from inside WPF’s render path — unhandled,
-on the dispatcher.</p>
-<p>Result: <strong>zero tests discovered</strong>, whole assembly
-aborted, reported as <code>total=0 passed=0 failed=0</code>. Not one
-failure among many.</p>
-<p>It also explains three separate mysteries from the same day: the
-“export log” dialog that kept appearing and could not be accounted for;
-why <code>jjflexible.exe</code> was never running when checked (it was
-<code>testhost.exe</code>); and Explorer windows accumulating at the
-build output folder in step with test runs.</p>
-<hr />
-<h2 id="the-morning-before-any-of-that">The morning, before any of
-that</h2>
-<p><strong>Sprint 32 merged and shipped.</strong> The connected-close
-farewell verified with a radio attached and a continuous earcon running
-— the last check gating a build.</p>
-<p>Then a design conversation produced tasks #144 through #152,
-including the three-tier test suite that became this sprint. Four memory
-entries written, task store reconciled, full backups across ten
-projects.</p>
-<p><strong>Three tasks turned out to be already done</strong> — closed
-by reading rather than working. The repeat-message history shipped in
-Sprint 32; <code>Beep()</code> no longer exists; the third additive
-synthesiser was already deleted. A backlog that overstates itself makes
-every planning decision slightly wrong, so a post-sprint reconciliation
-pass is worth making routine.</p>
-<hr />
-<h2 id="the-pattern-worth-keeping">The pattern worth keeping</h2>
-<p>Six confident static diagnoses were made today and every one was
-wrong:</p>
+<h1>Sprint 33 consolidated report — barefoot harness pileup</h1>
+<p><strong>20 August 2026.</strong> Eleven parallel tracks built the three-tier test suite, and it</p>
+<p>immediately found that the transmit analyzer had been lying in both directions.</p>
+<p>---</p>
+<h2>The one-sentence version</h2>
+<p>**Every confident static diagnosis made today was wrong. Every measurement was</p>
+<p>right.** Each truth surfaced the same way: two independent channels disagreeing</p>
+<p>until one of them turned out to be reading the wrong thing.</p>
+<p>That is the sprint's actual product. Not the test suite — the ability to</p>
+<p>GENERATE DISAGREEMENTS instead of relying on one reading being careful enough.</p>
+<p>---</p>
+<h2>What we found today</h2>
+<h3>The analyzer would have told Don two opposite lies</h3>
+<p>Seven of the fifty-seven facts the transmit analyzer collects were publishing</p>
+<p>values the radio had never reported. Two are mirror images of each other.</p>
+<p><strong>Forward power had no gate at all.</strong> <code>_PowerDBM</code> initialises to minus 150 dBm —</p>
+<p><em>below the meter's own declared floor of 0.0</em>, a value the radio physically</p>
+<p>cannot send. That converts to about 1e-18 watts and formats as "0". The</p>
+<p><code>no-power-out</code> rule fires below 0.1 W. So a meter that had simply never spoken</p>
+<p>produced <em>"your radio is transmitting but almost no power is leaving it"</em> — in</p>
+<p>the same evidence block where the meter fact correctly reported that the meter</p>
+<p>had never spoken.</p>
+<p><strong>SWR had no gate and no initialiser, publishing 0.</strong> The SWR meter's declared</p>
+<p>range starts at 1.0, so 0 was provably never a reading. <code>high-swr</code> tests "above</p>
+<p>3." A silent meter read as a perfect antenna.</p>
+<p>A false alarm about your transmitter, and a false all-clear about your antenna,</p>
+<p>from the same defect at opposite ends.</p>
+<p>All seven now gate on <code>HasReading</code>, with tests locking both halves — a silent</p>
+<p>meter must not fire the rule, AND a meter genuinely at its floor still must.</p>
+<p>The other five: <code>codec-mic</code> published 0 dBFS, which is full scale — the loudest</p>
+<p>value on the scale. Three meter facts gated on the meter <em>existing</em> while reading</p>
+<p>fields that only move if FlexLib's case-sensitive lookup found them, while the</p>
+<p>gate asked case-insensitively — two conditions, one checked. And <code>meter-revpwr</code></p>
+<p>asked for <code>REVPWR</code> when the radio publishes <code>REFPWR</code>, so it was permanently</p>
+<p>absent, telling operators in a high-SWR evidence block that their radio has no</p>
+<p>reflected-power meter.</p>
+<h3>The honest-tx-audio bug, finally measured rather than argued</h3>
+<p>During a five-second keying, the codec MIC meter read minus 120 to minus 70.3</p>
+<p>dBFS while <code>SC_MIC</code> read minus 10.8 dBFS AT THE SAME INSTANTS. Sixty to a hundred</p>
+<p>and ten decibels of gap.</p>
+<p>The meter everyone stared at for two days was that far from the one actually</p>
+<p>hearing the audio. The audio was fine the whole time.</p>
+<h3>The ALC safety alert cannot fire. Ever.</h3>
+<p>The TX Peak Watcher guards <code>HWALC</code> — source <code>TX-</code> index 5, the amplifier jack.</p>
+<p>Across a full transmission it returned **7,345 readings and every single one was</p>
+<p>0.0**. Its thresholds are 0.5 and 0.8.</p>
+<p>Meanwhile a plain <code>ALC</code> meter sits directly beside it at source index 0, and</p>
+<p>swung 2.5 dB in the same window. The watcher is on the wrong meter, not the only</p>
+<p>one. The checkbox says "ALC safety alerts"; operators believe they are protected</p>
+<p>against overdriving and are not.</p>
+<p>Also worth knowing: those thresholds are 0.5 and 0.8 — zero-to-one fractions</p>
+<p>compared against decibels.</p>
+<p>Not fixed, deliberately: you ruled on 2026-08-11 that HWALC stays surfaced as</p>
+<p>amplifier ALC. The answer is a SECOND guard with its own wording, which is your</p>
+<p>copy to approve.</p>
+<h3>Four identical copies of every transmit meter, and both lookups take the first</h3>
+<p>With a station client connected the radio publishes <strong>102 meters</strong>, not the 35</p>
+<p>predicted. Every transmit-chain meter appears <strong>four times, once per slice</strong> —</p>
+<p>four <code>SC_MIC</code> at indices 24, 48, 72 and 91, byte-identical in their descriptors,</p>
+<p>nothing to tell them apart.</p>
+<p><code>MeterInventory.Find</code> is first-name-wins. FlexLib's <code>FindMeterByName</code> is a</p>
+<p><code>FirstOrDefault</code>. The app subscribes to index 24 and never learns the others</p>
+<p>exist.</p>
+<p><strong>It works only because the first copy happens to be the one that streams.</strong></p>
+<p>Nothing guarantees that. On a radio where it is not, <code>ScMicDb</code> sits at its</p>
+<p>sentinel forever while three identical meters report normally — and every</p>
+<p>diagnosis downstream is built on a meter that was never going to move. The same</p>
+<p>silent-wrong-instrument shape as the codec MIC bug, one level down, masked by an</p>
+<p>ordering coincidence.</p>
+<p>Written up durably in the remarks on <code>MeterInventory.Find</code>, where the next person</p>
+<p>reading meter code will land. Not fixed — choosing among identical descriptors</p>
+<p>needs a rule nobody has established, and that is a design decision.</p>
+<h3>Removing a radio could have deleted your entire settings tree</h3>
+<p><code>SanitizeRadioId</code> treats <code>.</code> as legal, so a serial of <code>..</code> survives intact.</p>
+<p><code>Path.Combine(base, "radios", "..")</code> then resolves to the BASE DIRECTORY — the</p>
+<p>parent of every radio's folder — and the destructive scope calls</p>
+<p><code>Directory.Delete(dir, recursive: true)</code> on exactly that.</p>
+<p>Sprint 32 made that path keyboard-reachable. Nobody checked what was at the end</p>
+<p>of it.</p>
+<p>Two independent guards now: the sanitiser refuses dots-only ids, and removal</p>
+<p>proves the target is strictly inside <code>radios\</code> before deleting. Verified in both</p>
+<p>directions — removing either guard makes the new test fail.</p>
+<h3>The S-meter reads "not reported by this radio" on a radio reporting it</h3>
+<p>A slice source index of minus 1 means "follow whichever slice I'm listening to."</p>
+<p>Every default carries it; every migrated config carries it. But choices built</p>
+<p>from a live reading copied the slice's REAL number, and <code>Matches</code> requires</p>
+<p>equality. Minus 1 never equals 0.</p>
+<p>So with a radio connected, no slice meter could match its own definition, and the</p>
+<p>panel fell through to its unknown-meter fallback.</p>
+<p><strong>The tone was right the whole time</strong> — the tone engine resolves minus 1</p>
+<p>correctly. Sound and screen disagreed, and only the screen talks to the operator.</p>
+<p>The picker now offers an "Active slice" entry per slice meter, which makes the</p>
+<p>setting every default ships with SELECTABLE for the first time rather than</p>
+<p>reachable by accident.</p>
+<h3>Your radio's floor is 36 milliwatts. The rule trips at 100.</h3>
+<p>At <code>rfpower = 0</code> — the minimum setting, not "off" — the 8600 measured 15.6 to</p>
+<p>22.6 dBm across a real transmission. That is 0.036 to 0.182 watts, and a</p>
+<p>standalone trace caught the range going to 30.6 dBm.</p>
+<p>The <code>no-power-out</code> threshold of a tenth of a watt sits INSIDE that range rather</p>
+<p>than below it. The rule cannot distinguish "barely transmitting" from "the</p>
+<p>operator chose minimum power." A guard (<code>needs rf-power-setting above 0</code>) hides</p>
+<p>it today — and that guard bites exactly the transverter and QRP case.</p>
+<p><strong>This one needs your ruling.</strong> What counts as "no power out" is a judgement with</p>
+<p>verdict wording attached. It is now a measured number rather than a guess.</p>
+<h3>One dialog crashed the entire test host</h3>
+<p><code>ExportDialog_Loaded</code> sets <code>DialogResult</code>, which can only be set on a window</p>
+<p>shown via <code>ShowDialog()</code>. Shown any other way it throws from inside WPF's render</p>
+<p>path — unhandled, on the dispatcher.</p>
+<p>Result: <strong>zero tests discovered</strong>, whole assembly aborted, reported as</p>
+<p><code>total=0 passed=0 failed=0</code>. Not one failure among many.</p>
+<p>It also explains three separate mysteries from the same day: the "export log"</p>
+<p>dialog that kept appearing and could not be accounted for; why <code>jjflexible.exe</code></p>
+<p>was never running when checked (it was <code>testhost.exe</code>); and Explorer windows</p>
+<p>accumulating at the build output folder in step with test runs.</p>
+<p>---</p>
+<h2>The morning, before any of that</h2>
+<p><strong>Sprint 32 merged and shipped.</strong> The connected-close farewell verified with a</p>
+<p>radio attached and a continuous earcon running — the last check gating a build.</p>
+<p>Then a design conversation produced tasks #144 through #152, including the</p>
+<p>three-tier test suite that became this sprint. Four memory entries written, task</p>
+<p>store reconciled, full backups across ten projects.</p>
+<p><strong>Three tasks turned out to be already done</strong> — closed by reading rather than</p>
+<p>working. The repeat-message history shipped in Sprint 32; <code>Beep()</code> no longer</p>
+<p>exists; the third additive synthesiser was already deleted. A backlog that</p>
+<p>overstates itself makes every planning decision slightly wrong, so a post-sprint</p>
+<p>reconciliation pass is worth making routine.</p>
+<p>---</p>
+<h2>The pattern worth keeping</h2>
+<p>Six confident static diagnoses were made today and every one was wrong:</p>
 <ul>
-<li><strong>#140 was not the root cause.</strong> The TX stream
-genuinely lacks a compression parameter — but the 8600 answers an
-undeclared stream with <code>compression=OPUS</code>, shipping SmartSDR
-sends the identical bare command, and the whole question had been
-answered ten days earlier. Track G falsified its own headline using
-evidence already in the repository.</li>
-<li><strong>The Earcon Explorer was never broken.</strong> I concluded
-that from a grep that found no <code>ConnectPhase</code> in the Workshop
-— but a registry-driven explorer never contains those names. Absence of
-the string was evidence FOR the registry.</li>
-<li><strong>The unaccounted dialog was not a credential picker.</strong>
-I identified it from an incomplete window enumeration that cannot see
-modals.</li>
-<li><strong>Track B’s “this build produced no log”</strong> — it was
-logging the whole time, into a file the tool did not know about.</li>
-<li><strong>Track C’s harness reported a clean restore</strong> while
-leaving the radio altered, within a minute of first contact.</li>
-<li><strong>Track D’s session selector skipped the file containing the
-reproduction</strong> because a Detailed capture carries no boot
-header.</li>
+<li><strong>#140 was not the root cause.</strong> The TX stream genuinely lacks a compression</li>
 </ul>
-<p>Each was caught the same way: SOMETHING DISAGREED WITH SOMETHING
-ELSE. Two channels, two connections, two independent runs, a control
-press against an automated one. Never by reading more carefully.</p>
-<hr />
-<h2 id="what-each-track-delivered">What each track delivered</h2>
-<h3 id="track-a-tier-1-dialogs-walked-in-process">Track A — Tier 1,
-dialogs walked in process</h3>
-<p>Built <code>JJFlexWpf.Tests</code>, an STA suite that constructs
-dialogs and walks their automation trees. Established by measurement
-that <strong>Tier 1 needs no permission grant and cannot take the
-keyboard</strong>: Win32 focus is per message queue, so off-foreground
-<code>SetFocus</code> touches only the calling thread’s record.
-Foreground verified unchanged across runs.</p>
-<p>Also measured two traps that would each have cost a day.
-<code>EnsureHandle</code> raises <code>Loaded</code> but leaves a Window
-<code>Collapsed</code>, so a suite built on it reports every dialog in
-the app as empty. And a private desktop is unreachable from an STA WPF
-thread, because the CLR’s <code>OleInitialize</code> got there
-first.</p>
-<h3 id="track-b-tier-2-the-probe-rescued-and-proven">Track B — Tier 2,
-the probe rescued and proven</h3>
-<p>The UIA probe that solved the silent Workshop was living in a temp
-scratchpad. It now ships as <code>jjprobe</code> in the repository. 140
-inventory rows expand to <strong>243 concrete chords with zero
-residue</strong>.</p>
-<p>Injection proven end to end: <code>DoCommand:00000071</code> then
-<code>DoCommand:ShowFreq</code>.</p>
-<p>Its first measurement was a FALSE POSITIVE — it credited its own
-window activation as evidence the keystroke worked — caught only because
-the routing channel disagreed with the UIA channel. It also displaced a
-security prompt its own action had raised, which is now guarded
-against.</p>
-<p>Two findings from it worth having: the key dispatcher already logs
-<code>DoCommand:key not found:&lt;key&gt;</code> at Info level, which
-separates <em>the chord never arrived</em> from <em>the chord arrived
-and nothing was listening</em>. And Slice F has no leader jump —
-<code>Ctrl+J, Shift+F</code> collides with RX filter width, so an
-operator with six or more slices cannot jump to the sixth at all.</p>
-<h3 id="track-c-tier-3-the-radio-surface">Track C — Tier 3, the radio
-surface</h3>
-<p><strong>The radio sends no status delta to the client that made the
-change.</strong> It broadcasts to every OTHER client. Proven both
-directions. So a single-connection harness cannot verify its own writes
-— it reads back its own stale model while believing it reads the
-radio.</p>
-<p>That makes the composed observer arrangement not merely preferable
-but the only sound one.</p>
-<p>A 234-field before-and-after diff came back identical except the
-nickname, which it could not clear and correctly refused to invent a
-value for.</p>
-<p>It also found a safety bug in its own guard by re-reading rather than
-running: the transmit classifier treated <code>xmit</code> as keying
-unconditionally, so <code>xmit 0</code> — the UNKEY — was refused. The
-failure mode would have been keying the radio, having the unkey refused,
-printing “the unkey command failed,” and leaving it transmitting.</p>
-<h3 id="track-d-the-analyzers-senses">Track D — the analyzer’s
-senses</h3>
-<p>Thirty existing tests proved the rules engine handles unreadable
-facts correctly. None touched fact collection.</p>
-<p>Final tally across all 57 facts: <strong>33 verified true, 10
-verified wrong and fixed, 24 unverified each with a stated
-reason.</strong> Nothing previously reported as verified was
-invalidated.</p>
-<p>The sentinel bug reproduced on two independent keyings:
-<code>SC_MIC=-150.0 SWALC=-150.0 fwd=22.1 dBm</code> — forward power
-already flowing while both audio meters sat on the initialiser. It is
-the opening second of EVERY transmission, which is exactly when someone
-debugging silent audio runs the check.</p>
-<p>It also answered your nickname questions. <strong>Maximum is 15
-characters</strong> — 16 is refused outright, not truncated, but nothing
-inspected the reply so a longer name told the operator nothing. Now
-capped. <strong>A space is silently removed</strong>, not truncated at:
-“ALPHA BRAVO” becomes “ALPHABRAVO”.</p>
-<h3 id="track-e-the-triage-that-gives-you-your-evenings-back">Track E —
-the triage that gives you your evenings back</h3>
-<p>44 numbered tests, but many bundle assertions from different tiers.
-Split properly: <strong>98 assertions — 45 Tier 1, 33 Tier 2, six Tier
-3, and 14 human</strong>, one of which is not a test at all.</p>
-<p><strong>A 44-test sitting becomes 13 things worth your ears.</strong>
-Only six assertions genuinely need the radio.</p>
-<p>Two tests were already wrong WITHIN HOURS of being written — both
-because they counted controls, which is the
-assert-invariants-not-specifics rule breaking in practice. One has no
-possible proxy: About reading aloud renders in a WebView2 island an
-in-process tree walk cannot see into.</p>
-<h3 id="track-f-how-the-application-sounds">Track F — how the
-application sounds</h3>
-<p>CW pitch follows the radio’s sidetone or a configured tone. Six CW
-waveform choices with equal-power normalisation, so changing shape
-changes character and NOT level. A CW repeat key on
-<code>Ctrl+J, E</code>. And the sine-versus-modern voice set —
-<strong>two definitions of seven named voices and one switch</strong>,
-so all 45 earcons follow without a single call site changing.</p>
-<p>It also modelled the farewell timeout properly: the flat 5000 ms is
-exceeded at 10, 12, 15, 25 AND 30 WPM. Only 20 and 40-plus fit. You sit
-in the one gap in the middle, which is why yours works.</p>
-<h3 id="track-h-the-meters-panel">Track H — the meters panel</h3>
-<p>Most of its brief was already fixed by Sprint 32 — which it
-discovered by auditing rather than trusting, and that audit is what
-found the S-meter bug above.</p>
-<p>Real residuals fixed: an engine subscription made once but
-unsubscribed on EVERY unload, so the first reload left the panel
-permanently deaf; and a test-tone timer created per click, so a second
-press cut the first short.</p>
-<p>Four wrong facts in help corrected, including
-<code>tuning-frequency.md</code> telling operators that
-<code>Ctrl+M</code> opens memory channels.</p>
-<h3 id="track-i-a-known-input-and-a-recorder-worth-keeping">Track I — a
-known input, and a recorder worth keeping</h3>
-<p>A 127-second reference recording with a level anchor, phonetics,
-three levels of the same sentence, plosives and a silence gap for the
-noise floor — <strong>deliberately carrying no callsign and no
-CQ</strong>, so that if it ever escapes it announces itself as a test
-recording twice.</p>
-<p>Verified negative on the Jim question: <strong>he built no PC-side
-audio recorder.</strong> Searched the current tree, the deleted
-<code>JJRadio/</code> tree, and all history. What you were remembering
-is <code>CWMessages.vb</code> and its editor dialogs — a per-operator,
-key-bound, labelled message library with substitution. That is Jim’s
-design, it is untouched, and it is exactly the shape #151 needs.</p>
-<h3
-id="track-j-three-dead-surfaces-and-a-build-script-that-never-worked">Track
-J — three dead surfaces and a build script that never worked</h3>
-<p>The zip failure’s error message was IMPOSSIBLE — the script already
-exits with code 6 before the zip if the app is running. The real cause:
-<code>Compress-Archive</code> lives in a script module that will not
-load under the default execution policy. The old code checked an exit
-code and nothing else, so a truncated archive would have shipped to
-Don.</p>
-<p>TX Controls turned out to be wired-able rather than abandoned —
-<code>theRadio</code> was <code>internal</code>, so the app side could
-not reach 13 of its 14 properties. Third instance of one pattern.</p>
-<p>And the biggest unwired find: <code>RadioPaneControl</code> has all
-ten delegates unassigned, so <strong>the Logging-mode radio pane
-permanently reports “no radio” even with one connected.</strong></p>
-<h3 id="track-k-slices-that-come-back">Track K — slices that come
-back</h3>
-<p>Zero verbs are stubbed; the transport was never the gap. The real gap
-is that the procedure is UNREACHABLE — which is what “I don’t know what
-I need to do in JJ Flexible to get it to stick” was telling us.</p>
-<p>Found an undocumented silent auto-save:
-<code>saveNewGlobalProfile()</code> runs from <code>Dispose()</code> and
-is the only path that writes a global profile with nobody pressing
-anything. It captures the station at teardown, and under MultiFlex that
-bakes another operator’s slices into the profile loaded on every
-subsequent connect.</p>
-<p>It also declined to overturn Sprint 32’s deliberate rejection of a
-disconnect prompt — it built the offer as a setting that ships OFF.</p>
-<hr />
-<h2 id="decided-today">Decided today</h2>
+<p>  parameter — but the 8600 answers an undeclared stream with <code>compression=OPUS</code>,</p>
+<p>  shipping SmartSDR sends the identical bare command, and the whole question had</p>
+<p>  been answered ten days earlier. Track G falsified its own headline using</p>
+<p>  evidence already in the repository.</p>
 <ul>
-<li><strong>Modern sounds stay the default</strong>, classic sine
-becomes an option. Your listen produced the requirement: not “I like
-new,” but “if I can have a preference, so can someone else.”</li>
-<li><strong>The connect series is fine as it is.</strong> Track F’s four
-candidates get deleted at merge.</li>
-<li><strong>CW repeat walks its own history</strong>, text messages
-only, prosigns excluded.</li>
-<li><strong>Waterfall may move ahead of Connect</strong> — and its
-interaction model is now two queries rather than a display: <em>where is
-it quiet</em> for transmitting, <em>take me to the next signal</em> for
-listening.</li>
-<li><strong>Tier 3 reads meters from the trace</strong>, not its own UDP
-stream — the more correct measurement, and no firewall change.</li>
-<li><strong>Authorisation is brokered</strong> while a fleet is running:
-tracks report ready to the orchestrator, you get one ping per
-batch.</li>
+<li><strong>The Earcon Explorer was never broken.</strong> I concluded that from a grep that</li>
 </ul>
-<hr />
-<h2 id="still-open">Still open</h2>
+<p>  found no <code>ConnectPhase</code> in the Workshop — but a registry-driven explorer never</p>
+<p>  contains those names. Absence of the string was evidence FOR the registry.</p>
 <ul>
-<li>The <code>no-power-out</code> threshold, now that the floor is
-measured at 36 mW.</li>
-<li><strong>User-facing prose from four tracks</strong>: the tone-set
-and CW labels (F), the reference script and its announcements (I), the
-destructive-remove wording (J), and the save-to-radio offer (K). The
-last one matters most — it is a prompt about shared station state.</li>
+<li><strong>The unaccounted dialog was not a credential picker.</strong> I identified it from an</li>
+</ul>
+<p>  incomplete window enumeration that cannot see modals.</p>
+<ul>
+<li><strong>Track B's "this build produced no log"</strong> — it was logging the whole time,</li>
+</ul>
+<p>  into a file the tool did not know about.</p>
+<ul>
+<li><strong>Track C's harness reported a clean restore</strong> while leaving the radio altered,</li>
+</ul>
+<p>  within a minute of first contact.</p>
+<ul>
+<li><strong>Track D's session selector skipped the file containing the reproduction</strong></li>
+</ul>
+<p>  because a Detailed capture carries no boot header.</p>
+<p>Each was caught the same way: SOMETHING DISAGREED WITH SOMETHING ELSE. Two</p>
+<p>channels, two connections, two independent runs, a control press against an</p>
+<p>automated one. Never by reading more carefully.</p>
+<p>---</p>
+<h2>What each track delivered</h2>
+<h3>Track A — Tier 1, dialogs walked in process</h3>
+<p>Built <code>JJFlexWpf.Tests</code>, an STA suite that constructs dialogs and walks their</p>
+<p>automation trees. Established by measurement that **Tier 1 needs no permission</p>
+<p>grant and cannot take the keyboard**: Win32 focus is per message queue, so</p>
+<p>off-foreground <code>SetFocus</code> touches only the calling thread's record. Foreground</p>
+<p>verified unchanged across runs.</p>
+<p>Also measured two traps that would each have cost a day. <code>EnsureHandle</code> raises</p>
+<p><code>Loaded</code> but leaves a Window <code>Collapsed</code>, so a suite built on it reports every</p>
+<p>dialog in the app as empty. And a private desktop is unreachable from an STA WPF</p>
+<p>thread, because the CLR's <code>OleInitialize</code> got there first.</p>
+<h3>Track B — Tier 2, the probe rescued and proven</h3>
+<p>The UIA probe that solved the silent Workshop was living in a temp scratchpad. It</p>
+<p>now ships as <code>jjprobe</code> in the repository. 140 inventory rows expand to **243</p>
+<p>concrete chords with zero residue**.</p>
+<p>Injection proven end to end: <code>DoCommand:00000071</code> then <code>DoCommand:ShowFreq</code>.</p>
+<p>Its first measurement was a FALSE POSITIVE — it credited its own window</p>
+<p>activation as evidence the keystroke worked — caught only because the routing</p>
+<p>channel disagreed with the UIA channel. It also displaced a security prompt its</p>
+<p>own action had raised, which is now guarded against.</p>
+<p>Two findings from it worth having: the key dispatcher already logs</p>
+<p><code>DoCommand:key not found:<key></code> at Info level, which separates *the chord never</p>
+<p>arrived<em> from </em>the chord arrived and nothing was listening*. And Slice F has no</p>
+<p>leader jump — <code>Ctrl+J, Shift+F</code> collides with RX filter width, so an operator</p>
+<p>with six or more slices cannot jump to the sixth at all.</p>
+<h3>Track C — Tier 3, the radio surface</h3>
+<p><strong>The radio sends no status delta to the client that made the change.</strong> It</p>
+<p>broadcasts to every OTHER client. Proven both directions. So a single-connection</p>
+<p>harness cannot verify its own writes — it reads back its own stale model while</p>
+<p>believing it reads the radio.</p>
+<p>That makes the composed observer arrangement not merely preferable but the only</p>
+<p>sound one.</p>
+<p>A 234-field before-and-after diff came back identical except the nickname, which</p>
+<p>it could not clear and correctly refused to invent a value for.</p>
+<p>It also found a safety bug in its own guard by re-reading rather than running:</p>
+<p>the transmit classifier treated <code>xmit</code> as keying unconditionally, so <code>xmit 0</code> —</p>
+<p>the UNKEY — was refused. The failure mode would have been keying the radio,</p>
+<p>having the unkey refused, printing "the unkey command failed," and leaving it</p>
+<p>transmitting.</p>
+<h3>Track D — the analyzer's senses</h3>
+<p>Thirty existing tests proved the rules engine handles unreadable facts correctly.</p>
+<p>None touched fact collection.</p>
+<p>Final tally across all 57 facts: **33 verified true, 10 verified wrong and fixed,</p>
+<p>24 unverified each with a stated reason.** Nothing previously reported as</p>
+<p>verified was invalidated.</p>
+<p>The sentinel bug reproduced on two independent keyings:</p>
+<p><code>SC_MIC=-150.0 SWALC=-150.0 fwd=22.1 dBm</code> — forward power already flowing while</p>
+<p>both audio meters sat on the initialiser. It is the opening second of EVERY</p>
+<p>transmission, which is exactly when someone debugging silent audio runs the</p>
+<p>check.</p>
+<p>It also answered your nickname questions. <strong>Maximum is 15 characters</strong> — 16 is</p>
+<p>refused outright, not truncated, but nothing inspected the reply so a longer name</p>
+<p>told the operator nothing. Now capped. <strong>A space is silently removed</strong>, not</p>
+<p>truncated at: "ALPHA BRAVO" becomes "ALPHABRAVO".</p>
+<h3>Track E — the triage that gives you your evenings back</h3>
+<p>44 numbered tests, but many bundle assertions from different tiers. Split</p>
+<p>properly: <strong>98 assertions — 45 Tier 1, 33 Tier 2, six Tier 3, and 14 human</strong>, one</p>
+<p>of which is not a test at all.</p>
+<p><strong>A 44-test sitting becomes 13 things worth your ears.</strong> Only six assertions</p>
+<p>genuinely need the radio.</p>
+<p>Two tests were already wrong WITHIN HOURS of being written — both because they</p>
+<p>counted controls, which is the assert-invariants-not-specifics rule breaking in</p>
+<p>practice. One has no possible proxy: About reading aloud renders in a WebView2</p>
+<p>island an in-process tree walk cannot see into.</p>
+<h3>Track F — how the application sounds</h3>
+<p>CW pitch follows the radio's sidetone or a configured tone. Six CW waveform</p>
+<p>choices with equal-power normalisation, so changing shape changes character and</p>
+<p>NOT level. A CW repeat key on <code>Ctrl+J, E</code>. And the sine-versus-modern voice set —</p>
+<p><strong>two definitions of seven named voices and one switch</strong>, so all 45 earcons follow</p>
+<p>without a single call site changing.</p>
+<p>It also modelled the farewell timeout properly: the flat 5000 ms is exceeded at</p>
+<p>10, 12, 15, 25 AND 30 WPM. Only 20 and 40-plus fit. You sit in the one gap in the</p>
+<p>middle, which is why yours works.</p>
+<h3>Track H — the meters panel</h3>
+<p>Most of its brief was already fixed by Sprint 32 — which it discovered by</p>
+<p>auditing rather than trusting, and that audit is what found the S-meter bug</p>
+<p>above.</p>
+<p>Real residuals fixed: an engine subscription made once but unsubscribed on EVERY</p>
+<p>unload, so the first reload left the panel permanently deaf; and a test-tone</p>
+<p>timer created per click, so a second press cut the first short.</p>
+<p>Four wrong facts in help corrected, including <code>tuning-frequency.md</code> telling</p>
+<p>operators that <code>Ctrl+M</code> opens memory channels.</p>
+<h3>Track I — a known input, and a recorder worth keeping</h3>
+<p>A 127-second reference recording with a level anchor, phonetics, three levels of</p>
+<p>the same sentence, plosives and a silence gap for the noise floor — **deliberately</p>
+<p>carrying no callsign and no CQ**, so that if it ever escapes it announces itself</p>
+<p>as a test recording twice.</p>
+<p>Verified negative on the Jim question: <strong>he built no PC-side audio recorder.</strong></p>
+<p>Searched the current tree, the deleted <code>JJRadio/</code> tree, and all history. What you</p>
+<p>were remembering is <code>CWMessages.vb</code> and its editor dialogs — a per-operator,</p>
+<p>key-bound, labelled message library with substitution. That is Jim's design, it</p>
+<p>is untouched, and it is exactly the shape #151 needs.</p>
+<h3>Track J — three dead surfaces and a build script that never worked</h3>
+<p>The zip failure's error message was IMPOSSIBLE — the script already exits with</p>
+<p>code 6 before the zip if the app is running. The real cause: <code>Compress-Archive</code></p>
+<p>lives in a script module that will not load under the default execution policy.</p>
+<p>The old code checked an exit code and nothing else, so a truncated archive would</p>
+<p>have shipped to Don.</p>
+<p>TX Controls turned out to be wired-able rather than abandoned — <code>theRadio</code> was</p>
+<p><code>internal</code>, so the app side could not reach 13 of its 14 properties. Third</p>
+<p>instance of one pattern.</p>
+<p>And the biggest unwired find: <code>RadioPaneControl</code> has all ten delegates</p>
+<p>unassigned, so **the Logging-mode radio pane permanently reports "no radio" even</p>
+<p>with one connected.**</p>
+<h3>Track K — slices that come back</h3>
+<p>Zero verbs are stubbed; the transport was never the gap. The real gap is that the</p>
+<p>procedure is UNREACHABLE — which is what "I don't know what I need to do in JJ</p>
+<p>Flexible to get it to stick" was telling us.</p>
+<p>Found an undocumented silent auto-save: <code>saveNewGlobalProfile()</code> runs from</p>
+<p><code>Dispose()</code> and is the only path that writes a global profile with nobody</p>
+<p>pressing anything. It captures the station at teardown, and under MultiFlex that</p>
+<p>bakes another operator's slices into the profile loaded on every subsequent</p>
+<p>connect.</p>
+<p>It also declined to overturn Sprint 32's deliberate rejection of a disconnect</p>
+<p>prompt — it built the offer as a setting that ships OFF.</p>
+<p>---</p>
+<h2>Decided today</h2>
+<ul>
+<li><strong>Modern sounds stay the default</strong>, classic sine becomes an option. Your listen</li>
+</ul>
+<p>  produced the requirement: not "I like new," but "if I can have a preference, so</p>
+<p>  can someone else."</p>
+<ul>
+<li><strong>The connect series is fine as it is.</strong> Track F's four candidates get deleted</li>
+</ul>
+<p>  at merge.</p>
+<ul>
+<li><strong>CW repeat walks its own history</strong>, text messages only, prosigns excluded.</li>
+<li><strong>Waterfall may move ahead of Connect</strong> — and its interaction model is now two</li>
+</ul>
+<p>  queries rather than a display: <em>where is it quiet</em> for transmitting, *take me</p>
+<p>  to the next signal* for listening.</p>
+<ul>
+<li><strong>Tier 3 reads meters from the trace</strong>, not its own UDP stream — the more</li>
+</ul>
+<p>  correct measurement, and no firewall change.</p>
+<ul>
+<li><strong>Authorisation is brokered</strong> while a fleet is running: tracks report ready to</li>
+</ul>
+<p>  the orchestrator, you get one ping per batch.</p>
+<p>---</p>
+<h2>Still open</h2>
+<ul>
+<li>The <code>no-power-out</code> threshold, now that the floor is measured at 36 mW.</li>
+<li><strong>User-facing prose from four tracks</strong>: the tone-set and CW labels (F), the</li>
+</ul>
+<p>  reference script and its announcements (I), the destructive-remove wording (J),</p>
+<p>  and the save-to-radio offer (K). The last one matters most — it is a prompt</p>
+<p>  about shared station state.</p>
+<ul>
 <li><code>Ctrl+J, E</code> has never been pressed on a real build.</li>
-<li>Whether the JJ key browser opens on <code>Ctrl+F1</code> or
-<code>Ctrl+J</code> then <code>F1</code>.</li>
-<li>Track B’s settle rule watches raw trace growth, and a connected
-radio writes continuously — so it can never settle, and would mark all
-199 sweep rows unreliable.</li>
-<li><strong>The command-level sweep.</strong> The suite walks KEYS, so a
-command reachable three ways is tested once — and the untested routes
-are where the observed bugs live.</li>
+<li>Whether the JJ key browser opens on <code>Ctrl+F1</code> or <code>Ctrl+J</code> then <code>F1</code>.</li>
+<li>Track B's settle rule watches raw trace growth, and a connected radio writes</li>
 </ul>
-<hr />
-<h2 id="state-of-the-tree">State of the tree</h2>
-<p>Ten tracks merged into Track A. <strong>67 commits, build clean, zero
-errors.</strong> <code>Radios.Tests</code> reports <strong>223 passed, 0
-failed</strong>, up from 211 this morning. <code>JJFlexWpf.Tests</code>
-cannot report until <code>ExportDialog</code> is fixed or the suite is
-hardened against it.</p>
-<p>The only real merge conflict was the predicted pair — Track F against
-Track K on two files — and both sides turned out to be making the same
-argument about the same list, in comments neither track’s author had
-seen.</p>
-<p>Cleared along the way: 16 stale worktrees, and 14 stale firewall
-rules identified (four of them BLOCK rules, meaning those builds had no
-inbound UDP and therefore no meters, silently).
-<code>C:\temp\jjclean.ps1</code> removes them when you want.</p>
+<p>  continuously — so it can never settle, and would mark all 199 sweep rows</p>
+<p>  unreliable.</p>
+<ul>
+<li><strong>The command-level sweep.</strong> The suite walks KEYS, so a command reachable three</li>
+</ul>
+<p>  ways is tested once — and the untested routes are where the observed bugs live.</p>
+<p>---</p>
+<h2>State of the tree</h2>
+<p>Ten tracks merged into Track A. <strong>67 commits, build clean, zero errors.</strong></p>
+<p><code>Radios.Tests</code> reports <strong>223 passed, 0 failed</strong>, up from 211 this morning.</p>
+<p><code>JJFlexWpf.Tests</code> cannot report until <code>ExportDialog</code> is fixed or the suite is</p>
+<p>hardened against it.</p>
+<p>The only real merge conflict was the predicted pair — Track F against Track K on</p>
+<p>two files — and both sides turned out to be making the same argument about the</p>
+<p>same list, in comments neither track's author had seen.</p>
+<p>Cleared along the way: 16 stale worktrees, and 14 stale firewall rules identified</p>
+<p>(four of them BLOCK rules, meaning those builds had no inbound UDP and therefore</p>
+<p>no meters, silently). <code>C:\temp\jjclean.ps1</code> removes them when you want.</p>
 <p>Task backlog now runs to #159.</p>
 </body>
 </html>

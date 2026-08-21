@@ -1,550 +1,165 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc 3.10.2" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>2026-08-19-master-test-list</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      white-space: pre-wrap;
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: 1.5em;}
-    div.column{flex: auto;}
-    @media screen {
-    div.columns{gap: min(4vw, 1.5em);}
-    div.column{overflow-x: auto;}
-    }
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
-  </style>
+<meta charset="utf-8">
+<title>The Master Test List — Sprint 30 acceptance pass, and the standing list it starts</title>
+<link rel="stylesheet" href="../style.css">
 </head>
 <body>
-<header id="title-block-header">
-<h1 class="title">2026-08-19-master-test-list</h1>
-</header>
-<h1
-id="the-master-test-list-sprint-30-acceptance-pass-and-the-standing-list-it-starts">The
-Master Test List — Sprint 30 acceptance pass, and the standing list it
-starts</h1>
-<p><strong>Type:</strong> test execution doc (read each test, do the
-action, write your result on the <code>****</code> line under it)
-<strong>First job:</strong> this IS the Sprint 30 “Rescue Squelch
-Pileup” final acceptance pass — sessions A through H, run in one sitting
-on the final merged build, after Track F’s live session produces it.
-<strong>Second job:</strong> it stays alive as the master list (#55).
-New sprints append sessions; nothing is deleted, only marked retired.
-When you finish a pass, move a copy to <code>for-claude/</code> and I
-fold the results into the sprint’s test matrix.
-<strong>Skip-friendly:</strong> any test you can’t run, write
-<code>**** SKIP &lt;reason&gt;</code> and move on. Tests are
-independent. <strong>Build first:</strong>
-<code>dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal</code>
-from the repo root, then confirm the exe timestamp is fresh. The exe is
-<code>bin\x64\Debug\net10.0-windows\win-x64\jjflexible.exe</code>.
-<strong>Want to talk through one instead?</strong> Stop and ask in chat
-— any of these can be run interactively instead.</p>
-<p>A note on the sessions: A through C need no radio at all. D onward
-wants the 8600 on the bench (no antenna, full duplex — fine for
-everything here; nothing in this list needs RF to leave the
-building).</p>
-<hr />
-<h2 id="session-a-cold-start-no-radio">Session A — Cold start, no
-radio</h2>
-<h3 id="a1.-the-rescue-home-arrives-and-the-title-tells-you">A1. The
-rescue Home arrives, and the title tells you</h3>
-<p>Power the 8600 off (or just unplug the network story — any way that
-leaves no radio findable). Launch the app. When the Select Radio picker
-appears, press Escape.</p>
-<p>Expected: you land on Home as a short page. The window title ends
-with “no radio connected”, and focus lands somewhere real — Tab should
-move you through exactly five buttons: Connect a radio, Settings, Audio
-Workshop, Help, Exit, then cycle back. Nothing else is in the tab
-order.</p>
-<hr />
-<h3 id="a2.-escape-from-the-picker-is-not-an-exit">A2. Escape from the
-picker is not an exit</h3>
-<p>Confirm the app is still running after A1 — Escape closed the picker,
-not the program.</p>
-<hr />
-<h3
-id="a3.-the-rescue-buttons-explain-themselves-on-demand-not-on-focus">A3.
-The rescue buttons explain themselves on demand, not on focus</h3>
-<p>Tab to “Connect a radio”. You should hear the button’s name and
-nothing more. Press Ctrl+F1. You should hear a sentence about the radio
-picker looking on your network and your SmartLink account. Repeat on
-Settings and Audio Workshop — each has its own explanation on Ctrl+F1,
-and none of them recites it when you merely tab on.</p>
-<hr />
-<h3 id="a4.-the-honest-empty-case">A4. The honest empty case</h3>
-<p>Tab to Exit and press Ctrl+F1. Expected, word for word: “No extra
-help here. F1 opens the help file.” (Exit needs no essay, and the key
-should say so rather than go silent.)</p>
-<hr />
-<h3 id="a5.-help-opens-at-the-page-about-this-page">A5. Help opens at
-the page about this page</h3>
-<p>Press the rescue page’s Help button. The help file should open on
-“Home Without a Radio” — the topic describing the page you were just on,
-not the front page.</p>
-<hr />
-<h3 id="a6.-the-workshop-makes-no-offline-promises">A6. The Workshop
-makes no offline promises</h3>
-<p>From the rescue page, open Audio Workshop. The microphone check and
-the This Computer section work. Every radio-side control — Mic Gain, Mic
-Boost, Mic Bias, Compander, Speech Processor, TX Filter Low and High, TX
-Monitor — is disabled and OUT of the tab order. The value controls too,
-not just the checkboxes: arrow keys must not speak changing values on a
-control that has no radio behind it.</p>
-<hr />
-<h3 id="a7.-about-reads-the-truth">A7. About reads the truth</h3>
-<p>Open Help, then About. Every version should read aloud and match:
-FlexLib 4.2.20.41343, Opus 1.6.1, PortAudio revision a880212 (the string
-will still say 19.7.0-devel — the revision is the honest part), plus
-.NET, WebView2, and the speech backend.</p>
-<hr />
-<h3 id="a8.-the-diagnostics-surface-cold">A8. The diagnostics surface,
-cold</h3>
-<p>Open Tools, then Diagnostics. Without any coaching, listen to the
-first thing on the tab. Can you say what is being recorded, at what
-detail, and whether a capture is running? That one sentence existing —
-and answering all three — is the acceptance test.</p>
-<hr />
-<h2 id="session-b-ctrlf1-the-two-minute-listening-pass-91">Session B —
-Ctrl+F1, the two-minute listening pass (#91)</h2>
-<p>This is the acceptance test for the sprint’s blocking item. Each test
-has two halves and BOTH matter: the key speaks on demand, and tabbing
-onto the same control does NOT recite the explanation.</p>
-<h3 id="b1.-settings-the-debounce-checkbox">B1. Settings: the debounce
-checkbox</h3>
-<p>Open Tools, Settings. On the Tuning tab (Alt-tab through tabs or
-Ctrl+Tab), find “Debounce tuning speech”. Tab onto it: you should hear
-the name and checked state, and NOT the sentence about grouping rapid
-steps. Now press Ctrl+F1: “groups rapid tuning steps into one
-announcement.”</p>
-<hr />
-<h3 id="b2.-settings-the-radio-name-box">B2. Settings: the radio name
-box</h3>
-<p>On the Radios tab, pick any radio and tab to the “Radio name” box. On
-focus: name and contents only. Ctrl+F1: the explanation beginning
-“Applied with OK or Apply. Saved to the radio itself when you are
-connected to it…”</p>
-<hr />
-<h3 id="b3.-settings-the-smartlink-intent-combo">B3. Settings: the
-SmartLink intent combo</h3>
-<p>Still on the Radios tab, tab to “Whether you want to reach this radio
-from away”. On focus: name and current choice only. Ctrl+F1: an answer
-that starts “Local only silences every SmartLink registration prompt for
-this radio” and goes on to explain what registering is for.</p>
-<hr />
-<h3 id="b4.-the-workshop-mic-gain-earns-its-explanation">B4. The
-Workshop: Mic Gain earns its explanation</h3>
-<p>Open the Audio Workshop (radio connected or not — the explanation
-works either way), find Mic Gain. On focus: name and value only.
-Ctrl+F1: how to set it against the mic check’s verdicts — Good, Hot,
-Quiet.</p>
-<hr />
-<h3 id="b5.-audio-devices-three-sentences-became-one-name">B5. Audio
-Devices: three sentences became one name</h3>
-<p>Open Audio Devices (Settings, Audio tab, Audio Devices button). Tab
-to the “Audio system” combo. On focus you should now hear just “Audio
-system” and the selection — NOT the three-sentence lecture that used to
-arrive with it. Ctrl+F1 gives you the lecture, on request. Same deal on
-both device lists and the Transmit audio quality combo.</p>
-<hr />
-<h3 id="b6.-the-short-hint-that-stayed">B6. The short hint that
-stayed</h3>
-<p>Any cycle-style field (Processor Mode in the Workshop, for instance)
-may still say “Arrows to change” when you land on it. That three-word
-operating hint is deliberate and should still be there — it is the one
-kind of thing that belongs in the on-focus channel.</p>
-<hr />
-<h3 id="b7.-inside-a-dropdown">B7. Inside a dropdown</h3>
-<p>Open any Settings combo (Alt+Down on the SmartLink intent combo, say)
-and press Ctrl+F1 while the list is open. It should still find the
-combo’s explanation rather than claiming there is none — the walk
-crosses the dropdown boundary.</p>
-<hr />
-<h2 id="session-c-process-hygiene-21">Session C — Process hygiene
-(#21)</h2>
-<h3 id="c1.-ten-launches-leave-nothing-behind">C1. Ten launches leave
-nothing behind</h3>
-<p>Launch the app and exit it, ten times. Vary the exits: the Exit
-button on the rescue page, Alt+F4, the File menu’s exit. Then run, from
-any PowerShell prompt:</p>
-<p><code>&amp; "C:\dev\JJFlex-NG\check-jjflex-processes.ps1"</code></p>
-<p>Expected: “Clean: no JJ Flex processes are running.” Anything else
-lists the strays with their start times.</p>
-<hr />
-<h2 id="session-d-local-connect-the-8600">Session D — Local connect, the
-8600</h2>
-<h3 id="d1.-nothing-about-smartlink-on-a-local-connect-85">D1. Nothing
-about SmartLink on a local connect (#85)</h3>
-<p>Power the 8600 up, launch, and connect locally from the picker.
-Listen to the whole connect narration. Expected: not one word about
-SmartLink — no “Connecting to SmartLink as…”, no “Starting remote
-radios”, no remote-list chatter. Connection phases count up their tones,
-the success double-beep lands, the station name arrives.</p>
-<hr />
-<h3 id="d2.-the-local-only-offer-appears-once-and-sticks">D2. The
-local-only offer appears once, and sticks</h3>
-<p>If the 8600 is unregistered (or using a radio that is), the local
-connect may offer the local-only question. Expected: the offer reads
-clearly, appears in its own window, Escape declines it politely — and
-whichever answer you give is not asked again on the next connect. Your
-answer should be visible afterward in Settings, Radios, “Reaching this
-radio from away”.</p>
-<hr />
-<h3 id="d3.-full-home-replaces-the-rescue-page">D3. Full Home replaces
-the rescue page</h3>
-<p>After the connect lands: the five-button page is gone, the full Home
-is back — frequency display, slices, S-meter. F2 lands on it.</p>
-<hr />
-<h3 id="d4.-a-feature-you-cannot-have-says-so">D4. A feature you cannot
-have says so</h3>
-<p>Open the DSP menus. On the 8600 with no advanced-NR subscription (or
-any gated feature), the menu should hold an item like “Advanced noise
-reduction unavailable” — select it and it SPEAKS which gate is shut and
-points at the PC-side equivalent. On a single-SCU radio, same story for
-“Diversity unavailable”. No silent holes.</p>
-<hr />
-<h3 id="d5.-rem-on-speaks-its-state">D5. REM ON speaks its state</h3>
-<p>Settings, Radios tab: the REM ON power jack setting reads its
-explanation on Ctrl+F1 (“Saved for this radio; applied at the next
-connection”), changes cleanly, and on the NEXT connect the radio’s REM
-ON state matches what you chose.</p>
-<hr />
-<h3 id="d6.-the-picker-learned-your-way-in-79">D6. The picker learned
-your way in (#79)</h3>
-<p>Disconnect and reopen the picker. If this radio has connected the
-same way three times running, the suggested path should already be the
-one you actually use — as a prefill only. Pick the other path once,
-deliberately: your explicit choice must win, now and next time.</p>
-<hr />
-<h2 id="session-e-the-sound-path">Session E — The sound path</h2>
-<h3 id="e1.-the-default-device-tells-you-which-system-nominated-it">E1.
-The default device tells you which system nominated it</h3>
-<p>Open Audio Devices. The status line and the device rows should say
-which audio system (WASAPI by default) is in play and which row is the
-system default. No guessing which driver model you are on.</p>
-<hr />
-<h3 id="e2.-the-44.1-locked-device-opens-anyway-12">E2. The 44.1-locked
-device opens anyway (#12)</h3>
-<p>If you have a device locked to 44.1 kHz (the classic webcam mic or
-cheap USB dongle): select it under WASAPI and start PC audio. Expected:
-it OPENS — the last-resort Windows conversion engages rather than
-refusing — and the diagnostic log says plainly that Windows is
-resampling and how to get native audio back. If you own no such device:
-<code>**** SKIP no 44.1 device</code>.</p>
-<hr />
-<h3 id="e3.-tone-monitor-without-clicks-29">E3. Tone monitor without
-clicks (#29)</h3>
-<p>Arm the Workshop’s test tone with “Hear the tone while it transmits”
-on, run an audio check, and listen to the local tone. Expected: clean,
-no periodic clicks. Either way, run it under a detailed capture (Ctrl+J,
-Ctrl+D around the test) — the capture now records whether the audio
-engine itself saw glitches, which settles where any clicks come
-from.</p>
-<hr />
-<h3 id="e4.-pc-audio-loudness-sits-right-17">E4. PC audio loudness sits
-right (#17)</h3>
-<p>With radio audio playing through the computer, compare its loudness
-against the radio’s own speaker or a known reference. Track B’s report
-states the measured before and after numbers — the ear check is that PC
-audio no longer arrives noticeably quieter than local audio at the
-default setting. If it is now too HOT at the default, that is exactly
-the coupled-default trap the plan warned about: report it, do not just
-turn it down.</p>
-<hr />
-<h2 id="session-f-presets-and-profiles">Session F — Presets and
-profiles</h2>
-<h3 id="f1.-a-corrupt-preset-file-says-so">F1. A corrupt preset file
-says so</h3>
-<p>With the app closed, deliberately mangle the audio presets file (add
-garbage characters at the top — it lives under
-<code>%AppData%\JJFlexRadio\</code>). Launch. Expected: the app SAYS the
-file could not be read and that the unreadable file was kept next to it,
-then runs on defaults. No silent reset.</p>
-<hr />
-<h3 id="f2.-round-trip-with-the-new-baggage">F2. Round trip with the new
-baggage</h3>
-<p>Save an audio preset, export it, re-import it. Expected: schema
-version present, TX EQ carried, the recorded radio mic input carried.
-Applying on a different input announces the mismatch and changes nothing
-by itself.</p>
-<hr />
-<h3 id="f3.-mic-profile-meets-the-wrong-microphone">F3. Mic profile
-meets the wrong microphone</h3>
-<p>Apply a mic profile made with a different Windows microphone than the
-one currently selected. Expected: it says the computer is using a
-different microphone and leaves the Windows level alone rather than
-moving it for the wrong mic.</p>
-<hr />
-<h3 id="f4.-the-cleanup-chain-rides-the-profile">F4. The cleanup chain
-rides the profile</h3>
-<p>Set PC Cleanup (noise reduction on, gate on with adjusted values),
-save a mic profile, reset cleanup to recommended, then apply the
-profile. Expected: your cleanup settings come back with it.</p>
-<hr />
-<h2 id="session-g-diagnostics-at-the-moment-of-need">Session G —
-Diagnostics at the moment of need</h2>
-<h3 id="g1.-the-capture-chord-from-anywhere">G1. The capture chord from
-anywhere</h3>
-<p>With Settings open (any tab, no radio needed), press Ctrl+J, then
-Ctrl+D. Expected: “Detailed capture started…” with instructions. Press
-it again: “Capture saved:” with the time and length. Nothing about focus
-or the open dialog gets in the way.</p>
-<hr />
-<h3 id="g2.-the-capture-becomes-a-session-you-can-find">G2. The capture
-becomes a session you can find</h3>
-<p>Settings, Diagnostics, “Browse saved logs…”. Expected: the capture
-from G1 is listed as its own session, named as a capture with its time —
-not one more anonymous row.</p>
-<hr />
-<h3 id="g3.-export-and-the-bundle">G3. Export and the bundle</h3>
-<p>From the Diagnostics tab, after a capture, the “Export this capture…”
-button should have appeared; it saves one file where you choose. “Save a
-problem report bundle…” gathers recent sessions plus a setup snapshot
-into one file. Neither sends anything anywhere.</p>
-<hr />
-<h3 id="g4.-the-offer-at-the-moment-of-failure-78">G4. The offer at the
-moment of failure (#78)</h3>
-<p>Force a failure per Track D’s scripted repro (its report names one —
-a settings save failure works). Expected: the offer appears in its own
-titled window, reads clearly, is Escape-closable, and accepting it
-produces a usable capture. Declining is remembered gracefully — no
-nagging loop.</p>
-<hr />
-<h3 id="g5.-disk-space-honesty">G5. Disk space honesty</h3>
-<p>On the Diagnostics tab press “Measure now”. Expected: a real total
-for the settings folder and a crash-report count, spoken from the two
-text lines above the button. “Delete loose log text files” then reports
-what it removed; the compressed sessions still list in Browse saved logs
-afterward.</p>
-<hr />
-<h3 id="g6.-f1-knows-where-you-are">G6. F1 knows where you are</h3>
-<p>With the Diagnostics tab focused, press F1. Expected: the help file
-opens on “The Diagnostic Log” page. From any other Settings tab, F1
-opens the Settings and Profiles page instead.</p>
-<hr />
-<h2 id="session-h-earcon-categories-3943">Session H — Earcon categories
-(#39/#43)</h2>
-<h3 id="h1.-five-switches-one-master">H1. Five switches, one master</h3>
-<p>Settings, Notifications, Alert Sounds. Expected: the master “Enable
-alert sounds (earcons)” checkbox now has five category checkboxes
-indented under it: Connection sounds, Transmit sounds, Dialog and panel
-sounds, Tuning and filter sounds, Command and confirmation sounds. Each
-explains itself on Ctrl+F1.</p>
-<hr />
-<h3 id="h2.-a-category-actually-silences-its-family">H2. A category
-actually silences its family</h3>
-<p>Uncheck “Dialog and panel sounds”, Apply. Open and close any dialog:
-no open/close dings. Everything else still sounds — the JJ key still
-chirps, a feature toggle still beeps. Re-check it and the dings
-return.</p>
-<hr />
-<h3 id="h3.-the-master-outranks">H3. The master outranks</h3>
-<p>Uncheck the master switch (or press Ctrl+J, Shift+T). Expected:
-silence from every category regardless of their checkboxes, including CW
-notifications — and the ATU tune progress sound, which used to sneak
-past the mute, now stays quiet too.</p>
-<hr />
-<h3 id="h4.-the-quick-mute-is-remembered-knowingly">H4. The quick mute
-is remembered — knowingly</h3>
-<p>Quick-mute with Ctrl+J, Shift+T, exit the app, relaunch. Expected
-under the behavior that ships today: earcons are STILL off, and Settings
-shows the master checkbox unchecked — the quick mute and the checkbox
-are one switch, saved immediately. The earcon help page now says exactly
-this. (Whether a mute SHOULD outlive the session is an open question
-routed to you — this test verifies the app and its documentation agree,
-whichever way you later rule.)</p>
-<hr />
-<h2
-id="session-i-the-speech-day-regressions-2026-08-18-still-holding">Session
-I — The speech-day regressions (2026-08-18), still holding</h2>
-<h3 id="i1.-the-disconnect-is-heard">I1. The disconnect is heard</h3>
-<p>Connect, then pull the radio out from under the app (power it off).
-Expected: you HEAR that the radio disconnected — the arriving picker
-window carries the news in its title, rather than a queued announcement
-being flushed into silence by the window change.</p>
-<hr />
-<h3 id="i2.-settings-is-quiet-on-focus">I2. Settings is quiet on
-focus</h3>
-<p>Tab through the Settings Audio and Tuning tabs. Focus announcements
-should be short names — no control recites a paragraph as its name or
-description. (This is the #87/#91 pair holding together: names are
-identifiers, explanations are on Ctrl+F1.)</p>
-<hr />
-<h3 id="i3.-dialog-titles-queue-instead-of-killing-speech">I3. Dialog
-titles queue instead of killing speech</h3>
-<p>While something is being spoken (start a long announcement, then open
-a dialog), the dialog’s title should follow the speech that was already
-underway, not destroy it mid-word.</p>
-<hr />
-<h2
-id="session-j-installer-and-fresh-machine-when-scheduled-not-part-of-the-one-sitting">Session
-J — Installer and fresh machine (when scheduled — not part of the one
-sitting)</h2>
-<h3 id="j1.-fresh-vm-install">J1. Fresh-VM install</h3>
-<p>On the Windows VM that has never had .NET 10: install from the
-Release installer, launch. Expected: jjflexible.exe starts and shows the
-rescue Home with no runtime prompt. This is the mandatory
-pre-public-release gate from CLAUDE.md; it rides here so it is never
-forgotten, but it is not part of the sprint sitting.</p>
-<hr />
+<h1>The Master Test List — Sprint 30 acceptance pass, and the standing list it starts</h1>
+<p><strong>Type:</strong> test execution doc (read each test, do the action, write your result on the <code><em>*</em>* </code> line under it)</p>
+<p><strong>First job:</strong> this IS the Sprint 30 "Rescue Squelch Pileup" final acceptance pass — sessions A through H, run in one sitting on the final merged build, after Track F's live session produces it.</p>
+<p><strong>Second job:</strong> it stays alive as the master list (#55). New sprints append sessions; nothing is deleted, only marked retired. When you finish a pass, move a copy to <code>for-claude/</code> and I fold the results into the sprint's test matrix.</p>
+<p><strong>Skip-friendly:</strong> any test you can't run, write <code><em>*</em>* SKIP <reason></code> and move on. Tests are independent.</p>
+<p><strong>Build first:</strong> <code>dotnet build JJFlexRadio.vbproj -c Debug -p:Platform=x64 --verbosity minimal</code> from the repo root, then confirm the exe timestamp is fresh. The exe is <code>bin\x64\Debug\net10.0-windows\win-x64\jjflexible.exe</code>.</p>
+<p><strong>Want to talk through one instead?</strong> Stop and ask in chat — any of these can be run interactively instead.</p>
+<p>A note on the sessions: A through C need no radio at all. D onward wants the 8600 on the bench (no antenna, full duplex — fine for everything here; nothing in this list needs RF to leave the building).</p>
+<p>---</p>
+<h2>Session A — Cold start, no radio</h2>
+<h3>A1. The rescue Home arrives, and the title tells you</h3>
+<p>Power the 8600 off (or just unplug the network story — any way that leaves no radio findable). Launch the app. When the Select Radio picker appears, press Escape.</p>
+<p>Expected: you land on Home as a short page. The window title ends with "no radio connected", and focus lands somewhere real — Tab should move you through exactly five buttons: Connect a radio, Settings, Audio Workshop, Help, Exit, then cycle back. Nothing else is in the tab order.</p>
+<p><em>*</em>* </p>
+<h3>A2. Escape from the picker is not an exit</h3>
+<p>Confirm the app is still running after A1 — Escape closed the picker, not the program.</p>
+<p><em>*</em>* </p>
+<h3>A3. The rescue buttons explain themselves on demand, not on focus</h3>
+<p>Tab to "Connect a radio". You should hear the button's name and nothing more. Press Ctrl+F1. You should hear a sentence about the radio picker looking on your network and your SmartLink account. Repeat on Settings and Audio Workshop — each has its own explanation on Ctrl+F1, and none of them recites it when you merely tab on.</p>
+<p><em>*</em>* </p>
+<h3>A4. The honest empty case</h3>
+<p>Tab to Exit and press Ctrl+F1. Expected, word for word: "No extra help here. F1 opens the help file." (Exit needs no essay, and the key should say so rather than go silent.)</p>
+<p><em>*</em>* </p>
+<h3>A5. Help opens at the page about this page</h3>
+<p>Press the rescue page's Help button. The help file should open on "Home Without a Radio" — the topic describing the page you were just on, not the front page.</p>
+<p><em>*</em>* </p>
+<h3>A6. The Workshop makes no offline promises</h3>
+<p>From the rescue page, open Audio Workshop. The microphone check and the This Computer section work. Every radio-side control — Mic Gain, Mic Boost, Mic Bias, Compander, Speech Processor, TX Filter Low and High, TX Monitor — is disabled and OUT of the tab order. The value controls too, not just the checkboxes: arrow keys must not speak changing values on a control that has no radio behind it.</p>
+<p><em>*</em>* </p>
+<h3>A7. About reads the truth</h3>
+<p>Open Help, then About. Every version should read aloud and match: FlexLib 4.2.20.41343, Opus 1.6.1, PortAudio revision a880212 (the string will still say 19.7.0-devel — the revision is the honest part), plus .NET, WebView2, and the speech backend.</p>
+<p><em>*</em>* </p>
+<h3>A8. The diagnostics surface, cold</h3>
+<p>Open Tools, then Diagnostics. Without any coaching, listen to the first thing on the tab. Can you say what is being recorded, at what detail, and whether a capture is running? That one sentence existing — and answering all three — is the acceptance test.</p>
+<p><em>*</em>* </p>
+<h2>Session B — Ctrl+F1, the two-minute listening pass (#91)</h2>
+<p>This is the acceptance test for the sprint's blocking item. Each test has two halves and BOTH matter: the key speaks on demand, and tabbing onto the same control does NOT recite the explanation.</p>
+<h3>B1. Settings: the debounce checkbox</h3>
+<p>Open Tools, Settings. On the Tuning tab (Alt-tab through tabs or Ctrl+Tab), find "Debounce tuning speech". Tab onto it: you should hear the name and checked state, and NOT the sentence about grouping rapid steps. Now press Ctrl+F1: "groups rapid tuning steps into one announcement."</p>
+<p><em>*</em>* </p>
+<h3>B2. Settings: the radio name box</h3>
+<p>On the Radios tab, pick any radio and tab to the "Radio name" box. On focus: name and contents only. Ctrl+F1: the explanation beginning "Applied with OK or Apply. Saved to the radio itself when you are connected to it..."</p>
+<p><em>*</em>* </p>
+<h3>B3. Settings: the SmartLink intent combo</h3>
+<p>Still on the Radios tab, tab to "Whether you want to reach this radio from away". On focus: name and current choice only. Ctrl+F1: an answer that starts "Local only silences every SmartLink registration prompt for this radio" and goes on to explain what registering is for.</p>
+<p><em>*</em>* </p>
+<h3>B4. The Workshop: Mic Gain earns its explanation</h3>
+<p>Open the Audio Workshop (radio connected or not — the explanation works either way), find Mic Gain. On focus: name and value only. Ctrl+F1: how to set it against the mic check's verdicts — Good, Hot, Quiet.</p>
+<p><em>*</em>* </p>
+<h3>B5. Audio Devices: three sentences became one name</h3>
+<p>Open Audio Devices (Settings, Audio tab, Audio Devices button). Tab to the "Audio system" combo. On focus you should now hear just "Audio system" and the selection — NOT the three-sentence lecture that used to arrive with it. Ctrl+F1 gives you the lecture, on request. Same deal on both device lists and the Transmit audio quality combo.</p>
+<p><em>*</em>* </p>
+<h3>B6. The short hint that stayed</h3>
+<p>Any cycle-style field (Processor Mode in the Workshop, for instance) may still say "Arrows to change" when you land on it. That three-word operating hint is deliberate and should still be there — it is the one kind of thing that belongs in the on-focus channel.</p>
+<p><em>*</em>* </p>
+<h3>B7. Inside a dropdown</h3>
+<p>Open any Settings combo (Alt+Down on the SmartLink intent combo, say) and press Ctrl+F1 while the list is open. It should still find the combo's explanation rather than claiming there is none — the walk crosses the dropdown boundary.</p>
+<p><em>*</em>* </p>
+<h2>Session C — Process hygiene (#21)</h2>
+<h3>C1. Ten launches leave nothing behind</h3>
+<p>Launch the app and exit it, ten times. Vary the exits: the Exit button on the rescue page, Alt+F4, the File menu's exit. Then run, from any PowerShell prompt:</p>
+<p><code>& "C:\dev\JJFlex-NG\check-jjflex-processes.ps1"</code></p>
+<p>Expected: "Clean: no JJ Flex processes are running." Anything else lists the strays with their start times.</p>
+<p><em>*</em>* </p>
+<h2>Session D — Local connect, the 8600</h2>
+<h3>D1. Nothing about SmartLink on a local connect (#85)</h3>
+<p>Power the 8600 up, launch, and connect locally from the picker. Listen to the whole connect narration. Expected: not one word about SmartLink — no "Connecting to SmartLink as...", no "Starting remote radios", no remote-list chatter. Connection phases count up their tones, the success double-beep lands, the station name arrives.</p>
+<p><em>*</em>* </p>
+<h3>D2. The local-only offer appears once, and sticks</h3>
+<p>If the 8600 is unregistered (or using a radio that is), the local connect may offer the local-only question. Expected: the offer reads clearly, appears in its own window, Escape declines it politely — and whichever answer you give is not asked again on the next connect. Your answer should be visible afterward in Settings, Radios, "Reaching this radio from away".</p>
+<p><em>*</em>* </p>
+<h3>D3. Full Home replaces the rescue page</h3>
+<p>After the connect lands: the five-button page is gone, the full Home is back — frequency display, slices, S-meter. F2 lands on it.</p>
+<p><em>*</em>* </p>
+<h3>D4. A feature you cannot have says so</h3>
+<p>Open the DSP menus. On the 8600 with no advanced-NR subscription (or any gated feature), the menu should hold an item like "Advanced noise reduction unavailable" — select it and it SPEAKS which gate is shut and points at the PC-side equivalent. On a single-SCU radio, same story for "Diversity unavailable". No silent holes.</p>
+<p><em>*</em>* </p>
+<h3>D5. REM ON speaks its state</h3>
+<p>Settings, Radios tab: the REM ON power jack setting reads its explanation on Ctrl+F1 ("Saved for this radio; applied at the next connection"), changes cleanly, and on the NEXT connect the radio's REM ON state matches what you chose.</p>
+<p><em>*</em>* </p>
+<h3>D6. The picker learned your way in (#79)</h3>
+<p>Disconnect and reopen the picker. If this radio has connected the same way three times running, the suggested path should already be the one you actually use — as a prefill only. Pick the other path once, deliberately: your explicit choice must win, now and next time.</p>
+<p><em>*</em>* </p>
+<h2>Session E — The sound path</h2>
+<h3>E1. The default device tells you which system nominated it</h3>
+<p>Open Audio Devices. The status line and the device rows should say which audio system (WASAPI by default) is in play and which row is the system default. No guessing which driver model you are on.</p>
+<p><em>*</em>* </p>
+<h3>E2. The 44.1-locked device opens anyway (#12)</h3>
+<p>If you have a device locked to 44.1 kHz (the classic webcam mic or cheap USB dongle): select it under WASAPI and start PC audio. Expected: it OPENS — the last-resort Windows conversion engages rather than refusing — and the diagnostic log says plainly that Windows is resampling and how to get native audio back. If you own no such device: <code><em>*</em>* SKIP no 44.1 device</code>.</p>
+<p><em>*</em>* </p>
+<h3>E3. Tone monitor without clicks (#29)</h3>
+<p>Arm the Workshop's test tone with "Hear the tone while it transmits" on, run an audio check, and listen to the local tone. Expected: clean, no periodic clicks. Either way, run it under a detailed capture (Ctrl+J, Ctrl+D around the test) — the capture now records whether the audio engine itself saw glitches, which settles where any clicks come from.</p>
+<p><em>*</em>* </p>
+<h3>E4. PC audio loudness sits right (#17)</h3>
+<p>With radio audio playing through the computer, compare its loudness against the radio's own speaker or a known reference. Track B's report states the measured before and after numbers — the ear check is that PC audio no longer arrives noticeably quieter than local audio at the default setting. If it is now too HOT at the default, that is exactly the coupled-default trap the plan warned about: report it, do not just turn it down.</p>
+<p><em>*</em>* </p>
+<h2>Session F — Presets and profiles</h2>
+<h3>F1. A corrupt preset file says so</h3>
+<p>With the app closed, deliberately mangle the audio presets file (add garbage characters at the top — it lives under <code>%AppData%\JJFlexRadio\</code>). Launch. Expected: the app SAYS the file could not be read and that the unreadable file was kept next to it, then runs on defaults. No silent reset.</p>
+<p><em>*</em>* </p>
+<h3>F2. Round trip with the new baggage</h3>
+<p>Save an audio preset, export it, re-import it. Expected: schema version present, TX EQ carried, the recorded radio mic input carried. Applying on a different input announces the mismatch and changes nothing by itself.</p>
+<p><em>*</em>* </p>
+<h3>F3. Mic profile meets the wrong microphone</h3>
+<p>Apply a mic profile made with a different Windows microphone than the one currently selected. Expected: it says the computer is using a different microphone and leaves the Windows level alone rather than moving it for the wrong mic.</p>
+<p><em>*</em>* </p>
+<h3>F4. The cleanup chain rides the profile</h3>
+<p>Set PC Cleanup (noise reduction on, gate on with adjusted values), save a mic profile, reset cleanup to recommended, then apply the profile. Expected: your cleanup settings come back with it.</p>
+<p><em>*</em>* </p>
+<h2>Session G — Diagnostics at the moment of need</h2>
+<h3>G1. The capture chord from anywhere</h3>
+<p>With Settings open (any tab, no radio needed), press Ctrl+J, then Ctrl+D. Expected: "Detailed capture started..." with instructions. Press it again: "Capture saved:" with the time and length. Nothing about focus or the open dialog gets in the way.</p>
+<p><em>*</em>* </p>
+<h3>G2. The capture becomes a session you can find</h3>
+<p>Settings, Diagnostics, "Browse saved logs...". Expected: the capture from G1 is listed as its own session, named as a capture with its time — not one more anonymous row.</p>
+<p><em>*</em>* </p>
+<h3>G3. Export and the bundle</h3>
+<p>From the Diagnostics tab, after a capture, the "Export this capture..." button should have appeared; it saves one file where you choose. "Save a problem report bundle..." gathers recent sessions plus a setup snapshot into one file. Neither sends anything anywhere.</p>
+<p><em>*</em>* </p>
+<h3>G4. The offer at the moment of failure (#78)</h3>
+<p>Force a failure per Track D's scripted repro (its report names one — a settings save failure works). Expected: the offer appears in its own titled window, reads clearly, is Escape-closable, and accepting it produces a usable capture. Declining is remembered gracefully — no nagging loop.</p>
+<p><em>*</em>* </p>
+<h3>G5. Disk space honesty</h3>
+<p>On the Diagnostics tab press "Measure now". Expected: a real total for the settings folder and a crash-report count, spoken from the two text lines above the button. "Delete loose log text files" then reports what it removed; the compressed sessions still list in Browse saved logs afterward.</p>
+<p><em>*</em>* </p>
+<h3>G6. F1 knows where you are</h3>
+<p>With the Diagnostics tab focused, press F1. Expected: the help file opens on "The Diagnostic Log" page. From any other Settings tab, F1 opens the Settings and Profiles page instead.</p>
+<p><em>*</em>* </p>
+<h2>Session H — Earcon categories (#39/#43)</h2>
+<h3>H1. Five switches, one master</h3>
+<p>Settings, Notifications, Alert Sounds. Expected: the master "Enable alert sounds (earcons)" checkbox now has five category checkboxes indented under it: Connection sounds, Transmit sounds, Dialog and panel sounds, Tuning and filter sounds, Command and confirmation sounds. Each explains itself on Ctrl+F1.</p>
+<p><em>*</em>* </p>
+<h3>H2. A category actually silences its family</h3>
+<p>Uncheck "Dialog and panel sounds", Apply. Open and close any dialog: no open/close dings. Everything else still sounds — the JJ key still chirps, a feature toggle still beeps. Re-check it and the dings return.</p>
+<p><em>*</em>* </p>
+<h3>H3. The master outranks</h3>
+<p>Uncheck the master switch (or press Ctrl+J, Shift+T). Expected: silence from every category regardless of their checkboxes, including CW notifications — and the ATU tune progress sound, which used to sneak past the mute, now stays quiet too.</p>
+<p><em>*</em>* </p>
+<h3>H4. The quick mute is remembered — knowingly</h3>
+<p>Quick-mute with Ctrl+J, Shift+T, exit the app, relaunch. Expected under the behavior that ships today: earcons are STILL off, and Settings shows the master checkbox unchecked — the quick mute and the checkbox are one switch, saved immediately. The earcon help page now says exactly this. (Whether a mute SHOULD outlive the session is an open question routed to you — this test verifies the app and its documentation agree, whichever way you later rule.)</p>
+<p><em>*</em>* </p>
+<h2>Session I — The speech-day regressions (2026-08-18), still holding</h2>
+<h3>I1. The disconnect is heard</h3>
+<p>Connect, then pull the radio out from under the app (power it off). Expected: you HEAR that the radio disconnected — the arriving picker window carries the news in its title, rather than a queued announcement being flushed into silence by the window change.</p>
+<p><em>*</em>* </p>
+<h3>I2. Settings is quiet on focus</h3>
+<p>Tab through the Settings Audio and Tuning tabs. Focus announcements should be short names — no control recites a paragraph as its name or description. (This is the #87/#91 pair holding together: names are identifiers, explanations are on Ctrl+F1.)</p>
+<p><em>*</em>* </p>
+<h3>I3. Dialog titles queue instead of killing speech</h3>
+<p>While something is being spoken (start a long announcement, then open a dialog), the dialog's title should follow the speech that was already underway, not destroy it mid-word.</p>
+<p><em>*</em>* </p>
+<h2>Session J — Installer and fresh machine (when scheduled — not part of the one sitting)</h2>
+<h3>J1. Fresh-VM install</h3>
+<p>On the Windows VM that has never had .NET 10: install from the Release installer, launch. Expected: jjflexible.exe starts and shows the rescue Home with no runtime prompt. This is the mandatory pre-public-release gate from CLAUDE.md; it rides here so it is never forgotten, but it is not part of the sprint sitting.</p>
+<p><em>*</em>* </p>
 </body>
 </html>

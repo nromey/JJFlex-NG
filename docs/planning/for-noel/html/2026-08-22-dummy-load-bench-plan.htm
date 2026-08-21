@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bench session plan — 2026-08-22, the dummy load arrives</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<h1>Bench session plan — 2026-08-22, the dummy load arrives</h1>
+<p>Written 2026-08-21. The load ships to Memphis and is out for delivery tomorrow</p>
+<p>by 14:00. You are clear through Sunday.</p>
+<p>This plan exists because on 2026-08-21 three attempts to run an automated test</p>
+<p>produced zero valid data, and every failure was the same shape: an instrument</p>
+<p>that reported something it had not measured. So every test below states **what</p>
+<p>it measures<strong>, </strong>what result would falsify it<strong>, and </strong>what its positive control</p>
+<p>is** — the thing that proves the instrument was working at all.</p>
+<p>Read the safety section before anything else.</p>
+<p>---</p>
+<h2>Safety envelope</h2>
+<ul>
+<li><strong>Nothing keys until the dummy load is physically connected and confirmed.</strong></li>
+</ul>
+<p>  Not a jumper into open air, not "just a quick one".</p>
+<ul>
+<li>Start at <strong>minimum power</strong>. Every test says explicitly when to raise it.</li>
+<li><strong>Short keyings.</strong> Seconds, not minutes, except where a test names a duration.</li>
+<li>The 8600 is the radio. No antenna is connected and none should be.</li>
+<li>If the amplifier gets cabled in, it stays <strong>OFF</strong> until Test 7 and not before.</li>
+<li>Anything unexpected: unkey first, ask questions second.</li>
+</ul>
+<h2>Before you start</h2>
+<ol>
+<li>Dummy load connected, and you have physically confirmed the connection —</li>
+</ol>
+<p>   not assumed it from the last time you looked.</p>
+<ol>
+<li>Jumpers: two if the amp goes in line, one otherwise. You said you have four</li>
+</ol>
+<p>   or five.</p>
+<ol>
+<li>JJ Flexible running on a <strong>fresh build</strong>, connected to the radio.</li>
+<li>A detailed capture is <strong>NOT</strong> needed for most of this and actively hurts —</li>
+</ol>
+<p>   it writes roughly 700 KB per minute (#170). Individual tests say when to</p>
+<p>   turn it on.</p>
+<p>---</p>
+<h2>The positive control that governs everything</h2>
+<p>Before any measurement is believed, we need to know the meter chain is</p>
+<p><strong>reading</strong> and not just <strong>reporting a stored number</strong>.</p>
+<p>Here is the specific reason to worry, observed live on 2026-08-21 while the</p>
+<p>radio was merely <strong>receiving</strong>:</p>
+<p>    forwardPower:0</p>
+<p>    SWRData:1</p>
+<p>    compPeakData:-150</p>
+<p><code>SWRData:1</code> while receiving is the problem. A dummy load should read an SWR of</p>
+<p>about 1.0 — so if we key into the load and see 1.0, **that number is</p>
+<p>indistinguishable from the idle value it already had.** It would look like a</p>
+<p>perfect result and prove nothing. Sprint 33 found seven transmit-chain facts</p>
+<p>initialised below their own declared floors and published as measurements;</p>
+<p>this is exactly that trap.</p>
+<p><strong>So Test 0 comes first and everything else depends on it.</strong></p>
+<p>---</p>
+<h2>Test 0 — prove the meters actually move</h2>
+<p><strong>Measures:</strong> whether forward power and SWR change in response to reality, or</p>
+<p>merely hold plausible constants.</p>
+<p><strong>Method:</strong> with the dummy load connected, key at minimum power for two or three</p>
+<p>seconds. Watch <code>forwardPower</code> and <code>SWRData</code>. Then key again at a clearly higher</p>
+<p>power setting — say a quarter scale — for the same duration.</p>
+<p><strong>Positive control:</strong> forward power must be **different between the two</p>
+<p>keyings<em>*. Not "plausible" — </em>different*, and in the right direction.</p>
+<p><strong>Falsified if:</strong> forward power reads the same at both power settings, or stays</p>
+<p>at 0, or SWR never leaves 1. Any of those means the meter chain is not reading</p>
+<p>and <strong>every later test in this document is void.</strong> Stop and say so.</p>
+<p><strong>Record:</strong> the two forward power figures and the two power settings.</p>
+<p>---</p>
+<h2>Test 1 — the dead-key floor (#163)</h2>
+<p><strong>Measures:</strong> what forward power a genuine dead key reports on this radio. This</p>
+<p>is the number the entire transmit-chain analyzer is currently guessing at.</p>
+<p><strong>Why it matters:</strong> <code>Radios/ChainChecks/tx-chain-rules.txt</code> fires a</p>
+<p>"no power is leaving your radio" rule below 0.1 W, and its own comment admits</p>
+<p><em>"the floor a Flex reports on a genuine dead-key has not been measured."</em> Every</p>
+<p>threshold in stage 12 is a guess until this number exists.</p>
+<p><strong>Method:</strong> dummy load connected. Set power to <strong>minimum</strong>. Key with no</p>
+<p>modulation for three seconds. Record forward power. Then repeat with the power</p>
+<p>setting at 0 if the radio allows it.</p>
+<p><strong>Record:</strong> forward power at minimum setting, and at setting 0.</p>
+<p><strong>Known figure to compare against:</strong> 0.036 W was measured at minimum power</p>
+<p>setting previously — which is 15.56 dBm, and essentially the top of the legal</p>
+<p>transverter drive range. If tomorrow's figure differs materially from 0.036,</p>
+<p>that itself is a finding.</p>
+<p><strong>Falsified if:</strong> Test 0 did not pass. Otherwise this test cannot fail, it can</p>
+<p>only produce a number — which is the point.</p>
+<p>---</p>
+<h2>Test 2 — the power curve</h2>
+<p><strong>Measures:</strong> the relationship between the <code>rfpower</code> setting and actual watts</p>
+<p>out, on this radio.</p>
+<p><strong>Why it matters:</strong> #163 established that stage 12 cannot judge power with a</p>
+<p>single absolute threshold, because expected output depends on what is in the</p>
+<p>path. It needs to compare measured output against <strong>commanded</strong> output, and</p>
+<p>that comparison needs this curve.</p>
+<p><strong>Method:</strong> dummy load connected. Key three seconds at each of roughly six</p>
+<p>settings spread across the range — minimum, 10, 25, 50, 75, 100. Record forward</p>
+<p>power at each.</p>
+<p><strong>Record:</strong> six pairs of setting and measured watts.</p>
+<p><strong>Falsified if:</strong> the curve is not monotonic. If raising the setting ever</p>
+<p>lowers measured power, stop and record exactly where.</p>
+<p>---</p>
+<h2>Test 3 — does the radio apply power writes? (#164)</h2>
+<p><strong>Measures:</strong> whether <code>transmit set rfpower=N</code> is honoured when a properly</p>
+<p>registered station client is connected.</p>
+<p><strong>Why it matters:</strong> on 2026-08-21 a raw TCP probe sent <code>transmit set rfpower=12</code>,</p>
+<p>received <code>R|0|</code> — success — and the value <strong>never left 0</strong>, sampled every 250 ms</p>
+<p>for three seconds. But that probe connected as a bare socket and never</p>
+<p>registered as a GUI client (<code>tx_client_handle=0x00000000</code>, <code>tx_allowed=0</code>), so</p>
+<p>the result is confounded. The radio may simply refuse transmit-side writes from</p>
+<p>an unregistered connection while reporting success.</p>
+<p><strong>Method:</strong> with JJ Flexible connected normally, change the transmit power</p>
+<p>through the app. Confirm the radio's reported <code>rfpower</code> actually changes. Then</p>
+<p>change it again to a different value.</p>
+<p><strong>Positive control:</strong> the value must change <strong>twice</strong>, to two different numbers.</p>
+<p>One change could be coincidence with something else.</p>
+<p><strong>Falsified if:</strong> the setting reports success and does not change. That would</p>
+<p>confirm a genuine silent-success at the radio and is a significant finding</p>
+<p>worth reporting upstream.</p>
+<p><strong>Also worth knowing:</strong> FlexLib's <code>RFPower</code> is an <code>int</code> in both directions, and</p>
+<p>its parser uses <code>int.TryParse</code> — so if the radio ever reported a fractional</p>
+<p>power, we would silently keep the stale value with the only trace going to</p>
+<p><code>Debug.WriteLine</code>. Not testable tomorrow, recorded so it is not forgotten.</p>
+<p>---</p>
+<h2>Test 4 — the Peak Watcher (#139)</h2>
+<p><strong>Measures:</strong> whether the TX Peak Watcher is reading the real transmit drive or</p>
+<p>the amplifier jack's ALC.</p>
+<p><strong>Why it matters:</strong> Sprint 33 Track D <strong>settled</strong> this as "the Peak Watcher</p>
+<p>guards a jack, not the transmitter" — but settling it means the bug was</p>
+<p>CONFIRMED, not fixed. And the supporting evidence was stark: <code>HWALC</code> returned</p>
+<p><strong>7,345 readings of exactly 0.0</strong> across a full transmission, against thresholds</p>
+<p>of 0.5 and 0.8. A meter that never once reported a measurement scored as</p>
+<p>perfect health.</p>
+<p><strong>Method:</strong> dummy load, no amplifier in line. Key at a power level that Test 2</p>
+<p>showed produces real output. Watch <code>hwALCData</code> throughout.</p>
+<p><strong>Positive control:</strong> Test 2's forward power reading for the same setting. If</p>
+<p>forward power moves and HWALC does not, HWALC is not watching the transmitter.</p>
+<p><strong>Falsified if:</strong> HWALC tracks power. That would mean Track D's conclusion is</p>
+<p>wrong and should be said plainly.</p>
+<p><strong>Record:</strong> HWALC across the keying, and the matching forward power.</p>
+<p>---</p>
+<h2>Test 5 — the transmit audio chain, at real power</h2>
+<p><strong>Measures:</strong> whether PC audio actually reaches the transmitter — the</p>
+<p>honest-tx-audio saga, open longest, and the thing Don is blocked on.</p>
+<p><strong>Method:</strong> dummy load. PC audio on, microphone selected and confirmed. Key and</p>
+<p>speak for five to ten seconds at a power level Test 2 proved produces output.</p>
+<p>Watch <code>micData</code> and <code>micPeakData</code>.</p>
+<p><strong>Positive control, and this one is essential:</strong> speak, then **stop speaking</p>
+<p>while still keyed**, then speak again. <code>micData</code> must move with your voice. A</p>
+<p>steady reading during speech proves nothing; a reading that follows your voice</p>
+<p>proves the chain.</p>
+<p><strong>Falsified if:</strong> <code>micData</code> sits at its floor (−120 was observed at idle) while</p>
+<p>you are speaking into a confirmed-working microphone.</p>
+<p><strong>Note the trap already ruled out:</strong> #140 claimed the TX stream was created</p>
+<p>without a compression parameter. That was <strong>falsified</strong> — an 8600 answers</p>
+<p><code>compression=OPUS</code> to the bare command and shipping SmartSDR sends the identical</p>
+<p>command. Do not re-chase it.</p>
+<p>---</p>
+<h2>Test 6 — a reference recording (#150)</h2>
+<p><strong>Measures:</strong> nothing. It <strong>creates</strong> something: a deterministic voice sample so</p>
+<p>future transmit results are comparable to each other rather than to memory.</p>
+<p><strong>Method:</strong> with the chain proven by Test 5, record a short fixed phrase</p>
+<p>including your callsign. Same phrase, same mic, same levels, every future test.</p>
+<p><strong>Why:</strong> every transmit-audio judgement so far has been "does this sound right</p>
+<p>today". A fixed input turns that into a comparison.</p>
+<p>---</p>
+<h2>Test 7 — the amplifier, only if cabled (#125)</h2>
+<p><strong>Do not start this until Tests 0 through 5 have passed.</strong> If the meter chain is</p>
+<p>suspect, adding an amplifier makes everything harder to interpret and adds real</p>
+<p>risk.</p>
+<p><strong>Measures:</strong> whether amplifier meters attach and report.</p>
+<p><strong>Known hazard before you start:</strong> #137 — FlexLib formats one amplifier handle</p>
+<p><strong>unpadded</strong>, so meters silently fail to attach when the handle has a leading</p>
+<p>zero. If amp meters do not appear, check the handle before assuming a cabling</p>
+<p>fault.</p>
+<p><strong>Method:</strong> amp in line, dummy load after it, amp <strong>OFF</strong> first. Confirm the</p>
+<p>radio still keys correctly through the amp bypass. Only then power the amp, at</p>
+<p>minimum drive.</p>
+<p><strong>Record:</strong> whether amp meters appear at all, and the handle if they do not.</p>
+<p>---</p>
+<h2>What to bring back</h2>
+<p>For each test: the numbers, and whether the positive control passed. A test</p>
+<p>whose control failed produces <strong>no</strong> result — not a bad result, no result. Say</p>
+<p>so plainly rather than recording the number anyway.</p>
+<p>If something surprises you, write down what you actually observed before</p>
+<p>theorising about it. Most of 2026-08-21's wasted effort came from acting on a</p>
+<p>plausible mechanism instead of a measured one.</p>
+<h2>What is NOT in this plan</h2>
+<ul>
+<li>Anything requiring an antenna. There is none and there should not be.</li>
+<li>On-air testing (#155). Separate task, needs a clear legal frequency and the</li>
+</ul>
+<p>  identification question answered first.</p>
+<ul>
+<li>The transverter band model (#27). That session is explicitly zero-keying and</li>
+</ul>
+<p>  does not need the dummy load at all, so it is not competing for this window.</p>
+</body>
+</html>
