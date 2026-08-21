@@ -12924,8 +12924,8 @@ namespace Radios
         }
 
         /// <summary>
-        /// The census: "&lt;used&gt;/&lt;total&gt;" in CW. Three slices open on a
-        /// four-slice radio sends "3/4"; a full radio sends "4/4".
+        /// The census: "SL &lt;used&gt;/&lt;total&gt;" in CW. Three slices open on
+        /// a four-slice radio sends "SL 3/4"; a full radio sends "SL 4/4".
         /// </summary>
         /// <remarks>
         /// Used-over-total rather than a bare free count, recorded so it is not
@@ -12950,11 +12950,6 @@ namespace Radios
         /// </remarks>
         internal void AnnounceSliceCensus()
         {
-            if (!ScreenReaderOutput.CwNotificationsEnabled) return;
-            if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;
-            var play = ScreenReaderOutput.PlayCwText;
-            if (play == null) return;
-
             var radio = theRadio;
             if (radio == null) return;
 
@@ -12965,11 +12960,86 @@ namespace Radios
             Tracing.TraceLine(
                 $"AnnounceSliceCensus:{used}/{total} (radio.MaxSlices={radio.MaxSlices} "
                 + $"model={TotalMaxSlices} mine={MyNumSlices})", TraceLevel.Info);
+
+            // SPOKEN CENSUS ADDED 2026-08-20 BY NOEL. Until now this fact
+            // existed ONLY in Morse, and CW notifications are off by default —
+            // so an operator who had not turned them on was never told their
+            // slice count at all. The speech half is therefore NOT gated on the
+            // CW settings; it stands on its own and the CW below is the extra.
+            //
+            // Two wordings, his: the fuller form is Chatty, and Terse gets the
+            // compressed one. Same fact, and the level decides how much of the
+            // sentence you have to listen to.
+            //
+            // Terse level (not Critical): the enum documents Terse as value
+            // changes and band/mode, which is exactly what a slice count is.
+            // THE ACTIVE SLICE RIDES ALONG, 2026-08-20, Noel. It says where you
+            // have landed: the count alone tells you how many slices exist and
+            // nothing about which one you are on or what it is doing.
+            //
+            // Read from the radio's own `active` slice status rather than
+            // inferred, because a global profile can restore a non-A slice as
+            // active — so this is real information, not a constant.
+            //
+            // WHAT THIS DOES NOT SOLVE, recorded so it is not miscredited later:
+            // #59 was four slices on connect with slice D in FM, and slice A —
+            // USB — was the active one. So an active-slice announcement would
+            // have said "SL A USB" and the FM on D would have stayed exactly as
+            // hidden as it was. The non-active slices remain unannounced, and
+            // that gap is still open.
+            Slice active = null;
+            lock (mySlices)
+                foreach (var s in mySlices) if (s != null && s.Active) { active = s; break; }
+
+            string letter = active?.Letter;
+            string mode = active?.DemodMode;
+            bool haveActive = !string.IsNullOrEmpty(letter) && !string.IsNullOrEmpty(mode);
+
+            if (!SuppressSpeech)
+            {
+                // Chatty gets the fuller sentence AND the active slice; Terse
+                // gets the count alone. A transient no-active-slice state during
+                // connect drops the clause silently rather than announcing an
+                // absence nobody asked about.
+                string spoken;
+                if (ScreenReaderOutput.CurrentVerbosity >= VerbosityLevel.Chatty)
+                {
+                    spoken = $"{used} {(used == 1 ? "slice" : "slices")} out of {total} used";
+                    if (haveActive) spoken += $", slice {letter} {mode}";
+                }
+                else
+                {
+                    spoken = $"{used} out of {total} {(total == 1 ? "slice" : "slices")}";
+                }
+                ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse);
+            }
+
+            if (!ScreenReaderOutput.CwNotificationsEnabled) return;
+            if (!ScreenReaderOutput.CwModeAnnounceEnabled) return;
+            if (ScreenReaderOutput.PlayCwText == null) return;
             // SendCwText rather than the delegate directly (#153): it is the one
             // point where CW text reaches the notifier, so it is where the
             // repeat history is recorded. Calling the delegate would still make
             // the sound and would silently leave this message unrepeatable.
-            _ = ScreenReaderOutput.SendCwText($"{used}/{total}");
+            //
+            // "SL" PREFIX ADDED 2026-08-20 BY NOEL. A bare "4/4" is a fraction
+            // with no subject: you hear it and have to already know what was
+            // being counted. Prefixing makes the census self-describing, and it
+            // matches AnnounceSliceIdentity's "SL A USB" so both halves of the
+            // slice vocabulary open the same way. Two characters buys a message
+            // that stands on its own.
+            //
+            // The active slice is appended as a SECOND "SL" group rather than
+            // running on — "SL 4/4 SL A USB" reads as two facts, where
+            // "SL 4/4 A USB" would read as one confused one.
+            //
+            // Sent as ONE string, not two calls: SendCwText records a repeat
+            // history entry per call (#153), so two calls would mean pressing
+            // Ctrl+J, E twice to hear back a single connect. One string, one
+            // entry, whole summary.
+            string cw = $"SL {used}/{total}";
+            if (haveActive) cw += $" SL {letter} {mode}";
+            _ = ScreenReaderOutput.SendCwText(cw);
         }
 
         /// <summary>

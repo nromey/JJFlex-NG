@@ -2799,22 +2799,35 @@ public class NativeMenuBar : IDisposable
 
         string profileName = Rig.CurrentGlobalProfileName;
 
-        // ── PROSE PENDING NOEL'S APPROVAL (Sprint 33 Track K) ──
-        // This is a prompt about SHARED STATION STATE and is reported to him
-        // verbatim for review. Every string below is a one-line edit.
+        // ── APPROVED BY NOEL, 2026-08-20 (Sprint 33 Track K) ──
+        // THIS ROUTE CARRIES THE SHARED-STATE SENTENCE and the disconnect offer
+        // does not. That split is deliberate: the disconnect prompt interrupts
+        // someone who is already leaving, so it earns only what prevents a
+        // mistake, while this is a menu item the operator deliberately chose and
+        // has room to explain properly. If the sentence is ever removed from
+        // here it has to go back there — the two were traded against each other.
+        //
+        // "what you changed" rather than "the slice you changed": several slices
+        // may have moved, or one may have been released.
+        //
+        // An explicit noLabel, because the default "No" does not say what
+        // happens. "Don't save" states the outcome, matching the disconnect
+        // prompt's "Disconnect without saving".
         var confirm = new Dialogs.ConfirmActionDialog(
             "Save Station Setup",
             $"This saves your station setup into the radio's global profile "
             + $"named {profileName}.",
             warnings: new[]
             {
-                "It stores the whole station, not just the slice you changed: "
+                "It stores the whole station, not just what you changed: "
                 + "every slice, its frequency and its mode.",
-                $"Whatever {profileName} held before is replaced, and the radio "
-                + "loads it again the next time you connect."
+                $"Whatever {profileName} held before is replaced. The radio "
+                + "loads it again the next time you connect — and so does "
+                + "anyone else who connects to this radio."
             },
             question: $"Save your station setup into {profileName}?",
-            yesLabel: "_Save to radio");
+            yesLabel: "_Save to radio",
+            noLabel: "_Don't save");
 
         if (confirm.ShowDialog() != true)
         {
@@ -2855,19 +2868,35 @@ public class NativeMenuBar : IDisposable
 
         string profileName = rig.CurrentGlobalProfileName;
 
-        // ── PROSE PENDING NOEL'S APPROVAL (Sprint 33 Track K) ──
-        // A prompt about SHARED STATION STATE, reported to him verbatim.
+        // ── APPROVED BY NOEL, 2026-08-20 (Sprint 33 Track K) ──
+        // Two changes from the draft, both his.
+        //
+        // "slice settings or frequencies" rather than "the slices" — the offer
+        // fires on any slice-set change including a release, so naming what
+        // actually changed is truer than naming the objects.
+        //
+        // THE SHARED-STATE WARNING WAS CUT FROM THIS PROMPT and kept on the
+        // menu route only. It is factually correct — a global profile is
+        // station state, and everyone who connects does get it — but this offer
+        // is gated on the radio being the operator's OWN, so the audience is
+        // other people using their radio, which for most operators is nobody.
+        // A disconnect prompt interrupts someone who is already leaving, so it
+        // earns only the sentence that prevents a mistake. The menu item is a
+        // deliberate act with room for the fuller explanation, and keeps it.
+        //
+        // Also dropped: "to keep the station from losing settings". The station
+        // never had them, so nothing is being lost.
         var confirm = new Dialogs.ConfirmActionDialog(
             "Save Station Setup Before Disconnecting",
-            "You changed the slices on this radio. Those changes live only in "
-            + "this session — the radio will go back to its stored setup the "
-            + $"next time you connect, unless you save them into {profileName}.",
+            "You changed slice settings or frequencies on this radio without "
+            + "saving them to a profile. Those changes live only in this "
+            + "session — the radio goes back to its stored setup the next time "
+            + $"you connect. Save them to {profileName} to keep them.",
             warnings: new[]
             {
-                "Saving stores the whole station, not just the slice you "
-                + "changed: every slice, its frequency and its mode.",
-                $"Whatever {profileName} held before is replaced. Everyone who "
-                + "connects to this radio gets what you save here."
+                "This saves the whole station, not just what you changed: "
+                + "every slice, its frequency and its mode. Whatever "
+                + $"{profileName} held before is replaced."
             },
             question: $"Save your station setup into {profileName} before disconnecting?",
             yesLabel: "_Save and disconnect",

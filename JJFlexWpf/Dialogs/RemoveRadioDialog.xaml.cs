@@ -122,6 +122,32 @@ namespace JJFlexWpf.Dialogs
 
             BodyText.Text = ScreenReaderText.NormalizeLineBreaks(body.ToString());
 
+            // THE CONFIRM BUTTON'S ACCESSIBLE NAME TRACKS THE SCOPE.
+            // Approved by Noel 2026-08-20, and it is the same move this dialog
+            // already makes for the scope radios above: when the visible
+            // presentation cannot carry the consequence, put it in the NAME.
+            //
+            // The visible label stays "Remove" — short, stable, and it never
+            // flickers as the operator arrows between the two options. But the
+            // last keystroke of an irreversible action should say WHICH action,
+            // and the name is read the moment focus lands on the button, which
+            // is exactly when it matters.
+            //
+            // Deliberately NOT a changing visible label: that was the other
+            // candidate, and it would relabel on every arrow press.
+            void SyncRemoveButtonName()
+            {
+                AutomationProperties.SetName(
+                    OkButton,
+                    ScopeEverythingRadio.IsChecked == true
+                        ? "Remove the radio and its settings"
+                        : "Remove from the list only");
+            }
+
+            ScopeListOnlyRadio.Checked += (_, _) => SyncRemoveButtonName();
+            ScopeEverythingRadio.Checked += (_, _) => SyncRemoveButtonName();
+            SyncRemoveButtonName();
+
             Loaded += (_, _) =>
             {
                 BodyText.CaretIndex = 0;

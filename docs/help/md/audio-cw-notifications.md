@@ -7,8 +7,10 @@ JJ Flexible Radio Access sends you short bursts of Morse for certain application
 - **AS** (wait, attention) — something is in flight and you should hold for an answer.
 - **BT** (break) — a transition where nothing is wrong, just switching tracks.
 - **SK** (end of work) — a clean disconnect. It doesn't go out bare, either: you get "73 SK" and a little hand-wave of two dits, and above 25 words per minute the app signs with its own callsign first.
-- **A slice census** — when the number of slices in use changes, you get the fraction: "3/4" means three of your radio's four slices are up.
+- **A slice census** — when the number of slices in use changes, you get "SL" and then the fraction. "SL 3/4" means three of your radio's four slices are up; "SL 4/4" means the radio is full.
 - **A slice identity** — when you move to another slice, or change the mode on one, you get "SL" then the slice letter then the mode. "SL A USB".
+
+Both slice messages open with "SL", so you know what is being counted before the numbers arrive.
 
 ## Why CW and Not More Speech
 
