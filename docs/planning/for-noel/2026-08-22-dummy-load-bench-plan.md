@@ -398,3 +398,63 @@ plausible mechanism instead of a measured one.
   identification question answered first.
 - The transverter band model (#27). That session is explicitly zero-keying and
   does not need the dummy load at all, so it is not competing for this window.
+
+---
+
+## Evening session, 2026-08-22 18:26 — the load moved to ANT1
+
+Noel moved the dummy load from ANT2 to ANT1. That inverts today's accident
+and hands us the control pair the morning never had: **ANT1 is now the good
+port and ANT2 is the empty one**, on the same radio, minutes apart, with
+nothing else changed.
+
+It also gives the reflected-power warning built this afternoon its first
+chance to be heard. Until this evening it existed only as ten passing
+tests, which is exactly the state the SWR meter was in — plausible, and
+never once put in front of the fault it claims to catch.
+
+Build under test: Debug x64, clean rebuild at 18:28, verified fresh and
+verified to actually CONTAIN the new code (TransmitSafety, the
+power-coming-back rule, ATUTuneInProgress and the new lexicon strings are
+all present in Radios.dll; a nonsense string was checked for as a negative
+control and correctly absent).
+
+### Test A — ANT1, the load, the good case
+
+Select **ANT1** for transmit. Request 100 W. Key briefly.
+
+Expect: forward near 101 W, reflected near 0.05 W, computed SWR near 1.05,
+and **NO warning of any kind**. This is the negative control. A warning
+here means the threshold is wrong, and everything Test B proves would be
+worthless.
+
+### Test B — ANT2, empty, the case the warning exists for
+
+**THIS TEST TRANSMITS INTO AN ANTENNA PORT WITH NOTHING CONNECTED TO IT.**
+Said plainly because it is a deliberate choice rather than an accident this
+time. It is also strictly gentler than what already happened twice today by
+mistake at a 100 W request: the radio folded itself back to 17.5 W and
+protected itself, which is the behaviour being relied on here.
+
+Select **ANT2** for transmit. Request **25 W**, not 100. Key for about
+**four seconds** — the warning arms at two, so a quick tap will not reach
+it.
+
+Expect to hear, once and only once:
+- the warning alarm earcon, then
+- "N percent of your power is coming back on ANT2. Check that the antenna
+  is connected."
+
+Three ways this can fail, all worth knowing:
+- **Nothing at all** — the warning is dead, exactly like the Alt+L binding
+  on 2026-08-13. This is the outcome the whole test exists to rule out.
+- **It fires but says nothing useful** — wording problem, fixable by
+  editing Radios/Lexicon/audio.json with no build.
+- **It repeats every second** — the once-per-transmission latch is broken.
+
+### Instrumentation
+
+Diagnostic capture on for both tests, and spoken-output recording on. The
+capture carries the meter numbers; the transcript carries what was actually
+said, which is the only direct evidence the warning spoke. Neither test
+means much without both.
