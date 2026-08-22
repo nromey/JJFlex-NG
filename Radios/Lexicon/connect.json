@@ -1,3 +1,24 @@
 {
-  "_comment": "This file holds what JJ Flexible says and shows, for the connect area. Connect and session lifecycle - discovery, SmartLink, connecting, disconnecting, radio selection. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md."
+  "_comment": "This file holds what JJ Flexible says and shows, for the connect area. Connect and session lifecycle - discovery, SmartLink, connecting, disconnecting, radio selection. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md.",
+  "connect.command_needs_radio": "No radio connected",
+  "connect.disconnected_from": "Disconnected from {radioName}",
+  "connect.disconnected_plain": "Disconnected from radio",
+  "connect.rescue.already_connected": "Radio Rescue is the no-radio version of Home. You are connected to {name}, so there is nothing to rescue. Disconnect first if you want that page.",
+  "connect.rescue.already_showing": "Radio Rescue is already showing.",
+  "connect.rescue.entering": "Radio Rescue.",
+  "connect.rescue.not_available_yet": "Radio Rescue is not available while a radio connection is still being set up. Try again in a moment.",
+  "connect.rescue.your_radio_fallback": "your radio",
+  "connect.switch_radio.body": "You're already connected to a radio.",
+  "connect.switch_radio.question": "Disconnect from this radio and connect to another radio?",
+  "connect.switch_radio.title": "Connect to Another Radio",
+  "connect.switch_radio.yes_label": "_Disconnect and choose",
+  "connect.update.advisory_title": "Check for Updates",
+  "connect.update.check_title": "Check for updates",
+  "connect.update.checking": "Checking for updates",
+  "connect.update.skipped_version": "Version {version} is available but you've chosen to skip it. Visit Settings, Updates to install it.",
+  "connect.update.unreachable": "Couldn't reach the update server. Check your network connection.",
+  "connect.update.up_to_date": "You're up to date on the {channel} channel.",
+  "connect.update.while_connected_body": "You're connected to a radio. JJ Flex usually doesn't prompt about updates during an active session — applying an update will close the app.",
+  "connect.update.while_connected_question": "Check anyway?",
+  "connect.update.while_connected_yes_label": "_Check"
 }

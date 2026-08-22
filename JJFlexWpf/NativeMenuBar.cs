@@ -306,7 +306,9 @@ public class NativeMenuBar : IDisposable
         var newVal = Rig.ToggleOffOn(current);
         setter(newVal);
         EarconPlayer.ToggleTone(newVal == FlexBase.OffOnValues.on);
-        SpeakAfterMenuClose($"{label} {(newVal == FlexBase.OffOnValues.on ? "on" : "off")}");
+        SpeakAfterMenuClose(Radios.Lexicon.Get(
+            newVal == FlexBase.OffOnValues.on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
+            ("label", label)));
     }
 
     /// <summary>
@@ -322,13 +324,14 @@ public class NativeMenuBar : IDisposable
         int newVal = Math.Clamp(current + step, min, max);
         setter(newVal);
         string suffix = string.IsNullOrEmpty(unit) ? "" : " " + unit;
-        SpeakAfterMenuClose($"{label} {newVal}{suffix}");
+        SpeakAfterMenuClose(Radios.Lexicon.Get("audio.value.adjusted",
+            ("label", label), ("value", newVal), ("suffix", suffix)));
     }
 
     private void SpeakNoRadio()
     {
         Tracing.TraceLine("NativeMenuBar: no-radio guard fired", TraceLevel.Info);
-        SpeakAfterMenuClose("No radio connected");
+        SpeakAfterMenuClose(Radios.Lexicon.Get("connect.command_needs_radio"));
     }
 
     /// <summary>
@@ -351,7 +354,7 @@ public class NativeMenuBar : IDisposable
         {
             AddWired(nrSub, "Advanced noise reduction unavailable", () =>
                 SpeakAfterMenuClose(AdvancedNrGateMessage()
-                    ?? "Advanced noise reduction is available — reopen this menu."));
+                    ?? Radios.Lexicon.Get("audio.nr.advanced_available_reopen")));
         }
         else
         {
@@ -403,7 +406,7 @@ public class NativeMenuBar : IDisposable
         AddChecked(pcSub, "PC Neural NR\tCtrl+J, Shift+R", () =>
         {
             var p = _window.FieldsPanel?.AudioPipeline;
-            if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
+            if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
             p.RnnEnabled = !p.RnnEnabled;
             _window.PersistDspSettings();
             // #128 sweep audit (2026-08-21): this was the one silent road of
@@ -411,20 +414,22 @@ public class NativeMenuBar : IDisposable
             // chord all toned, and an operator who learned the sound from any
             // of those reads this menu's silence as the command failing.
             EarconPlayer.ToggleTone(p.RnnEnabled);
-            SpeakAfterMenuClose(p.RnnEnabled ? "PC Neural NR on" : "PC Neural NR off");
+            SpeakAfterMenuClose(Radios.Lexicon.Get(
+                p.RnnEnabled ? "audio.pc_nr.neural_on" : "audio.pc_nr.neural_off"));
         }, () => _window.FieldsPanel?.AudioPipeline?.RnnEnabled == true);
         AddChecked(pcSub, "PC Spectral NR\tCtrl+J, Shift+S", () =>
         {
             var p = _window.FieldsPanel?.AudioPipeline;
-            if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
+            if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
             p.SpectralEnabled = !p.SpectralEnabled;
             _window.PersistDspSettings();
             // #128 sweep audit (2026-08-21): same as PC Neural NR above — the
             // menu was the one silent road of four into this state.
             EarconPlayer.ToggleTone(p.SpectralEnabled);
-            SpeakAfterMenuClose(!p.SpectralEnabled ? "PC Spectral NR off"
-                : p.HasNoiseProfile ? "PC Spectral NR on"
-                : "PC Spectral NR on, no noise profile loaded. Press Control J then Q to capture one.");
+            SpeakAfterMenuClose(Radios.Lexicon.Get(
+                !p.SpectralEnabled ? "audio.pc_nr.spectral_off"
+                : p.HasNoiseProfile ? "audio.pc_nr.spectral_on"
+                : "audio.pc_nr.spectral_on_no_profile"));
         }, () => _window.FieldsPanel?.AudioPipeline?.SpectralEnabled == true);
 
         // DSP controls track (2026-08-11) — the capture and the profile
@@ -435,7 +440,7 @@ public class NativeMenuBar : IDisposable
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             var p = _window.FieldsPanel?.AudioPipeline;
-            if (p == null) { SpeakAfterMenuClose("PC audio pipeline not available"); return; }
+            if (p == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("audio.pc_pipeline.unavailable")); return; }
             if (NoiseCaptureNarrator.IsRunning) { NoiseCaptureNarrator.Cancel(); return; }
             var rig = Rig;
             _window.Dispatcher.BeginInvoke(async () =>
@@ -453,9 +458,9 @@ public class NativeMenuBar : IDisposable
         });
         AddWired(pcSub, "Open Noise Profiles Folder", () =>
         {
-            SpeakAfterMenuClose(NoiseProfileStore.OpenFolder()
-                ? "Profiles folder opened in File Explorer"
-                : "Could not open the profiles folder");
+            SpeakAfterMenuClose(Radios.Lexicon.Get(NoiseProfileStore.OpenFolder()
+                ? "audio.noise_profiles.folder_opened"
+                : "audio.noise_profiles.folder_open_failed"));
         });
 
         // === Auto Notch ===
@@ -474,7 +479,7 @@ public class NativeMenuBar : IDisposable
             string? mode = Rig.Mode;
             if (mode != null && !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase))
             {
-                SpeakAfterMenuClose("Audio Peak Filter is CW only");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.apf.cw_only"));
                 return;
             }
             ToggleDSP("Audio Peak Filter", () => Rig.APF, v => Rig.APF = v);
@@ -501,7 +506,8 @@ public class NativeMenuBar : IDisposable
         AddWired(meterSub, "Cycle Preset", () =>
         {
             MeterToneEngine.CyclePreset();
-            SpeakAfterMenuClose($"Meter preset: {MeterToneEngine.CurrentPreset}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("audio.meter.preset",
+                ("preset", MeterToneEngine.CurrentPreset)));
         });
 
         AddWired(meterSub, "Speak Meters", () =>
@@ -512,7 +518,8 @@ public class NativeMenuBar : IDisposable
         AddChecked(meterSub, "Peak Watcher", () =>
         {
             MeterToneEngine.PeakWatcherEnabled = !MeterToneEngine.PeakWatcherEnabled;
-            SpeakAfterMenuClose($"Peak Watcher {(MeterToneEngine.PeakWatcherEnabled ? "on" : "off")}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get(MeterToneEngine.PeakWatcherEnabled
+                ? "audio.meter.peak_watcher_on" : "audio.meter.peak_watcher_off"));
         }, () => MeterToneEngine.PeakWatcherEnabled);
     }
 
@@ -540,11 +547,12 @@ public class NativeMenuBar : IDisposable
             if (newHigh - newLow >= 50)
             {
                 Rig.SetFilter(newLow, newHigh);
-                SpeakAfterMenuClose($"Filter {newLow} to {newHigh}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.range",
+                    ("low", newLow), ("high", newHigh)));
             }
             else
             {
-                SpeakAfterMenuClose("Filter at minimum");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.at_minimum"));
             }
         });
         AddWired(parent, "Widen Filter", () =>
@@ -557,12 +565,13 @@ public class NativeMenuBar : IDisposable
             int newHigh = Math.Min(high + filterStep, highMax);
             if (newLow == low && newHigh == high)
             {
-                SpeakAfterMenuClose("Filter at maximum");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.at_maximum"));
             }
             else
             {
                 Rig.SetFilter(newLow, newHigh);
-                SpeakAfterMenuClose($"Filter {newLow} to {newHigh}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.range",
+                    ("low", newLow), ("high", newHigh)));
             }
         });
         AddWired(parent, "Shift Low Edge Up", () =>
@@ -573,11 +582,11 @@ public class NativeMenuBar : IDisposable
             if (high - newLow >= 10)
             {
                 Rig.SetFilter(newLow, high);
-                SpeakAfterMenuClose($"Low edge {newLow}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.low_edge", ("low", newLow)));
             }
             else
             {
-                SpeakAfterMenuClose("Filter at minimum");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.at_minimum"));
             }
         });
         AddWired(parent, "Shift Low Edge Down", () =>
@@ -588,12 +597,12 @@ public class NativeMenuBar : IDisposable
             int newLow = Math.Max(low - filterStep, lowMin);
             if (newLow == low)
             {
-                SpeakAfterMenuClose("Beginning");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.at_beginning"));
             }
             else
             {
                 Rig.SetFilter(newLow, Rig.FilterHigh);
-                SpeakAfterMenuClose($"Low edge {newLow}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.low_edge", ("low", newLow)));
             }
         });
         AddWired(parent, "Shift High Edge Up", () =>
@@ -604,12 +613,12 @@ public class NativeMenuBar : IDisposable
             int newHigh = Math.Min(high + filterStep, highMax);
             if (newHigh == high)
             {
-                SpeakAfterMenuClose("End");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.at_end"));
             }
             else
             {
                 Rig.SetFilter(Rig.FilterLow, newHigh);
-                SpeakAfterMenuClose($"High edge {newHigh}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.high_edge", ("high", newHigh)));
             }
         });
         AddWired(parent, "Shift High Edge Down", () =>
@@ -620,18 +629,19 @@ public class NativeMenuBar : IDisposable
             if (newHigh - low >= 10)
             {
                 Rig.SetFilter(low, newHigh);
-                SpeakAfterMenuClose($"High edge {newHigh}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.high_edge", ("high", newHigh)));
             }
             else
             {
-                SpeakAfterMenuClose("Filter at minimum");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.at_minimum"));
             }
         });
 
         AddWired(parent, "Read Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            SpeakAfterMenuClose($"Filter {Rig.FilterLow} to {Rig.FilterHigh}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.range",
+                ("low", Rig.FilterLow), ("high", Rig.FilterHigh)));
         });
 
         // Filter presets submenu
@@ -654,7 +664,8 @@ public class NativeMenuBar : IDisposable
                     string currentMode = Rig.Mode ?? "USB";
                     var (mLow, mHigh) = FilterPresets.MirrorForMode(currentMode, preset.Low, preset.High);
                     Rig.SetFilter(mLow, mHigh);
-                    SpeakAfterMenuClose($"{preset.Name}, {preset.FormatForSpeech()}");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("audio.filter.preset_selected",
+                        ("preset", preset.Name), ("width", preset.FormatForSpeech())));
                 });
             }
         }
@@ -689,7 +700,7 @@ public class NativeMenuBar : IDisposable
                 // below this has always toned too, which is what makes the
                 // omission here read as an oversight rather than a decision.
                 EarconPlayer.ToggleTone(newMute);
-                SpeakAfterMenuClose(newMute ? "Muted" : "Unmuted");
+                SpeakAfterMenuClose(Radios.Lexicon.Get(newMute ? "audio.mute.muted" : "audio.mute.unmuted"));
             }, () => Rig?.SliceMute == true);
 
             AddWired(parent, "Mute/Unmute All Slices", () =>
@@ -699,21 +710,24 @@ public class NativeMenuBar : IDisposable
                 Rig.SetAllMySlicesMute(target);
                 if (target) EarconPlayer.MuteAllOnTone();
                 else EarconPlayer.MuteAllOffTone();
-                SpeakAfterMenuClose(target ? "All slices muted" : "All slices unmuted");
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    target ? "audio.mute.all_slices_muted" : "audio.mute.all_slices_unmuted"));
             });
 
             AddWired(parent, "Release All Extra Slices", () =>
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
                 int before = Rig.MyNumSlices;
-                if (before <= 1) { SpeakAfterMenuClose("Only one slice active"); return; }
+                if (before <= 1) { SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.only_one_active")); return; }
                 if (Rig.ReleaseAllExtraSlices())
                 {
                     EarconPlayer.MuteAllOnTone();
                     int removed = before - 1;
                     string keptLetter = Rig.VFOToLetter(Rig.RXVFO);
-                    SpeakAfterMenuClose(
-                        $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, slice {keptLetter} active");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get(
+                        removed == 1 ? "settings.slice.released_extras_one"
+                                     : "settings.slice.released_extras_many",
+                        ("removed", removed), ("keptLetter", keptLetter)));
                 }
             });
 
@@ -737,10 +751,10 @@ public class NativeMenuBar : IDisposable
                 // configured, and a rising tone over a toggle that did not
                 // happen is a confident lie.
                 EarconPlayer.ToggleTone(actual);
-                SpeakAfterMenuClose(
-                    actual ? "PC audio on"
-                    : wanted ? "PC audio could not start, still off"
-                    : "PC audio off");
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    actual ? "audio.pc_audio.on"
+                    : wanted ? "audio.pc_audio.could_not_start"
+                    : "audio.pc_audio.off"));
             }, () => Rig?.PCAudio == true);
 
             AddSep(parent);
@@ -801,9 +815,10 @@ public class NativeMenuBar : IDisposable
             if (Rig == null) { SpeakNoRadio(); return; }
             int countBefore = Rig.MyNumSlices;
             if (Rig.NewSlice())
-                SpeakAfterMenuClose($"Slice created, {countBefore + 1} active");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.created",
+                    ("count", countBefore + 1)));
             else
-                SpeakAfterMenuClose("Maximum slices reached");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.maximum_reached"));
         });
 
         AddWired(parent, "Release Slice", () =>
@@ -812,15 +827,16 @@ public class NativeMenuBar : IDisposable
             int numSlices = Rig.MyNumSlices;
             if (numSlices <= 1)
             {
-                SpeakAfterMenuClose("Cannot release the only slice");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.cannot_release_only"));
                 return;
             }
             int toRemove = numSlices - 1;
             string letter = Rig.VFOToLetter(toRemove);
             if (Rig.RemoveSlice(toRemove))
-                SpeakAfterMenuClose($"Slice {letter} released, {numSlices - 1} active");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.released",
+                    ("letter", letter), ("count", numSlices - 1)));
             else
-                SpeakAfterMenuClose("Could not release slice");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.release_failed"));
         });
     }
 
@@ -851,7 +867,7 @@ public class NativeMenuBar : IDisposable
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
                 Rig.RXAntennaName = antName;
-                SpeakAfterMenuClose($"RX antenna {antName}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.antenna.rx_selected", ("antName", antName)));
             }, () => string.Equals(Rig?.RXAntennaName, antName, StringComparison.OrdinalIgnoreCase));
         }
     }
@@ -874,9 +890,9 @@ public class NativeMenuBar : IDisposable
                 if (Rig == null) { SpeakNoRadio(); return; }
                 Rig.TXAntennaName = antName;
                 if (string.Equals(antName, "XVTR", StringComparison.OrdinalIgnoreCase))
-                    SpeakAfterMenuClose("TX antenna XVTR. Power is now transverter drive, in d B m.");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.antenna.tx_xvtr"));
                 else
-                    SpeakAfterMenuClose($"TX antenna {antName}");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.antenna.tx_selected", ("antName", antName)));
             }, () => string.Equals(Rig?.TXAntennaName, antName, StringComparison.OrdinalIgnoreCase));
         }
     }
@@ -894,7 +910,7 @@ public class NativeMenuBar : IDisposable
             bool isOn = Rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
             Rig.FlexTunerType = isOn ? FlexBase.FlexTunerTypes.none : FlexBase.FlexTunerTypes.auto;
             EarconPlayer.ToggleTone(!isOn);
-            SpeakAfterMenuClose($"ATU {(isOn ? "off" : "on")}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get(isOn ? "settings.atu.turned_off" : "settings.atu.turned_on"));
         }, () => Rig?.FlexTunerType != FlexBase.FlexTunerTypes.none);
 
         AddWired(parent, "ATU Mode", () =>
@@ -910,7 +926,7 @@ public class NativeMenuBar : IDisposable
                 _ => FlexBase.FlexTunerTypes.auto
             };
             Rig.FlexTunerType = newMode;
-            SpeakAfterMenuClose($"ATU mode {newMode}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.atu.mode", ("newMode", newMode)));
         });
 
         AddWired(parent, "ATU Memories", () =>
@@ -918,7 +934,7 @@ public class NativeMenuBar : IDisposable
             if (Rig?.ShowMemoriesDialog != null)
                 Rig.ShowMemoriesDialog();
             else
-                SpeakAfterMenuClose("ATU memories not available");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.atu.memories_unavailable"));
         });
     }
 
@@ -944,7 +960,8 @@ public class NativeMenuBar : IDisposable
                 if (Rig == null) { SpeakNoRadio(); return; }
                 Rig.ToggleDiversity();
                 EarconPlayer.ToggleTone(Rig.DiversityOn);
-                SpeakAfterMenuClose(Rig.DiversityOn ? "Diversity on" : "Diversity off");
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    Rig.DiversityOn ? "settings.diversity.on" : "settings.diversity.off"));
             }, () => Rig?.DiversityOn == true);
             return;
         }
@@ -954,7 +971,8 @@ public class NativeMenuBar : IDisposable
         // not an expected path. Never leave the item wordless either way.
         AddWired(parent, "Diversity unavailable", () =>
             SpeakAfterMenuClose(
-                NonEmpty(Rig?.DiversityGateMessage) ?? "Diversity is not available on this radio right now."));
+                NonEmpty(Rig?.DiversityGateMessage)
+                ?? Radios.Lexicon.Get("settings.diversity.unavailable_fallback")));
     }
 
     /// <summary>Trim-to-null helper for gate messages, so an empty string from
@@ -1027,7 +1045,7 @@ public class NativeMenuBar : IDisposable
         {
             AddWired(parent, "Enhanced Signal Clarity unavailable", () =>
                 SpeakAfterMenuClose(EscGateMessage()
-                    ?? "Enhanced Signal Clarity is available — reopen this menu."));
+                    ?? Radios.Lexicon.Get("settings.esc.available_reopen")));
             return;
         }
 
@@ -1150,7 +1168,7 @@ public class NativeMenuBar : IDisposable
                 _ => AGCMode.Medium
             };
             Rig.AGCSpeed = newMode;
-            SpeakAfterMenuClose($"AGC {newMode}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("audio.agc.mode", ("newMode", newMode)));
         });
 
         AddWired(parent, "AGC Threshold Up", () =>
@@ -1254,7 +1272,7 @@ public class NativeMenuBar : IDisposable
                 FlexBase.ProcessorSettings.DXX => "DX plus",
                 _ => "Normal"
             };
-            SpeakAfterMenuClose($"Processor mode {label}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("audio.processor.mode", ("label", label)));
         });
 
         AddSep(parent);
@@ -1283,7 +1301,8 @@ public class NativeMenuBar : IDisposable
         AddWired(txFilterSub, "Read TX Filter", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
-            SpeakAfterMenuClose($"TX filter {Rig.TXFilterLow} to {Rig.TXFilterHigh}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("audio.tx_filter.range",
+                ("low", Rig.TXFilterLow), ("high", Rig.TXFilterHigh)));
         });
 
         AddSep(parent);
@@ -1295,9 +1314,9 @@ public class NativeMenuBar : IDisposable
             Rig.DummyLoadMode = !Rig.DummyLoadMode;
             EarconPlayer.ToggleTone(Rig.DummyLoadMode);
             if (Rig.DummyLoadMode)
-                SpeakAfterMenuClose("Dummy load mode on. Power zero.");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.dummy_load.on"));
             else
-                SpeakAfterMenuClose($"Dummy load mode off. Power restored to {Rig.XmitPower}.");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.dummy_load.off", ("power", Rig.XmitPower)));
         },
         () => Rig?.DummyLoadMode == true);
     }
@@ -1332,7 +1351,7 @@ public class NativeMenuBar : IDisposable
             if (_window.ShowOperatorsCallback != null)
                 _window.ShowOperatorsCallback();
             else
-                SpeakAfterMenuClose("Operator management is not available.");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.operators.unavailable"));
         });
         AddWired(radio, "Profiles", () => ShowManageProfilesDialog());
         AddWired(radio, "Connected Stations", () => ShowConnectedStations());
@@ -1343,7 +1362,7 @@ public class NativeMenuBar : IDisposable
             if (Rig == null) { SpeakNoRadio(); return; }
             if (Rig.LocalPTT)
             {
-                SpeakAfterMenuClose("Local PTT is already on");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.ptt.local_already_on"));
                 return;
             }
             Rig.LocalPTT = true;
@@ -1351,7 +1370,7 @@ public class NativeMenuBar : IDisposable
             // success path tones — the already-on path above changed nothing,
             // and the rule is tied to the transition, not to the click.
             EarconPlayer.ToggleTone(true);
-            SpeakAfterMenuClose("Local PTT on");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.ptt.local_on"));
         }, () => Rig?.LocalPTT == true);
 
         // QB Track I — the addressable transmit path Noel asked for:
@@ -1409,7 +1428,8 @@ public class NativeMenuBar : IDisposable
                     {
                         if (Rig == null || !Rig.ValidVFO(sliceNum)) { SpeakNoRadio(); return; }
                         Rig.RXVFO = sliceNum;
-                        SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(sliceNum)} active");
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.active",
+                            ("letter", Rig.VFOToLetter(sliceNum))));
                     },
                     () => Rig?.RXVFO == sliceNum);
             }
@@ -1417,9 +1437,10 @@ public class NativeMenuBar : IDisposable
             if (otherSlices > 0)
             {
                 AddWired(selSub, $"{otherSlices} in use by other stations", () =>
-                    SpeakAfterMenuClose(
-                        $"{otherSlices} {(otherSlices == 1 ? "slice is" : "slices are")} in use by other stations. " +
-                        "See MultiFlex Clients on the Radio menu."));
+                    SpeakAfterMenuClose(Radios.Lexicon.Get(
+                        otherSlices == 1 ? "settings.slice.in_use_by_others_one"
+                                         : "settings.slice.in_use_by_others_many",
+                        ("otherSlices", otherSlices))));
             }
 
             AddSep(selSub);
@@ -1430,9 +1451,10 @@ public class NativeMenuBar : IDisposable
                 if (Rig == null) { SpeakNoRadio(); return; }
                 int countBefore = Rig.MyNumSlices;
                 if (Rig.NewSlice())
-                    SpeakAfterMenuClose($"Slice created, {countBefore + 1} active");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.created",
+                        ("count", countBefore + 1)));
                 else
-                    SpeakAfterMenuClose("Cannot create slice, maximum reached");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.cannot_create_maximum"));
             });
 
             // Release Slice (only when WE have more than one slice — another
@@ -1450,7 +1472,7 @@ public class NativeMenuBar : IDisposable
                     int toRemove = Rig.RXVFO;
                     if (Rig.MyNumSlices <= 1)
                     {
-                        SpeakAfterMenuClose("Cannot release last slice");
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.cannot_release_last"));
                         return;
                     }
                     int switchTo = -1;
@@ -1466,9 +1488,10 @@ public class NativeMenuBar : IDisposable
                             Rig.TXVFO = switchTo;
                         Rig.RXVFO = switchTo;
                         if (Rig.RemoveSlice(toRemove))
-                            SpeakAfterMenuClose($"Slice {removedLetter} released, {countBefore - 1} active");
+                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.released",
+                                ("letter", removedLetter), ("count", countBefore - 1)));
                         else
-                            SpeakAfterMenuClose("Cannot release this slice");
+                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.cannot_release_this"));
                     }
                 });
             }
@@ -1516,7 +1539,8 @@ public class NativeMenuBar : IDisposable
                         {
                             if (Rig == null || !Rig.ValidVFO(sliceNum)) { SpeakNoRadio(); return; }
                             Rig.TXVFO = sliceNum;
-                            SpeakAfterMenuClose($"Slice {Rig.VFOToLetter(sliceNum)} transmit");
+                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.transmit",
+                                ("letter", Rig.VFOToLetter(sliceNum))));
                         },
                         () => Rig?.TXVFO == sliceNum);
                 }
@@ -1527,11 +1551,11 @@ public class NativeMenuBar : IDisposable
                         if (Rig == null) { SpeakNoRadio(); return; }
                         if (!Rig.HasTransmitSlice)
                         {
-                            SpeakAfterMenuClose("No transmit slice is set");
+                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.no_transmit_slice"));
                             return;
                         }
                         Rig.ClearTransmitSlice();
-                        SpeakAfterMenuClose("Transmit slice cleared. No slice will key the radio.");
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.transmit_cleared"));
                     },
                     () => Rig?.HasTransmitSlice == false);
             }
@@ -1557,7 +1581,7 @@ public class NativeMenuBar : IDisposable
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     Rig.Mode = m;
-                    SpeakAfterMenuClose($"Mode {m}");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)));
                 });
             }
             AddSep(modeSub);
@@ -1604,7 +1628,7 @@ public class NativeMenuBar : IDisposable
                 rit.Active = !rit.Active;
                 Rig.RIT = rit;
                 EarconPlayer.ToggleTone(rit.Active);
-                SpeakAfterMenuClose($"RIT {(rit.Active ? "on" : "off")}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get(rit.Active ? "settings.rit.on" : "settings.rit.off"));
             });
             AddWired(tuningSub, "XIT On/Off", () =>
             {
@@ -1613,7 +1637,7 @@ public class NativeMenuBar : IDisposable
                 xit.Active = !xit.Active;
                 Rig.XIT = xit;
                 EarconPlayer.ToggleTone(xit.Active);
-                SpeakAfterMenuClose($"XIT {(xit.Active ? "on" : "off")}");
+                SpeakAfterMenuClose(Radios.Lexicon.Get(xit.Active ? "settings.xit.on" : "settings.xit.off"));
             });
 
             // Receiver
@@ -1640,7 +1664,7 @@ public class NativeMenuBar : IDisposable
             {
                 AddWired(antSub, "Antenna tuner unavailable", () =>
                     SpeakAfterMenuClose(AtuGateMessage()
-                        ?? "The antenna tuner is available — reopen this menu."));
+                        ?? Radios.Lexicon.Get("settings.atu.available_reopen")));
             }
             else
             {
@@ -1703,7 +1727,8 @@ public class NativeMenuBar : IDisposable
             _window.FieldsPanelUserVisible = newVisible;
             _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
             EarconPlayer.ToggleTone(newVisible);
-            SpeakAfterMenuClose(newVisible ? "Field panel shown" : "Field panel hidden");
+            SpeakAfterMenuClose(Radios.Lexicon.Get(
+                newVisible ? "settings.field_panel.shown" : "settings.field_panel.hidden"));
         }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
         AddSep(screenFields);
         AddWired(screenFields, "Noise Reduction and DSP\tCtrl+Shift+N",
@@ -1787,7 +1812,7 @@ public class NativeMenuBar : IDisposable
             // distinctly until the repro names the guilty path.
             var gpsRig = Rig;
             Tracing.TraceLine($"Menu: GPS and Reference (rig={(gpsRig == null ? "null" : "present")})", TraceLevel.Info);
-            if (gpsRig == null) { SpeakAfterMenuClose("GPS and Reference, no radio connected"); return; }
+            if (gpsRig == null) { SpeakAfterMenuClose(Radios.Lexicon.Get("settings.gps.no_radio")); return; }
             try
             {
                 new Dialogs.GpsStatusDialog(gpsRig).ShowDialog();
@@ -1795,7 +1820,7 @@ public class NativeMenuBar : IDisposable
             catch (Exception ex)
             {
                 Tracing.TraceLine($"Menu: GPS and Reference dialog failed: {ex}", TraceLevel.Error);
-                SpeakAfterMenuClose("The GPS window could not be opened.");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.gps.window_failed"));
             }
         });
         AddWired(tools, "Profile Report", () =>
@@ -1803,7 +1828,7 @@ public class NativeMenuBar : IDisposable
             if (Rig == null) { SpeakNoRadio(); return; }
             var report = ProfileReporter.GenerateReport(Rig);
             var path = ProfileReporter.SaveReport(report);
-            SpeakAfterMenuClose($"Profile report saved to {path}");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.report_saved", ("path", path)));
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
         });
         AddSep(tools);
@@ -1812,14 +1837,14 @@ public class NativeMenuBar : IDisposable
             if (Rig == null) { SpeakNoRadio(); return; }
             bool success = Rig.ExportProfileDatabase();
             if (!success)
-                SpeakAfterMenuClose("Profile export cancelled or failed");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.export_failed"));
         });
         AddWired(tools, "Import Profiles", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             bool success = Rig.ImportProfileDatabase();
             if (!success)
-                SpeakAfterMenuClose("Profile import cancelled or failed");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.import_failed"));
         });
         AddSep(tools);
         AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
@@ -2001,10 +2026,10 @@ public class NativeMenuBar : IDisposable
         if (Rig != null && Rig.IsConnected)
         {
             var confirm = new Dialogs.ConfirmActionDialog(
-                "Connect to Another Radio",
-                "You're already connected to a radio.",
-                question: "Disconnect from this radio and connect to another radio?",
-                yesLabel: "_Disconnect and choose");
+                Radios.Lexicon.Get("connect.switch_radio.title"),
+                Radios.Lexicon.Get("connect.switch_radio.body"),
+                question: Radios.Lexicon.Get("connect.switch_radio.question"),
+                yesLabel: Radios.Lexicon.Get("connect.switch_radio.yes_label"));
             if (confirm.ShowDialog() != true) return;
         }
         _window.SelectRadioCallback?.Invoke();
@@ -2086,7 +2111,8 @@ public class NativeMenuBar : IDisposable
             if (_window.ExecuteCommandCallback != null)
                 _window.ExecuteCommandCallback(command);
             else
-                SpeakAfterMenuClose($"{spokenName} is not available.");
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.menu.not_available",
+                    ("spokenName", spokenName)));
         });
     }
 
@@ -2105,7 +2131,7 @@ public class NativeMenuBar : IDisposable
         _handlers[id] = () =>
         {
             Tracing.TraceLine($"Menu: {text} (not yet wired)", TraceLevel.Info);
-            SpeakAfterMenuClose($"{text} is not yet implemented in this version.");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.menu.not_implemented", ("text", text)));
         };
     }
 
@@ -2116,7 +2142,7 @@ public class NativeMenuBar : IDisposable
         AppendMenuW(popup, MF_STRING | MF_GRAYED, (UIntPtr)id, $"{text} - coming soon");
         _handlers[id] = () =>
         {
-            SpeakAfterMenuClose($"{text}, coming soon. Use Classic mode for full features.");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.menu.coming_soon", ("text", text)));
         };
     }
 
@@ -2156,24 +2182,24 @@ public class NativeMenuBar : IDisposable
             // Never tear down a working session from a menu item whose name
             // sounds helpful. Explain instead, and name the radio so the
             // operator can tell this is a real connection and not a stale claim.
-            string name = NonEmpty(Rig.RadioNickname) ?? "your radio";
-            SpeakAfterMenuClose(
-                $"Radio Rescue is the no-radio version of Home. You are connected to {name}, "
-                + "so there is nothing to rescue. Disconnect first if you want that page.");
+            string name = NonEmpty(Rig.RadioNickname)
+                ?? Radios.Lexicon.Get("connect.rescue.your_radio_fallback");
+            SpeakAfterMenuClose(Radios.Lexicon.Get(
+                "connect.rescue.already_connected", ("name", name)));
             return;
         }
 
         if (_window.InRescueMode)
         {
             _window.FocusHome();
-            SpeakAfterMenuClose("Radio Rescue is already showing.");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("connect.rescue.already_showing"));
             return;
         }
 
         // The operator asked for it, so the lead is short — they do not need to
         // be told why they are here. Focus goes through FocusHome, the funnel
         // that is correct with no radio; the page's own name carries the rest.
-        _window.EnterRescueMode("Radio Rescue.");
+        _window.EnterRescueMode(Radios.Lexicon.Get("connect.rescue.entering"));
 
         if (!_window.InRescueMode)
         {
@@ -2183,9 +2209,7 @@ public class NativeMenuBar : IDisposable
             // item the operator deliberately chose do nothing at all, say so.
             // Silence here would be the same defect this sprint is closing,
             // committed by the fix for it.
-            SpeakAfterMenuClose(
-                "Radio Rescue is not available while a radio connection is still being set up. "
-                + "Try again in a moment.");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("connect.rescue.not_available_yet"));
             return;
         }
 
@@ -2246,7 +2270,9 @@ public class NativeMenuBar : IDisposable
         _window.CloseRadioCallback?.Invoke();
 
         SpeakAfterMenuClose(
-            radioName == null ? "Disconnected from radio" : "Disconnected from " + radioName,
+            radioName == null
+                ? Radios.Lexicon.Get("connect.disconnected_plain")
+                : Radios.Lexicon.Get("connect.disconnected_from", ("radioName", radioName)),
             Radios.VerbosityLevel.Critical);
     }
 
@@ -2270,7 +2296,7 @@ public class NativeMenuBar : IDisposable
         var commands = _window.KeyCommandsRef;
         if (commands == null)
         {
-            SpeakAfterMenuClose("Key data not available");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.keys.data_unavailable"));
             return;
         }
         var dialog = new Dialogs.KeysDialog(commands, editable);
@@ -2466,15 +2492,15 @@ public class NativeMenuBar : IDisposable
         if (Rig != null && Rig.IsConnected)
         {
             var confirm = new Dialogs.ConfirmActionDialog(
-                "Check for Updates",
-                "You're connected to a radio. JJ Flex usually doesn't prompt about updates during an active session — applying an update will close the app.",
-                question: "Check anyway?",
-                yesLabel: "_Check");
+                Radios.Lexicon.Get("connect.update.advisory_title"),
+                Radios.Lexicon.Get("connect.update.while_connected_body"),
+                question: Radios.Lexicon.Get("connect.update.while_connected_question"),
+                yesLabel: Radios.Lexicon.Get("connect.update.while_connected_yes_label"));
             if (confirm.ShowDialog() != true) return;
         }
 
         Radios.ScreenReaderOutput.Speak(
-            "Checking for updates",
+            Radios.Lexicon.Get("connect.update.checking"),
             Radios.VerbosityLevel.Terse, true);
 
         _ = RunUpdateCheckAsync();
@@ -2494,12 +2520,14 @@ public class NativeMenuBar : IDisposable
 
             if (available is null)
             {
+                string upToDate = Radios.Lexicon.Get("connect.update.up_to_date",
+                    ("channel", settings.Channel.ToDisplayString()));
                 Radios.ScreenReaderOutput.Speak(
-                    $"You're up to date on the {settings.Channel.ToDisplayString()} channel.",
+                    upToDate,
                     Radios.VerbosityLevel.Critical, true);
                 MessageBox.Show(
-                    $"You're up to date on the {settings.Channel.ToDisplayString()} channel.",
-                    "Check for updates",
+                    upToDate,
+                    Radios.Lexicon.Get("connect.update.check_title"),
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -2511,8 +2539,8 @@ public class NativeMenuBar : IDisposable
                               StringComparison.OrdinalIgnoreCase))
             {
                 Radios.ScreenReaderOutput.Speak(
-                    $"Version {available.AvailableVersion} is available but you've chosen to skip it. " +
-                    "Visit Settings, Updates to install it.",
+                    Radios.Lexicon.Get("connect.update.skipped_version",
+                        ("version", available.AvailableVersion)),
                     Radios.VerbosityLevel.Critical, true);
                 return;
             }
@@ -2522,11 +2550,12 @@ public class NativeMenuBar : IDisposable
         }
         catch (Exception ex)
         {
+            string unreachable = Radios.Lexicon.Get("connect.update.unreachable");
             Radios.ScreenReaderOutput.Speak(
-                "Couldn't reach the update server. Check your network connection.",
+                unreachable,
                 Radios.VerbosityLevel.Critical, true);
-            Dialogs.AdvisoryDialog.Show("Check for Updates",
-                "Couldn't reach the update server. Check your network connection.\n\n" + ex.Message);
+            Dialogs.AdvisoryDialog.Show(Radios.Lexicon.Get("connect.update.advisory_title"),
+                unreachable + "\n\n" + ex.Message);
         }
     }
 
@@ -2548,14 +2577,14 @@ public class NativeMenuBar : IDisposable
         catch (Exception ex)
         {
             Tracing.TraceLine($"ShowConnectedStations: {ex.Message}", TraceLevel.Error);
-            SpeakAfterMenuClose("The station list could not be read.");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.stations.list_unreadable"));
             return;
         }
         if (stations.Count == 0)
         {
             // The dialog silently self-closes on an empty list — say why
             // nothing appeared instead of letting the click go silent.
-            SpeakAfterMenuClose("No stations connected");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.stations.none_connected"));
             return;
         }
         var dialog = new Dialogs.ShowStationNamesDialog { StationNames = stations };
@@ -2657,7 +2686,7 @@ public class NativeMenuBar : IDisposable
         if (Rig == null) { SpeakNoRadio(); return; }
         if (Rig.ShowRadioInfoDialog == null)
         {
-            SpeakAfterMenuClose("Radio information is not available yet");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.radio_info.not_available"));
             return;
         }
         Rig.ShowRadioInfoDialog((int)Dialogs.RadioInfoTab.FeatureAvailability);
@@ -2738,24 +2767,24 @@ public class NativeMenuBar : IDisposable
                 // global profile, then save it" the Save As that was missing
                 // without ever letting a typo land on somebody's rig.
                 if (Rig.AddOperatorProfile(profile))
-                    SpeakAfterMenuClose($"Profile {profile.Name} added");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.added", ("profile", profile.Name)));
                 else
-                    SpeakAfterMenuClose($"Could not add profile {profile.Name}");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.add_failed", ("profile", profile.Name)));
             },
             OnUpdate = (originalData, result) =>
             {
                 if (Rig == null) { SpeakNoRadio(); return; }
                 if (originalData is not Radios.Profile_t original)
                 {
-                    SpeakAfterMenuClose("Invalid profile data");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.invalid_data"));
                     return;
                 }
                 var ptype = ProfileTypeFromIndex(result.ProfileTypeIndex);
                 var replacement = new Radios.Profile_t(result.Name, ptype, result.IsDefault);
                 if (Rig.UpdateOperatorProfile(original, replacement))
-                    SpeakAfterMenuClose($"Profile {replacement.Name} updated");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.updated", ("profile", replacement.Name)));
                 else
-                    SpeakAfterMenuClose($"Could not update profile {original.Name}");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.update_failed", ("profile", original.Name)));
             },
             OnDelete = (profileData) =>
             {
@@ -2772,7 +2801,7 @@ public class NativeMenuBar : IDisposable
                 {
                     bool ok = Rig.SelectProfile(profile);
                     if (ok)
-                        SpeakAfterMenuClose($"Profile {profile.Name} selected");
+                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.selected", ("profile", profile.Name)));
                     return ok ? null : "Could not select profile";
                 }
                 return "Invalid profile data";
@@ -2782,7 +2811,7 @@ public class NativeMenuBar : IDisposable
                 if (profileData is Radios.Profile_t profile)
                 {
                     Rig.SaveProfile(profile, immediately: true);
-                    SpeakAfterMenuClose($"Profile {profile.Name} saved");
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.saved", ("profile", profile.Name)));
                 }
             },
             IsGlobalProfile = (profileData) =>
@@ -2861,30 +2890,30 @@ public class NativeMenuBar : IDisposable
         // happens. "Don't save" states the outcome, matching the disconnect
         // prompt's "Disconnect without saving".
         var confirm = new Dialogs.ConfirmActionDialog(
-            "Save Station Setup",
-            $"This saves your station setup into the radio's global profile "
-            + $"named {profileName}.",
+            Radios.Lexicon.Get("settings.station_layout.menu_title"),
+            Radios.Lexicon.Get("settings.station_layout.menu_body",
+                ("profileName", profileName)),
             warnings: new[]
             {
-                "It stores the whole station, not just what you changed: "
-                + "every slice, its frequency and its mode.",
-                $"Whatever {profileName} held before is replaced. The radio "
-                + "loads it again the next time you connect — and so does "
-                + "anyone else who connects to this radio."
+                Radios.Lexicon.Get("settings.station_layout.menu_warning_scope"),
+                Radios.Lexicon.Get("settings.station_layout.menu_warning_shared",
+                    ("profileName", profileName))
             },
-            question: $"Save your station setup into {profileName}?",
-            yesLabel: "_Save to radio",
-            noLabel: "_Don't save");
+            question: Radios.Lexicon.Get("settings.station_layout.menu_question",
+                ("profileName", profileName)),
+            yesLabel: Radios.Lexicon.Get("settings.station_layout.menu_yes_label"),
+            noLabel: Radios.Lexicon.Get("settings.station_layout.menu_no_label"));
 
         if (confirm.ShowDialog() != true)
         {
-            SpeakAfterMenuClose("Nothing was saved");
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.station_layout.nothing_saved"));
             return;
         }
 
         var error = Rig.SaveCurrentStationLayout();
         SpeakAfterMenuClose(
-            error ?? $"Station setup saved to {profileName}",
+            error ?? Radios.Lexicon.Get("settings.station_layout.saved",
+                ("profileName", profileName)),
             Radios.VerbosityLevel.Critical);
     }
 
@@ -2934,26 +2963,25 @@ public class NativeMenuBar : IDisposable
         // Also dropped: "to keep the station from losing settings". The station
         // never had them, so nothing is being lost.
         var confirm = new Dialogs.ConfirmActionDialog(
-            "Save Station Setup Before Disconnecting",
-            "You changed slice settings or frequencies on this radio without "
-            + "saving them to a profile. Those changes live only in this "
-            + "session — the radio goes back to its stored setup the next time "
-            + $"you connect. Save them to {profileName} to keep them.",
+            Radios.Lexicon.Get("settings.station_layout.disconnect_title"),
+            Radios.Lexicon.Get("settings.station_layout.disconnect_body",
+                ("profileName", profileName)),
             warnings: new[]
             {
-                "This saves the whole station, not just what you changed: "
-                + "every slice, its frequency and its mode. Whatever "
-                + $"{profileName} held before is replaced."
+                Radios.Lexicon.Get("settings.station_layout.disconnect_warning",
+                    ("profileName", profileName))
             },
-            question: $"Save your station setup into {profileName} before disconnecting?",
-            yesLabel: "_Save and disconnect",
-            noLabel: "_Disconnect without saving");
+            question: Radios.Lexicon.Get("settings.station_layout.disconnect_question",
+                ("profileName", profileName)),
+            yesLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_yes_label"),
+            noLabel: Radios.Lexicon.Get("settings.station_layout.disconnect_no_label"));
 
         if (confirm.ShowDialog() != true) return;
 
         var error = rig.SaveCurrentStationLayout();
         SpeakAfterMenuClose(
-            error ?? $"Station setup saved to {profileName}",
+            error ?? Radios.Lexicon.Get("settings.station_layout.saved",
+                ("profileName", profileName)),
             Radios.VerbosityLevel.Critical);
     }
 
