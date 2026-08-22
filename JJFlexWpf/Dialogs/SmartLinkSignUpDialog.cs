@@ -38,7 +38,7 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
     {
         _manager = manager ?? new SmartLinkAccountManager();
 
-        Title = "Create SmartLink Account";
+        Title = Lexicon.Get("connect.smartlink.signup.title");
         Width = 480;
         SizeToContent = SizeToContent.Height;
 
@@ -46,22 +46,20 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
 
         var intro = new TextBlock
         {
-            Text = "Create the free SmartLink account you will use to reach your radio " +
-                   "from away from home. Your email and password go directly to Flex's " +
-                   "sign-in service — no web page involved.",
+            Text = Lexicon.Get("connect.smartlink.signup.intro"),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10),
         };
         root.Children.Add(intro);
 
-        _emailBox = AddLabeledRow(root, "Email:", new TextBox(),
-            "Email address for the new SmartLink account");
+        _emailBox = AddLabeledRow(root, Lexicon.Get("connect.smartlink.signup.email_label"), new TextBox(),
+            Lexicon.Get("connect.smartlink.signup.email_name"));
 
-        _passwordBox = AddLabeledRow(root, "Password:", new PasswordBox(),
-            "Password for the new account. At least eight characters with a mix of letters and numbers is a safe choice.");
+        _passwordBox = AddLabeledRow(root, Lexicon.Get("connect.smartlink.signup.password_label"), new PasswordBox(),
+            Lexicon.Get("connect.smartlink.signup.password_name"));
 
-        _repeatBox = AddLabeledRow(root, "Repeat password:", new PasswordBox(),
-            "Type the same password again");
+        _repeatBox = AddLabeledRow(root, Lexicon.Get("connect.smartlink.signup.repeat_label"), new PasswordBox(),
+            Lexicon.Get("connect.smartlink.signup.repeat_name"));
 
         var buttons = new StackPanel
         {
@@ -72,13 +70,13 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
 
         _createButton = new Button
         {
-            Content = "C_reate Account",
+            Content = Lexicon.Get("connect.smartlink.signup.create_button"),
             MinWidth = 120,
             Height = 28,
             Margin = new Thickness(0, 0, 8, 0),
             IsDefault = true,
         };
-        AutomationProperties.SetName(_createButton, "Create the SmartLink account");
+        AutomationProperties.SetName(_createButton, Lexicon.Get("connect.smartlink.signup.create_button_name"));
         // IsDefault registers literal \r as an access key and NVDA reads it as
         // "carriage return" — explicit values preempt the phantom one.
         AutomationProperties.SetAccessKey(_createButton, "Alt+R");
@@ -91,26 +89,27 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
         // reset email is the way back in. The app does the walking.
         _resetEmailButton = new Button
         {
-            Content = "Send Reset _Email",
+            Content = Lexicon.Get("connect.smartlink.signup.reset_email_button"),
             MinWidth = 130,
             Height = 28,
             Margin = new Thickness(0, 0, 8, 0),
             Visibility = Visibility.Collapsed,
         };
         AutomationProperties.SetName(_resetEmailButton,
-            "Send a password reset email to the address above, for the account that already exists");
+            Lexicon.Get("connect.smartlink.signup.reset_email_button_name"));
         AutomationProperties.SetAccessKey(_resetEmailButton, "Alt+E");
         _resetEmailButton.Click += async (_, _) => await SendResetAsync();
         buttons.Children.Add(_resetEmailButton);
 
+        string cancelLabel = Lexicon.Get("connect.dialog.cancel");
         _cancelButton = new Button
         {
-            Content = "_Cancel",
+            Content = cancelLabel,
             MinWidth = 80,
             Height = 28,
             IsCancel = true,
         };
-        AutomationProperties.SetName(_cancelButton, "Cancel");
+        AutomationProperties.SetName(_cancelButton, cancelLabel.Replace("_", ""));
         buttons.Children.Add(_cancelButton);
 
         root.Children.Add(buttons);
@@ -120,7 +119,7 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 10, 0, 0),
         };
-        AutomationProperties.SetName(_statusText, "Status");
+        AutomationProperties.SetName(_statusText, Lexicon.Get("connect.smartlink.signup.status_name"));
         root.Children.Add(_statusText);
 
         Content = root;
@@ -185,28 +184,28 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
 
         if (email.Length == 0 || !LooksLikeEmail(email))
         {
-            SetStatus(email.Length == 0
-                ? "Enter the email address for the new account first."
-                : "That does not look like an email address. Check it and try again.");
+            SetStatus(Lexicon.Get(email.Length == 0
+                ? "connect.smartlink.signup.email_required"
+                : "connect.smartlink.signup.email_malformed"));
             _emailBox.Focus();
             return;
         }
         if (password.Length == 0)
         {
-            SetStatus("Enter a password for the new account.");
+            SetStatus(Lexicon.Get("connect.smartlink.signup.password_required"));
             _passwordBox.Focus();
             return;
         }
         if (repeat != password)
         {
-            SetStatus("The two passwords do not match. Type the same password in both boxes.");
+            SetStatus(Lexicon.Get("connect.smartlink.signup.passwords_differ"));
             _repeatBox.Clear();
             _repeatBox.Focus();
             return;
         }
 
         SetBusy(true);
-        SetStatus("Creating the account...");
+        SetStatus(Lexicon.Get("connect.smartlink.signup.creating"));
         try
         {
             var result = await _manager.SignUpAsync(email, password);
@@ -214,7 +213,7 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
             {
                 SignedUpEmail = email;
                 ScreenReaderOutput.Speak(
-                    $"SmartLink account created for {email}. Now sign in with it.",
+                    Lexicon.Get("connect.smartlink.signup.created", ("email", email)),
                     VerbosityLevel.Terse, interrupt: true);
                 DialogResult = true;
                 Close();
@@ -224,23 +223,20 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
             switch (result.Error)
             {
                 case "user_exists":
-                    SetStatus("There is already a SmartLink account associated with this email address. " +
-                              "Close this window and sign in with it instead — or, if you do not know its " +
-                              "password, choose Send Reset Email.");
+                    SetStatus(Lexicon.Get("connect.smartlink.signup.user_exists"));
                     _resetEmailButton.Visibility = Visibility.Visible;
                     break;
                 case "weak_password":
-                    SetStatus("The sign-in service says that password is not strong enough. " +
-                              "Use at least eight characters and mix upper case, lower case, and numbers, then try again.");
+                    SetStatus(Lexicon.Get("connect.smartlink.signup.weak_password"));
                     _passwordBox.Clear();
                     _repeatBox.Clear();
                     _passwordBox.Focus();
                     break;
                 case "network":
-                    SetStatus("Could not reach the sign-in service. Check your internet connection and try again.");
+                    SetStatus(Lexicon.Get("connect.smartlink.signup.network"));
                     break;
                 default:
-                    SetStatus("The account could not be created. You can try again in a moment.");
+                    SetStatus(Lexicon.Get("connect.smartlink.signup.failed"));
                     JJTrace.Tracing.TraceLine($"SmartLinkSignUpDialog: unmapped error: {result.ErrorDetail}",
                         System.Diagnostics.TraceLevel.Info);
                     break;
@@ -259,19 +255,19 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
         string email = _emailBox.Text.Trim();
         if (email.Length == 0)
         {
-            SetStatus("Enter the email address first.");
+            SetStatus(Lexicon.Get("connect.smartlink.signup.reset_email_required"));
             _emailBox.Focus();
             return;
         }
 
         SetBusy(true);
-        SetStatus("Requesting a password reset email...");
+        SetStatus(Lexicon.Get("connect.smartlink.signup.requesting_reset"));
         try
         {
             bool ok = await _manager.SendPasswordResetEmailAsync(email);
             SetStatus(ok
-                ? $"Done. A password reset email is on its way to {email}. Follow its link, set a new password, then sign in from Manage SmartLink Accounts."
-                : "The reset request was not accepted. Check the email address, or try again in a moment.");
+                ? Lexicon.Get("connect.smartlink.signup.reset_sent", ("email", email))
+                : Lexicon.Get("connect.smartlink.signup.reset_failed"));
         }
         finally
         {

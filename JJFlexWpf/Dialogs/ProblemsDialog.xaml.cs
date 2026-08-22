@@ -42,24 +42,20 @@ namespace JJFlexWpf.Dialogs
                 var entries = ProblemLog.NewestFirst();
                 ProblemList.ItemsSource = entries;
 
-                LeadText.Text = ProblemLog.Truncated
-                    ? "Newest first. The oldest entries have been dropped from this list to keep it manageable, but the diagnostic log still has them."
-                    : "Newest first. Each line gives the time, what failed, and what it means.";
+                LeadText.Text = Radios.Lexicon.Get(ProblemLog.Truncated
+                    ? "logging.problems.lead_truncated"
+                    : "logging.problems.lead");
                 System.Windows.Automation.AutomationProperties.SetName(LeadText, LeadText.Text);
 
                 if (string.IsNullOrEmpty(_logPath))
                 {
                     // Be honest rather than offering a button that cannot work.
-                    LogText.Text =
-                        "No diagnostic log is running, so this list is all there is about these problems. " +
-                        "You can turn a log on in Settings, Diagnostics, and it will record what happens from then on.";
+                    LogText.Text = Radios.Lexicon.Get("logging.problems.no_log");
                     SaveButton.Visibility = Visibility.Collapsed;
                 }
                 else
                 {
-                    LogText.Text =
-                        "The diagnostic log recorded far more about each of these than this list shows. " +
-                        "It stays on this computer. Nothing is sent anywhere.";
+                    LogText.Text = Radios.Lexicon.Get("logging.problems.log_running");
                 }
                 System.Windows.Automation.AutomationProperties.SetName(LogText, LogText.Text);
 
@@ -111,7 +107,7 @@ namespace JJFlexWpf.Dialogs
             if (ProblemLog.Count == 0)
             {
                 Radios.ScreenReaderOutput.Speak(
-                    "No problems recorded this session.",
+                    Radios.Lexicon.Get("logging.problems.none_recorded"),
                     Radios.VerbosityLevel.Critical, true);
                 return;
             }
@@ -135,7 +131,7 @@ namespace JJFlexWpf.Dialogs
                 }
                 catch { }
                 Radios.ScreenReaderOutput.Speak(
-                    "The problems list could not be opened.",
+                    Radios.Lexicon.Get("logging.problems.open_failed"),
                     Radios.VerbosityLevel.Critical, true);
             }
         }
@@ -147,27 +143,26 @@ namespace JJFlexWpf.Dialogs
                 Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
                 DefaultExt = "txt",
                 FileName = $"jjflex-diagnostic-log-{DateTime.Now:yyyyMMdd-HHmmss}.txt",
-                Title = "Save the diagnostic log"
+                Title = Radios.Lexicon.Get("logging.problems.save_title")
             };
             if (dlg.ShowDialog(this) != true)
             {
-                DiagnosticsBridge.Speak?.Invoke("Not saved.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("logging.problems.not_saved"));
                 return;
             }
 
             try
             {
                 long bytes = CopyLiveLog(_logPath, dlg.FileName);
-                string size = "unknown size";
+                string size = Radios.Lexicon.Get("logging.problems.unknown_size");
                 try { size = DiagnosticsBridge.DescribeBytes?.Invoke(bytes) ?? size; } catch { }
                 // Size is spoken because the next thing the operator does with
                 // this file is usually attach it to something.
-                DiagnosticsBridge.Speak?.Invoke($"Diagnostic log saved, about {size}.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("logging.problems.saved", ("size", size)));
             }
             catch
             {
-                DiagnosticsBridge.Speak?.Invoke(
-                    "The diagnostic log could not be copied. It is still in the settings folder.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("logging.problems.save_failed"));
             }
         }
 
@@ -193,11 +188,11 @@ namespace JJFlexWpf.Dialogs
             try
             {
                 Clipboard.SetText(ProblemLog.AsText());
-                DiagnosticsBridge.Speak?.Invoke("Problems copied.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("logging.problems.copied"));
             }
             catch
             {
-                DiagnosticsBridge.Speak?.Invoke("The problems could not be copied to the clipboard.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("logging.problems.copy_failed"));
             }
         }
 

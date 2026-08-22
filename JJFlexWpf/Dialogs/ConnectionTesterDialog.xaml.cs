@@ -36,9 +36,11 @@ namespace JJFlexWpf.Dialogs
 
             InitializeComponent();
 
-            var connType = isRemote ? "Remote (SmartLink)" : "Local";
-            var bwText = lowBW ? ", Low Bandwidth" : "";
-            RadioInfoText.Text = $"{radioName}  Serial: {radioSerial}  {connType}{bwText}";
+            var connType = Lexicon.Get(isRemote ? "connect.tester.type_remote" : "connect.tester.type_local");
+            var bwText = lowBW ? Lexicon.Get("connect.tester.low_bandwidth_suffix") : "";
+            RadioInfoText.Text = Lexicon.Get("connect.tester.radio_info",
+                ("radioName", radioName), ("radioSerial", radioSerial),
+                ("connType", connType), ("bwText", bwText));
         }
 
         private void StartButton_Click(object sender, RoutedEventArgs e)
@@ -48,27 +50,27 @@ namespace JJFlexWpf.Dialogs
                 // Stop button behavior
                 _tester?.Cancel();
                 StartButton.IsEnabled = false;
-                StatusText.Text = "Cancelling...";
-                ScreenReaderOutput.Speak("Cancelling test", VerbosityLevel.Terse);
+                StatusText.Text = Lexicon.Get("connect.tester.cancelling_status");
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.tester.cancelling_speech"), VerbosityLevel.Terse);
                 return;
             }
 
             // Validate parameters
             if (!int.TryParse(TestCountBox.Text, out int testCount) || testCount < 3)
             {
-                ScreenReaderOutput.Speak("Test count must be at least 3", VerbosityLevel.Critical);
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.tester.count_too_low"), VerbosityLevel.Critical);
                 TestCountBox.Focus();
                 return;
             }
             if (!int.TryParse(DelayBox.Text, out int delay) || delay < 1)
             {
-                ScreenReaderOutput.Speak("Delay must be at least 1 second", VerbosityLevel.Critical);
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.tester.delay_too_low"), VerbosityLevel.Critical);
                 DelayBox.Focus();
                 return;
             }
             if (!int.TryParse(ManualDelayBox.Text, out int manualDelay) || manualDelay < 0)
             {
-                ScreenReaderOutput.Speak("User delay must be 0 or more seconds", VerbosityLevel.Critical);
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.tester.user_delay_negative"), VerbosityLevel.Critical);
                 ManualDelayBox.Focus();
                 return;
             }
@@ -77,7 +79,7 @@ namespace JJFlexWpf.Dialogs
 
             // Lock UI for test run
             _testRunning = true;
-            StartButton.Content = "Stop";
+            StartButton.Content = Lexicon.Get("connect.tester.stop_button");
             CloseButton.IsEnabled = false;
             TestCountBox.IsEnabled = false;
             DelayBox.IsEnabled = false;
@@ -111,27 +113,37 @@ namespace JJFlexWpf.Dialogs
             _tester.PhaseChanged += (testNum, phase) =>
                 Dispatcher.BeginInvoke(() =>
                 {
-                    StatusText.Text = $"Test {testNum} of {testCount}: {phase}";
+                    StatusText.Text = Lexicon.Get("connect.tester.phase_status",
+                        ("testNum", testNum), ("testCount", testCount), ("phase", phase));
                 });
 
             _tester.TestCompleted += (testNum, success, reason, durationMs) =>
                 Dispatcher.BeginInvoke(() =>
                 {
-                    string passText = success ? "PASS" : "FAIL";
-                    string line = $"#{testNum:D2} {passText} {durationMs / 1000.0:F1}s {reason}";
+                    string passText = Lexicon.Get(success ? "connect.tester.pass" : "connect.tester.fail");
+                    string seconds = (durationMs / 1000.0).ToString("F1");
+                    string line = Lexicon.Get("connect.tester.result_line",
+                        ("testNum", testNum.ToString("D2")), ("passText", passText),
+                        ("seconds", seconds), ("reason", reason));
                     ResultsBox.Items.Add(line);
                     ResultsBox.ScrollIntoView(line);
 
-                    StatusText.Text = $"Test {testNum}: {passText} ({durationMs / 1000.0:F1}s)";
-                    ScreenReaderOutput.Speak($"Test {testNum} {passText}", VerbosityLevel.Critical);
+                    StatusText.Text = Lexicon.Get("connect.tester.result_status",
+                        ("testNum", testNum), ("passText", passText), ("seconds", seconds));
+                    ScreenReaderOutput.Speak(
+                        Lexicon.Get("connect.tester.result_speech",
+                            ("testNum", testNum), ("passText", passText)),
+                        VerbosityLevel.Critical);
                 });
 
             _tester.AllTestsCompleted += (summary) =>
                 Dispatcher.BeginInvoke(() =>
                 {
                     _testRunning = false;
-                    StatusText.Text = $"Complete: {summary.Passed}/{summary.TestCount} passed, {summary.Failed} failed. Mode: {summary.Mode}";
-                    StartButton.Content = "Start";
+                    StatusText.Text = Lexicon.Get("connect.tester.complete_status",
+                        ("passed", summary.Passed), ("testCount", summary.TestCount),
+                        ("failed", summary.Failed), ("mode", summary.Mode));
+                    StartButton.Content = Lexicon.Get("connect.tester.start_button");
                     StartButton.IsEnabled = true;
                     CloseButton.IsEnabled = true;
                     TestCountBox.IsEnabled = true;
@@ -139,8 +151,9 @@ namespace JJFlexWpf.Dialogs
                     ModeBox.IsEnabled = true;
                     ManualDelayBox.IsEnabled = true;
 
-                    var msg = $"All tests complete. {summary.Passed} of {summary.TestCount} passed. " +
-                              $"{summary.Failed} failed. Mode {summary.Mode}. Report saved.";
+                    var msg = Lexicon.Get("connect.tester.complete_speech",
+                        ("passed", summary.Passed), ("testCount", summary.TestCount),
+                        ("failed", summary.Failed), ("mode", summary.Mode));
                     ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical);
                 });
 
@@ -153,7 +166,10 @@ namespace JJFlexWpf.Dialogs
             testThread.SetApartmentState(ApartmentState.STA);
             testThread.Start();
 
-            ScreenReaderOutput.Speak($"Starting {testCount} {mode} tests on {_radioName}", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("connect.tester.starting",
+                    ("testCount", testCount), ("mode", mode), ("radioName", _radioName)),
+                VerbosityLevel.Terse);
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)

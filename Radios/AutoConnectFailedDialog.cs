@@ -52,7 +52,9 @@ namespace Radios
         /// </param>
         public AutoConnectFailedDialog(string radioName, string advice = null)
         {
-            _radioName = string.IsNullOrWhiteSpace(radioName) ? "Your radio" : radioName;
+            _radioName = string.IsNullOrWhiteSpace(radioName)
+                ? Lexicon.Get("connect.autoconnect.default_radio_name")
+                : radioName;
             _advice = string.IsNullOrWhiteSpace(advice) ? string.Empty : advice.Trim();
             InitializeComponent();
         }
@@ -62,7 +64,7 @@ namespace Radios
             this.SuspendLayout();
 
             // Form settings
-            this.Text = "Auto-Connect Failed";
+            this.Text = Lexicon.Get("connect.autoconnect.title");
             this.Size = new Size(420, 200);
             this.MinimumSize = new Size(400, 190);
             this.StartPosition = FormStartPosition.CenterParent;
@@ -73,14 +75,15 @@ namespace Radios
             this.CancelButton = cancelButton;
 
             // Accessible name for the form itself
-            this.AccessibleName = $"Auto-connect failed. {_radioName} is not available.";
-            this.AccessibleDescription = "Choose an action: Try Again, Disable Auto-Connect, Choose Another Radio, or Cancel.";
+            this.AccessibleName = Lexicon.Get("connect.autoconnect.form_name", ("radioName", _radioName));
+            this.AccessibleDescription = Lexicon.Get("connect.autoconnect.form_description");
 
             // Message label. When classified failure evidence exists it goes in
             // the body — the user should read WHY, not just WHO (QB Track L).
             var message = string.IsNullOrEmpty(_advice)
-                ? $"{_radioName} is not available.\n\nWhat would you like to do?"
-                : $"{_radioName} is not available.\n\n{_advice}\n\nWhat would you like to do?";
+                ? Lexicon.Get("connect.autoconnect.message", ("radioName", _radioName))
+                : Lexicon.Get("connect.autoconnect.message_with_advice",
+                    ("radioName", _radioName), ("advice", _advice));
             const int labelWidth = 380;
             // The advice can run several sentences (and may carry a router
             // rule), so measure instead of assuming the two-line height.
@@ -106,10 +109,10 @@ namespace Radios
             // Try Again button
             tryAgainButton = new Button
             {
-                Text = "&Try Again",
+                Text = Lexicon.Get("connect.autoconnect.try_again"),
                 Location = new Point(currentX, buttonY),
                 Size = new Size(90, buttonHeight),
-                AccessibleName = "Try Again - retry connecting to the radio",
+                AccessibleName = Lexicon.Get("connect.autoconnect.try_again_name"),
                 TabIndex = 1
             };
             tryAgainButton.Click += (s, e) =>
@@ -123,10 +126,10 @@ namespace Radios
             // Disable Auto-Connect button
             disableButton = new Button
             {
-                Text = "&Disable",
+                Text = Lexicon.Get("connect.autoconnect.disable"),
                 Location = new Point(currentX, buttonY),
                 Size = new Size(90, buttonHeight),
-                AccessibleName = "Disable Auto-Connect for this radio",
+                AccessibleName = Lexicon.Get("connect.autoconnect.disable_name"),
                 TabIndex = 2
             };
             disableButton.Click += (s, e) =>
@@ -140,10 +143,10 @@ namespace Radios
             // Choose Another Radio button
             chooseAnotherButton = new Button
             {
-                Text = "C&hoose Another",
+                Text = Lexicon.Get("connect.autoconnect.choose_another"),
                 Location = new Point(currentX, buttonY),
                 Size = new Size(110, buttonHeight),
-                AccessibleName = "Choose Another Radio - open radio selector",
+                AccessibleName = Lexicon.Get("connect.autoconnect.choose_another_name"),
                 TabIndex = 3
             };
             chooseAnotherButton.Click += (s, e) =>
@@ -157,10 +160,10 @@ namespace Radios
             // Cancel button
             cancelButton = new Button
             {
-                Text = "Cancel",
+                Text = Lexicon.Get("connect.autoconnect.cancel"),
                 Location = new Point(currentX, buttonY),
                 Size = new Size(75, buttonHeight),
-                AccessibleName = "Cancel - close this dialog and stay disconnected",
+                AccessibleName = Lexicon.Get("connect.autoconnect.cancel_name"),
                 DialogResult = DialogResult.Cancel,
                 TabIndex = 4
             };
@@ -204,11 +207,14 @@ namespace Radios
             string advice = null)
         {
             // Announce for screen reader users
-            var displayName = string.IsNullOrWhiteSpace(radioName) ? "Your radio" : radioName;
+            var displayName = string.IsNullOrWhiteSpace(radioName)
+                ? Lexicon.Get("connect.autoconnect.default_radio_name")
+                : radioName;
             ScreenReaderOutput.Speak(
                 string.IsNullOrWhiteSpace(advice)
-                    ? $"{displayName} is offline"
-                    : $"{displayName} is not available. {advice.Trim()}",
+                    ? Lexicon.Get("connect.autoconnect.offline_speech", ("displayName", displayName))
+                    : Lexicon.Get("connect.autoconnect.unavailable_speech",
+                        ("displayName", displayName), ("advice", advice.Trim())),
                 VerbosityLevel.Critical, true);
 
             using var dialog = new AutoConnectFailedDialog(radioName, advice);

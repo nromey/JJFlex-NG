@@ -44,16 +44,16 @@ public partial class UpdateAvailableDialog : JJFlexDialog
 
     private void PopulateInitialText()
     {
-        HeadlineText.Text = $"A new {_update.Channel.ToDisplayString().ToLowerInvariant()} build is available.";
-        VersionsText.Text =
-            $"You're on {_update.CurrentVersion}; available is {_update.AvailableVersion}.";
+        HeadlineText.Text = Lexicon.Get("connect.update.headline",
+            ("channel", _update.Channel.ToDisplayString().ToLowerInvariant()));
+        VersionsText.Text = Lexicon.Get("connect.update.versions",
+            ("currentVersion", _update.CurrentVersion), ("availableVersion", _update.AvailableVersion));
 
         // Until we plan the delta we only know the full-bundle size. The
         // delta-vs-full breakdown lands once planning completes; until then
         // we lead with the conservative "full installer is N MB" line.
-        SizeText.Text =
-            $"Full installer: {Format.Bytes(_update.FullInstallerSizeBytes)}. " +
-            "JJ Flex will try to download only what changed; size estimate updates after the manifest fetch.";
+        SizeText.Text = Lexicon.Get("connect.update.size_initial",
+            ("fullSize", Format.Bytes(_update.FullInstallerSizeBytes)));
 
         if (string.IsNullOrEmpty(_update.Entry.ChangelogUrl))
         {
@@ -63,8 +63,10 @@ public partial class UpdateAvailableDialog : JJFlexDialog
         // Critical-level speech for the headline so the user always hears
         // there's an update regardless of speech verbosity.
         ScreenReaderOutput.Speak(
-            $"Update available: {_update.AvailableVersion} on the {_update.Channel.ToDisplayString()} channel. " +
-            $"Full installer is {Format.Bytes(_update.FullInstallerSizeBytes)}.",
+            Lexicon.Get("connect.update.available_speech",
+                ("availableVersion", _update.AvailableVersion),
+                ("channel", _update.Channel.ToDisplayString()),
+                ("fullSize", Format.Bytes(_update.FullInstallerSizeBytes))),
             VerbosityLevel.Critical, interrupt: true);
     }
 
@@ -72,8 +74,8 @@ public partial class UpdateAvailableDialog : JJFlexDialog
     {
         _cts = new CancellationTokenSource();
         SetActionsEnabled(false);
-        ProgressText.Text = "Planning update…";
-        ScreenReaderOutput.Speak("Planning update", VerbosityLevel.Terse, interrupt: true);
+        ProgressText.Text = Lexicon.Get("connect.update.planning_status");
+        ScreenReaderOutput.Speak(Lexicon.Get("connect.update.planning_speech"), VerbosityLevel.Terse, interrupt: true);
 
         try
         {
@@ -83,9 +85,9 @@ public partial class UpdateAvailableDialog : JJFlexDialog
 
             if (plan is null)
             {
-                ProgressText.Text = "Already up to date — nothing to install.";
+                ProgressText.Text = Lexicon.Get("connect.update.up_to_date_status");
                 ScreenReaderOutput.Speak(
-                    "Already up to date.",
+                    Lexicon.Get("connect.update.up_to_date_speech"),
                     VerbosityLevel.Critical, interrupt: true);
                 SetActionsEnabled(true);
                 return;
@@ -100,13 +102,13 @@ public partial class UpdateAvailableDialog : JJFlexDialog
             if (result.Mode == UpdateExecutionMode.HelperHandoff)
             {
                 ScreenReaderOutput.Speak(
-                    "Update is ready. Closing JJ Flex so the new version can install.",
+                    Lexicon.Get("connect.update.helper_handoff"),
                     VerbosityLevel.Critical, interrupt: true);
             }
             else
             {
                 ScreenReaderOutput.Speak(
-                    "Installer running. Closing JJ Flex.",
+                    Lexicon.Get("connect.update.installer_running"),
                     VerbosityLevel.Critical, interrupt: true);
             }
 
@@ -119,22 +121,22 @@ public partial class UpdateAvailableDialog : JJFlexDialog
         }
         catch (OperationCanceledException)
         {
-            ProgressText.Text = "Cancelled.";
-            ScreenReaderOutput.Speak("Update cancelled.",
+            ProgressText.Text = Lexicon.Get("connect.update.cancelled_status");
+            ScreenReaderOutput.Speak(Lexicon.Get("connect.update.cancelled_speech"),
                 VerbosityLevel.Terse, interrupt: true);
             SetActionsEnabled(true);
         }
         catch (Exception ex)
         {
-            ProgressText.Text = "Update failed: " + ex.Message;
+            ProgressText.Text = Lexicon.Get("connect.update.failed_status", ("message", ex.Message));
             // Speak the reason itself — "the crash report mentions why" is a
             // dead end for a screen reader user (item 17 rule). The advisory
             // body is arrow-reviewable for the longer detail.
             ScreenReaderOutput.Speak(
-                "Update failed. " + ex.Message,
+                Lexicon.Get("connect.update.failed_speech", ("message", ex.Message)),
                 VerbosityLevel.Critical, interrupt: true);
-            AdvisoryDialog.Show("Update Failed",
-                "The update could not be applied.\n\n" + ex.Message);
+            AdvisoryDialog.Show(Lexicon.Get("connect.update.failed_title"),
+                Lexicon.Get("connect.update.failed_body", ("message", ex.Message)));
             SetActionsEnabled(true);
         }
     }
@@ -146,7 +148,7 @@ public partial class UpdateAvailableDialog : JJFlexDialog
         settings.Save();
 
         ScreenReaderOutput.Speak(
-            $"Skipped version {_update.AvailableVersion}. We'll let you know about the next one.",
+            Lexicon.Get("connect.update.skipped", ("version", _update.AvailableVersion)),
             VerbosityLevel.Terse, interrupt: true);
         DialogResult = false;
         Close();
@@ -184,12 +186,13 @@ public partial class UpdateAvailableDialog : JJFlexDialog
         if (fullWire <= 0) fullWire = plan.InstalledSizeBytes; // fallback
 
         string savings = Format.SavingsPercent(deltaWire, fullWire);
-        SizeText.Text =
-            $"Delta download: {Format.Bytes(deltaWire)}. " +
-            $"Full installer would be {Format.Bytes(fullWire)} ({savings} smaller via delta).";
+        SizeText.Text = Lexicon.Get("connect.update.size_delta",
+            ("deltaSize", Format.Bytes(deltaWire)), ("fullSize", Format.Bytes(fullWire)),
+            ("savings", savings));
 
         ScreenReaderOutput.Speak(
-            $"Download size {Format.Bytes(deltaWire)}, {savings} smaller than the full installer.",
+            Lexicon.Get("connect.update.size_speech",
+                ("deltaSize", Format.Bytes(deltaWire)), ("savings", savings)),
             VerbosityLevel.Terse, interrupt: true);
     }
 

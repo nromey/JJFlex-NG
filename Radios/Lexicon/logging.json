@@ -1,3 +1,18 @@
 {
-  "_comment": "This file holds what JJ Flexible says and shows, for the logging area. Logging and cluster. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md."
+  "_comment": "This file holds what JJ Flexible says and shows, for the logging area. Logging and cluster. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md.",
+  "logging.problem.unnamed": "Something went wrong",
+  "logging.problem.announcement": "{what}. Press Control J then Control R for details.",
+  "logging.problems.lead_truncated": "Newest first. The oldest entries have been dropped from this list to keep it manageable, but the diagnostic log still has them.",
+  "logging.problems.lead": "Newest first. Each line gives the time, what failed, and what it means.",
+  "logging.problems.no_log": "No diagnostic log is running, so this list is all there is about these problems. You can turn a log on in Settings, Diagnostics, and it will record what happens from then on.",
+  "logging.problems.log_running": "The diagnostic log recorded far more about each of these than this list shows. It stays on this computer. Nothing is sent anywhere.",
+  "logging.problems.none_recorded": "No problems recorded this session.",
+  "logging.problems.open_failed": "The problems list could not be opened.",
+  "logging.problems.save_title": "Save the diagnostic log",
+  "logging.problems.not_saved": "Not saved.",
+  "logging.problems.unknown_size": "unknown size",
+  "logging.problems.saved": "Diagnostic log saved, about {size}.",
+  "logging.problems.save_failed": "The diagnostic log could not be copied. It is still in the settings folder.",
+  "logging.problems.copied": "Problems copied.",
+  "logging.problems.copy_failed": "The problems could not be copied to the clipboard."
 }

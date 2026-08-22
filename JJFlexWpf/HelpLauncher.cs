@@ -153,7 +153,7 @@ namespace JJFlexWpf
         {
             if (string.IsNullOrEmpty(_helpFilePath) || !File.Exists(_helpFilePath))
             {
-                Radios.ScreenReaderOutput.Speak("Help file not found.", Radios.VerbosityLevel.Critical);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("help.launch.not_found"), Radios.VerbosityLevel.Critical);
                 return;
             }
 
@@ -170,7 +170,7 @@ namespace JJFlexWpf
             }
             catch (Exception ex)
             {
-                Radios.ScreenReaderOutput.Speak("Could not open help file.", Radios.VerbosityLevel.Critical);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("help.launch.open_failed"), Radios.VerbosityLevel.Critical);
                 System.Diagnostics.Trace.WriteLine($"HelpLauncher error: {ex.Message}");
             }
         }

@@ -20,10 +20,15 @@ namespace JJFlexWpf.Dialogs
 
         public override string ToString()
         {
-            string tag = IsThisClient ? " (This client)" : "";
-            string slices = !string.IsNullOrEmpty(OwnedSlices) ? $" — Slices: {OwnedSlices}" : "";
-            string station = !string.IsNullOrEmpty(Station) ? $" on {Station}" : "";
-            return $"{Program}{station}{slices}{tag}";
+            string tag = IsThisClient ? Lexicon.Get("connect.multiflex.this_client_tag") : "";
+            string slices = !string.IsNullOrEmpty(OwnedSlices)
+                ? Lexicon.Get("connect.multiflex.slices_suffix", ("ownedSlices", OwnedSlices))
+                : "";
+            string station = !string.IsNullOrEmpty(Station)
+                ? Lexicon.Get("connect.multiflex.station_suffix", ("station", Station))
+                : "";
+            return Lexicon.Get("connect.multiflex.client_line",
+                ("program", Program), ("station", station), ("slices", slices), ("tag", tag));
         }
     }
 
@@ -92,8 +97,8 @@ namespace JJFlexWpf.Dialogs
                 ClientList.Items.Add(client);
 
             SummaryText.Text = clients.Count == 1
-                ? "1 client connected:"
-                : $"{clients.Count} clients connected:";
+                ? Lexicon.Get("connect.multiflex.one_client")
+                : Lexicon.Get("connect.multiflex.many_clients", ("count", clients.Count));
 
             if (ClientList.Items.Count > 0)
                 ClientList.SelectedIndex = 0;
@@ -119,26 +124,29 @@ namespace JJFlexWpf.Dialogs
             if (selected == null || selected.IsThisClient) return;
 
             var confirm = new ConfirmActionDialog(
-                "Disconnect Client",
-                $"JJ Flex will disconnect {selected.Program} on {selected.Station} from the radio.",
+                Lexicon.Get("connect.multiflex.disconnect_title"),
+                Lexicon.Get("connect.multiflex.disconnect_body",
+                    ("program", selected.Program), ("station", selected.Station)),
                 warnings: string.IsNullOrEmpty(selected.OwnedSlices)
                     ? null
-                    : new[] { $"Slices {selected.OwnedSlices} will be released." },
-                question: "Disconnect them?",
-                yesLabel: "_Disconnect");
+                    : new[] { Lexicon.Get("connect.multiflex.disconnect_warning",
+                        ("ownedSlices", selected.OwnedSlices)) },
+                question: Lexicon.Get("connect.multiflex.disconnect_question"),
+                yesLabel: Lexicon.Get("connect.multiflex.disconnect_yes"));
 
             if (confirm.ShowDialog() != true) return;
 
             if (_callbacks.DisconnectClient(selected.Handle))
             {
-                ScreenReaderOutput.Speak($"{selected.Program} disconnected", true);
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("connect.multiflex.disconnected", ("program", selected.Program)), true);
                 // Brief delay then refresh
                 System.Threading.Tasks.Task.Delay(500).ContinueWith(_ =>
                     Dispatcher.BeginInvoke(RefreshClientList));
             }
             else
             {
-                ScreenReaderOutput.Speak("Failed to disconnect client", true);
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.multiflex.disconnect_failed"), true);
             }
         }
 
