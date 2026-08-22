@@ -126,7 +126,9 @@ public static class RecordingNarrator
     {
         if (IsRunning) return;
 
-        _purpose = string.IsNullOrWhiteSpace(purpose) ? "recording" : purpose.Trim();
+        _purpose = string.IsNullOrWhiteSpace(purpose)
+            ? Lexicon.Get("audio.recording.default_purpose")
+            : purpose.Trim();
 
         // The microphone the operator already chose. Asking again here would
         // be a second place to configure the same thing, and the two would
@@ -161,7 +163,7 @@ public static class RecordingNarrator
         catch (Exception ex)
         {
             Trace.WriteLine($"RecordingNarrator: cannot create the recordings folder: {ex.Message}");
-            Refuse("The recordings folder could not be created: " + ex.Message);
+            Refuse(Lexicon.Get("audio.recording.folder_not_created", ("reason", ex.Message)));
             return;
         }
 
@@ -184,7 +186,7 @@ public static class RecordingNarrator
         StateChanged?.Invoke();
 
         EarconPlayer.ConfirmTone();
-        Speak($"Recording {_purpose}. Press the same key again to stop.", interrupt: true);
+        Speak(Lexicon.Get("audio.recording.started", ("purpose", _purpose)), interrupt: true);
     }
 
     /// <summary>
@@ -208,7 +210,7 @@ public static class RecordingNarrator
         if (reason == MicRecorder.StopReason.Faulted)
         {
             EarconPlayer.LeaderInvalidTone();
-            Speak("Recording stopped. " + fault, interrupt: true);
+            Speak(Lexicon.Get("audio.recording.stopped_faulted", ("reason", fault)), interrupt: true);
             return;
         }
 
@@ -217,18 +219,18 @@ public static class RecordingNarrator
             // Nothing was captured. Say which of the two reasons it was,
             // because they need completely different remedies.
             EarconPlayer.LeaderCancelTone();
-            Speak("Recording stopped, and nothing was captured. "
-                + "Check that the right microphone is selected in Audio Devices.",
-                interrupt: true);
+            Speak(Lexicon.Get("audio.recording.stopped_nothing_captured"), interrupt: true);
             return;
         }
 
         EarconPlayer.ConfirmTone();
         string capNote = reason == MicRecorder.StopReason.MaxLength
-            ? "Recording reached its length limit and stopped by itself. "
-            : "Recording stopped. ";
-        Speak(capNote + "Saved " + RecordingStore.DescribeLength(seconds)
-            + " as " + Path.GetFileNameWithoutExtension(saved) + ".", interrupt: true);
+            ? Lexicon.Get("audio.recording.reached_length_limit")
+            : Lexicon.Get("audio.recording.stopped");
+        Speak(capNote + " " + Lexicon.Get("audio.recording.saved_as",
+                ("length", RecordingStore.DescribeLength(seconds)),
+                ("file", Path.GetFileNameWithoutExtension(saved))),
+            interrupt: true);
 
         RecordingSaved?.Invoke(saved);
     }
@@ -243,7 +245,7 @@ public static class RecordingNarrator
         string? file = AudioDevicesPath?.Invoke();
         if (string.IsNullOrEmpty(file))
         {
-            trouble = "The audio device settings are not available yet.";
+            trouble = Lexicon.Get("audio.recording.device_settings_unavailable");
             return null;
         }
 
@@ -253,7 +255,7 @@ public static class RecordingNarrator
             if (!devices.Setup(out _, out string enumMessage))
             {
                 trouble = string.IsNullOrEmpty(enumMessage)
-                    ? "The audio system could not be started."
+                    ? Lexicon.Get("audio.recording.audio_system_not_started")
                     : enumMessage;
                 return null;
             }
@@ -264,12 +266,12 @@ public static class RecordingNarrator
                 // Two different situations, two different remedies.
                 if (devices.IsSavedDeviceMissing(Devices.DeviceTypes.input, out string savedName))
                 {
-                    trouble = savedName + " is not connected, so there is nothing to record. "
-                        + "Plug it back in, or choose a different microphone in Audio Devices.";
+                    trouble = Lexicon.Get("audio.recording.saved_device_not_connected",
+                        ("device", savedName));
                 }
                 else
                 {
-                    trouble = "No microphone is chosen yet. Pick one in Audio Devices first.";
+                    trouble = Lexicon.Get("audio.recording.no_microphone_chosen");
                 }
                 return null;
             }
@@ -277,8 +279,8 @@ public static class RecordingNarrator
             Devices.DeviceInfo? live = Devices.FindLive(saved);
             if (live == null)
             {
-                trouble = (saved.Name ?? "The saved microphone")
-                    + " is not available right now. Choose a microphone in Audio Devices.";
+                trouble = Lexicon.Get("audio.recording.device_unavailable",
+                    ("device", saved.Name ?? Lexicon.Get("audio.recording.the_saved_microphone")));
                 return null;
             }
             return live;
@@ -286,7 +288,7 @@ public static class RecordingNarrator
         catch (Exception ex)
         {
             Trace.WriteLine($"RecordingNarrator.ResolveMicrophone failed: {ex.Message}");
-            trouble = "The microphone could not be opened: " + ex.Message;
+            trouble = Lexicon.Get("audio.recording.microphone_not_opened", ("reason", ex.Message));
             return null;
         }
     }
@@ -312,8 +314,8 @@ public static class RecordingNarrator
         if (interval > _lastSpokenInterval)
         {
             _lastSpokenInterval = interval;
-            Speak("Still recording, " + RecordingStore.DescribeLength(seconds) + ".",
-                interrupt: false);
+            Speak(Lexicon.Get("audio.recording.still_recording",
+                ("length", RecordingStore.DescribeLength(seconds))), interrupt: false);
         }
 
         // A warning before the cap, so nobody is cut off mid-sentence with no
@@ -321,9 +323,9 @@ public static class RecordingNarrator
         if (!_capWarned && seconds >= MicRecorder.MaxSeconds - CapWarningSeconds)
         {
             _capWarned = true;
-            Speak("Recording will stop in about "
-                + CapWarningSeconds.ToString(CultureInfo.InvariantCulture)
-                + " seconds — that is the length limit.", interrupt: false);
+            Speak(Lexicon.Get("audio.recording.cap_warning",
+                ("seconds", CapWarningSeconds.ToString(CultureInfo.InvariantCulture))),
+                interrupt: false);
         }
     }
 
@@ -345,8 +347,8 @@ public static class RecordingNarrator
     {
         EarconPlayer.LeaderInvalidTone();
         string text = string.IsNullOrWhiteSpace(reason)
-            ? "Recording could not start."
-            : "Recording could not start. " + reason;
+            ? Lexicon.Get("audio.recording.could_not_start")
+            : Lexicon.Get("audio.recording.could_not_start_because", ("reason", reason));
         Trace.WriteLine("RecordingNarrator: " + text);
         Speak(text, interrupt: true);
     }

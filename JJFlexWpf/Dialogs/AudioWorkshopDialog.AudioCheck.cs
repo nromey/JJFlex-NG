@@ -79,7 +79,7 @@ public partial class AudioWorkshopDialog
             // advisory only where it matters.
             if (idx == (int)AudioCheckListenMethods.Monitor && _rig?.RemoteRig == true)
                 ScreenReaderOutput.Speak(
-                    "Note: over remote, monitor audio arrives delayed. Record and play back is recommended.",
+                    Lexicon.Get("audio.check.remote_monitor_advice"),
                     VerbosityLevel.Terse);
         };
         AddToSection(TxAudioContent, _listenMethodControl);
@@ -192,24 +192,24 @@ public partial class AudioWorkshopDialog
     {
         if (_session != null && _session.Active)
         {
-            ScreenReaderOutput.Speak("Stop the current check first.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.stop_current_first"),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
         var ptt = PttControllerSource?.Invoke();
         if (ptt == null)
         {
-            ScreenReaderOutput.Speak("Radio is not powered on", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.radio_not_powered_on"), VerbosityLevel.Critical);
             return;
         }
         if (ptt.IsTransmitting)
         {
-            ScreenReaderOutput.Speak("Already transmitting. Stop transmitting first.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.already_transmitting"),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
@@ -217,8 +217,9 @@ public partial class AudioWorkshopDialog
         if (!_rig.StartLoopbackArrangement())
         {
             string reason = _rig.LoopbackUnavailableReason;
-            if (string.IsNullOrEmpty(reason)) reason = "no free slice for the listening receiver";
-            ScreenReaderOutput.Speak($"Loopback check could not be set up: {reason}.",
+            if (string.IsNullOrEmpty(reason)) reason = Lexicon.Get("audio.check.loopback_no_free_slice");
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.check.loopback_setup_failed", ("reason", reason)),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
@@ -258,19 +259,19 @@ public partial class AudioWorkshopDialog
 
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
 
         var ptt = PttControllerSource?.Invoke();
         if (ptt == null)
         {
-            ScreenReaderOutput.Speak("Radio is not powered on", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.radio_not_powered_on"), VerbosityLevel.Critical);
             return;
         }
         if (ptt.IsTransmitting)
         {
-            ScreenReaderOutput.Speak("Already transmitting. Stop transmitting first.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.already_transmitting"),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
@@ -311,7 +312,7 @@ public partial class AudioWorkshopDialog
         {
             string trouble = _rig.EndLoopbackArrangement();
             ScreenReaderOutput.Speak(
-                "Loopback ended. Antenna, power, monitor and duplex settings restored. " + trouble,
+                Lexicon.Get("audio.check.loopback_ended") + " " + trouble,
                 VerbosityLevel.Terse);
         }
     }
@@ -320,29 +321,29 @@ public partial class AudioWorkshopDialog
     {
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
         if (_session != null && _session.EscapeStopsTransmit)
         {
-            ScreenReaderOutput.Speak("Still transmitting. Stop the check first.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
         if (_rig.SlicePlayOn)
         {
             _rig.SlicePlayOn = false;
-            ScreenReaderOutput.Speak("Playback stopped", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playback_stopped"), VerbosityLevel.Terse, interrupt: true);
             return;
         }
         if (!_rig.SlicePlayEnabled)
         {
-            ScreenReaderOutput.Speak("No recording yet. Run an audio check with record and play back.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.no_recording_yet"),
                 VerbosityLevel.Terse, interrupt: true);
             return;
         }
         _rig.SlicePlayOn = true;
-        ScreenReaderOutput.Speak("Playing your take", VerbosityLevel.Terse, interrupt: true);
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), VerbosityLevel.Terse, interrupt: true);
     }
 
     #endregion
@@ -509,7 +510,7 @@ public partial class AudioWorkshopDialog
                 RestoreChangedState(rig, speak: false);
                 if (!_loopback && _method == AudioCheckListenMethods.RecordPlayback && !recorderAlreadyRunning)
                     rig.SliceRecordOn = false;
-                ScreenReaderOutput.Speak("Audio check could not start.",
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.could_not_start"),
                     VerbosityLevel.Critical);
                 return false;
             }
@@ -521,11 +522,13 @@ public partial class AudioWorkshopDialog
                 // a massively overloaded receiver. It proves presence,
                 // processing, and rough shape — never claim a faithful
                 // off-air listen. An SDR on a real antenna is ground truth.
-                line.Append($"Loopback check. Transmitting at one watt into the transverter port on {FormatMHz(rig.TXFrequency)}, audio from {SourceFriendlyName(rig.MicSource)}.");
-                line.Append(" You will hear your own signal through an overloaded receiver: it proves your audio is present and processed, not exactly how you sound on the air.");
+                line.Append(Lexicon.Get("audio.check.loopback_line",
+                    ("freq", FormatMHz(rig.TXFrequency)),
+                    ("source", SourceFriendlyName(rig.MicSource))));
+                line.Append(' ').Append(Lexicon.Get("audio.check.loopback_honesty"));
                 if (rig.LoopbackDriveManaged)
-                    line.Append(" Transverter drive reduced for a cleaner listen.");
-                line.Append(" This also proves your transmitter chain end to end.");
+                    line.Append(' ').Append(Lexicon.Get("audio.check.loopback_drive_reduced"));
+                line.Append(' ').Append(Lexicon.Get("audio.check.loopback_proves_chain"));
             }
             else
             {
@@ -538,22 +541,31 @@ public partial class AudioWorkshopDialog
                 // named just as honestly as one this check engaged.
                 if (rig.DummyLoadMode)
                 {
-                    line.Append($"Audio check, dummy load, no RF. Keyed on {FormatMHz(rig.TXFrequency)}, audio from {SourceFriendlyName(rig.MicSource)}.");
+                    line.Append(Lexicon.Get("audio.check.line_dummy_load",
+                        ("freq", FormatMHz(rig.TXFrequency)),
+                        ("source", SourceFriendlyName(rig.MicSource))));
                 }
                 else
                 {
-                    line.Append($"Audio check, transmitting on {FormatMHz(rig.TXFrequency)} at {effectivePower} {(effectivePower == 1 ? "watt" : "watts")}, audio from {SourceFriendlyName(rig.MicSource)}.");
+                    line.Append(Lexicon.Get("audio.check.line_transmitting",
+                        ("freq", FormatMHz(rig.TXFrequency)),
+                        ("watts", effectivePower),
+                        ("unit", effectivePower == 1
+                            ? Lexicon.Get("audio.unit.watt")
+                            : Lexicon.Get("audio.unit.watts")),
+                        ("source", SourceFriendlyName(rig.MicSource))));
                     if (_powerTouched)
-                        line.Append($" Power reduced from {_savedPower} watts for the check.");
+                        line.Append(' ').Append(Lexicon.Get("audio.check.power_reduced_for_check",
+                            ("watts", _savedPower)));
                 }
                 if (monitorTurnedOn)
-                    line.Append(" Monitor on.");
+                    line.Append(' ').Append(Lexicon.Get("audio.check.monitor_on"));
                 if (recorderAlreadyRunning)
-                    line.Append(" Recorder was already running; using it.");
+                    line.Append(' ').Append(Lexicon.Get("audio.check.recorder_already_running"));
                 else if (_method == AudioCheckListenMethods.RecordPlayback)
-                    line.Append(" Recording; your take plays back when you stop.");
+                    line.Append(' ').Append(Lexicon.Get("audio.check.recording_plays_back"));
                 if (rig.RemoteRig && _method == AudioCheckListenMethods.Monitor)
-                    line.Append(" Over remote, monitor audio arrives delayed; record and play back is recommended.");
+                    line.Append(' ').Append(Lexicon.Get("audio.check.remote_monitor_note"));
             }
             // Audio Track C: when the test tone is riding this transmission,
             // the safety line says so — including the passband warning if the
@@ -562,7 +574,7 @@ public partial class AudioWorkshopDialog
             string? toneLine = _owner.BuildToneAnnouncement();
             if (!string.IsNullOrEmpty(toneLine))
                 line.Append(' ').Append(toneLine);
-            line.Append(" Escape stops.");
+            line.Append(' ').Append(Lexicon.Get("audio.check.escape_stops"));
             ScreenReaderOutput.Speak(line.ToString(), VerbosityLevel.Critical, interrupt: true);
 
             _keyedAt = DateTime.UtcNow;
@@ -601,7 +613,7 @@ public partial class AudioWorkshopDialog
             if (_phase == Phase.Keyed)
             {
                 if (_ptt.IsTransmitting) _ptt.EscapeUnlock();
-                ScreenReaderOutput.Speak("Transmit off.", VerbosityLevel.Critical);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmit_off"), VerbosityLevel.Critical);
                 if (rig != null && _method == AudioCheckListenMethods.RecordPlayback)
                     rig.SliceRecordOn = false;
             }
@@ -636,7 +648,7 @@ public partial class AudioWorkshopDialog
                 _ptt.EscapeUnlock(); // controller speaks its own key-up line
 
             var rig = Rig;
-            var msg = new StringBuilder("Transmit off.");
+            var msg = new StringBuilder(Lexicon.Get("audio.check.transmit_off"));
 
             if (rig != null)
             {
@@ -646,25 +658,27 @@ public partial class AudioWorkshopDialog
                     // inside FlexBase; the spoken value is the pre-engage
                     // reading (the live getter may not have echoed yet).
                     rig.DummyLoadMode = false;
-                    msg.Append($" Dummy load released, power back to {_dummySavedPower} watts.");
+                    msg.Append(' ').Append(Lexicon.Get("audio.check.dummy_load_released",
+                        ("watts", _dummySavedPower)));
                     _dummyEngaged = false;
                 }
                 if (_powerTouched)
                 {
                     rig.XmitPower = _savedPower;
-                    msg.Append($" Power restored to {_savedPower} watts.");
+                    msg.Append(' ').Append(Lexicon.Get("audio.check.power_restored",
+                        ("watts", _savedPower)));
                     _powerTouched = false;
                 }
                 if (_monitorTouched)
                 {
                     rig.Monitor = FlexBase.OffOnValues.off;
-                    msg.Append(" Monitor restored off.");
+                    msg.Append(' ').Append(Lexicon.Get("audio.check.monitor_restored_off"));
                     _monitorTouched = false;
                 }
                 if (_method == AudioCheckListenMethods.RecordPlayback)
                 {
                     rig.SliceRecordOn = false;
-                    msg.Append(" Playing your take in a moment.");
+                    msg.Append(' ').Append(Lexicon.Get("audio.check.playing_take_shortly"));
                 }
 
                 // The verdict — the whole point of the check. Peak SC_MIC over
@@ -676,7 +690,7 @@ public partial class AudioWorkshopDialog
                 if (rig.ScMicMaxDb > -140f)
                 {
                     string report = MicAudioReport.Compose(
-                        rig, "Your mic audio was", rig.ScMicMaxDb, live: false);
+                        rig, Lexicon.Get("audio.check.mic_audio_was"), rig.ScMicMaxDb, live: false);
                     msg.Append(' ').Append(report);
                     if (!report.EndsWith(".")) msg.Append('.');
                 }
@@ -705,7 +719,7 @@ public partial class AudioWorkshopDialog
             var rig = Rig;
             if (rig == null)
             {
-                ForceEnd("Radio disconnected, audio check ended");
+                ForceEnd(Lexicon.Get("audio.check.radio_disconnected"));
                 return;
             }
 
@@ -741,7 +755,7 @@ public partial class AudioWorkshopDialog
             {
                 _noKeyWarned = true;
                 ScreenReaderOutput.Speak(
-                    "The radio did not key. Check interlocks and the mic source.",
+                    Lexicon.Get("audio.check.radio_did_not_key"),
                     VerbosityLevel.Critical, interrupt: true);
             }
 
@@ -751,7 +765,9 @@ public partial class AudioWorkshopDialog
             {
                 _lastMinuteSpoken = minutes;
                 ScreenReaderOutput.Speak(
-                    minutes == 1 ? "Audio check, one minute." : $"Audio check, {minutes} minutes.",
+                    minutes == 1
+                        ? Lexicon.Get("audio.check.elapsed_one_minute")
+                        : Lexicon.Get("audio.check.elapsed_minutes", ("minutes", minutes)),
                     VerbosityLevel.Terse);
             }
 
@@ -762,7 +778,7 @@ public partial class AudioWorkshopDialog
             {
                 _bufferWarned = true;
                 ScreenReaderOutput.Speak(
-                    "Recording buffer nearly full; oldest audio will drop off.",
+                    Lexicon.Get("audio.check.buffer_nearly_full"),
                     VerbosityLevel.Terse);
             }
         }
@@ -778,8 +794,7 @@ public partial class AudioWorkshopDialog
             {
                 _hardwareWarned = true;
                 ScreenReaderOutput.Speak(
-                    $"Warning: the radio is still transmitting. Hardware keying is active, source {rig.PttSourceName}. " +
-                    "Software cannot unkey a hardware line; release the hand mic or rear P T T line.",
+                    Lexicon.Get("audio.check.hardware_keying_active", ("source", rig.PttSourceName)),
                     VerbosityLevel.Critical, interrupt: true);
                 return; // keep watching until the hardware line releases
             }
@@ -787,7 +802,7 @@ public partial class AudioWorkshopDialog
                 return; // still keyed by hardware — stay alive, Escape keeps warning
             if (_hardwareWarned && !rig.Transmit)
             {
-                ScreenReaderOutput.Speak("Transmitter released.", VerbosityLevel.Critical);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.check.transmitter_released"), VerbosityLevel.Critical);
                 _hardwareWarned = false;
             }
 
@@ -795,7 +810,7 @@ public partial class AudioWorkshopDialog
             {
                 // No playback wanted — just the post-unkey grace, then done.
                 if (_postUnkeyTicks >= 3)
-                    End("Audio check ended.");
+                    End(Lexicon.Get("audio.check.ended"));
                 return;
             }
 
@@ -807,13 +822,13 @@ public partial class AudioWorkshopDialog
             {
                 rig.SlicePlayOn = true;
                 ScreenReaderOutput.Speak(
-                    "Playing your take. It carries your full processing chain. Play last take repeats it.",
+                    Lexicon.Get("audio.check.playing_take_full_chain"),
                     VerbosityLevel.Terse);
                 End(null);
             }
             else if (_awaitPlaybackTicks >= 6)
             {
-                End("No recording available.");
+                End(Lexicon.Get("audio.check.no_recording_available"));
             }
         }
 
@@ -824,35 +839,39 @@ public partial class AudioWorkshopDialog
                 rig.DummyLoadMode = false;
                 _dummyEngaged = false;
                 if (speak)
-                    ScreenReaderOutput.Speak($"Dummy load released, power back to {_dummySavedPower} watts.", VerbosityLevel.Terse);
+                    ScreenReaderOutput.Speak(
+                        Lexicon.Get("audio.check.dummy_load_released", ("watts", _dummySavedPower)),
+                        VerbosityLevel.Terse);
             }
             if (_powerTouched)
             {
                 rig.XmitPower = _savedPower;
                 _powerTouched = false;
                 if (speak)
-                    ScreenReaderOutput.Speak($"Power restored to {_savedPower} watts.", VerbosityLevel.Terse);
+                    ScreenReaderOutput.Speak(
+                        Lexicon.Get("audio.check.power_restored", ("watts", _savedPower)),
+                        VerbosityLevel.Terse);
             }
             if (_monitorTouched)
             {
                 rig.Monitor = FlexBase.OffOnValues.off;
                 _monitorTouched = false;
                 if (speak)
-                    ScreenReaderOutput.Speak("Monitor restored off.", VerbosityLevel.Terse);
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.check.monitor_restored_off"), VerbosityLevel.Terse);
             }
         }
 
         private static string FormatMHz(ulong hz)
         {
-            return $"{hz / 1e6:0.000###} megahertz";
+            return Lexicon.Get("audio.frequency_megahertz", ("mhz", $"{hz / 1e6:0.000###}"));
         }
 
         private static string SourceFriendlyName(string micSource)
         {
-            if (string.IsNullOrEmpty(micSource)) return "an unknown source";
+            if (string.IsNullOrEmpty(micSource)) return Lexicon.Get("audio.source.unknown");
             return micSource.Equals("PC", StringComparison.OrdinalIgnoreCase)
-                ? "this computer"
-                : $"the {micSource} input";
+                ? Lexicon.Get("audio.source.this_computer")
+                : Lexicon.Get("audio.source.named_input", ("source", micSource));
         }
     }
 

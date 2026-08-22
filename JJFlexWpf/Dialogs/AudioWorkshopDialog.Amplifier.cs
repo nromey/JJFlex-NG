@@ -201,7 +201,7 @@ public partial class AudioWorkshopDialog
         if (rig == null || active == null)
         {
             SetAmpOperateSilently(false, enabled: false);
-            ScreenReaderOutput.Speak("There is no amplifier to switch.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.amplifier.none_to_switch"),
                 VerbosityLevel.Terse, true);
             return;
         }
@@ -217,7 +217,7 @@ public partial class AudioWorkshopDialog
         if (!rig.Amplifiers.SetOperate(active.Handle, want))
         {
             SetAmpOperateSilently(active.IsOperate, enabled: true);
-            ScreenReaderOutput.Speak("That did not reach the amplifier — nothing was sent.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.amplifier.command_not_sent"),
                 VerbosityLevel.Terse, true);
             return;
         }

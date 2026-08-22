@@ -34,7 +34,7 @@ public partial class AudioWorkshopDialog
     // which is exactly the guest-operator rule, falling out of the
     // architecture rather than being enforced by it.
 
-    private const string NoMicProfilesOption = "(none saved yet)";
+    private static string NoMicProfilesOption => Lexicon.Get("audio.micprofile.none_saved_yet");
 
     // ── Ownership, and what it gates (Sprint 31 Track S, #94) ──
     //
@@ -51,10 +51,10 @@ public partial class AudioWorkshopDialog
     private string CurrentRadioLabel()
     {
         string serial = _rig?.SelectedRadioSerial ?? "";
-        if (string.IsNullOrEmpty(serial)) return "this radio";
+        if (string.IsNullOrEmpty(serial)) return Lexicon.Get("audio.micprofile.this_radio");
         string name = RadioConfig.LoadForRadio(serial).DisplayName;
         if (string.IsNullOrWhiteSpace(name)) name = _rig?.RadioNickname ?? "";
-        return string.IsNullOrWhiteSpace(name) ? "this radio" : name;
+        return string.IsNullOrWhiteSpace(name) ? Lexicon.Get("audio.micprofile.this_radio") : name;
     }
 
     /// <summary>
@@ -268,7 +268,7 @@ public partial class AudioWorkshopDialog
     {
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
 
@@ -277,38 +277,33 @@ public partial class AudioWorkshopDialog
         if (string.IsNullOrEmpty(pick))
         {
             ScreenReaderOutput.Speak(
-                "This radio does not offer a mic profile to load.", VerbosityLevel.Critical);
+                Lexicon.Get("audio.micprofile.radio_offers_none"), VerbosityLevel.Critical);
             return;
         }
 
         if (!MayCreateOnRadio(radioId,
-                $"You asked JJ Flex to load the mic profile {pick} on {CurrentRadioLabel()}, "
-                + "so that transmit audio from this computer has somewhere to go."))
+                Lexicon.Get("audio.micprofile.load_reason",
+                    ("profile", pick), ("radio", CurrentRadioLabel()))))
         {
             // Not marked as this operator's radio — offered, never silent.
             var confirm = new ConfirmActionDialog(
-                "Change a Setting on Someone Else's Radio",
-                $"Loading the mic profile {pick} would give transmit audio from this computer "
-                + "a chain to travel through, which is what fixes the problem. It creates "
-                + "nothing new — that profile already exists on the radio.",
+                Lexicon.Get("audio.micprofile.someone_elses_title"),
+                Lexicon.Get("audio.micprofile.someone_elses_body", ("profile", pick)),
                 new[]
                 {
-                    "A mic profile is shared. Every program connected to this radio uses the "
-                    + "one that is loaded, so its owner and anyone else on it get this change "
-                    + "too, with nothing on their end to say why.",
-                    "An empty selection can be deliberate. If the radio's owner arranged it "
-                    + "that way, this undoes their arrangement.",
+                    Lexicon.Get("audio.micprofile.someone_elses_shared"),
+                    Lexicon.Get("audio.micprofile.someone_elses_deliberate"),
                 },
-                question: $"Load {pick} on this radio anyway?",
-                yesLabel: "_Load it",
-                noLabel: "_Leave it alone")
+                question: Lexicon.Get("audio.micprofile.someone_elses_question", ("profile", pick)),
+                yesLabel: Lexicon.Get("audio.micprofile.someone_elses_yes"),
+                noLabel: Lexicon.Get("audio.micprofile.someone_elses_no"))
             {
                 Owner = this,
             };
             if (confirm.ShowDialog() != true)
             {
                 ScreenReaderOutput.Speak(
-                    "The radio was left alone.", VerbosityLevel.Terse);
+                    Lexicon.Get("audio.micprofile.radio_left_alone"), VerbosityLevel.Terse);
                 return;
             }
         }
@@ -322,15 +317,14 @@ public partial class AudioWorkshopDialog
             // was ASKED FOR. The warning line above clears itself on the next
             // poll, when the radio confirms — which is the honest order.
             ScreenReaderOutput.Speak(
-                $"Mic profile {pick} loaded on the radio. Transmit audio from this computer "
-                + "has a chain to go through now.",
+                Lexicon.Get("audio.micprofile.loaded_on_radio", ("profile", pick)),
                 VerbosityLevel.Critical);
             PollTxAudio();
         }
         else
         {
             ScreenReaderOutput.Speak(
-                $"This radio no longer lists a mic profile named {pick}, so nothing was changed.",
+                Lexicon.Get("audio.micprofile.no_longer_listed", ("profile", pick)),
                 VerbosityLevel.Critical);
         }
     }
@@ -387,7 +381,7 @@ public partial class AudioWorkshopDialog
         var profile = SelectedMicProfile();
         if (profile == null)
         {
-            ScreenReaderOutput.Speak("No microphone profile is selected. Save one first.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.micprofile.none_selected_save_one"),
                 VerbosityLevel.Terse);
             return;
         }
@@ -396,7 +390,7 @@ public partial class AudioWorkshopDialog
         var radioResult = profile.ApplyRadioHalf(_rig, _rig?.SelectedRadioSerial ?? "");
         if (radioResult.RadioHalfApplied) PollTxAudio();
 
-        var parts = new List<string> { $"Profile {profile.Name} applied." };
+        var parts = new List<string> { Lexicon.Get("audio.micprofile.applied", ("profile", profile.Name)) };
         if (!string.IsNullOrEmpty(radioResult.Message)) parts.Add(radioResult.Message);
         if (!string.IsNullOrEmpty(captureNotes)) parts.Add(captureNotes);
         ScreenReaderOutput.Speak(string.Join(" ", parts),
@@ -560,7 +554,7 @@ public partial class AudioWorkshopDialog
             string name = nameBox.Text.Trim();
             if (string.IsNullOrEmpty(name))
             {
-                ScreenReaderOutput.Speak("Please enter a name", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.please_enter_a_name"), VerbosityLevel.Terse);
                 return;
             }
 
@@ -587,7 +581,8 @@ public partial class AudioWorkshopDialog
                         RadioModel = _rig.RadioModel,
                         ProfileName = radioProfileName,
                     });
-                    radioHalfSpoken = $"On this radio it references mic profile {radioProfileName}.";
+                    radioHalfSpoken = Lexicon.Get("audio.micprofile.references_radio_profile",
+                        ("profile", radioProfileName));
                 }
                 else if (createOption?.IsChecked == true)
                 {
@@ -598,8 +593,7 @@ public partial class AudioWorkshopDialog
                     // mind, and so it arrives attached to a commit the operator
                     // just made.
                     if (MayCreateOnRadio(radioId,
-                            "You asked JJ Flex to create a mic profile named " + name
-                            + " on the radio itself."))
+                            Lexicon.Get("audio.micprofile.create_reason", ("profile", name))))
                     {
                         // SelectProfile's mic case creates the profile on the
                         // radio when it is missing and loads it; the radio
@@ -611,7 +605,7 @@ public partial class AudioWorkshopDialog
                             RadioModel = _rig.RadioModel,
                             ProfileName = name,
                         });
-                        radioHalfSpoken = $"A mic profile named {name} was created on the radio and referenced.";
+                        radioHalfSpoken = Lexicon.Get("audio.micprofile.created_on_radio", ("profile", name));
                     }
                     else
                     {
@@ -619,8 +613,7 @@ public partial class AudioWorkshopDialog
                         // The computer half still saved — refusing the whole
                         // save would punish the operator for answering
                         // honestly — and the radio was not touched. Say both.
-                        radioHalfSpoken = "Nothing was created on the radio, so your computer "
-                            + "settings were saved on their own.";
+                        radioHalfSpoken = Lexicon.Get("audio.micprofile.nothing_created_on_radio");
                     }
                 }
                 else if (snapshotOption?.IsChecked == true)
@@ -631,7 +624,7 @@ public partial class AudioWorkshopDialog
                         RadioModel = _rig.RadioModel,
                         Values = AudioChainPreset.CaptureFrom(_rig, name, ReadSavedPcInputName()),
                     });
-                    radioHalfSpoken = "The radio's TX settings were snapshotted into it.";
+                    radioHalfSpoken = Lexicon.Get("audio.micprofile.snapshotted");
                 }
                 // pcOnly: existing bindings deliberately untouched.
             }
@@ -640,16 +633,19 @@ public partial class AudioWorkshopDialog
             if (saved)
             {
                 RefreshMicProfileOptions(selectName: name);
-                string verb = isNew ? "saved" : "updated";
+                string verb = isNew
+                    ? Lexicon.Get("audio.micprofile.verb_saved")
+                    : Lexicon.Get("audio.micprofile.verb_updated");
                 ScreenReaderOutput.Speak(
-                    $"Microphone profile {name} {verb}." +
+                    Lexicon.Get("audio.micprofile.save_receipt", ("profile", name), ("verb", verb)) +
                     (string.IsNullOrEmpty(radioHalfSpoken) ? "" : " " + radioHalfSpoken),
                     VerbosityLevel.Terse);
             }
             else
             {
                 ScreenReaderOutput.Speak(
-                    $"Microphone profile {name}. " + PresetSaveFailed,
+                    Lexicon.Get("audio.micprofile.save_failed",
+                        ("profile", name), ("reason", PresetSaveFailed)),
                     VerbosityLevel.Critical);
             }
             dialog.Close();
@@ -670,17 +666,15 @@ public partial class AudioWorkshopDialog
         var profile = SelectedMicProfile();
         if (profile == null)
         {
-            ScreenReaderOutput.Speak("No microphone profile is selected.", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.micprofile.none_selected"), VerbosityLevel.Terse);
             return;
         }
 
         var confirm = new ConfirmActionDialog(
-            "Delete Microphone Profile",
-            $"This deletes the microphone profile {profile.Name}, including its "
-            + "settings for every radio it was set up on. Profiles stored on a "
-            + "radio itself are not touched. There is no undo.",
-            question: "Delete it?",
-            yesLabel: "_Delete");
+            Lexicon.Get("audio.micprofile.delete_title"),
+            Lexicon.Get("audio.micprofile.delete_body", ("profile", profile.Name)),
+            question: Lexicon.Get("audio.micprofile.delete_question"),
+            yesLabel: Lexicon.Get("audio.micprofile.delete_yes_label"));
         if (confirm.ShowDialog() != true) return;
 
         var store = GetMicProfilesCallback?.Invoke() ?? new MicrophoneProfileStore();
@@ -690,11 +684,13 @@ public partial class AudioWorkshopDialog
         bool saved = SaveMicProfilesCallback?.Invoke(store) ?? false;
         RefreshMicProfileOptions();
         if (saved)
-            ScreenReaderOutput.Speak($"Microphone profile {profile.Name} deleted.", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.micprofile.deleted", ("profile", profile.Name)),
+                VerbosityLevel.Terse);
         else
             ScreenReaderOutput.Speak(
-                $"Microphone profile {profile.Name} was removed from the list, but "
-                + PresetSaveFailed + " It will be back next time.",
+                Lexicon.Get("audio.micprofile.deleted_but_not_saved",
+                    ("profile", profile.Name), ("reason", PresetSaveFailed)),
                 VerbosityLevel.Critical);
     }
 
@@ -789,10 +785,17 @@ public partial class AudioWorkshopDialog
             // would be confidently wrong. Say it, do not do it. The same
             // argument covers the cleanup chain below: a gate tuned for
             // that microphone's room noise is not this microphone's gate.
-            notes.Add($"It was made with {capture.DeviceName}; this computer is using "
-                + $"{currentName}, so the Windows input level"
-                + (capture.Conditioning != null ? " and the transmit cleanup settings were" : " was")
-                + " left alone.");
+            // Two whole sentences rather than one with a spliced clause: a
+            // fragment like " and the transmit cleanup settings were" cannot be
+            // translated, or even read, on its own. Same words either way.
+            // Both keys spelled out at the call site rather than picked into a
+            // variable, so the static key check can see them: it reads source,
+            // and a key chosen before the call is invisible to it.
+            notes.Add(capture.Conditioning != null
+                ? Lexicon.Get("audio.micprofile.device_mismatch_with_cleanup",
+                    ("device", capture.DeviceName), ("current", currentName))
+                : Lexicon.Get("audio.micprofile.device_mismatch",
+                    ("device", capture.DeviceName), ("current", currentName)));
             return string.Join(" ", notes);
         }
 
@@ -812,8 +815,7 @@ public partial class AudioWorkshopDialog
             }
             else
             {
-                notes.Add("Its transmit cleanup settings need a connected radio, "
-                    + "so they were not applied.");
+                notes.Add(Lexicon.Get("audio.micprofile.cleanup_needs_a_radio"));
             }
         }
 
@@ -823,7 +825,7 @@ public partial class AudioWorkshopDialog
             var level = WindowsMicLevel.TryFindByName(targetName, hostApi, out string whyNot);
             if (level == null)
             {
-                notes.Add("The Windows input level could not be set: " + whyNot);
+                notes.Add(Lexicon.Get("audio.micprofile.level_not_set", ("reason", whyNot)));
             }
             else
             {
@@ -835,7 +837,7 @@ public partial class AudioWorkshopDialog
                 }
                 catch (Exception ex)
                 {
-                    notes.Add("The Windows input level could not be set: " + ex.Message);
+                    notes.Add(Lexicon.Get("audio.micprofile.level_not_set", ("reason", ex.Message)));
                 }
                 finally
                 {

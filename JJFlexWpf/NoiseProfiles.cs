@@ -232,14 +232,13 @@ public static class NoiseCaptureNarrator
         if (pipeline == null)
         {
             EarconPlayer.LeaderInvalidTone();
-            Speak("PC audio pipeline not ready", interrupt: true);
+            Speak(Radios.Lexicon.Get("audio.noise.capture.pipeline_not_ready"), interrupt: true);
             return;
         }
         if (rig != null && !rig.PCAudio)
         {
             EarconPlayer.LeaderInvalidTone();
-            Speak("PC audio is off. Noise capture listens to the radio audio playing " +
-                  "through this computer. Turn PC audio on first.", interrupt: true);
+            Speak(Radios.Lexicon.Get("audio.noise.capture.pc_audio_off"), interrupt: true);
             return;
         }
 
@@ -259,8 +258,12 @@ public static class NoiseCaptureNarrator
         StateChanged?.Invoke();
 
         EarconPlayer.ConfirmTone();
-        Speak($"Capturing noise for {_duration} {(_duration == 1 ? "second" : "seconds")}. " +
-              "Keep the band quiet.", interrupt: true);
+        Speak(Radios.Lexicon.Get("audio.noise.capture.started",
+            ("seconds", _duration),
+            ("unit", _duration == 1
+                ? Radios.Lexicon.Get("audio.unit.second")
+                : Radios.Lexicon.Get("audio.unit.seconds"))),
+            interrupt: true);
     }
 
     /// <summary>Cancel the capture in flight, and say so.</summary>
@@ -271,7 +274,7 @@ public static class NoiseCaptureNarrator
         StopTimer();
         p?.CancelNoiseSampling();
         EarconPlayer.LeaderCancelTone();
-        Speak("Noise capture cancelled", interrupt: true);
+        Speak(Radios.Lexicon.Get("audio.noise.capture.cancelled"), interrupt: true);
         FireFinished();
     }
 
@@ -301,8 +304,7 @@ public static class NoiseCaptureNarrator
                 StopTimer();
                 p.CancelNoiseSampling();
                 EarconPlayer.LeaderInvalidTone();
-                Speak("Noise capture stopped. No radio audio is reaching this computer. " +
-                      "Is PC audio on?", interrupt: true);
+                Speak(Radios.Lexicon.Get("audio.noise.capture.no_audio_arriving"), interrupt: true);
                 FireFinished();
             }
             return;
@@ -315,14 +317,14 @@ public static class NoiseCaptureNarrator
             AutoSave(p);
             EarconPlayer.ConfirmTone();
             string next = p.SpectralEnabled
-                ? "PC Spectral NR is using it."
-                : "Turn on PC Spectral NR to use it: Control J, then Shift S.";
-            Speak("Noise profile captured. " + next, interrupt: true);
+                ? Radios.Lexicon.Get("audio.noise.capture.spectral_is_using_it")
+                : Radios.Lexicon.Get("audio.noise.capture.turn_spectral_on");
+            Speak(Radios.Lexicon.Get("audio.noise.capture.captured", ("next", next)), interrupt: true);
         }
         else
         {
             EarconPlayer.LeaderCancelTone();
-            Speak("Noise capture cancelled", interrupt: true);
+            Speak(Radios.Lexicon.Get("audio.noise.capture.cancelled"), interrupt: true);
         }
         FireFinished();
     }

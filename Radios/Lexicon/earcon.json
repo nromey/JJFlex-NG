@@ -1,5 +1,11 @@
 {
   "_comment": "This file holds what JJ Flexible says and shows, for the earcon area. Earcon and CW vocabulary. CW literals such as '73 de JJF' live here and are NEVER translated - they are heard, not read, and 73 has no French variant. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md.",
   "earcon.alerts_off": "Alert sounds off",
-  "earcon.alerts_on": "Alert sounds on"
+  "earcon.alerts_on": "Alert sounds on",
+  "earcon.bench.everything_stopped": "Stopped.",
+  "earcon.bench.playing_repeats": "{sound}, {count} times.",
+  "earcon.bench.series_finished": "{family}: all {count} played.",
+  "earcon.bench.series_step": "{index} of {count}: {sound}",
+  "earcon.bench.series_stopped": "Series stopped.",
+  "earcon.bench.sound_stopped": "{sound} stopped."
 }

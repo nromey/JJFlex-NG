@@ -95,7 +95,10 @@ public abstract class AudioLevelsDialogBase : JJFlexDialog
         // roads to one setting that answer differently teach the operator
         // nothing except that one of them is broken.
         EarconPlayer.ToggleTone(on);
-        ScreenReaderOutput.Speak($"{label} {(on ? "on" : "off")}",
+        ScreenReaderOutput.Speak(
+            Lexicon.Get("audio.levels.toggle_state",
+                ("label", label),
+                ("state", on ? Lexicon.Get("audio.state.on") : Lexicon.Get("audio.state.off"))),
             VerbosityLevel.Terse, interrupt: true);
     }
 

@@ -120,7 +120,7 @@ public partial class AudioWorkshopDialog
         _refFolderButton.Click += (s, e) =>
         {
             if (!RecordingStore.OpenFolder())
-                ScreenReaderOutput.Speak("The recordings folder could not be opened.",
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.reference.folder_open_failed"),
                     VerbosityLevel.Critical, interrupt: true);
         };
         JJFlexHelp.SetText(_refFolderButton,
@@ -226,7 +226,7 @@ public partial class AudioWorkshopDialog
         var rig = _rig;
         if (rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical, interrupt: true);
             return false;
         }
 
@@ -234,8 +234,7 @@ public partial class AudioWorkshopDialog
         if (string.IsNullOrEmpty(path))
         {
             ScreenReaderOutput.Speak(
-                "There is no reference recording to send. Record one, or check that "
-                + "the recording that ships with JJ Flexible is installed.",
+                Lexicon.Get("audio.reference.nothing_to_send"),
                 VerbosityLevel.Critical, interrupt: true);
             return false;
         }
@@ -247,7 +246,8 @@ public partial class AudioWorkshopDialog
         if (!TxAudioFile.TryLoadInto(rig, path, out TxAudioFile.Loaded? loaded, out string trouble))
         {
             EarconPlayer.Warning2Beep();
-            ScreenReaderOutput.Speak("That reference could not be loaded. " + trouble,
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.reference.load_failed", ("reason", trouble)),
                 VerbosityLevel.Critical, interrupt: true);
             return false;
         }
@@ -273,7 +273,7 @@ public partial class AudioWorkshopDialog
         if (rig == null)
         {
             SetReferenceArmSilently(false);
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical, interrupt: true);
             return;
         }
 
@@ -285,7 +285,8 @@ public partial class AudioWorkshopDialog
         {
             SetReferenceArmSilently(false);
             EarconPlayer.Warning2Beep();
-            ScreenReaderOutput.Speak("Reference not armed. " + pathTrouble,
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.reference.not_armed", ("reason", pathTrouble)),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
@@ -295,8 +296,8 @@ public partial class AudioWorkshopDialog
             SetReferenceArmSilently(false);
             EarconPlayer.Warning2Beep();
             ScreenReaderOutput.Speak(
-                "Reference not armed. The test tone is armed, and only one thing "
-                + "can replace your microphone at a time. Turn the test tone off first.",
+                Lexicon.Get("audio.reference.not_armed",
+                    ("reason", Lexicon.Get("audio.reference.tone_already_armed"))),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
@@ -316,9 +317,7 @@ public partial class AudioWorkshopDialog
         // every declined path above reverts the checkbox and warns instead.
         EarconPlayer.FeatureOnTone();
         ScreenReaderOutput.Speak(
-            "Reference armed: " + _refLastDescription
-            + ". It replaces your microphone from the start of the recording "
-            + "each time you transmit.",
+            Lexicon.Get("audio.reference.armed", ("recording", _refLastDescription)),
             VerbosityLevel.Critical, interrupt: true);
         UpdateReferenceStatus();
     }
@@ -339,7 +338,7 @@ public partial class AudioWorkshopDialog
         if (speak)
         {
             EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak("Reference disarmed. Microphone restored.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.reference.disarmed"),
                 VerbosityLevel.Critical, interrupt: true);
         }
         UpdateReferenceStatus();
@@ -362,7 +361,7 @@ public partial class AudioWorkshopDialog
         if (!RecordingNarrator.IsRunning && _refArmCheck?.IsChecked == true)
             DisarmReference(speak: false);
 
-        RecordingNarrator.Toggle("a reference take");
+        RecordingNarrator.Toggle(Lexicon.Get("audio.reference.recording_purpose"));
     }
 
     /// <summary>
@@ -412,7 +411,7 @@ public partial class AudioWorkshopDialog
             _refPassRunning = false;
             EarconPlayer.ConfirmTone();
             ScreenReaderOutput.Speak(
-                "Reference finished. Your microphone is back.",
+                Lexicon.Get("audio.reference.finished"),
                 VerbosityLevel.Terse, interrupt: false);
             SetReferenceArmSilently(false);
             UpdateReferenceStatus();

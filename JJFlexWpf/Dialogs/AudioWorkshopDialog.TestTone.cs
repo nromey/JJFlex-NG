@@ -217,14 +217,13 @@ public partial class AudioWorkshopDialog
         if (freqHz < low || freqHz > high)
         {
             outside = true;
-            return $"Warning: {freqHz} hertz is outside your transmit filter, " +
-                $"which passes {low} to {high} hertz. The tone will not go out. " +
-                "Pick a frequency inside the filter, or widen the TX filter below.";
+            return Lexicon.Get("audio.tone.outside_passband",
+                ("freq", freqHz), ("low", low), ("high", high));
         }
         if (freqHz - low < 50 || high - freqHz < 50)
         {
-            return $"Note: {freqHz} hertz is within 50 hertz of your transmit " +
-                $"filter edge ({low} to {high} hertz). The tone may go out reduced.";
+            return Lexicon.Get("audio.tone.near_passband_edge",
+                ("freq", freqHz), ("low", low), ("high", high));
         }
         return "";
     }
@@ -244,13 +243,14 @@ public partial class AudioWorkshopDialog
         bool outside = false;
         if (rig == null)
         {
-            text = "No radio connected; the tone cannot be checked against a transmit filter.";
+            text = Lexicon.Get("audio.tone.no_radio_for_passband_check");
         }
         else
         {
             string trouble = PassbandCheck(freq, out outside);
             text = string.IsNullOrEmpty(trouble)
-                ? $"{freq} hertz is inside your transmit filter ({rig.TXFilterLow} to {rig.TXFilterHigh} hertz)."
+                ? Lexicon.Get("audio.tone.inside_passband",
+                    ("freq", freq), ("low", rig.TXFilterLow), ("high", rig.TXFilterHigh))
                 : trouble;
         }
         if (_toneInfo.Text != text)
@@ -295,7 +295,7 @@ public partial class AudioWorkshopDialog
         if (rig == null)
         {
             SetToneCheckSilently(false);
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical, interrupt: true);
             return;
         }
         string pathTrouble = rig.TxTonePathTrouble;
@@ -303,7 +303,7 @@ public partial class AudioWorkshopDialog
         {
             SetToneCheckSilently(false);
             EarconPlayer.Warning2Beep();
-            ScreenReaderOutput.Speak("Test tone not armed. " + pathTrouble,
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.tone.not_armed", ("reason", pathTrouble)),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
@@ -318,8 +318,9 @@ public partial class AudioWorkshopDialog
         PttSafetyController.KeyDownAnnouncementExtra = () => _instance?.BuildToneAnnouncement();
 
         var line = new StringBuilder();
-        line.Append($"Test tone armed: {freq} hertz at {level} dBFS. ");
-        line.Append("It replaces your microphone while you transmit.");
+        line.Append(Lexicon.Get("audio.tone.armed", ("freq", freq), ("level", level)));
+        line.Append(' ');
+        line.Append(Lexicon.Get("audio.tone.armed_replaces_mic"));
         string pb = PassbandCheck(freq, out bool outside);
         if (!string.IsNullOrEmpty(pb)) line.Append(' ').Append(pb);
         _toneOutsideWarned = outside;
@@ -354,7 +355,7 @@ public partial class AudioWorkshopDialog
         if (speak)
         {
             EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak("Test tone disarmed. Microphone restored.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.tone.disarmed"),
                 VerbosityLevel.Critical, interrupt: true);
         }
     }
@@ -455,8 +456,8 @@ public partial class AudioWorkshopDialog
         int freq = (int)rig.TxToneFrequency;
         string pathTrouble = rig.TxTonePathTrouble;
         if (!string.IsNullOrEmpty(pathTrouble))
-            return "The test tone is armed but is not going out. " + pathTrouble;
-        string line = $"Sending the {freq} hertz test tone instead of your microphone.";
+            return Lexicon.Get("audio.tone.armed_but_not_going_out", ("reason", pathTrouble));
+        string line = Lexicon.Get("audio.tone.sending", ("freq", freq));
         string pb = PassbandCheck(freq, out _);
         if (!string.IsNullOrEmpty(pb)) line += " " + pb;
         return line;
