@@ -9,6 +9,179 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-21 — THE DAY THE INSTRUMENTS GOT CHECKED
+
+24 commits on `honest-tx-audio`, `a18617f0` through `dd707a4c`. +22,234 net
+lines across 104 files. Suite **249 → 258**. Six tasks closed, seven filed.
+
+### The shape of the day
+
+Yesterday's theme was mechanisms reporting success they had not earned. Today
+was the follow-through: almost everything of value came from **checking an
+instrument rather than building a feature**, and nearly every check found
+something.
+
+Three instruments were corrected, and all three failed the same way — something
+*near* the question standing in for the question:
+
+- **Staleness by commit timestamp.** The new runner flagged our own tree stale.
+  First guess (compare against HEAD) was wrong: a docs-only commit cannot change
+  a binary. Second guess (compare against the last source commit) was *also*
+  wrong: build-then-commit is the normal order, and the measured exe was 59
+  seconds older than the commit whose source it contained. The real question was
+  working-tree mtimes, which also catches what commit times cannot see at all —
+  an edit saved and never built.
+- **Staleness against the exe alone.** JJ Flexible is an exe plus a dozen
+  project DLLs, and MSBuild rebuilds only what changed. Source 12:43:38, exe
+  12:43:15, `Radios.dll` 12:43:48 — an exe older than a `Radios/*.cs` edit is
+  what a *correct* incremental build looks like. Now compares against the newest
+  of our own outputs, identified by matching DLL names to projects so a NuGet
+  restore cannot inflate the figure.
+- **`intent` on 4 of 32 speech events.** The morning triage argued that
+  `intent`/`interrupt` convert I3 from an ear judgement into a field lookup, and
+  the case for automating the whole Ctrl+F1 block rested on it. Measured against
+  a live connect transcript, the recorder omitted the field whenever a call site
+  passed nothing. The field was in the schema; it was not in the data. Now
+  always emitted, with an explicit JSON null.
+
+### The firewall, and a conclusion it invented
+
+Two Windows Firewall prompts appeared after the agents ran. Windows blocks
+traffic **while a prompt is pending**, not only if denied — so the #128 agent's
+UDP discovery hit a muzzled socket, returned empty, and it reported all four
+radios offline with the 8600 powered down. The 8600 answered ping with 0% loss
+the whole time.
+
+Same family as everything else: an empty result from an instrument that was
+quietly disconnected, indistinguishable from a true negative. The fix is the
+same too — a sweep that finds nothing must first prove it can find something.
+
+Re-run with standing Allow rules, the same binary found the 8600 immediately and
+completed every deferred check.
+
+### What landed
+
+- **#172, `4681c756`** — `tools/radiocheck`, the build test runner. Three tiers,
+  graded from the TRX rather than the exit code, zero discovered tests is BROKEN
+  not green, app always spawned `--no-render`, auto-connect preflight refuses to
+  spawn when a profile would reach the radio, foreground tier DEFERRED not run.
+  Test count is the headline and a drop leaves a scar until it recovers. Both
+  failure paths confirmed by deliberate negatives.
+- **#128, `9592bac0`** — every operator-facing toggle tones on every road.
+  Verified at the live 8600: three PC-audio roads, exactly one tone per
+  transition, **zero double-tones across 23 recorded earcons**. The chord road
+  played two before the fix — introduced by Track E, the sweep that was meant to
+  have solved this. `rfpower` read 0 before, during and after.
+- **#174, `c9a4b984`** — all 122 `CommandValues` members carry explicit numbers.
+  `KeyDefType.i` is that integer and `KeyDefs.xml` stores it, so a mid-enum
+  insertion silently re-points saved bindings. Commit `40307951` (2026-08-18)
+  did exactly that: diffing the live file against the same-morning NAS snapshot
+  **as a mapping, not as text** showed 22 commands each inheriting the previous
+  command's key. No damage only because Noel has zero customisations. Guard
+  tests plus a positive control — re-inserting the mistake fails 2 of 9.
+- **#149, `dc8420b6`** — the master test list triaged: ~20 AUTO, 12 FOREGROUND,
+  6 RADIO, 4 needing Noel's ears. Roughly three quarters run without him.
+- **#146** — closed as already built. Noel remembered it was; he was right.
+
+### Three tasks were already done and still marked open
+
+#146, #145 and #147 were all built and never closed. Two task descriptions
+(#113, #142) pointed at a file split into a partial. #142 turned out to be free
+if #113 is done properly. **Five of fifty-eight entries distorted**, found in
+fifteen minutes of checking rather than building — which is the answer to "how
+do we stop forgetting things": a backlog audited occasionally stays honest; one
+only ever appended to drifts, and the drift makes it feel larger and more
+hopeless than it is.
+
+I also asked Noel about four things already settled — three in code, one in this
+very conversation. The rule written at midday was *grep before asserting*; it
+needs widening to **verify before asking**, because a question costs the person
+answering it.
+
+### Decisions Noel made
+
+- **Simple and Rich** for the two earcon sound sets, over Classic/Modern — which
+  turned out to collide three ways: tuning mode, hotkey scopes, and the earcon
+  set, all operator-facing. The CW picker calls the same concept "Sine". So the
+  ruling is a **rename collapsing a triple collision**, not a new build.
+- **Duck on warnings only.** A duck on every keyclick would pump constantly.
+- **No app-generated notification ever reaches the transmitter** — regulatory,
+  not aesthetic: an emission with no callsign is an unidentified transmission
+  and it is the operator's licence at risk. Enforce in the type system.
+- **But the operator starting a test IS attributable**, so identification is the
+  obligation rather than avoidance — and CWX can send the callsign, confirmable
+  via `CharSent`. Became #178.
+- **Load type drives the test regime**: dummy load (confirmed) = full power; no
+  dummy load = valid tests at low power, NOT measure-only; antenna = tests with
+  test identification, spaced. Band plan from IARU, kept current.
+- **Finish the meter model ASAP**, meters chosen by CATEGORY rather than a flat
+  list of a hundred, reusing the device picker's fold-not-filter pattern.
+- **Saturday is the string store as a fleet job; Sunday is the bench day.**
+
+### Cross-surface activity
+
+- Main repo only: 24 commits, all `honest-tx-audio`. No sibling repo had
+  activity today; `jjf-data` and `jjflexible-connect` idle.
+- Eleven Sprint 33 track worktrees still present, all merged and contained.
+  Three agent worktrees under `.claude/worktrees/` from today's fleet.
+- **Freight Fate: 16 unpushed commits, 1 dirty, none today. Civ VI Access: 45
+  unpushed, 2 dirty, none today.** Unchanged from the last seal — still on
+  exactly one machine plus the NAS mirror. Pushing is Noel's call.
+- 23 memory entries touched; `project_cw_notification_system.md` gained the
+  no-transmitted-notifications ruling, `feedback_review_one_item_at_a_time.md`
+  gained the AskUserQuestion lesson.
+- Backups clean: memory (10 projects), Claude state, private (126 files), dev
+  mirror, AppData config twice — once at 19:11 before any installer discussion.
+- Dependency check: **no vulnerable packages**. Memory drift: 15 entries with
+  one missing path each, the expected steady state.
+
+### Setup for 2026-08-22
+
+**Compact first** — Noel asked for it explicitly before starting.
+
+**Saturday is the string store (#65) as a six-track fleet.** Plan at
+`docs/planning/for-noel/2026-08-22-string-store-plan.md`. Two serial steps
+first — the five design decisions, then the store shipping with zero strings in
+it — both merged before any track starts, because they are the shared contract.
+Then six domain tracks. Acceptance per track is a **transcript diff**, not a
+listen. Three complementary checks: static (every `Strings.Get` key exists),
+runtime (no speech text looks like a key), and the diff (changed text). Each
+one's blind spot is another's strength.
+
+**Load arrives 14:00–18:00.** When it lands, **Test 0 only** — two keyings, five
+minutes, and it gates everything else. Bench plan at
+`docs/planning/for-noel/2026-08-22-dummy-load-bench-plan.md`.
+
+**Sunday is the bench day.** Tests 1 through 7.
+
+**Open and waiting on Noel:**
+- Does "no antenna" permit transmitting at all, or is it a refuse-to-key
+  interlock? (#180 — safety question, do not guess)
+- "Run them in the beacon of probably 10 or something" — cadence, or sub-band?
+  (#155)
+- #161, the CW notification grammar.
+
+**Worth doing before Tuesday:** #137 (the unpadded amplifier handle) is now a
+prerequisite for #180, because a silent negative in amplifier detection is a
+safety input. #175 (jjprobe key injection) blocks all twelve FOREGROUND tests.
+And #140 contradicts the bench plan on whether the TX compression question is
+settled — a control-channel capture during a PC-audio transmit resolves it in a
+minute.
+
+### Rigmeter snapshot — end of 2026-08-21
+
+Grand totals: authored 1,212 files / 299,065 lines / 1,777,940 words. Vendor
+189 files / 55,743 lines. Combined 1,401 files / 354,808 lines.
+
+Largest projects: JJFlexWpf 78,900 lines (266 files), JJPortaudio 7,861,
+JJLogLib 5,807, JJFlexUpdater 2,789, JJLogIO 2,868, JJFlexWpf.Tests 2,646.
+
+Today: 24 commits, 104 unique files, 33,842 insertions, 11,608 deletions,
+**+22,234 net**, 206 files in diff. Sole author JJ Flexbot.
+
+Trend, code lines: 2026-08-16 144,070 → 08-17 153,584 → 08-18 155,941 → 08-19
+161,931 → 08-20 172,641. NAS snapshot `2026-08-21-dd707a4c.json`.
+
 ## END-OF-DAY SEAL — 2026-08-20 — THE DAY EVERYTHING REPORTED SUCCESS
 
 *Sprint 33 (`barefoot-harness-pileup`) planned and executed across ELEVEN tracks.
