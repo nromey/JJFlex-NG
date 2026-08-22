@@ -140,10 +140,8 @@ public partial class MainWindow : UserControl
             if (corruptPath != null)
             {
                 Radios.ScreenReaderOutput.Speak(
-                    "Your saved audio presets file could not be read, so the "
-                    + "built-in presets are shown instead. The unreadable file "
-                    + "was kept next to it as "
-                    + System.IO.Path.GetFileName(corruptPath) + ".",
+                    Radios.Lexicon.Get("audio.presets.file_unreadable",
+                        ("kept", System.IO.Path.GetFileName(corruptPath))),
                     Radios.VerbosityLevel.Critical);
             }
             return loaded;
@@ -172,9 +170,8 @@ public partial class MainWindow : UserControl
             if (corruptPath != null)
             {
                 Radios.ScreenReaderOutput.Speak(
-                    "Your microphone profiles file could not be read, so the "
-                    + "list starts empty. The unreadable file was kept next to "
-                    + "it as " + System.IO.Path.GetFileName(corruptPath) + ".",
+                    Radios.Lexicon.Get("audio.mic_profiles.file_unreadable",
+                        ("kept", System.IO.Path.GetFileName(corruptPath))),
                     Radios.VerbosityLevel.Critical);
             }
             return store;
@@ -386,7 +383,7 @@ public partial class MainWindow : UserControl
         // so it fires after the window is visible and the screen reader can hear it.
 
         // Update status
-        StatusText.Text = "Ready — no radio connected";
+        StatusText.Text = Radios.Lexicon.Get("connect.home.status_ready_no_radio");
 
         // Sprint 29 Track D — auto-update launch + periodic check.
         StartUpdaterAutoCheck();
@@ -430,10 +427,11 @@ public partial class MainWindow : UserControl
         // Home becomes the rescue page before anything below moves focus.
         EnterRescueModeIfNoRadio();
 
-        string modeName = ActiveUIMode == UIMode.Classic ? "Classic" : "Modern";
-        string message = _rescueMode
-            ? $"JJ Flexible Home, no radio connected, {modeName} tuning mode"
-            : $"JJ Flexible Home, {modeName} tuning mode";
+        string modeName = Radios.Lexicon.Get(ActiveUIMode == UIMode.Classic
+            ? "connect.home.mode_classic" : "connect.home.mode_modern");
+        string message = Radios.Lexicon.Get(
+            _rescueMode ? "connect.home.arrival_no_radio" : "connect.home.arrival",
+            ("modeName", modeName));
 
         // Ordering policy (live find 2026-08-04): with a startup advisory on
         // screen, this line used to talk over the dialog — and worse, the
@@ -470,7 +468,8 @@ public partial class MainWindow : UserControl
                 if (RigControl == null) return;
 
                 string model = RigControl.RadioModel;
-                string connType = RigControl.RemoteRig ? "SmartLink" : "local";
+                string connType = Radios.Lexicon.Get(RigControl.RemoteRig
+                    ? "connect.home.link_smartlink" : "connect.home.link_local");
 
                 // Slices may not have populated yet even after the 1.5s delay;
                 // when that's true, BuildFullSliceStatus returns its
@@ -482,11 +481,13 @@ public partial class MainWindow : UserControl
                 if (RigControl.MyNumSlices > 0)
                 {
                     string status = Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl);
-                    message = $"Connected to {model}, {connType}. {status}";
+                    message = Radios.Lexicon.Get("connect.home.connected_with_slices",
+                        ("model", model), ("connType", connType), ("status", status));
                 }
                 else
                 {
-                    message = $"Connected to {model}, {connType}";
+                    message = Radios.Lexicon.Get("connect.home.connected",
+                        ("model", model), ("connType", connType));
                 }
 
                 // A startup advisory may be up (or about to be) — speaking the
@@ -660,7 +661,7 @@ public partial class MainWindow : UserControl
     {
         if (ActiveUIMode == UIMode.Classic)
         {
-            Radios.ScreenReaderOutput.Speak("Classic tuning mode",
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.classic_tuning_mode"),
                 Radios.VerbosityLevel.Terse, true);
             return;
         }
@@ -1025,7 +1026,7 @@ public partial class MainWindow : UserControl
         PanadapterPanel.Visibility = Visibility.Collapsed;
         ContentArea.Visibility = Visibility.Collapsed;
         LoggingPanel.Visibility = Visibility.Collapsed;
-        StatusText.Text = "Ready — no radio connected";
+        StatusText.Text = Radios.Lexicon.Get("connect.home.status_ready_no_radio");
     }
 
     /// <summary>
@@ -1079,7 +1080,7 @@ public partial class MainWindow : UserControl
         // racing it.
         Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
             Radios.ScreenReaderOutput.Speak(
-                "Radio back. Home restored.", VerbosityLevel.Critical, interrupt: false));
+                Radios.Lexicon.Get("connect.home.radio_back"), VerbosityLevel.Critical, interrupt: false));
     }
 
     #region Mid-session rescue — Sprint 31 Track R
@@ -1244,7 +1245,7 @@ public partial class MainWindow : UserControl
         if (SelectRadioCallback == null)
         {
             Radios.ScreenReaderOutput.Speak(
-                "Connecting is not available yet — the application is still starting up.",
+                Radios.Lexicon.Get("connect.home.not_ready_to_connect"),
                 VerbosityLevel.Critical, true);
             return;
         }
@@ -1471,19 +1472,18 @@ public partial class MainWindow : UserControl
         // hint. Branched on CurrentVerbosity so we never speak both back-to-back
         // (both Terse and Chatty messages pass the filter for a Chatty user).
         bool chatty = Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty;
-        string hint;
-        if (newMode == UIMode.Classic)
-        {
-            hint = chatty
-                ? "Classic tuning mode, with your cursor pointed to frequency parts such as MHz or kHz, press the up or down arrows to tune. Press space to toggle fields such as mute or XIT."
-                : "Classic tuning mode. Cursor on a digit, up down to tune. Space on RIT or XIT to activate.";
-        }
-        else
-        {
-            hint = chatty
-                ? "Modern tuning mode. Press up or down to tune in coarse steps. Press C to switch to fine tuning. Press space to toggle on or off items in JJ Flexible Home."
-                : "Modern tuning mode. Up down tune, C toggle coarse and fine, page up down change step size.";
-        }
+        // Four plain keys, NOT a two-tier ladder. This is one of the binary
+        // CurrentVerbosity ternaries the contract lists separately from the
+        // three real ladders, and the store's shipped-ladder test requires all
+        // three tiers, critical included. There is no critical wording here to
+        // extract and inventing one would be editing. Reported as a ladder
+        // candidate instead of built.
+        string hint = Radios.Lexicon.Get(
+            newMode == UIMode.Classic
+                ? (chatty ? "connect.home.tuning_hint_classic_chatty"
+                          : "connect.home.tuning_hint_classic_terse")
+                : (chatty ? "connect.home.tuning_hint_modern_chatty"
+                          : "connect.home.tuning_hint_modern_terse"));
         Radios.ScreenReaderOutput.Speak(hint, VerbosityLevel.Terse);
     }
 
@@ -1512,7 +1512,7 @@ public partial class MainWindow : UserControl
         // In pure WPF, this just works — no BeginInvoke, no ElementHost dance.
         LoggingLogEntry.FocusCallSign();
 
-        Radios.ScreenReaderOutput.Speak("Entering Logging Mode, Call Sign", VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.entering_logging"), VerbosityLevel.Terse);
     }
 
     /// <summary>
@@ -1537,7 +1537,9 @@ public partial class MainWindow : UserControl
         // or the rescue page when that is what Home currently is.
         FocusHome();
 
-        Radios.ScreenReaderOutput.Speak($"Returning to {LastNonLogMode} tuning mode", VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(
+            Radios.Lexicon.Get("connect.home.returning_to_mode", ("mode", LastNonLogMode)),
+            VerbosityLevel.Terse);
     }
 
     #endregion
@@ -1568,7 +1570,8 @@ public partial class MainWindow : UserControl
         if (_freqOutHandlers != null)
             _freqOutHandlers.ToggleFreqReadout();
         else
-            Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.no_radio"),
+                VerbosityLevel.Critical, true);
     }
 
     /// <summary>
@@ -1932,7 +1935,7 @@ public partial class MainWindow : UserControl
         // Start polling
         PollTimerEnabled = true;
 
-        StatusText.Text = "Radio connected — waiting for power on";
+        StatusText.Text = Radios.Lexicon.Get("connect.home.status_waiting_power_on");
 
         RunStartupAdvisories();
     }
@@ -2054,27 +2057,12 @@ public partial class MainWindow : UserControl
 
                 await Dispatcher.BeginInvoke(() =>
                 {
-                    string msg =
-                        "SmartLink is not set up in JJ Flexible Radio Access yet. SmartLink is a service " +
-                        "hosted by FlexRadio Systems that lets you connect to and operate this radio over " +
-                        "the internet when you are away from your shack. Getting going takes two easy " +
-                        "steps. First, you will create a SmartLink account — the account you will use to " +
-                        "log into your radio and other Flex services. Second, you will register this " +
-                        "newfangled radio of yours so Flex knows it is really yours.\n\n" +
-                        "To start, open the Radio menu and choose Manage SmartLink Accounts. Choose " +
-                        "Create Account to make your SmartLink account, or New Login if you already have " +
-                        "one — either way it all happens right here in JJ Flex, no web page involved. " +
-                        "Once you are signed in, step 2 of Radio Setup registers the radio. " +
-                        "Note that you must be at (or near) the radio with a hand microphone or a CW key " +
-                        "plugged in, to prove you are really there — sorry, Flex's rules, not ours.\n\n" +
-                        "The Open Radio Setup button below takes you to the setup path — follow the " +
-                        "bouncing ball. SmartSDR is not required for any of it; you can stay in an " +
-                        "accessible interface for the whole process. Have fun and good luck!";
+                    string msg = Radios.Lexicon.Get("connect.smartlink.setup_body");
                     Dialogs.AdvisoryDialog.Show(
-                        "SmartLink is not set up", msg,
+                        Radios.Lexicon.Get("connect.smartlink.setup_title"), msg,
                         suppressKey: "smartlink-setup",
                         new Dialogs.AdvisoryDialog.AdvisoryAction(
-                            "Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")));
+                            Radios.Lexicon.Get("connect.smartlink.action_open_radio_setup"), () => OpenSettingsCallback?.Invoke("Radio Setup")));
                 });
                 return;
             }
@@ -2124,31 +2112,21 @@ public partial class MainWindow : UserControl
                     return;
                 }
 
-                string msg =
-                    $"This radio is not registered to {account}, the SmartLink account you are " +
-                    "signed in with. Registering a radio lets that account reach it over the " +
-                    "internet when you are away from your shack. " +
-                    "Flex requires you to be physically at the radio with a hand microphone or a " +
-                    "CW key plugged in, to prove someone is really there.\n\n" +
-                    (otherAccounts > 0
-                        ? "One thing to check first: only the signed-in account was asked. If you " +
-                          "registered this radio under one of your other saved accounts, switch to " +
-                          "that account instead of registering it again — the Manage Accounts " +
-                          "button below opens the list.\n\n"
-                        : "") +
-                    "Select the Open Radio Setup button below to open the setup path — registration " +
-                    "is step 2. It all happens right here in JJ Flexible Radio Access; SmartSDR is " +
-                    "not required.";
+                string msg = Radios.Lexicon.Get("connect.smartlink.not_registered_body",
+                    ("account", account),
+                    ("otherAccountsNote", otherAccounts > 0
+                        ? Radios.Lexicon.Get("connect.smartlink.other_accounts_note")
+                        : ""));
 
                 var actions = new List<Dialogs.AdvisoryDialog.AdvisoryAction>
                 {
-                    new("Open Radio _Setup", () => OpenSettingsCallback?.Invoke("Radio Setup")),
+                    new(Radios.Lexicon.Get("connect.smartlink.action_open_radio_setup"), () => OpenSettingsCallback?.Invoke("Radio Setup")),
                 };
                 if (otherAccounts > 0)
-                    actions.Add(new("Manage _Accounts", ShowSmartLinkAccountManager));
+                    actions.Add(new(Radios.Lexicon.Get("connect.smartlink.action_manage_accounts"), ShowSmartLinkAccountManager));
 
                 Dialogs.AdvisoryDialog.Show(
-                    "Radio not registered with SmartLink", msg,
+                    Radios.Lexicon.Get("connect.smartlink.not_registered_title"), msg,
                     suppressKey: $"register|{serial}",
                     actions.ToArray());
             });
@@ -2201,31 +2179,17 @@ public partial class MainWindow : UserControl
         // you operate it from away") and never about the radio's ownership,
         // and what it stores is a local prompt preference on this machine,
         // not a claim about the radio.
-        string msg =
-            "You are connected to this radio over your own network, and it is not registered " +
-            $"with SmartLink under {account}. That is worth one question, and then this will " +
-            "stop asking.\n\n" +
-            "Registering a radio with SmartLink is how you reach it over the internet from " +
-            "somewhere else — a hotel, a friend's shack, the car. If you only ever " +
-            "operate this radio from where you are right now, you do not need it, and " +
-            "nothing about your local operating changes either way.\n\n" +
-            "If you do want it later, Flex requires you to be at the radio with a hand " +
-            "microphone or a CW key plugged in, to prove someone is really there. It all " +
-            "happens right here in JJ Flexible Radio Access; SmartSDR is not required.\n\n" +
-            (otherAccounts > 0
-                ? "One thing to check first: only the signed-in account was asked. If you " +
-                  "registered this radio under one of your other saved accounts, switch to " +
-                  "that account instead — the Manage Accounts button below opens the list.\n\n"
-                : "") +
-            "Choose I Only Use This Radio Here and the question is settled for this radio. " +
-            "Choose Open Radio Setup to register it now. Close leaves it open and you will " +
-            "be asked again on a future run.";
+        string msg = Radios.Lexicon.Get("connect.smartlink.reach_from_away_body",
+            ("account", account),
+            ("otherAccountsNote", otherAccounts > 0
+                ? Radios.Lexicon.Get("connect.smartlink.other_accounts_note_switch")
+                : ""));
 
         var actions = new List<Dialogs.AdvisoryDialog.AdvisoryAction>
         {
-            new("_I only use this radio here", () => RecordSmartLinkIntent(
+            new(Radios.Lexicon.Get("connect.smartlink.action_local_only"), () => RecordSmartLinkIntent(
                 serial, Radios.SmartLinkIntents.LocalOnly)),
-            new("Open Radio _Setup", () =>
+            new(Radios.Lexicon.Get("connect.smartlink.action_open_radio_setup"), () =>
             {
                 // Opening setup IS the answer to the question, so record it.
                 // Without this the offer would return on the next run for an
@@ -2237,13 +2201,13 @@ public partial class MainWindow : UserControl
             }),
         };
         if (otherAccounts > 0)
-            actions.Add(new("Manage _Accounts", ShowSmartLinkAccountManager));
+            actions.Add(new(Radios.Lexicon.Get("connect.smartlink.action_manage_accounts"), ShowSmartLinkAccountManager));
 
         // No suppressKey: the "don't show this again" checkbox would be a
         // third, vaguer way to answer the same question the buttons answer
         // precisely, and its answer would be stored somewhere else entirely.
         // Close is the "not now" path and costs one more sighting.
-        Dialogs.AdvisoryDialog.Show("Reaching this radio from away", msg, null, actions.ToArray());
+        Dialogs.AdvisoryDialog.Show(Radios.Lexicon.Get("connect.smartlink.reach_from_away_title"), msg, null, actions.ToArray());
     }
 
     /// <summary>
@@ -2281,18 +2245,14 @@ public partial class MainWindow : UserControl
 
         if (quiet) return;
 
-        string where =
-            "You can change this any time in Settings, on the Radios tab, under Reaching this radio.";
+        string where = Radios.Lexicon.Get("connect.smartlink.where_to_change");
         if (intent == Radios.SmartLinkIntents.LocalOnly)
         {
             Dialogs.AdvisoryDialog.Show(
-                saved ? "This radio is now local only" : "Local only, but it may not stick",
-                saved
-                    ? "Noted. Nothing about registering this radio with SmartLink will come up "
-                      + "again, on this run or any other.\n\n" + where
-                    : "Your choice is in effect for this session, but it could not be written to "
-                      + "disk, so it may not survive a restart. Your settings folder may be "
-                      + "locked or full; the trace file has the details.\n\n" + where);
+                saved ? Radios.Lexicon.Get("connect.smartlink.local_only_saved_title") : Radios.Lexicon.Get("connect.smartlink.local_only_unsaved_title"),
+                Radios.Lexicon.Get(saved
+                    ? "connect.smartlink.local_only_saved_body"
+                    : "connect.smartlink.local_only_unsaved_body", ("where", where)));
         }
     }
 
@@ -2324,7 +2284,7 @@ public partial class MainWindow : UserControl
         // a stale signature would suppress the rebuild that tells the menus so.
         _featureGateSignature = null;
 
-        StatusText.Text = "Ready — no radio connected";
+        StatusText.Text = Radios.Lexicon.Get("connect.home.status_ready_no_radio");
 
         // Restore the cold-start no-radio visual shell. Without this the
         // connect-time ShowClassicUI / ShowModernUI calls leave
@@ -2447,7 +2407,7 @@ public partial class MainWindow : UserControl
         // Sprint 32 Track E, #128.
         EarconPlayer.ToggleTone(_brailleEngine.Enabled);
         Radios.ScreenReaderOutput.Speak(
-            _brailleEngine.Enabled ? "Braille status on" : "Braille status off",
+            _brailleEngine.Enabled ? Radios.Lexicon.Get("connect.home.braille_on") : Radios.Lexicon.Get("connect.home.braille_off"),
             Radios.VerbosityLevel.Terse,
             interrupt: true);
     }
@@ -3045,7 +3005,7 @@ public partial class MainWindow : UserControl
         // longer delay here because this churn includes a cross-thread form
         // close plus shell activation. Past tense — by the time this speaks,
         // the teardown is done.
-        string speech = $"{msg}. Disconnected from the radio.";
+        string speech = Radios.Lexicon.Get("connect.home.disconnected_after", ("msg", msg));
         System.Threading.Tasks.Task.Delay(750).ContinueWith(_ =>
         {
             Dispatcher.BeginInvoke(() =>
@@ -3240,7 +3200,7 @@ public partial class MainWindow : UserControl
                 StopATUTimeout();
                 EarconPlayer.StopATUProgressEarcon();
                 if (isAutoATU)
-                    Radios.ScreenReaderOutput.Speak("ATU bypassed", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_bypassed"), VerbosityLevel.Terse);
                 break;
             case "NotStarted":
             case "Aborted":
@@ -3294,9 +3254,9 @@ public partial class MainWindow : UserControl
     {
         // "SWR is X to 1" is technically accurate but verbose for a status
         // readout. Hams say the leading number and the ratio is implicit.
-        string text = isFailure
-            ? $"Tune failed, SWR {swr:F1}"
-            : $"SWR {swr:F1}";
+        string text = Radios.Lexicon.Get(
+            isFailure ? "audio.tune.swr_failed" : "audio.tune.swr",
+            ("swr", $"{swr:F1}"));
         VerbosityLevel level = isFailure ? VerbosityLevel.Critical : VerbosityLevel.Terse;
         Radios.ScreenReaderOutput.Speak(text, level);
     }
@@ -3313,12 +3273,12 @@ public partial class MainWindow : UserControl
         if (_radioPowerOn && !e.Connected)
         {
             PowerNowOffInternal();
-            Radios.ScreenReaderOutput.Speak("The radio disconnected", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.radio_disconnected"), VerbosityLevel.Critical, true);
 
             if (ShowErrorCallback != null)
-                ShowErrorCallback("The radio disconnected", "Error");
+                ShowErrorCallback(Radios.Lexicon.Get("connect.home.radio_disconnected"), "Error");
             else
-                Dialogs.AdvisoryDialog.Show("Radio Disconnected", "The radio disconnected.");
+                Dialogs.AdvisoryDialog.Show(Radios.Lexicon.Get("connect.home.radio_disconnected_title"), Radios.Lexicon.Get("connect.home.radio_disconnected_sentence"));
         }
     }
 
@@ -3402,7 +3362,7 @@ public partial class MainWindow : UserControl
         }
 
         _radioPowerOn = true;
-        StatusText.Text = "Radio connected — power on";
+        StatusText.Text = Radios.Lexicon.Get("connect.home.status_power_on");
 
         // Initialize PTT safety controller (Sprint 15)
         if (RigControl != null && OpenParms != null)
@@ -3641,39 +3601,43 @@ public partial class MainWindow : UserControl
             // audio should now be flowing, and hearing nothing after this
             // announcement is itself a useful signal.
             if (before)
-                ScreenReaderOutput.Speak("PC audio on.", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_audio.on"), VerbosityLevel.Terse);
             return;
         }
 
         if (desired.Value != before) rig.PCAudio = desired.Value;
         bool actual = rig.PCAudio;
 
-        string reason = cfg.PcAudioOnConnect switch
+        string reason = Radios.Lexicon.Get(cfg.PcAudioOnConnect switch
         {
-            PcAudioOnConnectModes.AlwaysOn => "always on for this radio",
-            PcAudioOnConnectModes.AlwaysOff => "always off for this radio",
-            _ => "as you left it",
-        };
+            PcAudioOnConnectModes.AlwaysOn => "audio.pc_audio.reason_always_on",
+            PcAudioOnConnectModes.AlwaysOff => "audio.pc_audio.reason_always_off",
+            _ => "audio.pc_audio.reason_as_you_left_it",
+        });
 
         if (desired.Value && !actual)
         {
             // Wanted on, could not start (no usable sound device is the
             // usual cause). The audio path speaks its own failure detail;
             // this names the consequence.
-            ScreenReaderOutput.Speak("PC audio could not start, still off.",
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_audio.could_not_start"),
                 VerbosityLevel.Critical);
         }
         else if (actual)
         {
-            ScreenReaderOutput.Speak($"PC audio on, {reason}.", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("audio.pc_audio.on_because", ("reason", reason)),
+                VerbosityLevel.Terse);
         }
         else if (before)
         {
             // The policy just turned it off. Over remote that costs
             // everything, and that must never be a silent surprise.
-            ScreenReaderOutput.Speak(rig.RemoteRig
-                ? $"PC audio off, {reason}. On a remote connection there is no other way to hear the radio."
-                : $"PC audio off, {reason}.",
+            ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get(rig.RemoteRig
+                    ? "audio.pc_audio.off_because_remote"
+                    : "audio.pc_audio.off_because",
+                    ("reason", reason)),
                 VerbosityLevel.Terse);
         }
         // Off and already off: nothing flipped, nothing to hear — stay quiet.
@@ -3707,9 +3671,10 @@ public partial class MainWindow : UserControl
         if (before == desired) return;
 
         rig.RemoteOnEnabled = desired;
-        ScreenReaderOutput.Speak(desired
-            ? "REM ON enabled on the radio, as saved for this radio."
-            : "REM ON disabled on the radio, as saved for this radio.",
+        ScreenReaderOutput.Speak(
+            Radios.Lexicon.Get(desired
+                ? "connect.home.rem_on_enabled"
+                : "connect.home.rem_on_disabled"),
             VerbosityLevel.Terse);
     }
 
@@ -3753,7 +3718,7 @@ public partial class MainWindow : UserControl
             FreqOut.Clear();
             WriteStatus("Power", "Off");
             EnableDisableWindowControls(false);
-            StatusText.Text = "Radio connected — power off";
+            StatusText.Text = Radios.Lexicon.Get("connect.home.status_power_off");
         }
     }
 
@@ -4029,7 +3994,7 @@ public partial class MainWindow : UserControl
         var rig = RigControl;
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected.",
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.no_radio_sentence"),
                 Radios.VerbosityLevel.Critical, true);
             return;
         }
@@ -4088,7 +4053,7 @@ public partial class MainWindow : UserControl
         var rig = RigControl;
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected.",
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.no_radio_sentence"),
                 Radios.VerbosityLevel.Critical, true);
             return;
         }
@@ -4198,7 +4163,7 @@ public partial class MainWindow : UserControl
         {
             EarconPlayer.TuneOnTone();
             MeterToneEngine.OnTuneStarted();
-            Radios.ScreenReaderOutput.Speak("Tune on", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_on"), VerbosityLevel.Terse, true);
         }
         else
         {
@@ -4207,7 +4172,7 @@ public partial class MainWindow : UserControl
             StopATUTimeout();
             EarconPlayer.TuneOffTone();
             MeterToneEngine.OnTuneStopped();
-            Radios.ScreenReaderOutput.Speak("Tune off", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.tune_off"), VerbosityLevel.Terse, true);
             // TXTune falling edge raises no FlexAntTuneStartStop event, so the
             // ATU-status-driven announce path never fires for manual carrier.
             // Call directly here with the captured SWR so external/manual tuners
@@ -4251,13 +4216,13 @@ public partial class MainWindow : UserControl
         if (!RigControl.MyCaps.HasCap(Radios.RigCaps.Caps.ATGet))
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("No antenna tuner available", VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.no_tuner"), VerbosityLevel.Terse);
             return;
         }
         // ATU tune uses FlexTunerOn which handles auto/manual tuner logic
         _oldSwr = "";
         RigControl.FlexTunerOn = true;
-        Radios.ScreenReaderOutput.Speak("ATU tuning", VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_tuning"), VerbosityLevel.Terse, true);
     }
 
     private void StartATUTimeout()
@@ -4272,7 +4237,7 @@ public partial class MainWindow : UserControl
             StopATUTimeout();
             EarconPlayer.StopATUProgressEarcon();
             EarconPlayer.ATUFailTone();
-            Radios.ScreenReaderOutput.Speak("ATU tune timed out", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tune.atu_timed_out"), VerbosityLevel.Critical, true);
         };
         _atuTuneTimer.Start();
     }
@@ -4299,7 +4264,8 @@ public partial class MainWindow : UserControl
     {
         if (RigControl == null || !_radioPowerOn)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.no_radio"),
+                VerbosityLevel.Critical, true);
             return;
         }
 
@@ -4600,7 +4566,8 @@ public partial class MainWindow : UserControl
     {
         if (RigControl == null || !_radioPowerOn || OpenParms?.FormatFreq == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.no_radio"),
+                VerbosityLevel.Critical, true);
             return;
         }
 
@@ -4611,24 +4578,24 @@ public partial class MainWindow : UserControl
                 : RigControl.VirtualRXFrequency;
             string freqText = OpenParms.FormatFreq(freq);
             int slice = RigControl.RXVFO;
-            string speech = $"Frequency {freqText}, slice {RigControl.VFOToLetter(slice)}";
+            string speech = Radios.Lexicon.Get("connect.home.frequency",
+                ("freqText", freqText), ("slice", RigControl.VFOToLetter(slice)));
 
             // In Modern mode, append both step sizes — tuning unity removed
             // the "current mode" concept, so we report what Up and Shift+Up
             // each do.
             if (ActiveUIMode == UIMode.Modern && _freqOutHandlers != null)
             {
-                speech += ", coarse "
-                    + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CoarseTuneStep)
-                    + ", fine "
-                    + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.FineTuneStep);
+                speech += Radios.Lexicon.Get("connect.home.frequency_steps",
+                    ("coarse", FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CoarseTuneStep)),
+                    ("fine", FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.FineTuneStep)));
             }
 
             Radios.ScreenReaderOutput.Speak(speech, VerbosityLevel.Terse, true);
         }
         catch
         {
-            Radios.ScreenReaderOutput.Speak("Frequency unavailable", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.frequency_unavailable"), VerbosityLevel.Critical, true);
         }
     }
 
@@ -4666,7 +4633,7 @@ public partial class MainWindow : UserControl
         var alloc = SixtyMeterChannels.GetAllocation(country);
         if (alloc == null)
         {
-            ScreenReaderOutput.Speak("No 60 meter channels configured for this country", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.no_60m_channels"), VerbosityLevel.Terse);
             return;
         }
 
@@ -4682,14 +4649,17 @@ public partial class MainWindow : UserControl
             ulong freqHz = (ulong)(ch.FrequencyMHz * 1_000_000.0 + 0.5);
             RigControl.Frequency = freqHz;
             RigControl.Mode = ch.Mode;
-            ScreenReaderOutput.Speak($"{ch.Label}, {ch.FrequencyMHz:F4} megahertz, {ch.Mode}", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.sixty_meter_channel",
+                ("label", ch.Label), ("freq", $"{ch.FrequencyMHz:F4}"), ("mode", ch.Mode)),
+                VerbosityLevel.Terse);
         }
         else if (alloc.Value.Digi is { } digi)
         {
             // Digital segment — tune to start
             ulong freqHz = (ulong)(digi.StartMHz * 1_000_000.0 + 0.5);
             RigControl.Frequency = freqHz;
-            ScreenReaderOutput.Speak($"60 meter digital and CW segment, {digi.StartMHz:F4} megahertz", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.sixty_meter_digital",
+                ("freq", $"{digi.StartMHz:F4}")), VerbosityLevel.Terse);
         }
     }
 
@@ -4735,7 +4705,9 @@ public partial class MainWindow : UserControl
         string currentMode = RigControl.Mode ?? "";
         if (string.Equals(currentMode, mode, StringComparison.OrdinalIgnoreCase))
         {
-            Radios.ScreenReaderOutput.Speak($"Already {mode}", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("connect.home.already_in_mode", ("mode", mode)),
+                VerbosityLevel.Terse, true);
             return;
         }
         RigControl.Mode = mode;
@@ -4838,7 +4810,8 @@ public partial class MainWindow : UserControl
                     Dispatcher.BeginInvoke(() =>
                     {
                         Radios.ScreenReaderOutput.Speak(
-                            $"Using {useAcct.FriendlyName} for this session. Your default account is unchanged.",
+                            Radios.Lexicon.Get("connect.smartlink.using_for_session",
+                                ("account", useAcct.FriendlyName)),
                             VerbosityLevel.Critical, true);
                     });
                 });
@@ -4859,7 +4832,10 @@ public partial class MainWindow : UserControl
                 {
                     Dispatcher.BeginInvoke(() =>
                     {
-                        Radios.ScreenReaderOutput.Speak($"Default account set to {selectedAcct.FriendlyName}", VerbosityLevel.Critical, true);
+                        Radios.ScreenReaderOutput.Speak(
+                            Radios.Lexicon.Get("connect.smartlink.default_account_set",
+                                ("account", selectedAcct.FriendlyName)),
+                            VerbosityLevel.Critical, true);
                     });
                 });
             }
@@ -4902,24 +4878,26 @@ public partial class MainWindow : UserControl
                     // remember it is a contradiction — honor the checkbox and
                     // explain. The sign-in itself still counts for this session.
                     Radios.ScreenReaderOutput.Speak(
-                        "Signed in without remembering. To keep an account in this list, leave Remember checked.",
+                        Radios.Lexicon.Get("connect.smartlink.signed_in_not_remembered"),
                         VerbosityLevel.Terse, true);
                     return account;
                 }
 
                 mgr.SaveAccount(account);
-                Radios.ScreenReaderOutput.Speak($"Account saved for {nativeFriendly}", VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("connect.smartlink.account_saved", ("account", nativeFriendly)),
+                    VerbosityLevel.Terse, true);
                 return account;
             }
             if (nativeResult != System.Windows.Forms.DialogResult.Retry)
             {
-                Radios.ScreenReaderOutput.Speak("Sign in cancelled", VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.smartlink.sign_in_cancelled"), VerbosityLevel.Terse, true);
                 return null;
             }
         }
 
         // Fallback: Auth0 PKCE flow via WPF AuthDialog (browser)
-        Radios.ScreenReaderOutput.Speak("Opening SmartLink login", VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.smartlink.opening_login"), VerbosityLevel.Terse, true);
         var authDialog = new Dialogs.AuthDialog(
             trace: (msg, level) => JJTrace.Tracing.TraceLine(msg, (System.Diagnostics.TraceLevel)level),
             screenReaderSpeak: (msg, interrupt) => Radios.ScreenReaderOutput.Speak(msg, interrupt));
@@ -4929,7 +4907,7 @@ public partial class MainWindow : UserControl
         {
             var friendlyName = !string.IsNullOrEmpty(authDialog.Email)
                 ? authDialog.Email
-                : "SmartLink Account";
+                : Radios.Lexicon.Get("connect.smartlink.default_friendly_name");
 
             var newAccount = new Radios.SmartLinkAccount
             {
@@ -4942,11 +4920,13 @@ public partial class MainWindow : UserControl
             };
 
             mgr.SaveAccount(newAccount);
-            Radios.ScreenReaderOutput.Speak($"Account saved for {friendlyName}", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("connect.smartlink.account_saved", ("account", friendlyName)),
+                VerbosityLevel.Terse, true);
             return newAccount;
         }
 
-        Radios.ScreenReaderOutput.Speak("Login cancelled", VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.smartlink.login_cancelled"), VerbosityLevel.Terse, true);
         return null;
     }
 
@@ -4985,7 +4965,7 @@ public partial class MainWindow : UserControl
     {
         if (RigControl == null || !_radioPowerOn)
         {
-            Radios.ScreenReaderOutput.Speak("MultiFlex requires an active radio connection", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.multiflex_needs_radio"), VerbosityLevel.Critical, true);
             return;
         }
 
@@ -5079,8 +5059,10 @@ public partial class MainWindow : UserControl
             {
                 var dialog = new Dialogs.ShowHelpDialog
                 {
-                    Title = $"{field.Label ?? field.Key} Help",
-                    HelpTitle = $"{field.Label ?? field.Key} Field",
+                    Title = Radios.Lexicon.Get("help.field.window_title",
+                        ("label", field.Label ?? field.Key)),
+                    HelpTitle = Radios.Lexicon.Get("help.field.heading",
+                        ("label", field.Label ?? field.Key)),
                     HelpItems = field.HelpItems
                 };
                 dialog.ShowDialog();
@@ -5092,15 +5074,8 @@ public partial class MainWindow : UserControl
         {
             var dialog = new Dialogs.ShowHelpDialog
             {
-                Title = "Value Field Help",
-                HelpText = "Value Field\r\n\r\n" +
-                    "  Up / Down       Adjust value\r\n" +
-                    "  Page Up / Down  Large step\r\n" +
-                    "  Home            Set to minimum\r\n" +
-                    "  End             Set to maximum\r\n" +
-                    "  Enter           Type exact value\r\n" +
-                    "  Escape          Cancel\r\n" +
-                    "  Ctrl+Tab        Next category\r\n"
+                Title = Radios.Lexicon.Get("help.value_field.window_title"),
+                HelpText = Radios.Lexicon.Get("help.value_field.body")
             };
             dialog.ShowDialog();
             return;
@@ -5138,7 +5113,7 @@ public partial class MainWindow : UserControl
         {
             // No handler — just play confirmation and speak
             CalibrationEngine.PlayVerificationTone(calibRef);
-            Radios.ScreenReaderOutput.Speak("Calibration reference accepted", Radios.VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.home.calibration_accepted"), Radios.VerbosityLevel.Critical, true);
         }
     }
 
