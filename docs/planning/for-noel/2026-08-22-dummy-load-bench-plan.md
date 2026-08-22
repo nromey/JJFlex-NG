@@ -113,52 +113,56 @@ and **every later test in this document is void.** Stop and say so.
 
 Load: Palstar DL-2000, connected and confirmed, set for 500 W, fan verified
 working but never needed. Noel afterwards: "the load basically sneezed at those
-power levels, it didn't get hot it didn't turn on the fan." So Tests 1 through 7
+power levels, it didn't get hot it didn't turn on the fan." Tests 1 through 7
 have large thermal margin.
 
-Four keyings, peak forward power, from the meter stream:
+**READ THIS BEFORE READING ANY METER LINE.** The meter stream logs
+`forwardPower` as the RAW meter value, which is **dBm, not watts**. The app
+itself is correct — `FlexBase.ForwardPowerWatts` is `DBmToWatts(_PowerDBM)`, so
+everything spoken or displayed to the operator is real watts. But anyone reading
+the trace directly must convert, and the field name invites exactly the mistake.
 
-- keying 1 — **23.5 W**
-- keying 2 — **42.7 W**
-- keying 3 — **45.5 W**
-- keying 4 — **47.4 W**
+That mistake was made on the first pass at this result, and it manufactured a
+finding that did not exist: reading the dBm figures as watts produced an
+apparent 45 W ceiling and a suspected #164 acked-but-not-applied fault. Both
+evaporated on conversion. Watts = 10 ^ ((dBm − 30) / 10).
 
-**The positive control is satisfied.** Forward power differs between keyings by
-a wide margin and in the right direction, so the meters are reading rather than
-holding a constant.
+Four keyings, requested power against measured, converted:
+
+- **0 W requested** → 23.5 dBm ≈ **0.22 W**
+- **25 W requested** → 42.7 dBm ≈ **18.6 W**
+- **50 W requested** → 45.5 dBm ≈ **35.5 W**
+- **100 W requested** → 47.4 dBm ≈ **55.0 W**
+
+Each setting was confirmed applied — the radio echoed `RFPower` back at every
+step, so there is no evidence of a discarded write.
+
+**The positive control is satisfied.** Forward power rises monotonically with
+the request across a 4× range, and a zero request produced very nearly zero.
+The meters are reading, not holding a constant.
 
 **SWR settles it harder.** It moved between the −25 idle sentinel, 1.000 and
-**1.008**. The 1.008 is the important digit: this document's whole worry was
-that a dummy load reads 1.0 and that number is indistinguishable from the idle
-value it already had. A stored constant cannot produce 1.008.
+**1.008**. That third figure is the important one: this document was written
+around the worry that a dummy load reads 1.0 and that number is
+indistinguishable from the idle value it already had. A stored constant cannot
+produce 1.008.
 
-**So every test below is live.**
+**Every test below is live.**
 
-### But an unresolved observation came with it
+### The real question this leaves for Tests 1 and 2
 
-Noel set 25 and 500, and thinks he also tried 100 — but could not reconstruct
-afterwards which setting went with which keying, so the pairing is unknown.
+Measured output runs consistently at roughly **55 to 70 percent of requested**:
+25 → 18.6, 50 → 35, 100 → 55. Consistent enough to be a relationship rather than
+noise, and worth understanding before any absolute power figure in this document
+is trusted.
 
-What the data shows regardless: keying 1 sits near 20 W, consistent with a 25 W
-request. **Keyings 2, 3 and 4 all land between 42.7 and 47.4 W** — a 10 percent
-spread that reads like thermal settling, not like three different power
-settings. If 100 and 500 were among them, both produced roughly 45 W.
+Candidates, in no order: dummy load calibration, the radio's own forward-power
+meter calibration, band-dependent output, or the 8600 genuinely not reaching
+rated output into this load at 14.1 MHz.
 
-Two explanations fit equally from here, and they are very different:
-
-- a real ceiling — drive, ALC, band, or the radio's own limit
-- **#164**, the radio acking a transmit write it does not apply
-
-**Tests 1 and 2 resolve this**, and now have a specific question to answer
-rather than a general one: set power deliberately, one value per keying, record
-the requested value alongside the measured one, and see whether the two ever
-diverge. Do not rely on remembering the order afterwards — write each setting
-down before keying it.
-
-This also feeds #187 (a JJ key for power): if the radio silently ignores some
-power writes, a power control that announces the value it REQUESTED rather than
-the value the meter reached would be precisely the class of instrument this
-project keeps having to repair.
+**Procedure fix for tomorrow, learned the hard way:** write each requested value
+down BEFORE keying it. The pairing could not be reconstructed afterwards today,
+and only the trace's own `RFPower` lines rescued it.
 
 ---
 
