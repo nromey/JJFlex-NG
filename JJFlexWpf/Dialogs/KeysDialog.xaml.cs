@@ -51,7 +51,7 @@ namespace JJFlexWpf.Dialogs
             _editable = editable;
             InitializeComponent();
             ResizeMode = ResizeMode.CanResizeWithGrip;
-            Title = editable ? "Hotkey Editor" : "Key Assignments";
+            Title = Radios.Lexicon.Get(editable ? "settings.keys.editor.title_editable" : "settings.keys.editor.title_readonly");
 
             if (!editable)
             {
@@ -245,12 +245,12 @@ namespace JJFlexWpf.Dialogs
             if (row?.CommandId == null) return;
             if (!row.Rebindable)
             {
-                Announce("That key is built in and cannot be changed.");
+                Announce(Radios.Lexicon.Get("settings.keys.editor.built_in_cannot_change"));
                 return;
             }
             _captureRow = row;
             _capturing = true;
-            Announce($"Press the new key for {row.Description}. Escape cancels.");
+            Announce(Radios.Lexicon.Get("settings.keys.editor.press_new_key", ("command", row.Description)));
         }
 
         protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -272,20 +272,20 @@ namespace JJFlexWpf.Dialogs
                 if (raw == Key.Escape)
                 {
                     EndCapture();
-                    Announce("Cancelled. No change.");
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.cancelled"));
                     return;
                 }
 
                 var wf = WpfKeyConverter.ToWinFormsKeys(e);
                 if ((wf & WinFormsKeys.KeyCode) == WinFormsKeys.None)
                 {
-                    Announce("That key can't be used. Try another, or press Escape to cancel.");
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.key_unusable"));
                     return;
                 }
 
                 if (KeyInventory.IsReservedForCapture(wf, out var reason))
                 {
-                    Announce($"{reason}. Try another key, or press Escape to cancel.");
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.key_reserved", ("reason", reason)));
                     return;
                 }
 
@@ -317,11 +317,12 @@ namespace JJFlexWpf.Dialogs
                 {
                     RebuildRows();
                     RefreshList(id);
-                    Announce($"{row.Description} is now {keyName}.");
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.bound",
+                        ("command", row.Description), ("key", keyName)));
                 }
                 else
                 {
-                    Announce("The key could not be changed.");
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.bind_failed"));
                 }
                 return;
             }
@@ -329,35 +330,41 @@ namespace JJFlexWpf.Dialogs
             var unstealable = conflicts.FirstOrDefault(c => !c.CanSteal);
             if (unstealable != null)
             {
-                Announce($"{keyName} belongs to {unstealable.Description}, which is managed under CW Messages. No change.");
+                Announce(Radios.Lexicon.Get("settings.keys.editor.owned_by_cw_messages",
+                    ("key", keyName), ("command", unstealable.Description)));
                 return;
             }
 
             // Name the collision and offer steal / cancel.
-            string conflictNames = string.Join(" and ",
-                conflicts.Select(c => $"{c.Description} in {c.Scope} scope"));
+            string conflictNames = string.Join(" and ", conflicts.Select(
+                c => Radios.Lexicon.Get("settings.keys.editor.conflict_scope_item",
+                    ("command", c.Description), ("scope", c.Scope))));
             var result = MessageBox.Show(this,
-                $"{keyName} is already assigned to {conflictNames}. " +
-                $"Take the key away and give it to {row.Description}? " +
-                $"The other command will be left without a key.",
-                "Key conflict", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                Radios.Lexicon.Get("settings.keys.editor.steal_confirm",
+                    ("key", keyName), ("conflicts", conflictNames),
+                    ("command", row.Description)),
+                Radios.Lexicon.Get("settings.keys.editor.conflict_title"),
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (result == MessageBoxResult.Yes)
             {
                 if (_commands.ApplyBinding(id, key, stealConflicts: true))
                 {
                     RebuildRows();
                     RefreshList(id);
-                    Announce($"{row.Description} is now {keyName}. " +
-                        string.Join(" ", conflicts.Select(c => $"{c.Description} is now unbound.")));
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.bound",
+                            ("command", row.Description), ("key", keyName)) + " " +
+                        string.Join(" ", conflicts.Select(
+                            c => Radios.Lexicon.Get("settings.keys.editor.now_unbound_other",
+                                ("command", c.Description)))));
                 }
                 else
                 {
-                    Announce("The key could not be changed.");
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.bind_failed"));
                 }
             }
             else
             {
-                Announce("Cancelled. No change.");
+                Announce(Radios.Lexicon.Get("settings.keys.editor.cancelled"));
             }
         }
 
@@ -372,7 +379,7 @@ namespace JJFlexWpf.Dialogs
             {
                 RebuildRows();
                 RefreshList(id);
-                Announce($"{row.Description} is now unbound. It stays available in the Command Finder.");
+                Announce(Radios.Lexicon.Get("settings.keys.editor.unbound", ("command", row.Description)));
             }
         }
 
@@ -391,18 +398,22 @@ namespace JJFlexWpf.Dialogs
                 var unstealable = conflicts.FirstOrDefault(c => !c.CanSteal);
                 if (unstealable != null)
                 {
-                    Announce($"The default key {keyName} belongs to {unstealable.Description}, which is managed under CW Messages. No change.");
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.default_owned_by_cw_messages",
+                        ("key", keyName), ("command", unstealable.Description)));
                     return;
                 }
-                string conflictNames = string.Join(" and ",
-                    conflicts.Select(c => $"{c.Description} in {c.Scope} scope"));
+                string conflictNames = string.Join(" and ", conflicts.Select(
+                    c => Radios.Lexicon.Get("settings.keys.editor.conflict_scope_item",
+                        ("command", c.Description), ("scope", c.Scope))));
                 var result = MessageBox.Show(this,
-                    $"The default key {keyName} is currently assigned to {conflictNames}. " +
-                    $"Take it back for {row.Description}?",
-                    "Key conflict", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    Radios.Lexicon.Get("settings.keys.editor.reclaim_default_confirm",
+                        ("key", keyName), ("conflicts", conflictNames),
+                        ("command", row.Description)),
+                    Radios.Lexicon.Get("settings.keys.editor.conflict_title"),
+                    MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (result != MessageBoxResult.Yes)
                 {
-                    Announce("Cancelled. No change.");
+                    Announce(Radios.Lexicon.Get("settings.keys.editor.cancelled"));
                     return;
                 }
                 steal = true;
@@ -413,25 +424,27 @@ namespace JJFlexWpf.Dialogs
                 RebuildRows();
                 RefreshList(id);
                 Announce(defKey == WinFormsKeys.None
-                    ? $"{row.Description} reset: no default key, now unbound."
-                    : $"{row.Description} reset to {keyName}.");
+                    ? Radios.Lexicon.Get("settings.keys.editor.reset_unbound", ("command", row.Description))
+                    : Radios.Lexicon.Get("settings.keys.editor.reset_to_key",
+                        ("command", row.Description), ("key", keyName)));
             }
         }
 
         private void ResetAllButton_Click(object sender, RoutedEventArgs e)
         {
             var result = MessageBox.Show(this,
-                "Reset every key to its default? All of your custom key assignments will be lost.",
-                "Reset all keys", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                Radios.Lexicon.Get("settings.keys.editor.reset_all_confirm"),
+                Radios.Lexicon.Get("settings.keys.editor.reset_all_title"),
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (result != MessageBoxResult.Yes)
             {
-                Announce("Cancelled. No change.");
+                Announce(Radios.Lexicon.Get("settings.keys.editor.cancelled"));
                 return;
             }
             _commands.ResetAllBindingsToDefault();
             RebuildRows();
             RefreshList();
-            Announce("All keys reset to defaults.");
+            Announce(Radios.Lexicon.Get("settings.keys.editor.all_reset"));
         }
 
         // ── Export ──
@@ -441,13 +454,13 @@ namespace JJFlexWpf.Dialogs
             try
             {
                 var path = KeyManifest.WriteToFile(_commands);
-                Announce($"Key list saved to {path}.");
+                Announce(Radios.Lexicon.Get("settings.keys.editor.list_saved", ("path", path)));
                 System.Diagnostics.Process.Start(
                     new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
             }
             catch (Exception ex)
             {
-                Announce($"The key list could not be saved: {ex.Message}");
+                Announce(Radios.Lexicon.Get("settings.keys.editor.list_save_failed", ("error", ex.Message)));
             }
         }
 

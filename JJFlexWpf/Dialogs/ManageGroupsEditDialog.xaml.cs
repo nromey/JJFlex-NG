@@ -59,11 +59,11 @@ namespace JJFlexWpf.Dialogs
             if (ExistingGroup != null)
             {
                 NameBox.Text = ExistingGroup.Name;
-                Title = "Edit Memory Group";
+                Title = Radios.Lexicon.Get("settings.memory_groups.edit_title");
             }
             else
             {
-                Title = "Add Memory Group";
+                Title = Radios.Lexicon.Get("settings.memory_groups.add_title");
             }
         }
 
@@ -74,7 +74,7 @@ namespace JJFlexWpf.Dialogs
             // Validate name
             if (string.IsNullOrEmpty(name))
             {
-                MessageBox.Show("The group must have a unique name.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.memory_groups.needs_unique_name"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 NameBox.Focus();
                 return;
@@ -84,7 +84,7 @@ namespace JJFlexWpf.Dialogs
             bool isNewName = ExistingGroup == null || name != ExistingGroup.Name;
             if (isNewName && ExistingGroupNames != null && ExistingGroupNames.Contains(name))
             {
-                MessageBox.Show("The group must have a unique name.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.memory_groups.needs_unique_name"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 NameBox.Focus();
                 return;
@@ -94,7 +94,7 @@ namespace JJFlexWpf.Dialogs
             var checkedMembers = _items.Where(i => i.IsChecked).Select(i => i.Name).ToList();
             if (checkedMembers.Count == 0)
             {
-                MessageBox.Show("The group must have at least one member.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.memory_groups.needs_member"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }

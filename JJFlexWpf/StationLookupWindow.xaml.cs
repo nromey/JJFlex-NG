@@ -238,7 +238,7 @@ public partial class StationLookupWindow : Window
 
         if (string.IsNullOrEmpty(_operatorGridSquare))
         {
-            DistanceBox.Text = "Set your grid square in Settings";
+            DistanceBox.Text = Radios.Lexicon.Get("logging.station_lookup.set_grid_square");
             return;
         }
 
@@ -253,7 +253,10 @@ public partial class StationLookupWindow : Window
         double km = MaidenheadUtil.DistanceKm(opLat, opLon, stLat, stLon);
         double bearing = MaidenheadUtil.Bearing(opLat, opLon, stLat, stLon);
 
-        DistanceBox.Text = $"{miles:F0} mi ({km:F0} km), bearing {bearing:F0}\u00B0";
+        DistanceBox.Text = Radios.Lexicon.Get("logging.station_lookup.distance_bearing",
+            ("miles", miles.ToString("F0")),
+            ("km", km.ToString("F0")),
+            ("bearing", bearing.ToString("F0")));
     }
 
     private void AnnounceResult(string name, string qth, string state, string country)
@@ -277,7 +280,8 @@ public partial class StationLookupWindow : Window
 
         if (parts.Count > 0)
         {
-            string msg = lookupSource + ": " + string.Join(", ", parts);
+            string msg = Radios.Lexicon.Get("logging.station_lookup.result",
+                ("source", lookupSource), ("details", string.Join(", ", parts)));
             ScreenReaderOutput.Speak(msg, VerbosityLevel.Terse, true);
         }
     }

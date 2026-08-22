@@ -88,7 +88,8 @@ public partial class MenusDialog : JJFlexDialog
     {
         if (AreMenusReady?.Invoke() != true)
         {
-            MessageBox.Show("The menus aren't setup yet.", "Menus",
+            MessageBox.Show(Radios.Lexicon.Get("settings.menus.not_set_up"),
+                Radios.Lexicon.Get("settings.menus.not_set_up_title"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             // Never a bare DialogResult assignment from Loaded: that threw on
             // windows realised with Show() and aborted the Tier 1 dialog suite

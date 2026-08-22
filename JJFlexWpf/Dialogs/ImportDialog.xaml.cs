@@ -52,8 +52,9 @@ public partial class ImportDialog : JJFlexDialog
         string logFile = GetLogFileName?.Invoke() ?? "";
         if (string.IsNullOrEmpty(logFile))
         {
-            MessageBox.Show("There is no log file to import into. Set up a log file first.",
-                "Import Log", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(Radios.Lexicon.Get("logging.import.no_log_file"),
+                Radios.Lexicon.Get("logging.import.no_log_file_title"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
             CloseWithResult(false);
             return;
         }
@@ -82,7 +83,8 @@ public partial class ImportDialog : JJFlexDialog
 
         if (!success)
         {
-            MessageBox.Show("Import did not complete successfully.", "Import",
+            MessageBox.Show(Radios.Lexicon.Get("logging.import.failed"),
+                Radios.Lexicon.Get("logging.import.failed_title"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 

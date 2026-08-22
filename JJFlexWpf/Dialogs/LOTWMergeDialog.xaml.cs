@@ -58,7 +58,7 @@ namespace JJFlexWpf.Dialogs
             var ofd = new OpenFileDialog
             {
                 Filter = "ADIF files (*.adi;*.adif)|*.adi;*.adif|All files (*.*)|*.*",
-                Title = "Select LOTW File",
+                Title = Radios.Lexicon.Get("logging.lotw.select_file_title"),
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
             };
             if (ofd.ShowDialog() != true)
@@ -95,7 +95,7 @@ namespace JJFlexWpf.Dialogs
             if (_mergeRunning) return;
             _mergeRunning = true;
             MergeButton.IsEnabled = false;
-            ProgressBox.Text = "Merging ...";
+            ProgressBox.Text = Radios.Lexicon.Get("logging.lotw.merging");
 
             // Progress callback — marshals to UI thread
             void OnProgress(string text)
@@ -115,7 +115,7 @@ namespace JJFlexWpf.Dialogs
                     ProgressBox.AppendText("\r\n" + summary);
                     ProgressBox.ScrollToEnd();
                     _mergeRunning = false;
-                    CancelCloseButton.Content = "Done";
+                    CancelCloseButton.Content = Radios.Lexicon.Get("logging.lotw.done_button");
                     ProgressBox.Focus();
                 });
             }
