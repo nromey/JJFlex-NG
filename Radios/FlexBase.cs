@@ -76,9 +76,10 @@ namespace Radios
     /// </summary>
     public partial class FlexBase : AllRadios, IDisposable
     {
-        private const string statusHdr = "Status";
-        private const string importedMsg = "Import complete";
-        private const string importFailMsg = "import didn't complete";
+        // Lexicon-backed, so no longer const — a const must be a compile-time literal.
+        private static string statusHdr => Lexicon.Get("settings.flexdb.status_header");
+        private static string importedMsg => Lexicon.Get("settings.flexdb.imported");
+        private static string importFailMsg => Lexicon.Get("settings.flexdb.import_failed");
         private const string noRXAnt = "no RX antenna";
         private const string noSlice = "didn't get a slice";
         private const string noStation = "Station name not set";
@@ -1567,7 +1568,7 @@ namespace Radios
             }
 
             Tracing.TraceLine($"TryAutoConnect: BEGIN {config.RadioName} ({config.RadioSerial}), remote={config.IsRemote}, timeout={timeoutMs}ms", TraceLevel.Info);
-            if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connecting to {config.RadioName}", VerbosityLevel.Critical, true);
+            if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.connecting", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
             // AS prosign (wait / standing by) at connect-start — CW-flavored signal that we're
             // mid-handshake. Pair with BT which fires at connect-ready (MainWindow.PowerOn).
             if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
@@ -1618,7 +1619,7 @@ namespace Radios
                         {
                             Tracing.TraceLine($"TryAutoConnect: leg {leg} SmartLink session FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                             if (!lastLeg && !SuppressSpeech)
-                                ScreenReaderOutput.Speak($"SmartLink could not reach {config.RadioName}. Trying the local network.", VerbosityLevel.Critical, true);
+                                ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.smartlink_unreachable", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
                             continue;
                         }
                     }
@@ -1655,20 +1656,23 @@ namespace Radios
                         RecordConnectFailure(new ConnectFailureReport
                         {
                             Class = ConnectFailureClass.RadioNotFound,
-                            SpokenSummary = path == ConnectPathKind.SmartLink
-                                ? $"{config.RadioName} never appeared in the SmartLink radio list. It may be powered off, offline, or registered to a different account."
-                                : $"{config.RadioName} was not found on the local network. It may be powered off or on a different network.",
+                            SpokenSummary = Lexicon.Get(
+                                path == ConnectPathKind.SmartLink
+                                    ? "connect.failure.radio_not_found_wan"
+                                    : "connect.failure.radio_not_found_lan",
+                                ("radioName", config.RadioName)),
                         });
                         if (!lastLeg)
                         {
                             // No silent path substitution: the walk says so.
-                            var next = chain[leg + 1] == ConnectPathKind.SmartLink ? "SmartLink" : "the local network";
-                            var here = path == ConnectPathKind.SmartLink ? "over SmartLink" : "on the local network";
+                            var next = Lexicon.Get(chain[leg + 1] == ConnectPathKind.SmartLink ? "connect.auto.next_smartlink" : "connect.auto.next_local");
+                            var here = Lexicon.Get(path == ConnectPathKind.SmartLink ? "connect.auto.here_smartlink" : "connect.auto.here_local");
                             if (!SuppressSpeech)
-                                ScreenReaderOutput.Speak($"{config.RadioName} was not found {here}. Trying {next}.", VerbosityLevel.Critical, true);
+                                ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.not_found_here",
+                                    ("radioName", config.RadioName), ("here", here), ("next", next)), VerbosityLevel.Critical, true);
                             continue;
                         }
-                        if (!SuppressSpeech) ScreenReaderOutput.Speak($"{config.RadioName} not found", VerbosityLevel.Critical, true);
+                        if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.not_found", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
                         return false;
                     }
 
@@ -1685,7 +1689,7 @@ namespace Radios
                     {
                         sw.Stop();
                         Tracing.TraceLine($"TryAutoConnect: END connected successfully on leg {leg} ({path}) (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                        if (!SuppressSpeech) ScreenReaderOutput.Speak($"Connected to {config.RadioName}", VerbosityLevel.Critical, true);
+                        if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.connected", ("radioName", config.RadioName)), VerbosityLevel.Critical, true);
                         // BT prosign moved to MainWindow.PowerOn so it fires AFTER the CW delegate is
                         // wired and CwNotificationsEnabled is loaded from config. Previous location
                         // (here) raced with MainWindow init -- PlayCwBT was null on first connect.
@@ -1695,9 +1699,10 @@ namespace Radios
                     Tracing.TraceLine($"TryAutoConnect: leg {leg} Connect() FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     if (!lastLeg)
                     {
-                        var next = chain[leg + 1] == ConnectPathKind.SmartLink ? "SmartLink" : "the local network";
+                        var next = Lexicon.Get(chain[leg + 1] == ConnectPathKind.SmartLink ? "connect.auto.next_smartlink" : "connect.auto.next_local");
                         if (!SuppressSpeech)
-                            ScreenReaderOutput.Speak($"Could not connect to {config.RadioName} that way. Trying {next}.", VerbosityLevel.Critical, true);
+                            ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.leg_failed",
+                                ("radioName", config.RadioName), ("next", next)), VerbosityLevel.Critical, true);
                     }
                 }
 
@@ -1705,9 +1710,11 @@ namespace Radios
                 // the verdict — the last failing site filed a report.
                 sw.Stop();
                 Tracing.TraceLine($"TryAutoConnect: END chain exhausted (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
-                string failSpeech = $"Failed to connect to {config.RadioName}.";
                 string? advice = LastConnectFailureAdvice;
-                if (!string.IsNullOrEmpty(advice)) failSpeech += " " + advice;
+                string failSpeech = string.IsNullOrEmpty(advice)
+                    ? Lexicon.Get("connect.auto.failed", ("radioName", config.RadioName))
+                    : Lexicon.Get("connect.auto.failed_with_advice",
+                        ("radioName", config.RadioName), ("advice", advice));
                 if (!SuppressSpeech) ScreenReaderOutput.Speak(failSpeech, VerbosityLevel.Critical, true);
                 return false;
             }
@@ -1904,7 +1911,7 @@ namespace Radios
             if (account == null)
             {
                 Tracing.TraceLine($"TryAutoConnectRemote: no saved account for '{config.SmartLinkAccountEmail}', aborting ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak("SmartLink account not found. Please log in manually.", VerbosityLevel.Critical, true);
+                if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.account_not_found"), VerbosityLevel.Critical, true);
                 return false;
             }
 
@@ -1996,18 +2003,18 @@ namespace Radios
                     RecordConnectFailure(new ConnectFailureReport
                     {
                         Class = ConnectFailureClass.AuthenticationFailed,
-                        SpokenSummary = $"SmartLink did not accept the saved sign-in for {config.SmartLinkAccountEmail}. Connect from the radio list to sign in again.",
+                        SpokenSummary = Lexicon.Get("connect.failure.auth_summary", ("email", config.SmartLinkAccountEmail)),
                     });
-                    if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak("SmartLink sign-in was not accepted. Connect from the radio list to sign in again.", VerbosityLevel.Critical, true);
+                    if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.signin_not_accepted"), VerbosityLevel.Critical, true);
                 }
                 else
                 {
                     RecordConnectFailure(new ConnectFailureReport
                     {
                         Class = ConnectFailureClass.SessionSetupFailed,
-                        SpokenSummary = "Could not reach the SmartLink server. Your sign-in is fine — check your internet connection and try again.",
+                        SpokenSummary = Lexicon.Get("connect.failure.session_setup"),
                     });
-                    if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak("SmartLink connection failed", VerbosityLevel.Critical, true);
+                    if (!SuppressSpeech && !quietFailures) ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.connection_failed"), VerbosityLevel.Critical, true);
                 }
                 return false;
             }
@@ -2253,7 +2260,7 @@ namespace Radios
                     { "clientRemovedDuringStart", _clientRemovedDuringStart },
                     { "ticksSinceRemoval", _clientRemovedDuringStart ? (Environment.TickCount64 - _clientRemovedTickCount) : 0 }
                 });
-                if (!SuppressSpeech) ScreenReaderOutput.Speak("Connection slow, retrying", VerbosityLevel.Critical);
+                if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.start.slow_retrying"), VerbosityLevel.Critical);
                 if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
                 try { theRadio.Disconnect(); } catch { }
                 return false;
@@ -2291,12 +2298,7 @@ namespace Radios
             // see project_stuck_modal_escape_design.md.
             if (!SuppressSpeech)
             {
-                string msg = ScreenReaderOutput.CurrentVerbosity switch
-                {
-                    VerbosityLevel.Chatty => "JJ Flexible Access disconnected from radio",
-                    VerbosityLevel.Terse  => "JJ Flexible disconnected",
-                    _                     => "Disconnected"
-                };
+                string msg = Lexicon.Get("connect.disconnect.announcement", ScreenReaderOutput.CurrentVerbosity);
                 // INTERRUPT, deliberately - and this was briefly QUEUE on
                 // 2026-08-18, which was wrong.
                 //
@@ -4130,10 +4132,10 @@ namespace Radios
                 theRadio.SendUpdateFile(path).ContinueWith(
                     t =>
                     {
-                        string detail = t.Exception?.GetBaseException().Message ?? "unknown error";
+                        string detail = t.Exception?.GetBaseException().Message ?? Lexicon.Get("settings.firmware.unknown_error");
                         Tracing.TraceLine($"BeginFirmwareUpdate: transfer task faulted: {detail}", TraceLevel.Error);
                         ScreenReaderOutput.Speak(
-                            "The radio closed the connection during the upload. The update was not applied.",
+                            Lexicon.Get("settings.firmware.transfer_fault"),
                             VerbosityLevel.Critical, true);
                         try { onTransferFault?.Invoke(detail); }
                         catch (Exception cbEx) { Tracing.TraceLine($"BeginFirmwareUpdate: fault callback threw: {cbEx.Message}", TraceLevel.Error); }
@@ -4252,7 +4254,7 @@ namespace Radios
                 try
                 {
                     Report(FirmwareUpdatePhase.Sending,
-                        "Firmware sent. Waiting for the radio to restart.");
+                        Lexicon.Get("settings.firmware.sending"));
 
                     // Phase 1 — wait for the radio to drop off the network.
                     var start = DateTime.UtcNow;
@@ -4267,14 +4269,13 @@ namespace Radios
                     if (!left)
                     {
                         Report(FirmwareUpdatePhase.TimedOut,
-                            "The radio never restarted, so the firmware was probably not accepted. It is still running " +
-                            previousVersion + ". Nothing has been damaged — you can try again.",
+                            Lexicon.Get("settings.firmware.never_restarted", ("previousVersion", previousVersion)),
                             previousVersion, terminal: true);
                         return;
                     }
 
                     Report(FirmwareUpdatePhase.RadioRestarting,
-                        "The radio has restarted and is applying the firmware. This takes several minutes.");
+                        Lexicon.Get("settings.firmware.restarting"));
 
                     // Phase 2 — wait for it to come back and tell us its version.
                     start = DateTime.UtcNow;
@@ -4301,22 +4302,19 @@ namespace Radios
                             && string.Equals(current, previousVersion, StringComparison.OrdinalIgnoreCase))
                         {
                             Report(FirmwareUpdatePhase.VersionUnchanged,
-                                $"The radio is back, but still running firmware {current}. The update did not take. " +
-                                "Check that the file matches this radio model, then try again.",
+                                Lexicon.Get("settings.firmware.version_unchanged", ("current", current)),
                                 current, terminal: true);
                             return;
                         }
 
                         Report(FirmwareUpdatePhase.Verified,
-                            $"Firmware update complete and verified. The radio is back and running firmware {current}. " +
-                            "You can connect to it again.",
+                            Lexicon.Get("settings.firmware.verified", ("current", current)),
                             current, terminal: true);
                         return;
                     }
 
                     Report(FirmwareUpdatePhase.TimedOut,
-                        "The radio has not come back on the network yet. It may still be finishing — give it a few more minutes, " +
-                        "then look for it again. If it stays away, it may be in recovery, which can be fixed by sending the same firmware again.",
+                        Lexicon.Get("settings.firmware.not_returned"),
                         terminal: true);
                 }
                 catch (OperationCanceledException)
@@ -5122,8 +5120,8 @@ namespace Radios
                     $"PerformNewLogin: identity mismatch — asked for {expectedAccount.Email}, Auth0 returned {email}; rejecting",
                     TraceLevel.Error);
                 ScreenReaderOutput.Speak(
-                    $"Sign-in returned the account {email}, but {expectedAccount.Email} was requested. " +
-                    "Not switching accounts. Sign out in the account manager and try again.",
+                    Lexicon.Get("connect.smartlink.identity_mismatch",
+                        ("email", email), ("expectedEmail", expectedAccount.Email)),
                     VerbosityLevel.Critical, true);
                 return null;
             }
@@ -5141,7 +5139,7 @@ namespace Radios
                 if (!rememberSignIn)
                 {
                     Tracing.TraceLine($"setupRemote: user chose not to remember sign-in for {email}", TraceLevel.Info);
-                    ScreenReaderOutput.Speak("Signed in. Not remembered on this computer.", VerbosityLevel.Terse, true);
+                    ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.signed_in_not_remembered"), VerbosityLevel.Terse, true);
                 }
                 else
                 {
@@ -5184,7 +5182,7 @@ namespace Radios
                         _currentAccount = account;
 
                         ScreenReaderOutput.Speak(
-                            $"Account saved for {friendlyName}. You can rename or remove it under Manage SmartLink Accounts.",
+                            Lexicon.Get("connect.smartlink.account_saved", ("friendlyName", friendlyName)),
                             VerbosityLevel.Terse, true);
                         Tracing.TraceLine($"setupRemote: saved account for {email}", TraceLevel.Info);
                     }
@@ -6888,8 +6886,8 @@ namespace Radios
             {
                 string who = !string.IsNullOrEmpty(client.Station) ? client.Station
                     : !string.IsNullOrEmpty(client.Program) ? client.Program
-                    : "Another client";
-                ScreenReaderOutput.Speak($"{who} connected", VerbosityLevel.Terse);
+                    : Lexicon.Get("connect.client.unknown_added");
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.client.connected", ("who", who)), VerbosityLevel.Terse);
                 ScreenReaderOutput.PlayClientConnectedEarcon?.Invoke();
             }
 
@@ -7085,7 +7083,7 @@ namespace Radios
                     }
                     else
                     {
-                        string msg = $"Cannot {reason}. You must be the primary operator at the radio.";
+                        string msg = Lexicon.Get("connect.presence.denied", ("reason", reason));
                         Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, interrupt: true);
                         Tracing.TraceLine($"RequireOperatorPresence denied (Passive): {reason}", TraceLevel.Info);
                         onDenied?.Invoke();
@@ -7138,9 +7136,7 @@ namespace Radios
                 return;
             }
 
-            string msg = $"Cannot {reason}. You must be the primary operator at the radio — " +
-                "or, if this is your own radio, turn on allowing port changes from remote " +
-                "connections, on the Radios tab in Settings.";
+            string msg = Lexicon.Get("connect.presence.port_denied", ("reason", reason));
             Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical, interrupt: true);
             Tracing.TraceLine(
                 $"RequirePortSettingsAuthority denied: {reason} serial={serial}", TraceLevel.Info);
@@ -7262,8 +7258,8 @@ namespace Radios
                     : !string.IsNullOrEmpty(snapProgram) ? snapProgram
                     : !string.IsNullOrEmpty(client.Station) ? client.Station
                     : !string.IsNullOrEmpty(client.Program) ? client.Program
-                    : "A client";
-                ScreenReaderOutput.Speak($"{who} disconnected", VerbosityLevel.Terse);
+                    : Lexicon.Get("connect.client.unknown_removed");
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.client.disconnected", ("who", who)), VerbosityLevel.Terse);
                 ScreenReaderOutput.PlayClientDisconnectedEarcon?.Invoke();
             }
 
@@ -11980,25 +11976,15 @@ namespace Radios
         /// safety message — which is exactly why the off-level form is the
         /// shortest one that still carries the consequence.
         /// </summary>
-        public static string SilentTxSpokenWarning(VerbosityLevel verbosity) => verbosity switch
-        {
+        public static string SilentTxSpokenWarning(VerbosityLevel verbosity) =>
             // Noel's wording, 2026-08-19: "audio from your computer will [not] be
             // transmitted using your radio" in place of "will not go out". It
             // names both halves of the path — the computer that produced the
             // audio and the radio that is supposed to send it — so an operator
             // hearing this for the first time learns where the break is, not
             // just that there is one. "Your", not "this": the house voice.
-            VerbosityLevel.Critical =>
-                "No mic profile on this radio. Audio from your computer will not be transmitted.",
-            VerbosityLevel.Terse =>
-                "This radio has no mic profile selected, so audio from your computer will not "
-                + "be transmitted through your radio. Nothing you did caused it.",
-            _ =>
-                "Heads up: this radio has no mic profile selected. Until one is loaded, audio "
-                + "from your computer will not be transmitted through your radio — you would key "
-                + "up and nobody would hear you. Nothing you did caused it, and receive is "
-                + "unaffected. The Audio Workshop has the details.",
-        };
+            // The three tiers live in the store as a ladder: audio.silent_tx.warning.
+            Lexicon.Get("audio.silent_tx.warning", verbosity);
 
         /// <summary>
         /// The re-readable form, for a status line the operator can arrow
@@ -12010,15 +11996,10 @@ namespace Radios
         {
             if (!MicProfileSelectionEmpty) return null;
             string pick = SuggestedMicProfileName;
-            return "This radio has no mic profile selected. A mic profile is the radio's own "
-                 + "transmit-audio chain, and without one loaded, audio sent from this computer "
-                 + "has nothing to travel through — you would key up and nobody would hear you. "
-                 + "Receiving is unaffected, and nothing you did caused it: a radio arrives this "
-                 + "way from the factory, and loading a global profile that carries no mic "
-                 + "profile leaves it this way too."
+            return Lexicon.Get("audio.silent_tx.advisory")
                  + (string.IsNullOrEmpty(pick)
                         ? ""
-                        : $" This radio offers a mic profile named {pick}.");
+                        : Lexicon.Get("audio.silent_tx.advisory_suggestion", ("pick", pick)));
         }
 
         /// <summary>
@@ -12100,9 +12081,7 @@ namespace Radios
                 {
                     if (SuppressSpeech) return;
                     ScreenReaderOutput.Speak(
-                        $"This radio had no mic profile selected, so audio from your computer "
-                        + $"would not have been transmitted through your radio. I loaded "
-                        + $"{candidate} on the radio.",
+                        Lexicon.Get("audio.silent_tx.repaired", ("candidate", candidate)),
                         Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
                     return;
                 }
@@ -12878,8 +12857,8 @@ namespace Radios
         /// they used ("Slice D released, 3 active"), so this adds only what
         /// none of those surfaces could know.
         /// </summary>
-        private const string ProvisionalSliceChangeReceipt =
-            "This will not survive disconnect unless you save the profile.";
+        private static string ProvisionalSliceChangeReceipt =>
+            Lexicon.Get("settings.slice.provisional_change_receipt");
 
         /// <summary>
         /// How long the slice set must be quiet before it counts as settled.
@@ -13032,12 +13011,18 @@ namespace Radios
                 string spoken;
                 if (ScreenReaderOutput.CurrentVerbosity >= VerbosityLevel.Chatty)
                 {
-                    spoken = $"{used} {(used == 1 ? "slice" : "slices")} out of {total} used";
-                    if (haveActive) spoken += $", slice {letter} {mode}";
+                    spoken = Lexicon.Get(
+                        used == 1 ? "settings.slice.census_chatty_one" : "settings.slice.census_chatty_many",
+                        ("used", used), ("total", total));
+                    if (haveActive)
+                        spoken += Lexicon.Get("settings.slice.census_active_suffix",
+                            ("letter", letter), ("mode", mode));
                 }
                 else
                 {
-                    spoken = $"{used} out of {total} {(total == 1 ? "slice" : "slices")}";
+                    spoken = Lexicon.Get(
+                        total == 1 ? "settings.slice.census_terse_one" : "settings.slice.census_terse_many",
+                        ("used", used), ("total", total));
                 }
                 ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse);
             }
@@ -13274,8 +13259,7 @@ namespace Radios
             {
                 Tracing.TraceLine("ResolveAudioDevice:" + type + " no device available", TraceLevel.Error);
                 ScreenReaderOutput.Speak(
-                    "Radio audio cannot start: this computer has no usable " + role
-                    + " device. Open Settings, Audio, Audio Devices to choose one.",
+                    Lexicon.Get("audio.device.no_usable", ("role", role)),
                     VerbosityLevel.Critical, true);
                 return null;
             }
@@ -13283,11 +13267,11 @@ namespace Radios
             Tracing.TraceLine("ResolveAudioDevice:" + type + " fell back to system default "
                 + fallback.Name, TraceLevel.Error);
             ScreenReaderOutput.Speak(
-                wasConfigured
-                    ? "Your saved " + role + " device, " + savedName
-                      + ", is not connected. Using the system default, " + fallback.Name + "."
-                    : "No " + role + " device was chosen yet. Using the system default, "
-                      + fallback.Name + ". You can change it in Settings, Audio, Audio Devices.",
+                Lexicon.Get(
+                    wasConfigured
+                        ? "audio.device.saved_missing_fallback"
+                        : "audio.device.none_chosen_fallback",
+                    ("role", role), ("savedName", savedName), ("fallbackName", fallback.Name)),
                 VerbosityLevel.Critical, true);
             return fallback;
         }
@@ -13542,19 +13526,19 @@ namespace Radios
                 Tracing.TraceLine("remoteAudioProc:audio setup failed, " + audioEnumStatus, TraceLevel.Error);
                 ScreenReaderOutput.Speak(
                     string.IsNullOrEmpty(audioEnumMessage)
-                        ? "Radio audio cannot start: this computer's sound devices could not be read."
-                        : "Radio audio cannot start. " + audioEnumMessage,
+                        ? Lexicon.Get("audio.startup.enumeration_failed")
+                        : Lexicon.Get("audio.startup.enumeration_failed_detail", ("enumMessage", audioEnumMessage)),
                     VerbosityLevel.Critical, true);
                 goto remoteDone;
             }
 
-            remoteInputDevice = ResolveAudioDevice(JJPortaudio.Devices.DeviceTypes.input, "microphone");
+            remoteInputDevice = ResolveAudioDevice(JJPortaudio.Devices.DeviceTypes.input, Lexicon.Get("audio.device.role_microphone"));
             if (remoteInputDevice == null)
             {
                 Tracing.TraceLine("remoteAudioProc:remoteInputDevice setup error", TraceLevel.Error);
                 goto remoteDone;
             }
-            remoteOutputDevice = ResolveAudioDevice(JJPortaudio.Devices.DeviceTypes.output, "playback");
+            remoteOutputDevice = ResolveAudioDevice(JJPortaudio.Devices.DeviceTypes.output, Lexicon.Get("audio.device.role_playback"));
             if (remoteOutputDevice == null)
             {
                 Tracing.TraceLine("remoteAudioProc:remoteOutputDevice setup error", TraceLevel.Error);
@@ -13687,9 +13671,7 @@ namespace Radios
                 Tracing.TraceLine("remoteAudioProc:opus input channel did not open;"
                     + " computer transmit audio is unavailable this session", TraceLevel.Error);
                 if (!SuppressSpeech) ScreenReaderOutput.Speak(
-                    "Your microphone could not be opened, so computer audio will not "
-                    + "transmit. Receive audio is working. Check your input device in "
-                    + "Audio Devices.", VerbosityLevel.Critical, true);
+                    Lexicon.Get("audio.mic.could_not_open"), VerbosityLevel.Critical, true);
             }
             else
             {
@@ -14183,8 +14165,7 @@ namespace Radios
                 + "', not PC, while computer transmit audio is running"
                 + " — re-asserting PC", TraceLevel.Warning);
             if (!SuppressSpeech) ScreenReaderOutput.Speak(
-                "The radio switched its transmit audio to the " + current
-                + " input while computer audio was running. Setting it back to PC.",
+                Lexicon.Get("audio.mic.diverged", ("current", current)),
                 VerbosityLevel.Critical, true);
             try { theRadio.MicInput = "PC"; }
             catch (Exception ex)

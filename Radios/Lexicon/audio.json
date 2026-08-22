@@ -8,5 +8,20 @@
   "audio.startup.no_device_chosen": "Radio audio needs a sound device on this computer and none has been chosen yet.",
   "audio.startup.choose_prompt": "{detail}{newline}{newline}Choose audio devices now?",
   "audio.startup.declined": "Radio audio is off. Choose devices any time from Settings, Audio, Audio Devices.",
-  "audio.startup.could_not_start": "Radio audio could not start: {message}"
+  "audio.startup.could_not_start": "Radio audio could not start: {message}",
+  "audio.silent_tx.warning": {
+    "critical": "No mic profile on this radio. Audio from your computer will not be transmitted.",
+    "terse": "This radio has no mic profile selected, so audio from your computer will not be transmitted through your radio. Nothing you did caused it.",
+    "chatty": "Heads up: this radio has no mic profile selected. Until one is loaded, audio from your computer will not be transmitted through your radio — you would key up and nobody would hear you. Nothing you did caused it, and receive is unaffected. The Audio Workshop has the details."
+  },
+  "audio.silent_tx.repaired": "This radio had no mic profile selected, so audio from your computer would not have been transmitted through your radio. I loaded {candidate} on the radio.",
+  "audio.device.role_microphone": "microphone",
+  "audio.device.role_playback": "playback",
+  "audio.device.no_usable": "Radio audio cannot start: this computer has no usable {role} device. Open Settings, Audio, Audio Devices to choose one.",
+  "audio.device.saved_missing_fallback": "Your saved {role} device, {savedName}, is not connected. Using the system default, {fallbackName}.",
+  "audio.device.none_chosen_fallback": "No {role} device was chosen yet. Using the system default, {fallbackName}. You can change it in Settings, Audio, Audio Devices.",
+  "audio.mic.could_not_open": "Your microphone could not be opened, so computer audio will not transmit. Receive audio is working. Check your input device in Audio Devices.",
+  "audio.mic.diverged": "The radio switched its transmit audio to the {current} input while computer audio was running. Setting it back to PC.",
+  "audio.silent_tx.advisory": "This radio has no mic profile selected. A mic profile is the radio's own transmit-audio chain, and without one loaded, audio sent from this computer has nothing to travel through — you would key up and nobody would hear you. Receiving is unaffected, and nothing you did caused it: a radio arrives this way from the factory, and loading a global profile that carries no mic profile leaves it this way too.",
+  "audio.silent_tx.advisory_suggestion": " This radio offers a mic profile named {pick}."
 }

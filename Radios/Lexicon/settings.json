@@ -10,5 +10,21 @@
   "settings.flexdb.export_failed_prefix": "Export failed - ",
   "settings.flexdb.export_timeout": "timed out",
   "settings.flexdb.export_not_created": "file was not created at the destination",
-  "settings.flexdb.export_only_lan": "Profile export requires a LAN connection. SmartLink (remote) connections cannot receive the export file from the radio."
+  "settings.flexdb.export_only_lan": "Profile export requires a LAN connection. SmartLink (remote) connections cannot receive the export file from the radio.",
+  "settings.flexdb.imported": "Import complete",
+  "settings.flexdb.import_failed": "import didn't complete",
+  "settings.firmware.transfer_fault": "The radio closed the connection during the upload. The update was not applied.",
+  "settings.firmware.unknown_error": "unknown error",
+  "settings.firmware.sending": "Firmware sent. Waiting for the radio to restart.",
+  "settings.firmware.never_restarted": "The radio never restarted, so the firmware was probably not accepted. It is still running {previousVersion}. Nothing has been damaged — you can try again.",
+  "settings.firmware.restarting": "The radio has restarted and is applying the firmware. This takes several minutes.",
+  "settings.firmware.version_unchanged": "The radio is back, but still running firmware {current}. The update did not take. Check that the file matches this radio model, then try again.",
+  "settings.firmware.verified": "Firmware update complete and verified. The radio is back and running firmware {current}. You can connect to it again.",
+  "settings.firmware.not_returned": "The radio has not come back on the network yet. It may still be finishing — give it a few more minutes, then look for it again. If it stays away, it may be in recovery, which can be fixed by sending the same firmware again.",
+  "settings.slice.provisional_change_receipt": "This will not survive disconnect unless you save the profile.",
+  "settings.slice.census_chatty_one": "{used} slice out of {total} used",
+  "settings.slice.census_chatty_many": "{used} slices out of {total} used",
+  "settings.slice.census_active_suffix": ", slice {letter} {mode}",
+  "settings.slice.census_terse_one": "{used} out of {total} slice",
+  "settings.slice.census_terse_many": "{used} out of {total} slices"
 }
