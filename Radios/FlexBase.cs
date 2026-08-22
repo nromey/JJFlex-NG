@@ -7647,13 +7647,109 @@ namespace Radios
         }
 
         protected float _SWR;
-        /// <summary>Current SWR reading.</summary>
+        /// <summary>
+        /// SWR exactly as the radio reported it.
+        /// </summary>
+        /// <remarks>
+        /// <b>Do not trust this for a safety decision.</b> Measured on
+        /// 2026-08-22 transmitting into an unterminated antenna port: forward
+        /// 17.5 W, reflected 13.4 W — a true SWR near 15 — and this meter
+        /// reported <b>1.008</b>, then its idle sentinel of −25 while transmit
+        /// was still in progress. Use <see cref="ComputedSWR"/>.
+        /// </remarks>
         public float SWRValue => _SWR;
 
         private void sWRData(float data)
         {
             meterTrace.Report("SWRData:", data);
             _SWR = data;
+        }
+
+        /// <summary>
+        /// The SWR sentinel. The radio reports this when it has no reading,
+        /// including part-way through a transmit — so it must never be read as
+        /// a low SWR.
+        /// </summary>
+        public const float SWRNoReading = -25f;
+
+        /// <summary>
+        /// SWR derived from forward and reflected power, which are raw
+        /// measurements rather than a derived number.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// From the reflection coefficient: Γ = √(Pr / Pf), SWR = (1+Γ)/(1−Γ).
+        /// </para>
+        /// <para>
+        /// <b>Why this exists.</b> On 2026-08-22 the radio's own SWR meter read
+        /// 1.008 while 76% of the power was coming back off an empty antenna
+        /// port, and read 1.047 — correct to three decimals against this
+        /// calculation — when a dummy load was properly connected. It is
+        /// accurate when the antenna system is fine and wrong when it is not,
+        /// which is precisely backwards: SWR is a number nobody consults until
+        /// something has already gone wrong.
+        /// </para>
+        /// <para>
+        /// A sighted operator sees the needle slam and knows. Ours was told
+        /// "1.008", which is worse than no instrument because it reassures.
+        /// </para>
+        /// <para>
+        /// Returns <see cref="float.NaN"/> when there is not enough forward
+        /// power to derive anything — never a plausible-looking 1.0, because an
+        /// invented good reading is the failure this replaces.
+        /// </para>
+        /// </remarks>
+        public float ComputedSWR => SwrFromPower(_PowerDBM, _ReflectedPower);
+
+        /// <summary>
+        /// SWR from a forward and a reflected power reading, both in dBm.
+        /// Pure, so it can be tested against measured pairs.
+        /// </summary>
+        /// <returns>
+        /// The standing wave ratio, or NaN when forward power is too low to
+        /// derive one.
+        /// </returns>
+        public static float SwrFromPower(float forwardDBm, float reflectedDBm)
+        {
+            if (float.IsNaN(forwardDBm) || float.IsNaN(reflectedDBm)) return float.NaN;
+
+            float pf = DBmToWatts(forwardDBm);
+            float pr = DBmToWatts(reflectedDBm);
+
+            // Below this there is no transmit worth judging, and the ratio of
+            // two tiny numbers is noise. A dead key measured 0.22 W on
+            // 2026-08-22, so this sits well under any real keying.
+            if (pf < 0.05f) return float.NaN;
+
+            // Reflected above forward is not physical: it means one meter is
+            // lying or they were sampled at different instants. Say "unknown"
+            // rather than invent a number.
+            if (pr >= pf) return float.NaN;
+
+            double gamma = Math.Sqrt(pr / pf);
+            return (float)((1.0 + gamma) / (1.0 - gamma));
+        }
+
+        /// <summary>
+        /// The share of transmit power coming back, 0 to 1. The rawest
+        /// available answer to "is this actually going into a load?", and the
+        /// check a bench session should open with.
+        /// </summary>
+        /// <remarks>
+        /// Measured 2026-08-22: a properly connected dummy load returned
+        /// <b>0.0005</b> (0.054 W of 101.2 W). An empty antenna port returned
+        /// <b>0.76</b>. That is three orders of magnitude, and it needs no
+        /// calibration to interpret.
+        /// </remarks>
+        public float ReflectedFraction
+        {
+            get
+            {
+                float pf = DBmToWatts(_PowerDBM);
+                float pr = DBmToWatts(_ReflectedPower);
+                if (pf < 0.05f) return float.NaN;
+                return Math.Min(pr / pf, 1f);
+            }
         }
 
         private string SWRText()

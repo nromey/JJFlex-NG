@@ -142,7 +142,7 @@ ANF, preamp, attenuator, antenna selection, band, VFO, split, RIT and XIT.
 
 **3b — build the transmit harness, run nothing.** The consent gate, the power
 ceiling, the duty-cycle budget with enforced cooling gaps, snapshot-and-restore
-of every transmit-affecting setting. The DL-2000 is not here yet; when it
+of every transmit-affecting setting. The DL2500 is not here yet; when it
 arrives the tests get written against a harness that already exists and has been
 reviewed calmly rather than in a hurry with a hot load.
 

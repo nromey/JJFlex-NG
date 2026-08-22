@@ -111,8 +111,10 @@ and **every later test in this document is void.** Stop and say so.
 
 ### Test 0 RESULT — 2026-08-22, ~12:25. PASSES.
 
-Load: Palstar DL-2000, connected and confirmed, set for 500 W, fan verified
-working but never needed. Noel afterwards: "the load basically sneezed at those
+Load: Palstar DL2500 (2500 W rating), connected and confirmed. Meter scale set
+to the 500 W range — there is no amplifier in line yet, so nothing can exceed
+it. Fan switch verified working, and deliberately left off: at 100 W the load
+is at 4 percent of its rating and never got warm. Noel afterwards: "the load basically sneezed at those
 power levels, it didn't get hot it didn't turn on the fan." Tests 1 through 7
 have large thermal margin.
 
