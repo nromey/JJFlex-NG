@@ -161,7 +161,8 @@ public partial class ValueFieldControl : UserControl
     /// </summary>
     private void UpdateDisplay()
     {
-        string text = $"{_label}: {FormatValue(_value)}{UnitSuffix}";
+        string text = Lexicon.Get("audio.field.display",
+            ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
         DisplayText.Text = text;
         AutomationProperties.SetName(this, text);
     }
@@ -172,7 +173,8 @@ public partial class ValueFieldControl : UserControl
     /// </summary>
     private void UpdateVisual()
     {
-        DisplayText.Text = $"{_label}: {FormatValue(_value)}{UnitSuffix}";
+        DisplayText.Text = Lexicon.Get("audio.field.display",
+            ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -245,7 +247,7 @@ public partial class ValueFieldControl : UserControl
                     if (_min < 0)
                         BeginNumberEntry(e.Key);
                     else
-                        RejectEntryKey($"{_label} does not accept negative values");
+                        RejectEntryKey(Lexicon.Get("audio.field.no_negative", ("label", _label)));
                     e.Handled = true;
                 }
                 break;
@@ -255,7 +257,7 @@ public partial class ValueFieldControl : UserControl
                 if (_min < 0)
                     BeginNumberEntry(e.Key);
                 else
-                    RejectEntryKey($"{_label} does not accept negative values");
+                    RejectEntryKey(Lexicon.Get("audio.field.no_negative", ("label", _label)));
                 e.Handled = true;
                 break;
 
@@ -267,7 +269,7 @@ public partial class ValueFieldControl : UserControl
                     if (DecimalPlaces > 0)
                         BeginNumberEntry(e.Key);
                     else
-                        RejectEntryKey($"{_label} takes whole numbers only");
+                        RejectEntryKey(Lexicon.Get("audio.field.whole_numbers_only", ("label", _label)));
                     e.Handled = true;
                 }
                 break;
@@ -285,7 +287,7 @@ public partial class ValueFieldControl : UserControl
         _numberEntryMode = true;
         _numberBuffer = "";
         _numberNegative = false;
-        ScreenReaderOutput.Speak($"Enter {_label} value", interrupt: true);
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.field.enter_value", ("label", _label)), interrupt: true);
         HandleNumberEntryKey(firstKey);
     }
 
@@ -296,7 +298,8 @@ public partial class ValueFieldControl : UserControl
     private void ToggleBufferSign()
     {
         _numberNegative = !_numberNegative;
-        ScreenReaderOutput.Speak(_numberNegative ? "minus" : "minus removed");
+        ScreenReaderOutput.Speak(Lexicon.Get(
+            _numberNegative ? "audio.field.minus" : "audio.field.minus_removed"));
         UpdateNumberEntryDisplay();
     }
 
@@ -320,7 +323,7 @@ public partial class ValueFieldControl : UserControl
         {
             if (_min >= 0)
             {
-                RejectEntryKey($"{_label} does not accept negative values");
+                RejectEntryKey(Lexicon.Get("audio.field.no_negative", ("label", _label)));
                 return true;
             }
             ToggleBufferSign();
@@ -332,16 +335,16 @@ public partial class ValueFieldControl : UserControl
         {
             if (DecimalPlaces <= 0)
             {
-                RejectEntryKey($"{_label} takes whole numbers only");
+                RejectEntryKey(Lexicon.Get("audio.field.whole_numbers_only", ("label", _label)));
                 return true;
             }
             if (_numberBuffer.Contains('.'))
             {
-                RejectEntryKey("Already has a point");
+                RejectEntryKey(Lexicon.Get("audio.field.already_has_point"));
                 return true;
             }
             _numberBuffer += '.';
-            ScreenReaderOutput.Speak("point");
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.point"));
             UpdateNumberEntryDisplay();
             return true;
         }
@@ -370,7 +373,7 @@ public partial class ValueFieldControl : UserControl
         if (key == Key.Back && _numberBuffer.Length > 0)
         {
             _numberBuffer = _numberBuffer.Substring(0, _numberBuffer.Length - 1);
-            ScreenReaderOutput.Speak("delete");
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.delete"));
             UpdateNumberEntryDisplay();
             return true;
         }
@@ -388,7 +391,7 @@ public partial class ValueFieldControl : UserControl
             _numberEntryMode = false;
             _numberBuffer = "";
             _numberNegative = false;
-            ScreenReaderOutput.Speak("Cancelled", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.cancelled"), VerbosityLevel.Terse);
             UpdateDisplay();
             return true;
         }
@@ -430,13 +433,16 @@ public partial class ValueFieldControl : UserControl
             if (!_suppressEvents)
             {
                 ValueChanged?.Invoke(this, _value);
-                ScreenReaderOutput.Speak($"{_label} {FormatValue(_value)}{UnitSuffix}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("audio.field.spoken_value",
+                        ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix)),
+                    VerbosityLevel.Terse);
                 EarconPlayer.ConfirmTone();
             }
         }
         else
         {
-            ScreenReaderOutput.Speak("Invalid, cancelled", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.invalid_cancelled"), VerbosityLevel.Terse);
             UpdateDisplay();
         }
         _numberBuffer = "";
@@ -449,9 +455,10 @@ public partial class ValueFieldControl : UserControl
     private void UpdateNumberEntryDisplay()
     {
         string signed = (_numberNegative ? "-" : "") + _numberBuffer;
-        string text = $"{_label}: {signed}_";
-        DisplayText.Text = text;
-        AutomationProperties.SetName(this, $"{_label}: entering {signed}");
+        DisplayText.Text = Lexicon.Get("audio.field.entry_display",
+            ("label", _label), ("signed", signed));
+        AutomationProperties.SetName(this, Lexicon.Get("audio.field.entry_name",
+            ("label", _label), ("signed", signed)));
     }
 
     private void AdjustValue(int delta)
@@ -601,8 +608,6 @@ public partial class ValueFieldControl : UserControl
     /// </param>
     private void AnnounceValue(bool atLimit)
     {
-        string text = $"{_label} {FormatValue(_value)}{UnitSuffix}";
-
         // Say "minimum" / "maximum" whenever the value IS at an end, not only
         // when a press was refused for being there already. Arriving at zero
         // used to say "TX Power 0", and only a further press said "TX Power 0,
@@ -610,10 +615,21 @@ public partial class ValueFieldControl : UserControl
         // different ways and had to press again to learn which end they were
         // on. The value alone does not say whether there is anywhere left to
         // go. Reported 2026-08-18.
+        //
+        // Three whole phrases rather than a base phrase with ", minimum"
+        // appended: a stored string starting with a comma is not something an
+        // operator can read back, and the end-stop wording is exactly the kind
+        // of thing worth being able to change.
+        string key = "audio.field.spoken_value";
         if (atLimit || _value <= _min || _value >= _max)
         {
-            text += _value <= _min ? ", minimum" : ", maximum";
+            key = _value <= _min
+                ? "audio.field.spoken_value_minimum"
+                : "audio.field.spoken_value_maximum";
         }
+
+        string text = Lexicon.Get(key,
+            ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
 
         // Not repeated while held - see EndStop. Arriving at an end says so
         // once, in words; continuing to press against it is a tone.

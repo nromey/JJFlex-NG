@@ -110,5 +110,21 @@
   "audio.meters.panel.delete_caption": "Delete meter",
   "audio.meters.panel.slot_kept": "{name} kept",
   "audio.meters.panel.slot_deleted": "{name} deleted, {remaining} meters remaining",
-  "audio.meters.panel.testing_tone": "Testing {name} tone"
+  "audio.meters.panel.testing_tone": "Testing {name} tone",
+  "audio.field.display": "{label}: {value}{unit}",
+  "audio.field.spoken_value": "{label} {value}{unit}",
+  "audio.field.spoken_value_minimum": "{label} {value}{unit}, minimum",
+  "audio.field.spoken_value_maximum": "{label} {value}{unit}, maximum",
+  "audio.field.no_negative": "{label} does not accept negative values",
+  "audio.field.whole_numbers_only": "{label} takes whole numbers only",
+  "audio.field.enter_value": "Enter {label} value",
+  "audio.field.minus": "minus",
+  "audio.field.minus_removed": "minus removed",
+  "audio.field.already_has_point": "Already has a point",
+  "audio.field.point": "point",
+  "audio.field.delete": "delete",
+  "audio.field.cancelled": "Cancelled",
+  "audio.field.invalid_cancelled": "Invalid, cancelled",
+  "audio.field.entry_display": "{label}: {signed}_",
+  "audio.field.entry_name": "{label}: entering {signed}"
 }
