@@ -110,7 +110,7 @@ public class FreqOutHandlers
             string rxLetter = Rig.VFOToLetter(rx);
             string txLetter = Rig.VFOToLetter(restored);
             Radios.ScreenReaderOutput.Speak(
-                $"Split, RX slice {rxLetter}, TX slice {txLetter}",
+                Lexicon.Get("settings.slice.split_rx_tx", ("rxLetter", rxLetter), ("txLetter", txLetter)),
                 VerbosityLevel.Terse, true);
             _priorSplitTxSliceIndex = null;
         }
@@ -123,7 +123,7 @@ public class FreqOutHandlers
             if (Rig.CanTransmit) Rig.TXVFO = rx;
             string letter = Rig.VFOToLetter(rx);
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {letter} transceive", VerbosityLevel.Terse, true);
+                Lexicon.Get("settings.slice.transceive", ("letter", letter)), VerbosityLevel.Terse, true);
         }
     }
 
@@ -136,7 +136,10 @@ public class FreqOutHandlers
         _freqReadout = !_freqReadout;
         if (_freqReadout) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         Radios.ScreenReaderOutput.Speak(
-            _freqReadout ? "Frequency readout on" : "Frequency readout off", VerbosityLevel.Terse, true);
+            _freqReadout
+                ? Lexicon.Get("settings.tuning.freq_readout_on")
+                : Lexicon.Get("settings.tuning.freq_readout_off"),
+            VerbosityLevel.Terse, true);
     }
 
     // Tuning speech debounce — rate-limits frequency announcements during rapid tuning
@@ -293,7 +296,9 @@ public class FreqOutHandlers
                 // stepUnit is like "1 kilohertz", "10 kilohertz" — strip the leading number
                 // so "Step 5 1 kilohertz" becomes "Step 5 kilohertz"
                 string unit = StripLeadingNumber(stepUnit) ?? "";
-                Radios.ScreenReaderOutput.Speak($"Step {mult} {unit}".Trim(), VerbosityLevel.Terse);
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.tuning.step_multiplier", ("mult", mult), ("unit", unit)).Trim(),
+                    VerbosityLevel.Terse);
             }
             e.Handled = true;
             return;
@@ -326,12 +331,13 @@ public class FreqOutHandlers
                     _inStepEntry = true;
                     _stepBuffer = "";
                     _stepMultiplier = 1;
-                    Radios.ScreenReaderOutput.Speak("Step entry");
+                    Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.tuning.step_entry"));
                     e.Handled = true;
                 }
                 else if (ch == '-')
                 {
-                    Radios.ScreenReaderOutput.Speak("Step entry uses plus only", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.tuning.step_entry_plus_only"), VerbosityLevel.Terse);
                     e.Handled = true;
                 }
                 else if (ch == 'K')
@@ -343,7 +349,8 @@ public class FreqOutHandlers
                         _stepMultiplier = 1;
                         _inStepEntry = false;
                         _stepBuffer = "";
-                        Radios.ScreenReaderOutput.Speak("Step reset", VerbosityLevel.Terse);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.tuning.step_reset"), VerbosityLevel.Terse);
                     }
                     e.Handled = true;
                 }
@@ -402,7 +409,7 @@ public class FreqOutHandlers
                     Rig.SliceMute = newMute;
                     if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(
-                        newMute ? "Muted" : "Unmuted", VerbosityLevel.Terse, true);
+                        newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 else if (ch == 'R')
@@ -413,7 +420,7 @@ public class FreqOutHandlers
                     Rig.RIT = rit;
                     if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(
-                        rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+                        rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 else if (ch == 'X')
@@ -424,7 +431,7 @@ public class FreqOutHandlers
                     Rig.XIT = xit;
                     if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(
-                        xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+                        xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 else if (ch == 'Q')
@@ -474,17 +481,17 @@ public class FreqOutHandlers
         {
             case Radios.FrequencyUnits.kHz:
                 double khz = freqHz / 1000.0;
-                if (freqHz % 1000 == 0)
-                    return $"{khz:N0} kilohertz";
-                return $"{khz:N1} kilohertz";
+                // The numeric format stays in code; only the wording is in the
+                // store, so a change of wording can never change the rounding.
+                return Lexicon.Get("settings.tuning.freq_kilohertz",
+                    ("khz", khz.ToString(freqHz % 1000 == 0 ? "N0" : "N1")));
 
             case Radios.FrequencyUnits.MHz:
                 double mhz = freqHz / 1_000_000.0;
                 // Show enough decimals to represent the actual frequency
                 // 3.806.000 → "3.806", 3.806.250 → "3.806250"
-                if (freqHz % 1000 == 0)
-                    return $"{mhz:N3} megahertz";
-                return $"{mhz:N6} megahertz";
+                return Lexicon.Get("settings.tuning.freq_megahertz",
+                    ("mhz", mhz.ToString(freqHz % 1000 == 0 ? "N3" : "N6")));
 
             default: // Hz — original dotted format
                 string s = freqHz.ToString();
@@ -663,7 +670,8 @@ public class FreqOutHandlers
 
         _quickTypeBuffer += '.';
         _lastDigitTime = DateTime.Now;
-        Radios.ScreenReaderOutput.Speak("point", VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get("settings.tuning.quick_type_point"), VerbosityLevel.Terse, true);
 
         // Reset the timeout
         _quickTypeTimeout?.Cancel();
@@ -686,13 +694,14 @@ public class FreqOutHandlers
         double? freqMhz = ParseQuickTypeFreq(_quickTypeBuffer);
         if (freqMhz == null)
         {
-            Radios.ScreenReaderOutput.Speak("Invalid frequency, press Escape to cancel", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.tuning.quick_type_invalid_prompt"), VerbosityLevel.Critical, true);
             return;
         }
 
         string display = FormatFreqForSpeech(freqMhz.Value);
         Radios.ScreenReaderOutput.Speak(
-            $"Change frequency to {display}? Press Enter to confirm, Escape to cancel",
+            Lexicon.Get("settings.tuning.quick_type_confirm", ("freq", display)),
             VerbosityLevel.Terse, true);
     }
 
@@ -726,8 +735,9 @@ public class FreqOutHandlers
     /// </summary>
     private static string FormatFreqForSpeech(double mhz)
     {
-        if (mhz >= 1.0) return $"{mhz:F3} megahertz";
-        return $"{mhz * 1000:F0} kilohertz";
+        if (mhz >= 1.0)
+            return Lexicon.Get("settings.tuning.freq_megahertz", ("mhz", mhz.ToString("F3")));
+        return Lexicon.Get("settings.tuning.freq_kilohertz", ("khz", (mhz * 1000).ToString("F0")));
     }
 
     /// <summary>
@@ -750,7 +760,8 @@ public class FreqOutHandlers
         double? freqMhz = ParseQuickTypeFreq(_quickTypeBuffer);
         if (freqMhz == null)
         {
-            Radios.ScreenReaderOutput.Speak("Invalid frequency", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.tuning.quick_type_invalid"), VerbosityLevel.Critical, true);
             CancelQuickType();
             return;
         }
@@ -766,7 +777,8 @@ public class FreqOutHandlers
         else
             EarconPlayer.DingTone();
         string display = FormatFreqForSpeech(freqMhz.Value);
-        Radios.ScreenReaderOutput.Speak($"Frequency set to {display}", VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get("settings.tuning.freq_set", ("freq", display)), VerbosityLevel.Terse, true);
         CancelQuickType();
     }
 
@@ -789,7 +801,8 @@ public class FreqOutHandlers
         if (key == Key.Escape && _inQuickType)
         {
             CancelQuickType();
-            Radios.ScreenReaderOutput.Speak("Cancelled", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.tuning.quick_type_cancelled"), VerbosityLevel.Terse, true);
             e.Handled = true;
             return true;
         }
@@ -853,7 +866,9 @@ public class FreqOutHandlers
                     if (Rig.ValidVFO(slice))
                     {
                         Rig.RXVFO = slice;
-                        Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(slice)}", VerbosityLevel.Terse);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.slice.name", ("letter", Rig.VFOToLetter(slice))),
+                            VerbosityLevel.Terse);
                         e.Handled = true;
                     }
                 }
@@ -897,13 +912,15 @@ public class FreqOutHandlers
             if (next >= total)
             {
                 string letter = Rig.VFOToLetter(current);
-                Radios.ScreenReaderOutput.Speak($"Slice {letter}, last slice", VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.slice.at_last", ("letter", letter)), VerbosityLevel.Terse, true);
                 return;
             }
             if (next < 0)
             {
                 string letter = Rig.VFOToLetter(current);
-                Radios.ScreenReaderOutput.Speak($"Slice {letter}, first slice", VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.slice.at_first", ("letter", letter)), VerbosityLevel.Terse, true);
                 return;
             }
         }
@@ -921,7 +938,14 @@ public class FreqOutHandlers
             if (!wrap && (next >= total || next < 0))
             {
                 string letter = Rig.VFOToLetter(current);
-                Radios.ScreenReaderOutput.Speak($"Slice {letter}, {(direction > 0 ? "last" : "first")} slice", VerbosityLevel.Terse, true);
+                // Keys stay literal at the call site so the static coverage
+                // check can see them; the branch picks between two calls
+                // rather than building one key.
+                Radios.ScreenReaderOutput.Speak(
+                    direction > 0
+                        ? Lexicon.Get("settings.slice.at_last", ("letter", letter))
+                        : Lexicon.Get("settings.slice.at_first", ("letter", letter)),
+                    VerbosityLevel.Terse, true);
                 return;
             }
             attempts++;
@@ -934,9 +958,16 @@ public class FreqOutHandlers
             double freqMhz = Rig.GetVFOFrequency(next);
             string mode = Rig.GetVFOMode(next);
             string owner = Rig.GetSliceOwnerForVFO(next);
-            string ownerSuffix = owner != null ? $", {owner}" : "";
-            string freqSuffix = freqMhz > 0 ? $", {freqMhz:F3} {mode}" : "";
-            Radios.ScreenReaderOutput.Speak($"Slice {letter}{freqSuffix}{ownerSuffix}", VerbosityLevel.Terse);
+            string ownerSuffix = owner != null
+                ? Lexicon.Get("settings.slice.owner_suffix", ("owner", owner))
+                : "";
+            string freqSuffix = freqMhz > 0
+                ? Lexicon.Get("settings.slice.freq_suffix", ("freq", freqMhz.ToString("F3")), ("mode", mode))
+                : "";
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.with_detail",
+                    ("letter", letter), ("freqSuffix", freqSuffix), ("ownerSuffix", ownerSuffix)),
+                VerbosityLevel.Terse);
         }
         else
         {
@@ -961,19 +992,27 @@ public class FreqOutHandlers
         {
             Rig.RXVFO = target;
             // Announce the TRUE letter read back from the slice itself.
-            Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.active", ("letter", Rig.VFOToLetter(target))),
+                VerbosityLevel.Terse, true);
         }
         else if (radioIndex >= Rig.TotalMaxSlices)
         {
-            Radios.ScreenReaderOutput.Speak($"Slice {ch} not available on this radio", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.not_available", ("letter", ch)),
+                VerbosityLevel.Critical, true);
         }
         else if (Rig.SliceIndexOwnedByOther(radioIndex))
         {
-            Radios.ScreenReaderOutput.Speak($"Slice {ch} is in use by another station", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.in_use_by_other", ("letter", ch)),
+                VerbosityLevel.Critical, true);
         }
         else
         {
-            Radios.ScreenReaderOutput.Speak($"Slice {ch} not created", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.slice.not_created", ("letter", ch)),
+                VerbosityLevel.Critical, true);
         }
     }
 
@@ -1021,7 +1060,7 @@ public class FreqOutHandlers
                     bool newMute = !Rig.SliceMute;
                     Rig.SliceMute = newMute;
                     if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(newMute ? "Muted" : "Unmuted", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse);
                 }
                 e.Handled = true;
                 break;
@@ -1029,7 +1068,9 @@ public class FreqOutHandlers
                 if (Rig.CanTransmit && Rig.ValidVFO(vfo))
                 {
                     Rig.TXVFO = vfo;
-                    Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(vfo)} transmit", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.slice.transmit", ("letter", Rig.VFOToLetter(vfo))),
+                        VerbosityLevel.Terse);
                 }
                 e.Handled = true;
                 break;
@@ -1042,7 +1083,9 @@ public class FreqOutHandlers
                     Rig.RXVFO = vfo;
                     if (Rig.CanTransmit)
                         Rig.TXVFO = vfo;
-                    Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(vfo)} transceive", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.slice.transceive", ("letter", Rig.VFOToLetter(vfo))),
+                        VerbosityLevel.Terse);
                 }
                 e.Handled = true;
                 break;
@@ -1056,7 +1099,7 @@ public class FreqOutHandlers
                     Rig.XIT = xit;
                     if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(
-                        xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+                        xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
                 }
                 e.Handled = true;
                 break;
@@ -1071,7 +1114,7 @@ public class FreqOutHandlers
                     Rig.RIT = rit;
                     if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(
-                        rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+                        rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
                 }
                 e.Handled = true;
                 break;
@@ -1087,11 +1130,14 @@ public class FreqOutHandlers
                     int countBefore = Rig.MyNumSlices;
                     if (Rig.NewSlice())
                     {
-                        Radios.ScreenReaderOutput.Speak($"Slice created, {countBefore + 1} active", VerbosityLevel.Terse, true);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.slice.created", ("count", countBefore + 1)),
+                            VerbosityLevel.Terse, true);
                     }
                     else
                     {
-                        Radios.ScreenReaderOutput.Speak("Maximum slices reached", VerbosityLevel.Critical, true);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.slice.max_reached"), VerbosityLevel.Critical, true);
                     }
                 }
                 e.Handled = true;
@@ -1100,7 +1146,8 @@ public class FreqOutHandlers
                 // Release/remove the current slice
                 if (Rig.MyNumSlices <= 1)
                 {
-                    Radios.ScreenReaderOutput.Speak("Cannot release last slice", VerbosityLevel.Critical, true);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.slice.cannot_release_last"), VerbosityLevel.Critical, true);
                 }
                 else
                 {
@@ -1126,12 +1173,16 @@ public class FreqOutHandlers
                         Rig.RXVFO = switchTo;
                         if (Rig.RemoveSlice(toRemove))
                         {
-                            Radios.ScreenReaderOutput.Speak($"Slice {removedLetter} released, {countBefore - 1} active", VerbosityLevel.Terse, true);
+                            Radios.ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.slice.released",
+                                    ("letter", removedLetter), ("count", countBefore - 1)),
+                                VerbosityLevel.Terse, true);
                         }
                         else
                         {
                             Rig.RXVFO = toRemove; // revert
-                            Radios.ScreenReaderOutput.Speak("Cannot release this slice", VerbosityLevel.Critical, true);
+                            Radios.ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.slice.cannot_release"), VerbosityLevel.Critical, true);
                         }
                     }
                 }
@@ -1157,7 +1208,8 @@ public class FreqOutHandlers
                         if (Rig.ValidVFO(vfo))
                         {
                             Rig.SetVFOPan(vfo, FlexBase.MinPan);
-                            Radios.ScreenReaderOutput.Speak("Pan left", VerbosityLevel.Terse);
+                            Radios.ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.pan.left"), VerbosityLevel.Terse);
                         }
                         e.Handled = true;
                         break;
@@ -1165,7 +1217,8 @@ public class FreqOutHandlers
                         if (Rig.ValidVFO(vfo))
                         {
                             Rig.SetVFOPan(vfo, (FlexBase.MaxPan - FlexBase.MinPan) / 2);
-                            Radios.ScreenReaderOutput.Speak("Pan center", VerbosityLevel.Terse);
+                            Radios.ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.pan.center"), VerbosityLevel.Terse);
                         }
                         e.Handled = true;
                         break;
@@ -1173,7 +1226,8 @@ public class FreqOutHandlers
                         if (Rig.ValidVFO(vfo))
                         {
                             Rig.SetVFOPan(vfo, FlexBase.MaxPan);
-                            Radios.ScreenReaderOutput.Speak("Pan right", VerbosityLevel.Terse);
+                            Radios.ScreenReaderOutput.Speak(
+                                Lexicon.Get("settings.pan.right"), VerbosityLevel.Terse);
                         }
                         e.Handled = true;
                         break;
@@ -1188,16 +1242,20 @@ public class FreqOutHandlers
                     if (Rig.ValidVFO(target))
                     {
                         Rig.RXVFO = target;
-                        Radios.ScreenReaderOutput.Speak($"Slice {Rig.VFOToLetter(target)} active", VerbosityLevel.Terse);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.slice.active", ("letter", Rig.VFOToLetter(target))),
+                            VerbosityLevel.Terse);
                     }
                     else if (target < 8)
                     {
                         Radios.ScreenReaderOutput.Speak(
-                            $"Slice {(char)('A' + target)} not created", VerbosityLevel.Terse, true);
+                            Lexicon.Get("settings.slice.not_created", ("letter", (char)('A' + target))),
+                            VerbosityLevel.Terse, true);
                     }
                     else
                     {
-                        Radios.ScreenReaderOutput.Speak("No such slice", VerbosityLevel.Terse, true);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.slice.no_such"), VerbosityLevel.Terse, true);
                     }
                     e.Handled = true;
                 }
@@ -1224,7 +1282,7 @@ public class FreqOutHandlers
         Rig.SetVFOGain(vfo, newVal);
         // interrupt=true to cut off NVDA's TextBox content change reading
         Radios.ScreenReaderOutput.Speak(
-                $"Volume {newVal}",
+                Lexicon.Get("settings.volume.level", ("level", newVal)),
                 Radios.Speech.SpeechIntent.Latest,
                 VerbosityLevel.Terse,
                 coalesceKey: "slice-volume");
@@ -1236,7 +1294,8 @@ public class FreqOutHandlers
         int current = Rig.GetVFOPan(vfo);
         int newVal = Math.Clamp(current + delta, FlexBase.MinPan, FlexBase.MaxPan);
         Rig.SetVFOPan(vfo, newVal);
-        Radios.ScreenReaderOutput.Speak($"Pan {newVal}", VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get("settings.pan.level", ("level", newVal)), VerbosityLevel.Terse);
     }
 
     #endregion
@@ -1308,7 +1367,9 @@ public class FreqOutHandlers
                     if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     string letter = Rig.VFOToLetter(vfo);
                     Radios.ScreenReaderOutput.Speak(
-                        newMute ? $"Slice {letter} muted" : $"Slice {letter} unmuted",
+                        newMute
+                            ? Lexicon.Get("settings.slice.muted_named", ("letter", letter))
+                            : Lexicon.Get("settings.slice.unmuted_named", ("letter", letter)),
                         VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
@@ -1318,7 +1379,9 @@ public class FreqOutHandlers
                     Rig.SliceMute = true;
                     EarconPlayer.FeatureOnTone();
                     string letter = Rig.VFOToLetter(vfo);
-                    Radios.ScreenReaderOutput.Speak($"Slice {letter} muted", VerbosityLevel.Terse, true);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.slice.muted_named", ("letter", letter)),
+                        VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 else if (ch == 'S')
@@ -1327,7 +1390,9 @@ public class FreqOutHandlers
                     Rig.SliceMute = false;
                     EarconPlayer.FeatureOffTone();
                     string letter = Rig.VFOToLetter(vfo);
-                    Radios.ScreenReaderOutput.Speak($"Slice {letter} sounding", VerbosityLevel.Terse, true);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.slice.sounding", ("letter", letter)),
+                        VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 else if (ch >= 'A' && ch <= 'H')
@@ -1345,7 +1410,9 @@ public class FreqOutHandlers
                     {
                         Rig.TXVFO = vfo;
                         string letter = Rig.VFOToLetter(vfo);
-                        Radios.ScreenReaderOutput.Speak($"Slice {letter} transmit", VerbosityLevel.Terse, true);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.slice.transmit", ("letter", letter)),
+                            VerbosityLevel.Terse, true);
                     }
                     e.Handled = true;
                 }
@@ -1360,7 +1427,9 @@ public class FreqOutHandlers
                         Rig.RXVFO = vfo;
                         if (Rig.CanTransmit) Rig.TXVFO = vfo;
                         string letter = Rig.VFOToLetter(vfo);
-                        Radios.ScreenReaderOutput.Speak($"Slice {letter} transceive", VerbosityLevel.Terse, true);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.slice.transceive", ("letter", letter)),
+                            VerbosityLevel.Terse, true);
                     }
                     e.Handled = true;
                 }
@@ -1372,7 +1441,7 @@ public class FreqOutHandlers
                     Rig.XIT = xit;
                     if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(
-                        xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+                        xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 else if (ch == 'R')
@@ -1383,7 +1452,7 @@ public class FreqOutHandlers
                     Rig.RIT = rit;
                     if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                     Radios.ScreenReaderOutput.Speak(
-                        rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+                        rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
                 else if (ch == 'Q')
@@ -1423,7 +1492,11 @@ public class FreqOutHandlers
                 if (GetSplitVFOs != null && SetSplitVFOs != null)
                 {
                     SetSplitVFOs(!GetSplitVFOs());
-                    Radios.ScreenReaderOutput.Speak(GetSplitVFOs() ? "Split on" : "Split off", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(
+                        GetSplitVFOs()
+                            ? Lexicon.Get("settings.split.on")
+                            : Lexicon.Get("settings.split.off"),
+                        VerbosityLevel.Terse);
                 }
                 e.Handled = true;
                 break;
@@ -1431,14 +1504,15 @@ public class FreqOutHandlers
                 if (ch == 'S')
                 {
                     SetSplitVFOs?.Invoke(true);
-                    Radios.ScreenReaderOutput.Speak("Split on", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.split.on"), VerbosityLevel.Terse);
                     e.Handled = true;
                 }
                 else if (ch == 'T')
                 {
                     // Show TX frequency
                     SetShowXmitFrequency?.Invoke(true);
-                    Radios.ScreenReaderOutput.Speak("Showing transmit frequency", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.split.showing_tx_freq"), VerbosityLevel.Terse);
                     e.Handled = true;
                 }
                 break;
@@ -1540,7 +1614,14 @@ public class FreqOutHandlers
                 if (isRIT) Rig.RIT = toggled;
                 else Rig.XIT = toggled;
                 if (toggled.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                Radios.ScreenReaderOutput.Speak($"{fieldKey} {(toggled.Active ? "on" : "off")}", VerbosityLevel.Terse);
+                // fieldKey is the FreqOut field name, not speech — it is also
+                // used for GetFieldPosition/GetFieldLength above, so it stays
+                // a plain literal and the announcement branches instead.
+                Radios.ScreenReaderOutput.Speak(
+                    isRIT
+                        ? (toggled.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"))
+                        : (toggled.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off")),
+                    VerbosityLevel.Terse);
                 if (!toggled.Active && inScaleAdjust) CancelRitXitScaleAdjust();
                 e.Handled = true;
                 break;
@@ -1582,13 +1663,20 @@ public class FreqOutHandlers
                     pos.Value = Math.Abs(pos.Value);
                     if (isRIT) Rig.RIT = pos;
                     else Rig.XIT = pos;
-                    string label = isRIT ? "RIT" : "XIT";
+                    string label = isRIT
+                        ? Lexicon.Get("settings.ritxit.label_rit")
+                        : Lexicon.Get("settings.ritxit.label_xit");
                     string sign = pos.Value >= 0 ? "+" : "";
-                    Radios.ScreenReaderOutput.Speak($"{label} made positive, {sign}{pos.Value}", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.ritxit.made_positive",
+                            ("label", label), ("sign", sign), ("value", pos.Value)),
+                        VerbosityLevel.Terse);
                     if (oldValue != pos.Value)
                     {
                         string oldSign = oldValue >= 0 ? "+" : "";
-                        Radios.ScreenReaderOutput.Speak($"was {oldSign}{oldValue}", VerbosityLevel.Chatty);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.ritxit.was_value", ("sign", oldSign), ("value", oldValue)),
+                            VerbosityLevel.Chatty);
                     }
                     e.Handled = true;
                 }
@@ -1599,12 +1687,18 @@ public class FreqOutHandlers
                     neg.Value = -Math.Abs(neg.Value);
                     if (isRIT) Rig.RIT = neg;
                     else Rig.XIT = neg;
-                    string label = isRIT ? "RIT" : "XIT";
-                    Radios.ScreenReaderOutput.Speak($"{label} made negative, {neg.Value}", VerbosityLevel.Terse);
+                    string label = isRIT
+                        ? Lexicon.Get("settings.ritxit.label_rit")
+                        : Lexicon.Get("settings.ritxit.label_xit");
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.ritxit.made_negative", ("label", label), ("value", neg.Value)),
+                        VerbosityLevel.Terse);
                     if (oldValue != neg.Value)
                     {
                         string oldSign = oldValue >= 0 ? "+" : "";
-                        Radios.ScreenReaderOutput.Speak($"was {oldSign}{oldValue}", VerbosityLevel.Chatty);
+                        Radios.ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.ritxit.was_value", ("sign", oldSign), ("value", oldValue)),
+                            VerbosityLevel.Chatty);
                     }
                     e.Handled = true;
                 }
@@ -1614,7 +1708,8 @@ public class FreqOutHandlers
                     // because field-specific handler runs first and sets e.Handled = true)
                     var copy = new FlexBase.RITData(Rig.RIT);
                     Rig.XIT = copy;
-                    Radios.ScreenReaderOutput.Speak("Copied RIT to XIT", VerbosityLevel.Terse);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.ritxit.copied_rit_to_xit"), VerbosityLevel.Terse);
                     e.Handled = true;
                 }
                 break;
@@ -1636,9 +1731,14 @@ public class FreqOutHandlers
         updated.Active = true;
         if (isRIT) Rig.RIT = updated;
         else Rig.XIT = updated;
-        string label = isRIT ? "RIT" : "XIT";
+        string label = isRIT
+            ? Lexicon.Get("settings.ritxit.label_rit")
+            : Lexicon.Get("settings.ritxit.label_xit");
         string sign = updated.Value >= 0 ? "+" : "";
-        Radios.ScreenReaderOutput.Speak($"{label} {sign}{updated.Value}", VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get("settings.ritxit.value",
+                ("label", label), ("sign", sign), ("value", updated.Value)),
+            VerbosityLevel.Terse);
     }
 
     private void EnterRITXITDigit(FlexBase.RITData data, bool isRIT, char digit, int posInField, int fieldLen)
@@ -1678,7 +1778,11 @@ public class FreqOutHandlers
         {
             var newState = Rig.ToggleOffOn(Rig.Vox);
             Rig.Vox = newState;
-            Radios.ScreenReaderOutput.Speak(newState == FlexBase.OffOnValues.on ? "VOX on" : "VOX off", VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(
+                newState == FlexBase.OffOnValues.on
+                    ? Lexicon.Get("settings.vox.on")
+                    : Lexicon.Get("settings.vox.off"),
+                VerbosityLevel.Terse);
             e.Handled = true;
         }
 
@@ -1713,7 +1817,7 @@ public class FreqOutHandlers
                 || (ch >= 'A' && ch <= 'H' && unmodified))
             {
                 Radios.ScreenReaderOutput.Speak(
-                    "Transmit not available on this connection", VerbosityLevel.Terse, true);
+                    Lexicon.Get("settings.txslice.transmit_unavailable"), VerbosityLevel.Terse, true);
                 e.Handled = true;
                 return;
             }
@@ -1727,7 +1831,8 @@ public class FreqOutHandlers
             {
                 Rig.TXVFO = vfo;
                 Radios.ScreenReaderOutput.Speak(
-                    $"Slice {Rig.VFOToLetter(vfo)} transmit", VerbosityLevel.Terse, true);
+                    Lexicon.Get("settings.slice.transmit", ("letter", Rig.VFOToLetter(vfo))),
+                    VerbosityLevel.Terse, true);
             }
             e.Handled = true;
             return;
@@ -1744,13 +1849,13 @@ public class FreqOutHandlers
             {
                 Rig.ClearTransmitSlice();
                 Radios.ScreenReaderOutput.Speak(
-                    "Transmit slice cleared. No slice will key the radio.",
+                    Lexicon.Get("settings.txslice.cleared"),
                     VerbosityLevel.Terse, true);
             }
             else
             {
                 Radios.ScreenReaderOutput.Speak(
-                    "No transmit slice is set", VerbosityLevel.Terse, true);
+                    Lexicon.Get("settings.txslice.none_set"), VerbosityLevel.Terse, true);
             }
             e.Handled = true;
             return;
@@ -1772,12 +1877,13 @@ public class FreqOutHandlers
             {
                 Rig.TXVFO = target;
                 Radios.ScreenReaderOutput.Speak(
-                    $"Slice {ch} transmit", VerbosityLevel.Terse, true);
+                    Lexicon.Get("settings.slice.transmit", ("letter", ch)), VerbosityLevel.Terse, true);
             }
             else
             {
                 Radios.ScreenReaderOutput.Speak(
-                    $"No slice {ch}", VerbosityLevel.Terse, true);
+                    Lexicon.Get("settings.slice.no_slice_letter", ("letter", ch)),
+                    VerbosityLevel.Terse, true);
             }
             e.Handled = true;
             return;
@@ -1801,7 +1907,7 @@ public class FreqOutHandlers
         if (total == 1 && Rig.HasTransmitSlice)
         {
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {Rig.VFOToLetter(Rig.TXVFO)} transmit, only slice",
+                Lexicon.Get("settings.txslice.only_slice", ("letter", Rig.VFOToLetter(Rig.TXVFO))),
                 VerbosityLevel.Terse, true);
             return;
         }
@@ -1818,7 +1924,8 @@ public class FreqOutHandlers
 
         Rig.TXVFO = next;
         Radios.ScreenReaderOutput.Speak(
-            $"Slice {Rig.VFOToLetter(next)} transmit", VerbosityLevel.Terse, true);
+            Lexicon.Get("settings.slice.transmit", ("letter", Rig.VFOToLetter(next))),
+            VerbosityLevel.Terse, true);
     }
 
     #endregion
@@ -1895,7 +2002,9 @@ public class FreqOutHandlers
         else
             EarconPlayer.FeatureOffTone();
         Radios.ScreenReaderOutput.Speak(
-            newState == FlexBase.OffOnValues.on ? "Squelch on" : "Squelch off",
+            newState == FlexBase.OffOnValues.on
+                ? Lexicon.Get("settings.squelch.on")
+                : Lexicon.Get("settings.squelch.off"),
             VerbosityLevel.Terse, interrupt: true);
     }
 
@@ -1946,7 +2055,7 @@ public class FreqOutHandlers
             Rig.SliceMute = newMute;
             if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
             Radios.ScreenReaderOutput.Speak(
-                newMute ? "Muted" : "Unmuted", VerbosityLevel.Terse, true);
+                newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse, true);
             e.Handled = true;
             return true;
         }
@@ -1963,7 +2072,7 @@ public class FreqOutHandlers
             Rig.RIT = rit;
             if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
             Radios.ScreenReaderOutput.Speak(
-                rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+                rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
             // Retoggling R while in RIT scale-adjust mode auto-exits the
             // mode regardless of which way the toggle went, so a user with
             // muscle memory can press R-R to bail.
@@ -1978,7 +2087,7 @@ public class FreqOutHandlers
             Rig.XIT = xit;
             if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
             Radios.ScreenReaderOutput.Speak(
-                xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+                xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
             if (_ritXitScaleField == RitXitScaleField.XIT) CancelRitXitScaleAdjust();
             e.Handled = true;
             return true;
@@ -2014,7 +2123,7 @@ public class FreqOutHandlers
         if (target) EarconPlayer.MuteAllOnTone();
         else EarconPlayer.MuteAllOffTone();
         Radios.ScreenReaderOutput.Speak(
-            target ? "All slices muted" : "All slices unmuted",
+            target ? Lexicon.Get("settings.slice.all_muted") : Lexicon.Get("settings.slice.all_unmuted"),
             VerbosityLevel.Terse, interrupt: true);
     }
 
@@ -2033,7 +2142,7 @@ public class FreqOutHandlers
         if (before <= 1)
         {
             Radios.ScreenReaderOutput.Speak(
-                "Only one slice active", VerbosityLevel.Terse, interrupt: true);
+                Lexicon.Get("settings.slice.only_one_active"), VerbosityLevel.Terse, interrupt: true);
             return;
         }
         if (Rig.ReleaseAllExtraSlices())
@@ -2042,7 +2151,11 @@ public class FreqOutHandlers
             int removed = before - 1;
             string keptLetter = Rig.VFOToLetter(Rig.RXVFO);
             Radios.ScreenReaderOutput.Speak(
-                $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, slice {keptLetter} active",
+                removed == 1
+                    ? Lexicon.Get("settings.slice.released_extras_one",
+                        ("removed", removed), ("letter", keptLetter))
+                    : Lexicon.Get("settings.slice.released_extras_many",
+                        ("removed", removed), ("letter", keptLetter)),
                 VerbosityLevel.Terse, interrupt: true);
         }
     }
@@ -2056,7 +2169,8 @@ public class FreqOutHandlers
             FlexBase.SquelchLevelMax);
         Rig.SquelchLevel = newLevel;
         Radios.ScreenReaderOutput.Speak(
-            $"Squelch level {newLevel}", VerbosityLevel.Terse, interrupt: true);
+            Lexicon.Get("settings.squelch.level", ("level", newLevel)),
+            VerbosityLevel.Terse, interrupt: true);
     }
 
     #endregion
@@ -2077,8 +2191,10 @@ public class FreqOutHandlers
             // display field back verbatim — "S meter .050" while the radio
             // transmitted 50 milliwatts.
             string spoken = Rig != null && Rig.Transmit
-                ? $"Power {Radios.FlexBase.FormatForwardPowerSpoken(Rig.ForwardPowerWatts)}"
-                : $"S meter {_window.FreqOut.Read("SMeter").Trim()}";
+                ? Lexicon.Get("settings.home.power_reading",
+                    ("power", Radios.FlexBase.FormatForwardPowerSpoken(Rig.ForwardPowerWatts)))
+                : Lexicon.Get("settings.home.smeter_reading",
+                    ("reading", _window.FreqOut.Read("SMeter").Trim()));
             Radios.ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse);
             e.Handled = true;
         }
@@ -2109,7 +2225,7 @@ public class FreqOutHandlers
             bool newMute = !Rig.SliceMute;
             Rig.SliceMute = newMute;
             if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(newMute ? "Muted" : "Unmuted", VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse);
             e.Handled = true;
         }
 
@@ -2168,13 +2284,13 @@ public class FreqOutHandlers
         if (ch == '+')
         {
             Rig.OffsetDirection = FlexBase.OffsetDirections.plus;
-            Radios.ScreenReaderOutput.Speak("Offset plus", VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.offset.plus"), VerbosityLevel.Terse);
             e.Handled = true;
         }
         else if (ch == '-')
         {
             Rig.OffsetDirection = FlexBase.OffsetDirections.minus;
-            Radios.ScreenReaderOutput.Speak("Offset minus", VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.offset.minus"), VerbosityLevel.Terse);
             e.Handled = true;
         }
         else if (key == Key.Space || key == Key.Up || key == Key.Down)
@@ -2188,7 +2304,10 @@ public class FreqOutHandlers
                 _ => FlexBase.OffsetDirections.off
             };
             Rig.OffsetDirection = dir;
-            Radios.ScreenReaderOutput.Speak($"Offset {dir}", VerbosityLevel.Terse);
+            // {direction} is the enum member name, so renaming OffsetDirections
+            // changes what is spoken. Flagged in the Track A report.
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.offset.direction", ("direction", dir)), VerbosityLevel.Terse);
             e.Handled = true;
         }
 
@@ -2213,13 +2332,17 @@ public class FreqOutHandlers
             case Key.Up:
                 Rig.CurrentMemoryChannel++;
                 Rig.SelectMemory();
-                Radios.ScreenReaderOutput.Speak($"Memory {Rig.CurrentMemoryChannel}", VerbosityLevel.Terse);
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.memory.channel", ("channel", Rig.CurrentMemoryChannel)),
+                    VerbosityLevel.Terse);
                 e.Handled = true;
                 break;
             case Key.Down:
                 Rig.CurrentMemoryChannel--;
                 Rig.SelectMemory();
-                Radios.ScreenReaderOutput.Speak($"Memory {Rig.CurrentMemoryChannel}", VerbosityLevel.Terse);
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.memory.channel", ("channel", Rig.CurrentMemoryChannel)),
+                    VerbosityLevel.Terse);
                 e.Handled = true;
                 break;
         }
@@ -2286,7 +2409,9 @@ public class FreqOutHandlers
                     // Shift+S — announce both step sizes (no current mode to
                     // pick between any more, so report the whole picture).
                     Radios.ScreenReaderOutput.Speak(
-                        $"Coarse {FormatStepForSpeech(_coarseStep)}, fine {FormatStepForSpeech(_fineStep)}",
+                        Lexicon.Get("settings.tuning.steps_coarse_fine",
+                            ("coarse", FormatStepForSpeech(_coarseStep)),
+                            ("fine", FormatStepForSpeech(_fineStep))),
                         VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
@@ -2305,7 +2430,7 @@ public class FreqOutHandlers
                         Rig.SliceMute = newMute;
                         if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                         Radios.ScreenReaderOutput.Speak(
-                            newMute ? "Muted" : "Unmuted", VerbosityLevel.Terse, true);
+                            newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse, true);
                     }
                     e.Handled = true;
                 }
@@ -2325,7 +2450,7 @@ public class FreqOutHandlers
                         Rig.RIT = rit;
                         if (rit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                         Radios.ScreenReaderOutput.Speak(
-                            rit.Active ? "RIT on" : "RIT off", VerbosityLevel.Terse, true);
+                            rit.Active ? Lexicon.Get("settings.rit.on") : Lexicon.Get("settings.rit.off"), VerbosityLevel.Terse, true);
                     }
                     e.Handled = true;
                 }
@@ -2339,7 +2464,7 @@ public class FreqOutHandlers
                         Rig.XIT = xit;
                         if (xit.Active) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
                         Radios.ScreenReaderOutput.Speak(
-                            xit.Active ? "XIT on" : "XIT off", VerbosityLevel.Terse, true);
+                            xit.Active ? Lexicon.Get("settings.xit.on") : Lexicon.Get("settings.xit.off"), VerbosityLevel.Terse, true);
                     }
                     e.Handled = true;
                 }
@@ -2368,7 +2493,8 @@ public class FreqOutHandlers
     public void SpeakCurrentStepFromMenu()
     {
         Radios.ScreenReaderOutput.Speak(
-            $"Coarse {FormatStepForSpeech(_coarseStep)}, fine {FormatStepForSpeech(_fineStep)}",
+            Lexicon.Get("settings.tuning.steps_coarse_fine",
+                ("coarse", FormatStepForSpeech(_coarseStep)), ("fine", FormatStepForSpeech(_fineStep))),
             VerbosityLevel.Terse, true);
     }
 
@@ -2377,9 +2503,9 @@ public class FreqOutHandlers
     /// </summary>
     internal static string FormatStepForSpeech(int hz)
     {
-        if (hz >= 1000000) return $"{hz / 1000000} megahertz";
-        if (hz >= 1000) return $"{hz / 1000} kilohertz";
-        return $"{hz} hertz";
+        if (hz >= 1000000) return Lexicon.Get("settings.tuning.step_megahertz", ("value", hz / 1000000));
+        if (hz >= 1000) return Lexicon.Get("settings.tuning.step_kilohertz", ("value", hz / 1000));
+        return Lexicon.Get("settings.tuning.step_hertz", ("value", hz));
     }
 
     /// <summary>
@@ -2460,7 +2586,7 @@ public class FreqOutHandlers
                 if (newHigh - newLow >= minWidth) { low = newLow; high = newHigh; }
                 else
                 {
-                    Radios.ScreenReaderOutput.Speak("Filter at minimum", VerbosityLevel.Terse, true);
+                    Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.filter.at_minimum"), VerbosityLevel.Terse, true);
                     e.Handled = true;
                     return;
                 }
@@ -2490,9 +2616,11 @@ public class FreqOutHandlers
             if (isDoubleTap)
             {
                 _filterEdgeMode = key == Key.OemOpenBrackets ? FilterEdgeMode.LowerEdge : FilterEdgeMode.UpperEdge;
-                string edgeName = _filterEdgeMode == FilterEdgeMode.LowerEdge ? "lower" : "upper";
+                string edgeName = _filterEdgeMode == FilterEdgeMode.LowerEdge
+                    ? Lexicon.Get("settings.filter.edge_lower")
+                    : Lexicon.Get("settings.filter.edge_upper");
                 EnsureFilterEdgeStickyMode().Enter(
-                    $"Adjust {edgeName} filter. Brackets move edge. Escape to exit.");
+                    Lexicon.Get("settings.filter.edge_mode_enter", ("edge", edgeName)));
                 e.Handled = true;
                 return;
             }
@@ -2512,7 +2640,7 @@ public class FreqOutHandlers
                     else if (key == Key.OemCloseBrackets) high += step;
                     else return;
                 }
-                if (high - low < minWidth) { Radios.ScreenReaderOutput.Speak("Filter at minimum", VerbosityLevel.Terse, true); e.Handled = true; return; }
+                if (high - low < minWidth) { Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.filter.at_minimum"), VerbosityLevel.Terse, true); e.Handled = true; return; }
                 EarconPlayer.FilterEdgeMoveTone(_filterEdgeMode == FilterEdgeMode.LowerEdge);
             }
             else
@@ -2541,22 +2669,27 @@ public class FreqOutHandlers
         // "at limit" on every adjustment even when the low edge had room to move.
         if (low == origLow && high == origHigh)
         {
-            Radios.ScreenReaderOutput.Speak("Filter at limit", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.filter.at_limit"), VerbosityLevel.Terse, true);
         }
         else
         {
             int width = high - low;
-            string widthStr = width >= 1000 ? $"{width / 1000.0:F1} k" : $"{width}";
+            string widthStr = width >= 1000
+                ? Lexicon.Get("settings.filter.width_kilo", ("width", (width / 1000.0).ToString("F1")))
+                : width.ToString();
             bool lowClamped = low != requestedLow;
             bool highClamped = high != requestedHigh;
             string atLimit = "";
             if (lowClamped && highClamped)
-                atLimit = ", at limit";
+                atLimit = Lexicon.Get("settings.filter.suffix_at_limit");
             else if (lowClamped)
-                atLimit = ", lower limit";
+                atLimit = Lexicon.Get("settings.filter.suffix_lower_limit");
             else if (highClamped)
-                atLimit = ", upper limit";
-            Radios.ScreenReaderOutput.Speak($"Filter {low} to {high}, {widthStr}{atLimit}", VerbosityLevel.Terse, true);
+                atLimit = Lexicon.Get("settings.filter.suffix_upper_limit");
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.filter.range",
+                    ("low", low), ("high", high), ("width", widthStr), ("limit", atLimit)),
+                VerbosityLevel.Terse, true);
         }
         e.Handled = true;
     }
@@ -2569,7 +2702,8 @@ public class FreqOutHandlers
     {
         if (Rig == null || FilterPresets == null)
         {
-            Radios.ScreenReaderOutput.Speak("No presets loaded", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.filter.no_presets"), VerbosityLevel.Critical, true);
             e.Handled = true;
             return;
         }
@@ -2580,14 +2714,19 @@ public class FreqOutHandlers
 
         if (preset == null)
         {
-            string boundary = direction > 0 ? "Widest preset" : "Narrowest preset";
+            string boundary = direction > 0
+                ? Lexicon.Get("settings.filter.preset_widest")
+                : Lexicon.Get("settings.filter.preset_narrowest");
             Radios.ScreenReaderOutput.Speak(boundary, VerbosityLevel.Terse, true);
         }
         else
         {
             var (mirroredLow, mirroredHigh) = FilterPresets.MirrorForMode(mode, preset.Low, preset.High);
             Rig.SetFilter(mirroredLow, mirroredHigh);
-            Radios.ScreenReaderOutput.Speak($"{preset.Name}, {preset.FormatForSpeech()}", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.filter.preset_announce",
+                    ("name", preset.Name), ("description", preset.FormatForSpeech())),
+                VerbosityLevel.Terse, true);
         }
         e.Handled = true;
     }
@@ -2612,7 +2751,8 @@ public class FreqOutHandlers
             OnTimeout = () =>
             {
                 _filterEdgeMode = FilterEdgeMode.None;
-                Radios.ScreenReaderOutput.Speak("Filter edge mode ended", VerbosityLevel.Terse);
+                Radios.ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.filter.edge_mode_ended"), VerbosityLevel.Terse);
             }
         };
         return _filterEdgeSticky;
@@ -2624,15 +2764,15 @@ public class FreqOutHandlers
         if (_filterEdgeMode != FilterEdgeMode.None)
         {
             _filterEdgeMode = FilterEdgeMode.None;
-            _filterEdgeSticky?.Exit("Filter edge mode cancelled");
+            _filterEdgeSticky?.Exit(Lexicon.Get("settings.filter.edge_mode_cancelled"));
         }
     }
 
     public bool InFilterEdgeMode => _filterEdgeMode != FilterEdgeMode.None;
 
     public string? FilterEdgeStatus =>
-        _filterEdgeMode == FilterEdgeMode.LowerEdge ? "lower filter edge grabbed" :
-        _filterEdgeMode == FilterEdgeMode.UpperEdge ? "upper filter edge grabbed" :
+        _filterEdgeMode == FilterEdgeMode.LowerEdge ? Lexicon.Get("settings.filter.edge_status_lower") :
+        _filterEdgeMode == FilterEdgeMode.UpperEdge ? Lexicon.Get("settings.filter.edge_status_upper") :
         null;
 
     // RIT/XIT scale-adjust mode helpers — second consumer of the
@@ -2654,11 +2794,15 @@ public class FreqOutHandlers
     }
 
     private static string FormatScaleForSpeech(int hz) =>
-        hz >= 1000 ? $"{hz / 1000} k Hz" : $"{hz} Hz";
+        hz >= 1000
+            ? Lexicon.Get("settings.ritxit.scale_kilohertz", ("value", hz / 1000))
+            : Lexicon.Get("settings.ritxit.scale_hertz", ("value", hz));
 
     private void EnterOrSwitchRitXitScaleAdjust(RitXitScaleField field, int scale)
     {
-        string fieldLabel = field == RitXitScaleField.RIT ? "RIT" : "XIT";
+        string fieldLabel = field == RitXitScaleField.RIT
+            ? Lexicon.Get("settings.ritxit.label_rit")
+            : Lexicon.Get("settings.ritxit.label_xit");
         string scaleSpeech = FormatScaleForSpeech(scale);
 
         if (_ritXitScaleField == field && _ritXitSticky?.IsActive == true)
@@ -2667,7 +2811,9 @@ public class FreqOutHandlers
             // earcon (this is a sub-state change, not entry).
             _ritXitScale = scale;
             _ritXitSticky.ResetInactivityTimer();
-            ScreenReaderOutput.Speak($"{fieldLabel} adjust, {scaleSpeech}", VerbosityLevel.Terse, true);
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.ritxit.adjust_mode", ("label", fieldLabel), ("scale", scaleSpeech)),
+                VerbosityLevel.Terse, true);
             return;
         }
 
@@ -2675,7 +2821,8 @@ public class FreqOutHandlers
         // name so screen-reader users know they've entered a sticky state.
         _ritXitScaleField = field;
         _ritXitScale = scale;
-        EnsureRitXitStickyMode().Enter($"{fieldLabel} adjust, {scaleSpeech}");
+        EnsureRitXitStickyMode().Enter(
+            Lexicon.Get("settings.ritxit.adjust_mode", ("label", fieldLabel), ("scale", scaleSpeech)));
     }
 
     public void CancelRitXitScaleAdjust()
@@ -2693,8 +2840,11 @@ public class FreqOutHandlers
         get
         {
             if (_ritXitScaleField == RitXitScaleField.None) return null;
-            string label = _ritXitScaleField == RitXitScaleField.RIT ? "RIT" : "XIT";
-            return $"{label} adjust mode, {FormatScaleForSpeech(_ritXitScale)}";
+            string label = _ritXitScaleField == RitXitScaleField.RIT
+                ? Lexicon.Get("settings.ritxit.label_rit")
+                : Lexicon.Get("settings.ritxit.label_xit");
+            return Lexicon.Get("settings.ritxit.adjust_mode_status",
+                ("label", label), ("scale", FormatScaleForSpeech(_ritXitScale)));
         }
     }
 
@@ -2710,7 +2860,8 @@ public class FreqOutHandlers
             int idx = FilterPresets.FindActivePreset(mode, Rig.FilterLow, Rig.FilterHigh);
             if (idx < 0) return null;
             var presets = FilterPresets.GetPresetsForMode(mode);
-            return $"filter {presets[idx].FormatForSpeech()}";
+            return Lexicon.Get("settings.filter.active_preset_status",
+                ("description", presets[idx].FormatForSpeech()));
         }
     }
 
@@ -2759,17 +2910,17 @@ public class FreqOutHandlers
     /// </summary>
     private static string BandDisplayName(Bands.BandNames band) => band switch
     {
-        Bands.BandNames.m160 => "160 meter",
-        Bands.BandNames.m80 => "80 meter",
-        Bands.BandNames.m60 => "60 meter",
-        Bands.BandNames.m40 => "40 meter",
-        Bands.BandNames.m30 => "30 meter",
-        Bands.BandNames.m20 => "20 meter",
-        Bands.BandNames.m17 => "17 meter",
-        Bands.BandNames.m15 => "15 meter",
-        Bands.BandNames.m12 => "12 meter",
-        Bands.BandNames.m10 => "10 meter",
-        Bands.BandNames.m6 => "6 meter",
+        Bands.BandNames.m160 => Lexicon.Get("settings.band.name_160m"),
+        Bands.BandNames.m80 => Lexicon.Get("settings.band.name_80m"),
+        Bands.BandNames.m60 => Lexicon.Get("settings.band.name_60m"),
+        Bands.BandNames.m40 => Lexicon.Get("settings.band.name_40m"),
+        Bands.BandNames.m30 => Lexicon.Get("settings.band.name_30m"),
+        Bands.BandNames.m20 => Lexicon.Get("settings.band.name_20m"),
+        Bands.BandNames.m17 => Lexicon.Get("settings.band.name_17m"),
+        Bands.BandNames.m15 => Lexicon.Get("settings.band.name_15m"),
+        Bands.BandNames.m12 => Lexicon.Get("settings.band.name_12m"),
+        Bands.BandNames.m10 => Lexicon.Get("settings.band.name_10m"),
+        Bands.BandNames.m6 => Lexicon.Get("settings.band.name_6m"),
         _ => band.ToString()
     };
 
@@ -2831,7 +2982,8 @@ public class FreqOutHandlers
             }
             TypingSound = TypingSoundMode.Beep;
             EarconPlayer.ReverseBoomTone();
-            Radios.ScreenReaderOutput.Speak("All modes reset.", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.tuning.calibration_reset"), VerbosityLevel.Critical, true);
             return;
         }
 
@@ -2856,11 +3008,13 @@ public class FreqOutHandlers
         if (referenceName == CalibrationEngine.Ref2)
         {
             CalibrationEngine.LoadKeyboardSounds();
-            Radios.ScreenReaderOutput.Speak("Mechanical keyboard mode unlocked!", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.tuning.calibration_mechanical_unlocked"), VerbosityLevel.Critical, true);
         }
         else if (referenceName == CalibrationEngine.Ref1)
         {
-            Radios.ScreenReaderOutput.Speak("Touch-tone mode unlocked!", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.tuning.calibration_touchtone_unlocked"), VerbosityLevel.Critical, true);
         }
     }
 
@@ -2954,11 +3108,15 @@ public class FreqOutHandlers
             if (advisory?.RequiredMode != null)
             {
                 Rig.Mode = advisory.Value.RequiredMode;
-                modeAdvisory = $", mode set to {advisory.Value.RequiredMode} for {advisory.Value.SegmentLabel}";
+                modeAdvisory = Lexicon.Get("settings.band.mode_advisory",
+                    ("mode", advisory.Value.RequiredMode), ("segment", advisory.Value.SegmentLabel));
             }
         }
 
-        Radios.ScreenReaderOutput.Speak($"{bandName} band, {freqStr}{modeAdvisory}", VerbosityLevel.Terse, interrupt: true);
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get("settings.band.jump",
+                ("band", bandName), ("freq", freqStr), ("advisory", modeAdvisory)),
+            VerbosityLevel.Terse, interrupt: true);
         EarconPlayer.BandBoundaryBeep();
 
         // Save band memory
@@ -2990,8 +3148,12 @@ public class FreqOutHandlers
         int nextIndex = currentIndex + direction;
         if (nextIndex < 0 || nextIndex >= FlexBands.Length)
         {
-            string edge = direction > 0 ? "Top" : "Bottom";
-            Radios.ScreenReaderOutput.Speak($"{edge} of band list", VerbosityLevel.Terse, interrupt: true);
+            string edge = direction > 0
+                ? Lexicon.Get("settings.band.list_top")
+                : Lexicon.Get("settings.band.list_bottom");
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.band.list_edge", ("edge", edge)),
+                VerbosityLevel.Terse, interrupt: true);
             return;
         }
 
@@ -3056,7 +3218,8 @@ public class FreqOutHandlers
         if (_lastBand != null && newBand != null && newBand != _lastBand)
         {
             string bandName = BandDisplayName(newBand.Value);
-            Radios.ScreenReaderOutput.Speak($"Entering {bandName} band", VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.band.entering", ("band", bandName)), VerbosityLevel.Terse);
             EarconPlayer.BandBoundaryBeep();
 
             // Save band memory on band change
@@ -3074,9 +3237,13 @@ public class FreqOutHandlers
                 // users just hear the tone without tuning speech getting chatty.
                 EarconPlayer.BandBoundaryBeep();
                 if (newSubKey != null)
-                    Radios.ScreenReaderOutput.Speak($"Entering {newSubKey}", VerbosityLevel.Chatty, interrupt: true);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.band.entering_subband", ("subband", newSubKey)),
+                        VerbosityLevel.Chatty, interrupt: true);
                 else if (_lastSubBandKey != null)
-                    Radios.ScreenReaderOutput.Speak($"Leaving {_lastSubBandKey}", VerbosityLevel.Chatty, interrupt: true);
+                    Radios.ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.band.leaving_subband", ("subband", _lastSubBandKey)),
+                        VerbosityLevel.Chatty, interrupt: true);
             }
             _lastSubBandKey = newSubKey;
         }
@@ -3099,7 +3266,7 @@ public class FreqOutHandlers
             double freqMHz = freq / 1_000_000.0;
             var alloc = Radios.SixtyMeterChannels.GetAllocation(country);
             if (alloc?.Digi is { } digi && freqMHz >= digi.StartMHz && freqMHz <= digi.EndMHz)
-                return "digital segment";
+                return Lexicon.Get("settings.band.digital_segment");
             return null;
         }
 
@@ -3112,10 +3279,12 @@ public class FreqOutHandlers
             if (freq >= div.Low && freq <= div.High)
             {
                 string licStr = div.License != null && div.License.Length > 0
-                    ? FormatLicense(div.License[0]) : "All";
+                    ? FormatLicense(div.License[0]) : Lexicon.Get("settings.band.license_all");
                 string modeStr = div.Mode != null && div.Mode.Length > 0
                     ? FormatMode(div.Mode[0]) : "";
-                return string.IsNullOrEmpty(modeStr) ? licStr : $"{licStr} {modeStr}";
+                return string.IsNullOrEmpty(modeStr)
+                    ? licStr
+                    : Lexicon.Get("settings.band.subband_label", ("license", licStr), ("mode", modeStr));
             }
         }
         return null;
@@ -3123,23 +3292,23 @@ public class FreqOutHandlers
 
     private static string FormatLicense(Bands.Licenses lic) => lic switch
     {
-        Bands.Licenses.novice => "Novice",
-        Bands.Licenses.technition => "Technician",
-        Bands.Licenses.general => "General",
-        Bands.Licenses.advanced => "Advanced",
-        Bands.Licenses.extra => "Extra",
-        _ => "All"
+        Bands.Licenses.novice => Lexicon.Get("settings.band.license_novice"),
+        Bands.Licenses.technition => Lexicon.Get("settings.band.license_technician"),
+        Bands.Licenses.general => Lexicon.Get("settings.band.license_general"),
+        Bands.Licenses.advanced => Lexicon.Get("settings.band.license_advanced"),
+        Bands.Licenses.extra => Lexicon.Get("settings.band.license_extra"),
+        _ => Lexicon.Get("settings.band.license_all")
     };
 
     private static string FormatMode(Bands.Modes mode) => mode switch
     {
-        Bands.Modes.CW => "CW",
-        Bands.Modes.MCW => "CW",
-        Bands.Modes.PhoneCW => "Phone and CW",
-        Bands.Modes.USB => "USB",
-        Bands.Modes.Image => "Image",
-        Bands.Modes.RTTYData => "RTTY and Data",
-        Bands.Modes.M60Data => "Data",
+        Bands.Modes.CW => Lexicon.Get("settings.band.mode_cw"),
+        Bands.Modes.MCW => Lexicon.Get("settings.band.mode_cw"),
+        Bands.Modes.PhoneCW => Lexicon.Get("settings.band.mode_phone_cw"),
+        Bands.Modes.USB => Lexicon.Get("settings.band.mode_usb"),
+        Bands.Modes.Image => Lexicon.Get("settings.band.mode_image"),
+        Bands.Modes.RTTYData => Lexicon.Get("settings.band.mode_rtty_data"),
+        Bands.Modes.M60Data => Lexicon.Get("settings.band.mode_data"),
         _ => ""
     };
 
@@ -3194,7 +3363,7 @@ public class FreqOutHandlers
     /// </summary>
     public string GetTxLockoutMessage()
     {
-        return "Unable to transmit here. Select license options in Settings to change.";
+        return Lexicon.Get("settings.band.tx_lockout_message");
     }
 
     #endregion

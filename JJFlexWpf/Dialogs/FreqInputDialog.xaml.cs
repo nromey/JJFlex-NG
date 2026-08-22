@@ -15,7 +15,7 @@ namespace JJFlexWpf.Dialogs
         /// Error message to show on invalid frequency.
         /// Wire to BadFreqMSG from globals.vb.
         /// </summary>
-        public string ErrorMessage { get; set; } = "Frequency must be of the form mhz.khz.hz, mhz.khz, or khz.";
+        public string ErrorMessage { get; set; } = Radios.Lexicon.Get("settings.tuning.freq_input_error");
 
         /// <summary>
         /// The validated frequency result. Set after OK is clicked and validation passes.
@@ -32,7 +32,8 @@ namespace JJFlexWpf.Dialogs
             string? formatted = ValidateFrequency?.Invoke(FreqBox.Text);
             if (formatted == null)
             {
-                MessageBox.Show(ErrorMessage, "Invalid Frequency", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(ErrorMessage, Radios.Lexicon.Get("settings.tuning.freq_input_error_title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             ResultFrequency = formatted;

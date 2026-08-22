@@ -47,7 +47,9 @@ namespace JJFlexWpf.Dialogs
         {
             if (BandBox.SelectedIndex < 0)
             {
-                MessageBox.Show("Select a band.", "Required",
+                MessageBox.Show(
+                    Radios.Lexicon.Get("settings.band.select_band_required"),
+                    Radios.Lexicon.Get("settings.band.select_band_required_title"),
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 BandBox.Focus();
                 return;

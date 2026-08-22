@@ -12,14 +12,14 @@ Public Class ShowBands
             Next
             For Each str As String In [Enum].GetNames(GetType(Bands.Licenses))
                 If str = "none" Then
-                    LicenseBox.Items.Add("All")
+                    LicenseBox.Items.Add(Radios.Lexicon.Get("settings.band.filter_all"))
                 Else
                     LicenseBox.Items.Add(str)
                 End If
             Next
             For Each str As String In [Enum].GetNames(GetType(Bands.Modes))
                 If str = "none" Then
-                    ModeBox.Items.Add("All")
+                    ModeBox.Items.Add(Radios.Lexicon.Get("settings.band.filter_all"))
                 Else
                     ModeBox.Items.Add(str)
                 End If
@@ -66,7 +66,9 @@ Public Class ShowBands
                 End If
             End If
         Else
-            MessageBox.Show("select a band", "required", MessageBoxButtons.OK)
+            MessageBox.Show(Radios.Lexicon.Get("settings.band.select_band_required_classic"),
+                            Radios.Lexicon.Get("settings.band.select_band_required_classic_title"),
+                            MessageBoxButtons.OK)
             BandBox.Focus()
         End If
         If rslt IsNot Nothing Then
