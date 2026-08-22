@@ -98,6 +98,7 @@ namespace JJFlexWpf
         // above the floor. Hot: SW ALC pegging near 0 dBFS.
         private const float SilentMicDbfs = -45f;
         private const float AlcHotDbfs = -0.3f;
+
         // "No transmit signal this second" for the dead-carrier auto-release —
         // SW ALC below this means essentially no modulation. (Old code read
         // HWALC, always ~0, so it treated EVERY transmission as dead and would
@@ -105,6 +106,15 @@ namespace JJFlexWpf
         private const float NoSignalDbfs = -50f;
         private bool _healthSilentMicWarned;
         private bool _healthAlcHighWarned;
+        private bool _healthReflectedWarned;
+
+        /// <summary>
+        /// Seconds transmitting in ANY state, unlike <c>_healthLockSeconds</c>
+        /// which counts only a locked transmission. The reflected-power warning
+        /// runs on this one because a held PTT into a dead antenna port is
+        /// exactly as bad for the finals as a locked one.
+        /// </summary>
+        private int _healthTxSeconds;
         private int _healthLockSeconds;
 
         public PttSafetyController(
@@ -214,6 +224,13 @@ namespace JJFlexWpf
                 if (_config.SpeechEnabled)
                     ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_transmitting"), VerbosityLevel.Critical, interrupt: true);
                 SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
+                _healthReflectedWarned = false;
+                _healthTxSeconds = 0;
+                // A held PTT used to get NO transmit monitoring at all — the
+                // tick returned early and stopped its own timer. That was fine
+                // while every check was about an unattended lock, and stops
+                // being fine the moment one of them is about the hardware.
+                StartAlcTimer();
                 Tracing.TraceLine("PTT: Hold started", TraceLevel.Info);
             }
             // If already locked/warning, ignore key-down (don't double-TX)
@@ -301,6 +318,8 @@ namespace JJFlexWpf
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
+            _healthReflectedWarned = false;
+            _healthTxSeconds = 0;
             _healthLockSeconds = 0;
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
@@ -326,6 +345,8 @@ namespace JJFlexWpf
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
+            _healthReflectedWarned = false;
+            _healthTxSeconds = 0;
             _healthLockSeconds = 0;
 
             _updateStatusDisplay?.Invoke("");
@@ -492,7 +513,7 @@ namespace JJFlexWpf
 
         private void AlcTimerTick(object? sender, EventArgs e)
         {
-            if (State == PttState.Idle || State == PttState.PttHold)
+            if (State == PttState.Idle)
             {
                 _alcTimer?.Stop();
                 return;
@@ -500,6 +521,20 @@ namespace JJFlexWpf
 
             var rig = _getRigControl();
             if (rig == null) return;
+
+            _healthTxSeconds++;
+
+            // Runs in EVERY transmit state, held PTT included. Everything below
+            // this line is about an unattended LOCK — the auto-release exists
+            // because nobody has a finger on the key, and the audio-quality
+            // warnings can afford to wait five seconds. Power coming back can
+            // not: it is arriving at the finals now, and it does not care which
+            // key the operator is holding.
+            if (!rig.DummyLoadMode) CheckReflectedPower(rig);
+
+            // A held PTT stops here. The state machine has always treated hold
+            // as the operator's own hand on the key, and this preserves that.
+            if (State == PttState.PttHold) return;
 
             // Skip dead-carrier monitoring in dummy load mode — drive behaves differently
             if (rig.DummyLoadMode) { _alcZeroConsecutiveSeconds = 0; return; }
@@ -546,6 +581,61 @@ namespace JJFlexWpf
                     Tracing.TraceLine($"PTT: Health warning — ALC pegging (SW ALC {rig.SwAlcDb:F1} dBFS)", TraceLevel.Info);
                 }
             }
+        }
+
+        /// <summary>
+        /// Speaks once per transmission when most of the transmit power is
+        /// arriving back instead of leaving.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This exists because on 2026-08-22 the bench 8600 transmitted into an
+        /// EMPTY ANT1 connector — the dummy load was sitting on ANT2 — and threw
+        /// 76 percent of its output straight back into the finals, while the
+        /// radio's own SWR meter reported 1.008 and nothing in the app said a
+        /// word. Two full sessions of measurements were taken through that
+        /// silence. The operator is blind and cannot read the port labels on the
+        /// back of the radio, which is precisely why the software has to be the
+        /// thing that notices.
+        /// </para>
+        /// <para>
+        /// It reads forward and reflected power rather than the SWR meter, for
+        /// the reason above. It names the transmit antenna, because "check the
+        /// antenna" is advice and "check ANT1" is an instruction. And it stands
+        /// down while the tuner is running, since a tune cycle transmits into a
+        /// deliberately bad match on purpose — a warning that fires on every
+        /// routine tune-up is one the operator stops hearing before the day it
+        /// matters.
+        /// </para>
+        /// <para>
+        /// Once per transmission, not once per second. A warning that repeats
+        /// while the operator is trying to act on it is noise.
+        /// </para>
+        /// </remarks>
+        private void CheckReflectedPower(FlexBase rig)
+        {
+            float forward = rig.ForwardPowerWatts;
+            float reflected = rig.ReflectedPowerWatts;
+
+            if (!TransmitSafety.ShouldWarnReflected(
+                    forward, reflected, _healthTxSeconds,
+                    rig.ATUTuneInProgress, _healthReflectedWarned))
+                return;
+
+            _healthReflectedWarned = true;
+
+            float back = TransmitSafety.ReflectedFractionOf(forward, reflected);
+            string antenna = rig.TXAntennaName ?? "";
+
+            EarconPlayer.WarningAlarmTone();
+            ScreenReaderOutput.Speak(
+                TransmitSafety.ReflectedWarningText(back, antenna), VerbosityLevel.Critical);
+            Tracing.TraceLine(
+                $"PTT: Health warning — reflected power {back * 100f:F0}% "
+                + $"(fwd {forward:F1} W, refl {reflected:F2} W, "
+                + $"computed SWR {rig.ComputedSWR:F2}, meter said {rig.SWRValue:F3}, "
+                + $"antenna {(antenna.Length == 0 ? "unknown" : antenna)})",
+                TraceLevel.Info);
         }
 
         // -------------------------------------------------------------------

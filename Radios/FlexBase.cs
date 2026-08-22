@@ -7755,16 +7755,16 @@ namespace Radios
         /// <b>0.76</b>. That is three orders of magnitude, and it needs no
         /// calibration to interpret.
         /// </remarks>
-        public float ReflectedFraction
-        {
-            get
-            {
-                float pf = DBmToWatts(_PowerDBM);
-                float pr = DBmToWatts(_ReflectedPower);
-                if (pf < 0.05f) return float.NaN;
-                return Math.Min(pr / pf, 1f);
-            }
-        }
+        /// <summary>
+        /// How much of the forward power is coming back, from 0 to 1, or NaN
+        /// when there is too little power to judge.
+        /// <para>The arithmetic lives in
+        /// <see cref="TransmitSafety.ReflectedFractionOf"/> so that the live
+        /// transmit warning and its tests share one definition with this
+        /// property rather than drifting into two.</para>
+        /// </summary>
+        public float ReflectedFraction =>
+            TransmitSafety.ReflectedFractionOf(ForwardPowerWatts, ReflectedPowerWatts);
 
         private string SWRText()
         {

@@ -489,6 +489,8 @@
   "audio.ptt.hard_limit": "Hard transmit limit, receiving",
   "audio.ptt.mic_level_too_high": "Microphone level too high",
   "audio.ptt.no_signal_release": "No signal detected, receiving",
+  "audio.ptt.power_coming_back": "{percent} percent of your power is coming back. Check that the antenna is connected.",
+  "audio.ptt.power_coming_back_on": "{percent} percent of your power is coming back on {antenna}. Check that the antenna is connected.",
   "audio.ptt.remaining_minutes": "{minutes} minutes",
   "audio.ptt.remaining_minutes_seconds": "{minutes} minutes {seconds} seconds",
   "audio.ptt.remaining_one_minute": "1 minute",
