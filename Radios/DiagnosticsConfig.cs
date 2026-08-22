@@ -75,6 +75,36 @@ namespace Radios
         public bool RecordMeterStream { get; set; } = false;
 
         /// <summary>
+        /// Record a transcript of everything the app SAYS and SOUNDS — every
+        /// spoken message with its verbosity and origin, every earcon, every CW
+        /// notification — as one JSON line each, alongside the ordinary
+        /// diagnostic log. Off by default.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the same channel the test harness uses
+        /// (<see cref="OutputChannelRecorder"/>), exposed to an operator for
+        /// one reason: when somebody can reproduce a problem with what the app
+        /// said, the transcript is the evidence, and nothing else in the bundle
+        /// carries it. The diagnostic log records what the program DID; only
+        /// this records what the operator HEARD.
+        /// </para>
+        /// <para>
+        /// Cheap to include. A transcript is one short JSON line per utterance
+        /// and compresses like the text it is, so a whole session adds little
+        /// to a problem report — unlike the meter stream above, which is why
+        /// that one carries a warning and this one does not.
+        /// </para>
+        /// <para>
+        /// A <c>--record</c> switch or <c>JJFLEX_RECORD=1</c> still wins: a
+        /// harness that asked for a transcript gets one whatever this says.
+        /// This only turns recording ON, never off, so an automated run can
+        /// never be silenced by an operator's saved preference.
+        /// </para>
+        /// </remarks>
+        public bool RecordSpokenOutput { get; set; } = false;
+
+        /// <summary>
         /// How many crash reports to keep in %AppData%\JJFlexRadio\Errors.
         ///
         /// The count matters more than the age here: a full-memory dump runs

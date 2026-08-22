@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -108,6 +108,10 @@ namespace JJFlexWpf.Dialogs
                 bool meterStream = false;
                 try { meterStream = DiagnosticsBridge.MeterStream?.Invoke() ?? false; } catch { }
                 DiagMeterStreamCheck.IsChecked = meterStream;
+
+                bool transcript = false;
+                try { transcript = DiagnosticsBridge.SpokenTranscript?.Invoke() ?? false; } catch { }
+                DiagTranscriptCheck.IsChecked = transcript;
 
                 string live = SafeCall(DiagnosticsBridge.LiveLogPath);
                 string folder = SafeCall(DiagnosticsBridge.LogFolder);
@@ -252,6 +256,26 @@ namespace JJFlexWpf.Dialogs
         /// way the old raw stream did, and "off" says the readings stop, so
         /// meter lines ending mid-bench is never a mystery.
         /// </summary>
+        private void DiagTranscriptCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_diagSuppressEvents) return;
+            bool record = DiagTranscriptCheck.IsChecked == true;
+            try { DiagnosticsBridge.ApplySpokenTranscript?.Invoke(record); }
+            catch { DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.setting_not_saved")); return; }
+
+            // #128: immediate-apply toggle answers back; the failed path above
+            // returns first, so a declined change never chimes.
+            EarconPlayer.ToggleTone(record);
+
+            // Turning it ON says where it went, because the operator's next
+            // move is to find that file and attach it. Turning it OFF says the
+            // transcript is closed rather than merely "off", so nobody assumes
+            // a half-written file is still growing.
+            DiagnosticsBridge.Speak?.Invoke(record
+                ? Radios.Lexicon.Get("settings.diagnostics.transcript_on")
+                : Radios.Lexicon.Get("settings.diagnostics.transcript_off"));
+        }
+
         private void DiagMeterStreamCheck_Changed(object sender, RoutedEventArgs e)
         {
             if (_diagSuppressEvents) return;

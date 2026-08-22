@@ -172,6 +172,8 @@
   "settings.diagnostics.saved_logs_open_failed": "Saved diagnostic logs could not be opened.",
   "settings.diagnostics.saved_logs_unavailable": "Saved diagnostic logs are not available.",
   "settings.diagnostics.setting_not_saved": "That diagnostic setting could not be saved.",
+  "settings.diagnostics.transcript_off": "Transcript closed.",
+  "settings.diagnostics.transcript_on": "Recording what the app says. The transcript is kept with your diagnostic logs, and you can include it when you report a problem.",
   "settings.diagnostics.word_file": "file",
   "settings.diagnostics.word_files": "files",
   "settings.diagnostics.word_report": "report",

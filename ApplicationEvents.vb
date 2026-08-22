@@ -50,6 +50,31 @@ Namespace My
             ' transcript without that marker as a broken instrument, never as
             ' "no output".
             Dim outputSwitches = Radios.OutputChannelRecorder.ParseStartupSwitches(e.CommandLine)
+
+            ' The operator can also ask for a transcript from Settings >
+            ' Diagnostics, for when they can reproduce a problem with what the
+            ' app SAID. Read here rather than in GetConfigInfo because that runs
+            ' after the main window loads, which is far too late — the greeting,
+            ' the whole connect walk and any startup complaint would be missing
+            ' from the very transcript somebody is collecting to explain them.
+            '
+            ' Readable this early only because RadioConfig.AppDataRoot resolves
+            ' from the environment rather than from startup state.
+            '
+            ' OR, never AND: a --record switch or JJFLEX_RECORD=1 already won,
+            ' and a saved preference must never be able to silence a harness.
+            Try
+                If Not outputSwitches.Record Then
+                    outputSwitches.Record =
+                        Radios.DiagnosticsConfig.Load(Radios.RadioConfig.AppDataRoot).RecordSpokenOutput
+                End If
+            Catch ex As Exception
+                ' A transcript is a diagnostic aid. Failing to read the
+                ' preference must never stop the app from starting.
+                JJTrace.Tracing.TraceLine("Startup: could not read RecordSpokenOutput: " & ex.Message,
+                                  TraceLevel.Warning)
+            End Try
+
             Radios.OutputChannelRecorder.Configure(outputSwitches.Render, outputSwitches.Record, outputSwitches.RecordPath)
 
             ' Initialize screen reader output (Prism) for accessibility announcements.

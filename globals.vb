@@ -540,6 +540,8 @@ Module globals
                 Sub(keep, detail) ApplyDiagnosticLogSettings(keep, CType(detail, Radios.DiagnosticDetail))
             JJFlexWpf.DiagnosticsBridge.MeterStream = Function() DiagnosticsSettings.RecordMeterStream
             JJFlexWpf.DiagnosticsBridge.ApplyMeterStream = Sub(record) ApplyMeterStreamSetting(record)
+            JJFlexWpf.DiagnosticsBridge.SpokenTranscript = Function() Radios.OutputChannelRecorder.RecordEnabled
+            JJFlexWpf.DiagnosticsBridge.ApplySpokenTranscript = Sub(record) ApplySpokenTranscriptSetting(record)
             JJFlexWpf.DiagnosticsBridge.LiveLogPath =
                 Function() If(Tracing.TraceFile, If(BootTrace, BootTraceFileName, String.Empty))
             JJFlexWpf.DiagnosticsBridge.LogFolder = Function() BaseConfigDir
@@ -851,6 +853,44 @@ Module globals
     ''' of the file needs to know that meter lines stopping mid-session means
     ''' the operator turned them off, not that the meters died.
     ''' </summary>
+    ''' <summary>
+    ''' Turn the spoken-output transcript on or off for this session, and
+    ''' remember the choice.
+    ''' </summary>
+    ''' <remarks>
+    ''' The diagnostic log records what the program DID. This records what the
+    ''' operator HEARD — every spoken message with its verbosity and origin,
+    ''' every earcon, every CW notification, one JSON line each. When somebody
+    ''' can reproduce a problem with what the app said, that is the evidence,
+    ''' and nothing else in a problem report carries it.
+    '''
+    ''' Applied live rather than at next start: Configure closes any open
+    ''' transcript and opens a fresh one, writing the session-start marker. So
+    ''' the operator turns it on, reproduces the fault, and the file is already
+    ''' waiting — which is the whole point, and the opposite of asking somebody
+    ''' to restart before they can capture what just happened.
+    ''' </remarks>
+    Friend Sub ApplySpokenTranscriptSetting(record As Boolean)
+        DiagnosticsSettings.RecordSpokenOutput = record
+        ' Render is left exactly as it is: this switch decides whether output is
+        ' WRITTEN DOWN, never whether it is heard. Silencing the app from a
+        ' diagnostics checkbox would be a trap.
+        Radios.OutputChannelRecorder.Configure(
+            Radios.OutputChannelRecorder.RenderEnabled, record, Nothing)
+        If Not DiagnosticsSettings.Save(BaseConfigDir) Then
+            Radios.OperationFailure.Report(Radios.FailureKind.SettingNotSaved,
+                "Your transcript setting could not be saved",
+                "The change is in effect right now, but it will not be there the next time you start JJ Flex. " &
+                "Something stopped the settings file from being written.")
+        End If
+        Try
+            Tracing.TraceLine("SpokenTranscript: recording=" & If(record, "on", "off"))
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+        RaiseDiagnosticLogStateChanged()
+    End Sub
+
     Friend Sub ApplyMeterStreamSetting(record As Boolean)
         DiagnosticsSettings.RecordMeterStream = record
         Radios.MeterTraceStream.Enabled = record

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace JJFlexWpf
 {
@@ -55,6 +55,12 @@ namespace JJFlexWpf
 
         /// <summary>Apply and persist the meter stream choice immediately.</summary>
         public static Action<bool>? ApplyMeterStream { get; set; }
+
+        /// <summary>Is the spoken-output transcript running?</summary>
+        public static Func<bool>? SpokenTranscript { get; set; }
+
+        /// <summary>Turn the spoken-output transcript on or off, and remember it.</summary>
+        public static Action<bool>? ApplySpokenTranscript { get; set; }
 
         // StartLogAt / StopLog removed Sprint 31 (#103). They existed for the
         // retired trace dialog's "pick a file, pick a level, start" flow and

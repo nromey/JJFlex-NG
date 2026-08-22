@@ -1684,6 +1684,20 @@
                             <TextBlock TextWrapping="Wrap" Margin="20,0,0,8"
                                        Text="Writes the radio's live meter readings into the log, summarized once a second with lowest, highest, and latest, so peaks survive. Turn it on for a bench session; leave it off day to day."/>
 
+                            <!-- The log records what the program did. This
+                                 records what the operator HEARD, which is the
+                                 evidence when the complaint is about what the
+                                 app said. Cheap to keep and cheap to send. -->
+                            <CheckBox x:Name="DiagTranscriptCheck"
+                                      Content="Record what the app says (for reporting a problem)"
+                                      Margin="0,4,0,4"
+                                      AutomationProperties.Name="Record what the app says, for reporting a problem"
+                   local:JJFlexHelp.Text="Writes down every message the app speaks, every sound it plays and every C W notification it sends, alongside the diagnostic log. The log says what the program did; this says what you heard, which is the part that matters when the problem is something it said, or did not say. It only writes things down — it never changes what you hear. Small enough to include in a problem report."
+                                      Checked="DiagTranscriptCheck_Changed"
+                                      Unchecked="DiagTranscriptCheck_Changed"/>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,8"
+                                       Text="Writes down what the app says and the sounds it plays, so a problem with what you heard can be explained. It does not change what you hear."/>
+
                             <TextBlock x:Name="DiagPathText"
                                        TextWrapping="Wrap" Margin="0,4,0,6"
                                        Text="The live log location is not available."
