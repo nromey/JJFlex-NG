@@ -504,7 +504,8 @@ namespace JJFlexWpf.Dialogs
             if (announce)
             {
                 string msg = _status == Devices.EnumerationStatus.Ok
-                    ? $"Device list refreshed. {CountReal(_outputRows)} output and {CountReal(_inputRows)} input devices."
+                    ? Lexicon.Get("audio.device.list_refreshed",
+                        ("outputs", CountReal(_outputRows)), ("inputs", CountReal(_inputRows)))
                     : _statusMessage;
                 ScreenReaderOutput.Speak(msg, VerbosityLevel.Terse, true);
             }
@@ -541,9 +542,11 @@ namespace JJFlexWpf.Dialogs
         private void PopulateBothLists()
         {
             _outputRows = PopulateDeviceList(RadioOutputList, Devices.PickerOutputDevices,
-                _devices?.OutputDevice, RadioOutputNote, "radio receive audio");
+                _devices?.OutputDevice, RadioOutputNote,
+                Lexicon.Get("audio.device.role_output_note"));
             _inputRows = PopulateDeviceList(RadioInputList, Devices.PickerInputDevices,
-                _devices?.InputDevice, RadioInputNote, "microphone");
+                _devices?.InputDevice, RadioInputNote,
+                Lexicon.Get("audio.device.role_input_note"));
 
             // Say what the app decides about channel counts and rates, and
             // only when it is actually deciding something for a device in
@@ -882,8 +885,9 @@ namespace JJFlexWpf.Dialogs
             RebuildDeviceLists();
 
             SetStatusLine(HostApiNote, HostApiNoteText());
-            Announce($"{_hostApis[idx].Name}. {CountReal(_outputRows)} output and "
-                + $"{CountReal(_inputRows)} input devices.");
+            Announce(Lexicon.Get("audio.device.audio_system_chosen",
+                ("system", _hostApis[idx].Name),
+                ("outputs", CountReal(_outputRows)), ("inputs", CountReal(_inputRows))));
         }
 
         /// <summary>
@@ -924,11 +928,11 @@ namespace JJFlexWpf.Dialogs
             SetStatusLine(HostApiNote, HostApiNoteText());
             ScreenReaderOutput.Speak(
                 on
-                    ? $"Showing every sound endpoint across every audio system. {CountReal(_outputRows)} output and {CountReal(_inputRows)} input entries, "
-                      + "including kernel pins. Most of these are the same hardware seen once per audio system, "
-                      + "and each row names its own."
-                    : $"Showing {Devices.NameOfHostApi(Devices.SelectedHostApiTypeId)} devices only. "
-                      + $"{CountReal(_outputRows)} output and {CountReal(_inputRows)} input devices.",
+                    ? Lexicon.Get("audio.device.showing_every_endpoint",
+                        ("outputs", CountReal(_outputRows)), ("inputs", CountReal(_inputRows)))
+                    : Lexicon.Get("audio.device.showing_one_audio_system",
+                        ("system", Devices.NameOfHostApi(Devices.SelectedHostApiTypeId)),
+                        ("outputs", CountReal(_outputRows)), ("inputs", CountReal(_inputRows))),
                 VerbosityLevel.Terse, true);
         }
 
@@ -967,15 +971,14 @@ namespace JJFlexWpf.Dialogs
             var row = SelectedInputRow();
             if (row == null)
             {
-                Announce("Choose a microphone in the list above first.", VerbosityLevel.Critical);
+                Announce(Lexicon.Get("audio.device.choose_a_microphone_first"), VerbosityLevel.Critical);
                 RadioInputList.Focus();
                 return;
             }
 
             if (row.IsMissingSaved)
             {
-                Announce($"{row.Name} is not connected, so there is nothing to check. "
-                    + "Plug it back in and choose Refresh device list, or pick a different microphone.",
+                Announce(Lexicon.Get("audio.device.microphone_not_connected", ("device", row.Name)),
                     VerbosityLevel.Critical);
                 RadioInputList.Focus();
                 return;
@@ -998,20 +1001,23 @@ namespace JJFlexWpf.Dialogs
                 string message = _privacyBlocked
                     ? _privacyExplanation + " " + failure
                     : failure;
-                SetMicReading("Microphone check could not start. " + message);
-                Announce("Microphone check could not start. " + message, VerbosityLevel.Critical);
+                string couldNotStart = Lexicon.Get("audio.device.mic_check_could_not_start",
+                    ("reason", message));
+                SetMicReading(couldNotStart);
+                Announce(couldNotStart, VerbosityLevel.Critical);
                 if (_privacyBlocked) MicPrivacyButton.Focus();
                 return;
             }
 
             MicCheckButton.Content = "Stop _microphone check";
             AutomationProperties.SetName(MicCheckButton, "Stop microphone check");
-            SetMicReading("Microphone check running. Listening." + HostApiCaveat() + RateCaveat());
+            SetMicReading(Lexicon.Get("audio.device.mic_check_listening") + HostApiCaveat() + RateCaveat());
             _micTimer.Start();
 
             Announce(_privacyBlocked
-                ? "Microphone check started, but " + _privacyExplanation
-                : $"Microphone check started on {row.Name}. Talk normally."
+                ? Lexicon.Get("audio.device.mic_check_started_but_blocked",
+                    ("reason", _privacyExplanation))
+                : Lexicon.Get("audio.device.mic_check_started", ("device", row.Name))
                   + HostApiCaveat() + RateCaveat(),
                 _privacyBlocked ? VerbosityLevel.Critical : VerbosityLevel.Terse);
         }
@@ -1083,14 +1089,14 @@ namespace JJFlexWpf.Dialogs
         {
             if (_probe == null)
             {
-                Announce("The microphone check is not running. Press Alt+M to start it.",
+                Announce(Lexicon.Get("audio.device.mic_check_not_running"),
                     VerbosityLevel.Critical);
                 return;
             }
 
             string text = _micReadingText;
             Announce(string.IsNullOrWhiteSpace(text)
-                ? "No reading yet — talk into the microphone."
+                ? Lexicon.Get("audio.device.mic_check_no_reading_yet")
                 : text, VerbosityLevel.Critical);
         }
 
@@ -1192,12 +1198,12 @@ namespace JJFlexWpf.Dialogs
             string summary;
             if (!final.AnySound)
             {
-                summary = "Microphone check stopped. Nothing was heard at all.";
+                summary = Lexicon.Get("audio.device.mic_check_nothing_heard");
             }
             else if (final.HoldPeakDb <= NoiseFloorDb)
             {
-                summary = $"Microphone check stopped. Nothing but the electrical noise floor was "
-                    + $"heard, peak {PeakText(final.HoldPeakDb)}.";
+                summary = Lexicon.Get("audio.device.mic_check_only_noise_floor",
+                    ("peak", PeakText(final.HoldPeakDb)));
             }
             else
             {
@@ -1206,7 +1212,7 @@ namespace JJFlexWpf.Dialogs
                 // a direction, and an operator who suppressed the coaching
                 // still needs to be told which knob to move. Its absence is
                 // what made "coming in hot" a dead end.
-                summary = Reading("Microphone check stopped. Loudest sound heard:",
+                summary = Reading(Lexicon.Get("audio.device.mic_check_loudest_heard"),
                     final.HoldPeakDb, final.IntegratedLufs,
                     withAdvice: true,
                     advice: LevelAdvice(MicAudioReport.Verdict(final.HoldPeakDb)));
@@ -1235,8 +1241,9 @@ namespace JJFlexWpf.Dialogs
             {
                 string fault = r.FaultMessage;
                 StopMicCheck(speak: false, reason: "");
-                SetMicReading("Microphone check stopped. " + fault);
-                Announce("Microphone check stopped. " + fault, VerbosityLevel.Critical);
+                string stopped = Lexicon.Get("audio.device.mic_check_stopped_faulted", ("reason", fault));
+                SetMicReading(stopped);
+                Announce(stopped, VerbosityLevel.Critical);
                 return;
             }
 
@@ -1247,7 +1254,9 @@ namespace JJFlexWpf.Dialogs
                 // interfaces hand over their first buffers late.
                 if (r.Seconds < 1.0)
                 {
-                    text = "Microphone check running. Listening.";
+                    // Same key as the line StartMicCheck shows, because it is
+                    // the same sentence: two copies of it would age apart.
+                    text = Lexicon.Get("audio.device.mic_check_listening");
                 }
                 else
                 {
@@ -1334,8 +1343,7 @@ namespace JJFlexWpf.Dialogs
         {
             if (MicrophonePrivacy.OpenSettings(out string failure))
             {
-                Announce("Windows microphone privacy settings opened. Turn on microphone access, "
-                    + "then come back here and start the check again.", VerbosityLevel.Terse);
+                Announce(Lexicon.Get("audio.device.privacy_settings_opened"), VerbosityLevel.Terse);
                 return;
             }
             Announce(failure, VerbosityLevel.Critical);
@@ -1741,7 +1749,8 @@ namespace JJFlexWpf.Dialogs
                 // A button whose whole effect happens inside Windows has to
                 // say it happened — this is state the control itself cannot
                 // convey, so speaking it is not a repeat.
-                Announce($"{level.FriendlyName} is unmuted in Windows.", VerbosityLevel.Terse);
+                Announce(Lexicon.Get("audio.device.unmuted_in_windows", ("device", level.FriendlyName)),
+                    VerbosityLevel.Terse);
                 RefreshMicLevelFromWindows();
                 // The refresh just collapsed this button out from under the
                 // keyboard. Land on the level slider — the adjacent control,
@@ -1765,8 +1774,7 @@ namespace JJFlexWpf.Dialogs
             Tracing.TraceLine("AudioDevicesDialog: Windows level control failed — " + ex.Message,
                 TraceLevel.Error);
             DisposeMicLevel();
-            const string reason = "The Windows level control stopped responding — the microphone "
-                + "may have been unplugged. Choose Refresh device list to rebuild the lists.";
+            string reason = Lexicon.Get("audio.device.level_control_stopped_responding");
             DisableMicLevelControl(reason);
             Announce(reason, VerbosityLevel.Critical);
         }
@@ -1795,8 +1803,15 @@ namespace JJFlexWpf.Dialogs
                 // the audio engine cannot open. Saving a mono device would
                 // produce a configuration that fails at connect time on a
                 // background thread, which is a silent dead microphone.
-                if (!ConfirmSelectionUsable(RadioOutputList, _outputRows, "radio audio output")
-                    || !ConfirmSelectionUsable(RadioInputList, _inputRows, "microphone"))
+                // NOT normalised, deliberately: these two roles are also named
+                // in audio.device.role_output_note / role_input_note and in
+                // audio.device.role_output_receipt / role_input_receipt, and
+                // the three spellings of the output role differ today. Which
+                // wording survives is the owner's call, not the extractor's.
+                if (!ConfirmSelectionUsable(RadioOutputList, _outputRows,
+                        Lexicon.Get("audio.device.role_output_refusal"))
+                    || !ConfirmSelectionUsable(RadioInputList, _inputRows,
+                        Lexicon.Get("audio.device.role_input_refusal")))
                 {
                     return;
                 }
@@ -1812,12 +1827,15 @@ namespace JJFlexWpf.Dialogs
                 bool apiChanged = _devices.SavedHostApiTypeId != Devices.SelectedHostApiTypeId;
                 _devices.SaveHostApiSelection();
                 if (apiChanged)
-                    saved.Add($"Audio system: {Devices.NameOfHostApi(Devices.SelectedHostApiTypeId)}");
+                    saved.Add(Lexicon.Get("audio.device.commit_audio_system",
+                        ("system", Devices.NameOfHostApi(Devices.SelectedHostApiTypeId))));
 
                 saved.AddRange(CommitRadioDevice(
-                    RadioOutputList, _outputRows, Devices.DeviceTypes.output, "Radio audio output"));
+                    RadioOutputList, _outputRows, Devices.DeviceTypes.output,
+                    Lexicon.Get("audio.device.role_output_receipt")));
                 saved.AddRange(CommitRadioDevice(
-                    RadioInputList, _inputRows, Devices.DeviceTypes.input, "Microphone"));
+                    RadioInputList, _inputRows, Devices.DeviceTypes.input,
+                    Lexicon.Get("audio.device.role_input_receipt")));
 
                 RadioAudioConfigured =
                     _devices.GetConfiguredDevice(Devices.DeviceTypes.output) != null
@@ -1866,8 +1884,8 @@ namespace JJFlexWpf.Dialogs
             // the old form never gave — it saved silently and closed.
             ScreenReaderOutput.Speak(
                 saved.Count > 0
-                    ? "Audio devices saved. " + string.Join(". ", saved) + "."
-                    : "Audio devices saved.",
+                    ? Lexicon.Get("audio.device.saved") + " " + string.Join(". ", saved) + "."
+                    : Lexicon.Get("audio.device.saved"),
                 VerbosityLevel.Terse, true);
 
             DialogResult = true;
@@ -1909,8 +1927,8 @@ namespace JJFlexWpf.Dialogs
             if (rows[idx].UsableForRadioAudio) return true;
 
             ScreenReaderOutput.Speak(
-                $"{rows[idx].Name} reports no audio channels, so JJ Flexible cannot open it. "
-                + $"Choose a different {role}.",
+                Lexicon.Get("audio.device.no_audio_channels",
+                    ("device", rows[idx].Name), ("role", role)),
                 VerbosityLevel.Critical, true);
             list.Focus();
             return false;
@@ -1943,7 +1961,8 @@ namespace JJFlexWpf.Dialogs
 
             if (chosen.IsMissingSaved)
             {
-                yield return $"{role}: {chosen.Name}, still saved but not connected";
+                yield return Lexicon.Get("audio.device.commit_not_connected",
+                    ("role", role), ("device", chosen.Name));
                 yield break;
             }
 
@@ -1951,12 +1970,14 @@ namespace JJFlexWpf.Dialogs
                 ? _devices!.InputDevice : _devices!.OutputDevice;
             if (Devices.SameDevice(current, chosen))
             {
-                yield return $"{role}: {chosen.Name}, unchanged";
+                yield return Lexicon.Get("audio.device.commit_unchanged",
+                    ("role", role), ("device", chosen.Name));
                 yield break;
             }
 
             _devices!.SetConfiguredDevice(type, chosen);
-            yield return $"{role}: {chosen.Name}";
+            yield return Lexicon.Get("audio.device.commit_chosen",
+                ("role", role), ("device", chosen.Name));
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
