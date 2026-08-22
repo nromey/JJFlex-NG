@@ -1,5 +1,5 @@
 {
-  "_comment": "This file holds what JJ Flexible says and shows, for the connect area. Connect and session lifecycle - discovery, SmartLink, connecting, disconnecting, radio selection. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md.",
+  "_comment": "This file holds what JJ Flexible says and shows, for connect and session lifecycle - discovery, SmartLink, connecting, disconnecting, radio selection and diagnostics. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. If an argument goes missing the placeholder is left standing rather than blanked, so you would hear the word radio in braces spoken aloud - that is a bug worth reporting, not something you caused. A key with no text is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. LADDERS: a few keys hold several tiers instead of one string - critical, terse, chatty and sometimes diagnostic - which is how one message gets shorter as you turn verbosity down. Edit the tier you want; leave the others alone. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. SOME WORDS ARE ALSO INSTRUCTIONS: a handful of these strings are matched by the program to decide what to do next, so editing them can change behaviour rather than only wording. Those are being untangled; until they are, if something stops working after an edit, that is why. See docs/planning/active/string-store-contract.md.",
   "connect.auto.connected": "Connected to {radioName}",
   "connect.auto.connecting": "Connecting to {radioName}",
   "connect.auto.failed": "Failed to connect to {radioName}.",
@@ -65,24 +65,12 @@
   "connect.dialog.message_header": "Message",
   "connect.dialog.message_label": "Message",
   "connect.dialog.ok": "_OK",
-  "connect.disconnect.announcement": [
-    [
-      "critical",
-      "Disconnected"
-    ],
-    [
-      "terse",
-      "JJ Flexible disconnected"
-    ],
-    [
-      "chatty",
-      "JJ Flexible Access disconnected from radio"
-    ],
-    [
-      "diagnostic",
-      "Disconnected"
-    ]
-  ],
+  "connect.disconnect.announcement": {
+    "critical": "Disconnected",
+    "terse": "JJ Flexible disconnected",
+    "chatty": "JJ Flexible Access disconnected from radio",
+    "diagnostic": "Disconnected"
+  },
   "connect.disconnected_from": "Disconnected from {radioName}",
   "connect.disconnected_plain": "Disconnected from radio",
   "connect.failure.auth_summary": "SmartLink did not accept the saved sign-in for {email}. Connect from the radio list to sign in again.",
@@ -215,42 +203,18 @@
   "connect.network.unknown_address": "an unknown address",
   "connect.network.use_current_name": "Fill in the fields using the address the radio is using right now",
   "connect.network.use_current_name_remote": "Fill in the fields using the address the radio is using right now. Not available over SmartLink — connect on the radio's own network to use this.",
-  "connect.no_radio.action": [
-    [
-      "critical",
-      "{actionLabel}, no radio"
-    ],
-    [
-      "terse",
-      "{actionLabel}, no radio"
-    ],
-    [
-      "chatty",
-      "Unable to {actionLabel}, JJ Flexible Home no radio connected"
-    ],
-    [
-      "diagnostic",
-      "{actionLabel}, no radio"
-    ]
-  ],
-  "connect.no_radio.plain": [
-    [
-      "critical",
-      "No radio connected"
-    ],
-    [
-      "terse",
-      "Home, no radio"
-    ],
-    [
-      "chatty",
-      "JJ Flexible Home, no radio connected"
-    ],
-    [
-      "diagnostic",
-      "No radio connected"
-    ]
-  ],
+  "connect.no_radio.action": {
+    "critical": "{actionLabel}, no radio",
+    "terse": "{actionLabel}, no radio",
+    "chatty": "Unable to {actionLabel}, JJ Flexible Home no radio connected",
+    "diagnostic": "{actionLabel}, no radio"
+  },
+  "connect.no_radio.plain": {
+    "critical": "No radio connected",
+    "terse": "Home, no radio",
+    "chatty": "JJ Flexible Home, no radio connected",
+    "diagnostic": "No radio connected"
+  },
   "connect.presence.denied": "Cannot {reason}. You must be the primary operator at the radio.",
   "connect.presence.port_denied": "Cannot {reason}. You must be the primary operator at the radio — or, if this is your own radio, turn on allowing port changes from remote connections, on the Radios tab in Settings.",
   "connect.radio.no_rig": "No rig is connected.",
@@ -446,20 +410,11 @@
   "connect.session.requires_braille": "This function requires a braille display.",
   "connect.session.screen_reader_unnamed": "your screen reader",
   "connect.session.speech_channel_changed": "Speech now through {name}",
-  "connect.session.verbosity_changed": [
-    [
-      "critical",
-      "Speech off"
-    ],
-    [
-      "terse",
-      "Speech terse"
-    ],
-    [
-      "chatty",
-      "Speech chatty"
-    ]
-  ],
+  "connect.session.verbosity_changed": {
+    "critical": "Speech off",
+    "terse": "Speech terse",
+    "chatty": "Speech chatty"
+  },
   "connect.smartlink.account.autostart_off": "Remote will wait for the Remote button for {friendlyName}.",
   "connect.smartlink.account.autostart_on": "Remote will start automatically when {friendlyName} is the account in use.",
   "connect.smartlink.account.default_tag": " (Default)",
