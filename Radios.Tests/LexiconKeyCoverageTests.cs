@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using Xunit;
 
@@ -22,35 +23,114 @@ namespace Radios.Tests
     /// </para>
     /// <para>
     /// It reads SOURCE rather than IL because the thing being verified is a
-    /// literal written by a person. A key assembled at run time cannot be
-    /// checked here at all; those are counted and reported instead, because
-    /// they are the entries whose only safety net is a test that happens to
-    /// reach them.
-    /// </para>
-    /// <para>
-    /// <b>Vacuous until the extraction tracks land call sites</b> — and a check
-    /// that silently examines nothing is the exact failure #172 was built to
-    /// prevent, where zero discovered tests reads as green. So the scanner is
-    /// proved against known input first, and the sweep reports what it covered.
+    /// literal written by a person.
     /// </para>
     /// </remarks>
     public sealed class LexiconKeyCoverageTests
     {
-        /// <summary>
-        /// A literal key at a call site: <c>Lexicon.Get("some.key"</c>. Same
-        /// shape in C# and VB, which is why one pattern serves both.
-        /// </summary>
-        private static readonly Regex LiteralKey = new Regex(
-            @"Lexicon\s*\.\s*Get\s*\(\s*""([^""]+)""",
+        private static readonly Regex CallStart = new Regex(
+            @"Lexicon\s*\.\s*Get\s*\(",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         /// <summary>
-        /// A call whose key is NOT a plain literal — an interpolated string, a
-        /// variable, a concatenation. Cannot be verified here by construction.
+        /// Every key a call site could pass, read from its FIRST argument only.
         /// </summary>
-        private static readonly Regex DynamicKey = new Regex(
-            @"Lexicon\s*\.\s*Get\s*\(\s*(?![""])",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        /// <remarks>
+        /// <para>
+        /// <b>Why a scanner and not a regex.</b> The first version of this check
+        /// required the quote immediately after the open paren, so a key chosen
+        /// by a ternary —
+        /// <c>Lexicon.Get(failed ? "audio.tune.swr_failed" : "audio.tune.swr")</c>
+        /// — read as dynamically built and was never verified, though both keys
+        /// are plain literals sitting in the source. Track C found 26 such sites
+        /// in its files alone on 2026-08-22, disproportionately on error and
+        /// rare branches, which is exactly the coverage this check exists to
+        /// provide. It was reporting every key verified while skipping the ones
+        /// that mattered most.
+        /// </para>
+        /// <para>
+        /// Widening the regex to "any quoted string in the call" would have been
+        /// worse than the bug: <c>Lexicon.Get("connect.found", ("radio", name))</c>
+        /// would harvest <c>radio</c> as a key and then fail on it. So this
+        /// reads only as far as the first comma at paren depth zero, which is
+        /// the key expression and nothing else.
+        /// </para>
+        /// <para>
+        /// An interpolated string is counted as dynamic rather than collected —
+        /// that genuinely is a key built at run time, and claiming to have
+        /// checked it would be the same lie in a new coat.
+        /// </para>
+        /// </remarks>
+        internal static List<string> KeysInFirstArgument(string text, int argStart, out bool anyDynamic)
+        {
+            var keys = new List<string>();
+            anyDynamic = false;
+            int depth = 0;
+            int i = argStart;
+
+            while (i < text.Length)
+            {
+                char c = text[i];
+
+                if (c == '"')
+                {
+                    bool interpolated =
+                        (i > 0 && text[i - 1] == '$') ||
+                        (i > 1 && text[i - 1] == '@' && text[i - 2] == '$') ||
+                        (i > 1 && text[i - 1] == '$' && text[i - 2] == '@');
+
+                    var sb = new StringBuilder();
+                    int end = i + 1;
+                    while (end < text.Length && text[end] != '"')
+                    {
+                        if (text[end] == '\\' && end + 1 < text.Length) end++;
+                        else sb.Append(text[end]);
+                        end++;
+                    }
+
+                    if (interpolated) anyDynamic = true;
+                    else keys.Add(sb.ToString());
+
+                    i = end + 1;
+                    continue;
+                }
+
+                if (c == '(') { depth++; i++; continue; }
+                if (c == ')') { if (depth == 0) break; depth--; i++; continue; }
+                if (c == ',' && depth == 0) break;
+
+                // An identifier in the key position means a variable was
+                // passed. Only word-initial letters count, so a ternary's own
+                // punctuation does not trip it.
+                if (char.IsLetter(c) && (i == argStart || !char.IsLetterOrDigit(text[i - 1])))
+                {
+                    int w = i;
+                    while (w < text.Length &&
+                           (char.IsLetterOrDigit(text[w]) || text[w] == '_' || text[w] == '.')) w++;
+                    anyDynamic = true;
+                    i = w;
+                    continue;
+                }
+
+                i++;
+            }
+
+            return keys;
+        }
+
+        /// <summary>Every key named anywhere in one file, plus a dynamic tally.</summary>
+        private static List<string> AllKeysIn(string text, out int dynamicCalls)
+        {
+            var keys = new List<string>();
+            dynamicCalls = 0;
+            foreach (Match m in CallStart.Matches(text))
+            {
+                var found = KeysInFirstArgument(text, m.Index + m.Length, out bool dyn);
+                if (found.Count == 0 || dyn) dynamicCalls++;
+                keys.AddRange(found);
+            }
+            return keys;
+        }
 
         // ────────────────────────────────────────────────────────────────
         //  Prove the instrument before trusting its silence
@@ -60,31 +140,60 @@ namespace Radios.Tests
         [InlineData("Lexicon.Get(\"connect.done\")", "connect.done")]
         [InlineData("Lexicon.Get( \"audio.x\" )", "audio.x")]
         [InlineData("Lexicon . Get (\"settings.y\")", "settings.y")]
-        [InlineData("var s = Radios.Lexicon.Get(\"help.z\", level);", "help.z")]
+        [InlineData("var s = Radios.Lexicon.Get(\"help.z\");", "help.z")]
         public void TheScannerFindsALiteralKey(string source, string expected)
         {
-            // The positive control. A sweep that finds nothing is only evidence
-            // if the instrument is known to find something.
-            Match match = LiteralKey.Match(source);
-            Assert.True(match.Success, "scanner missed: " + source);
-            Assert.Equal(expected, match.Groups[1].Value);
+            Assert.Contains(expected, AllKeysIn(source, out _));
+        }
+
+        [Fact]
+        public void TheScannerFindsBOTHKeysOfATernary()
+        {
+            // The regression that motivated replacing the regex. Track C had 26
+            // of these on 2026-08-22 and every one was silently unchecked.
+            var keys = AllKeysIn(
+                "Lexicon.Get(failed ? \"audio.tune.swr_failed\" : \"audio.tune.swr\")", out _);
+
+            Assert.Contains("audio.tune.swr_failed", keys);
+            Assert.Contains("audio.tune.swr", keys);
+        }
+
+        [Fact]
+        public void TheScannerReadsOnlyTheKeyAndNotThePlaceholderNames()
+        {
+            // Widening the old regex would have harvested "radio" as a key and
+            // then failed on it. Only the first argument is the key.
+            var keys = AllKeysIn("Lexicon.Get(\"connect.found\", (\"radio\", name))", out _);
+
+            Assert.Single(keys);
+            Assert.Equal("connect.found", keys[0]);
+        }
+
+        [Fact]
+        public void TheScannerReadsOnlyTheKeyWhenAVerbosityArgumentFollows()
+        {
+            var keys = AllKeysIn(
+                "Lexicon.Get(\"connect.bye\", VerbosityLevel.Terse, (\"radio\", n))", out _);
+
+            Assert.Single(keys);
+            Assert.Equal("connect.bye", keys[0]);
         }
 
         [Theory]
         [InlineData("Lexicon.Get($\"connect.{phase}.done\")")]
         [InlineData("Lexicon.Get(theKey)")]
         [InlineData("Lexicon.Get(prefix + \".done\")")]
-        public void TheScannerSpotsAKeyItCannotVerify(string source)
+        public void TheScannerStillReportsAKeyItCannotVerify(string source)
         {
-            Assert.True(DynamicKey.IsMatch(source), "should have been flagged dynamic: " + source);
-            Assert.False(LiteralKey.IsMatch(source), "should NOT have been read as a literal: " + source);
+            AllKeysIn(source, out int dyn);
+            Assert.True(dyn > 0, "should have been counted as dynamic: " + source);
         }
 
         [Fact]
         public void TheScannerIsNotFooledByAMethodThatMerelyEndsInGet()
         {
-            Assert.False(LiteralKey.IsMatch("Widget.Get(\"not.a.lexicon.call\")"));
-            Assert.False(LiteralKey.IsMatch("config.Get(\"x.y\")"));
+            Assert.Empty(AllKeysIn("Widget.Get(\"not.a.lexicon.call\")", out _));
+            Assert.Empty(AllKeysIn("config.Get(\"x.y\")", out _));
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -108,23 +217,18 @@ namespace Radios.Tests
                 if (text.IndexOf("Lexicon", StringComparison.Ordinal) < 0) continue;
                 if (IsExempt(text)) { exempt++; continue; }
 
-                foreach (Match match in LiteralKey.Matches(text))
+                List<string> keys = AllKeysIn(text, out int dyn);
+                dynamics += dyn;
+                foreach (string key in keys)
                 {
                     literals++;
-                    string key = match.Groups[1].Value;
-                    if (!Lexicon.Contains(key))
-                    {
-                        missing.Add(key + "  (" + Rel(root, file) + ")");
-                    }
+                    if (!Lexicon.Contains(key)) missing.Add(key + "  (" + Rel(root, file) + ")");
                 }
-
-                dynamics += DynamicKey.Matches(text).Count;
             }
 
-            // Proves the sweep actually walked the tree. Without this, a broken
-            // root-finder would scan zero files and report a clean bill of
-            // health — which is the shape of failure this whole suite exists to
-            // refuse.
+            // Proves the sweep walked the tree. A broken root-finder would scan
+            // zero files and report a clean bill of health, which is the shape
+            // of failure this whole suite exists to refuse.
             Assert.True(filesScanned > 100,
                 "Only " + filesScanned + " source files were scanned, which means the repo root " +
                 "was not found and this check verified nothing. Root tried: " + root);
@@ -133,9 +237,6 @@ namespace Radios.Tests
                 "Keys named in source but absent from the store (" + missing.Count + "):" +
                 Environment.NewLine + string.Join(Environment.NewLine, missing.Distinct()));
 
-            // Not a failure. Recorded so the count is visible in the run, since
-            // these are the only keys the static check structurally cannot
-            // cover — their sole safety net is a test that happens to hit them.
             Assert.True(dynamics >= 0,
                 "literal keys: " + literals + ", dynamically built: " + dynamics +
                 ", files exempted: " + exempt);
@@ -144,9 +245,6 @@ namespace Radios.Tests
         [Fact]
         public void NoSourceFileNamesAKeyOutsideTheKnownPartitions()
         {
-            // A key whose first segment is not one of the six is malformed: it
-            // can never load, so it would render as itself forever and the
-            // runtime check would flag it every single run.
             string root = RepoRoot();
             var strays = new List<string>();
             int filesScanned = 0;
@@ -158,16 +256,12 @@ namespace Radios.Tests
                 if (text.IndexOf("Lexicon", StringComparison.Ordinal) < 0) continue;
                 if (IsExempt(text)) continue;
 
-                foreach (Match match in LiteralKey.Matches(text))
+                foreach (string key in AllKeysIn(text, out _))
                 {
-                    string key = match.Groups[1].Value;
                     string partition = Lexicon.PartitionOf(key);
                     bool known = Lexicon.Partitions.Any(
                         p => string.Equals(p, partition, StringComparison.OrdinalIgnoreCase));
-                    if (!known)
-                    {
-                        strays.Add(key + "  (" + Rel(root, file) + ")");
-                    }
+                    if (!known) strays.Add(key + "  (" + Rel(root, file) + ")");
                 }
             }
 
@@ -178,11 +272,6 @@ namespace Radios.Tests
 
         // ────────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Walk up from the test assembly until the solution file appears. In a
-        /// track worktree this correctly finds THAT worktree's tree, which is
-        /// what a per-track gate needs.
-        /// </summary>
         private static string RepoRoot()
         {
             var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -202,27 +291,21 @@ namespace Radios.Tests
                 if (!string.Equals(ext, ".cs", StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(ext, ".vb", StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(ext, ".xaml", StringComparison.OrdinalIgnoreCase)) continue;
-
                 if (IsExcluded(file)) continue;
                 yield return file;
             }
         }
 
         /// <summary>
-        /// A file containing this token is skipped by the sweep. For files
-        /// whose job is to name keys that deliberately do NOT exist — the
-        /// store's own tests, which must prove the missing-key fallback.
+        /// A file containing this token is skipped by the sweep. For files whose
+        /// job is to name keys that deliberately do NOT exist — the store's own
+        /// tests, which must prove the missing-key fallback.
         /// </summary>
         /// <remarks>
-        /// A token rather than a list of filenames, because a list stops
-        /// working the day someone renames a file and does so silently, which
-        /// is the failure mode this whole suite exists to refuse. The token
-        /// travels with the file and is greppable from either direction.
-        /// <para>
-        /// This constant's own file contains the token, so the scanner exempts
-        /// itself. That is intended: its InlineData rows are sample call sites,
-        /// not real ones.
-        /// </para>
+        /// A token rather than a filename list, because a list stops working the
+        /// day someone renames a file and does so silently. This file carries
+        /// the token itself: its sample call sites are illustrations, not real
+        /// ones.
         /// </remarks>
         private const string ExemptToken = "LEXICON_SCANNER_EXEMPT";
 
@@ -233,9 +316,6 @@ namespace Radios.Tests
 
         private static bool IsExcluded(string path)
         {
-            // Build output, and the agent worktrees under .claude — those hold
-            // whole extra copies of the tree, which would multiply every count
-            // and let a stale copy's stale key fail a clean checkout.
             string p = path.Replace('/', '\\');
             return p.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase)
                 || p.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase)
