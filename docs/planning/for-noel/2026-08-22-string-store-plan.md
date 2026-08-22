@@ -30,6 +30,31 @@ bug, and it is named rather than hunted.
 **So the acceptance test for every track is a transcript diff, not a listen.** Any
 track that cannot produce one for its domain has not finished.
 
+### And a second detector, for the failure the diff cannot see
+
+Noel's point, and it is the sharper half: **running the tests tells us what is
+missing.**
+
+The diff catches a string that CHANGED. It is blind to a string that was never
+extracted, or whose key is absent — because nothing changed, so nothing differs.
+
+The missing-key fallback closes that. Because a missing key renders as the key
+itself, an unextracted string announces itself in the transcript as literal text
+like `connect.smartlink.offer_local_only`. Dotted, lowercase, no spaces — a shape
+no real utterance ever has, and therefore machine-detectable.
+
+**So the runner gains one standing assertion: no speech event's text may look like
+a key.** That single rule covers every missed extraction across all six domains,
+permanently — including ones introduced months later by someone who adds a call
+site and forgets the string. It is not a migration check, it is a gate that keeps
+paying.
+
+Note what that means about the fallback decision: it was chosen so a blind operator
+never hits silence, and it turns out to make every gap machine-detectable as well.
+A fallback of empty string would have been invisible to the operator AND to the
+test. Two reasons, one decision, and the second only became visible once the
+transcript existed.
+
 ## Serial first — these cannot be parallelised
 
 ### Step 1: the five decisions (no code)
