@@ -1656,17 +1656,15 @@ namespace Radios
                         RecordConnectFailure(new ConnectFailureReport
                         {
                             Class = ConnectFailureClass.RadioNotFound,
-                            SpokenSummary = Lexicon.Get(
-                                path == ConnectPathKind.SmartLink
-                                    ? "connect.failure.radio_not_found_wan"
-                                    : "connect.failure.radio_not_found_lan",
-                                ("radioName", config.RadioName)),
+                            SpokenSummary = (path == ConnectPathKind.SmartLink ? Lexicon.Get("connect.failure.radio_not_found_wan",
+                                ("radioName", config.RadioName)) : Lexicon.Get("connect.failure.radio_not_found_lan",
+                                ("radioName", config.RadioName))),
                         });
                         if (!lastLeg)
                         {
                             // No silent path substitution: the walk says so.
-                            var next = Lexicon.Get(chain[leg + 1] == ConnectPathKind.SmartLink ? "connect.auto.next_smartlink" : "connect.auto.next_local");
-                            var here = Lexicon.Get(path == ConnectPathKind.SmartLink ? "connect.auto.here_smartlink" : "connect.auto.here_local");
+                            var next = (chain[leg + 1] == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.next_smartlink") : Lexicon.Get("connect.auto.next_local"));
+                            var here = (path == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.here_smartlink") : Lexicon.Get("connect.auto.here_local"));
                             if (!SuppressSpeech)
                                 ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.not_found_here",
                                     ("radioName", config.RadioName), ("here", here), ("next", next)), VerbosityLevel.Critical, true);
@@ -1699,7 +1697,7 @@ namespace Radios
                     Tracing.TraceLine($"TryAutoConnect: leg {leg} Connect() FAILED ({sw.ElapsedMilliseconds}ms)", TraceLevel.Error);
                     if (!lastLeg)
                     {
-                        var next = Lexicon.Get(chain[leg + 1] == ConnectPathKind.SmartLink ? "connect.auto.next_smartlink" : "connect.auto.next_local");
+                        var next = (chain[leg + 1] == ConnectPathKind.SmartLink ? Lexicon.Get("connect.auto.next_smartlink") : Lexicon.Get("connect.auto.next_local"));
                         if (!SuppressSpeech)
                             ScreenReaderOutput.Speak(Lexicon.Get("connect.auto.leg_failed",
                                 ("radioName", config.RadioName), ("next", next)), VerbosityLevel.Critical, true);
@@ -13011,18 +13009,18 @@ namespace Radios
                 string spoken;
                 if (ScreenReaderOutput.CurrentVerbosity >= VerbosityLevel.Chatty)
                 {
-                    spoken = Lexicon.Get(
-                        used == 1 ? "settings.slice.census_chatty_one" : "settings.slice.census_chatty_many",
-                        ("used", used), ("total", total));
+                    spoken = (used == 1 ? Lexicon.Get("settings.slice.census_chatty_one",
+                        ("used", used), ("total", total)) : Lexicon.Get("settings.slice.census_chatty_many",
+                        ("used", used), ("total", total)));
                     if (haveActive)
                         spoken += Lexicon.Get("settings.slice.census_active_suffix",
                             ("letter", letter), ("mode", mode));
                 }
                 else
                 {
-                    spoken = Lexicon.Get(
-                        total == 1 ? "settings.slice.census_terse_one" : "settings.slice.census_terse_many",
-                        ("used", used), ("total", total));
+                    spoken = (total == 1 ? Lexicon.Get("settings.slice.census_terse_one",
+                        ("used", used), ("total", total)) : Lexicon.Get("settings.slice.census_terse_many",
+                        ("used", used), ("total", total)));
                 }
                 ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse);
             }
@@ -13267,11 +13265,9 @@ namespace Radios
             Tracing.TraceLine("ResolveAudioDevice:" + type + " fell back to system default "
                 + fallback.Name, TraceLevel.Error);
             ScreenReaderOutput.Speak(
-                Lexicon.Get(
-                    wasConfigured
-                        ? "audio.device.saved_missing_fallback"
-                        : "audio.device.none_chosen_fallback",
-                    ("role", role), ("savedName", savedName), ("fallbackName", fallback.Name)),
+                (wasConfigured ? Lexicon.Get("audio.device.saved_missing_fallback",
+                    ("role", role), ("savedName", savedName), ("fallbackName", fallback.Name)) : Lexicon.Get("audio.device.none_chosen_fallback",
+                    ("role", role), ("savedName", savedName), ("fallbackName", fallback.Name))),
                 VerbosityLevel.Critical, true);
             return fallback;
         }

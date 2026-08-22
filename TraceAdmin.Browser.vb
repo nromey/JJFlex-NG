@@ -210,7 +210,7 @@ Partial Class TraceAdmin
         Dim today As Date = Date.Now.Date
         Dim dayPart As String
         If localTime.Date = today Then
-            dayPart = Radios.Lexicon.Get(If(localTime.Hour >= 17, "logging.browser.day_tonight", "logging.browser.day_today"))
+            dayPart = If(localTime.Hour >= 17, Radios.Lexicon.Get("logging.browser.day_tonight"), Radios.Lexicon.Get("logging.browser.day_today"))
         ElseIf localTime.Date = today.AddDays(-1) Then
             dayPart = Radios.Lexicon.Get("logging.browser.day_yesterday")
         Else
@@ -292,9 +292,9 @@ Partial Class TraceAdmin
         For Each en In _allEntries
             If en.TraceSizeCompressedBytes.HasValue Then total += en.TraceSizeCompressedBytes.Value
         Next
-        FooterLabel.Text = Radios.Lexicon.Get(
-            If(count = 1, "logging.browser.footer_one", "logging.browser.footer_many"),
-            ("size", FormatSize(total)), ("count", count))
+        FooterLabel.Text = If(count = 1, Radios.Lexicon.Get("logging.browser.footer_one",
+            ("size", FormatSize(total)), ("count", count)), Radios.Lexicon.Get("logging.browser.footer_many",
+            ("size", FormatSize(total)), ("count", count)))
         FooterLabel.AccessibleName = FooterLabel.Text
     End Sub
 
@@ -345,8 +345,7 @@ Partial Class TraceAdmin
         End If
         ApplyFilterAndRefreshList(announce:=False)
         Try
-            Dim direction As String = Radios.Lexicon.Get(
-                If(_sortDescending, "logging.browser.sort_descending", "logging.browser.sort_ascending"))
+            Dim direction As String = If(_sortDescending, Radios.Lexicon.Get("logging.browser.sort_descending"), Radios.Lexicon.Get("logging.browser.sort_ascending"))
             ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.sorted_by",
                                                         ("column", ArchiveListView.Columns(_sortColumn).Text), ("direction", direction)),
                                      VerbosityLevel.Terse)
@@ -420,9 +419,9 @@ Partial Class TraceAdmin
                                              ("outcome", outcome), ("target", target), ("duration", duration))
                 Case Else ' Chatty
                     Dim eventsCount As Integer = If(entry.KeyEvents Is Nothing, 0, entry.KeyEvents.Count)
-                    msg = Radios.Lexicon.Get(
-                        If(eventsCount = 1, "logging.browser.announce_chatty_one", "logging.browser.announce_chatty_many"),
-                        ("outcome", outcome), ("target", target), ("duration", duration), ("eventsCount", eventsCount))
+                    msg = If(eventsCount = 1, Radios.Lexicon.Get("logging.browser.announce_chatty_one",
+                        ("outcome", outcome), ("target", target), ("duration", duration), ("eventsCount", eventsCount)), Radios.Lexicon.Get("logging.browser.announce_chatty_many",
+                        ("outcome", outcome), ("target", target), ("duration", duration), ("eventsCount", eventsCount)))
             End Select
             ScreenReaderOutput.Speak(msg, VerbosityLevel.Terse)
         Catch
@@ -541,9 +540,9 @@ Partial Class TraceAdmin
                         outZip.CreateEntryFromFile(full, entryName)
                     Next
                 End Using
-                ScreenReaderOutput.Speak(Radios.Lexicon.Get(
-                    If(selected.Count = 1, "logging.browser.exported_one", "logging.browser.exported_many"),
-                    ("count", selected.Count)), VerbosityLevel.Critical)
+                ScreenReaderOutput.Speak(If(selected.Count = 1, Radios.Lexicon.Get("logging.browser.exported_one",
+                    ("count", selected.Count)), Radios.Lexicon.Get("logging.browser.exported_many",
+                    ("count", selected.Count))), VerbosityLevel.Critical)
             Catch ex As Exception
                 Tracing.ErrMessageTrace(ex)
                 Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.export_failed"), VerbosityLevel.Critical) : Catch : End Try
@@ -580,9 +579,9 @@ Partial Class TraceAdmin
         ReloadManifestCache()
         ApplyFilterAndRefreshList(announce:=False)
         Try
-            ScreenReaderOutput.Speak(Radios.Lexicon.Get(
-                If(deleted = 1, "logging.browser.deleted_one", "logging.browser.deleted_many"),
-                ("count", deleted)), VerbosityLevel.Critical)
+            ScreenReaderOutput.Speak(If(deleted = 1, Radios.Lexicon.Get("logging.browser.deleted_one",
+                ("count", deleted)), Radios.Lexicon.Get("logging.browser.deleted_many",
+                ("count", deleted))), VerbosityLevel.Critical)
         Catch
         End Try
     End Sub
@@ -593,10 +592,10 @@ Partial Class TraceAdmin
 
     Private Sub PruneNowButton_Click(sender As Object, e As EventArgs) Handles PruneNowButton.Click
         Dim retentionDays As Integer = CInt(PruneRetentionUpDown.Value)
-        Dim prompt As String = $"Remove all archived traces older than {retentionDays} days?"
-        Dim result As DialogResult = MessageBox.Show(Me, prompt, "Prune Trace Archive", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2)
+        Dim prompt As String = Radios.Lexicon.Get("logging.trace.prune_prompt", ("days", retentionDays))
+        Dim result As DialogResult = MessageBox.Show(Me, prompt, Radios.Lexicon.Get("logging.trace.prune_title"), MessageBoxButtons.OKCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2)
         If result <> DialogResult.OK Then
-            Try : ScreenReaderOutput.Speak("Prune cancelled", VerbosityLevel.Terse) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.trace.prune_cancelled"), VerbosityLevel.Terse) : Catch : End Try
             Return
         End If
         ' PerformTraceArchivePrune speaks the result on its own (Critical level).

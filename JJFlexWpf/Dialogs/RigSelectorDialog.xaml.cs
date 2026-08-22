@@ -186,9 +186,7 @@ namespace JJFlexWpf.Dialogs
             {
                 if (DualHomed)
                 {
-                    return Lexicon.Get(IsRemote
-                        ? "connect.row.dual_using_smartlink"
-                        : "connect.row.dual_using_local");
+                    return (IsRemote ? Lexicon.Get("connect.row.dual_using_smartlink") : Lexicon.Get("connect.row.dual_using_local"));
                 }
                 if (LanAvailable) return Lexicon.Get("connect.row.local");
                 if (WanAvailable) return Lexicon.Get("connect.row.remote");
@@ -231,7 +229,7 @@ namespace JJFlexWpf.Dialogs
                 // the old path wording repeated it ("last seen on the local
                 // network, last seen 4 hours ago"). Fold path and age into one
                 // sentence; an unknown age is omitted rather than spoken.
-                var path = Lexicon.Get(LastSeenRemote ? "connect.row.remote" : "connect.row.last_seen_local");
+                var path = (LastSeenRemote ? Lexicon.Get("connect.row.remote") : Lexicon.Get("connect.row.last_seen_local"));
                 var bareAge = LastSeenText.StartsWith("last seen ", StringComparison.OrdinalIgnoreCase)
                     ? LastSeenText.Substring("last seen ".Length)
                     : LastSeenText;
@@ -920,16 +918,16 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void SpeakLoadedState()
         {
-            string local = Lexicon.Get(_localSettled
-                ? "connect.selector.f2_local_loaded"
-                : "connect.selector.f2_local_loading");
-            string remote = Lexicon.Get(_remoteDiscoveryInFlight
-                ? "connect.selector.f2_remote_loading"
-                : _remoteListLive ? "connect.selector.f2_remote_loaded" : "connect.selector.f2_remote_not_loaded");
+            string local = (_localSettled ? Lexicon.Get("connect.selector.f2_local_loaded") : Lexicon.Get("connect.selector.f2_local_loading"));
+            string remote = _remoteDiscoveryInFlight
+                ? Lexicon.Get("connect.selector.f2_remote_loading")
+                : _remoteListLive
+                    ? Lexicon.Get("connect.selector.f2_remote_loaded")
+                    : Lexicon.Get("connect.selector.f2_remote_not_loaded");
             int live = LiveCount();
-            string count = Lexicon.Get(
-                live == 1 ? "connect.selector.f2_count_one" : "connect.selector.f2_count_many",
-                ("live", live));
+            string count = (live == 1 ? Lexicon.Get("connect.selector.f2_count_one",
+                ("live", live)) : Lexicon.Get("connect.selector.f2_count_many",
+                ("live", live)));
             _callbacks.ScreenReaderSpeak?.Invoke(
                 Lexicon.Get("connect.selector.f2_summary",
                     ("local", local), ("remote", remote), ("count", count)), true);
@@ -998,10 +996,9 @@ namespace JJFlexWpf.Dialogs
 
             AnnounceLoadedState(
                 Lexicon.Get("connect.selector.discovering_terse"),
-                Lexicon.Get(known == 1
-                    ? "connect.selector.discovering_known_chatty_one"
-                    : "connect.selector.discovering_known_chatty_many",
-                    ("known", known)));
+                (known == 1 ? Lexicon.Get("connect.selector.discovering_known_chatty_one",
+                    ("known", known)) : Lexicon.Get("connect.selector.discovering_known_chatty_many",
+                    ("known", known))));
         }
 
         // ------------------------------------------------------------------
@@ -1178,10 +1175,9 @@ namespace JJFlexWpf.Dialogs
                     if (wasDual)
                     {
                         _callbacks.ScreenReaderSpeak?.Invoke(
-                            Lexicon.Get(row.LanAvailable
-                                ? "connect.selector.left_smartlink"
-                                : "connect.selector.left_local",
-                                ("who", who)),
+                            (row.LanAvailable ? Lexicon.Get("connect.selector.left_smartlink",
+                                ("who", who)) : Lexicon.Get("connect.selector.left_local",
+                                ("who", who))),
                             false);
                     }
                     return;
@@ -1354,16 +1350,13 @@ namespace JJFlexWpf.Dialogs
             string name;
             if (count == 0)
             {
-                name = Lexicon.Get(_localSettled
-                    ? "connect.selector.list_empty_settled"
-                    : "connect.selector.list_empty_discovering");
+                name = (_localSettled ? Lexicon.Get("connect.selector.list_empty_settled") : Lexicon.Get("connect.selector.list_empty_discovering"));
             }
             else if (live == 0)
             {
-                name = Lexicon.Get(_localSettled
-                    ? "connect.selector.list_none_online"
-                    : "connect.selector.list_discovering",
-                    ("count", count));
+                name = (_localSettled ? Lexicon.Get("connect.selector.list_none_online",
+                    ("count", count)) : Lexicon.Get("connect.selector.list_discovering",
+                    ("count", count)));
             }
             else
             {
@@ -1801,9 +1794,7 @@ namespace JJFlexWpf.Dialogs
                 // are stored choices and a stored choice always wins.
                 PathCombo.Items.Add(
                     radio.ChainIsLearned
-                        ? Lexicon.Get(radio.LearnedPath == ConnectPathKind.SmartLink
-                            ? "connect.selector.path_learned_smartlink"
-                            : "connect.selector.path_learned_local")
+                        ? (radio.LearnedPath == ConnectPathKind.SmartLink ? Lexicon.Get("connect.selector.path_learned_smartlink") : Lexicon.Get("connect.selector.path_learned_local"))
                         : PathAutomatic);
                 PathCombo.Items.Add(PathLocalFirst);
                 PathCombo.Items.Add(PathSmartLinkFirst);
@@ -1947,9 +1938,7 @@ namespace JJFlexWpf.Dialogs
             // "first, then the other" would be a flat lie if one ever did.
             if (chain.Count == 1)
             {
-                return Lexicon.Get(chain[0] == ConnectPathKind.SmartLink
-                    ? "connect.selector.path_smartlink_only"
-                    : "connect.selector.path_local_only");
+                return (chain[0] == ConnectPathKind.SmartLink ? Lexicon.Get("connect.selector.path_smartlink_only") : Lexicon.Get("connect.selector.path_local_only"));
             }
 
             return chain[0] == ConnectPathKind.SmartLink ? PathSmartLinkFirst : PathLocalFirst;
@@ -2006,13 +1995,9 @@ namespace JJFlexWpf.Dialogs
         {
             var radio = GetSelectedRadio();
             bool fav = radio?.IsFavorite == true;
-            FavoriteMenuItem.Header = Lexicon.Get(fav
-                ? "connect.selector.menu_remove_favorite"
-                : "connect.selector.menu_add_favorite");
+            FavoriteMenuItem.Header = (fav ? Lexicon.Get("connect.selector.menu_remove_favorite") : Lexicon.Get("connect.selector.menu_add_favorite"));
             System.Windows.Automation.AutomationProperties.SetName(FavoriteMenuItem,
-                Lexicon.Get(fav
-                    ? "connect.selector.menu_remove_favorite_name"
-                    : "connect.selector.menu_add_favorite_name"));
+                (fav ? Lexicon.Get("connect.selector.menu_remove_favorite_name") : Lexicon.Get("connect.selector.menu_add_favorite_name")));
             FavoriteMenuItem.IsEnabled = radio != null;
             ConnectLocalMenuItem.IsEnabled = radio != null;
             ConnectRemoteMenuItem.IsEnabled = radio != null;
@@ -2020,13 +2005,9 @@ namespace JJFlexWpf.Dialogs
             // shows the radios, after one it refreshes them (the server
             // sends its list once per TLS session, so a repeat is a
             // session-cycling refresh).
-            RemoteListMenuItem.Header = Lexicon.Get(_remoteListLive
-                ? "connect.selector.menu_refresh_remote"
-                : "connect.selector.menu_show_remote");
+            RemoteListMenuItem.Header = (_remoteListLive ? Lexicon.Get("connect.selector.menu_refresh_remote") : Lexicon.Get("connect.selector.menu_show_remote"));
             System.Windows.Automation.AutomationProperties.SetName(RemoteListMenuItem,
-                Lexicon.Get(_remoteListLive
-                    ? "connect.selector.menu_refresh_remote_name"
-                    : "connect.selector.menu_show_remote_name"));
+                (_remoteListLive ? Lexicon.Get("connect.selector.menu_refresh_remote_name") : Lexicon.Get("connect.selector.menu_show_remote_name")));
             // Task #102: only offer to forget something there is something to
             // forget. An always-enabled item that answers "there was nothing
             // learned for this radio" is an item that teaches the operator to
@@ -2036,9 +2017,7 @@ namespace JJFlexWpf.Dialogs
             bool hasLearned = radio?.LearnedPath.HasValue == true;
             ForgetLearnedPathMenuItem.IsEnabled = hasLearned;
             System.Windows.Automation.AutomationProperties.SetName(ForgetLearnedPathMenuItem,
-                Lexicon.Get(hasLearned
-                    ? "connect.selector.menu_forget_learned_name"
-                    : "connect.selector.menu_forget_learned_name_none"));
+                (hasLearned ? Lexicon.Get("connect.selector.menu_forget_learned_name") : Lexicon.Get("connect.selector.menu_forget_learned_name_none")));
 
             BuildPreferredAccountSubmenu(radio);
             BuildDefaultPathSubmenu(radio);
@@ -2308,10 +2287,9 @@ namespace JJFlexWpf.Dialogs
 
             radio.IsFavorite = wanted;
             _callbacks.ScreenReaderSpeak?.Invoke(
-                Lexicon.Get(wanted
-                    ? "connect.selector.favorite_added"
-                    : "connect.selector.favorite_removed",
-                    ("rowName", RowName(radio))),
+                (wanted ? Lexicon.Get("connect.selector.favorite_added",
+                    ("rowName", RowName(radio))) : Lexicon.Get("connect.selector.favorite_removed",
+                    ("rowName", RowName(radio)))),
                 true);
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
@@ -2517,10 +2495,9 @@ namespace JJFlexWpf.Dialogs
             var state = CurrentAccountState();
             if (!string.IsNullOrWhiteSpace(state.Email))
             {
-                string accountLine = Lexicon.Get(refreshing
-                    ? "connect.selector.refreshing_for_account"
-                    : "connect.selector.connecting_as_account",
-                    ("email", state.Email));
+                string accountLine = (refreshing ? Lexicon.Get("connect.selector.refreshing_for_account",
+                    ("email", state.Email)) : Lexicon.Get("connect.selector.connecting_as_account",
+                    ("email", state.Email)));
                 if (operatorInitiated)
                     _callbacks.ScreenReaderSpeak?.Invoke(accountLine, false);
                 else
@@ -2540,9 +2517,7 @@ namespace JJFlexWpf.Dialogs
             // window and owns its own announcement.
             _closeConnecting = operatorInitiated
                 ? _callbacks.ShowConnecting?.Invoke(
-                    Lexicon.Get(refreshing
-                        ? "connect.selector.connecting_window_refresh"
-                        : "connect.selector.connecting_window"))
+                    (refreshing ? Lexicon.Get("connect.selector.connecting_window_refresh") : Lexicon.Get("connect.selector.connecting_window")))
                 : null;
 
             var liveBefore = LiveSerialSet();
@@ -2653,10 +2628,9 @@ namespace JJFlexWpf.Dialogs
             }
 
             _callbacks.ScreenReaderSpeak?.Invoke(
-                Lexicon.Get(liveNow.Count == 1
-                    ? "connect.selector.delta_updated_one"
-                    : "connect.selector.delta_updated_many",
-                    ("count", liveNow.Count)), false);
+                (liveNow.Count == 1 ? Lexicon.Get("connect.selector.delta_updated_one",
+                    ("count", liveNow.Count)) : Lexicon.Get("connect.selector.delta_updated_many",
+                    ("count", liveNow.Count))), false);
         }
 
         /// <summary>
@@ -2936,10 +2910,9 @@ namespace JJFlexWpf.Dialogs
                     RefreshRadiosList();
 
                     _callbacks.ScreenReaderSpeak?.Invoke(
-                        Lexicon.Get(newAutoConnect
-                            ? "connect.selector.autoconnect_set"
-                            : "connect.selector.autoconnect_cleared",
-                            ("radioName", radio.Name)), true);
+                        (newAutoConnect ? Lexicon.Get("connect.selector.autoconnect_set",
+                            ("radioName", radio.Name)) : Lexicon.Get("connect.selector.autoconnect_cleared",
+                            ("radioName", radio.Name))), true);
                 });
         }
 

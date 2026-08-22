@@ -13,12 +13,14 @@
   "connect.no_radio.plain": {
     "critical": "No radio connected",
     "terse": "Home, no radio",
-    "chatty": "JJ Flexible Home, no radio connected"
+    "chatty": "JJ Flexible Home, no radio connected",
+    "diagnostic": "No radio connected"
   },
   "connect.no_radio.action": {
     "critical": "{actionLabel}, no radio",
     "terse": "{actionLabel}, no radio",
-    "chatty": "Unable to {actionLabel}, JJ Flexible Home no radio connected"
+    "chatty": "Unable to {actionLabel}, JJ Flexible Home no radio connected",
+    "diagnostic": "{actionLabel}, no radio"
   },
   "connect.dialog.ok": "_OK",
   "connect.dialog.cancel": "_Cancel",
@@ -448,12 +450,16 @@
   "connect.disconnect.announcement": {
     "critical": "Disconnected",
     "terse": "JJ Flexible disconnected",
-    "chatty": "JJ Flexible Access disconnected from radio"
+    "chatty": "JJ Flexible Access disconnected from radio",
+    "diagnostic": "Disconnected"
   },
   "connect.client.unknown_added": "Another client",
   "connect.client.connected": "{who} connected",
   "connect.client.unknown_removed": "A client",
   "connect.client.disconnected": "{who} disconnected",
   "connect.presence.denied": "Cannot {reason}. You must be the primary operator at the radio.",
-  "connect.presence.port_denied": "Cannot {reason}. You must be the primary operator at the radio — or, if this is your own radio, turn on allowing port changes from remote connections, on the Radios tab in Settings."
+  "connect.presence.port_denied": "Cannot {reason}. You must be the primary operator at the radio — or, if this is your own radio, turn on allowing port changes from remote connections, on the Radios tab in Settings.",
+  "connect.session.feature_no_longer_supported": "This feature is no longer supported.",
+  "connect.session.menus_not_available": "Not available for this radio.",
+  "connect.session.not_supported_for_radio": "Not supported for this radio."
 }

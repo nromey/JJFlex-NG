@@ -904,9 +904,9 @@ Module globals
 
     Private Function DescribeMinutes(minutes As Integer) As String
         If minutes <= 0 Then Return Radios.Lexicon.Get("logging.time.under_a_minute")
-        Return Radios.Lexicon.Get(
-            If(minutes = 1, "logging.time.minutes_one", "logging.time.minutes_many"),
-            ("minutes", minutes))
+        Return If(minutes = 1, Radios.Lexicon.Get("logging.time.minutes_one",
+            ("minutes", minutes)), Radios.Lexicon.Get("logging.time.minutes_many",
+            ("minutes", minutes)))
     End Function
 
     ''' <summary>
@@ -1475,9 +1475,9 @@ Module globals
             If pruned = 0 Then
                 msg = Radios.Lexicon.Get("logging.trace.prune_none", ("days", days))
             Else
-                msg = Radios.Lexicon.Get(
-                    If(pruned = 1, "logging.trace.prune_one", "logging.trace.prune_many"),
-                    ("pruned", pruned), ("days", days))
+                msg = If(pruned = 1, Radios.Lexicon.Get("logging.trace.prune_one",
+                    ("pruned", pruned), ("days", days)), Radios.Lexicon.Get("logging.trace.prune_many",
+                    ("pruned", pruned), ("days", days)))
             End If
             Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical)
         Catch
@@ -1933,7 +1933,7 @@ Module globals
                     End If
                 End If
             End Sub,
-            .CycleContinuous = Sub() MsgBox("This feature is no longer supported."),
+            .CycleContinuous = Sub() MsgBox(Radios.Lexicon.Get("connect.session.feature_no_longer_supported")),
             .DisplayMemory = Sub()
                 If RigControl Is Nothing Then
                     ' ShowMemory opts in to RunsWithoutRadio. Memories live
@@ -1951,7 +1951,7 @@ Module globals
                     Tracing.TraceLine("memory display:" & ex.Message, TraceLevel.Error)
                 End Try
             End Sub,
-            .ShowMenus = Sub() MsgBox("Not available for this radio."),
+            .ShowMenus = Sub() MsgBox(Radios.Lexicon.Get("connect.session.menus_not_available")),
             .ShowReverseBeacon = Sub() ReverseBeacon.ShowDialog(),
             .ShowDXCluster = Sub() ShowArCluster(),
             .StationLookup = Sub()
@@ -1966,7 +1966,7 @@ Module globals
                     If RigControl IsNot Nothing AndAlso RigControl.myCaps.HasCap(RigCaps.Caps.ATMems) Then
                         RigControl.AntennaTunerMemories()
                     Else
-                        MsgBox("Not supported for this radio.")
+                        MsgBox(Radios.Lexicon.Get("connect.session.not_supported_for_radio"))
                     End If
                 Catch
                 End Try
@@ -3704,8 +3704,7 @@ Module globals
             For legIndex = 0 To walk.Count - 1
                 Dim legPath = walk(legIndex)
                 Dim lastLeg = (legIndex = walk.Count - 1)
-                Dim legName = Radios.Lexicon.Get(
-                    If(legPath = Radios.ConnectPathKind.SmartLink, "connect.walk.leg_smartlink", "connect.walk.leg_local"))
+                Dim legName = If(legPath = Radios.ConnectPathKind.SmartLink, Radios.Lexicon.Get("connect.walk.leg_smartlink"), Radios.Lexicon.Get("connect.walk.leg_local"))
                 Dim legSw = System.Diagnostics.Stopwatch.StartNew()
 
                 If legPath = Radios.ConnectPathKind.SmartLink Then
@@ -3743,8 +3742,7 @@ Module globals
 
                 If Not lastLeg Then
                     ' No silent path substitution: the fallback says so.
-                    Dim nextName = Radios.Lexicon.Get(
-                        If(walk(legIndex + 1) = Radios.ConnectPathKind.SmartLink, "connect.walk.leg_smartlink", "connect.walk.leg_local"))
+                    Dim nextName = If(walk(legIndex + 1) = Radios.ConnectPathKind.SmartLink, Radios.Lexicon.Get("connect.walk.leg_smartlink"), Radios.Lexicon.Get("connect.walk.leg_local"))
                     Tracing.TraceLine($"wpfSelectorProc: leg {legIndex} ({legName}) failed; walking to {nextName}", TraceLevel.Info)
                     Radios.ScreenReaderOutput.Speak(
                         Radios.Lexicon.Get("connect.walk.falling_back", ("legName", legName), ("nextName", nextName)),

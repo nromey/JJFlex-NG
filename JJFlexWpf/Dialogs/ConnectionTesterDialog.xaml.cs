@@ -36,7 +36,7 @@ namespace JJFlexWpf.Dialogs
 
             InitializeComponent();
 
-            var connType = Lexicon.Get(isRemote ? "connect.tester.type_remote" : "connect.tester.type_local");
+            var connType = (isRemote ? Lexicon.Get("connect.tester.type_remote") : Lexicon.Get("connect.tester.type_local"));
             var bwText = lowBW ? Lexicon.Get("connect.tester.low_bandwidth_suffix") : "";
             RadioInfoText.Text = Lexicon.Get("connect.tester.radio_info",
                 ("radioName", radioName), ("radioSerial", radioSerial),
@@ -120,7 +120,7 @@ namespace JJFlexWpf.Dialogs
             _tester.TestCompleted += (testNum, success, reason, durationMs) =>
                 Dispatcher.BeginInvoke(() =>
                 {
-                    string passText = Lexicon.Get(success ? "connect.tester.pass" : "connect.tester.fail");
+                    string passText = (success ? Lexicon.Get("connect.tester.pass") : Lexicon.Get("connect.tester.fail"));
                     string seconds = (durationMs / 1000.0).ToString("F1");
                     string line = Lexicon.Get("connect.tester.result_line",
                         ("testNum", testNum.ToString("D2")), ("passText", passText),

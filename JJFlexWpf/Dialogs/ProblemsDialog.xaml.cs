@@ -42,9 +42,7 @@ namespace JJFlexWpf.Dialogs
                 var entries = ProblemLog.NewestFirst();
                 ProblemList.ItemsSource = entries;
 
-                LeadText.Text = Radios.Lexicon.Get(ProblemLog.Truncated
-                    ? "logging.problems.lead_truncated"
-                    : "logging.problems.lead");
+                LeadText.Text = (ProblemLog.Truncated ? Radios.Lexicon.Get("logging.problems.lead_truncated") : Radios.Lexicon.Get("logging.problems.lead"));
                 System.Windows.Automation.AutomationProperties.SetName(LeadText, LeadText.Text);
 
                 if (string.IsNullOrEmpty(_logPath))

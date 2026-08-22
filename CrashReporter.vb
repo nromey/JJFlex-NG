@@ -362,9 +362,7 @@ Module CrashReporter
             Dim sb As New StringBuilder()
             sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_title"))
             sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_written", ("timestamp", DateTime.Now.ToString("u"))))
-            sb.AppendLine(Radios.Lexicon.Get(If(isUploadCopy,
-                "logging.crash.manifest_upload_copy",
-                "logging.crash.manifest_local_copy")))
+            sb.AppendLine(If(isUploadCopy, Radios.Lexicon.Get("logging.crash.manifest_upload_copy"), Radios.Lexicon.Get("logging.crash.manifest_local_copy")))
             sb.AppendLine()
 
             If bundle.SessionHasParts Then
@@ -600,14 +598,14 @@ Module CrashReporter
             Try : keepNewest = Math.Max(1, DiagnosticsSettings.KeepCrashReports) : Catch : End Try
 
             Dim sizeText As String = DescribeBytes(total)
-            Dim head As String = Radios.Lexicon.Get(
-                If(bundles.Length = 1, "logging.crash.reports_head_one", "logging.crash.reports_head_many"),
-                ("count", bundles.Length), ("size", sizeText))
+            Dim head As String = If(bundles.Length = 1, Radios.Lexicon.Get("logging.crash.reports_head_one",
+                ("count", bundles.Length), ("size", sizeText)), Radios.Lexicon.Get("logging.crash.reports_head_many",
+                ("count", bundles.Length), ("size", sizeText)))
             Dim tail As String = Radios.Lexicon.Get("logging.crash.reports_tail", ("keepNewest", keepNewest))
             If unresolved > 0 Then
-                tail = Radios.Lexicon.Get(
-                    If(unresolved = 1, "logging.crash.reports_unresolved_one", "logging.crash.reports_unresolved_many"),
-                    ("count", unresolved), ("tail", tail))
+                tail = If(unresolved = 1, Radios.Lexicon.Get("logging.crash.reports_unresolved_one",
+                    ("count", unresolved), ("tail", tail)), Radios.Lexicon.Get("logging.crash.reports_unresolved_many",
+                    ("count", unresolved), ("tail", tail)))
             End If
             Return head & tail
         Catch

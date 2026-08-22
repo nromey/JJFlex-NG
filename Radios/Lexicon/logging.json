@@ -175,5 +175,8 @@
   "logging.crash.bytes": "{value} bytes",
   "logging.crash.kb": "{value} KB",
   "logging.crash.mb": "{value} MB",
-  "logging.crash.gb": "{value} GB"
+  "logging.crash.gb": "{value} GB",
+  "logging.trace.prune_prompt": "Remove all archived traces older than {days} days?",
+  "logging.trace.prune_title": "Prune Trace Archive",
+  "logging.trace.prune_cancelled": "Prune cancelled"
 }

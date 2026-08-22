@@ -240,9 +240,9 @@ Friend Class DebugInfo
                     If result.DifferenceCount = 0 Then
                         summary = Radios.Lexicon.Get("logging.install_check.clean")
                     Else
-                        summary = Radios.Lexicon.Get(
-                            If(result.DifferenceCount = 1, "logging.install_check.differences_one", "logging.install_check.differences_many"),
-                            ("count", result.DifferenceCount))
+                        summary = If(result.DifferenceCount = 1, Radios.Lexicon.Get("logging.install_check.differences_one",
+                            ("count", result.DifferenceCount)), Radios.Lexicon.Get("logging.install_check.differences_many",
+                            ("count", result.DifferenceCount)))
                     End If
                 Catch ex As Exception
                     ' The shipped manifest exists but could not be read or

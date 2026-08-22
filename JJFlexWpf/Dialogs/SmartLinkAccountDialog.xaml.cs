@@ -177,10 +177,9 @@ namespace JJFlexWpf.Dialogs
             // #128 sweep audit (2026-08-21): immediate-apply operator toggle
             // answers back. Tone before the sentence, per the sweep's ordering.
             EarconPlayer.ToggleTone(enabled);
-            _callbacks.ScreenReaderSpeak?.Invoke(Radios.Lexicon.Get(enabled
-                ? "connect.smartlink.account.autostart_on"
-                : "connect.smartlink.account.autostart_off",
-                ("friendlyName", item.FriendlyName)), true);
+            _callbacks.ScreenReaderSpeak?.Invoke((enabled ? Radios.Lexicon.Get("connect.smartlink.account.autostart_on",
+                ("friendlyName", item.FriendlyName)) : Radios.Lexicon.Get("connect.smartlink.account.autostart_off",
+                ("friendlyName", item.FriendlyName))), true);
         }
 
         private SmartLinkAccountInfo? GetSelectedAccount()

@@ -184,9 +184,7 @@ public sealed class SmartLinkSignUpDialog : JJFlexDialog
 
         if (email.Length == 0 || !LooksLikeEmail(email))
         {
-            SetStatus(Lexicon.Get(email.Length == 0
-                ? "connect.smartlink.signup.email_required"
-                : "connect.smartlink.signup.email_malformed"));
+            SetStatus((email.Length == 0 ? Lexicon.Get("connect.smartlink.signup.email_required") : Lexicon.Get("connect.smartlink.signup.email_malformed")));
             _emailBox.Focus();
             return;
         }
