@@ -216,7 +216,9 @@ public partial class AudioWorkshopDialog
         {
             int n = inv?.Count ?? 0;
             ScreenReaderOutput.Speak(
-                n == 0 ? "No meters reported." : n + " meters.",
+                n == 0
+                    ? Lexicon.Get("audio.meters.none_reported")
+                    : Lexicon.Get("audio.meters.count", ("count", n)),
                 VerbosityLevel.Terse, interrupt: true);
         }
     }
@@ -274,13 +276,13 @@ public partial class AudioWorkshopDialog
         try
         {
             Clipboard.SetText(header + Environment.NewLine + Environment.NewLine + body);
-            ScreenReaderOutput.Speak("Copied.", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.copied"), VerbosityLevel.Terse, interrupt: true);
         }
         catch
         {
             // Clipboard access fails when another process is holding it. Say so
             // rather than announcing a copy that did not happen.
-            ScreenReaderOutput.Speak("Copy failed.", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.copy_failed"), VerbosityLevel.Terse, interrupt: true);
         }
     }
 

@@ -62,11 +62,9 @@ public partial class AudioWorkshopDialog
     /// describing a radio that has moved on.</summary>
     private bool _txReportStale;
 
-    private const string NoTxReportYet =
-        "No transmit check has been run yet. Choose Check My Transmit Chain above.";
+    private static string NoTxReportYet => Lexicon.Get("audio.diagnostics.no_tx_report_yet");
 
-    private const string NoEvidenceYet =
-        "Run the transmit check above and the evidence to send to Flex support will appear here.";
+    private static string NoEvidenceYet => Lexicon.Get("audio.diagnostics.no_evidence_yet");
 
     /// <summary>
     /// Build the Diagnostics tab: the receive question, the transmit question,
@@ -248,25 +246,24 @@ public partial class AudioWorkshopDialog
             FlexBase? rig = _rig;
             if (rig == null || !rig.IsConnected)
             {
-                message = "No radio is connected. A Flex makes no audio at all until a client "
-                        + "connects to it, including at its own headphone jack. Connect first.";
+                message = Lexicon.Get("audio.diagnostics.rx_no_radio");
             }
             else
             {
                 message = rig.SilentRadioAdvisory()
-                    ?? $"Nothing obvious is wrong. Headphone level {rig.HeadphoneGain}, line out "
-                     + $"level {rig.LineoutGain}, nothing muted. If the radio is still silent, "
-                     + "check the slice volume and that a slice is not muted.";
+                    ?? Lexicon.Get("audio.diagnostics.rx_nothing_wrong",
+                        ("headphone", rig.HeadphoneGain), ("lineout", rig.LineoutGain));
             }
         }
         catch (Exception ex)
         {
             Tracing.TraceLine("Diagnostics: receive check failed — " + ex.Message, TraceLevel.Error);
-            message = "The receive audio check could not run: " + ex.Message;
+            message = Lexicon.Get("audio.diagnostics.rx_check_failed", ("reason", ex.Message));
         }
 
         _rxAdvisoryBox.Text = message + Environment.NewLine
-                            + "Checked at " + DateTime.Now.ToString("HH:mm:ss") + ".";
+                            + Lexicon.Get("audio.diagnostics.checked_at",
+                                  ("time", DateTime.Now.ToString("HH:mm:ss")));
 
         if (!speak) return;
         _rxAdvisoryBox.Focus();
@@ -319,14 +316,15 @@ public partial class AudioWorkshopDialog
             // look, so this never reaches the operator as a crash.
             Tracing.TraceLine("Diagnostics: transmit check failed — " + ex, TraceLevel.Error);
             _lastTxReport = null;
-            _txReportBox.Text = "The transmit chain check could not run: " + ex.Message;
+            _txReportBox.Text = Lexicon.Get("audio.diagnostics.tx_check_failed_shown", ("reason", ex.Message));
             _evidenceBox.Text = NoEvidenceYet;
             if (_copyEvidenceButton != null) _copyEvidenceButton.IsEnabled = false;
             if (speak)
             {
                 _txReportBox.Focus();
-                ScreenReaderOutput.Speak("The transmit chain check could not run. " + ex.Message,
-                                         VerbosityLevel.Critical, true);
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("audio.diagnostics.tx_check_failed_spoken", ("reason", ex.Message)),
+                    VerbosityLevel.Critical, true);
             }
             return;
         }
@@ -423,7 +421,7 @@ public partial class AudioWorkshopDialog
         string text = _evidenceBox?.Text ?? "";
         if (text.Length == 0 || text == NoEvidenceYet)
         {
-            ScreenReaderOutput.Speak("There is nothing to copy yet. Run the transmit check first.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.diagnostics.nothing_to_copy"),
                                      VerbosityLevel.Critical, true);
             return;
         }
@@ -434,7 +432,7 @@ public partial class AudioWorkshopDialog
             // A receipt, because nothing visible changes when a copy succeeds —
             // and a copy that silently failed would be discovered only when the
             // operator pasted an empty email.
-            ScreenReaderOutput.Speak("Evidence copied to the clipboard.", VerbosityLevel.Critical, true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.diagnostics.evidence_copied"), VerbosityLevel.Critical, true);
         }
         catch (Exception ex)
         {
@@ -442,8 +440,7 @@ public partial class AudioWorkshopDialog
             // open. Never announce a copy that did not happen.
             Tracing.TraceLine("Diagnostics: clipboard copy failed — " + ex.Message, TraceLevel.Warning);
             ScreenReaderOutput.Speak(
-                "The clipboard could not be opened, so nothing was copied. Another program may be "
-                + "holding it. You can select the evidence box and copy it yourself.",
+                Lexicon.Get("audio.diagnostics.clipboard_refused"),
                 VerbosityLevel.Critical, true);
         }
     }

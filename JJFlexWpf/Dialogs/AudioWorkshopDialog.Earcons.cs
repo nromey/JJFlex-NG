@@ -247,7 +247,7 @@ public partial class AudioWorkshopDialog
                 () =>
                 {
                     entry.Stop?.Invoke();
-                    SayOnBench($"{entry.Label} stopped.");
+                    SayOnBench(Lexicon.Get("earcon.bench.sound_stopped", ("sound", entry.Label)));
                 });
             row.Children.Add(start);
             row.Children.Add(stop);
@@ -337,7 +337,8 @@ public partial class AudioWorkshopDialog
         }
 
         int played = 0;
-        SayOnBench($"{entry.Label}, {total} times.");
+        SayOnBench(Lexicon.Get("earcon.bench.playing_repeats",
+            ("sound", entry.Label), ("count", total)));
         PlayEarconOnce(entry, announce: false);
         played++;
 
@@ -364,7 +365,7 @@ public partial class AudioWorkshopDialog
         if (_earconSeriesTimer != null)
         {
             StopEarconSeries();
-            SayOnBench("Series stopped.");
+            SayOnBench(Lexicon.Get("earcon.bench.series_stopped"));
             return;
         }
         if (entries.Count == 0) return;
@@ -384,12 +385,14 @@ public partial class AudioWorkshopDialog
             if (index >= entries.Count)
             {
                 StopEarconSeries();
-                SayOnBench($"{title}: all {entries.Count} played.");
+                SayOnBench(Lexicon.Get("earcon.bench.series_finished",
+                    ("family", title), ("count", entries.Count)));
                 return;
             }
 
             var entry = entries[index++];
-            SayOnBench($"{index} of {entries.Count}: {entry.Label}");
+            SayOnBench(Lexicon.Get("earcon.bench.series_step",
+                ("index", index), ("count", entries.Count), ("sound", entry.Label)));
             EarconPlayer.PlayWithBenchSettings(entry.Play, BenchGain, BenchPan);
             if (entry.IsContinuous) running = entry;
         }
@@ -429,7 +432,7 @@ public partial class AudioWorkshopDialog
         EarconPlayer.StopATUProgressEarcon();
         EarconPlayer.StopTxToneMonitor();
         EarconPlayer.StopBenchTone();
-        if (spoken) SayOnBench("Stopped.");
+        if (spoken) SayOnBench(Lexicon.Get("earcon.bench.everything_stopped"));
     }
 
     private void SayOnBench(string text)

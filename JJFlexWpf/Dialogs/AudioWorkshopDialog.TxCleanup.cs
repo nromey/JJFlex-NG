@@ -162,8 +162,7 @@ public partial class AudioWorkshopDialog
             // what hearing something HERE means.
             if (idx == (int)JJPortaudio.TxAudioConditioner.MonitorModes.Residual)
                 ScreenReaderOutput.Speak(
-                    "Plays while you transmit. Hearing your own words here means the cleanup "
-                    + "is eating your voice — turn the strength down until they fade.",
+                    Lexicon.Get("audio.cleanup.residual_monitor_meaning"),
                     VerbosityLevel.Terse);
         };
         AddToSection(TxAudioContent, _txCleanupMonitorControl);
@@ -191,7 +190,7 @@ public partial class AudioWorkshopDialog
         {
             TxAudioConditioning.ResetToRecommended();
             PollTxCleanup();
-            ScreenReaderOutput.Speak("Cleanup back to recommended settings.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.cleanup.reset_to_recommended"),
                 VerbosityLevel.Terse, interrupt: true);
         };
         AddToSection(TxAudioContent, resetButton);
@@ -207,7 +206,7 @@ public partial class AudioWorkshopDialog
         // unchecks it again would be a lie.
         if (TxAudioConditioning.Conditioner == null)
         {
-            ScreenReaderOutput.Speak("No radio connected — cleanup starts working once you connect.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.cleanup.no_radio_yet"),
                 VerbosityLevel.Terse, interrupt: true);
             PollTxCleanup();
             return;

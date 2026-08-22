@@ -173,7 +173,7 @@ public partial class AudioWorkshopDialog
             if (_rig != null && !_polling)
             {
                 _rig.MicGain = v;
-                ScreenReaderOutput.Speak($"Mic gain {v}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.mic_gain", ("value", v)), VerbosityLevel.Terse);
             }
         };
         JJFlexHelp.SetText(_micGainControl,
@@ -283,7 +283,7 @@ public partial class AudioWorkshopDialog
             if (_rig != null && !_polling)
             {
                 _rig.CompanderLevel = v;
-                ScreenReaderOutput.Speak($"Compander level {v}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.compander_level", ("value", v)), VerbosityLevel.Terse);
             }
         };
         JJFlexHelp.SetText(_companderLevelControl,
@@ -339,7 +339,7 @@ public partial class AudioWorkshopDialog
             {
                 _rig.TXFilterLow = v;
                 UpdateFilterWidth();
-                ScreenReaderOutput.Speak($"TX low {v}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.filter_low", ("value", v)), VerbosityLevel.Terse);
             }
         };
         JJFlexHelp.SetText(_txFilterLowControl,
@@ -357,7 +357,7 @@ public partial class AudioWorkshopDialog
             {
                 _rig.TXFilterHigh = v;
                 UpdateFilterWidth();
-                ScreenReaderOutput.Speak($"TX high {v}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.filter_high", ("value", v)), VerbosityLevel.Terse);
             }
         };
         JJFlexHelp.SetText(_txFilterHighControl,
@@ -412,7 +412,7 @@ public partial class AudioWorkshopDialog
             if (_rig != null && !_polling)
             {
                 _rig.SBMonitorLevel = v;
-                ScreenReaderOutput.Speak($"Monitor level {v}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.monitor_level", ("value", v)), VerbosityLevel.Terse);
             }
         };
         JJFlexHelp.SetText(_monitorLevelControl,
@@ -427,7 +427,7 @@ public partial class AudioWorkshopDialog
             if (_rig != null && !_polling)
             {
                 _rig.SBMonitorPan = v;
-                ScreenReaderOutput.Speak($"Monitor pan {v}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.monitor_pan", ("value", v)), VerbosityLevel.Terse);
             }
         };
         JJFlexHelp.SetText(_monitorPanControl,
@@ -480,7 +480,7 @@ public partial class AudioWorkshopDialog
         // own read-current-control command speaks it without an app hotkey.
         _deviceReadingBox = new TextBox
         {
-            Text = "Microphone: checking",
+            Text = Lexicon.Get("audio.tx.microphone_checking"),
             IsReadOnly = true,
             IsReadOnlyCaretVisible = true,
             Margin = new Thickness(2),
@@ -505,7 +505,7 @@ public partial class AudioWorkshopDialog
             if (open == null)
             {
                 ScreenReaderOutput.Speak(
-                    "Audio devices cannot be opened from here yet.",
+                    Lexicon.Get("audio.tx.devices_cannot_open_from_here"),
                     VerbosityLevel.Critical);
                 return;
             }
@@ -555,8 +555,7 @@ public partial class AudioWorkshopDialog
         if (string.IsNullOrEmpty(path))
         {
             ScreenReaderOutput.Speak(
-                "The microphone check is not available yet — the audio device "
-                + "settings file could not be located.",
+                Lexicon.Get("audio.tx.mic_check_settings_file_missing"),
                 VerbosityLevel.Critical);
             return;
         }
@@ -573,7 +572,7 @@ public partial class AudioWorkshopDialog
                 "AudioWorkshop: the microphone check could not open — " + ex.Message,
                 System.Diagnostics.TraceLevel.Error);
             ScreenReaderOutput.Speak(
-                "The microphone check could not open: " + ex.Message,
+                Lexicon.Get("audio.tx.mic_check_could_not_open", ("reason", ex.Message)),
                 VerbosityLevel.Critical);
             return;
         }
@@ -597,7 +596,7 @@ public partial class AudioWorkshopDialog
             string? path = AudioDevicesPath?.Invoke();
             if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
             {
-                text = "Microphone: none chosen yet";
+                text = Lexicon.Get("audio.tx.microphone_none_chosen");
             }
             else
             {
@@ -605,8 +604,8 @@ public partial class AudioWorkshopDialog
                 devices.LoadSavedSelection();
                 string? name = devices.InputDevice?.Name;
                 text = string.IsNullOrWhiteSpace(name)
-                    ? "Microphone: none chosen yet"
-                    : "Microphone: " + name;
+                    ? Lexicon.Get("audio.tx.microphone_none_chosen")
+                    : Lexicon.Get("audio.tx.microphone_named", ("device", name));
             }
         }
         catch (Exception ex)
@@ -614,7 +613,7 @@ public partial class AudioWorkshopDialog
             JJTrace.Tracing.TraceLine(
                 "AudioWorkshop: could not read the chosen input device — "
                 + ex.Message, System.Diagnostics.TraceLevel.Warning);
-            text = "Microphone: could not be read";
+            text = Lexicon.Get("audio.tx.microphone_unreadable");
         }
 
         _deviceReadingBox.Text = text;

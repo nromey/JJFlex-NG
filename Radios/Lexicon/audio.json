@@ -173,7 +173,81 @@
   "audio.tone.outside_passband": "Warning: {freq} hertz is outside your transmit filter, which passes {low} to {high} hertz. The tone will not go out. Pick a frequency inside the filter, or widen the TX filter below.",
   "audio.tone.near_passband_edge": "Note: {freq} hertz is within 50 hertz of your transmit filter edge ({low} to {high} hertz). The tone may go out reduced.",
 
-  "_9_workshop": "The Audio Workshop window itself.",
+  "_9_tx": "The TX Audio tab: the walk from this computer out to the radio to the air.",
+
+  "audio.tx.mic_gain": "Mic gain {value}",
+  "audio.tx.compander_level": "Compander level {value}",
+  "audio.tx.filter_low": "TX low {value}",
+  "audio.tx.filter_high": "TX high {value}",
+  "audio.tx.monitor_level": "Monitor level {value}",
+  "audio.tx.monitor_pan": "Monitor pan {value}",
+  "audio.tx.microphone_checking": "Microphone: checking",
+  "audio.tx.microphone_none_chosen": "Microphone: none chosen yet",
+  "audio.tx.microphone_named": "Microphone: {device}",
+  "audio.tx.microphone_unreadable": "Microphone: could not be read",
+  "audio.tx.devices_cannot_open_from_here": "Audio devices cannot be opened from here yet.",
+  "audio.tx.mic_check_settings_file_missing": "The microphone check is not available yet — the audio device settings file could not be located.",
+  "audio.tx.mic_check_could_not_open": "The microphone check could not open: {reason}",
+
+  "_10_cleanup": "PC transmit cleanup: noise reduction and the gate, upstream of the radio's own chain.",
+
+  "audio.cleanup.no_radio_yet": "No radio connected — cleanup starts working once you connect.",
+  "audio.cleanup.reset_to_recommended": "Cleanup back to recommended settings.",
+  "audio.cleanup.residual_monitor_meaning": "Plays while you transmit. Hearing your own words here means the cleanup is eating your voice — turn the strength down until they fade.",
+
+  "_11_diagnostics": "The Diagnostics tab: why is my radio silent, why can nobody hear me, and the evidence block.",
+
+  "audio.diagnostics.no_tx_report_yet": "No transmit check has been run yet. Choose Check My Transmit Chain above.",
+  "audio.diagnostics.no_evidence_yet": "Run the transmit check above and the evidence to send to Flex support will appear here.",
+  "audio.diagnostics.checked_at": "Checked at {time}.",
+  "audio.diagnostics.rx_no_radio": "No radio is connected. A Flex makes no audio at all until a client connects to it, including at its own headphone jack. Connect first.",
+  "audio.diagnostics.rx_nothing_wrong": "Nothing obvious is wrong. Headphone level {headphone}, line out level {lineout}, nothing muted. If the radio is still silent, check the slice volume and that a slice is not muted.",
+  "audio.diagnostics.rx_check_failed": "The receive audio check could not run: {reason}",
+  "audio.diagnostics.tx_check_failed_shown": "The transmit chain check could not run: {reason}",
+  "audio.diagnostics.tx_check_failed_spoken": "The transmit chain check could not run. {reason}",
+  "audio.diagnostics.nothing_to_copy": "There is nothing to copy yet. Run the transmit check first.",
+  "audio.diagnostics.evidence_copied": "Evidence copied to the clipboard.",
+  "audio.diagnostics.clipboard_refused": "The clipboard could not be opened, so nothing was copied. Another program may be holding it. You can select the evidence box and copy it yourself.",
+
+  "_12_meters": "The Meter Inventory page.",
+
+  "audio.meters.none_reported": "No meters reported.",
+  "audio.meters.count": "{count} meters.",
+  "audio.meters.copied": "Copied.",
+  "audio.meters.copy_failed": "Copy failed.",
+
+  "_13_amplifier": "The amplifier controls in the Audio Workshop.",
+
+  "audio.amplifier.none_to_switch": "There is no amplifier to switch.",
+  "audio.amplifier.command_not_sent": "That did not reach the amplifier — nothing was sent.",
+
+  "_14_levels": "The receive level dialogs.",
+
+  "audio.levels.toggle_state": "{label} {state}",
+
+  "_15_recording": "The microphone recorder. It is never silent and never incidental: it says when it starts, while it runs, and when it stops.",
+
+  "audio.recording.default_purpose": "recording",
+  "audio.recording.started": "Recording {purpose}. Press the same key again to stop.",
+  "audio.recording.still_recording": "Still recording, {length}.",
+  "audio.recording.cap_warning": "Recording will stop in about {seconds} seconds — that is the length limit.",
+  "audio.recording.stopped": "Recording stopped.",
+  "audio.recording.reached_length_limit": "Recording reached its length limit and stopped by itself.",
+  "audio.recording.saved_as": "Saved {length} as {file}.",
+  "audio.recording.stopped_faulted": "Recording stopped. {reason}",
+  "audio.recording.stopped_nothing_captured": "Recording stopped, and nothing was captured. Check that the right microphone is selected in Audio Devices.",
+  "audio.recording.could_not_start": "Recording could not start.",
+  "audio.recording.could_not_start_because": "Recording could not start. {reason}",
+  "audio.recording.folder_not_created": "The recordings folder could not be created: {reason}",
+  "audio.recording.device_settings_unavailable": "The audio device settings are not available yet.",
+  "audio.recording.audio_system_not_started": "The audio system could not be started.",
+  "audio.recording.no_microphone_chosen": "No microphone is chosen yet. Pick one in Audio Devices first.",
+  "audio.recording.saved_device_not_connected": "{device} is not connected, so there is nothing to record. Plug it back in, or choose a different microphone in Audio Devices.",
+  "audio.recording.the_saved_microphone": "The saved microphone",
+  "audio.recording.device_unavailable": "{device} is not available right now. Choose a microphone in Audio Devices.",
+  "audio.recording.microphone_not_opened": "The microphone could not be opened: {reason}",
+
+  "_16_workshop": "The Audio Workshop window itself.",
 
   "audio.workshop.unnamed_section": "Section",
   "audio.workshop.section_nothing_to_adjust": "{section}, nothing to adjust here."
