@@ -527,6 +527,23 @@ namespace Radios
             {
                 if (property.Name.Length == 0 || property.Name[0] == '_') continue;
 
+                // JSON permits a duplicate key and every parser silently keeps
+                // one of them. That must be an error here, because this is
+                // exactly what a merge produces: six extraction tracks each
+                // appending to the same partition, two of them independently
+                // naming the same key with different words, and a union merge
+                // that resolves cleanly while quietly deleting one wording.
+                //
+                // Nothing downstream could ever notice. The file parses, the
+                // key resolves, the app speaks — just not what somebody wrote.
+                if (result.ContainsKey(property.Name))
+                {
+                    throw new JsonException(
+                        "Key '" + property.Name + "' appears more than once in this partition. " +
+                        "A duplicate key is silently resolved by every JSON parser, so one of the " +
+                        "two wordings would vanish with nothing to show for it. Merge them by hand.");
+                }
+
                 switch (property.Value.ValueKind)
                 {
                     case JsonValueKind.String:

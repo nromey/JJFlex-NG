@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -163,6 +163,45 @@ namespace Radios.Tests
         {
             Assert.Throws<JsonException>(() => Lexicon.Parse("{ \"a.k\": 42 }"));
             Assert.Throws<JsonException>(() => Lexicon.Parse("{ \"a.k\": [\"one\", \"two\"] }"));
+        }
+
+        [Fact]
+        public void ADuplicateKeyIsRejectedRatherThanSilentlyResolved()
+        {
+            // The merge hazard, made loud. Six extraction tracks append to the
+            // same partition; two independently naming one key with different
+            // words produces a union merge that resolves cleanly and quietly
+            // deletes a wording. Every JSON parser keeps one and says nothing,
+            // so the file parses, the key resolves, and the app speaks — just
+            // not what somebody wrote.
+            JsonException ex = Assert.Throws<JsonException>(() => Lexicon.Parse(
+                "{ \"connect.done\": \"Connected\", \"connect.done\": \"Connected to radio\" }"));
+
+            Assert.Contains("connect.done", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("more than once", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void ADuplicateIsStillRejectedWhenTheTwoValuesAreIdentical()
+        {
+            // Identical text is not harmless: it means two tracks both claimed
+            // the key, and the next edit to one of them creates a divergence
+            // nobody will see. Reject on the duplication, not on the difference.
+            Assert.Throws<JsonException>(() => Lexicon.Parse(
+                "{ \"audio.x\": \"Muted\", \"audio.x\": \"Muted\" }"));
+        }
+
+        [Fact]
+        public void ADuplicateUnderscoreCommentIsToleratedBecauseItIsNotAnEntry()
+        {
+            // Every partition opens with a _comment, and a merge can easily
+            // produce two. Those are notes to the reader, not speech, so they
+            // must not fail the load.
+            var parsed = Lexicon.Parse(
+                "{ \"_comment\": \"one\", \"_comment\": \"two\", \"audio.x\": \"Muted\" }");
+
+            Assert.Single(parsed);
+            Assert.Equal("Muted", parsed["audio.x"].Resolve(VerbosityLevel.Chatty));
         }
 
         [Fact]
