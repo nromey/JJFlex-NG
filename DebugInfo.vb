@@ -4,9 +4,21 @@ Imports System.IO.Compression
 Imports JJTrace
 
 Friend Class DebugInfo
-    Private Const openDialogTitle As String = "Debug info archive"
-    Private Const mustHaveFile As String = "You must specify a debug file."
-    Private Const infoGathered As String = "Debug info gathered."
+    Private Shared ReadOnly Property openDialogTitle As String
+        Get
+            Return Radios.Lexicon.Get("logging.debug_bundle.dialog_title")
+        End Get
+    End Property
+    Private Shared ReadOnly Property mustHaveFile As String
+        Get
+            Return Radios.Lexicon.Get("logging.debug_bundle.must_specify_file")
+        End Get
+    End Property
+    Private Shared ReadOnly Property infoGathered As String
+        Get
+            Return Radios.Lexicon.Get("logging.debug_bundle.gathered")
+        End Get
+    End Property
 
     ''' <summary>
     ''' How many archived trace SESSIONS ride along in the debug bundle
@@ -25,12 +37,11 @@ Friend Class DebugInfo
     ''' raw exception. It now says what happened and what the user can do,
     ''' rather than surfacing framework text or (worse) nothing.
     ''' </summary>
-    Private Const gatherFailed As String =
-        "The debug archive could not be completed." & vbCrLf & vbCrLf &
-        "This usually means there wasn't room for it, or a file in the settings" & vbCrLf &
-        "folder was too large to include. Nothing was lost — your settings and" & vbCrLf &
-        "traces are untouched. Try again with a different destination, or send" & vbCrLf &
-        "the most recent trace from the Trace Archive instead."
+    Private Shared ReadOnly Property gatherFailed As String
+        Get
+            Return Radios.Lexicon.Get("logging.debug_bundle.gather_failed", ("newline", vbCrLf))
+        End Get
+    End Property
 
     Friend Shared Sub GetDebugInfo()
         Dim openDialog = New OpenFileDialog()
@@ -149,7 +160,8 @@ Friend Class DebugInfo
             ' no new dialogs, just a completion message that reflects reality.
             Dim doneMsg As String = infoGathered
             If Not String.IsNullOrEmpty(verifySummary) Then
-                doneMsg = infoGathered & " " & verifySummary
+                doneMsg = Radios.Lexicon.Get("logging.debug_bundle.gathered_with_summary",
+                                             ("infoGathered", infoGathered), ("verifySummary", verifySummary))
             End If
             Try
                 Radios.ScreenReaderOutput.Speak(doneMsg, Radios.VerbosityLevel.Critical, True)
@@ -164,7 +176,7 @@ Friend Class DebugInfo
             Tracing.ErrTraceOnly(ex)
             Try
                 Radios.ScreenReaderOutput.Speak(
-                    "The debug archive could not be completed. Nothing was lost.",
+                    Radios.Lexicon.Get("logging.debug_bundle.gather_failed_speech"),
                     Radios.VerbosityLevel.Critical, True)
             Catch
             End Try
@@ -173,9 +185,8 @@ Friend Class DebugInfo
             ' it will not build, the raw diagnostic log is what is left, so offer
             ' it rather than leaving the operator at a dead end.
             Radios.OperationFailure.Report(Radios.FailureKind.ReportingFailed,
-                "The problem report could not be built",
-                "Nothing was lost — your settings and diagnostic logs are untouched. " &
-                "The diagnostic log on its own still carries most of what the developer needs.")
+                Radios.Lexicon.Get("logging.debug_bundle.report_failure_what"),
+                Radios.Lexicon.Get("logging.debug_bundle.report_failure_detail"))
         Finally
             ' Put the log back. This used to be the end of the diagnostic log for
             ' the rest of the session: gathering debug info turned tracing off and
@@ -227,9 +238,11 @@ Friend Class DebugInfo
                     Dim result = InstallManifest.Verify(known, live)
                     reportText = InstallManifest.FormatReport(result, known, installDir)
                     If result.DifferenceCount = 0 Then
-                        summary = "Install verified clean."
+                        summary = Radios.Lexicon.Get("logging.install_check.clean")
                     Else
-                        summary = $"Install verification found {result.DifferenceCount} difference{If(result.DifferenceCount = 1, "", "s")} — see install-verification.txt."
+                        summary = Radios.Lexicon.Get(
+                            If(result.DifferenceCount = 1, "logging.install_check.differences_one", "logging.install_check.differences_many"),
+                            ("count", result.DifferenceCount))
                     End If
                 Catch ex As Exception
                     ' The shipped manifest exists but could not be read or
@@ -237,11 +250,11 @@ Friend Class DebugInfo
                     ' the report and keep the bundle going.
                     Tracing.ErrTraceOnly(ex)
                     reportText = InstallManifest.FormatUnreadableManifestReport(installDir, ex.Message)
-                    summary = "Install could not be checked — the shipped manifest was unreadable. See install-verification.txt."
+                    summary = Radios.Lexicon.Get("logging.install_check.manifest_unreadable")
                 End Try
             Else
                 reportText = InstallManifest.FormatMissingManifestReport(installDir)
-                summary = "Install check skipped — no shipped manifest to compare against."
+                summary = Radios.Lexicon.Get("logging.install_check.skipped")
             End If
             WriteTextEntry(archive, "install-verification.txt", reportText)
         Catch ex As Exception
@@ -251,7 +264,7 @@ Friend Class DebugInfo
             ' real exception, put an honest note where the report would have
             ' been, and carry on.
             Tracing.ErrTraceOnly(ex)
-            summary = "Install check failed — see install-verification.txt."
+            summary = Radios.Lexicon.Get("logging.install_check.failed")
             Try
                 WriteTextEntry(archive, "install-verification.txt",
                     "JJ Flexible Radio Access — install verification" & vbCrLf &

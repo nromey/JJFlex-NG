@@ -156,7 +156,7 @@ Namespace My
             ' handler picks up any operator change the dialog makes.
             WpfMainWindow.ShowOperatorsCallback = Sub()
                 If Operators Is Nothing Then
-                    Radios.ScreenReaderOutput.Speak("Operator data is not loaded yet.", Radios.VerbosityLevel.Critical, True)
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.startup.operators_not_loaded"), Radios.VerbosityLevel.Critical, True)
                     Return
                 End If
                 Lister.TheList = Operators
@@ -289,9 +289,8 @@ Namespace My
                     Dim presets = Radios.FilterPresets.Load(BaseConfigDir & "\Radios", opName, corruptPath)
                     If corruptPath IsNot Nothing Then
                         Radios.ScreenReaderOutput.Speak(
-                            "Your saved filter presets file could not be read, so the built-in filter presets are in use. " &
-                            "The unreadable file was kept next to it as " &
-                            IO.Path.GetFileName(corruptPath) & ".",
+                            Radios.Lexicon.Get("connect.startup.filter_presets_corrupt",
+                                               ("fileName", IO.Path.GetFileName(corruptPath))),
                             Radios.VerbosityLevel.Critical)
                     End If
                     handlers.FilterPresets = presets
@@ -321,8 +320,7 @@ Namespace My
                         ' First run: save defaults and prompt user to set license class
                         handlers.License.Save(BaseConfigDir, opName)
                         Radios.ScreenReaderOutput.Speak(
-                            "Welcome to JJ Flexible Radio Access. Your license class defaults to Extra. " &
-                            "Open Settings from the Tools menu to change your license class.")
+                            Radios.Lexicon.Get("connect.startup.first_run_license"))
                     End If
 
                     ' Sprint 28 Phase 1 — load per-operator accessibility preferences

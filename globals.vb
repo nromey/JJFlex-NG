@@ -74,28 +74,83 @@ Module globals
     ''' Not persisted — resets to the operator's saved mode on startup.
     ''' </summary>
     Friend LastNonLogMode As UIMode = UIMode.Classic
-    Friend Const ErrorHdr As String = "Error"
-    Friend Const MessageHdr As String = "Message"
-    Friend Const ExceptionHdr As String = "Exception"
-    Friend Const OnWord As String = "On"
-    Friend Const OffWord As String = "Off"
+    ' Lexicon-backed, so these are properties rather than Const — a Const must
+    ' be a compile-time literal. Every consumer reads them by name and is
+    ' unaffected.
+    Friend ReadOnly Property ErrorHdr As String
+        Get
+            Return Radios.Lexicon.Get("connect.dialog.error_header")
+        End Get
+    End Property
+    Friend ReadOnly Property MessageHdr As String
+        Get
+            Return Radios.Lexicon.Get("connect.dialog.message_header")
+        End Get
+    End Property
+    Friend ReadOnly Property ExceptionHdr As String
+        Get
+            Return Radios.Lexicon.Get("connect.dialog.exception_header")
+        End Get
+    End Property
+    Friend ReadOnly Property OnWord As String
+        Get
+            Return Radios.Lexicon.Get("connect.status.on")
+        End Get
+    End Property
+    Friend ReadOnly Property OffWord As String
+        Get
+            Return Radios.Lexicon.Get("connect.status.off")
+        End Get
+    End Property
+    Friend ReadOnly Property Running As String
+        Get
+            Return Radios.Lexicon.Get("connect.status.running")
+        End Get
+    End Property
+    Friend ReadOnly Property Paused As String
+        Get
+            Return Radios.Lexicon.Get("connect.status.paused")
+        End Get
+    End Property
+    Friend ReadOnly Property NoRig As String
+        Get
+            Return Radios.Lexicon.Get("connect.radio.no_rig")
+        End Get
+    End Property
+    Friend ReadOnly Property Rebooting As String
+        Get
+            Return Radios.Lexicon.Get("connect.radio.rebooting")
+        End Get
+    End Property
+    Friend ReadOnly Property mustHaveLog As String
+        Get
+            Return Radios.Lexicon.Get("logging.log_file.must_be_defined")
+        End Get
+    End Property
+    Friend ReadOnly Property RequiresBrailleDisplay As String
+        Get
+            Return Radios.Lexicon.Get("connect.session.requires_braille")
+        End Get
+    End Property
+    Friend ReadOnly Property NotValidHost As String
+        Get
+            Return Radios.Lexicon.Get("connect.session.not_valid_host")
+        End Get
+    End Property
+
+    ' NOT extracted, and deliberately so — Track F found these declared and
+    ' referenced NOWHERE. Putting dead text in the operator-editable store
+    ' would advertise wording the program never says.
     Friend Const LockedWord As String = "Locked"
     Friend Const NoneWord As String = "none"
     Friend Const Loaded As String = "loaded"
     Friend Const Loading As String = "loading"
-    Friend Const Running As String = "running"
-    Friend Const Paused As String = "paused"
-    Friend Const NoRig As String = "No rig is connected."
     Friend Const RebootHdr As String = "Reboot"
     Friend Const msgReboot As String = "Reboot the radio?"
-    Friend Const Rebooting As String = "Rebooting ..."
-    Friend Const mustHaveLog As String = "A log file must be defined."
     Friend Const NotSupportedForThisRig As String = "This function is not supported on this radio."
     Friend Const NotSupportedForThisInstance As String = "This function is not supported in this situation."
     Friend Const NotSupportedForRemoteRig As String = "This function is not supported on a remote radio."
     Friend Const NoLongerSupported As String = "This function is no longer supported."
-    Friend Const RequiresBrailleDisplay As String = "This function requires a braille display."
-    Friend Const NotValidHost As String = "Hostname must be host or host:port."
     Friend Const NoAudioDevice As String = "No output audio device is configured."
 
 #If 0 Then
@@ -199,10 +254,16 @@ Module globals
     Friend Const ProgramName = "JJ Flexible Radio Access"
     Friend Const InternalName = "JJFlexRadio"
     Friend Const DocName As String = InternalName & "Readme.htm"
-    Const reqOpMsgTitle As String = "You must define a default operator."
-    Const reqOpMsg As String = _
-        "If you do not define a default operator, the program will exit." & vbCrLf & _
-        "Do you wish to define one?"
+    ReadOnly Property reqOpMsgTitle As String
+        Get
+            Return Radios.Lexicon.Get("connect.startup.require_operator_title")
+        End Get
+    End Property
+    ReadOnly Property reqOpMsg As String
+        Get
+            Return Radios.Lexicon.Get("connect.startup.require_operator_body", ("newline", vbCrLf))
+        End Get
+    End Property
     Const noDefaultRigTitle As String = "No default rig"
     Const noDefaultRig As String = _
         "You must define a default rig." & vbCrLf & _
@@ -617,7 +678,8 @@ Module globals
     ''' <param name="reason">Short phrase recorded in the session manifest.</param>
     Friend Sub StartDetailedCapture(Optional reason As String = "user requested")
         If DetailedCaptureRunning Then
-            SpeakDiagnostics($"Detailed capture is already running, started {FormatClock(_captureStartedLocal.Value)}.")
+            SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.already_running",
+                                                 ("started", FormatClock(_captureStartedLocal.Value))))
             Return
         End If
 
@@ -642,20 +704,18 @@ Module globals
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
             _captureStartedLocal = Nothing
-            SpeakDiagnostics("The detailed capture could not be started.")
+            SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.start_failed"))
             ' The reporting pipeline failing is the one case where the offer is
             ' also the fallback: if the capture will not start, the standing log
             ' is the only evidence there is going to be.
             Radios.OperationFailure.Report(Radios.FailureKind.ReportingFailed,
-                "The detailed capture could not be started",
-                "JJ Flex could not open a new log file for the capture. " &
-                "The ordinary diagnostic log is still running, so there is still a record of what happens next.")
+                Radios.Lexicon.Get("logging.capture.start_failed_what"),
+                Radios.Lexicon.Get("logging.capture.start_failed_detail"))
             RaiseDiagnosticLogStateChanged()
             Return
         End Try
 
-        SpeakDiagnostics(
-            "Detailed capture started. Reproduce the problem, then stop the capture from this button or the Diagnostics tab.")
+        SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.started"))
         RaiseDiagnosticLogStateChanged()
     End Sub
 
@@ -670,7 +730,7 @@ Module globals
     ''' </summary>
     Friend Sub StopDetailedCapture()
         If Not DetailedCaptureRunning Then
-            SpeakDiagnostics("No detailed capture is running.")
+            SpeakDiagnostics(Radios.Lexicon.Get("logging.capture.not_running"))
             Return
         End If
 
@@ -701,11 +761,12 @@ Module globals
                 TraceCaptureStateMarker()
             End If
 
-            spoken = $"Capture saved: {FormatClock(started)}, about {DescribeMinutes(minutes)}."
+            spoken = Radios.Lexicon.Get("logging.capture.saved",
+                                        ("started", FormatClock(started)), ("duration", DescribeMinutes(minutes)))
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
             _captureStartedLocal = Nothing
-            spoken = "The capture was stopped, but saving it ran into a problem."
+            spoken = Radios.Lexicon.Get("logging.capture.save_problem")
         End Try
 
         SpeakDiagnostics(spoken)
@@ -842,8 +903,10 @@ Module globals
     End Function
 
     Private Function DescribeMinutes(minutes As Integer) As String
-        If minutes <= 0 Then Return "under a minute"
-        Return $"{minutes} {If(minutes = 1, "minute", "minutes")}"
+        If minutes <= 0 Then Return Radios.Lexicon.Get("logging.time.under_a_minute")
+        Return Radios.Lexicon.Get(
+            If(minutes = 1, "logging.time.minutes_one", "logging.time.minutes_many"),
+            ("minutes", minutes))
     End Function
 
     ''' <summary>
@@ -1400,16 +1463,21 @@ Module globals
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
             Try
-                Radios.ScreenReaderOutput.Speak("Trace archive prune failed", VerbosityLevel.Critical)
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.trace.prune_failed"), VerbosityLevel.Critical)
             Catch
             End Try
             Return 0
         End Try
 
         Try
-            Dim msg As String = If(pruned = 0,
-                $"No trace archives older than {days} days to remove.",
-                $"Removed {pruned} trace archive {If(pruned = 1, "entry", "entries")} older than {days} days.")
+            Dim msg As String
+            If pruned = 0 Then
+                msg = Radios.Lexicon.Get("logging.trace.prune_none", ("days", days))
+            Else
+                msg = Radios.Lexicon.Get(
+                    If(pruned = 1, "logging.trace.prune_one", "logging.trace.prune_many"),
+                    ("pruned", pruned), ("days", days))
+            End If
             Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical)
         Catch
         End Try
@@ -1508,7 +1576,7 @@ Module globals
         RigControl.Frequency = hz
         Dim display As String = RigControl.Callouts.FormatFreq(CULng(hz))
         If display IsNot Nothing AndAlso display.Length > 0 Then
-            Radios.ScreenReaderOutput.Speak($"Tuned to {display}", True)
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tune.tuned_to", ("display", display)), True)
         End If
         JJFlexWpf.EarconPlayer.ConfirmTone()
         Return hz
@@ -1755,7 +1823,7 @@ Module globals
                         WpfMainWindow.LoggingLogPanel.FocusField(fieldName)
                     ElseIf adifTag = JJFlexWpf.KeyCommands.IADIF_LogNewEntry Then
                         WpfMainWindow.LoggingLogPanel.NewEntry()
-                        Radios.ScreenReaderOutput.Speak("New entry", VerbosityLevel.Terse, True)
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.log_entry.new_entry"), VerbosityLevel.Terse, True)
                     End If
                     Return
                 End If
@@ -1840,7 +1908,7 @@ Module globals
                         ' If the user actually typed a frequency to tune, the
                         ' apply-time speech tells them why nothing happened —
                         ' silent failure violates the no-silent-keystrokes rule.
-                        Radios.ScreenReaderOutput.Speak("No radio, can't tune", Radios.VerbosityLevel.Critical, True)
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tune.no_radio"), Radios.VerbosityLevel.Critical, True)
                     End If
                 End If
             End Sub,
@@ -1927,7 +1995,7 @@ Module globals
                 If RigControl.ShowTXControlsDialog Is Nothing Then
                     ' Assigned in MainWindow.OnRadioStarted. Reaching here
                     ' means the command ran before post-start wiring.
-                    Radios.ScreenReaderOutput.Speak("Transmit controls are not available yet",
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tx.controls_not_ready"),
                                                     Radios.VerbosityLevel.Critical, True)
                     Return
                 End If
@@ -2537,8 +2605,16 @@ Module globals
         Return str
     End Function
 
-    Friend Const DupEntryMsg As String = " is already on file."
-    Friend Const BadFreqMSG As String = " must be of the form mhz.khz.hz, mhz.khz, or khz."
+    Friend ReadOnly Property DupEntryMsg As String
+        Get
+            Return Radios.Lexicon.Get("logging.log_entry.duplicate_suffix")
+        End Get
+    End Property
+    Friend ReadOnly Property BadFreqMSG As String
+        Get
+            Return Radios.Lexicon.Get("logging.log_entry.bad_freq_suffix")
+        End Get
+    End Property
     Friend Function FormatFreqForRadio(ByVal str As String) As String
         ' Return 11-digit freq or nothing.
         Dim s() As String
@@ -2817,7 +2893,7 @@ Module globals
                 Nothing, AudioDevicesFile, cfg, Sub() cfg.Save(BaseConfigDir))
         Catch ex As Exception
             Tracing.TraceLine("GetNewAudioDevices failed: " & ex.Message, TraceLevel.Error)
-            ScreenReaderOutput.Speak("The audio device chooser could not open: " & ex.Message,
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.startup.picker_failed", ("message", ex.Message)),
                                      VerbosityLevel.Critical, True)
             Return False
         End Try
@@ -2877,8 +2953,8 @@ Module globals
                                   TraceLevel.Error)
                 ScreenReaderOutput.Speak(
                     If(String.IsNullOrEmpty(enumMessage),
-                       "Radio audio cannot start: this computer's sound devices could not be read.",
-                       "Radio audio cannot start. " & enumMessage),
+                       Radios.Lexicon.Get("audio.startup.enumeration_failed"),
+                       Radios.Lexicon.Get("audio.startup.enumeration_failed_detail", ("enumMessage", enumMessage))),
                     VerbosityLevel.Critical, True)
                 Return False
             End If
@@ -2899,9 +2975,9 @@ Module globals
             Dim detail As String
             If inputMissing OrElse outputMissing Then
                 Dim gone = If(outputMissing, savedOutputName, savedInputName)
-                detail = "The sound device you chose for radio audio, " & gone & ", is not connected."
+                detail = Radios.Lexicon.Get("audio.startup.device_missing", ("gone", gone))
             Else
-                detail = "Radio audio needs a sound device on this computer and none has been chosen yet."
+                detail = Radios.Lexicon.Get("audio.startup.no_device_chosen")
             End If
 
             If Not prompt Then
@@ -2909,10 +2985,10 @@ Module globals
                 Return False
             End If
 
-            Dim msg = detail & vbCrLf & vbCrLf & "Choose audio devices now?"
+            Dim msg = Radios.Lexicon.Get("audio.startup.choose_prompt", ("detail", detail), ("newline", vbCrLf))
             If MessageBox.Show(AppShellForm, msg, MessageHdr, MessageBoxButtons.YesNo, MessageBoxIcon.Information) <> DialogResult.Yes Then
                 ScreenReaderOutput.Speak(
-                    "Radio audio is off. Choose devices any time from Settings, Audio, Audio Devices.",
+                    Radios.Lexicon.Get("audio.startup.declined"),
                     VerbosityLevel.Critical, True)
                 Return False
             End If
@@ -2920,7 +2996,7 @@ Module globals
             Return GetNewAudioDevices()
         Catch ex As Exception
             Tracing.TraceLine("Audio device check failed: " & ex.Message, TraceLevel.Error)
-            ScreenReaderOutput.Speak("Radio audio could not start: " & ex.Message,
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.startup.could_not_start", ("message", ex.Message)),
                                      VerbosityLevel.Critical, True)
             Return False
         End Try
@@ -2936,11 +3012,15 @@ Module globals
     Friend Sub ShowInternalError(num As Integer)
         Dim text As String = InternalError & num
         Tracing.TraceLine("InternalError error:" & text, TraceLevel.Error)
-        MessageBox.Show(AppShellForm, text, "JJFlexRadio error", MessageBoxButtons.OK)
+        MessageBox.Show(AppShellForm, text, Radios.Lexicon.Get("connect.dialog.app_error_title"), MessageBoxButtons.OK)
     End Sub
 
     ' Internal errors.
-    Friend Const InternalError As String = "Internal error #"
+    Friend ReadOnly Property InternalError As String
+        Get
+            Return Radios.Lexicon.Get("connect.session.internal_error_prefix")
+        End Get
+    End Property
     Friend Const MSReplace As Integer = 1 ' MemoryScan replace.
     Friend Const MSRemove As Integer = 2 ' MemoryScan remove
     Friend Const ScanReplace As Integer = 3 ' Scan replace.
@@ -2968,7 +3048,11 @@ Module globals
 #Region "Form1 → globals migration (Sprint 11 Phase 11.8)"
 
     ' Constants moved from Form1
-    Private Const notConnected As String = "The radio didn't connect."
+    Private ReadOnly Property notConnected As String
+        Get
+            Return Radios.Lexicon.Get("connect.radio.not_connected")
+        End Get
+    End Property
 
     ' Screen saver state — saved on startup, restored on exit.
     Private onExitScreenSaver As Boolean
@@ -3002,9 +3086,8 @@ Module globals
 
         CurrentOp.UIModeDismissed = True
 
-        Dim msg As String = "JJFlex now has a Modern UI mode with reorganized menus." & vbCrLf &
-                            "Want to try it? You can switch back anytime with Ctrl+Shift+M."
-        Dim result = MessageBox.Show(AppShellForm, msg, "Try Modern Mode?", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
+        Dim msg As String = Radios.Lexicon.Get("connect.ui_mode.prompt_body", ("newline", vbCrLf))
+        Dim result = MessageBox.Show(AppShellForm, msg, Radios.Lexicon.Get("connect.ui_mode.prompt_title"), MessageBoxButtons.YesNo, MessageBoxIcon.Information)
         If result = DialogResult.Yes Then
             CurrentOp.UIModeSetting = CInt(UIMode.Modern)
         Else
@@ -3066,7 +3149,7 @@ Module globals
             ' the connecting window's own phase speech is verbosity-gated and
             ' won't reliably name the radio.
             Radios.ScreenReaderOutput.Speak(
-                "Auto connect enabled, connecting to " & _autoConnectConfig.RadioName,
+                Radios.Lexicon.Get("connect.autoconnect.startup_announce", ("radioName", _autoConnectConfig.RadioName)),
                 VerbosityLevel.Critical, True)
 
             ' Same connecting window as a manual connect. Without it, auto-connect
@@ -3620,7 +3703,8 @@ Module globals
             For legIndex = 0 To walk.Count - 1
                 Dim legPath = walk(legIndex)
                 Dim lastLeg = (legIndex = walk.Count - 1)
-                Dim legName = If(legPath = Radios.ConnectPathKind.SmartLink, "SmartLink", "the local network")
+                Dim legName = Radios.Lexicon.Get(
+                    If(legPath = Radios.ConnectPathKind.SmartLink, "connect.walk.leg_smartlink", "connect.walk.leg_local"))
                 Dim legSw = System.Diagnostics.Stopwatch.StartNew()
 
                 If legPath = Radios.ConnectPathKind.SmartLink Then
@@ -3658,10 +3742,12 @@ Module globals
 
                 If Not lastLeg Then
                     ' No silent path substitution: the fallback says so.
-                    Dim nextName = If(walk(legIndex + 1) = Radios.ConnectPathKind.SmartLink, "SmartLink", "the local network")
+                    Dim nextName = Radios.Lexicon.Get(
+                        If(walk(legIndex + 1) = Radios.ConnectPathKind.SmartLink, "connect.walk.leg_smartlink", "connect.walk.leg_local"))
                     Tracing.TraceLine($"wpfSelectorProc: leg {legIndex} ({legName}) failed; walking to {nextName}", TraceLevel.Info)
                     Radios.ScreenReaderOutput.Speak(
-                        $"Could not connect over {legName}. Trying {nextName}.", VerbosityLevel.Critical, True)
+                        Radios.Lexicon.Get("connect.walk.falling_back", ("legName", legName), ("nextName", nextName)),
+                        VerbosityLevel.Critical, True)
                 End If
             Next
 
@@ -3669,7 +3755,7 @@ Module globals
             ' its prompt was suppressed: NOW the native sign-in is earned.
             If Not connectOk AndAlso suppressedAuthFailure Then
                 Tracing.TraceLine("wpfSelectorProc: chain exhausted after suppressed auth failure — retrying SmartLink with sign-in allowed", TraceLevel.Info)
-                Radios.ScreenReaderOutput.Speak("Signing in to SmartLink.", VerbosityLevel.Critical, True)
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.walk.signing_in"), VerbosityLevel.Critical, True)
                 Dim retrySw = System.Diagnostics.Stopwatch.StartNew()
                 connectOk = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=True, allowInteractiveLogin:=True)
                 retrySw.Stop()
@@ -3689,7 +3775,9 @@ Module globals
                 ' is genuinely absent. Track C's pre-attempt refusal rides in as
                 ' ConnectFailureClass.PreflightRefused via the same property.
                 Dim advice = RigControl.LastConnectFailureAdvice
-                Dim failMsg = If(String.IsNullOrEmpty(advice), "Connection failed", "Connection failed. " & advice)
+                Dim failMsg = If(String.IsNullOrEmpty(advice),
+                                 Radios.Lexicon.Get("connect.walk.failed"),
+                                 Radios.Lexicon.Get("connect.walk.failed_with_advice", ("advice", advice)))
                 Radios.ScreenReaderOutput.Speak(failMsg, VerbosityLevel.Critical, True)
 
                 ' Sprint 30 Track D's failure-moment offer (#78), wired here
@@ -3884,8 +3972,8 @@ RadioConnected:
                                 If Not String.IsNullOrEmpty(startReason) Then retryReason = startReason & "."
                             End If
                             Dim retryMsg = If(String.IsNullOrEmpty(retryReason),
-                                "Connection failed. Please try Remote again.",
-                                "Connection failed. " & retryReason & " Please try Remote again.")
+                                Radios.Lexicon.Get("connect.walk.retry_failed"),
+                                Radios.Lexicon.Get("connect.walk.retry_failed_with_reason", ("retryReason", retryReason)))
                             Radios.ScreenReaderOutput.Speak(retryMsg, VerbosityLevel.Critical)
                         End If
 
@@ -3917,7 +4005,7 @@ RadioConnected:
                             Tracing.TraceLine("OpenTheRadio:retry also failed", TraceLevel.Error)
                             TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryFailed,
                                 "Auto-connect retry attempt exhausted")
-                            Radios.ScreenReaderOutput.Speak("Connection failed", VerbosityLevel.Critical)
+                            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.walk.failed"), VerbosityLevel.Critical)
                         End If
                     Else
                         Tracing.TraceLine("OpenTheRadio:Start failed, no retry path available (local or no serial)", TraceLevel.Info)
@@ -4096,7 +4184,7 @@ RadioConnected:
         Try
             Dim dates = Radios.ConnectionTestReport.GetAvailableDates()
             If dates.Count = 0 Then
-                Radios.ScreenReaderOutput.Speak("No connection test results found")
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tester.results_none"))
                 Return
             End If
 
@@ -4106,15 +4194,16 @@ RadioConnected:
             Dim reportPath = Radios.ConnectionTestReport.SaveReport(report, latestDate & "_analysis")
 
             If reportPath IsNot Nothing Then
-                Radios.ScreenReaderOutput.Speak($"Test results for {latestDate} saved to {reportPath}")
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tester.results_saved",
+                                                                    ("latestDate", latestDate), ("reportPath", reportPath)))
                 ' Open the file in the default text editor
                 Process.Start(New ProcessStartInfo(reportPath) With {.UseShellExecute = True})
             Else
-                Radios.ScreenReaderOutput.Speak("Failed to save test report", VerbosityLevel.Critical)
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tester.results_save_failed"), VerbosityLevel.Critical)
             End If
         Catch ex As Exception
             Tracing.TraceLine("ShowTestResults:exception " & ex.Message, TraceLevel.Error)
-            Radios.ScreenReaderOutput.Speak("Error loading test results", VerbosityLevel.Critical)
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.tester.results_load_failed"), VerbosityLevel.Critical)
         End Try
     End Sub
 

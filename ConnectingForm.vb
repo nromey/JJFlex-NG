@@ -59,11 +59,11 @@ Public Class ConnectingForm
     ''' as the connection moves through phases.
     ''' </summary>
     Public Sub New(radioName As String, cancelCallback As Action, profiler As Radios.ConnectionProfiler)
-        _radioName = If(radioName, "radio")
+        _radioName = If(radioName, Radios.Lexicon.Get("connect.connecting.default_radio_name"))
         _cancelCallback = cancelCallback
         _profiler = profiler
 
-        Text = "Connecting"
+        Text = Radios.Lexicon.Get("connect.connecting.title")
         Width = 420
         Height = 150
         FormBorderStyle = FormBorderStyle.FixedDialog
@@ -77,10 +77,10 @@ Public Class ConnectingForm
         ControlBox = True
         KeyPreview = True
 
-        AccessibleName = "Connecting"
+        AccessibleName = Radios.Lexicon.Get("connect.connecting.title")
         AccessibleRole = AccessibleRole.Dialog
 
-        Dim initialMessage = $"Connecting to {_radioName}..."
+        Dim initialMessage = Radios.Lexicon.Get("connect.connecting.initial", ("radioName", _radioName))
         _statusLabel = New Label() With {
             .Text = initialMessage,
             .Dock = DockStyle.Fill,
@@ -155,13 +155,13 @@ Public Class ConnectingForm
     End Property
 
     Private Shared Function ExtractRadioName(msg As String) As String
-        If String.IsNullOrEmpty(msg) Then Return "radio"
+        If String.IsNullOrEmpty(msg) Then Return Radios.Lexicon.Get("connect.connecting.default_radio_name")
         Const prefix = "Connecting to "
         If msg.StartsWith(prefix) Then
             Dim tail = msg.Substring(prefix.Length).TrimEnd("."c, " "c)
-            Return If(String.IsNullOrEmpty(tail), "radio", tail)
+            Return If(String.IsNullOrEmpty(tail), Radios.Lexicon.Get("connect.connecting.default_radio_name"), tail)
         End If
-        Return "radio"
+        Return Radios.Lexicon.Get("connect.connecting.default_radio_name")
     End Function
 
     ''' <summary>
@@ -228,16 +228,16 @@ Public Class ConnectingForm
 
         Select Case eventName
             Case "start_slices_available"
-                EnterPhase(2, $"Connected to {_radioName}. Waiting for slice...")
+                EnterPhase(2, Radios.Lexicon.Get("connect.connecting.phase_slice_wait", ("radioName", _radioName)))
             Case "start_antenna_available"
-                EnterPhase(3, "Slice acquired. Setting up...")
+                EnterPhase(3, Radios.Lexicon.Get("connect.connecting.phase_setup"))
             Case "station_name_set"
                 ' Connection nearly complete — the openTheRadio caller will
                 ' close us shortly. Don't change phase or earcon.
             Case "start_early_abort", "start_grace_abort"
-                UpdateStatus("Connection slow, retrying...")
+                UpdateStatus(Radios.Lexicon.Get("connect.connecting.retrying"))
             Case "start_cancelled", "start_cancelled_in_station_wait"
-                UpdateStatus("Cancelling...")
+                UpdateStatus(Radios.Lexicon.Get("connect.connecting.cancelling"))
         End Select
     End Sub
 
@@ -284,7 +284,7 @@ Public Class ConnectingForm
         ' is Critical so it pierces verbosity-off.
         If e.KeyCode = Keys.Escape Then
             e.Handled = True
-            RequestCancel("Connection attempt cancelled")
+            RequestCancel(Radios.Lexicon.Get("connect.connecting.cancelled"))
             Return
         End If
         MyBase.OnKeyDown(e)
@@ -298,7 +298,7 @@ Public Class ConnectingForm
         If Not _cancelHandled AndAlso Not _programmaticClose _
            AndAlso e.CloseReason = CloseReason.UserClosing Then
             e.Cancel = True
-            RequestCancel("Connection attempt cancelled")
+            RequestCancel(Radios.Lexicon.Get("connect.connecting.cancelled"))
             Return
         End If
         MyBase.OnFormClosing(e)
@@ -325,7 +325,7 @@ Public Class ConnectingForm
         Catch
         End Try
 
-        UpdateStatus(announcement & "...")
+        UpdateStatus(Radios.Lexicon.Get("connect.connecting.cancel_status", ("announcement", announcement)))
 
         Try
             _cancelCallback?.Invoke()
@@ -360,23 +360,24 @@ Public Class ConnectingForm
 
         Try
             Dim diagnostic = BuildDiagnosticMessage()
-            Dim prompt = $"Connection slow — {diagnostic}{Environment.NewLine}{Environment.NewLine}Keep waiting, or cancel?"
+            Dim prompt = Radios.Lexicon.Get("connect.connecting.slow_prompt",
+                                            ("diagnostic", diagnostic), ("newline", Environment.NewLine))
 
             ' Critical-level speech so the user hears the prompt even at off
             ' verbosity. Then show a modal MessageBox owned by us so it
             ' inherits topmost.
             Try
-                Radios.ScreenReaderOutput.Speak("Connection slow. Keep waiting, or cancel?", VerbosityLevel.Critical, True)
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.connecting.slow_speech"), VerbosityLevel.Critical, True)
             Catch
             End Try
 
-            Dim result = MessageBox.Show(Me, prompt, "Connection slow",
+            Dim result = MessageBox.Show(Me, prompt, Radios.Lexicon.Get("connect.connecting.slow_title"),
                                          MessageBoxButtons.YesNo,
                                          MessageBoxIcon.Question,
                                          MessageBoxDefaultButton.Button1)
             If result = DialogResult.No Then
                 ' Equivalent to Escape: cancel.
-                RequestCancel("Connection attempt cancelled")
+                RequestCancel(Radios.Lexicon.Get("connect.connecting.cancelled"))
                 Return
             End If
 
@@ -396,13 +397,13 @@ Public Class ConnectingForm
         ' a friendly description. Pairs with project_trace_persistence_design.md
         ' (same diagnostic surface, different rendering target).
         If _profiler Is Nothing Then
-            Return "still trying to reach " & _radioName & "."
+            Return Radios.Lexicon.Get("connect.connecting.diag_default", ("radioName", _radioName))
         End If
 
         Try
             Dim events = _profiler.GetEvents()
             If events Is Nothing OrElse events.Count = 0 Then
-                Return "still trying to reach " & _radioName & "."
+                Return Radios.Lexicon.Get("connect.connecting.diag_default", ("radioName", _radioName))
             End If
 
             ' Walk events in reverse for the most informative recent one.
@@ -410,28 +411,28 @@ Public Class ConnectingForm
                 Dim ev = events(i)
                 Select Case ev.Event
                     Case "start_grace_abort", "start_early_abort"
-                        Return $"client registration with {_radioName} keeps dropping during setup."
+                        Return Radios.Lexicon.Get("connect.connecting.diag_grace_abort", ("radioName", _radioName))
                     Case "station_name_timeout"
-                        Return $"{_radioName} hasn't sent its station name yet — SmartLink may be slow."
+                        Return Radios.Lexicon.Get("connect.connecting.diag_station_name_timeout", ("radioName", _radioName))
                     Case "start_connection_lost"
-                        Return $"connection to {_radioName} dropped during setup."
+                        Return Radios.Lexicon.Get("connect.connecting.diag_connection_lost", ("radioName", _radioName))
                     Case "start_station_name_wait_begin"
-                        Return $"{_radioName} hasn't acknowledged the slice yet."
+                        Return Radios.Lexicon.Get("connect.connecting.diag_station_name_wait", ("radioName", _radioName))
                     Case "start_antenna_available"
-                        Return $"slice acquired but {_radioName} hasn't finished setup."
+                        Return Radios.Lexicon.Get("connect.connecting.diag_antenna_available", ("radioName", _radioName))
                     Case "start_slices_available"
-                        Return $"{_radioName} responded but is taking a long time to assign a slice."
+                        Return Radios.Lexicon.Get("connect.connecting.diag_slices_available", ("radioName", _radioName))
                     Case "connect_call_end"
-                        Return $"transport connected to {_radioName} but the radio is slow to respond."
+                        Return Radios.Lexicon.Get("connect.connecting.diag_call_end", ("radioName", _radioName))
                     Case "connect_call_begin"
-                        Return $"still trying to reach {_radioName}."
+                        Return Radios.Lexicon.Get("connect.connecting.diag_default", ("radioName", _radioName))
                 End Select
             Next
 
-            Return "still trying to reach " & _radioName & "."
+            Return Radios.Lexicon.Get("connect.connecting.diag_default", ("radioName", _radioName))
         Catch ex As Exception
             Tracing.TraceLine("ConnectingForm: BuildDiagnosticMessage threw: " & ex.Message, TraceLevel.Warning)
-            Return "still trying to reach " & _radioName & "."
+            Return Radios.Lexicon.Get("connect.connecting.diag_default", ("radioName", _radioName))
         End Try
     End Function
 
@@ -444,7 +445,7 @@ Public Class ConnectingForm
             Radios.ConnectionProfiler.Current?.RecordEvent("auto_cancel_ceiling_reached", Nothing)
         Catch
         End Try
-        RequestCancel("Connection attempt timed out — cancelled")
+        RequestCancel(Radios.Lexicon.Get("connect.connecting.timed_out"))
     End Sub
 
 End Class
