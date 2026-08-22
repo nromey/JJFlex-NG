@@ -81,11 +81,15 @@ public partial class MetersPanel : UserControl
         "+13.8A",
     };
 
-    private static readonly (MeterActivation Value, string Label)[] ActivationChoices =
+    // The labels are looked up at construction rather than held in a static
+    // initialiser, so an operator's overlay is in force by the time the combo
+    // is built. The VALUE is what the code matches on; the label is only ever
+    // displayed, and the combo maps back by index.
+    private static readonly (MeterActivation Value, string Key)[] ActivationChoices =
     {
-        (MeterActivation.Always, "Always"),
-        (MeterActivation.ReceiveOnly, "Only while receiving"),
-        (MeterActivation.TransmitOnly, "Only while transmitting"),
+        (MeterActivation.Always, "audio.meters.panel.activation_always"),
+        (MeterActivation.ReceiveOnly, "audio.meters.panel.activation_receive_only"),
+        (MeterActivation.TransmitOnly, "audio.meters.panel.activation_transmit_only"),
     };
 
     public MetersPanel()
@@ -93,7 +97,7 @@ public partial class MetersPanel : UserControl
         InitializeComponent();
 
         foreach (string name in MeterVoiceLibrary.AllNames) VoiceCombo.Items.Add(name);
-        foreach (var choice in ActivationChoices) ActivationCombo.Items.Add(choice.Label);
+        foreach (var choice in ActivationChoices) ActivationCombo.Items.Add(Lexicon.Get(choice.Key));
 
         LoadGlobalsFromEngine();
 
@@ -167,7 +171,7 @@ public partial class MetersPanel : UserControl
     {
         Visibility = Visibility.Visible;
         MetersExpander.IsExpanded = true;
-        ScreenReaderOutput.Speak("Meters panel", VerbosityLevel.Terse);
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.panel.opened"), VerbosityLevel.Terse);
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (SlotCombo.Items.Count > 0) SlotCombo.Focus();
@@ -184,7 +188,7 @@ public partial class MetersPanel : UserControl
         StopMeterTestTone();
         MetersExpander.IsExpanded = false;
         Visibility = Visibility.Collapsed;
-        ScreenReaderOutput.Speak("Meters panel closed", VerbosityLevel.Terse);
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.panel.closed"), VerbosityLevel.Terse);
         ReturnFocusToFreqOut?.Invoke();
     }
 
@@ -270,8 +274,11 @@ public partial class MetersPanel : UserControl
             {
                 MeterDefinition def = slots[i].Definition;
                 string name = string.IsNullOrWhiteSpace(def.Name) ? def.Source.Key : def.Name;
-                string state = def.Enabled ? "sounding" : "silent";
-                SlotCombo.Items.Add($"{i + 1}. {name} ({state})");
+                SlotCombo.Items.Add(Lexicon.Get(
+                    def.Enabled
+                        ? "audio.meters.panel.slot_item_sounding"
+                        : "audio.meters.panel.slot_item_silent",
+                    ("number", i + 1), ("name", name)));
                 if (def.Id == _selectedSlotId) selectIndex = i;
             }
 
@@ -283,7 +290,8 @@ public partial class MetersPanel : UserControl
             DeleteButton.IsEnabled = slots.Count > 1;
             SetSlotControlsEnabled(slots.Count > 0);
             AutomationProperties.SetName(SlotCombo,
-                $"Meter to configure, {slots.Count} of {MeterToneEngine.MaxSlots}");
+                Lexicon.Get("audio.meters.panel.slot_combo_name",
+                    ("count", slots.Count), ("max", MeterToneEngine.MaxSlots)));
         }
         finally
         {
@@ -446,16 +454,14 @@ public partial class MetersPanel : UserControl
                 string sliceNumber = def.Source.SliceIndex.ToString(CultureInfo.CurrentCulture);
 
                 string display = nameIsReported && pinnedToSlice
-                    ? def.Source.Key + " (slice " + sliceNumber + " is not active)"
-                    : def.Source.Key + " (not reported by this radio)";
+                    ? Lexicon.Get("audio.meters.panel.missing_slice_display",
+                        ("key", def.Source.Key), ("slice", sliceNumber))
+                    : Lexicon.Get("audio.meters.panel.missing_meter_display", ("key", def.Source.Key));
 
                 string detail = nameIsReported && pinnedToSlice
-                    ? "This radio reports a meter called " + def.Source.Key
-                      + ", but slice " + sliceNumber + " is not running, so there is nothing "
-                      + "to read. The setting is kept as you left it. Choosing the active "
-                      + "slice entry instead would follow whichever slice you are on."
-                    : "This radio is not reporting a meter by that name. "
-                      + "The setting is kept as you left it.";
+                    ? Lexicon.Get("audio.meters.panel.missing_slice_detail",
+                        ("key", def.Source.Key), ("slice", sliceNumber))
+                    : Lexicon.Get("audio.meters.panel.missing_meter_detail");
 
                 _sourceChoices.Add(new SourceChoice
                 {
@@ -472,7 +478,7 @@ public partial class MetersPanel : UserControl
             SourceCombo.Items.Clear();
             foreach (SourceChoice choice in _sourceChoices) SourceCombo.Items.Add(choice);
             AutomationProperties.SetName(SourceCombo,
-                $"Meter source, {_sourceChoices.Count} available");
+                Lexicon.Get("audio.meters.panel.source_combo_name", ("count", _sourceChoices.Count)));
         }
         finally
         {
@@ -494,16 +500,22 @@ public partial class MetersPanel : UserControl
         // knowledge; for the rest, Always is the honest answer.
         var known = LegacyMeterCatalog.Find(r.Name);
         string units = MeterReading.UnitsText(r.Units);
-        string label = r.Description.Length != 0 ? r.Name + " — " + r.Description : r.Name;
+        string label = r.Description.Length != 0
+            ? Lexicon.Get("audio.meters.panel.source_label",
+                ("name", r.Name), ("description", r.Description))
+            : r.Name;
 
         return new SourceChoice
         {
             Key = r.Name,
             SliceIndex = isSlice ? r.SourceIndex : -1,
-            Display = group.Label + ": " + label,
-            ShortName = isSlice ? r.Name + " on slice "
-                                  + r.SourceIndex.ToString(CultureInfo.CurrentCulture)
-                                : r.Name,
+            Display = Lexicon.Get("audio.meters.panel.source_display",
+                ("group", group.Label), ("label", label)),
+            ShortName = isSlice
+                ? Lexicon.Get("audio.meters.panel.short_name_on_slice",
+                    ("name", r.Name),
+                    ("slice", r.SourceIndex.ToString(CultureInfo.CurrentCulture)))
+                : r.Name,
             Range = new MeterRange
             {
                 Low = r.Low,
@@ -512,10 +524,17 @@ public partial class MetersPanel : UserControl
                 UnitsLabel = units,
             },
             Activation = known?.Activation ?? MeterActivation.Always,
-            Detail = "Range " + r.Low.ToString("0.##", CultureInfo.CurrentCulture)
-                   + " to " + r.High.ToString("0.##", CultureInfo.CurrentCulture)
-                   + (units.Length != 0 ? " " + units : "")
-                   + ", reading " + r.ValueText() + ".",
+            // Two keys rather than one with an optional " {units}" fragment —
+            // the unitless variant is a different sentence, not the same one
+            // with a hole in it.
+            Detail = Lexicon.Get(
+                units.Length != 0
+                    ? "audio.meters.panel.detail_range_reading"
+                    : "audio.meters.panel.detail_range_reading_no_units",
+                ("low", r.Low.ToString("0.##", CultureInfo.CurrentCulture)),
+                ("high", r.High.ToString("0.##", CultureInfo.CurrentCulture)),
+                ("units", units),
+                ("reading", r.ValueText())),
         };
     }
 
@@ -535,14 +554,17 @@ public partial class MetersPanel : UserControl
     {
         var known = LegacyMeterCatalog.Find(r.Name);
         string units = MeterReading.UnitsText(r.Units);
-        string label = r.Description.Length != 0 ? r.Name + " — " + r.Description : r.Name;
+        string label = r.Description.Length != 0
+            ? Lexicon.Get("audio.meters.panel.source_label",
+                ("name", r.Name), ("description", r.Description))
+            : r.Name;
 
         return new SourceChoice
         {
             Key = r.Name,
             SliceIndex = -1,
-            Display = "Active slice: " + label,
-            ShortName = r.Name + " on the active slice",
+            Display = Lexicon.Get("audio.meters.panel.active_slice_display", ("label", label)),
+            ShortName = Lexicon.Get("audio.meters.panel.short_name_active_slice", ("name", r.Name)),
             Range = new MeterRange
             {
                 Low = r.Low,
@@ -551,11 +573,13 @@ public partial class MetersPanel : UserControl
                 UnitsLabel = units,
             },
             Activation = known?.Activation ?? MeterActivation.Always,
-            Detail = "Follows whichever slice you are listening to, so it moves with you "
-                   + "instead of staying on one receiver. Range "
-                   + r.Low.ToString("0.##", CultureInfo.CurrentCulture)
-                   + " to " + r.High.ToString("0.##", CultureInfo.CurrentCulture)
-                   + (units.Length != 0 ? " " + units : "") + ".",
+            Detail = Lexicon.Get(
+                units.Length != 0
+                    ? "audio.meters.panel.active_slice_detail"
+                    : "audio.meters.panel.active_slice_detail_no_units",
+                ("low", r.Low.ToString("0.##", CultureInfo.CurrentCulture)),
+                ("high", r.High.ToString("0.##", CultureInfo.CurrentCulture)),
+                ("units", units)),
         };
     }
 
@@ -566,7 +590,8 @@ public partial class MetersPanel : UserControl
         {
             Key = key,
             SliceIndex = -1,
-            Display = entry.DisplayName + " (" + key + ")",
+            Display = Lexicon.Get("audio.meters.panel.catalog_display",
+                ("displayName", entry.DisplayName), ("key", key)),
             ShortName = entry.DisplayName,
             Range = new MeterRange
             {
@@ -576,8 +601,7 @@ public partial class MetersPanel : UserControl
                 UnitsLabel = entry.UnitsLabel,
             },
             Activation = entry.Activation,
-            Detail = "No radio connected, so this is the usual range for this meter "
-                   + "rather than one the radio has stated.",
+            Detail = Lexicon.Get("audio.meters.panel.catalog_detail"),
         };
     }
 
@@ -611,9 +635,11 @@ public partial class MetersPanel : UserControl
         // follows gets talked over.
         EarconPlayer.ToggleTone(AllMetersCheck.IsChecked == true);
         ScreenReaderOutput.Speak(
-            AllMetersCheck.IsChecked == true
-                ? $"Showing all {n} meters"
-                : $"Showing {n} common meters",
+            Lexicon.Get(
+                AllMetersCheck.IsChecked == true
+                    ? "audio.meters.panel.showing_all"
+                    : "audio.meters.panel.showing_common",
+                ("count", n)),
             VerbosityLevel.Terse);
     }
 
@@ -677,7 +703,8 @@ public partial class MetersPanel : UserControl
             PanText.Text = DescribePan(def.Pan);
 
             VolumeSlider.Value = Math.Clamp(def.Volume, 0f, 1f) * 100.0;
-            VolumeText.Text = ((int)Math.Round(VolumeSlider.Value)).ToString(CultureInfo.CurrentCulture) + " percent";
+            VolumeText.Text = Lexicon.Get("audio.meters.panel.percent",
+                ("percent", ((int)Math.Round(VolumeSlider.Value)).ToString(CultureInfo.CurrentCulture)));
 
             PitchLowBox.Text = ((int)def.PitchLowHz).ToString(CultureInfo.CurrentCulture);
             PitchHighBox.Text = ((int)def.PitchHighHz).ToString(CultureInfo.CurrentCulture);
@@ -696,11 +723,19 @@ public partial class MetersPanel : UserControl
     private static string DescribePan(float pan)
     {
         int percent = (int)Math.Round(Math.Clamp(pan, -1f, 1f) * 100f);
-        if (percent == 0) return "centre";
+        if (percent == 0) return Lexicon.Get("audio.meters.panel.pan_centre");
         int magnitude = Math.Abs(percent);
-        string side = percent < 0 ? "left" : "right";
-        return magnitude >= 100 ? "full " + side
-             : magnitude.ToString(CultureInfo.CurrentCulture) + " percent " + side;
+        bool left = percent < 0;
+        // Whole phrases per side rather than a bare "left" / "right" word glued
+        // onto a template. The side word alone is not reviewable, and languages
+        // do not all put it last.
+        if (magnitude >= 100)
+            return Lexicon.Get(left
+                ? "audio.meters.panel.pan_full_left"
+                : "audio.meters.panel.pan_full_right");
+        return Lexicon.Get(
+            left ? "audio.meters.panel.pan_left" : "audio.meters.panel.pan_right",
+            ("percent", magnitude.ToString(CultureInfo.CurrentCulture)));
     }
 
     #endregion
@@ -735,7 +770,8 @@ public partial class MetersPanel : UserControl
 
     private void VolumeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        VolumeText.Text = ((int)Math.Round(e.NewValue)).ToString(CultureInfo.CurrentCulture) + " percent";
+        VolumeText.Text = Lexicon.Get("audio.meters.panel.percent",
+            ("percent", ((int)Math.Round(e.NewValue)).ToString(CultureInfo.CurrentCulture)));
         if (_loading) return;
         MeterSlot? slot = SelectedSlot;
         if (slot != null) slot.Volume = (float)(e.NewValue / 100.0);
@@ -790,7 +826,7 @@ public partial class MetersPanel : UserControl
         MeterSlot? slot = MeterToneEngine.AddSlot();
         if (slot == null)
         {
-            ScreenReaderOutput.Speak("Maximum meters reached", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.panel.max_reached"), VerbosityLevel.Terse);
             return;
         }
 
@@ -799,7 +835,8 @@ public partial class MetersPanel : UserControl
         _selectedSlotId = slot.Definition.Id;
         RefreshSlotList();
         ScreenReaderOutput.Speak(
-            $"Meter {MeterToneEngine.Slots.Count} added", VerbosityLevel.Terse);
+            Lexicon.Get("audio.meters.panel.slot_added", ("number", MeterToneEngine.Slots.Count)),
+            VerbosityLevel.Terse);
         SlotCombo.Focus();
     }
 
@@ -813,7 +850,7 @@ public partial class MetersPanel : UserControl
 
         if (slots.Count <= 1)
         {
-            ScreenReaderOutput.Speak("Cannot delete the only meter", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.panel.cannot_delete_only"), VerbosityLevel.Terse);
             return;
         }
 
@@ -827,8 +864,8 @@ public partial class MetersPanel : UserControl
         // no sound. Found by pressing the button on a real build; it compiled
         // and reviewed clean. Ask for an owner, use the ownerless overload when
         // there isn't one.
-        string question = $"Delete the meter \"{name}\"? Its voice and pitch settings go with it.";
-        const string caption = "Delete meter";
+        string question = Lexicon.Get("audio.meters.panel.delete_question", ("name", name));
+        string caption = Lexicon.Get("audio.meters.panel.delete_caption");
         Window? owner = Window.GetWindow(this);
         MessageBoxResult answer = owner != null
             ? MessageBox.Show(owner, question, caption, MessageBoxButton.YesNo,
@@ -838,7 +875,7 @@ public partial class MetersPanel : UserControl
 
         if (answer != MessageBoxResult.Yes)
         {
-            ScreenReaderOutput.Speak($"{name} kept", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.panel.slot_kept", ("name", name)), VerbosityLevel.Terse);
             SlotCombo.Focus();
             return;
         }
@@ -849,7 +886,7 @@ public partial class MetersPanel : UserControl
 
         if (!MeterToneEngine.RemoveSlot(index))
         {
-            ScreenReaderOutput.Speak("Cannot delete the only meter", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.panel.cannot_delete_only"), VerbosityLevel.Terse);
             return;
         }
 
@@ -861,7 +898,9 @@ public partial class MetersPanel : UserControl
         RefreshSlotList();
 
         ScreenReaderOutput.Speak(
-            $"{name} deleted, {remaining.Count} meters remaining", VerbosityLevel.Terse);
+            Lexicon.Get("audio.meters.panel.slot_deleted",
+                ("name", name), ("remaining", remaining.Count)),
+            VerbosityLevel.Terse);
         SlotCombo.Focus();
     }
 
@@ -912,7 +951,7 @@ public partial class MetersPanel : UserControl
 
         MeterDefinition def = slot.Definition;
         string name = string.IsNullOrWhiteSpace(def.Name) ? def.Source.Key : def.Name;
-        ScreenReaderOutput.Speak($"Testing {name} tone", VerbosityLevel.Terse);
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.panel.testing_tone", ("name", name)), VerbosityLevel.Terse);
 
         slot.ToneProvider.Frequency = (def.PitchLowHz + def.PitchHighHz) / 2f;
         slot.ToneProvider.Volume = def.Volume * MeterToneEngine.MasterVolume;
