@@ -97,7 +97,7 @@ public partial class SettingsDialog
         }
 
         ScreenReaderOutput.Speak(
-            $"Update channel, {selected.ToDisplayString()}",
+            Lexicon.Get("settings.updates.channel_selected", ("channel", selected.ToDisplayString())),
             VerbosityLevel.Terse,
             interrupt: true);
     }
@@ -113,13 +113,10 @@ public partial class SettingsDialog
     private bool ConfirmNightlyConsent()
     {
         var confirm = new ConfirmActionDialog(
-            "Switch to Nightly Channel",
-            "Nightly builds come straight from the latest overnight compile. " +
-            "They include the freshest fixes but can also include brand-new " +
-            "bugs, and you may need to pick up the pieces if something goes " +
-            "wrong.",
-            question: "Switch to the nightly channel?",
-            yesLabel: "_Switch");
+            Lexicon.Get("settings.updates.nightly_confirm_title"),
+            Lexicon.Get("settings.updates.nightly_confirm_body"),
+            question: Lexicon.Get("settings.updates.nightly_confirm_question"),
+            yesLabel: Lexicon.Get("settings.updates.nightly_confirm_yes"));
 
         return confirm.ShowDialog() == true;
     }
@@ -132,7 +129,7 @@ public partial class SettingsDialog
 
         UpdateCheckNowButton.IsEnabled = false;
         ScreenReaderOutput.Speak(
-            "Checking for updates",
+            Lexicon.Get("settings.updates.checking"),
             VerbosityLevel.Terse,
             interrupt: true);
 
@@ -153,12 +150,14 @@ public partial class SettingsDialog
 
             if (available is null)
             {
+                string upToDate = Lexicon.Get("settings.updates.up_to_date",
+                    ("channel", _updaterSettings.Channel.ToDisplayString()));
                 ScreenReaderOutput.Speak(
-                    $"You're up to date on the {_updaterSettings.Channel.ToDisplayString()} channel.",
+                    upToDate,
                     VerbosityLevel.Critical, interrupt: true);
                 MessageBox.Show(this,
-                    $"You're up to date on the {_updaterSettings.Channel.ToDisplayString()} channel.",
-                    "Check for updates",
+                    upToDate,
+                    Lexicon.Get("settings.updates.check_message_box_title"),
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -173,10 +172,10 @@ public partial class SettingsDialog
         catch (Exception ex)
         {
             ScreenReaderOutput.Speak(
-                "Couldn't reach the update server. Check your network connection.",
+                Lexicon.Get("settings.updates.server_unreachable"),
                 VerbosityLevel.Critical, interrupt: true);
-            AdvisoryDialog.Show("Check for Updates",
-                "Couldn't reach the update server. Check your network connection.\n\n" + ex.Message);
+            AdvisoryDialog.Show(Lexicon.Get("settings.updates.check_advisory_title"),
+                Lexicon.Get("settings.updates.server_unreachable") + "\n\n" + ex.Message);
         }
         finally
         {
@@ -186,8 +185,9 @@ public partial class SettingsDialog
 
     private static string FormatLastCheck(DateTimeOffset? whenUtc)
     {
-        if (!whenUtc.HasValue) return "Last check: never";
+        if (!whenUtc.HasValue) return Lexicon.Get("settings.updates.last_check_never");
         var local = whenUtc.Value.ToLocalTime();
-        return "Last check: " + local.ToString("g", CultureInfo.CurrentCulture);
+        return Lexicon.Get("settings.updates.last_check_at",
+            ("when", local.ToString("g", CultureInfo.CurrentCulture)));
     }
 }

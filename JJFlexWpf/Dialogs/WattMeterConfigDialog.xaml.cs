@@ -58,14 +58,14 @@ namespace JJFlexWpf.Dialogs
             // Validate
             if (UsageList.SelectedIndex < 0)
             {
-                MessageBox.Show("You must select a usage mode.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.watt_meter.must_select_usage"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 UsageList.Focus();
                 return;
             }
             if (PowerTypeList.SelectedIndex < 0)
             {
-                MessageBox.Show("You must select a power type.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.watt_meter.must_select_power_type"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 PowerTypeList.Focus();
                 return;
@@ -73,7 +73,7 @@ namespace JJFlexWpf.Dialogs
             // Port not required if disposition is "don't use" (typically index 0)
             if (UsageList.SelectedIndex > 0 && PortList.SelectedIndex < 0)
             {
-                MessageBox.Show("You must select a COM port.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.watt_meter.must_select_port"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 PortList.Focus();
                 return;

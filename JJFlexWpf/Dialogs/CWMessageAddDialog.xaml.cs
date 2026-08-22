@@ -62,7 +62,7 @@ namespace JJFlexWpf.Dialogs
         {
             if (ExistingItem != null)
             {
-                Title = "Update this CW Message";
+                Title = Radios.Lexicon.Get("settings.cw_message.update_title");
                 KeyTextBox.Text = ExistingItem.KeyDisplay;
                 LabelTextBox.Text = ExistingItem.Label;
                 MessageTextBox.Text = ExistingItem.Message;
@@ -99,7 +99,7 @@ namespace JJFlexWpf.Dialogs
             // Check for duplicate
             if (IsKeyDuplicate != null && IsKeyDuplicate(key, modifiers))
             {
-                MessageBox.Show("This key is already defined.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.cw_message.key_already_defined"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -119,7 +119,7 @@ namespace JJFlexWpf.Dialogs
             if (!_keySpecified || string.IsNullOrWhiteSpace(MessageTextBox.Text) ||
                 string.IsNullOrWhiteSpace(LabelTextBox.Text))
             {
-                MessageBox.Show("You must specify a key, a label, and some text.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.cw_message.needs_key_label_and_text"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }

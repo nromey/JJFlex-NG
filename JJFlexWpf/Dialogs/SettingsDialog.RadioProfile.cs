@@ -126,7 +126,10 @@ namespace JJFlexWpf.Dialogs
                     items.Add(new RadioProfileItem
                     {
                         Id = id,
-                        Display = string.IsNullOrEmpty(cfg.DisplayName) ? id : $"{cfg.DisplayName} ({id})"
+                        Display = string.IsNullOrEmpty(cfg.DisplayName)
+                            ? id
+                            : Lexicon.Get("settings.profile.picker_named",
+                                ("displayName", cfg.DisplayName), ("id", id))
                     });
                 }
             }
@@ -136,7 +139,11 @@ namespace JJFlexWpf.Dialogs
             var connected = _rig?.ConnectedSerial;
             if (!string.IsNullOrEmpty(connected) && items.All(i => i.Id != connected))
             {
-                items.Insert(0, new RadioProfileItem { Id = connected, Display = $"{connected} (connected)" });
+                items.Insert(0, new RadioProfileItem
+                {
+                    Id = connected,
+                    Display = Lexicon.Get("settings.profile.picker_connected", ("connected", connected)),
+                });
             }
 
             RadioProfilePicker.ItemsSource = items;
@@ -149,9 +156,7 @@ namespace JJFlexWpf.Dialogs
             {
                 // An empty list must explain itself — a blank combo box reads
                 // as broken, especially through a screen reader.
-                RadioProfileStatusText.Text =
-                    "No radios known yet. Radios are remembered here after you connect to them once. " +
-                    "You can also type a radio's serial number above and press Apply or OK.";
+                RadioProfileStatusText.Text = Lexicon.Get("settings.profile.none_known");
             }
         }
 
@@ -247,19 +252,18 @@ namespace JJFlexWpf.Dialogs
                 _currentProfileNoPhysTouched = stashed?.NoPhysicalAccessTouched ?? false;
                 if (decided || _currentProfileNoPhysTouched)
                 {
-                    RadioProfileNoPhysicalAccessHint.Text = "Your choice, saved for this radio.";
+                    RadioProfileNoPhysicalAccessHint.Text =
+                        Lexicon.Get("settings.profile.no_physical_access_hint_saved");
                 }
                 else if (guess)
                 {
                     RadioProfileNoPhysicalAccessHint.Text =
-                        "Pre-set to checked because this radio was last reached remotely. " +
-                        "Override it if that is wrong — the guess only counts once you change or apply it.";
+                        Lexicon.Get("settings.profile.no_physical_access_hint_guess_remote");
                 }
                 else
                 {
                     RadioProfileNoPhysicalAccessHint.Text =
-                        "Pre-set to unchecked because this radio was last seen on your own network. " +
-                        "Override it if that is wrong.";
+                        Lexicon.Get("settings.profile.no_physical_access_hint_guess_local");
                 }
 
                 // The operator's chosen name wins when one exists — this box
@@ -294,31 +298,36 @@ namespace JJFlexWpf.Dialogs
         {
             string mode = cfg.ConnectionPreference switch
             {
-                RadioConnectionPreference.ForwardOnly => "forwarded ports only",
-                RadioConnectionPreference.HolePunch => "hole punch always",
-                _ => "automatic",
+                RadioConnectionPreference.ForwardOnly =>
+                    Lexicon.Get("settings.profile.describe_mode_forward_only"),
+                RadioConnectionPreference.HolePunch =>
+                    Lexicon.Get("settings.profile.describe_mode_hole_punch"),
+                _ => Lexicon.Get("settings.profile.describe_mode_automatic"),
             };
             string port = cfg.FixedHolePunchPort > 0
-                ? $", fixed hole-punch port {cfg.FixedHolePunchPort}"
+                ? Lexicon.Get("settings.profile.describe_fixed_punch_port",
+                    ("port", cfg.FixedHolePunchPort))
                 : "";
             // The waivers only speak when set — silence means the safe default,
             // and reciting two "not allowed" clauses on every radio would bury
             // the interesting part.
             string waivers =
                 cfg.AllowRemotePortChanges && cfg.AllowRemoteFirmwareUpdates
-                    ? " Remote port changes and remote firmware updates are allowed."
+                    ? Lexicon.Get("settings.profile.describe_waivers_both")
                 : cfg.AllowRemotePortChanges
-                    ? " Remote port changes are allowed."
+                    ? Lexicon.Get("settings.profile.describe_waivers_port")
                 : cfg.AllowRemoteFirmwareUpdates
-                    ? " Remote firmware updates are allowed."
+                    ? Lexicon.Get("settings.profile.describe_waivers_firmware")
                 : "";
             string reach = cfg.NoPhysicalAccessDecided && cfg.NoPhysicalAccess
-                ? " Marked as operated remotely, no physical access."
+                ? Lexicon.Get("settings.profile.describe_no_physical_access")
                 : "";
             string remOn = cfg.RemOnOnConnect switch
             {
-                RemOnOnConnectModes.TurnOn => " REM ON turns on at connect.",
-                RemOnOnConnectModes.TurnOff => " REM ON turns off at connect.",
+                RemOnOnConnectModes.TurnOn =>
+                    Lexicon.Get("settings.profile.describe_rem_on_turn_on"),
+                RemOnOnConnectModes.TurnOff =>
+                    Lexicon.Get("settings.profile.describe_rem_on_turn_off"),
                 _ => "",
             };
             // Only the decided states speak. Undecided is the default on every
@@ -326,8 +335,10 @@ namespace JJFlexWpf.Dialogs
             // on each one would bury the radios that HAVE an answer.
             string smartLink = cfg.SmartLinkIntent switch
             {
-                SmartLinkIntents.LocalOnly => " Local only, no SmartLink prompts.",
-                SmartLinkIntents.WantsSmartLink => " Meant to be reachable from away.",
+                SmartLinkIntents.LocalOnly =>
+                    Lexicon.Get("settings.profile.describe_smartlink_local_only"),
+                SmartLinkIntents.WantsSmartLink =>
+                    Lexicon.Get("settings.profile.describe_smartlink_wants"),
                 _ => "",
             };
             // Same rule as the two above: only the answered states speak.
@@ -335,11 +346,14 @@ namespace JJFlexWpf.Dialogs
             // ones that have an answer.
             string owned = cfg.Ownership switch
             {
-                RadioOwnership.Mine => " Yours.",
-                RadioOwnership.SomeoneElses => " Someone else's.",
+                RadioOwnership.Mine => Lexicon.Get("settings.profile.describe_owned_mine"),
+                RadioOwnership.SomeoneElses =>
+                    Lexicon.Get("settings.profile.describe_owned_someone_elses"),
                 _ => "",
             };
-            return $"Profile: {mode}{port}.{waivers}{reach}{remOn}{smartLink}{owned}";
+            return Lexicon.Get("settings.profile.describe",
+                ("mode", mode), ("port", port), ("waivers", waivers), ("reach", reach),
+                ("remOn", remOn), ("smartLink", smartLink), ("owned", owned));
         }
 
         private void RadioProfileMode_Checked(object sender, RoutedEventArgs e)
@@ -349,10 +363,13 @@ namespace JJFlexWpf.Dialogs
             // change that SOUNDS applied but quietly needs a commit is the
             // dishonest-speech pattern this dialog exists to avoid.
             string announcement =
-                RadioProfilePunchRadio?.IsChecked == true ? "Hole punch always." :
-                RadioProfileForwardRadio?.IsChecked == true ? "Forwarded ports only." :
-                "Automatic, follow what the radio reports.";
-            ScreenReaderOutput.Speak(announcement + " Press Apply or OK to keep it.",
+                RadioProfilePunchRadio?.IsChecked == true
+                    ? Lexicon.Get("settings.profile.mode_hole_punch") :
+                RadioProfileForwardRadio?.IsChecked == true
+                    ? Lexicon.Get("settings.profile.mode_forward_only") :
+                Lexicon.Get("settings.profile.mode_automatic");
+            ScreenReaderOutput.Speak(
+                announcement + " " + Lexicon.Get("settings.profile.press_apply_or_ok"),
                 VerbosityLevel.Terse, interrupt: true);
         }
 
@@ -367,8 +384,11 @@ namespace JJFlexWpf.Dialogs
             if (!on)
             {
                 ScreenReaderOutput.Speak(
-                    $"{(isPort ? "Remote port changes" : "Remote firmware updates")} not allowed. " +
-                    "Press Apply or OK to keep it.",
+                    Lexicon.Get("settings.profile.remote_admin_not_allowed",
+                        ("what", isPort
+                            ? Lexicon.Get("settings.profile.remote_port_changes_label")
+                            : Lexicon.Get("settings.profile.remote_firmware_updates_label"))) +
+                    Lexicon.Get("settings.profile.press_apply_or_ok"),
                     VerbosityLevel.Terse, interrupt: true);
                 return;
             }
@@ -378,13 +398,8 @@ namespace JJFlexWpf.Dialogs
             // it matters, and no warning repeats at use time. The text also
             // lands in the status line so it can be re-read, not just heard.
             string warning = isPort
-                ? "Remote port changes allowed. Anyone who connects to this radio through its SmartLink " +
-                  "account will be able to change its port settings from anywhere. If a change goes wrong " +
-                  "while nobody is at the radio, hole punch remains the way back in. Press Apply or OK to keep it."
-                : "Remote firmware updates allowed. Firmware can then be sent without anyone at the radio to " +
-                  "confirm. An interrupted firmware update is the one thing that can leave a radio needing a " +
-                  "service visit — and nobody will be there. Leave this off unless it is truly your only " +
-                  "option. Press Apply or OK to keep it.";
+                ? Lexicon.Get("settings.profile.remote_port_allowed_warning")
+                : Lexicon.Get("settings.profile.remote_firmware_allowed_warning");
             RadioProfileStatusText.Text = warning;
             ScreenReaderOutput.Speak(warning, VerbosityLevel.Terse, interrupt: true);
         }
@@ -395,12 +410,13 @@ namespace JJFlexWpf.Dialogs
             string what = RadioProfileRemOnCombo.SelectedIndex switch
             {
                 (int)RemOnOnConnectModes.TurnOn =>
-                    "REM ON will be turned on when you connect. It only works if the RCA jack is wired to a relay.",
+                    Lexicon.Get("settings.profile.rem_on_turn_on"),
                 (int)RemOnOnConnectModes.TurnOff =>
-                    "REM ON will be turned off when you connect.",
-                _ => "REM ON left as the radio has it.",
+                    Lexicon.Get("settings.profile.rem_on_turn_off"),
+                _ => Lexicon.Get("settings.profile.rem_on_leave_alone"),
             };
-            ScreenReaderOutput.Speak(what + " Press Apply or OK to keep it.",
+            ScreenReaderOutput.Speak(
+                what + " " + Lexicon.Get("settings.profile.press_apply_or_ok"),
                 VerbosityLevel.Terse, interrupt: true);
         }
 
@@ -416,12 +432,13 @@ namespace JJFlexWpf.Dialogs
             string what = RadioProfileSmartLinkIntentCombo.SelectedIndex switch
             {
                 (int)SmartLinkIntents.LocalOnly =>
-                    "Local only. Registering this radio with SmartLink will not be raised again.",
+                    Lexicon.Get("settings.profile.smartlink_local_only"),
                 (int)SmartLinkIntents.WantsSmartLink =>
-                    "Meant to be reachable from away. Registration reminders stay on for this radio.",
-                _ => "You will be asked about reaching this radio from away when it next comes up.",
+                    Lexicon.Get("settings.profile.smartlink_wants"),
+                _ => Lexicon.Get("settings.profile.smartlink_unanswered"),
             };
-            ScreenReaderOutput.Speak(what + " Press Apply or OK to keep it.",
+            ScreenReaderOutput.Speak(
+                what + " " + Lexicon.Get("settings.profile.press_apply_or_ok"),
                 VerbosityLevel.Terse, interrupt: true);
         }
 
@@ -444,15 +461,14 @@ namespace JJFlexWpf.Dialogs
             string what = RadioProfileOwnershipCombo.SelectedIndex switch
             {
                 (int)RadioOwnership.Mine =>
-                    "Yours. JJ Flex can create settings on this radio itself without asking each time.",
+                    Lexicon.Get("settings.profile.ownership_mine"),
                 (int)RadioOwnership.SomeoneElses =>
-                    "Someone else's. JJ Flex will not create anything new on this radio, and will "
-                    + "stop asking. Anything you have already set up for it keeps working.",
+                    Lexicon.Get("settings.profile.ownership_someone_elses"),
                 _ =>
-                    "Not answered. JJ Flex will ask the next time something needs to be created on "
-                    + "this radio.",
+                    Lexicon.Get("settings.profile.ownership_unanswered"),
             };
-            ScreenReaderOutput.Speak(what + " Press Apply or OK to keep it.",
+            ScreenReaderOutput.Speak(
+                what + " " + Lexicon.Get("settings.profile.press_apply_or_ok"),
                 VerbosityLevel.Terse, interrupt: true);
         }
 
@@ -472,7 +488,8 @@ namespace JJFlexWpf.Dialogs
         {
             if (_suppressRadioProfileEvents) return;
             _currentProfileNoPhysTouched = true;
-            RadioProfileNoPhysicalAccessHint.Text = "Your choice, saved when you press Apply or OK.";
+            RadioProfileNoPhysicalAccessHint.Text =
+                Lexicon.Get("settings.profile.no_physical_access_hint_pending");
 
             bool nowChecked = RadioProfileNoPhysicalAccessCheck.IsChecked == true;
             if (nowChecked)
@@ -489,8 +506,7 @@ namespace JJFlexWpf.Dialogs
 
             if (!needRemOn && !needPort && !needFw)
             {
-                string done = "No physical access noted. The settings it implies are already in place. " +
-                              "Press Apply or OK to keep the flag.";
+                string done = Lexicon.Get("settings.profile.cascade_on_already_set");
                 RadioProfileStatusText.Text = done;
                 ScreenReaderOutput.Speak(done, VerbosityLevel.Terse, interrupt: true);
                 return;
@@ -498,20 +514,11 @@ namespace JJFlexWpf.Dialogs
 
             var warnings = new List<string>();
             if (needRemOn)
-                warnings.Add(
-                    "REM ON when connecting: turn on. REM ON is the only remote way back from a powered-off " +
-                    "radio. Hardware matters — it does nothing unless the REM ON RCA jack on the back panel " +
-                    "is wired to a relay or keying device. If yours is not wired, this setting alone will " +
-                    "not save you.");
+                warnings.Add(Lexicon.Get("settings.profile.cascade_on_warning_rem_on"));
             if (needPort)
-                warnings.Add(
-                    "Allow changing port settings from a remote connection: on. Without it, port settings " +
-                    "can only be changed by someone at the radio — which for this radio is nobody.");
+                warnings.Add(Lexicon.Get("settings.profile.cascade_on_warning_port"));
             if (needFw)
-                warnings.Add(
-                    "Allow firmware updates without someone at the radio: on. This only unlocks the option; " +
-                    "every update still asks first. An interrupted update is the one thing that can leave a " +
-                    "radio needing a service visit, so treat remote updates as a last resort.");
+                warnings.Add(Lexicon.Get("settings.profile.cascade_on_warning_firmware"));
 
             bool proceed;
             if (AdvisorySuppression.IsSuppressed(NoPhysicalAccessCascadeKey))
@@ -521,14 +528,12 @@ namespace JJFlexWpf.Dialogs
             else
             {
                 var confirm = new ConfirmActionDialog(
-                    "A Radio Nobody Can Walk To",
-                    "You marked this radio as operated remotely, with no one able to reach its front panel. " +
-                    "A radio like that needs its safety net set up in advance — once something goes wrong, " +
-                    "there is no walking over to fix it. JJ Flex suggests these settings for it:",
+                    Lexicon.Get("settings.profile.cascade_on_confirm_title"),
+                    Lexicon.Get("settings.profile.cascade_on_confirm_body"),
                     warnings,
-                    question: "Set them now? They save when you press Apply or OK.",
-                    yesLabel: "_Set them",
-                    noLabel: "_Just the flag",
+                    question: Lexicon.Get("settings.profile.cascade_on_confirm_question"),
+                    yesLabel: Lexicon.Get("settings.profile.cascade_on_confirm_yes"),
+                    noLabel: Lexicon.Get("settings.profile.cascade_on_confirm_no"),
                     suppressKey: NoPhysicalAccessCascadeKey)
                 {
                     Owner = this,
@@ -538,8 +543,7 @@ namespace JJFlexWpf.Dialogs
 
             if (!proceed)
             {
-                string kept = "Marked as no physical access. The suggested settings were left unchanged. " +
-                              "Press Apply or OK to keep the flag.";
+                string kept = Lexicon.Get("settings.profile.cascade_on_declined");
                 RadioProfileStatusText.Text = kept;
                 ScreenReaderOutput.Speak(kept, VerbosityLevel.Terse, interrupt: true);
                 return;
@@ -552,17 +556,17 @@ namespace JJFlexWpf.Dialogs
                 if (needRemOn)
                 {
                     RadioProfileRemOnCombo.SelectedIndex = (int)RemOnOnConnectModes.TurnOn;
-                    changed.Add("REM ON when connecting: turn on. Only works if the RCA jack is wired to a relay.");
+                    changed.Add(Lexicon.Get("settings.profile.cascade_on_changed_rem_on"));
                 }
                 if (needPort)
                 {
                     RadioProfileAllowRemotePortCheck.IsChecked = true;
-                    changed.Add("Allow changing port settings from a remote connection: on.");
+                    changed.Add(Lexicon.Get("settings.profile.cascade_on_changed_port"));
                 }
                 if (needFw)
                 {
                     RadioProfileAllowRemoteFirmwareCheck.IsChecked = true;
-                    changed.Add("Allow firmware updates without someone at the radio: on.");
+                    changed.Add(Lexicon.Get("settings.profile.cascade_on_changed_firmware"));
                 }
             }
             finally
@@ -574,14 +578,15 @@ namespace JJFlexWpf.Dialogs
             // braille-reachable, acknowledged. Fires per radio, every time,
             // even when the teaching above was suppressed.
             AdvisoryDialog.Show(
-                "No Physical Access — What Changed",
-                "Because you marked this radio as operated remotely, these settings were changed for it:\n\n"
+                Lexicon.Get("settings.profile.cascade_on_receipt_title"),
+                Lexicon.Get("settings.profile.cascade_on_receipt_lead")
                 + string.Join("\n", changed)
-                + "\n\nNothing is saved yet — they take effect when you press Apply or OK. "
-                + "REM ON is applied at the next connection to this radio.");
+                + Lexicon.Get("settings.profile.cascade_on_receipt_tail"));
 
             RadioProfileStatusText.Text =
-                "Marked as no physical access. " + string.Join(" ", changed) + " Press Apply or OK to keep it all.";
+                Lexicon.Get("settings.profile.cascade_on_status_lead")
+                + string.Join(" ", changed)
+                + Lexicon.Get("settings.profile.cascade_status_tail");
         }
 
         private void RunNoPhysicalAccessCascadeOff()
@@ -592,8 +597,7 @@ namespace JJFlexWpf.Dialogs
 
             if (!revRemOn && !revPort && !revFw)
             {
-                string done = "No longer marked as no physical access. Nothing else needed changing. " +
-                              "Press Apply or OK to keep it.";
+                string done = Lexicon.Get("settings.profile.cascade_off_nothing_to_undo");
                 RadioProfileStatusText.Text = done;
                 ScreenReaderOutput.Speak(done, VerbosityLevel.Terse, interrupt: true);
                 return;
@@ -601,11 +605,11 @@ namespace JJFlexWpf.Dialogs
 
             var warnings = new List<string>();
             if (revRemOn)
-                warnings.Add("REM ON when connecting: back to leaving it as the radio has it.");
+                warnings.Add(Lexicon.Get("settings.profile.cascade_off_warning_rem_on"));
             if (revPort)
-                warnings.Add("Allow changing port settings from a remote connection: off.");
+                warnings.Add(Lexicon.Get("settings.profile.cascade_off_warning_port"));
             if (revFw)
-                warnings.Add("Allow firmware updates without someone at the radio: off.");
+                warnings.Add(Lexicon.Get("settings.profile.cascade_off_warning_firmware"));
 
             bool proceed;
             if (AdvisorySuppression.IsSuppressed(NoPhysicalAccessCascadeKey))
@@ -615,14 +619,12 @@ namespace JJFlexWpf.Dialogs
             else
             {
                 var confirm = new ConfirmActionDialog(
-                    "Reachable Again",
-                    "You un-marked this radio as operated remotely. JJ Flex can put the settings that came " +
-                    "with the mark back to their defaults. Only the ones still in the marked state are " +
-                    "listed — anything you tuned by hand since is not touched:",
+                    Lexicon.Get("settings.profile.cascade_off_confirm_title"),
+                    Lexicon.Get("settings.profile.cascade_off_confirm_body"),
                     warnings,
-                    question: "Put them back? They save when you press Apply or OK.",
-                    yesLabel: "_Put them back",
-                    noLabel: "_Leave them set",
+                    question: Lexicon.Get("settings.profile.cascade_off_confirm_question"),
+                    yesLabel: Lexicon.Get("settings.profile.cascade_off_confirm_yes"),
+                    noLabel: Lexicon.Get("settings.profile.cascade_off_confirm_no"),
                     suppressKey: NoPhysicalAccessCascadeKey)
                 {
                     Owner = this,
@@ -632,8 +634,7 @@ namespace JJFlexWpf.Dialogs
 
             if (!proceed)
             {
-                string kept = "No longer marked as no physical access. The remote-operation settings stay " +
-                              "as they are. Press Apply or OK to keep the flag change.";
+                string kept = Lexicon.Get("settings.profile.cascade_off_declined");
                 RadioProfileStatusText.Text = kept;
                 ScreenReaderOutput.Speak(kept, VerbosityLevel.Terse, interrupt: true);
                 return;
@@ -646,17 +647,17 @@ namespace JJFlexWpf.Dialogs
                 if (revRemOn)
                 {
                     RadioProfileRemOnCombo.SelectedIndex = (int)RemOnOnConnectModes.LeaveAlone;
-                    changed.Add("REM ON when connecting: leave it as the radio has it.");
+                    changed.Add(Lexicon.Get("settings.profile.cascade_off_changed_rem_on"));
                 }
                 if (revPort)
                 {
                     RadioProfileAllowRemotePortCheck.IsChecked = false;
-                    changed.Add("Allow changing port settings from a remote connection: off.");
+                    changed.Add(Lexicon.Get("settings.profile.cascade_off_warning_port"));
                 }
                 if (revFw)
                 {
                     RadioProfileAllowRemoteFirmwareCheck.IsChecked = false;
-                    changed.Add("Allow firmware updates without someone at the radio: off.");
+                    changed.Add(Lexicon.Get("settings.profile.cascade_off_warning_firmware"));
                 }
             }
             finally
@@ -665,14 +666,15 @@ namespace JJFlexWpf.Dialogs
             }
 
             AdvisoryDialog.Show(
-                "Reachable Again — What Changed",
-                "Because you un-marked this radio as operated remotely, these settings were put back:\n\n"
+                Lexicon.Get("settings.profile.cascade_off_receipt_title"),
+                Lexicon.Get("settings.profile.cascade_off_receipt_lead")
                 + string.Join("\n", changed)
-                + "\n\nNothing is saved yet — they take effect when you press Apply or OK.");
+                + Lexicon.Get("settings.profile.cascade_off_receipt_tail"));
 
             RadioProfileStatusText.Text =
-                "No longer marked as no physical access. " + string.Join(" ", changed) +
-                " Press Apply or OK to keep it all.";
+                Lexicon.Get("settings.profile.cascade_off_status_lead")
+                + string.Join(" ", changed)
+                + Lexicon.Get("settings.profile.cascade_status_tail");
         }
 
         /// <summary>
@@ -745,8 +747,9 @@ namespace JJFlexWpf.Dialogs
                         if (item != null) RadioProfilePicker.SelectedItem = item;
                     }
                     RadioProfileStatusText.Text =
-                        $"The fixed hole-punch port for {radioId} must be a number between 1024 and 65535, or blank.";
-                    ScreenReaderOutput.Speak("Invalid hole-punch port.", VerbosityLevel.Terse, interrupt: true);
+                        Lexicon.Get("settings.profile.punch_port_invalid", ("radioId", radioId));
+                    ScreenReaderOutput.Speak(Lexicon.Get("settings.profile.punch_port_invalid_spoken"),
+                        VerbosityLevel.Terse, interrupt: true);
                     RadioProfilePunchPortBox.Focus();
                     return false;
                 }
@@ -758,7 +761,10 @@ namespace JJFlexWpf.Dialogs
             {
                 var cfg = RadioConfig.LoadForRadio(radioId);
                 bool connected = IsConnectedTo(radioId);
-                string disp = string.IsNullOrEmpty(cfg.DisplayName) ? radioId : $"{cfg.DisplayName} ({radioId})";
+                string disp = string.IsNullOrEmpty(cfg.DisplayName)
+                    ? radioId
+                    : Lexicon.Get("settings.profile.picker_named",
+                        ("displayName", cfg.DisplayName), ("id", radioId));
                 var notesQueued = new List<string>();
                 var notesApplied = new List<string>();
                 bool changed = false;
@@ -785,20 +791,29 @@ namespace JJFlexWpf.Dialogs
                     cfg.ConnectionPreference = edit.Preference;
                     cfg.FixedHolePunchPort = punchPort;
                     changed = true;
-                    notesQueued.Add($"{disp}: connection settings saved. They apply from the next connection to it.");
+                    notesQueued.Add(Lexicon.Get("settings.profile.saved_connection_settings",
+                        ("disp", disp)));
                 }
 
                 if (cfg.AllowRemotePortChanges != edit.AllowRemotePort)
                 {
                     cfg.AllowRemotePortChanges = edit.AllowRemotePort;
                     changed = true;
-                    notesApplied.Add($"{disp}: remote port changes {(edit.AllowRemotePort ? "allowed" : "not allowed")}.");
+                    notesApplied.Add(Lexicon.Get("settings.profile.saved_remote_port",
+                        ("disp", disp),
+                        ("state", edit.AllowRemotePort
+                            ? Lexicon.Get("settings.profile.word_allowed")
+                            : Lexicon.Get("settings.profile.word_not_allowed"))));
                 }
                 if (cfg.AllowRemoteFirmwareUpdates != edit.AllowRemoteFirmware)
                 {
                     cfg.AllowRemoteFirmwareUpdates = edit.AllowRemoteFirmware;
                     changed = true;
-                    notesApplied.Add($"{disp}: remote firmware updates {(edit.AllowRemoteFirmware ? "allowed" : "not allowed")}.");
+                    notesApplied.Add(Lexicon.Get("settings.profile.saved_remote_firmware",
+                        ("disp", disp),
+                        ("state", edit.AllowRemoteFirmware
+                            ? Lexicon.Get("settings.profile.word_allowed")
+                            : Lexicon.Get("settings.profile.word_not_allowed"))));
                 }
 
                 // The no-physical-access flag becomes a decision only when the
@@ -811,8 +826,8 @@ namespace JJFlexWpf.Dialogs
                     cfg.NoPhysicalAccessDecided = true;
                     changed = true;
                     notesApplied.Add(edit.NoPhysicalAccess
-                        ? $"{disp}: marked as operated remotely, no physical access."
-                        : $"{disp}: marked as reachable in person.");
+                        ? Lexicon.Get("settings.profile.saved_no_physical_access", ("disp", disp))
+                        : Lexicon.Get("settings.profile.saved_reachable_in_person", ("disp", disp)));
                 }
 
                 if (cfg.SmartLinkIntent != edit.SmartLinkIntent)
@@ -822,11 +837,10 @@ namespace JJFlexWpf.Dialogs
                     notesApplied.Add(edit.SmartLinkIntent switch
                     {
                         SmartLinkIntents.LocalOnly =>
-                            $"{disp}: marked local only. Nothing about registering it with "
-                            + "SmartLink will come up again.",
+                            Lexicon.Get("settings.profile.saved_smartlink_local_only", ("disp", disp)),
                         SmartLinkIntents.WantsSmartLink =>
-                            $"{disp}: marked as one you want to reach from away.",
-                        _ => $"{disp}: you will be asked about reaching it from away again.",
+                            Lexicon.Get("settings.profile.saved_smartlink_wants", ("disp", disp)),
+                        _ => Lexicon.Get("settings.profile.saved_smartlink_unanswered", ("disp", disp)),
                     });
                 }
 
@@ -837,14 +851,11 @@ namespace JJFlexWpf.Dialogs
                     notesApplied.Add(edit.Ownership switch
                     {
                         RadioOwnership.Mine =>
-                            $"{disp}: marked as yours. JJ Flex can create settings on it without "
-                            + "asking each time.",
+                            Lexicon.Get("settings.profile.saved_owned_mine", ("disp", disp)),
                         RadioOwnership.SomeoneElses =>
-                            $"{disp}: marked as someone else's. Nothing new will be created on it, "
-                            + "and anything you already set up for it keeps working.",
+                            Lexicon.Get("settings.profile.saved_owned_someone_elses", ("disp", disp)),
                         _ =>
-                            $"{disp}: whose radio it is is unanswered again. You will be asked the "
-                            + "next time something needs to be created on it.",
+                            Lexicon.Get("settings.profile.saved_owned_unanswered", ("disp", disp)),
                     });
                 }
 
@@ -854,7 +865,8 @@ namespace JJFlexWpf.Dialogs
                     changed = true;
                     if (edit.RemOn == RemOnOnConnectModes.LeaveAlone)
                     {
-                        notesApplied.Add($"{disp}: REM ON will be left as the radio has it.");
+                        notesApplied.Add(Lexicon.Get("settings.profile.saved_rem_on_leave_alone",
+                            ("disp", disp)));
                     }
                     else
                     {
@@ -865,14 +877,21 @@ namespace JJFlexWpf.Dialogs
                             // apply now, applies now, and keeps applying at each
                             // future connect.
                             _rig!.RemoteOnEnabled = wantOn;
-                            notesApplied.Add($"{disp}: REM ON turned {(wantOn ? "on" : "off")} on the radio now, " +
-                                "and will be re-checked at each connect.");
+                            notesApplied.Add(Lexicon.Get("settings.profile.saved_rem_on_applied_now",
+                                ("disp", disp),
+                                ("state", wantOn
+                                    ? Lexicon.Get("settings.profile.word_on")
+                                    : Lexicon.Get("settings.profile.word_off"))));
                         }
                         else
                         {
-                            notesQueued.Add($"{disp}: REM ON will be turned {(wantOn ? "on" : "off")} at the next " +
-                                "connection to it." + (wantOn
-                                    ? " It only works if the REM ON RCA jack is wired to a relay."
+                            notesQueued.Add(Lexicon.Get("settings.profile.saved_rem_on_queued",
+                                ("disp", disp),
+                                ("state", wantOn
+                                    ? Lexicon.Get("settings.profile.word_on")
+                                    : Lexicon.Get("settings.profile.word_off")))
+                                + (wantOn
+                                    ? Lexicon.Get("settings.profile.saved_rem_on_queued_relay_note")
                                     : ""));
                         }
                     }
@@ -886,8 +905,8 @@ namespace JJFlexWpf.Dialogs
                 bool nicknameDirty = edit.NicknameText != edit.LoadedNickname;
                 if (nicknameDirty && edit.NicknameText.Length == 0 && !string.IsNullOrEmpty(cfg.DisplayName))
                 {
-                    notesApplied.Add($"{disp}: the name box was empty, so the radio keeps its name, {cfg.DisplayName} — " +
-                        "a radio with no name would show as Unknown everywhere.");
+                    notesApplied.Add(Lexicon.Get("settings.profile.name_box_empty_kept",
+                        ("disp", disp), ("displayName", cfg.DisplayName)));
                     if (string.Equals(_currentProfileRadioId, radioId, StringComparison.OrdinalIgnoreCase))
                         RadioProfileNicknameBox.Text = cfg.DisplayName;
                 }
@@ -896,15 +915,17 @@ namespace JJFlexWpf.Dialogs
                     if (connected)
                     {
                         if (_rig!.RenameRadio(edit.NicknameText))
-                            notesApplied.Add($"The radio is now named {edit.NicknameText}.");
+                            notesApplied.Add(Lexicon.Get("settings.radio.name.renamed",
+                                ("newName", edit.NicknameText)));
                         else
-                            notesApplied.Add($"{disp}: the radio itself could not be renamed; the name shown in " +
-                                "the radio list was updated.");
+                            notesApplied.Add(
+                                Lexicon.Get("settings.profile.rename_failed_locally_updated",
+                                    ("disp", disp)));
                     }
                     else
                     {
-                        notesQueued.Add($"{disp}: shows as {edit.NicknameText} in your radio list now. The radio " +
-                            "itself keeps its old name until you apply this while connected to it.");
+                        notesQueued.Add(Lexicon.Get("settings.profile.rename_queued",
+                            ("disp", disp), ("newName", edit.NicknameText)));
                     }
                     // The typed name is a CHOICE. It survives sightings — the
                     // observation field (Nickname) keeps tracking what the
@@ -937,7 +958,7 @@ namespace JJFlexWpf.Dialogs
                 }
                 else
                 {
-                    string failNote = $"{disp}: the profile could not be saved. See the trace file for details.";
+                    string failNote = Lexicon.Get("settings.profile.save_failed", ("disp", disp));
                     applied.Add(failNote);
                     tabNotes.Add(failNote);
                 }

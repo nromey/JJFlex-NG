@@ -78,12 +78,9 @@ namespace JJFlexWpf.Dialogs
         {
             PathLearningThresholdPanel.IsEnabled = cfg.LearnFromHistory;
             PathLearningStatusText.Text = cfg.LearnFromHistory
-                ? $"On. A radio has to connect the same way {cfg.TrendThreshold} times running "
-                  + "before JJ Flexible tries that way first, and only for radios you have not "
-                  + "already chosen a path for."
-                : "Off. Nothing is prefilled from history, and the number of connects is not "
-                  + "used, so it is switched off above. Connection paths you chose yourself are "
-                  + "unaffected; radios without a choice try the local network first.";
+                ? Lexicon.Get("settings.path_learning.status_on",
+                    ("threshold", cfg.TrendThreshold))
+                : Lexicon.Get("settings.path_learning.status_off");
         }
 
         /// <summary>Save and report. Returns the setting actually in force,
@@ -104,8 +101,7 @@ namespace JJFlexWpf.Dialogs
                 // truth about how long it will last.
                 ConnectPathLearningConfig.Invalidate();
                 ScreenReaderOutput.Speak(
-                    what + " This could not be written to disk, so it may not be here next "
-                    + "time you start. Your trace file has the reason.",
+                    Lexicon.Get("settings.path_learning.not_written", ("what", what)),
                     VerbosityLevel.Terse, interrupt: true);
             }
             else
@@ -130,9 +126,8 @@ namespace JJFlexWpf.Dialogs
             // fails, and CommitPathLearning reports that failure in words).
             EarconPlayer.ToggleTone(on);
             CommitPathLearning(cfg, on
-                ? $"Learning the connection path is on, after {cfg.TrendThreshold} connects in a row the same way."
-                : "Learning the connection path is off. Nothing will be prefilled from history. "
-                  + "Paths you chose yourself are unaffected.");
+                ? Lexicon.Get("settings.path_learning.turned_on", ("threshold", cfg.TrendThreshold))
+                : Lexicon.Get("settings.path_learning.turned_off"));
         }
 
         private void PathLearningThresholdCombo_SelectionChanged(
@@ -154,7 +149,7 @@ namespace JJFlexWpf.Dialogs
             // Contrast the connection-path combo (#107), where the item text
             // says everything and the extra sentence was pure repetition.
             CommitPathLearning(cfg,
-                $"{wanted} connects in a row before JJ Flexible tries a radio's usual path first.");
+                Lexicon.Get("settings.path_learning.threshold_set", ("wanted", wanted)));
         }
 
         /// <summary>
@@ -166,44 +161,40 @@ namespace JJFlexWpf.Dialogs
         private void PathLearningForgetButton_Click(object sender, RoutedEventArgs e)
         {
             var confirm = new ConfirmActionDialog(
-                "Forget What Has Been Learned",
-                "JJ Flexible works out a radio's usual connection path by reading that radio's "
-                + "own connection history. There is nowhere else it is written down, so forgetting "
-                + "what was learned means clearing that history.",
+                Lexicon.Get("settings.path_learning.forget_title"),
+                Lexicon.Get("settings.path_learning.forget_body"),
                 new[]
                 {
-                    "Every radio this computer knows loses its record of the last ten connection "
-                    + "attempts: which way each one went, whether it worked, and how long it took.",
-                    "That record is also what answers 'how long is my connect actually taking', "
-                    + "so a support conversation about a slow connection starts from nothing again.",
-                    "Connection paths you chose yourself are NOT touched. Only what JJ Flexible "
-                    + "worked out on its own goes away.",
-                    "It starts learning again from the next connection.",
+                    Lexicon.Get("settings.path_learning.forget_warning_history"),
+                    Lexicon.Get("settings.path_learning.forget_warning_support"),
+                    Lexicon.Get("settings.path_learning.forget_warning_choices_kept"),
+                    Lexicon.Get("settings.path_learning.forget_warning_relearns"),
                 },
-                question: "Clear the connection history for every radio?",
-                yesLabel: "_Forget it",
-                noLabel: "_Keep it")
+                question: Lexicon.Get("settings.path_learning.forget_question"),
+                yesLabel: Lexicon.Get("settings.path_learning.forget_yes"),
+                noLabel: Lexicon.Get("settings.path_learning.forget_no"))
             {
                 Owner = this,
             };
 
             if (confirm.ShowDialog() != true)
             {
-                ScreenReaderOutput.Speak("Nothing was cleared.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.path_learning.nothing_cleared"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             var (cleared, failed) = ConnectionHistory.ClearAll();
 
+            string plural = cleared == 1 ? string.Empty : Lexicon.Get("settings.plural_s");
             string result =
                 cleared == 0 && failed == 0
-                    ? "There was no connection history to clear."
+                    ? Lexicon.Get("settings.path_learning.nothing_to_clear")
                 : failed > 0
-                    ? $"Cleared the connection history for {cleared} radio{(cleared == 1 ? "" : "s")}. "
-                      + $"{failed} could not be cleared — your trace file has the reason, and "
-                      + "those radios may still follow their old habit."
-                    : $"Cleared the connection history for {cleared} radio{(cleared == 1 ? "" : "s")}. "
-                      + "Learning starts again from the next connection.";
+                    ? Lexicon.Get("settings.path_learning.cleared_with_failures",
+                        ("cleared", cleared), ("plural", plural), ("failed", failed))
+                    : Lexicon.Get("settings.path_learning.cleared",
+                        ("cleared", cleared), ("plural", plural));
 
             PathLearningStatusText.Text = result;
             ScreenReaderOutput.Speak(result, VerbosityLevel.Terse, interrupt: true);

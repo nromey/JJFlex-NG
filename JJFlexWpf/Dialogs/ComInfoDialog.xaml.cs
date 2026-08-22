@@ -53,7 +53,8 @@ public partial class ComInfoDialog : JJFlexDialog
     {
         if (ComPortList.SelectedIndex == -1)
         {
-            MessageBox.Show("You must select a port", "Try again",
+            MessageBox.Show(Radios.Lexicon.Get("settings.com_port.must_select"),
+                Radios.Lexicon.Get("settings.com_port.try_again_title"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             ComPortList.Focus();
             return;

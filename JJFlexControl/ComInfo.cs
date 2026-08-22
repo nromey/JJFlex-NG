@@ -19,8 +19,8 @@ namespace JJFlexControl
     /// </summary>
     public partial class ComInfo : Form
     {
-        private const string mustSelect = "You must select a port";
-        private const string directive = "Try again";
+        private static string mustSelect => Radios.Lexicon.Get("settings.com_port.must_select");
+        private static string directive => Radios.Lexicon.Get("settings.com_port.try_again_title");
         private bool wasActive;
 
         public string ThePort = null;

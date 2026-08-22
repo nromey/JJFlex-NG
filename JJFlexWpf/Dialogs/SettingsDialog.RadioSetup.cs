@@ -132,12 +132,12 @@ namespace JJFlexWpf.Dialogs
             if (!connected)
             {
                 SetupConnectStatus.Text =
-                    "Not done. No radio is connected. Close Settings, connect to the radio, then come back.";
-                SetupRegisterStatus.Text = "Waiting on step 1.";
-                SetupAddressStatus.Text = "Waiting on step 1.";
-                SetupWayInStatus.Text = "Waiting on step 1.";
-                SetupCheckStatus.Text = "Waiting on step 1.";
-                SetupRestartStatus.Text = "Waiting on step 1.";
+                    Lexicon.Get("settings.radio.connect.not_done");
+                SetupRegisterStatus.Text = Lexicon.Get("settings.radio.waiting_on_step_1");
+                SetupAddressStatus.Text = Lexicon.Get("settings.radio.waiting_on_step_1");
+                SetupWayInStatus.Text = Lexicon.Get("settings.radio.waiting_on_step_1");
+                SetupCheckStatus.Text = Lexicon.Get("settings.radio.waiting_on_step_1");
+                SetupRestartStatus.Text = Lexicon.Get("settings.radio.waiting_on_step_1");
                 SetupRegisterButton.IsEnabled = false;
                 SetupUnregisterButton.IsEnabled = false;
                 SetupTestNetworkButton.IsEnabled = false;
@@ -151,10 +151,11 @@ namespace JJFlexWpf.Dialogs
             RefreshRadioNameField(connected: true);
 
             bool overSmartLink = _rig!.IsWanConnection;
-            string where = _rig.CurrentRadioIP?.ToString() ?? "an unknown address";
+            string where = _rig.CurrentRadioIP?.ToString()
+                ?? Lexicon.Get("settings.radio.address_unknown");
             SetupConnectStatus.Text = overSmartLink
-                ? "Done, over SmartLink. Steps 2 and 4 need you to be on the same network as the radio, so they are not available on this connection."
-                : $"Done, on your local network at {where}.";
+                ? Lexicon.Get("settings.radio.connect.done_over_smartlink")
+                : Lexicon.Get("settings.radio.connect.done_local", ("where", where));
 
             // Step 2 — registration. Both buttons are off over SmartLink: getting
             // here that way proves the radio is already registered, and unregister
@@ -166,11 +167,12 @@ namespace JJFlexWpf.Dialogs
             if (overSmartLink)
             {
                 SetupRegisterStatus.Text =
-                    "Done. You are connected over SmartLink, which is only possible for a radio that is already registered.";
+                    Lexicon.Get("settings.radio.register.done_over_smartlink");
             }
             else if (!regCheck.CanProceed)
             {
-                SetupRegisterStatus.Text = "Cannot register yet. " + regCheck.BlockReason;
+                SetupRegisterStatus.Text = Lexicon.Get("settings.radio.register.blocked",
+                    ("reason", regCheck.BlockReason));
             }
             else if (_rig.RegistrationSucceeded)
             {
@@ -184,14 +186,15 @@ namespace JJFlexWpf.Dialogs
                 SetupRegisterStatus.Text = _registrationQueryResult switch
                 {
                     FlexBase.SmartLinkRegistrationQuery.Registered =>
-                        $"Done. This radio is already registered to {regCheck.AccountEmail}. " +
-                        "You only need the button below to register it again after unregistering.",
+                        Lexicon.Get("settings.radio.register.already_registered",
+                            ("accountEmail", regCheck.AccountEmail)),
                     FlexBase.SmartLinkRegistrationQuery.NotRegistered =>
-                        $"Not done. This radio is not registered to your SmartLink account ({regCheck.AccountEmail}). " +
-                        "Use Register this radio below — without it, the radio cannot be reached from away from home.",
+                        Lexicon.Get("settings.radio.register.not_registered",
+                            ("accountEmail", regCheck.AccountEmail)),
                     _ =>
-                        $"Ready to register to {regCheck.AccountEmail}. Checking with SmartLink whether it already is... " +
-                        _rig.RegistrationStateText,
+                        Lexicon.Get("settings.radio.register.checking",
+                            ("accountEmail", regCheck.AccountEmail),
+                            ("state", _rig.RegistrationStateText)),
                 };
                 KickRegistrationQuery();
             }
@@ -199,8 +202,8 @@ namespace JJFlexWpf.Dialogs
             // Step 4 — addressing.
             var staticIp = _rig.CurrentStaticIP;
             SetupAddressStatus.Text = staticIp != null
-                ? $"Done. The radio is set to the fixed address {staticIp}."
-                : "Not done. The radio takes whatever address the router gives it, which can change after a power cut.";
+                ? Lexicon.Get("settings.radio.address.done", ("staticIp", staticIp))
+                : Lexicon.Get("settings.radio.address.not_done");
 
             // Step 5 — the way in from outside.
             bool forwarding = _rig.PortForwardingEnabled;
@@ -209,9 +212,11 @@ namespace JJFlexWpf.Dialogs
             var mode = _rig.CurrentAccountConnectionMode ?? SmartLinkConnectionMode.ManualPortForwardOnly;
             string modeText = mode switch
             {
-                SmartLinkConnectionMode.AutomaticHolePunch => "Hole-punch is allowed as a fallback.",
-                SmartLinkConnectionMode.ManualPlusUpnp => "The radio may also ask the router via UPnP.",
-                _ => "Only the forwarded port will be used.",
+                SmartLinkConnectionMode.AutomaticHolePunch =>
+                    Lexicon.Get("settings.radio.mode.hole_punch_allowed"),
+                SmartLinkConnectionMode.ManualPlusUpnp =>
+                    Lexicon.Get("settings.radio.mode.upnp_allowed"),
+                _ => Lexicon.Get("settings.radio.mode.forward_only"),
             };
 
             if (forwarding && tcp > 0)
@@ -220,19 +225,21 @@ namespace JJFlexWpf.Dialogs
                 // ports; it listens on its LAN address at TCP 4994 / UDP 4993,
                 // and the router rules must say so.
                 string ports = (udp > 0 && udp != tcp)
-                    ? $"external TCP port {tcp} and UDP port {udp}"
-                    : $"external port {tcp}, TCP and UDP";
+                    ? Lexicon.Get("settings.radio.way_in.ports_separate", ("tcp", tcp), ("udp", udp))
+                    : Lexicon.Get("settings.radio.way_in.ports_same", ("tcp", tcp));
                 int udpShown = udp > 0 ? udp : tcp;
-                SetupWayInStatus.Text =
-                    $"Set on the radio. It advertises {ports}. {modeText} Your router still needs the two rules — " +
-                    $"external TCP {tcp} to the radio's LAN IP port {FlexBase.SmartLinkRadioTlsPort}, and external " +
-                    $"UDP {udpShown} to port {FlexBase.SmartLinkRadioUdpPort} — JJ Flex cannot do that part. " +
-                    "Step 6 checks whether it worked.";
+                SetupWayInStatus.Text = Lexicon.Get("settings.radio.way_in.set",
+                    ("ports", ports),
+                    ("modeText", modeText),
+                    ("tcp", tcp),
+                    ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                    ("udpShown", udpShown),
+                    ("udpPort", FlexBase.SmartLinkRadioUdpPort));
             }
             else
             {
-                SetupWayInStatus.Text =
-                    $"Not set. No port is forwarded on the radio. {modeText} If the router cannot be changed, allow hole-punch in Network settings and check it with step 6.";
+                SetupWayInStatus.Text = Lexicon.Get("settings.radio.way_in.not_set",
+                    ("modeText", modeText));
             }
 
             // Step 6 — whether any of it works from outside. Reports the last probe
@@ -241,27 +248,30 @@ namespace JJFlexWpf.Dialogs
             var report = _rig.MostRecentNetworkReport;
             if (report == null)
             {
-                SetupCheckStatus.Text = "Not run yet.";
+                SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.not_run");
             }
             else if (!report.ProbeCompleted)
             {
-                SetupCheckStatus.Text = $"The last check did not finish. {report.ErrorDetail}";
+                SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.last_did_not_finish",
+                    ("detail", report.ErrorDetail));
             }
             else
             {
-                SetupCheckStatus.Text = "Last check — " + BuildNetworkDiagnosticSummary(report);
+                SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.last",
+                    ("summary", BuildNetworkDiagnosticSummary(report)));
             }
 
             // Step 7 — restart.
             SetupRestartStatus.Text = staticIp != null
-                ? "A fixed address is set. If you set it just now, restart the radio to put it into use."
-                : "Nothing is waiting on a restart.";
+                ? Lexicon.Get("settings.radio.restart.pending")
+                : Lexicon.Get("settings.radio.restart.nothing_waiting");
         }
 
         private void RadioSetupRefreshButton_Click(object sender, RoutedEventArgs e)
         {
             RefreshRadioSetupTab();
-            ScreenReaderOutput.Speak("Steps refreshed.", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.steps_refreshed"),
+                VerbosityLevel.Terse, interrupt: true);
         }
 
         #region Step 2 — radio name
@@ -299,12 +309,12 @@ namespace JJFlexWpf.Dialogs
 
             if (_rig.RenameRadio(newName))
             {
-                applied.Add($"The radio is now named {newName}.");
+                applied.Add(Lexicon.Get("settings.radio.name.renamed", ("newName", newName)));
                 RefreshRadioNameField(connected: true);
             }
             else
             {
-                applied.Add("The radio could not be renamed. See the trace file for details.");
+                applied.Add(Lexicon.Get("settings.radio.name.rename_failed_note"));
             }
             _setupNameEdited = false;
         }
@@ -339,7 +349,8 @@ namespace JJFlexWpf.Dialogs
         {
             if (_rig == null || !_rig.IsConnected)
             {
-                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -350,7 +361,7 @@ namespace JJFlexWpf.Dialogs
                 // put the current name back so the box matches reality.
                 SetupRadioNameBox.Text = _rig.RadioNickname;
                 ScreenReaderOutput.Speak(
-                    "Type a name first. The radio keeps its current name.",
+                    Lexicon.Get("settings.radio.name.type_one_first"),
                     VerbosityLevel.Terse, interrupt: true);
                 SetupRadioNameBox.Focus();
                 return;
@@ -360,13 +371,16 @@ namespace JJFlexWpf.Dialogs
             {
                 // Critical: this is a confirmation of a radio-side change the
                 // user cannot see any other way from here.
-                ScreenReaderOutput.Speak($"Radio renamed to {newName}.", VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.radio.name.renamed_spoken", ("newName", newName)),
+                    VerbosityLevel.Critical, interrupt: true);
                 _setupNameEdited = false;
                 RefreshRadioNameField(connected: true);
             }
             else
             {
-                ScreenReaderOutput.Speak("The radio could not be renamed.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.name.rename_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
         }
 
@@ -397,17 +411,18 @@ namespace JJFlexWpf.Dialogs
             }
 
             var confirm = new ConfirmActionDialog(
-                "Register Radio with SmartLink",
-                $"JJ Flex will register this radio to your SmartLink account, {check.AccountEmail}.",
+                Lexicon.Get("settings.radio.register.confirm_title"),
+                Lexicon.Get("settings.radio.register.confirm_body",
+                    ("accountEmail", check.AccountEmail)),
                 check.Warnings,
-                question: "Have the microphone or CW key ready. Continue?",
-                yesLabel: "Re_gister",
+                question: Lexicon.Get("settings.radio.register.confirm_question"),
+                yesLabel: Lexicon.Get("settings.radio.register.confirm_yes"),
                 radioModel: _rig.RadioModel);
 
             if (confirm.ShowDialog() != true)
             {
-                SetupRegisterStatus.Text = "Cancelled. Nothing was sent to the radio.";
-                ScreenReaderOutput.Speak("Cancelled.", VerbosityLevel.Terse, interrupt: true);
+                SetupRegisterStatus.Text = Lexicon.Get("settings.radio.cancelled_nothing_sent");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.cancelled"), VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -433,21 +448,21 @@ namespace JJFlexWpf.Dialogs
             }
 
             var confirm = new ConfirmActionDialog(
-                "Unregister Radio from SmartLink",
-                "JJ Flex will remove this radio's SmartLink registration. You will not be able to reach it from away from home until it is registered again.",
+                Lexicon.Get("settings.radio.unregister.confirm_title"),
+                Lexicon.Get("settings.radio.unregister.confirm_body"),
                 new[]
                 {
-                    "Registering again requires someone to key the microphone or CW key at the radio. There is no remote way to do it.",
-                    "If this radio is somewhere you cannot get to, unregistering it means you cannot get it back without travelling there or asking someone on site.",
+                    Lexicon.Get("settings.radio.unregister.warning_needs_someone_there"),
+                    Lexicon.Get("settings.radio.unregister.warning_strands_the_radio"),
                 },
-                question: "This is almost never what you want. Continue?",
-                yesLabel: "_Unregister",
+                question: Lexicon.Get("settings.radio.unregister.confirm_question"),
+                yesLabel: Lexicon.Get("settings.radio.unregister.confirm_yes"),
                 radioModel: _rig.RadioModel);
 
             if (confirm.ShowDialog() != true)
             {
-                SetupRegisterStatus.Text = "Cancelled. The radio is still registered.";
-                ScreenReaderOutput.Speak("Cancelled.", VerbosityLevel.Terse, interrupt: true);
+                SetupRegisterStatus.Text = Lexicon.Get("settings.radio.unregister.cancelled");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.cancelled"), VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -462,8 +477,8 @@ namespace JJFlexWpf.Dialogs
             SetupUnregisterButton.IsEnabled = false;
 
             string opening = register
-                ? "Registering. Watch for the prompt to key the microphone."
-                : "Unregistering.";
+                ? Lexicon.Get("settings.radio.register.starting")
+                : Lexicon.Get("settings.radio.unregister.starting");
             SetupRegisterStatus.Text = opening;
             ScreenReaderOutput.Speak(opening, VerbosityLevel.Terse, interrupt: true);
 
@@ -493,8 +508,9 @@ namespace JJFlexWpf.Dialogs
             if (!(register ? _rig.BeginSmartLinkRegistration(OnState) : _rig.BeginSmartLinkUnregistration(OnState)))
             {
                 SetupRegisterStatus.Text =
-                    "The command could not be sent. Check that you are signed in to SmartLink and see the trace file.";
-                ScreenReaderOutput.Speak("Could not send the command.", VerbosityLevel.Terse, interrupt: true);
+                    Lexicon.Get("settings.radio.register.command_not_sent");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.register.command_not_sent_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 RefreshSetupStatuses();
             }
         }
@@ -521,7 +537,7 @@ namespace JJFlexWpf.Dialogs
 
             if (_rig == null || !_rig.IsConnected)
             {
-                SetupFirmwareStatus.Text = "Waiting on step 1.";
+                SetupFirmwareStatus.Text = Lexicon.Get("settings.radio.waiting_on_step_1");
                 SetupGetFirmwareButton.IsEnabled = false;
                 SetupChooseFirmwareButton.IsEnabled = false;
                 SetupSendFirmwareButton.IsEnabled = false;
@@ -538,35 +554,34 @@ namespace JJFlexWpf.Dialogs
             var parts = new List<string>
             {
                 string.IsNullOrEmpty(running)
-                    ? "The radio has not reported its firmware version."
-                    : $"The radio is running firmware {running}."
+                    ? Lexicon.Get("settings.radio.firmware.version_unreported")
+                    : Lexicon.Get("settings.radio.firmware.running", ("running", running))
             };
 
             if (_rig.IsInRecoveryState)
             {
-                parts.Add("The radio is in recovery after an interrupted update. Sending the same firmware file again will finish it — this does not need anyone at the radio.");
+                parts.Add(Lexicon.Get("settings.radio.firmware.in_recovery"));
             }
 
             if (FlexBase.FirmwareVersionCheckBypassed)
             {
-                parts.Add("Firmware version checking is switched off on this computer, so no mismatch will be reported.");
+                parts.Add(Lexicon.Get("settings.radio.firmware.check_switched_off"));
                 SetupSuppressVersionWarningButton.Visibility = Visibility.Collapsed;
             }
             else if (_rig.FirmwareDiffersFromLibraryExpectation)
             {
-                parts.Add(
-                    $"This build of JJ Flex was made against firmware {FlexBase.LibraryExpectedFirmwareVersion}, so the radio will show as needing an update. " +
-                    "That is a label only — it does not stop JJ Flex connecting or working. You can silence it below.");
+                parts.Add(Lexicon.Get("settings.radio.firmware.differs_from_library",
+                    ("expected", FlexBase.LibraryExpectedFirmwareVersion)));
                 SetupSuppressVersionWarningButton.Visibility = Visibility.Visible;
             }
             else
             {
-                parts.Add("The firmware matches what this build of JJ Flex expects.");
+                parts.Add(Lexicon.Get("settings.radio.firmware.matches"));
                 SetupSuppressVersionWarningButton.Visibility = Visibility.Collapsed;
             }
 
             if (!local)
-                parts.Add("Firmware cannot be sent over SmartLink — the transfer uses a separate connection that SmartLink does not carry. Connect on the same network as the radio.");
+                parts.Add(Lexicon.Get("settings.radio.firmware.smartlink_cannot_carry"));
 
             SetupFirmwareStatus.Text = string.Join(" ", parts);
         }
@@ -583,15 +598,17 @@ namespace JJFlexWpf.Dialogs
         {
             if (_rig == null || !_rig.IsConnected)
             {
-                SetupFirmwareFileText.Text = "No radio is connected.";
-                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                SetupFirmwareFileText.Text = Lexicon.Get("settings.radio.firmware.no_radio");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             string model = _rig.RadioModel;
             SetupGetFirmwareButton.IsEnabled = false;
-            SetupFirmwareFileText.Text = "Looking for firmware for this radio...";
-            ScreenReaderOutput.Speak("Looking for firmware.", VerbosityLevel.Terse, interrupt: true);
+            SetupFirmwareFileText.Text = Lexicon.Get("settings.radio.firmware.looking");
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.looking_spoken"),
+                VerbosityLevel.Terse, interrupt: true);
 
             try
             {
@@ -602,8 +619,9 @@ namespace JJFlexWpf.Dialogs
                 if (image == null)
                 {
                     SetupFirmwareFileText.Text =
-                        $"The firmware list does not have anything for a {model}. You can still choose a file from this computer.";
-                    ScreenReaderOutput.Speak("No firmware listed for this radio.", VerbosityLevel.Terse, interrupt: true);
+                        Lexicon.Get("settings.radio.firmware.none_for_model", ("model", model));
+                    ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.none_for_model_spoken"),
+                        VerbosityLevel.Terse, interrupt: true);
                     return;
                 }
 
@@ -612,8 +630,10 @@ namespace JJFlexWpf.Dialogs
                     && JJFlexUpdater.Firmware.FirmwareCatalog.CompareVersions(image.Version, running) <= 0)
                 {
                     SetupFirmwareFileText.Text =
-                        $"The radio is already running firmware {running}, and the newest offered is {image.Version}. There is nothing to update.";
-                    ScreenReaderOutput.Speak("The radio firmware is already up to date.", VerbosityLevel.Terse, interrupt: true);
+                        Lexicon.Get("settings.radio.firmware.up_to_date",
+                            ("running", running), ("version", image.Version));
+                    ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.up_to_date_spoken"),
+                        VerbosityLevel.Terse, interrupt: true);
                     return;
                 }
 
@@ -624,13 +644,17 @@ namespace JJFlexWpf.Dialogs
                     && JJFlexUpdater.Firmware.FirmwareCatalog.CompareVersions(running, image.MinVersionForDirectUpdate) < 0)
                 {
                     SetupFirmwareFileText.Text =
-                        $"Firmware {image.Version} expects the radio to already be on {image.MinVersionForDirectUpdate} or newer, and this one is on {running}. " +
-                        "You may need an in-between version first. Downloading anyway — check with FlexRadio before sending if you are unsure.";
+                        Lexicon.Get("settings.radio.firmware.stepping_stone",
+                            ("version", image.Version),
+                            ("minVersion", image.MinVersionForDirectUpdate),
+                            ("running", running));
                     // Speak the reason itself, not "see the message" — the
                     // information reaching the ear is the whole point.
                     ScreenReaderOutput.Speak(
-                        $"Firmware {image.Version} expects the radio to already be on {image.MinVersionForDirectUpdate} or newer, and this one is on {running}. " +
-                        "An in-between version may be needed. Downloading anyway.",
+                        Lexicon.Get("settings.radio.firmware.stepping_stone_spoken",
+                            ("version", image.Version),
+                            ("minVersion", image.MinVersionForDirectUpdate),
+                            ("running", running)),
                         VerbosityLevel.Terse, interrupt: true);
                 }
 
@@ -646,7 +670,7 @@ namespace JJFlexWpf.Dialogs
                 SetupFirmwareProgressText.Visibility = Visibility.Visible;
                 SetupFirmwareProgress.IsIndeterminate = false;
                 SetupFirmwareProgress.Value = 0;
-                SetupFirmwareProgressText.Text = "Starting download...";
+                SetupFirmwareProgressText.Text = Lexicon.Get("settings.radio.firmware.download_starting");
 
                 string path;
                 try
@@ -659,14 +683,18 @@ namespace JJFlexWpf.Dialogs
                                 SetupFirmwareProgress.IsIndeterminate = false;
                                 SetupFirmwareProgress.Value = (double)read / total.Value * 100.0;
                                 SetupFirmwareProgressText.Text =
-                                    $"{read / 1024.0 / 1024.0:F1} MB of {total.Value / 1024.0 / 1024.0:F1} MB";
+                                    Lexicon.Get("settings.radio.firmware.download_progress",
+                                        ("read", (read / 1024.0 / 1024.0).ToString("F1")),
+                                        ("total", (total.Value / 1024.0 / 1024.0).ToString("F1")));
                             }
                             else
                             {
                                 // No Content-Length: an indeterminate bar is honest,
                                 // a fake percentage is not.
                                 SetupFirmwareProgress.IsIndeterminate = true;
-                                SetupFirmwareProgressText.Text = $"{read / 1024.0 / 1024.0:F1} MB downloaded";
+                                SetupFirmwareProgressText.Text =
+                                    Lexicon.Get("settings.radio.firmware.download_progress_no_total",
+                                        ("read", (read / 1024.0 / 1024.0).ToString("F1")));
                             }
                         }));
                 }
@@ -689,23 +717,27 @@ namespace JJFlexWpf.Dialogs
 
                 SetupSendFirmwareButton.IsEnabled = true;
                 SetupFirmwareFileText.Text =
-                    $"Downloaded firmware {image.Version} for this radio, {(check.SizeBytes / 1024.0 / 1024.0):F1} megabytes, and the checksum matches. " +
-                    "Nothing has been sent to the radio yet — choose Send to radio.";
-                ScreenReaderOutput.Speak($"Firmware {image.Version} downloaded and checked. Choose send to radio.",
+                    Lexicon.Get("settings.radio.firmware.downloaded",
+                        ("version", image.Version),
+                        ("megabytes", (check.SizeBytes / 1024.0 / 1024.0).ToString("F1")));
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.radio.firmware.downloaded_spoken", ("version", image.Version)),
                     VerbosityLevel.Terse, interrupt: true);
             }
             catch (JJFlexUpdater.Net.UpdaterFetchException ex)
             {
                 JJTrace.Tracing.TraceLine($"SetupGetFirmware: {ex.Message}", System.Diagnostics.TraceLevel.Warning);
                 SetupFirmwareFileText.Text =
-                    "The firmware list could not be reached. It may not be published yet. You can choose a file from this computer instead.";
-                ScreenReaderOutput.Speak("Could not reach the firmware list.", VerbosityLevel.Terse, interrupt: true);
+                    Lexicon.Get("settings.radio.firmware.list_unreachable");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.list_unreachable_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
             catch (Exception ex)
             {
                 JJTrace.Tracing.TraceLine($"SetupGetFirmware: {ex.Message}", System.Diagnostics.TraceLevel.Error);
-                SetupFirmwareFileText.Text = "The firmware could not be downloaded. See the trace file for details.";
-                ScreenReaderOutput.Speak("Download failed.", VerbosityLevel.Terse, interrupt: true);
+                SetupFirmwareFileText.Text = Lexicon.Get("settings.radio.firmware.download_failed");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.download_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
             finally
             {
@@ -717,14 +749,14 @@ namespace JJFlexWpf.Dialogs
         {
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
-                Title = "Choose a firmware file",
-                Filter = "Radio firmware (*.ssdr)|*.ssdr|All files (*.*)|*.*",
+                Title = Lexicon.Get("settings.radio.firmware.choose_file_title"),
+                Filter = Lexicon.Get("settings.radio.firmware.choose_file_filter"),
                 CheckFileExists = true,
             };
 
             if (dlg.ShowDialog() != true)
             {
-                ScreenReaderOutput.Speak("Cancelled.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.cancelled"), VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -736,8 +768,9 @@ namespace JJFlexWpf.Dialogs
             var check = _rig?.PreflightFirmwareUpdate(_chosenFirmwarePath);
             if (check == null)
             {
-                SetupFirmwareFileText.Text = "No radio is connected.";
-                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                SetupFirmwareFileText.Text = Lexicon.Get("settings.radio.firmware.no_radio");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -753,8 +786,13 @@ namespace JJFlexWpf.Dialogs
             SetupSendFirmwareButton.IsEnabled = true;
             string mb = (check.SizeBytes / 1024.0 / 1024.0).ToString("F1");
             SetupFirmwareFileText.Text =
-                $"Chosen: {check.FileName}, {mb} megabytes. Checksum {check.ActualSha256}. Nothing has been sent to the radio yet.";
-            ScreenReaderOutput.Speak($"{check.FileName} ready to send.", VerbosityLevel.Terse, interrupt: true);
+                Lexicon.Get("settings.radio.firmware.chosen",
+                    ("fileName", check.FileName),
+                    ("megabytes", mb),
+                    ("checksum", check.ActualSha256));
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.radio.firmware.chosen_spoken", ("fileName", check.FileName)),
+                VerbosityLevel.Terse, interrupt: true);
         }
 
         private void SetupSendFirmwareButton_Click(object sender, RoutedEventArgs e)
@@ -773,22 +811,24 @@ namespace JJFlexWpf.Dialogs
 
             var warnings = new List<string>(check.Warnings)
             {
-                "Do not switch the radio off or unplug it while the update runs. Interrupting it partway is the one thing that can leave a radio needing a service visit.",
-                "The radio will be unreachable for several minutes and will restart on its own when it is done.",
+                Lexicon.Get("settings.radio.firmware.warning_do_not_interrupt"),
+                Lexicon.Get("settings.radio.firmware.warning_unreachable_while_updating"),
             };
 
             var confirm = new ConfirmActionDialog(
-                "Send Firmware to Radio",
-                $"JJ Flex will send {check.FileName} ({(check.SizeBytes / 1024.0 / 1024.0):F1} megabytes) to the radio.",
+                Lexicon.Get("settings.radio.firmware.send_confirm_title"),
+                Lexicon.Get("settings.radio.firmware.send_confirm_body",
+                    ("fileName", check.FileName),
+                    ("megabytes", (check.SizeBytes / 1024.0 / 1024.0).ToString("F1"))),
                 warnings,
-                question: "Continue?",
-                yesLabel: "_Send",
+                question: Lexicon.Get("settings.radio.firmware.send_confirm_question"),
+                yesLabel: Lexicon.Get("settings.radio.firmware.send_confirm_yes"),
                 radioModel: _rig.RadioModel);
 
             if (confirm.ShowDialog() != true)
             {
-                SetupFirmwareFileText.Text = "Cancelled. Nothing was sent to the radio.";
-                ScreenReaderOutput.Speak("Cancelled.", VerbosityLevel.Terse, interrupt: true);
+                SetupFirmwareFileText.Text = Lexicon.Get("settings.radio.cancelled_nothing_sent");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.cancelled"), VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -805,17 +845,13 @@ namespace JJFlexWpf.Dialogs
                     // running and will report what version the radio returns on.
                     if (SetupFirmwareFileText == null) return;
                     SetupFirmwareFileText.Text =
-                        "The radio closed the connection during the upload, so the update was not applied. " +
-                        "If the radio restarts anyway, JJ Flex is watching and will report the version it comes back on. " +
-                        $"Detail: {detail}";
+                        Lexicon.Get("settings.radio.firmware.transfer_fault", ("detail", detail));
                 })))
             {
                 SetupFirmwareFileText.Text =
-                    "Sending. The radio applies the update and restarts on its own; this takes several minutes. " +
-                    "JJ Flex is watching for it to come back and will say so when the new firmware is confirmed — " +
-                    "you can close Settings and leave it running.";
+                    Lexicon.Get("settings.radio.firmware.sending");
                 ScreenReaderOutput.Speak(
-                    "Sending firmware. Do not switch the radio off. This takes several minutes.",
+                    Lexicon.Get("settings.radio.firmware.sending_spoken"),
                     VerbosityLevel.Critical, interrupt: true);
 
                 // FlexLib reports nothing back, so watch the radio instead of
@@ -841,8 +877,9 @@ namespace JJFlexWpf.Dialogs
             }
             else
             {
-                SetupFirmwareFileText.Text = "The firmware could not be sent. See the trace file for details.";
-                ScreenReaderOutput.Speak("Could not send the firmware.", VerbosityLevel.Terse, interrupt: true);
+                SetupFirmwareFileText.Text = Lexicon.Get("settings.radio.firmware.send_failed");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.send_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
         }
 
@@ -851,14 +888,16 @@ namespace JJFlexWpf.Dialogs
             string path = FlexBase.CreateFirmwareVersionCheckBypass();
             if (string.IsNullOrEmpty(path))
             {
-                SetupFirmwareFileText.Text = "The setting could not be written. See the trace file for details.";
-                ScreenReaderOutput.Speak("Could not change the setting.", VerbosityLevel.Terse, interrupt: true);
+                SetupFirmwareFileText.Text = Lexicon.Get("settings.radio.firmware.bypass_write_failed");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.bypass_write_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             SetupFirmwareFileText.Text =
-                "Done. Version mismatches will no longer be reported. This takes effect the next time JJ Flex starts, and changes nothing on the radio.";
-            ScreenReaderOutput.Speak("Version mismatch reporting switched off.", VerbosityLevel.Terse, interrupt: true);
+                Lexicon.Get("settings.radio.firmware.bypass_done");
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.firmware.bypass_done_spoken"),
+                VerbosityLevel.Terse, interrupt: true);
             RefreshFirmwareStatus();
         }
 
@@ -907,8 +946,9 @@ namespace JJFlexWpf.Dialogs
         {
             if (_rig == null)
             {
-                SetupCheckStatus.Text = "No radio is selected.";
-                ScreenReaderOutput.Speak("No radio selected.", VerbosityLevel.Terse, interrupt: true);
+                SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.no_radio_selected");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.no_radio_selected_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -918,12 +958,13 @@ namespace JJFlexWpf.Dialogs
             if (!ConfirmNetworkTestOnPunchedSession())
             {
                 SetupCheckStatus.Text =
-                    "Not run — the outside check can drop a hole-punched connection. Run it after disconnecting, or from a port-forwarded connection.";
+                    Lexicon.Get("settings.radio.check.punched_declined");
                 return;
             }
 
-            SetupCheckStatus.Text = "Checking. This usually takes a few seconds.";
-            ScreenReaderOutput.Speak("Checking the network.", VerbosityLevel.Terse, interrupt: true);
+            SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.running");
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.running_spoken"),
+                VerbosityLevel.Terse, interrupt: true);
 
             Radios.SmartLink.NetworkDiagnosticReport? report;
             try
@@ -932,23 +973,27 @@ namespace JJFlexWpf.Dialogs
             }
             catch (Exception ex)
             {
-                SetupCheckStatus.Text = $"The check failed: {ex.Message}";
-                ScreenReaderOutput.Speak("The check failed.", VerbosityLevel.Terse, interrupt: true);
+                SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.failed", ("message", ex.Message));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             if (report == null)
             {
                 SetupCheckStatus.Text =
-                    "There is no SmartLink session, so the outside check cannot run. Sign in to SmartLink and try again.";
-                ScreenReaderOutput.Speak("No SmartLink session.", VerbosityLevel.Terse, interrupt: true);
+                    Lexicon.Get("settings.radio.check.no_smartlink_session");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.no_smartlink_session_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             if (!report.ProbeCompleted)
             {
-                SetupCheckStatus.Text = $"The check did not finish. {report.ErrorDetail}";
-                ScreenReaderOutput.Speak("The check did not finish.", VerbosityLevel.Terse, interrupt: true);
+                SetupCheckStatus.Text = Lexicon.Get("settings.radio.check.did_not_finish",
+                    ("detail", report.ErrorDetail));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.did_not_finish_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -968,7 +1013,7 @@ namespace JJFlexWpf.Dialogs
             if (RadioMaintenance.RebootWithConfirmation(_rig, OnRebootInitiated))
             {
                 SetupRestartStatus.Text =
-                    "Restarting. The radio will be unreachable for a few minutes, then you can connect again.";
+                    Lexicon.Get("settings.radio.restart.started");
             }
         }
 
@@ -1012,7 +1057,7 @@ namespace JJFlexWpf.Dialogs
 
             if (_rig == null || !_rig.IsConnected)
             {
-                ReachabilityStatusText.Text = "No radio is connected, so there is nothing to report yet.";
+                ReachabilityStatusText.Text = Lexicon.Get("settings.network.reachability.no_radio");
                 if (EnforcePrivateIpCheck != null) EnforcePrivateIpCheck.IsEnabled = false;
                 return;
             }
@@ -1022,39 +1067,43 @@ namespace JJFlexWpf.Dialogs
             var parts = new List<string>
             {
                 _rig.IsWanConnection
-                    ? "This connection is going through SmartLink."
-                    : "This connection is direct on your local network."
+                    ? Lexicon.Get("settings.network.reachability.via_smartlink")
+                    : Lexicon.Get("settings.network.reachability.direct")
             };
 
             if (_rig.RadioPortForwardActive)
             {
-                parts.Add("SmartLink sees a forwarded port for this radio, so a way in from the internet is open.");
+                parts.Add(Lexicon.Get("settings.network.reachability.forward_seen"));
             }
             else
             {
-                parts.Add("SmartLink does not see a forwarded port for this radio.");
+                parts.Add(Lexicon.Get("settings.network.reachability.forward_not_seen"));
             }
 
             int tls = _rig.RadioPublicTlsPort;
             int udp = _rig.RadioPublicUdpPort;
             if (tls > 0 || udp > 0)
             {
-                parts.Add($"From the internet the radio is reachable on TCP {(tls > 0 ? tls.ToString() : "none")} and UDP {(udp > 0 ? udp.ToString() : "none")}. If you did not forward those yourself, the router opened them by UPnP.");
+                parts.Add(Lexicon.Get("settings.network.reachability.public_ports",
+                    ("tls", tls > 0 ? tls.ToString()
+                        : Lexicon.Get("settings.network.reachability.port_none")),
+                    ("udp", udp > 0 ? udp.ToString()
+                        : Lexicon.Get("settings.network.reachability.port_none"))));
             }
 
             if (_rig.RadioRequiresHolePunch)
             {
-                parts.Add("SmartLink says this radio needs a hole-punch, meaning neither a forwarded port nor UPnP gave it a way in.");
+                parts.Add(Lexicon.Get("settings.network.reachability.needs_hole_punch"));
             }
             else
             {
-                parts.Add("SmartLink does not need a hole-punch for this radio.");
+                parts.Add(Lexicon.Get("settings.network.reachability.no_hole_punch_needed"));
             }
 
             int last = _rig.LastHolePunchPort;
             parts.Add(last > 0
-                ? $"The last connection used hole-punch port {last}."
-                : "The last connection did not use a hole-punch.");
+                ? Lexicon.Get("settings.network.reachability.last_hole_punch_port", ("last", last))
+                : Lexicon.Get("settings.network.reachability.no_last_hole_punch"));
 
             ReachabilityStatusText.Text = string.Join(" ", parts);
         }
@@ -1065,7 +1114,8 @@ namespace JJFlexWpf.Dialogs
 
             if (_rig == null || !_rig.IsConnected)
             {
-                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -1083,8 +1133,8 @@ namespace JJFlexWpf.Dialogs
 
             ScreenReaderOutput.Speak(
                 actual
-                    ? "Only local addresses may connect."
-                    : "Any address may connect, including Tailscale.",
+                    ? Lexicon.Get("settings.network.private_ip.local_only")
+                    : Lexicon.Get("settings.network.private_ip.any_address"),
                 VerbosityLevel.Terse, interrupt: true);
             RefreshReachabilityStatus();
         }

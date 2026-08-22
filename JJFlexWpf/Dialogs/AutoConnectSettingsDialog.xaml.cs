@@ -38,7 +38,8 @@ namespace JJFlexWpf.Dialogs
             InitializeComponent();
 
             RadioNameText.Text = radioName;
-            AutomationProperties.SetName(RadioNameText, "Radio name: " + radioName);
+            AutomationProperties.SetName(RadioNameText,
+                Radios.Lexicon.Get("settings.auto_connect.radio_name_accessible", ("radioName", radioName)));
             AutoConnectCheckbox.IsChecked = currentAutoConnect;
             LowBandwidthCheckbox.IsChecked = currentLowBandwidth;
         }
@@ -60,7 +61,7 @@ namespace JJFlexWpf.Dialogs
         private void ApplyButton_Click(object sender, RoutedEventArgs e)
         {
             Commit();
-            Radios.ScreenReaderOutput.Speak("Auto-connect settings applied.",
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.auto_connect.applied"),
                 Radios.VerbosityLevel.Terse, interrupt: true);
         }
 

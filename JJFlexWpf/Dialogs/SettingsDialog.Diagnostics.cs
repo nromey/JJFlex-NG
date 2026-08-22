@@ -116,17 +116,17 @@ namespace JJFlexWpf.Dialogs
                     // The real, resolved path — not the %AppData% template.
                     // An operator asked for "the trace" has to be able to produce
                     // it without sighted help and without knowing AppData folklore.
-                    DiagPathText.Text =
-                        $"The live log is {live}. Older sessions are in the Traces folder next to it.";
+                    DiagPathText.Text = Radios.Lexicon.Get("settings.diagnostics.live_log_path",
+                        ("live", live));
                 }
                 else if (!string.IsNullOrEmpty(folder))
                 {
-                    DiagPathText.Text =
-                        $"No log is running. When one is, it lands in {folder}.";
+                    DiagPathText.Text = Radios.Lexicon.Get("settings.diagnostics.log_folder_when_running",
+                        ("folder", folder));
                 }
                 else
                 {
-                    DiagPathText.Text = "The live log location is not available.";
+                    DiagPathText.Text = Radios.Lexicon.Get("settings.diagnostics.log_location_unavailable");
                 }
                 DiagPathText.SetValue(System.Windows.Automation.AutomationProperties.NameProperty,
                     DiagPathText.Text);
@@ -155,8 +155,9 @@ namespace JJFlexWpf.Dialogs
 
             int n = ProblemLog.Count;
             DiagProblemCountText.Text = n == 0
-                ? "No problems recorded this session."
-                : $"{ProblemLog.Summary()}. The newest is at the top of the list.";
+                ? Radios.Lexicon.Get("settings.diagnostics.no_problems")
+                : Radios.Lexicon.Get("settings.diagnostics.problems_summary",
+                    ("summary", ProblemLog.Summary()));
             System.Windows.Automation.AutomationProperties.SetName(
                 DiagProblemCountText, DiagProblemCountText.Text);
 
@@ -178,7 +179,9 @@ namespace JJFlexWpf.Dialogs
         private void UpdateCaptureButton()
         {
             bool capturing = DiagnosticsBridge.Capturing();
-            string label = capturing ? "Stop detailed capture" : "Start detailed capture";
+            string label = capturing
+                ? Radios.Lexicon.Get("settings.diagnostics.capture_stop")
+                : Radios.Lexicon.Get("settings.diagnostics.capture_start");
             DiagCaptureButton.Content = label;
             System.Windows.Automation.AutomationProperties.SetName(DiagCaptureButton, label);
 
@@ -213,8 +216,8 @@ namespace JJFlexWpf.Dialogs
             // have given up, and this is the one setting whose cost only shows
             // up later, when something has already gone wrong.
             DiagnosticsBridge.Speak?.Invoke(keep
-                ? $"Diagnostic log on, {DetailWord()} detail."
-                : "Diagnostic log off. If something goes wrong, JJ Flex will have no record to show you or the developer.");
+                ? Radios.Lexicon.Get("settings.diagnostics.log_on", ("detail", DetailWord()))
+                : Radios.Lexicon.Get("settings.diagnostics.log_off"));
         }
 
         private void DiagDetailRadio_Checked(object sender, RoutedEventArgs e)
@@ -223,19 +226,23 @@ namespace JJFlexWpf.Dialogs
             bool keep = DiagKeepLogCheckbox.IsChecked == true;
             ApplyDiagnosticChoice(keep, CurrentDetailChoice());
             if (keep)
-                DiagnosticsBridge.Speak?.Invoke($"Diagnostic log on, {DetailWord()} detail.");
+                DiagnosticsBridge.Speak?.Invoke(
+                    Radios.Lexicon.Get("settings.diagnostics.log_on", ("detail", DetailWord())));
             else
-                DiagnosticsBridge.Speak?.Invoke($"{DetailWord()} detail, for when you turn the log back on.");
+                DiagnosticsBridge.Speak?.Invoke(
+                    Radios.Lexicon.Get("settings.diagnostics.detail_for_later", ("detail", DetailWord())));
         }
 
         private int CurrentDetailChoice() => DiagDetailDetailedRadio.IsChecked == true ? 1 : 0;
 
-        private string DetailWord() => CurrentDetailChoice() == 1 ? "detailed" : "normal";
+        private string DetailWord() => CurrentDetailChoice() == 1
+            ? Radios.Lexicon.Get("settings.diagnostics.detail_detailed")
+            : Radios.Lexicon.Get("settings.diagnostics.detail_normal");
 
         private void ApplyDiagnosticChoice(bool keep, int detail)
         {
             try { DiagnosticsBridge.ApplySettings?.Invoke(keep, detail); }
-            catch { DiagnosticsBridge.Speak?.Invoke("That diagnostic setting could not be saved."); }
+            catch { DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.setting_not_saved")); }
         }
 
         /// <summary>
@@ -250,14 +257,14 @@ namespace JJFlexWpf.Dialogs
             if (_diagSuppressEvents) return;
             bool record = DiagMeterStreamCheck.IsChecked == true;
             try { DiagnosticsBridge.ApplyMeterStream?.Invoke(record); }
-            catch { DiagnosticsBridge.Speak?.Invoke("That diagnostic setting could not be saved."); return; }
+            catch { DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.setting_not_saved")); return; }
 
             // #128: immediate-apply toggle answers back; the failed-save path
             // above returns before this, so a declined change never chimes.
             EarconPlayer.ToggleTone(record);
             DiagnosticsBridge.Speak?.Invoke(record
-                ? "Meter stream recording on. Each meter is summarized into the log once a second, peaks included."
-                : "Meter stream recording off. The radio's meter readings are no longer written to the log.");
+                ? Radios.Lexicon.Get("settings.diagnostics.meter_stream_on")
+                : Radios.Lexicon.Get("settings.diagnostics.meter_stream_off"));
         }
 
         private void DiagCopyPathButton_Click(object sender, RoutedEventArgs e)
@@ -265,17 +272,17 @@ namespace JJFlexWpf.Dialogs
             string live = SafeCall(DiagnosticsBridge.LiveLogPath);
             if (string.IsNullOrEmpty(live))
             {
-                DiagnosticsBridge.Speak?.Invoke("There is no live log file to copy a path for.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.no_live_log_to_copy"));
                 return;
             }
             try
             {
                 Clipboard.SetText(live);
-                DiagnosticsBridge.Speak?.Invoke("Path copied.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.path_copied"));
             }
             catch
             {
-                DiagnosticsBridge.Speak?.Invoke("The path could not be copied to the clipboard.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.path_copy_failed"));
             }
         }
 
@@ -284,18 +291,18 @@ namespace JJFlexWpf.Dialogs
             string folder = SafeCall(DiagnosticsBridge.LogFolder);
             if (string.IsNullOrEmpty(folder) || !System.IO.Directory.Exists(folder))
             {
-                DiagnosticsBridge.Speak?.Invoke("The log folder could not be found.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.folder_not_found"));
                 return;
             }
             try
             {
                 System.Diagnostics.Process.Start(
                     new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
-                DiagnosticsBridge.Speak?.Invoke("Log folder opened.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.folder_opened"));
             }
             catch
             {
-                DiagnosticsBridge.Speak?.Invoke("The log folder could not be opened.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.folder_open_failed"));
             }
         }
 
@@ -322,7 +329,7 @@ namespace JJFlexWpf.Dialogs
             string archive = SafeCall(DiagnosticsBridge.LastCaptureArchivePath);
             if (string.IsNullOrEmpty(archive) || !System.IO.File.Exists(archive))
             {
-                DiagnosticsBridge.Speak?.Invoke("That capture is no longer where it was saved.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.capture_missing"));
                 UpdateCaptureButton();
                 return;
             }
@@ -333,14 +340,14 @@ namespace JJFlexWpf.Dialogs
 
             var dlg = new Microsoft.Win32.SaveFileDialog
             {
-                Filter = "Zip archive (*.zip)|*.zip",
+                Filter = Radios.Lexicon.Get("settings.diagnostics.export_filter"),
                 DefaultExt = "zip",
                 FileName = System.IO.Path.GetFileName(archive),
-                Title = "Export this capture"
+                Title = Radios.Lexicon.Get("settings.diagnostics.export_title")
             };
             if (dlg.ShowDialog(this) != true)
             {
-                DiagnosticsBridge.Speak?.Invoke("Export cancelled.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.export_cancelled"));
                 return;
             }
 
@@ -349,18 +356,23 @@ namespace JJFlexWpf.Dialogs
                 System.IO.File.Copy(archive, dlg.FileName, overwrite: true);
                 // Size is spoken so an upload never surprises anyone — the same
                 // rule the feedback picker sets.
-                DiagnosticsBridge.Speak?.Invoke($"Capture exported, about {size}.");
+                DiagnosticsBridge.Speak?.Invoke(
+                    Radios.Lexicon.Get("settings.diagnostics.export_done", ("size", size)));
             }
             catch
             {
-                DiagnosticsBridge.Speak?.Invoke("The capture could not be exported.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.export_failed"));
             }
         }
 
         private static string DescribeBytes(long bytes)
         {
-            try { return DiagnosticsBridge.DescribeBytes?.Invoke(bytes) ?? $"{bytes} bytes"; }
-            catch { return $"{bytes} bytes"; }
+            try
+            {
+                return DiagnosticsBridge.DescribeBytes?.Invoke(bytes)
+                    ?? Radios.Lexicon.Get("settings.diagnostics.bytes_fallback", ("bytes", bytes));
+            }
+            catch { return Radios.Lexicon.Get("settings.diagnostics.bytes_fallback", ("bytes", bytes)); }
         }
 
         // ── Saved logs group ─────────────────────────────────────────────
@@ -369,22 +381,22 @@ namespace JJFlexWpf.Dialogs
         {
             if (DiagnosticsBridge.OpenSavedLogs == null)
             {
-                DiagnosticsBridge.Speak?.Invoke("Saved diagnostic logs are not available.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.saved_logs_unavailable"));
                 return;
             }
             try { DiagnosticsBridge.OpenSavedLogs.Invoke(); }
-            catch { DiagnosticsBridge.Speak?.Invoke("Saved diagnostic logs could not be opened."); }
+            catch { DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.saved_logs_open_failed")); }
         }
 
         private void DiagProblemReportButton_Click(object sender, RoutedEventArgs e)
         {
             if (DiagnosticsBridge.SaveProblemReport == null)
             {
-                DiagnosticsBridge.Speak?.Invoke("The problem report bundle is not available.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.problem_report_unavailable"));
                 return;
             }
             try { DiagnosticsBridge.SaveProblemReport.Invoke(); }
-            catch { DiagnosticsBridge.Speak?.Invoke("The problem report bundle could not be saved."); }
+            catch { DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.problem_report_failed")); }
             RefreshDiagnosticsTab();
         }
 
@@ -392,7 +404,7 @@ namespace JJFlexWpf.Dialogs
 
         private void DiagMeasureButton_Click(object sender, RoutedEventArgs e)
         {
-            DiagnosticsBridge.Speak?.Invoke("Measuring.");
+            DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.measuring"));
             string storage = SafeCall(DiagnosticsBridge.DescribeStorage);
             string crashes = SafeCall(DiagnosticsBridge.DescribeCrashReports);
 
@@ -413,18 +425,16 @@ namespace JJFlexWpf.Dialogs
         {
             if (DiagnosticsBridge.DeleteLooseLogs == null)
             {
-                DiagnosticsBridge.Speak?.Invoke("That is not available.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.not_available"));
                 return;
             }
             var answer = MessageBox.Show(this,
-                "Delete the loose log text files in the settings folder?\r\n\r\n" +
-                "The compressed sessions in Saved Diagnostic Logs are not touched, so nothing is lost. " +
-                "This includes files newer than the automatic one-day window.",
-                "Delete loose log text",
+                Radios.Lexicon.Get("settings.diagnostics.delete_loose_body"),
+                Radios.Lexicon.Get("settings.diagnostics.delete_loose_title"),
                 MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
             if (answer != MessageBoxResult.OK)
             {
-                DiagnosticsBridge.Speak?.Invoke("Nothing deleted.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.nothing_deleted"));
                 return;
             }
 
@@ -432,12 +442,17 @@ namespace JJFlexWpf.Dialogs
             {
                 var (files, bytes) = DiagnosticsBridge.DeleteLooseLogs.Invoke();
                 DiagnosticsBridge.Speak?.Invoke(files == 0
-                    ? "There were no loose log text files to delete."
-                    : $"Deleted {files} log {(files == 1 ? "file" : "files")}, about {DescribeBytes(bytes)} reclaimed.");
+                    ? Radios.Lexicon.Get("settings.diagnostics.no_loose_logs")
+                    : Radios.Lexicon.Get("settings.diagnostics.loose_logs_deleted",
+                        ("files", files),
+                        ("fileWord", files == 1
+                            ? Radios.Lexicon.Get("settings.diagnostics.word_file")
+                            : Radios.Lexicon.Get("settings.diagnostics.word_files")),
+                        ("size", DescribeBytes(bytes))));
             }
             catch
             {
-                DiagnosticsBridge.Speak?.Invoke("The loose log files could not be deleted.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.loose_logs_delete_failed"));
             }
             DiagMeasureButton_Click(sender, e);
         }
@@ -446,17 +461,16 @@ namespace JJFlexWpf.Dialogs
         {
             if (DiagnosticsBridge.DeleteResolvedCrashReports == null)
             {
-                DiagnosticsBridge.Speak?.Invoke("That is not available.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.not_available"));
                 return;
             }
             var answer = MessageBox.Show(this,
-                "Delete the crash reports you have already sent or dismissed?\r\n\r\n" +
-                "A report you have never answered about is kept, because support may still ask you for it.",
-                "Delete crash reports",
+                Radios.Lexicon.Get("settings.diagnostics.delete_crash_body"),
+                Radios.Lexicon.Get("settings.diagnostics.delete_crash_title"),
                 MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
             if (answer != MessageBoxResult.OK)
             {
-                DiagnosticsBridge.Speak?.Invoke("Nothing deleted.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.nothing_deleted"));
                 return;
             }
 
@@ -464,12 +478,17 @@ namespace JJFlexWpf.Dialogs
             {
                 var (files, bytes) = DiagnosticsBridge.DeleteResolvedCrashReports.Invoke();
                 DiagnosticsBridge.Speak?.Invoke(files == 0
-                    ? "There were no sent or dismissed crash reports to delete."
-                    : $"Deleted {files} crash {(files == 1 ? "report" : "reports")}, about {DescribeBytes(bytes)} reclaimed.");
+                    ? Radios.Lexicon.Get("settings.diagnostics.no_resolved_crash_reports")
+                    : Radios.Lexicon.Get("settings.diagnostics.crash_reports_deleted",
+                        ("files", files),
+                        ("reportWord", files == 1
+                            ? Radios.Lexicon.Get("settings.diagnostics.word_report")
+                            : Radios.Lexicon.Get("settings.diagnostics.word_reports")),
+                        ("size", DescribeBytes(bytes))));
             }
             catch
             {
-                DiagnosticsBridge.Speak?.Invoke("The crash reports could not be deleted.");
+                DiagnosticsBridge.Speak?.Invoke(Radios.Lexicon.Get("settings.diagnostics.crash_reports_delete_failed"));
             }
             DiagMeasureButton_Click(sender, e);
         }

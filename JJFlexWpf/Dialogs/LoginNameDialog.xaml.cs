@@ -4,8 +4,8 @@ namespace JJFlexWpf.Dialogs
 {
     public partial class LoginNameDialog : JJFlexDialog
     {
-        private const string MustHaveAddress = "You must specify a cluster address.";
-        private const string MustHaveName = "You must specify a login name.";
+        private static string MustHaveAddress => Radios.Lexicon.Get("settings.cluster.must_have_address");
+        private static string MustHaveName => Radios.Lexicon.Get("settings.cluster.must_have_login_name");
 
         private readonly Func<string, bool> _validateHostname;
 
@@ -41,14 +41,14 @@ namespace JJFlexWpf.Dialogs
 
             if (_validateHostname != null && !_validateHostname(address))
             {
-                MessageBox.Show(MustHaveAddress, "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(MustHaveAddress, Radios.Lexicon.Get("settings.validation_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 AddressBox.Focus();
                 return;
             }
 
             if (string.IsNullOrEmpty(loginName))
             {
-                MessageBox.Show(MustHaveName, "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(MustHaveName, Radios.Lexicon.Get("settings.validation_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 LoginBox.Focus();
                 return;
             }

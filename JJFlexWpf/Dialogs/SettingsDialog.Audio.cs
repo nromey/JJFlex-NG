@@ -54,8 +54,10 @@ namespace JJFlexWpf.Dialogs
 
         private void InitializeAudioTab()
         {
-            HeadphoneLevelControl.Setup("Headphone level", 0, 100, RadioOutputStep);
-            LineOutLevelControl.Setup("Line out level", 0, 100, RadioOutputStep);
+            HeadphoneLevelControl.Setup(Lexicon.Get("settings.audio.headphone_level_label"),
+                0, 100, RadioOutputStep);
+            LineOutLevelControl.Setup(Lexicon.Get("settings.audio.line_out_level_label"),
+                0, 100, RadioOutputStep);
 
             HeadphoneLevelControl.ValueChanged += HeadphoneLevel_ValueChanged;
             LineOutLevelControl.ValueChanged += LineOutLevel_ValueChanged;
@@ -63,9 +65,9 @@ namespace JJFlexWpf.Dialogs
             // PC output volume (Audio Arc Track A) — app-level, works with or
             // without a radio, applies live, persisted on OK through
             // CaptureFromEngine like the rest of the audio config.
-            PcOutputVolumeControl.Setup("PC output volume",
+            PcOutputVolumeControl.Setup(Lexicon.Get("settings.audio.pc_output_volume_label"),
                 FlexBase.PcOutputVolumeDbMin, FlexBase.PcOutputVolumeDbMax, 1,
-                FlexBase.PcOutputVolumeDbSetting, unit: "dB");
+                FlexBase.PcOutputVolumeDbSetting, unit: Lexicon.Get("settings.audio.decibel_unit"));
             PcOutputVolumeControl.ValueChanged += PcOutputVolume_ValueChanged;
         }
 
@@ -177,28 +179,29 @@ namespace JJFlexWpf.Dialogs
             if (rig == null || !rig.IsConnected)
             {
                 AudioDevicesDialog.SetStatusLine(RadioOutputsAdvisory,
-                    "No radio is connected, so there is nothing to set here yet. Worth knowing: a Flex makes no audio "
-                    + "at all until a client connects to it — including at its own headphone jack. A powered-on radio "
-                    + "with headphones plugged in is silent by design until you connect.");
+                    Lexicon.Get("settings.audio.outputs_no_radio"));
                 return;
             }
 
             var muted = new List<string>();
-            if (rig.HeadphoneMute) muted.Add("headphones");
-            if (rig.LineoutMute) muted.Add("line out");
-            if (rig.FrontSpeakerMute) muted.Add("the front speaker");
+            if (rig.HeadphoneMute) muted.Add(Lexicon.Get("settings.audio.mute_headphones"));
+            if (rig.LineoutMute) muted.Add(Lexicon.Get("settings.audio.mute_line_out"));
+            if (rig.FrontSpeakerMute) muted.Add(Lexicon.Get("settings.audio.mute_front_speaker"));
 
             string mutes = muted.Count switch
             {
-                0 => "nothing muted",
-                1 => muted[0] + " muted",
-                2 => muted[0] + " and " + muted[1] + " muted",
-                _ => string.Join(", ", muted.GetRange(0, muted.Count - 1))
-                     + " and " + muted[muted.Count - 1] + " muted",
+                0 => Lexicon.Get("settings.audio.mutes_none"),
+                1 => Lexicon.Get("settings.audio.mutes_one", ("first", muted[0])),
+                2 => Lexicon.Get("settings.audio.mutes_two",
+                        ("first", muted[0]), ("second", muted[1])),
+                _ => Lexicon.Get("settings.audio.mutes_many",
+                        ("list", string.Join(", ", muted.GetRange(0, muted.Count - 1))),
+                        ("last", muted[muted.Count - 1])),
             };
 
             AudioDevicesDialog.SetStatusLine(RadioOutputsAdvisory,
-                $"Headphone level {rig.HeadphoneGain}, line out level {rig.LineoutGain}, {mutes}.");
+                Lexicon.Get("settings.audio.outputs_state",
+                    ("headphone", rig.HeadphoneGain), ("lineout", rig.LineoutGain), ("mutes", mutes)));
         }
 
         private void RefreshPcAudioStatus()
@@ -209,7 +212,7 @@ namespace JJFlexWpf.Dialogs
             if (rig == null || !rig.IsConnected)
             {
                 AudioDevicesDialog.SetStatusLine(PcAudioStatusText,
-                    "Available once a radio is connected.");
+                    Lexicon.Get("settings.audio.pc_audio_needs_radio"));
                 return;
             }
 
@@ -217,14 +220,14 @@ namespace JJFlexWpf.Dialogs
             if (rig.PCAudio)
             {
                 now = rig.RemoteRig
-                    ? "On. Radio audio is playing through this computer, which on a remote connection is the only way to hear it."
-                    : "On. Radio audio is playing through this computer.";
+                    ? Lexicon.Get("settings.audio.pc_audio_on_remote")
+                    : Lexicon.Get("settings.audio.pc_audio_on");
             }
             else
             {
                 now = rig.RemoteRig
-                    ? "Off. On a remote connection there is no other way to hear the radio, so it is silent here."
-                    : "Off. You will hear the radio at its own headphone, line out, or speaker outputs.";
+                    ? Lexicon.Get("settings.audio.pc_audio_off_remote")
+                    : Lexicon.Get("settings.audio.pc_audio_off");
             }
 
             // Say what the next connect will do — the combo below holds the
@@ -232,10 +235,10 @@ namespace JJFlexWpf.Dialogs
             string next = _pcAudioRadioCfg?.PcAudioOnConnect switch
             {
                 PcAudioOnConnectModes.AlwaysOn =>
-                    " On the next connect, PC audio always turns on for this radio.",
+                    Lexicon.Get("settings.audio.pc_audio_next_always_on"),
                 PcAudioOnConnectModes.AlwaysOff =>
-                    " On the next connect, PC audio stays off for this radio.",
-                _ => " On the next connect, PC audio comes back as you leave it.",
+                    Lexicon.Get("settings.audio.pc_audio_next_always_off"),
+                _ => Lexicon.Get("settings.audio.pc_audio_next_remember"),
             };
             AudioDevicesDialog.SetStatusLine(PcAudioStatusText, now + next);
         }
@@ -282,7 +285,8 @@ namespace JJFlexWpf.Dialogs
             var rig = _rig;
             if (rig == null || !rig.IsConnected)
             {
-                ScreenReaderOutput.SpeakNoRadioConnected("set the headphone level");
+                ScreenReaderOutput.SpeakNoRadioConnected(
+                    Lexicon.Get("settings.audio.action_set_headphone_level"));
                 return;
             }
             rig.HeadphoneGain = value;
@@ -296,7 +300,8 @@ namespace JJFlexWpf.Dialogs
             var rig = _rig;
             if (rig == null || !rig.IsConnected)
             {
-                ScreenReaderOutput.SpeakNoRadioConnected("set the line out level");
+                ScreenReaderOutput.SpeakNoRadioConnected(
+                    Lexicon.Get("settings.audio.action_set_line_out_level"));
                 return;
             }
             rig.LineoutGain = value;
@@ -325,7 +330,8 @@ namespace JJFlexWpf.Dialogs
                 _suppressRadioOutputEvents = true;
                 box.IsChecked = !wanted;
                 _suppressRadioOutputEvents = false;
-                ScreenReaderOutput.SpeakNoRadioConnected("change the radio's outputs");
+                ScreenReaderOutput.SpeakNoRadioConnected(
+                    Lexicon.Get("settings.audio.action_change_radio_outputs"));
                 return;
             }
 
@@ -375,7 +381,8 @@ namespace JJFlexWpf.Dialogs
                 _suppressRadioOutputEvents = true;
                 PcAudioCheck.IsChecked = !wanted;
                 _suppressRadioOutputEvents = false;
-                ScreenReaderOutput.SpeakNoRadioConnected("turn radio audio through this computer on or off");
+                ScreenReaderOutput.SpeakNoRadioConnected(
+                    Lexicon.Get("settings.audio.action_toggle_pc_audio"));
                 return;
             }
 
@@ -416,12 +423,12 @@ namespace JJFlexWpf.Dialogs
             if (actual != wanted)
             {
                 // The failure itself was already announced by the audio path.
-                ScreenReaderOutput.Speak("Radio audio through this computer is still off.",
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.audio.pc_audio_still_off"),
                     VerbosityLevel.Critical, true);
             }
             else if (actual)
             {
-                ScreenReaderOutput.Speak("Radio audio will now play through this computer.",
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.audio.pc_audio_now_on"),
                     VerbosityLevel.Terse, true);
             }
             else
@@ -431,8 +438,8 @@ namespace JJFlexWpf.Dialogs
                 // "PC audio off".
                 ScreenReaderOutput.Speak(
                     rig.RemoteRig
-                        ? "Radio audio will no longer play through this computer. On a remote connection there is no other way to hear the radio."
-                        : "Radio audio will no longer play through this computer. You will hear the radio at its own outputs.",
+                        ? Lexicon.Get("settings.audio.pc_audio_now_off_remote")
+                        : Lexicon.Get("settings.audio.pc_audio_now_off"),
                     VerbosityLevel.Critical, true);
             }
 
@@ -465,8 +472,9 @@ namespace JJFlexWpf.Dialogs
                 {
                     ScreenReaderOutput.Speak(
                         string.IsNullOrEmpty(enumMessage)
-                            ? "Radio audio cannot start: this computer's sound devices could not be read."
-                            : "Radio audio cannot start. " + enumMessage,
+                            ? Lexicon.Get("settings.audio.devices_unreadable")
+                            : Lexicon.Get("settings.audio.devices_unreadable_detail",
+                                ("enumMessage", enumMessage)),
                         VerbosityLevel.Critical, true);
                     return false;
                 }
@@ -481,8 +489,8 @@ namespace JJFlexWpf.Dialogs
 
                 ScreenReaderOutput.Speak(
                     gone.Length > 0
-                        ? $"The sound device chosen for radio audio, {gone}, is not connected. Opening Audio Devices."
-                        : "Radio audio needs a sound device on this computer and none has been chosen yet. Opening Audio Devices.",
+                        ? Lexicon.Get("settings.audio.device_missing", ("gone", gone))
+                        : Lexicon.Get("settings.audio.device_none_chosen"),
                     VerbosityLevel.Critical, true);
 
                 var picker = new AudioDevicesDialog(AudioDevicesFile, _audioConfig);
@@ -495,7 +503,7 @@ namespace JJFlexWpf.Dialogs
                 }
 
                 ScreenReaderOutput.Speak(
-                    "Radio audio through this computer is still off. Choose audio devices to turn it on.",
+                    Lexicon.Get("settings.audio.pc_audio_still_off_choose_devices"),
                     VerbosityLevel.Critical, true);
                 return false;
             }
@@ -506,7 +514,8 @@ namespace JJFlexWpf.Dialogs
                 // refuse: the audio path has its own spoken fallback, so let it
                 // try rather than blocking on a check that itself broke.
                 ScreenReaderOutput.Speak(
-                    "Audio devices could not be checked: " + ex.Message, VerbosityLevel.Critical, true);
+                    Lexicon.Get("settings.audio.devices_check_failed", ("message", ex.Message)),
+                    VerbosityLevel.Critical, true);
                 return true;
             }
         }
@@ -526,7 +535,7 @@ namespace JJFlexWpf.Dialogs
             {
                 // Never a dead button: say why instead of doing nothing.
                 ScreenReaderOutput.Speak(
-                    "The audio device settings file could not be located, so devices cannot be chosen here.",
+                    Lexicon.Get("settings.audio.devices_file_missing"),
                     VerbosityLevel.Critical, true);
                 return;
             }
