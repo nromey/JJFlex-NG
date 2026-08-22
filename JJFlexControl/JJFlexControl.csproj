@@ -20,6 +20,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Sprint 34 (#65): ComInfo.cs reads its two user-facing strings from the
+         shared string store, which lives in Radios. -->
+    <ProjectReference Include="..\Radios\Radios.csproj" />
     <ProjectReference Include="..\JJTrace\JJTrace.csproj" />
   </ItemGroup>
 </Project>

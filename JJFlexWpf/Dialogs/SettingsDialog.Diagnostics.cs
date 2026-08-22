@@ -116,13 +116,13 @@ namespace JJFlexWpf.Dialogs
                     // The real, resolved path — not the %AppData% template.
                     // An operator asked for "the trace" has to be able to produce
                     // it without sighted help and without knowing AppData folklore.
-                    DiagPathText.Text = Radios.Lexicon.Get(
-                        "settings.diagnostics.live_log_path", ("live", live));
+                    DiagPathText.Text = Radios.Lexicon.Get("settings.diagnostics.live_log_path",
+                        ("live", live));
                 }
                 else if (!string.IsNullOrEmpty(folder))
                 {
-                    DiagPathText.Text = Radios.Lexicon.Get(
-                        "settings.diagnostics.log_folder_when_running", ("folder", folder));
+                    DiagPathText.Text = Radios.Lexicon.Get("settings.diagnostics.log_folder_when_running",
+                        ("folder", folder));
                 }
                 else
                 {
@@ -445,9 +445,9 @@ namespace JJFlexWpf.Dialogs
                     ? Radios.Lexicon.Get("settings.diagnostics.no_loose_logs")
                     : Radios.Lexicon.Get("settings.diagnostics.loose_logs_deleted",
                         ("files", files),
-                        ("fileWord", Radios.Lexicon.Get(files == 1
-                            ? "settings.diagnostics.word_file"
-                            : "settings.diagnostics.word_files")),
+                        ("fileWord", files == 1
+                            ? Radios.Lexicon.Get("settings.diagnostics.word_file")
+                            : Radios.Lexicon.Get("settings.diagnostics.word_files")),
                         ("size", DescribeBytes(bytes))));
             }
             catch
@@ -481,9 +481,9 @@ namespace JJFlexWpf.Dialogs
                     ? Radios.Lexicon.Get("settings.diagnostics.no_resolved_crash_reports")
                     : Radios.Lexicon.Get("settings.diagnostics.crash_reports_deleted",
                         ("files", files),
-                        ("reportWord", Radios.Lexicon.Get(files == 1
-                            ? "settings.diagnostics.word_report"
-                            : "settings.diagnostics.word_reports")),
+                        ("reportWord", files == 1
+                            ? Radios.Lexicon.Get("settings.diagnostics.word_report")
+                            : Radios.Lexicon.Get("settings.diagnostics.word_reports")),
                         ("size", DescribeBytes(bytes))));
             }
             catch

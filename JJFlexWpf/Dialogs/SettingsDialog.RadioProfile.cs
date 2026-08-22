@@ -385,9 +385,9 @@ namespace JJFlexWpf.Dialogs
             {
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("settings.profile.remote_admin_not_allowed",
-                        ("what", Lexicon.Get(isPort
-                            ? "settings.profile.remote_port_changes_label"
-                            : "settings.profile.remote_firmware_updates_label"))) +
+                        ("what", isPort
+                            ? Lexicon.Get("settings.profile.remote_port_changes_label")
+                            : Lexicon.Get("settings.profile.remote_firmware_updates_label"))) +
                     Lexicon.Get("settings.profile.press_apply_or_ok"),
                     VerbosityLevel.Terse, interrupt: true);
                 return;
@@ -801,9 +801,9 @@ namespace JJFlexWpf.Dialogs
                     changed = true;
                     notesApplied.Add(Lexicon.Get("settings.profile.saved_remote_port",
                         ("disp", disp),
-                        ("state", Lexicon.Get(edit.AllowRemotePort
-                            ? "settings.profile.word_allowed"
-                            : "settings.profile.word_not_allowed"))));
+                        ("state", edit.AllowRemotePort
+                            ? Lexicon.Get("settings.profile.word_allowed")
+                            : Lexicon.Get("settings.profile.word_not_allowed"))));
                 }
                 if (cfg.AllowRemoteFirmwareUpdates != edit.AllowRemoteFirmware)
                 {
@@ -811,9 +811,9 @@ namespace JJFlexWpf.Dialogs
                     changed = true;
                     notesApplied.Add(Lexicon.Get("settings.profile.saved_remote_firmware",
                         ("disp", disp),
-                        ("state", Lexicon.Get(edit.AllowRemoteFirmware
-                            ? "settings.profile.word_allowed"
-                            : "settings.profile.word_not_allowed"))));
+                        ("state", edit.AllowRemoteFirmware
+                            ? Lexicon.Get("settings.profile.word_allowed")
+                            : Lexicon.Get("settings.profile.word_not_allowed"))));
                 }
 
                 // The no-physical-access flag becomes a decision only when the
@@ -879,17 +879,17 @@ namespace JJFlexWpf.Dialogs
                             _rig!.RemoteOnEnabled = wantOn;
                             notesApplied.Add(Lexicon.Get("settings.profile.saved_rem_on_applied_now",
                                 ("disp", disp),
-                                ("state", Lexicon.Get(wantOn
-                                    ? "settings.profile.word_on"
-                                    : "settings.profile.word_off"))));
+                                ("state", wantOn
+                                    ? Lexicon.Get("settings.profile.word_on")
+                                    : Lexicon.Get("settings.profile.word_off"))));
                         }
                         else
                         {
                             notesQueued.Add(Lexicon.Get("settings.profile.saved_rem_on_queued",
                                 ("disp", disp),
-                                ("state", Lexicon.Get(wantOn
-                                    ? "settings.profile.word_on"
-                                    : "settings.profile.word_off")))
+                                ("state", wantOn
+                                    ? Lexicon.Get("settings.profile.word_on")
+                                    : Lexicon.Get("settings.profile.word_off")))
                                 + (wantOn
                                     ? Lexicon.Get("settings.profile.saved_rem_on_queued_relay_note")
                                     : ""));
@@ -918,8 +918,9 @@ namespace JJFlexWpf.Dialogs
                             notesApplied.Add(Lexicon.Get("settings.radio.name.renamed",
                                 ("newName", edit.NicknameText)));
                         else
-                            notesApplied.Add(Lexicon.Get(
-                                "settings.profile.rename_failed_locally_updated", ("disp", disp)));
+                            notesApplied.Add(
+                                Lexicon.Get("settings.profile.rename_failed_locally_updated",
+                                    ("disp", disp)));
                     }
                     else
                     {
