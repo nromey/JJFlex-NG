@@ -98,7 +98,7 @@ public abstract class AudioLevelsDialogBase : JJFlexDialog
         ScreenReaderOutput.Speak(
             Lexicon.Get("audio.levels.toggle_state",
                 ("label", label),
-                ("state", Lexicon.Get(on ? "audio.state.on" : "audio.state.off"))),
+                ("state", on ? Lexicon.Get("audio.state.on") : Lexicon.Get("audio.state.off"))),
             VerbosityLevel.Terse, interrupt: true);
     }
 

@@ -224,9 +224,9 @@ public static class RecordingNarrator
         }
 
         EarconPlayer.ConfirmTone();
-        string capNote = Lexicon.Get(reason == MicRecorder.StopReason.MaxLength
-            ? "audio.recording.reached_length_limit"
-            : "audio.recording.stopped");
+        string capNote = reason == MicRecorder.StopReason.MaxLength
+            ? Lexicon.Get("audio.recording.reached_length_limit")
+            : Lexicon.Get("audio.recording.stopped");
         Speak(capNote + " " + Lexicon.Get("audio.recording.saved_as",
                 ("length", RecordingStore.DescribeLength(seconds)),
                 ("file", Path.GetFileNameWithoutExtension(saved))),

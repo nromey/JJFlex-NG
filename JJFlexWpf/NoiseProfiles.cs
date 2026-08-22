@@ -260,7 +260,9 @@ public static class NoiseCaptureNarrator
         EarconPlayer.ConfirmTone();
         Speak(Radios.Lexicon.Get("audio.noise.capture.started",
             ("seconds", _duration),
-            ("unit", Radios.Lexicon.Get(_duration == 1 ? "audio.unit.second" : "audio.unit.seconds"))),
+            ("unit", _duration == 1
+                ? Radios.Lexicon.Get("audio.unit.second")
+                : Radios.Lexicon.Get("audio.unit.seconds"))),
             interrupt: true);
     }
 
@@ -314,9 +316,9 @@ public static class NoiseCaptureNarrator
         {
             AutoSave(p);
             EarconPlayer.ConfirmTone();
-            string next = Radios.Lexicon.Get(p.SpectralEnabled
-                ? "audio.noise.capture.spectral_is_using_it"
-                : "audio.noise.capture.turn_spectral_on");
+            string next = p.SpectralEnabled
+                ? Radios.Lexicon.Get("audio.noise.capture.spectral_is_using_it")
+                : Radios.Lexicon.Get("audio.noise.capture.turn_spectral_on");
             Speak(Radios.Lexicon.Get("audio.noise.capture.captured", ("next", next)), interrupt: true);
         }
         else

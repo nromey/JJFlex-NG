@@ -633,7 +633,9 @@ public partial class AudioWorkshopDialog
             if (saved)
             {
                 RefreshMicProfileOptions(selectName: name);
-                string verb = Lexicon.Get(isNew ? "audio.micprofile.verb_saved" : "audio.micprofile.verb_updated");
+                string verb = isNew
+                    ? Lexicon.Get("audio.micprofile.verb_saved")
+                    : Lexicon.Get("audio.micprofile.verb_updated");
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("audio.micprofile.save_receipt", ("profile", name), ("verb", verb)) +
                     (string.IsNullOrEmpty(radioHalfSpoken) ? "" : " " + radioHalfSpoken),
@@ -786,11 +788,14 @@ public partial class AudioWorkshopDialog
             // Two whole sentences rather than one with a spliced clause: a
             // fragment like " and the transmit cleanup settings were" cannot be
             // translated, or even read, on its own. Same words either way.
-            notes.Add(Lexicon.Get(
-                capture.Conditioning != null
-                    ? "audio.micprofile.device_mismatch_with_cleanup"
-                    : "audio.micprofile.device_mismatch",
-                ("device", capture.DeviceName), ("current", currentName)));
+            // Both keys spelled out at the call site rather than picked into a
+            // variable, so the static key check can see them: it reads source,
+            // and a key chosen before the call is invisible to it.
+            notes.Add(capture.Conditioning != null
+                ? Lexicon.Get("audio.micprofile.device_mismatch_with_cleanup",
+                    ("device", capture.DeviceName), ("current", currentName))
+                : Lexicon.Get("audio.micprofile.device_mismatch",
+                    ("device", capture.DeviceName), ("current", currentName)));
             return string.Join(" ", notes);
         }
 

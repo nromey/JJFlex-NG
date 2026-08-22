@@ -182,9 +182,10 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
             "Open the noise profiles folder in File Explorer");
         folderButton.Click += (s, e) =>
         {
-            ScreenReaderOutput.Speak(Lexicon.Get(NoiseProfileStore.OpenFolder()
-                ? "audio.noise.folder_opened"
-                : "audio.noise.folder_open_failed"), VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(NoiseProfileStore.OpenFolder()
+                ? Lexicon.Get("audio.noise.folder_opened")
+                : Lexicon.Get("audio.noise.folder_open_failed"),
+                VerbosityLevel.Terse, interrupt: true);
         };
         panel.Children.Add(folderButton);
 

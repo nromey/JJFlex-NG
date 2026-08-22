@@ -550,7 +550,9 @@ public partial class AudioWorkshopDialog
                     line.Append(Lexicon.Get("audio.check.line_transmitting",
                         ("freq", FormatMHz(rig.TXFrequency)),
                         ("watts", effectivePower),
-                        ("unit", Lexicon.Get(effectivePower == 1 ? "audio.unit.watt" : "audio.unit.watts")),
+                        ("unit", effectivePower == 1
+                            ? Lexicon.Get("audio.unit.watt")
+                            : Lexicon.Get("audio.unit.watts")),
                         ("source", SourceFriendlyName(rig.MicSource))));
                     if (_powerTouched)
                         line.Append(' ').Append(Lexicon.Get("audio.check.power_reduced_for_check",
