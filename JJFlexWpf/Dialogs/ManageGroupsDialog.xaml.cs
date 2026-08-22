@@ -99,7 +99,7 @@ namespace JJFlexWpf.Dialogs
         {
             if (GroupsListBox.SelectedItem is not MemoryGroupInfo selected)
             {
-                MessageBox.Show("You must select a group.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.memory_groups.must_select"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 GroupsListBox.Focus();
                 return;
@@ -122,7 +122,7 @@ namespace JJFlexWpf.Dialogs
         {
             if (GroupsListBox.SelectedItem is not MemoryGroupInfo selected)
             {
-                MessageBox.Show("You must select a group.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.memory_groups.must_select"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 GroupsListBox.Focus();
                 return;

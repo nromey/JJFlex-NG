@@ -2153,9 +2153,9 @@ public class FreqOutHandlers
             Radios.ScreenReaderOutput.Speak(
                 removed == 1
                     ? Lexicon.Get("settings.slice.released_extras_one",
-                        ("removed", removed), ("letter", keptLetter))
+                        ("removed", removed), ("keptLetter", keptLetter))
                     : Lexicon.Get("settings.slice.released_extras_many",
-                        ("removed", removed), ("letter", keptLetter)),
+                        ("removed", removed), ("keptLetter", keptLetter)),
                 VerbosityLevel.Terse, interrupt: true);
         }
     }

@@ -129,7 +129,8 @@ public partial class FindLogEntryDialog : JJFlexDialog
             _checkTimer.Stop();
             if (_results.Count == 0)
             {
-                MessageBox.Show("No items were found.", "Find Log Entries",
+                MessageBox.Show(Radios.Lexicon.Get("logging.find.none_found"),
+                    Radios.Lexicon.Get("logging.find.none_found_title"),
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 DialogResult = false;
                 Close();

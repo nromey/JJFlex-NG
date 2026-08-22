@@ -58,8 +58,9 @@ public partial class ExportDialog : JJFlexDialog
             // closes with no explanation is a silent absence to a screen
             // reader user — the honest guard in LogStats.ShowLogStats is the
             // model. State the condition, not an instruction to the developer.
-            MessageBox.Show("There is no log file to export. Set up a log file first.",
-                "Export Log", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(Radios.Lexicon.Get("logging.export.no_log_file"),
+                Radios.Lexicon.Get("logging.export.no_log_file_title"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
             CloseWithResult(false);
             return;
         }

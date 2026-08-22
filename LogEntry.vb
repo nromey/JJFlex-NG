@@ -13,9 +13,6 @@ Imports Radios
 ''' log entry form and data
 ''' </summary>
 Friend Class LogEntry
-    Const mustClose As String = "You must first close the Log Entry form."
-    Const writeLogEntryMsg As String = "Write the log entry for "
-    Const writeLogEntryTitleMsg As String = "Write Log Entry"
     Private session As LogSession = Nothing
     Private sessionLock = New Object
     Dim wasActive As Boolean ' set when form activated.
@@ -274,7 +271,7 @@ Friend Class LogEntry
     ''' <returns>True if the form isn't active.</returns>
     Private Function cleanup() As Boolean
         If inDialog Then
-            MsgBox(mustClose)
+            MsgBox(Radios.Lexicon.Get("logging.entry.must_close_entry_form"))
             Return False
         End If
         Close()
@@ -372,11 +369,11 @@ Friend Class LogEntry
 
         If searching Then
             setupForm()
-            Me.Text = "Get Search Arguments"
+            Me.Text = Radios.Lexicon.Get("logging.entry.search_arguments_title")
             FieldID = AdifTags.ADIF_Call
             ShowEntry()
         Else
-            Me.Text = "Log Entry Form"
+            Me.Text = Radios.Lexicon.Get("logging.entry.form_title")
             If session Is Nothing Then
                 ' Open the log file.  Just quit if this fails.
                 ' This also sets up the log form.
@@ -419,7 +416,7 @@ Friend Class LogEntry
         Dim rv As Boolean = True
         Dim callText As String = vbNullString
         If NeedsWrite AndAlso (getFieldText(AdifTags.ADIF_Call, callText) AndAlso (callText <> vbNullString)) Then
-            Select Case MessageBox.Show(writeLogEntryMsg & callText & "?", writeLogEntryTitleMsg, MessageBoxButtons.YesNo)
+            Select Case MessageBox.Show(Radios.Lexicon.Get("logging.entry.write_confirm", ("call", callText)), Radios.Lexicon.Get("logging.entry.write_confirm_title"), MessageBoxButtons.YesNo)
                 Case DialogResult.Yes
                     iWrite()
                 Case DialogResult.Cancel

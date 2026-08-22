@@ -2,13 +2,9 @@
 
 ' The rig selection stuff has been removed.
 Friend Class Lister
-    Const PText As String = "Operator Selection"
-    Const RText As String = "Rig Selection"
-    Const mustSelectMsg As String = "You must select an item."
-    Const removeSelectedTitle As String = "Removing Selected item"
-    Const removeSelectedMsg As String = "You may not remove the currently selected item."
-    Const removeDefaultTitleMsg As String = "Removing default"
-    Const removeDefaultMsg As String = "If you remove the default, the resulting first item will be used.  Continue?"
+    ' "Rig Selection" was the second title this form once carried; the rig
+    ' selection stuff has been removed (see the comment above the class), so
+    ' there is no key for it.
 
     Private wasActive As Boolean
     Private ignoreCheck As Boolean ' do nothing when item checked (e.g.) at setup.
@@ -55,8 +51,9 @@ Friend Class Lister
                 For Each p As PersonalData.personal_v1 In listObj.Ops
                     screenItems.Add(p)
                 Next
-                Me.Text = PText
-                ScreenList.AccessibleName = PText
+                Dim pText As String = Radios.Lexicon.Get("settings.lister.operator_title")
+                Me.Text = pText
+                ScreenList.AccessibleName = pText
             End If
             ScreenList.DataSource = screenItems
             ScreenList.DisplayMember = "Display"
@@ -86,7 +83,7 @@ Friend Class Lister
             listObj.Update(id)
             refreshScreenList(id)
         Else
-            MsgBox(mustSelectMsg)
+            MsgBox(Radios.Lexicon.Get("settings.lister.must_select_item"))
         End If
         ScreenList.Focus()
     End Sub
@@ -94,14 +91,14 @@ Friend Class Lister
     Private Sub DeleteButton_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles DeleteButton.Click
         Dim id As Integer = ScreenList.SelectedIndex
         If id = currentID Then
-            MessageBox.Show(removeSelectedMsg, removeSelectedTitle, MessageBoxButtons.OK)
+            MessageBox.Show(Radios.Lexicon.Get("settings.lister.remove_selected_blocked"), Radios.Lexicon.Get("settings.lister.remove_selected_title"), MessageBoxButtons.OK)
             ScreenList.Focus()
             Return
         End If
         If id <> -1 Then
             Dim removeIt As Boolean = True
             If id = listObj.DefaultID Then
-                If MessageBox.Show(removeDefaultMsg, removeDefaultTitleMsg, MessageBoxButtons.YesNo) <> DialogResult.Yes Then
+                If MessageBox.Show(Radios.Lexicon.Get("settings.lister.remove_default_confirm"), Radios.Lexicon.Get("settings.lister.remove_default_title"), MessageBoxButtons.YesNo) <> DialogResult.Yes Then
                     removeIt = False
                 End If
             End If
@@ -114,7 +111,7 @@ Friend Class Lister
                 refreshScreenList(id)
             End If
         Else
-            MsgBox(mustSelectMsg)
+            MsgBox(Radios.Lexicon.Get("settings.lister.must_select_item"))
         End If
         ScreenList.Focus()
     End Sub

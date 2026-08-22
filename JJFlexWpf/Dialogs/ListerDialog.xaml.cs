@@ -71,7 +71,7 @@ namespace JJFlexWpf.Dialogs
             int idx = ScreenList.SelectedIndex;
             if (idx < 0)
             {
-                MessageBox.Show("You must select an item.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.lister.must_select_item"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -85,14 +85,15 @@ namespace JJFlexWpf.Dialogs
             int idx = ScreenList.SelectedIndex;
             if (idx < 0)
             {
-                MessageBox.Show("You must select an item.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("settings.lister.must_select_item"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
             if (idx == ActiveIndex)
             {
-                MessageBox.Show("You may not remove the currently selected item.",
-                    "Removing Selected Item", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Radios.Lexicon.Get("settings.lister.remove_selected_blocked"),
+                    Radios.Lexicon.Get("settings.lister.dialog.remove_selected_title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 ScreenList.Focus();
                 return;
             }

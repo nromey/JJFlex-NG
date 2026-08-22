@@ -100,7 +100,7 @@ public partial class DefineCommandsDialog : JJFlexDialog
         ValueBox.IsEnabled = false;
         ConflictLabel.Text = "";
 
-        Speak?.Invoke($"{scope} hotkeys tab, {filtered.Count} commands");
+        Speak?.Invoke(Radios.Lexicon.Get("settings.keys.tab_summary", ("scope", scope), ("count", filtered.Count)));
     }
 
     private void ScopeTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -121,7 +121,7 @@ public partial class DefineCommandsDialog : JJFlexDialog
 
         ValueBox.Text = item.KeyText;
         ValueBox.IsEnabled = true;
-        PressKeyLabel.Text = "Press desired key to change";
+        PressKeyLabel.Text = Radios.Lexicon.Get("settings.keys.press_key_prompt");
     }
 
     private void ValueBox_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -161,7 +161,7 @@ public partial class DefineCommandsDialog : JJFlexDialog
         // clear gesture.
         if ((winFormsKey & (int)WinFormsKeys.KeyCode) == 0)
         {
-            Speak?.Invoke("That key can't be used here. Press a different key.");
+            Speak?.Invoke(Radios.Lexicon.Get("settings.keys.key_not_usable"));
             return;
         }
 
@@ -194,7 +194,7 @@ public partial class DefineCommandsDialog : JJFlexDialog
         CommandsListView.SelectedItem = item;
 
         if (string.IsNullOrEmpty(ConflictLabel.Text))
-            Speak?.Invoke($"{item.KeyText} assigned to {item.HelpText}");
+            Speak?.Invoke(Radios.Lexicon.Get("settings.keys.assigned_to", ("key", item.KeyText), ("command", item.HelpText)));
 
         CommandsListView.Focus();
     }
@@ -216,8 +216,10 @@ public partial class DefineCommandsDialog : JJFlexDialog
             other.KeyValue = 0;
             other.KeyText = FormatKey?.Invoke(0) ?? "";
 
-            ConflictLabel.Text = $"Cleared {oldKeyText} from {oldCmd}";
-            Speak?.Invoke($"Cleared {oldKeyText} from {oldCmd}");
+            string clearedMessage = Radios.Lexicon.Get(
+                "settings.keys.cleared_from", ("key", oldKeyText), ("command", oldCmd));
+            ConflictLabel.Text = clearedMessage;
+            Speak?.Invoke(clearedMessage);
             _commandChanges = true;
         }
     }
@@ -241,7 +243,7 @@ public partial class DefineCommandsDialog : JJFlexDialog
 
     private void ValueBox_GotFocus(object sender, RoutedEventArgs e)
     {
-        PressKeyLabel.Text = "Press desired key to change";
+        PressKeyLabel.Text = Radios.Lexicon.Get("settings.keys.press_key_prompt");
     }
 
     private void ValueBox_LostFocus(object sender, RoutedEventArgs e)
@@ -256,9 +258,10 @@ public partial class DefineCommandsDialog : JJFlexDialog
             if (HasAnyConflicts())
             {
                 MessageBox.Show(
-                    "There are conflicting key assignments. Please resolve them before saving.",
-                    "Duplicate key Definitions", MessageBoxButton.OK, MessageBoxImage.Warning);
-                Speak?.Invoke("Cannot save. Conflicting key assignments exist.");
+                    Radios.Lexicon.Get("settings.keys.conflicts_block_save"),
+                    Radios.Lexicon.Get("settings.keys.duplicate_title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                Speak?.Invoke(Radios.Lexicon.Get("settings.keys.cannot_save_conflicts"));
                 return;
             }
 
@@ -298,7 +301,7 @@ public partial class DefineCommandsDialog : JJFlexDialog
             CommandsListView.ItemsSource = source;
             CommandsListView.SelectedItem = item;
 
-            Speak?.Invoke($"Reset to {item.KeyText}");
+            Speak?.Invoke(Radios.Lexicon.Get("settings.keys.reset_to", ("key", item.KeyText)));
         }
     }
 
@@ -317,6 +320,6 @@ public partial class DefineCommandsDialog : JJFlexDialog
         }
         _commandChanges = true;
         PopulateListView();
-        Speak?.Invoke($"All {scope} keys reset to defaults");
+        Speak?.Invoke(Radios.Lexicon.Get("settings.keys.all_reset", ("scope", scope)));
     }
 }

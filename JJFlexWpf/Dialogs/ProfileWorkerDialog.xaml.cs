@@ -18,8 +18,8 @@ namespace JJFlexWpf.Dialogs
     {
         // Operator wording, not validator wording — "you must specify" and a
         // title of "Validation" are the compiler talking, not a person.
-        private const string MustSpecifyName = "Enter a name for the profile.";
-        private const string MustSelectType = "Choose a profile type.";
+        private static string MustSpecifyName => Radios.Lexicon.Get("settings.profile.worker.needs_name");
+        private static string MustSelectType => Radios.Lexicon.Get("settings.profile.worker.needs_type");
 
         private readonly bool _isUpdate;
         private readonly Func<int, IEnumerable<string>> _getProfileNamesByType;
@@ -65,14 +65,16 @@ namespace JJFlexWpf.Dialogs
             var name = NameBox.Text.Trim();
             if (string.IsNullOrEmpty(name))
             {
-                MessageBox.Show(MustSpecifyName, "Profile", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(MustSpecifyName, Radios.Lexicon.Get("settings.profile.dialog.title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 NameBox.Focus();
                 return;
             }
 
             if (TypeBox.SelectedIndex == -1)
             {
-                MessageBox.Show(MustSelectType, "Profile", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(MustSelectType, Radios.Lexicon.Get("settings.profile.dialog.title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 TypeBox.Focus();
                 return;
             }
@@ -84,10 +86,13 @@ namespace JJFlexWpf.Dialogs
                 {
                     if (existingName == name)
                     {
-                        string typeName = TypeBox.SelectedItem as string ?? "profile";
+                        string typeName = TypeBox.SelectedItem as string
+                            ?? Radios.Lexicon.Get("settings.profile.worker.default_type_name");
                         MessageBox.Show(
-                            $"A {typeName} profile named {name} already exists. Choose another name.",
-                            "Profile", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            Radios.Lexicon.Get("settings.profile.worker.name_taken",
+                                ("type", typeName), ("name", name)),
+                            Radios.Lexicon.Get("settings.profile.dialog.title"),
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
                         NameBox.Focus();
                         return;
                     }

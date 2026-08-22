@@ -5,8 +5,6 @@ Imports JJTrace
 
 Public Class ExportForm
     Dim expFile As StreamWriter
-    Const overwritePrefix As String = "Overwrite file "
-    Const overwriteSuffix As String = "?"
     Private session As LogSession
 
     Private Sub ExportForm_Load(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles MyBase.Load
@@ -46,12 +44,12 @@ Public Class ExportForm
             Dim di As DirectoryInfo
             di = Directory.GetParent(CurrentOp.LogFile)
             .InitialDirectory = di.FullName
-            .Title = "Output Filename"
+            .Title = Radios.Lexicon.Get("logging.export.output_filename_title")
             .ValidateNames = True
             DialogResult = .ShowDialog
             If DialogResult = DialogResult.OK Then
                 If File.Exists(.FileName) Then
-                    If MessageBox.Show(overwritePrefix & .SafeFileName & overwriteSuffix, overwritePrefix, MessageBoxButtons.YesNo) = DialogResult.No Then
+                    If MessageBox.Show(Radios.Lexicon.Get("logging.export.overwrite_confirm", ("file", .SafeFileName)), Radios.Lexicon.Get("logging.export.overwrite_title"), MessageBoxButtons.YesNo) = DialogResult.No Then
                         DialogResult = DialogResult.Abort
                         GoTo checkExit
                     End If

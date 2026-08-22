@@ -91,7 +91,7 @@ namespace JJFlexWpf.Dialogs
             var ofd = new OpenFileDialog
             {
                 Filter = "Log files (*.JRL)|*.JRL|All files (*.*)|*.*",
-                Title = "Log Filename",
+                Title = Radios.Lexicon.Get("logging.characteristics.browse_title"),
                 CheckFileExists = false,
                 CheckPathExists = true
             };
@@ -131,21 +131,21 @@ namespace JJFlexWpf.Dialogs
         {
             if (string.IsNullOrWhiteSpace(NameBox.Text))
             {
-                MessageBox.Show("You must specify a valid file name.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("logging.characteristics.needs_file_name"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 NameBox.Focus();
                 return;
             }
             if (!int.TryParse(FirstSerialBox.Text, out int serial))
             {
-                MessageBox.Show("The first serial number must be numeric.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("logging.characteristics.serial_must_be_numeric"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 FirstSerialBox.Focus();
                 return;
             }
             if (FormList.SelectedIndex < 0)
             {
-                MessageBox.Show("You must select a log form.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("logging.characteristics.needs_log_form"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 FormList.Focus();
                 return;

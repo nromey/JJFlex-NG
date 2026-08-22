@@ -57,7 +57,7 @@ namespace JJFlexWpf.Dialogs
         // Not "You must select a profile" — the button this most often answers
         // is ALSO named Select, and "press Select: you must select" reads as a
         // riddle. Name the actual missing step instead.
-        private const string MustSelectProfile = "Pick a profile in the list first.";
+        private static string MustSelectProfile => Radios.Lexicon.Get("settings.profile.dialog.must_select");
 
         private readonly ProfileDialogCallbacks _callbacks;
 
@@ -108,7 +108,8 @@ namespace JJFlexWpf.Dialogs
             var item = GetSelectedItem();
             if (item == null)
             {
-                MessageBox.Show(MustSelectProfile, "Profile", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(MustSelectProfile, Radios.Lexicon.Get("settings.profile.dialog.title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 ProfilesListBox.Focus();
                 return;
             }
@@ -116,7 +117,8 @@ namespace JJFlexWpf.Dialogs
             var error = _callbacks.OnSelect(item.ProfileData);
             if (error != null)
             {
-                MessageBox.Show(error, "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(error, Radios.Lexicon.Get("settings.profile.dialog.error_title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 ProfilesListBox.Focus();
                 return;
             }
@@ -144,7 +146,8 @@ namespace JJFlexWpf.Dialogs
             var item = GetSelectedItem();
             if (item == null)
             {
-                MessageBox.Show(MustSelectProfile, "Profile", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(MustSelectProfile, Radios.Lexicon.Get("settings.profile.dialog.title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 ProfilesListBox.Focus();
                 return;
             }
@@ -167,7 +170,8 @@ namespace JJFlexWpf.Dialogs
             var item = GetSelectedItem();
             if (item == null)
             {
-                MessageBox.Show(MustSelectProfile, "Profile", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(MustSelectProfile, Radios.Lexicon.Get("settings.profile.dialog.title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 ProfilesListBox.Focus();
                 return;
             }
@@ -175,7 +179,8 @@ namespace JJFlexWpf.Dialogs
             var error = _callbacks.OnDelete(item.ProfileData);
             if (error != null)
             {
-                MessageBox.Show(error, "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(error, Radios.Lexicon.Get("settings.profile.dialog.error_title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 ProfilesListBox.Focus();
                 return;
             }
@@ -188,7 +193,8 @@ namespace JJFlexWpf.Dialogs
             var item = GetSelectedItem();
             if (item == null)
             {
-                MessageBox.Show(MustSelectProfile, "Profile", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(MustSelectProfile, Radios.Lexicon.Get("settings.profile.dialog.title"),
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 ProfilesListBox.Focus();
                 return;
             }

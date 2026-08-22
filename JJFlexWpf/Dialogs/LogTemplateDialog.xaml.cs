@@ -60,7 +60,7 @@ namespace JJFlexWpf.Dialogs
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
-            Title = $"Log Entry - {TemplateName}";
+            Title = Radios.Lexicon.Get("logging.template.title", ("template", TemplateName));
             FieldsPanel.ItemsSource = Fields;
         }
 
