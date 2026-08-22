@@ -148,7 +148,32 @@
   "audio.micprofile.cleanup_needs_a_radio": "Its transmit cleanup settings need a connected radio, so they were not applied.",
   "audio.micprofile.level_not_set": "The Windows input level could not be set: {reason}",
 
-  "_7_workshop": "The Audio Workshop window itself.",
+  "_7_reference": "Reference audio: a known recording sent in place of the microphone.",
+
+  "audio.reference.folder_open_failed": "The recordings folder could not be opened.",
+  "audio.reference.nothing_to_send": "There is no reference recording to send. Record one, or check that the recording that ships with JJ Flexible is installed.",
+  "audio.reference.load_failed": "That reference could not be loaded. {reason}",
+  "audio.reference.not_armed": "Reference not armed. {reason}",
+  "audio.reference.tone_already_armed": "The test tone is armed, and only one thing can replace your microphone at a time. Turn the test tone off first.",
+  "audio.reference.armed": "Reference armed: {recording}. It replaces your microphone from the start of the recording each time you transmit.",
+  "audio.reference.disarmed": "Reference disarmed. Microphone restored.",
+  "audio.reference.finished": "Reference finished. Your microphone is back.",
+  "audio.reference.recording_purpose": "a reference take",
+
+  "_8_tone": "The built-in transmit test tone and its passband check.",
+
+  "audio.tone.not_armed": "Test tone not armed. {reason}",
+  "audio.tone.armed": "Test tone armed: {freq} hertz at {level} dBFS.",
+  "audio.tone.armed_replaces_mic": "It replaces your microphone while you transmit.",
+  "audio.tone.disarmed": "Test tone disarmed. Microphone restored.",
+  "audio.tone.sending": "Sending the {freq} hertz test tone instead of your microphone.",
+  "audio.tone.armed_but_not_going_out": "The test tone is armed but is not going out. {reason}",
+  "audio.tone.no_radio_for_passband_check": "No radio connected; the tone cannot be checked against a transmit filter.",
+  "audio.tone.inside_passband": "{freq} hertz is inside your transmit filter ({low} to {high} hertz).",
+  "audio.tone.outside_passband": "Warning: {freq} hertz is outside your transmit filter, which passes {low} to {high} hertz. The tone will not go out. Pick a frequency inside the filter, or widen the TX filter below.",
+  "audio.tone.near_passband_edge": "Note: {freq} hertz is within 50 hertz of your transmit filter edge ({low} to {high} hertz). The tone may go out reduced.",
+
+  "_9_workshop": "The Audio Workshop window itself.",
 
   "audio.workshop.unnamed_section": "Section",
   "audio.workshop.section_nothing_to_adjust": "{section}, nothing to adjust here."
