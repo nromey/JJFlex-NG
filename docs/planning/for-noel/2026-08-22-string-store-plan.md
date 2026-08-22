@@ -98,10 +98,19 @@ where they are read by people who cannot see the screen.
 invisible to the operator who most needs the text, and a key on screen is a bug
 report that writes itself.
 
-**Verbosity ladders are DATA.** Several utterances already pick between Chatty,
-Terse and Critical in a `switch`. Those three belong in the store as a set under
-one key. This is the single strongest argument for the whole job: the ladder
-becomes reviewable as a ladder.
+**Verbosity ladders are DATA — but there are only three of them.** Corrected
+2026-08-22 by counting. This draft said "several utterances already pick between
+Chatty, Terse and Critical in a `switch`" and called it the single strongest
+argument for the whole job. Measured: **three** ladders exist
+(`ScreenReaderOutput.cs:701`, `FlexBase.cs:2294`, `FlexBase.cs:11983`) plus about
+three binary ternaries, out of 713 `Speak` calls.
+
+Right as a design goal, wrong as a description of the code — and the difference
+matters, because a contract asserting ladders are everywhere sends six tracks
+hunting for something that is not there, and a track that finds none will either
+invent them or decide the contract is wrong. Model the three that exist; create
+no new ones during extraction. Full statement in
+`docs/planning/active/string-store-contract.md`.
 
 **Interpolation: named placeholders.** `{radio}` and `{freq}`, never `{0}` and
 `{1}` — a translator reordering a sentence breaks positional ones silently.
