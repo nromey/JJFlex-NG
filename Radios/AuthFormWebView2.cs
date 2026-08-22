@@ -172,8 +172,8 @@ namespace Radios
             {
                 Dock = DockStyle.Fill,
                 Name = "WebView",
-                AccessibleName = "SmartLink login page",
-                AccessibleDescription = "Web browser for FlexRadio SmartLink authentication. Use Tab to navigate form fields.",
+                AccessibleName = Lexicon.Get("connect.smartlink.browser.webview_name"),
+                AccessibleDescription = Lexicon.Get("connect.smartlink.browser.webview_description"),
                 AccessibleRole = AccessibleRole.Client,
                 TabIndex = 0
             };
@@ -187,7 +187,7 @@ namespace Radios
             this.ClientSize = new Size(582, 653);
             this.Name = "AuthFormWebView2";
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.Text = "SmartLink Authentication";
+            this.Text = Lexicon.Get("connect.smartlink.browser.title");
             this.Load += AuthFormWebView2_Load;
             // Same foreground battle as the native sign-in form: this window
             // opens while the Connecting form (another thread) holds
@@ -198,8 +198,8 @@ namespace Radios
                 bool tookFocus = WindowFocusForcer.ForceForeground(this.Handle);
                 WindowFocusForcer.KeepForegroundWhileVisible(this);
                 ScreenReaderOutput.Speak(
-                    "SmartLink browser sign in window."
-                    + (tookFocus ? "" : " This window did not receive focus - press Alt Tab to reach it."),
+                    Lexicon.Get("connect.smartlink.browser.opened")
+                    + (tookFocus ? "" : Lexicon.Get("connect.smartlink.browser.no_focus_suffix")),
                     VerbosityLevel.Terse, interrupt: true);
             };
 
@@ -257,7 +257,7 @@ namespace Radios
 
                 if (urlLabel != null)
                 {
-                    urlLabel.Text = "Authenticating with SmartLink...";
+                    urlLabel.Text = Lexicon.Get("connect.smartlink.browser.authenticating_status");
                 }
 
                 // ONE user data folder for every account — see the per-account
@@ -351,9 +351,8 @@ namespace Radios
             {
                 Tracing.TraceLine("AuthFormWebView2 Exception: " + ex.Message, TraceLevel.Error);
                 MessageBox.Show(
-                    $"Failed to initialize authentication browser:\n\n{ex.Message}\n\n" +
-                    "Make sure WebView2 Runtime is installed.",
-                    "Authentication Error",
+                    Lexicon.Get("connect.smartlink.browser.init_failed_body", ("message", ex.Message)),
+                    Lexicon.Get("connect.smartlink.browser.error_title"),
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 DialogResult = DialogResult.Abort;
@@ -401,9 +400,12 @@ namespace Radios
 
                     if (!string.IsNullOrEmpty(error))
                     {
-                        var errorDescription = query["error_description"] ?? "Unknown error";
+                        var errorDescription = query["error_description"]
+                            ?? Lexicon.Get("connect.smartlink.browser.unknown_error");
                         Tracing.TraceLine($"Auth0 error: {error} - {errorDescription}", TraceLevel.Error);
-                        MessageBox.Show($"Authentication failed: {errorDescription}", "Authentication Error",
+                        MessageBox.Show(
+                            Lexicon.Get("connect.smartlink.browser.auth_failed", ("errorDescription", errorDescription)),
+                            Lexicon.Get("connect.smartlink.browser.error_title"),
                             MessageBoxButtons.OK, MessageBoxIcon.Error);
                         DialogResult = DialogResult.Cancel;
                         return;
@@ -415,7 +417,9 @@ namespace Radios
                         if (returnedState != _state)
                         {
                             Tracing.TraceLine("State mismatch - possible CSRF attack", TraceLevel.Error);
-                            MessageBox.Show("Authentication failed: Security validation error.", "Authentication Error",
+                            MessageBox.Show(
+                                Lexicon.Get("connect.smartlink.browser.state_mismatch"),
+                                Lexicon.Get("connect.smartlink.browser.error_title"),
                                 MessageBoxButtons.OK, MessageBoxIcon.Error);
                             DialogResult = DialogResult.Cancel;
                             return;
@@ -423,8 +427,8 @@ namespace Radios
 
                         // Exchange code for tokens
                         isExchangingCode = true;
-                        urlLabel.Text = "Exchanging authorization code for tokens...";
-                        ScreenReaderOutput.Speak("Completing authentication, please wait.", VerbosityLevel.Terse, true);
+                        urlLabel.Text = Lexicon.Get("connect.smartlink.browser.exchanging_status");
+                        ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.browser.completing"), VerbosityLevel.Terse, true);
 
                         bool success = await ExchangeCodeForTokens(code);
 
@@ -458,7 +462,7 @@ namespace Radios
                     SetForegroundWindow(this.Handle);
                     this.Activate();
                     webView.Focus();
-                    ScreenReaderOutput.Speak("SmartLink login page. Enter your email address.", true);
+                    ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.browser.login_page"), true);
 
                     // Inject script to detect login errors shown inline by Auth0
                     await InjectLoginErrorDetector();
@@ -558,11 +562,11 @@ namespace Radios
                     _lastSpokenError = message;
 
                     Tracing.TraceLine($"AuthFormWebView2: Login error detected: {message}", TraceLevel.Info);
-                    ScreenReaderOutput.Speak("Incorrect login. Please try again.", VerbosityLevel.Critical, true);
+                    ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.browser.incorrect_login"), VerbosityLevel.Critical, true);
 
                     if (urlLabel != null)
                     {
-                        urlLabel.Text = "Login failed - please try again.";
+                        urlLabel.Text = Lexicon.Get("connect.smartlink.browser.login_failed_status");
                     }
                 }
             }
@@ -594,8 +598,11 @@ namespace Radios
                 if (!response.IsSuccessStatusCode)
                 {
                     Tracing.TraceLine($"Token exchange failed: {json}", TraceLevel.Error);
-                    MessageBox.Show($"Failed to complete authentication.\n\nStatus: {response.StatusCode}",
-                        "Authentication Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    MessageBox.Show(
+                        Lexicon.Get("connect.smartlink.browser.token_exchange_failed",
+                            ("statusCode", response.StatusCode)),
+                        Lexicon.Get("connect.smartlink.browser.error_title"),
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return false;
                 }
 
@@ -620,7 +627,9 @@ namespace Radios
             catch (Exception ex)
             {
                 Tracing.TraceLine($"Token exchange exception: {ex.Message}", TraceLevel.Error);
-                MessageBox.Show($"Authentication error: {ex.Message}", "Authentication Error",
+                MessageBox.Show(
+                    Lexicon.Get("connect.smartlink.browser.exception", ("message", ex.Message)),
+                    Lexicon.Get("connect.smartlink.browser.error_title"),
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return false;
             }

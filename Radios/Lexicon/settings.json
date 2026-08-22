@@ -1,3 +1,14 @@
 {
-  "_comment": "This file holds what JJ Flexible says and shows, for the settings area. Settings and per-radio configuration. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md."
+  "_comment": "This file holds what JJ Flexible says and shows, for the settings area. Settings and per-radio configuration. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md.",
+  "_track_f": "The keys below are Sprint 34 Track F's: the radio profile database import and export (Radios/FlexDB.cs). They live in this partition because they are per-radio configuration, not connect vocabulary.",
+  "settings.flexdb.export_file_title": "Export File",
+  "settings.flexdb.import_file_title": "Import File",
+  "settings.flexdb.no_import_file": "no import file found.",
+  "settings.flexdb.error_header": "Error",
+  "settings.flexdb.status_header": "Status",
+  "settings.flexdb.exported": "Export complete",
+  "settings.flexdb.export_failed_prefix": "Export failed - ",
+  "settings.flexdb.export_timeout": "timed out",
+  "settings.flexdb.export_not_created": "file was not created at the destination",
+  "settings.flexdb.export_only_lan": "Profile export requires a LAN connection. SmartLink (remote) connections cannot receive the export file from the radio."
 }

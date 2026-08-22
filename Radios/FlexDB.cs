@@ -15,17 +15,19 @@ namespace Radios
     class FlexDB
     {
         private const string filePrefix = "SSDR_Config";
-        private const string exportFileTitle = "Export File";
-        private const string importFileTitle = "Import File";
-        private const string noFileMsg = "no import file found.";
-        private const string errHdr = "Error";
-        private const string statusHdr = "Status";
-        private const string exportedMsg = "Export complete";
-        private const string exportFailMsg = "Export failed - ";
-        private const string exportTimeout = "timed out";
+        // Lexicon-backed, so these cannot be const any more; a const must be a
+        // compile-time literal and Lexicon.Get is resolved at run time.
+        private static string exportFileTitle => Lexicon.Get("settings.flexdb.export_file_title");
+        private static string importFileTitle => Lexicon.Get("settings.flexdb.import_file_title");
+        private static string noFileMsg => Lexicon.Get("settings.flexdb.no_import_file");
+        private static string errHdr => Lexicon.Get("settings.flexdb.error_header");
+        private static string statusHdr => Lexicon.Get("settings.flexdb.status_header");
+        private static string exportedMsg => Lexicon.Get("settings.flexdb.exported");
+        private static string exportFailMsg => Lexicon.Get("settings.flexdb.export_failed_prefix");
+        private static string exportTimeout => Lexicon.Get("settings.flexdb.export_timeout");
         private const string onlyPrimary = "Import/export is only allowed on the primary station.";
         private const string onlyLAN = "Currently, import is only allowed over the LAN.";
-        private const string exportOnlyLAN = "Profile export requires a LAN connection. SmartLink (remote) connections cannot receive the export file from the radio.";
+        private static string exportOnlyLAN => Lexicon.Get("settings.flexdb.export_only_lan");
 
         private FlexBase rig;
         private string directoryName { get { return rig.ConfigDirectory + '\\' + rig.OperatorName + '\\' + "RigData"; } }
@@ -198,7 +200,7 @@ namespace Radios
                 if (!File.Exists(exportFile))
                 {
                     Tracing.TraceLine($"Flex export: WARNING - exported file not found at '{exportFile}'", TraceLevel.Warning);
-                    MessageBox.Show(exportFailMsg + "file was not created at the destination", errHdr, MessageBoxButtons.OK);
+                    MessageBox.Show(exportFailMsg + Lexicon.Get("settings.flexdb.export_not_created"), errHdr, MessageBoxButtons.OK);
                     rv = false;
                 }
                 else
