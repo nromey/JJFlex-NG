@@ -157,8 +157,32 @@ reason this store exists.
 separate passes. A track that does both makes the transcript diff useless,
 because every intentional change hides a possible accident.
 
-**Produce the transcript diff.** Before and after, same session, for your
-domain. That is the deliverable. The changed files are just how you got there.
+**NEVER spawn the app.** Corrected 2026-08-22, before any track started.
+
+`RadioConfig.BaseDirectory` is set once, at `ApplicationEvents.vb:308`, from the
+fixed `%AppData%\JJFlexRadio`. There is no environment variable or switch that
+redirects it — the tests set the static in-process, which a spawned exe cannot
+do. So every running instance, from any build in any worktree, reads and writes
+the operator's ONE live configuration.
+
+That is not a theoretical concern. On 2026-08-21 a background agent's worktree
+build rewrote the operator's `KeyDefs.xml`, and because no copy existed
+anywhere, "did that damage anything?" could not be answered even afterwards —
+which is why `backup-appdata-to-nas.ps1` was written the same day. Six tracks
+each spawning a build to record a transcript would reproduce that six times
+concurrently, against live settings, while also contending for one radio.
+
+**So a track's gate is: the static check passes, the unit suite passes, and the
+build is clean.** All three run in parallel safely because none of them starts
+the program.
+
+**The transcript diff is one serialized pass after the merge**, run at the desk,
+not per track. That is also the better instrument: the app's voice is one
+integrated thing, and six per-domain diffs would each be blind to whatever
+crosses between domains.
+
+**Report, in your own words:** every inconsistency you found and did not fix,
+every key you had to assemble dynamically, and the base SHA you built on.
 
 ## Not in scope
 

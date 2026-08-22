@@ -29,6 +29,9 @@ namespace Radios.Tests
     /// already happened once.
     /// </para>
     /// </remarks>
+    // LEXICON_SCANNER_EXEMPT — this file names keys that deliberately do not
+    // exist, to prove the missing-key fallback. The static key-coverage sweep
+    // skips any file carrying this token.
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class LexiconTests : IDisposable
     {
