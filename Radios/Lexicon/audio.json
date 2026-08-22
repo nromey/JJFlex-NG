@@ -1,3 +1,24 @@
 {
-  "_comment": "This file holds what JJ Flexible says and shows, for the audio area. Audio and DSP - devices, levels, transmit audio, filters, noise reduction. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md."
+  "_comment": "This file holds what JJ Flexible says and shows, for the audio area. Audio and DSP - devices, levels, transmit audio, filters, noise reduction. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md.",
+  "audio.ptt.status_hold": "transmitting, hold",
+  "audio.ptt.status_locked": "transmitting, locked, {timeLeft} remaining",
+  "audio.ptt.remaining_minutes_seconds": "{minutes} minutes {seconds} seconds",
+  "audio.ptt.remaining_minutes": "{minutes} minutes",
+  "audio.ptt.remaining_one_minute_seconds": "1 minute {seconds} seconds",
+  "audio.ptt.remaining_one_minute": "1 minute",
+  "audio.ptt.remaining_seconds": "{seconds} seconds",
+  "audio.ptt.blocked_by_license": "Unable to transmit here. Select license options in Settings to change.",
+  "audio.ptt.display_transmitting": "Transmitting",
+  "audio.ptt.announce_transmitting": "Transmitting",
+  "audio.ptt.display_locked": "TX Locked",
+  "audio.ptt.announce_locked": "Transmitting, locked",
+  "audio.ptt.announce_receiving": "Receiving",
+  "audio.ptt.timeout_approaching": "Transmit timeout approaching",
+  "audio.ptt.timeout_soon": "Transmit timeout soon",
+  "audio.ptt.timeout_ending_now": "Transmit ending now!",
+  "audio.ptt.timed_out": "Transmit timed out, receiving",
+  "audio.ptt.hard_limit": "Hard transmit limit, receiving",
+  "audio.ptt.no_signal_release": "No signal detected, receiving",
+  "audio.ptt.check_microphone": "Check microphone",
+  "audio.ptt.mic_level_too_high": "Microphone level too high"
 }
