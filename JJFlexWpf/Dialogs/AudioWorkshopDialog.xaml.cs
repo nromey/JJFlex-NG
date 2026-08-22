@@ -153,9 +153,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// file to write, and telling someone their preset "could not be saved" and
     /// stopping there gives them nothing to do about it.
     /// </summary>
-    private const string PresetSaveFailed =
-        "It could not be saved — there is no operator loaded, so there is no "
-        + "place to keep it yet.";
+    private static string PresetSaveFailed => Lexicon.Get("audio.preset.save_failed_reason");
 
     /// <summary>
     /// Category-list navigation (Sprint 32 Track G, task #134). Owns the list
@@ -520,14 +518,15 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         }
 
         GroupBox target = sections[next];
-        string name = target.Header as string ?? "Section";
+        string name = target.Header as string ?? Lexicon.Get("audio.workshop.unnamed_section");
 
         if (!target.MoveFocus(new TraversalRequest(FocusNavigationDirection.First)))
         {
             // A section with nothing focusable in it -- possible if every
             // control inside is collapsed. Say so rather than appearing to do
             // nothing, and leave focus where it was.
-            ScreenReaderOutput.Speak($"{name}, nothing to adjust here.",
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.workshop.section_nothing_to_adjust", ("section", name)),
                 VerbosityLevel.Terse, true);
             return;
         }

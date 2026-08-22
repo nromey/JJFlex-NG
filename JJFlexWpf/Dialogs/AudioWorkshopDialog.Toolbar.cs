@@ -27,7 +27,7 @@ public partial class AudioWorkshopDialog
         var presets = GetPresetsCallback?.Invoke();
         if (presets == null || presets.Presets.Count == 0)
         {
-            ScreenReaderOutput.Speak("No presets available", VerbosityLevel.Terse);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.preset.none_available"), VerbosityLevel.Terse);
             return;
         }
 
@@ -56,12 +56,10 @@ public partial class AudioWorkshopDialog
             var preset = presets.Presets[idx];
 
             var confirm = new ConfirmActionDialog(
-                "Delete Preset",
-                $"This deletes {preset.FormatForSpeech()} from your saved presets. " +
-                "There is no undo — to get it back you would save or import it again. " +
-                "Nothing on the radio changes.",
-                question: "Delete it?",
-                yesLabel: "_Delete");
+                Lexicon.Get("audio.preset.delete_title"),
+                Lexicon.Get("audio.preset.delete_body", ("preset", preset.FormatForSpeech())),
+                question: Lexicon.Get("audio.preset.delete_question"),
+                yesLabel: Lexicon.Get("audio.preset.delete_yes_label"));
             if (confirm.ShowDialog() != true)
                 return;
 
@@ -75,16 +73,19 @@ public partial class AudioWorkshopDialog
             // will actually be true tomorrow.
             bool saved = PersistPresets(presets);
             string outcome = saved
-                ? $"Preset {preset.Name} deleted"
-                : $"Preset {preset.Name} removed from the list, but " + PresetSaveFailed
-                  + " It will be back next time.";
+                ? Lexicon.Get("audio.preset.deleted", ("preset", preset.Name))
+                : Lexicon.Get("audio.preset.deleted_but_not_saved",
+                      ("preset", preset.Name), ("reason", PresetSaveFailed));
             var level = saved ? VerbosityLevel.Terse : VerbosityLevel.Critical;
 
             if (listBox.Items.Count == 0)
             {
                 // Nothing left to load — the picker has no job now.
                 ScreenReaderOutput.Speak(
-                    saved ? outcome + ". No presets left." : outcome, level);
+                    saved
+                        ? outcome + ". " + Lexicon.Get("audio.preset.none_left")
+                        : outcome,
+                    level);
                 picker.Close();
                 return;
             }
@@ -125,7 +126,7 @@ public partial class AudioWorkshopDialog
                 string note = preset.ApplyTo(_rig);
                 PollTxAudio();
                 ScreenReaderOutput.Speak(
-                    $"Preset {preset.Name} loaded" +
+                    Lexicon.Get("audio.preset.loaded", ("preset", preset.Name)) +
                     (string.IsNullOrEmpty(note) ? "" : ". " + note),
                     VerbosityLevel.Terse);
             }
@@ -148,7 +149,7 @@ public partial class AudioWorkshopDialog
     {
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
 
@@ -174,16 +175,18 @@ public partial class AudioWorkshopDialog
             string name = nameBox.Text.Trim();
             if (string.IsNullOrEmpty(name))
             {
-                ScreenReaderOutput.Speak("Please enter a name", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.please_enter_a_name"), VerbosityLevel.Terse);
                 return;
             }
             var preset = AudioChainPreset.CaptureFrom(_rig, name, ReadSavedPcInputName());
             var presets = GetPresetsCallback?.Invoke() ?? AudioChainPresets.CreateDefaults();
             presets.Presets.Add(preset);
             if (PersistPresets(presets))
-                ScreenReaderOutput.Speak($"Preset {name} saved", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.preset.saved", ("preset", name)),
+                    VerbosityLevel.Terse);
             else
-                ScreenReaderOutput.Speak($"Preset {name}. " + PresetSaveFailed,
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("audio.preset.save_failed", ("preset", name), ("reason", PresetSaveFailed)),
                     VerbosityLevel.Critical);
             inputDialog.Close();
         };
@@ -201,7 +204,7 @@ public partial class AudioWorkshopDialog
     {
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
 
@@ -221,10 +224,12 @@ public partial class AudioWorkshopDialog
             // as an export is the lying-receipt pattern this dialog keeps
             // finding — never say "exported" on faith.
             if (preset.Save(sfd.FileName))
-                ScreenReaderOutput.Speak($"Preset exported to {System.IO.Path.GetFileName(sfd.FileName)}", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("audio.preset.exported", ("file", System.IO.Path.GetFileName(sfd.FileName))),
+                    VerbosityLevel.Terse);
             else
                 ScreenReaderOutput.Speak(
-                    $"The file could not be written to {System.IO.Path.GetFileName(sfd.FileName)}. Nothing was exported.",
+                    Lexicon.Get("audio.preset.export_failed", ("file", System.IO.Path.GetFileName(sfd.FileName))),
                     VerbosityLevel.Critical);
         }
     }
@@ -261,7 +266,8 @@ public partial class AudioWorkshopDialog
             // Honest failure: a bad file must never quietly become a blank
             // preset in the list.
             ScreenReaderOutput.Speak(
-                $"{System.IO.Path.GetFileName(ofd.FileName)} could not be read as an audio preset. Nothing was imported.",
+                Lexicon.Get("audio.preset.import_unreadable",
+                    ("file", System.IO.Path.GetFileName(ofd.FileName))),
                 VerbosityLevel.Critical);
             return;
         }
@@ -286,12 +292,13 @@ public partial class AudioWorkshopDialog
             // future load (#50).
             string suffix = string.IsNullOrEmpty(fileNote) ? "" : " " + fileNote;
             ScreenReaderOutput.Speak(
-                $"Imported {preset.FormatForSpeech()}. Added to your saved presets; the radio is unchanged until you load it.{suffix}",
+                Lexicon.Get("audio.preset.imported", ("preset", preset.FormatForSpeech())) + suffix,
                 VerbosityLevel.Terse);
         }
         else
             ScreenReaderOutput.Speak(
-                $"{preset.Name} was read from the file, but " + PresetSaveFailed,
+                Lexicon.Get("audio.preset.imported_but_not_saved",
+                    ("preset", preset.Name), ("reason", PresetSaveFailed)),
                 VerbosityLevel.Critical);
     }
 
@@ -299,14 +306,14 @@ public partial class AudioWorkshopDialog
     {
         if (_rig == null)
         {
-            ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
             return;
         }
 
         var defaults = new AudioChainPreset();
         _ = defaults.ApplyTo(_rig); // a default preset carries no EQ or input notes
         PollTxAudio();
-        ScreenReaderOutput.Speak("Transmit audio settings reset to defaults", VerbosityLevel.Terse);
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.preset.reset_to_defaults"), VerbosityLevel.Terse);
     }
 
     #endregion

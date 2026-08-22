@@ -58,5 +58,31 @@
   "audio.check.loopback_line": "Loopback check. Transmitting at one watt into the transverter port on {freq}, audio from {source}.",
   "audio.check.loopback_honesty": "You will hear your own signal through an overloaded receiver: it proves your audio is present and processed, not exactly how you sound on the air.",
   "audio.check.loopback_drive_reduced": "Transverter drive reduced for a cleaner listen.",
-  "audio.check.loopback_proves_chain": "This also proves your transmitter chain end to end."
+  "audio.check.loopback_proves_chain": "This also proves your transmitter chain end to end.",
+
+  "_4_preset": "Audio chain presets: the Workshop toolbar's load, save, export, import and reset.",
+
+  "audio.preset.none_available": "No presets available",
+  "audio.preset.none_left": "No presets left.",
+  "audio.preset.loaded": "Preset {preset} loaded",
+  "audio.preset.saved": "Preset {preset} saved",
+  "audio.preset.deleted": "Preset {preset} deleted",
+  "audio.preset.reset_to_defaults": "Transmit audio settings reset to defaults",
+  "audio.preset.exported": "Preset exported to {file}",
+  "audio.preset.export_failed": "The file could not be written to {file}. Nothing was exported.",
+  "audio.preset.import_unreadable": "{file} could not be read as an audio preset. Nothing was imported.",
+  "audio.preset.imported": "Imported {preset}. Added to your saved presets; the radio is unchanged until you load it.",
+  "audio.preset.save_failed_reason": "It could not be saved — there is no operator loaded, so there is no place to keep it yet.",
+  "audio.preset.save_failed": "Preset {preset}. {reason}",
+  "audio.preset.deleted_but_not_saved": "Preset {preset} removed from the list, but {reason} It will be back next time.",
+  "audio.preset.imported_but_not_saved": "{preset} was read from the file, but {reason}",
+  "audio.preset.delete_title": "Delete Preset",
+  "audio.preset.delete_body": "This deletes {preset} from your saved presets. There is no undo — to get it back you would save or import it again. Nothing on the radio changes.",
+  "audio.preset.delete_question": "Delete it?",
+  "audio.preset.delete_yes_label": "_Delete",
+
+  "_5_workshop": "The Audio Workshop window itself.",
+
+  "audio.workshop.unnamed_section": "Section",
+  "audio.workshop.section_nothing_to_adjust": "{section}, nothing to adjust here."
 }
