@@ -41,9 +41,9 @@ namespace JJFlexWpf.Dialogs
             foreach (var p in presets)
             {
                 string bw = p.Width >= 1000
-                    ? $"{p.Width / 1000.0:0.#} kHz"
-                    : $"{p.Width} Hz";
-                PresetList.Items.Add($"{p.Name} — {bw}");
+                    ? Lexicon.Get("audio.filter.presets.width_khz", ("width", $"{p.Width / 1000.0:0.#}"))
+                    : Lexicon.Get("audio.filter.presets.width_hz", ("width", p.Width));
+                PresetList.Items.Add(Lexicon.Get("audio.filter.presets.list_item", ("name", p.Name), ("bw", bw)));
             }
 
             if (prevIdx >= 0 && prevIdx < PresetList.Items.Count)
@@ -75,7 +75,7 @@ namespace JJFlexWpf.Dialogs
 
         private void AddButton_Click(object sender, RoutedEventArgs e)
         {
-            var editDialog = new FilterPresetEntryDialog("New Preset", 100, 2500);
+            var editDialog = new FilterPresetEntryDialog(Lexicon.Get("audio.filter.presets.new_name"), 100, 2500);
             editDialog.Owner = this;
             if (editDialog.ShowDialog() == true)
             {
@@ -169,10 +169,10 @@ namespace JJFlexWpf.Dialogs
         private void ResetButton_Click(object sender, RoutedEventArgs e)
         {
             var confirm = new ConfirmActionDialog(
-                "Reset Presets",
-                $"This resets all {CurrentMode} presets to their defaults. Custom presets for this mode will be lost.",
-                question: "Reset them?",
-                yesLabel: "_Reset");
+                Lexicon.Get("audio.filter.presets.reset_title"),
+                Lexicon.Get("audio.filter.presets.reset_body", ("mode", CurrentMode)),
+                question: Lexicon.Get("audio.filter.presets.reset_question"),
+                yesLabel: Lexicon.Get("audio.filter.presets.reset_yes"));
             if (confirm.ShowDialog() != true) return;
 
             // Remove saved presets for this mode — GetPresetsForMode will fall back to defaults
@@ -226,7 +226,7 @@ namespace JJFlexWpf.Dialogs
 
         public FilterPresetEntryDialog(string name, int low, int high)
         {
-            Title = "Filter Preset";
+            Title = Lexicon.Get("audio.filter.presets.entry_title");
             Width = 320;
             Height = 200;
 
@@ -238,31 +238,34 @@ namespace JJFlexWpf.Dialogs
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            AddLabel(grid, 0, "Name:");
-            NameBox = AddTextBox(grid, 0, "Preset name", name);
+            AddLabel(grid, 0, Lexicon.Get("audio.filter.presets.label_name"));
+            NameBox = AddTextBox(grid, 0, Lexicon.Get("audio.filter.presets.name_field"), name);
 
-            AddLabel(grid, 1, "Low (Hz):");
-            LowBox = AddTextBox(grid, 1, "Low frequency in hertz", low.ToString());
+            AddLabel(grid, 1, Lexicon.Get("audio.filter.presets.label_low"));
+            LowBox = AddTextBox(grid, 1, Lexicon.Get("audio.filter.presets.low_field"), low.ToString());
 
-            AddLabel(grid, 2, "High (Hz):");
-            HighBox = AddTextBox(grid, 2, "High frequency in hertz", high.ToString());
+            AddLabel(grid, 2, Lexicon.Get("audio.filter.presets.label_high"));
+            HighBox = AddTextBox(grid, 2, Lexicon.Get("audio.filter.presets.high_field"), high.ToString());
 
             var buttonPanel = CreateButtonPanel(
                 onOk: () =>
                 {
                     if (string.IsNullOrWhiteSpace(NameBox.Text))
                     {
-                        MessageBox.Show("Name is required.", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show(Lexicon.Get("audio.filter.presets.name_required"),
+                            Lexicon.Get("audio.filter.presets.validation_caption"), MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
                     if (!int.TryParse(LowBox.Text, out int lo) || !int.TryParse(HighBox.Text, out int hi))
                     {
-                        MessageBox.Show("Low and High must be whole numbers, in hertz.", "Filter Preset", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show(Lexicon.Get("audio.filter.presets.edges_must_be_whole"),
+                            Lexicon.Get("audio.filter.presets.entry_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
                     if (hi <= lo)
                     {
-                        MessageBox.Show("The High edge must be above the Low edge.", "Filter Preset", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show(Lexicon.Get("audio.filter.presets.high_above_low"),
+                            Lexicon.Get("audio.filter.presets.entry_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
                     LowHz = lo;

@@ -44,28 +44,32 @@ namespace JJFlexWpf.Dialogs
                     high = low + width;
                     ResultLow = low;
                     ResultHigh = high;
-                    ResultText.Text = $"Computed high: {high} Hz (filter {low} to {high})";
+                    ResultText.Text = Lexicon.Get("audio.filter.calculator.computed_high",
+                        ("low", low), ("high", high));
                 }
                 else if (hasHigh && hasWidth && !hasLow)
                 {
                     low = high - width;
                     ResultLow = low;
                     ResultHigh = high;
-                    ResultText.Text = $"Computed low: {low} Hz (filter {low} to {high})";
+                    ResultText.Text = Lexicon.Get("audio.filter.calculator.computed_low",
+                        ("low", low), ("high", high));
                 }
                 else if (hasLow && hasHigh)
                 {
                     width = high - low;
                     ResultLow = low;
                     ResultHigh = high;
-                    ResultText.Text = $"Width: {width} Hz (filter {low} to {high})";
+                    ResultText.Text = Lexicon.Get("audio.filter.calculator.computed_width",
+                        ("width", width), ("low", low), ("high", high));
                 }
                 else
                 {
                     // All three filled — just show width
                     ResultLow = low;
                     ResultHigh = high;
-                    ResultText.Text = $"Filter {low} to {high}, width {high - low} Hz";
+                    ResultText.Text = Lexicon.Get("audio.filter.calculator.all_three",
+                        ("low", low), ("high", high), ("width", high - low));
                 }
 
                 bool valid = ResultLow >= 0 && ResultHigh > ResultLow;
@@ -76,7 +80,7 @@ namespace JJFlexWpf.Dialogs
             {
                 ResultLow = null;
                 ResultHigh = null;
-                ResultText.Text = filled == 0 ? "" : "Enter one more value to compute.";
+                ResultText.Text = filled == 0 ? "" : Lexicon.Get("audio.filter.calculator.need_one_more");
                 ApplyButton.IsEnabled = false;
             }
         }
@@ -86,7 +90,9 @@ namespace JJFlexWpf.Dialogs
             if (ResultLow.HasValue && ResultHigh.HasValue)
             {
                 DialogResult = true;
-                ScreenReaderOutput.Speak($"Filter set to {ResultLow} to {ResultHigh}", VerbosityLevel.Terse, true);
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("audio.filter.calculator.applied", ("low", ResultLow), ("high", ResultHigh)),
+                    VerbosityLevel.Terse, true);
                 Close();
             }
         }

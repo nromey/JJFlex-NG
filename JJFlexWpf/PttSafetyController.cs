@@ -143,7 +143,7 @@ namespace JJFlexWpf
                 return null;
 
             if (State == PttState.PttHold)
-                return "transmitting, hold";
+                return Lexicon.Get("audio.ptt.status_hold");
 
             // Locked or warning states — calculate time remaining
             var elapsed = (DateTime.UtcNow - _lockStartTime).TotalSeconds;
@@ -155,22 +155,22 @@ namespace JJFlexWpf
                 int minutes = (int)(remaining / 60);
                 int seconds = (int)(remaining % 60);
                 timeLeft = seconds > 0
-                    ? $"{minutes} minutes {seconds} seconds"
-                    : $"{minutes} minutes";
+                    ? Lexicon.Get("audio.ptt.remaining_minutes_seconds", ("minutes", minutes), ("seconds", seconds))
+                    : Lexicon.Get("audio.ptt.remaining_minutes", ("minutes", minutes));
             }
             else if (remaining >= 60)
             {
                 int seconds = (int)(remaining % 60);
                 timeLeft = seconds > 0
-                    ? $"1 minute {seconds} seconds"
-                    : "1 minute";
+                    ? Lexicon.Get("audio.ptt.remaining_one_minute_seconds", ("seconds", seconds))
+                    : Lexicon.Get("audio.ptt.remaining_one_minute");
             }
             else
             {
-                timeLeft = $"{(int)remaining} seconds";
+                timeLeft = Lexicon.Get("audio.ptt.remaining_seconds", ("seconds", (int)remaining));
             }
 
-            return $"transmitting, locked, {timeLeft} remaining";
+            return Lexicon.Get("audio.ptt.status_locked", ("timeLeft", timeLeft));
         }
 
         private bool CanTransmit()
@@ -199,7 +199,7 @@ namespace JJFlexWpf
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
-                ScreenReaderOutput.Speak("Unable to transmit here. Select license options in Settings to change.", VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.blocked_by_license"), VerbosityLevel.Critical, interrupt: true);
                 EarconPlayer.Warning2Beep();
                 return;
             }
@@ -210,9 +210,9 @@ namespace JJFlexWpf
                 SetTx(true);
                 StartFreshAudioSample();
                 if (_config.ChirpEnabled) EarconPlayer.TxStartTone();
-                _updateStatusDisplay?.Invoke("Transmitting");
+                _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_transmitting"));
                 if (_config.SpeechEnabled)
-                    ScreenReaderOutput.Speak("Transmitting", VerbosityLevel.Critical, interrupt: true);
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_transmitting"), VerbosityLevel.Critical, interrupt: true);
                 SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
                 Tracing.TraceLine("PTT: Hold started", TraceLevel.Info);
             }
@@ -226,7 +226,7 @@ namespace JJFlexWpf
         {
             if (State == PttState.PttHold)
             {
-                GoIdle("Receiving");
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
             }
             // If locked/warning, key-up does nothing (still locked)
         }
@@ -246,7 +246,7 @@ namespace JJFlexWpf
             else
             {
                 // Any TX state — unlock
-                GoIdle("Receiving");
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
             }
         }
 
@@ -257,7 +257,7 @@ namespace JJFlexWpf
         {
             if (State != PttState.Idle)
             {
-                GoIdle("Receiving");
+                GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
             }
         }
 
@@ -289,7 +289,7 @@ namespace JJFlexWpf
             // License-aware TX lockout check
             if (CanTransmitHereCheck != null && !CanTransmitHereCheck())
             {
-                ScreenReaderOutput.Speak("Unable to transmit here. Select license options in Settings to change.", VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.blocked_by_license"), VerbosityLevel.Critical, interrupt: true);
                 EarconPlayer.Warning2Beep();
                 return;
             }
@@ -304,9 +304,9 @@ namespace JJFlexWpf
             _healthLockSeconds = 0;
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
 
-            _updateStatusDisplay?.Invoke("TX Locked");
+            _updateStatusDisplay?.Invoke(Lexicon.Get("audio.ptt.display_locked"));
             if (_config.SpeechEnabled)
-                ScreenReaderOutput.Speak("Transmitting, locked", VerbosityLevel.Critical, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_locked"), VerbosityLevel.Critical, interrupt: true);
             SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
             Tracing.TraceLine("PTT: Locked", TraceLevel.Info);
 
@@ -391,7 +391,7 @@ namespace JJFlexWpf
         private void EnterWarning1()
         {
             State = PttState.Warning1;
-            ScreenReaderOutput.Speak("Transmit timeout approaching", VerbosityLevel.Critical);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.timeout_approaching"), VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning1 (10s beeps)", TraceLevel.Info);
 
             _beepTimer!.Interval = TimeSpan.FromSeconds(10);
@@ -407,7 +407,7 @@ namespace JJFlexWpf
             // a timeout was coming. A warning that arrives after the thing it
             // warns about is not a warning.
             ScreenReaderOutput.Speak(
-                "Transmit timeout soon", Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
+                Lexicon.Get("audio.ptt.timeout_soon"), Radios.Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: Warning2 (5s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();
@@ -426,7 +426,7 @@ namespace JJFlexWpf
             // application where that ordering is a safety question rather than
             // a tidiness one.
             ScreenReaderOutput.Speak(
-                "Transmit ending now!", Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical);
+                Lexicon.Get("audio.ptt.timeout_ending_now"), Radios.Speech.SpeechIntent.Urgent, VerbosityLevel.Critical);
             Tracing.TraceLine("PTT: OhCrap (1s beeps)", TraceLevel.Info);
 
             _beepTimer!.Stop();
@@ -439,7 +439,7 @@ namespace JJFlexWpf
         {
             Tracing.TraceLine("PTT: Timeout hard kill", TraceLevel.Warning);
             EarconPlayer.HardKillTone();
-            GoIdle("Transmit timed out, receiving", forceSpeech: true);
+            GoIdle(Lexicon.Get("audio.ptt.timed_out"), forceSpeech: true);
         }
 
         private void BeepTimerTick(object? sender, EventArgs e)
@@ -472,7 +472,7 @@ namespace JJFlexWpf
                 {
                     Tracing.TraceLine("PTT: HARD KILL (15 min absolute)", TraceLevel.Warning);
                     EarconPlayer.HardKillTone();
-                    GoIdle("Hard transmit limit, receiving", forceSpeech: true);
+                    GoIdle(Lexicon.Get("audio.ptt.hard_limit"), forceSpeech: true);
                 }
             };
             _hardKillTimer.Start();
@@ -513,7 +513,7 @@ namespace JJFlexWpf
                 if (_alcZeroConsecutiveSeconds >= _config.AlcAutoReleaseSeconds)
                 {
                     Tracing.TraceLine($"PTT: ALC auto-release after {_alcZeroConsecutiveSeconds}s of zero signal", TraceLevel.Info);
-                    GoIdle("No signal detected, receiving", forceSpeech: true);
+                    GoIdle(Lexicon.Get("audio.ptt.no_signal_release"), forceSpeech: true);
                     return;
                 }
             }
@@ -535,14 +535,14 @@ namespace JJFlexWpf
                 if (!_healthSilentMicWarned && rig.ScMicMaxDb < SilentMicDbfs)
                 {
                     _healthSilentMicWarned = true;
-                    ScreenReaderOutput.Speak("Check microphone", VerbosityLevel.Critical);
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.check_microphone"), VerbosityLevel.Critical);
                     Tracing.TraceLine($"PTT: Health warning — silent mic (SC_MIC peak {rig.ScMicMaxDb:F1} dBFS)", TraceLevel.Info);
                 }
 
                 if (!_healthAlcHighWarned && rig.SwAlcDb > AlcHotDbfs)
                 {
                     _healthAlcHighWarned = true;
-                    ScreenReaderOutput.Speak("Microphone level too high", VerbosityLevel.Critical);
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.mic_level_too_high"), VerbosityLevel.Critical);
                     Tracing.TraceLine($"PTT: Health warning — ALC pegging (SW ALC {rig.SwAlcDb:F1} dBFS)", TraceLevel.Info);
                 }
             }

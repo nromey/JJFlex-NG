@@ -41,7 +41,7 @@ namespace JJFlexWpf
             // even when there's no radio to act on.
             if (rig == null || !rig.IsConnected)
             {
-                ScreenReaderOutput.SpeakNoRadioConnected("reboot the radio");
+                ScreenReaderOutput.SpeakNoRadioConnected(Lexicon.Get("connect.reboot.action_phrase"));
                 return false;
             }
 
@@ -56,12 +56,12 @@ namespace JJFlexWpf
             var confirm = new Dialogs.ConfirmRebootDialog(others);
             if (confirm.ShowDialog() != true)
             {
-                ScreenReaderOutput.Speak("Reboot cancelled.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.reboot.cancelled"), VerbosityLevel.Terse, interrupt: true);
                 return false;
             }
 
             ScreenReaderOutput.Speak(
-                "Rebooting the radio. This takes several minutes.",
+                Lexicon.Get("connect.reboot.started"),
                 VerbosityLevel.Critical, interrupt: true);
 
             onRebootInitiated?.Invoke();

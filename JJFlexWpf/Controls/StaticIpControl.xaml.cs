@@ -71,8 +71,7 @@ namespace JJFlexWpf.Controls
             {
                 if (_rig == null || !_rig.IsConnected)
                 {
-                    CurrentStateText.Text =
-                        "No radio is connected. Connect to the radio on your local network to change its address.";
+                    CurrentStateText.Text = Lexicon.Get("connect.network.no_radio_explain");
                     SetFieldsEnabled(false);
                     DhcpRadio.IsChecked = true;
                     return;
@@ -81,10 +80,10 @@ namespace JJFlexWpf.Controls
                 var staticIp = _rig.CurrentStaticIP;
                 bool isStatic = staticIp != null;
 
-                var reachableAt = _rig.CurrentRadioIP?.ToString() ?? "an unknown address";
+                var reachableAt = _rig.CurrentRadioIP?.ToString() ?? Lexicon.Get("connect.network.unknown_address");
                 CurrentStateText.Text = isStatic
-                    ? $"The radio is set to the fixed address {staticIp}. JJ Flex is talking to it at {reachableAt}."
-                    : $"The radio is using an automatic address from the router. JJ Flex is talking to it at {reachableAt}.";
+                    ? Lexicon.Get("connect.network.state_fixed", ("staticIp", staticIp), ("reachableAt", reachableAt))
+                    : Lexicon.Get("connect.network.state_automatic", ("reachableAt", reachableAt));
 
                 if (isStatic)
                 {
@@ -141,9 +140,8 @@ namespace JJFlexWpf.Controls
                 // Don's radio lives at Tony's, so this state is routine).
                 bool remote = haveRadio && _rig!.IsWanConnection;
                 System.Windows.Automation.AutomationProperties.SetName(UseCurrentButton, remote
-                    ? "Fill in the fields using the address the radio is using right now. " +
-                      "Not available over SmartLink — connect on the radio's own network to use this."
-                    : "Fill in the fields using the address the radio is using right now");
+                    ? Lexicon.Get("connect.network.use_current_name_remote")
+                    : Lexicon.Get("connect.network.use_current_name"));
             }
         }
 
@@ -154,8 +152,8 @@ namespace JJFlexWpf.Controls
 
             ScreenReaderOutput.Speak(
                 StaticRadio.IsChecked == true
-                    ? "Fixed address. Enter the address, gateway and subnet mask, then apply."
-                    : "Automatic address from the router.",
+                    ? Lexicon.Get("connect.network.mode_fixed_announce")
+                    : Lexicon.Get("connect.network.mode_automatic_announce"),
                 VerbosityLevel.Terse, interrupt: true);
         }
 
@@ -168,7 +166,8 @@ namespace JJFlexWpf.Controls
         {
             if (_rig == null || !_rig.IsConnected)
             {
-                Report("No radio is connected.", speak: "No radio connected.");
+                Report(Lexicon.Get("connect.network.no_radio_report"),
+                       speak: Lexicon.Get("connect.network.no_radio_speak"));
                 return;
             }
 
@@ -196,15 +195,17 @@ namespace JJFlexWpf.Controls
             string note = suggestion.Warnings.Count > 0
                 ? " " + string.Join(" ", suggestion.Warnings)
                 : string.Empty;
-            Report($"Filled in {suggestion.Ip}, gateway {suggestion.Gateway}, subnet mask {suggestion.Netmask}. Nothing has been sent to the radio yet — choose Apply to radio." + note,
-                   speak: $"Filled in {suggestion.Ip}. Choose apply to radio to send it.");
+            Report(Lexicon.Get("connect.network.filled_in_report",
+                       ("ip", suggestion.Ip), ("gateway", suggestion.Gateway), ("netmask", suggestion.Netmask)) + note,
+                   speak: Lexicon.Get("connect.network.filled_in_speak", ("ip", suggestion.Ip)));
         }
 
         private void ApplyAddressButton_Click(object sender, RoutedEventArgs e)
         {
             if (_rig == null || !_rig.IsConnected)
             {
-                Report("No radio is connected.", speak: "No radio connected.");
+                Report(Lexicon.Get("connect.network.no_radio_report"),
+                       speak: Lexicon.Get("connect.network.no_radio_speak"));
                 return;
             }
 
@@ -223,15 +224,17 @@ namespace JJFlexWpf.Controls
             }
 
             var confirm = new ConfirmActionDialog(
-                "Confirm Fixed Address",
-                $"JJ Flex will tell the radio to use the fixed address {IpBox.Text.Trim()}, gateway {GatewayBox.Text.Trim()}, subnet mask {NetmaskBox.Text.Trim()}. The radio takes the new address the next time it restarts.",
+                Lexicon.Get("connect.network.confirm_fixed_title"),
+                Lexicon.Get("connect.network.confirm_fixed_body",
+                    ("ip", IpBox.Text.Trim()), ("gateway", GatewayBox.Text.Trim()), ("netmask", NetmaskBox.Text.Trim())),
                 check.Warnings,
-                question: "If any of this is wrong, the radio may not come back on the network and will need someone at the radio to fix it. Continue?",
-                yesLabel: "_Apply");
+                question: Lexicon.Get("connect.network.confirm_fixed_question"),
+                yesLabel: Lexicon.Get("connect.network.confirm_apply_label"));
 
             if (confirm.ShowDialog() != true)
             {
-                Report("Cancelled. Nothing was sent to the radio.", speak: "Cancelled.");
+                Report(Lexicon.Get("connect.network.cancelled_report"),
+                       speak: Lexicon.Get("connect.network.cancelled_speak"));
                 return;
             }
 
@@ -240,19 +243,21 @@ namespace JJFlexWpf.Controls
                 ip, GatewayBox.Text.Trim(), NetmaskBox.Text.Trim(),
                 onSuccess: () => Dispatcher.Invoke(() =>
                 {
-                    Report($"The radio accepted the fixed address {ip}. It takes effect the next time the radio restarts.",
-                           speak: "Fixed address accepted. Restart the radio to use it.");
+                    Report(Lexicon.Get("connect.network.fixed_accepted_report", ("ip", ip)),
+                           speak: Lexicon.Get("connect.network.fixed_accepted_speak"));
                     AddressChanged?.Invoke(this, EventArgs.Empty);
                     Refresh();
                 }),
                 onFailure: () => Dispatcher.Invoke(() =>
-                    Report("The radio rejected the address. It is still using its previous settings.",
-                           speak: "The radio rejected the address.")));
+                    Report(Lexicon.Get("connect.network.fixed_rejected_report"),
+                           speak: Lexicon.Get("connect.network.fixed_rejected_speak"))));
 
             if (!sent)
-                Report("The address could not be sent. See the trace file for details.", speak: "Could not send the address.");
+                Report(Lexicon.Get("connect.network.fixed_send_failed_report"),
+                       speak: Lexicon.Get("connect.network.fixed_send_failed_speak"));
             else
-                Report("Sent to the radio, waiting for it to answer...", speak: "Sent, waiting.");
+                Report(Lexicon.Get("connect.network.sent_waiting_report"),
+                       speak: Lexicon.Get("connect.network.sent_waiting_speak"));
         }
 
         private void ApplyDhcp()
@@ -264,43 +269,46 @@ namespace JJFlexWpf.Controls
             // a no-op.
             if (_rig.CurrentStaticIP == null)
             {
-                Report("The radio is already getting its address automatically. Nothing to change.",
-                       speak: "Already automatic.");
+                Report(Lexicon.Get("connect.network.already_automatic_report"),
+                       speak: Lexicon.Get("connect.network.already_automatic_speak"));
                 return;
             }
 
             var confirm = new ConfirmActionDialog(
-                "Confirm Automatic Address",
-                "JJ Flex will tell the radio to go back to getting its address from the router. The change takes effect the next time the radio restarts.",
+                Lexicon.Get("connect.network.confirm_dhcp_title"),
+                Lexicon.Get("connect.network.confirm_dhcp_body"),
                 new[]
                 {
-                    "The radio's address may change after it restarts, so any port forwarding rule on your router that points at its current address will need updating.",
+                    Lexicon.Get("connect.network.confirm_dhcp_warning_forwarding"),
                 },
-                question: "Continue?",
-                yesLabel: "_Apply");
+                question: Lexicon.Get("connect.network.confirm_dhcp_question"),
+                yesLabel: Lexicon.Get("connect.network.confirm_apply_label"));
 
             if (confirm.ShowDialog() != true)
             {
-                Report("Cancelled. Nothing was sent to the radio.", speak: "Cancelled.");
+                Report(Lexicon.Get("connect.network.cancelled_report"),
+                       speak: Lexicon.Get("connect.network.cancelled_speak"));
                 return;
             }
 
             bool sent = _rig.RevertToDhcp(
                 onSuccess: () => Dispatcher.Invoke(() =>
                 {
-                    Report("The radio accepted the change and will get its address from the router after it restarts.",
-                           speak: "Automatic address accepted. Restart the radio to use it.");
+                    Report(Lexicon.Get("connect.network.dhcp_accepted_report"),
+                           speak: Lexicon.Get("connect.network.dhcp_accepted_speak"));
                     AddressChanged?.Invoke(this, EventArgs.Empty);
                     Refresh();
                 }),
                 onFailure: () => Dispatcher.Invoke(() =>
-                    Report("The radio rejected the change. It is still using its previous settings.",
-                           speak: "The radio rejected the change.")));
+                    Report(Lexicon.Get("connect.network.dhcp_rejected_report"),
+                           speak: Lexicon.Get("connect.network.dhcp_rejected_speak"))));
 
             if (!sent)
-                Report("The change could not be sent. See the trace file for details.", speak: "Could not send the change.");
+                Report(Lexicon.Get("connect.network.dhcp_send_failed_report"),
+                       speak: Lexicon.Get("connect.network.dhcp_send_failed_speak"));
             else
-                Report("Sent to the radio, waiting for it to answer...", speak: "Sent, waiting.");
+                Report(Lexicon.Get("connect.network.sent_waiting_report"),
+                       speak: Lexicon.Get("connect.network.sent_waiting_speak"));
         }
 
         /// <summary>

@@ -60,7 +60,7 @@ public partial class PowerDialog : JJFlexDialog
     {
         if (_rig == null)
         {
-            HeaderText.Text = "No radio connected.";
+            HeaderText.Text = Lexicon.Get("audio.power.no_radio");
             System.Windows.Automation.AutomationProperties.SetName(HeaderText, HeaderText.Text);
             RfPowerField.IsEnabled = false;
             TunePowerField.IsEnabled = false;
@@ -74,34 +74,36 @@ public partial class PowerDialog : JJFlexDialog
             if (_xvtrMode)
             {
                 string name = _rig.ActiveXvtrName;
-                string forName = string.IsNullOrEmpty(name) ? "" : $" {name}";
-                RfPowerField.Setup("Transmit drive",
+                RfPowerField.Setup(Lexicon.Get("audio.power.field_transmit_drive"),
                     FlexBase.XvtrDriveMinCentiDbm, _rig.XvtrDriveMaxCentiDbm,
                     FlexBase.XvtrDriveIncrementCentiDbm,
                     _rig.XvtrDrivePowerCentiDbm,
-                    decimalPlaces: 2, unit: "dBm");
-                HeaderText.Text =
-                    $"Power in dBm — transverter{forName} drive level. TX antenna: {_rig.TXAntennaName}.";
-                RangeText.Text =
-                    $"Range {FlexBase.XvtrDriveMinCentiDbm / 100.0:F2} to {_rig.XvtrDriveMaxCentiDbm / 100.0:F2} dBm, " +
-                    "hundredths of a dB. Arrows adjust by 0.1 dB, Shift plus arrows by 0.01. " +
-                    "Type digits, minus, and point, then Enter.";
+                    decimalPlaces: 2, unit: Lexicon.Get("audio.power.unit_label_dbm"));
+                // Two whole sentences rather than one sentence plus a
+                // space-prefixed fragment: the operator edits these in a text
+                // editor with a screen reader, and a leading space inside a
+                // JSON value is exactly the kind of thing that cannot be heard.
+                HeaderText.Text = string.IsNullOrEmpty(name)
+                    ? Lexicon.Get("audio.power.header_xvtr", ("antenna", _rig.TXAntennaName))
+                    : Lexicon.Get("audio.power.header_xvtr_named",
+                        ("name", name), ("antenna", _rig.TXAntennaName));
+                RangeText.Text = Lexicon.Get("audio.power.range_dbm",
+                    ("min", $"{FlexBase.XvtrDriveMinCentiDbm / 100.0:F2}"),
+                    ("max", $"{_rig.XvtrDriveMaxCentiDbm / 100.0:F2}"));
             }
             else
             {
-                RfPowerField.Setup("Transmit power", 0, 100, 1, _rig.XmitPower,
-                    decimalPlaces: 0, unit: "watts");
+                RfPowerField.Setup(Lexicon.Get("audio.power.field_transmit_power"), 0, 100, 1, _rig.XmitPower,
+                    decimalPlaces: 0, unit: Lexicon.Get("audio.power.unit_label_watts"));
                 HeaderText.Text =
-                    $"Power in watts. TX antenna: {_rig.TXAntennaName}.";
-                RangeText.Text =
-                    "Range 0 to 100 watts, whole watts only — the radio's power control is " +
-                    "an integer. Arrows adjust by 1, type digits then Enter for an exact value.";
+                    Lexicon.Get("audio.power.header_watts", ("antenna", _rig.TXAntennaName));
+                RangeText.Text = Lexicon.Get("audio.power.range_watts");
             }
 
             // Tune power stays integer watts in both personalities — the ATU
             // carrier level is a main-PA concern, not a transverter one.
-            TunePowerField.Setup("Tune power", 0, 100, 1, _rig.TunePower,
-                decimalPlaces: 0, unit: "watts");
+            TunePowerField.Setup(Lexicon.Get("audio.power.field_tune_power"), 0, 100, 1, _rig.TunePower,
+                decimalPlaces: 0, unit: Lexicon.Get("audio.power.unit_label_watts"));
         }
         finally
         {
@@ -136,13 +138,17 @@ public partial class PowerDialog : JJFlexDialog
         if (_xvtrMode)
         {
             string name = _rig.ActiveXvtrName;
-            string forName = string.IsNullOrEmpty(name) ? "" : $", transverter {name} drive";
-            ScreenReaderOutput.Speak($"Power, in d B m{forName}.",
+            // Same reasoning as the header above — two full utterances rather
+            // than a sentence with a comma-prefixed fragment glued on.
+            ScreenReaderOutput.Speak(
+                string.IsNullOrEmpty(name)
+                    ? Lexicon.Get("audio.power.unit_dbm")
+                    : Lexicon.Get("audio.power.unit_dbm_named", ("name", name)),
                 VerbosityLevel.Terse, interrupt);
         }
         else
         {
-            ScreenReaderOutput.Speak("Power, in watts.", VerbosityLevel.Terse, interrupt);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.power.unit_watts"), VerbosityLevel.Terse, interrupt);
         }
     }
 

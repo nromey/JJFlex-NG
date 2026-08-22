@@ -56,7 +56,7 @@ namespace JJFlexWpf.Dialogs
             var checkedGroups = _groups.Where(g => g.IsChecked).ToList();
             if (checkedGroups.Count == 0)
             {
-                MessageBox.Show("At least one group must be selected.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("connect.scan.memory.need_a_group"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 GroupsCheckBox.Focus();
                 return;
@@ -65,7 +65,7 @@ namespace JJFlexWpf.Dialogs
             // Validate speed
             if (!int.TryParse(SpeedBox.Text, out int speed) || speed < 1 || speed > 600)
             {
-                MessageBox.Show("Speed must be between 1 and 600.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("connect.scan.memory.speed_range"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 SpeedBox.Focus();
                 return;
@@ -80,7 +80,7 @@ namespace JJFlexWpf.Dialogs
 
             if (members.Count == 0)
             {
-                MessageBox.Show("There are no memories to scan.", Title,
+                MessageBox.Show(Radios.Lexicon.Get("connect.scan.memory.no_memories"), Title,
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 GroupsCheckBox.Focus();
                 return;
