@@ -1353,10 +1353,10 @@ Module globals
     ''' folder listing.
     ''' </summary>
     Friend Function DescribeBytes(bytes As Long) As String
-        If bytes < 1024 Then Return $"{bytes} bytes"
-        If bytes < 1024L * 1024 Then Return $"{bytes \ 1024} kilobytes"
-        If bytes < 1024L * 1024 * 1024 Then Return $"{bytes \ (1024L * 1024)} megabytes"
-        Return $"{(bytes / (1024.0 * 1024 * 1024)):F1} gigabytes"
+        If bytes < 1024 Then Return Radios.Lexicon.Get("logging.size.bytes", ("value", bytes))
+        If bytes < 1024L * 1024 Then Return Radios.Lexicon.Get("logging.size.kilobytes", ("value", bytes \ 1024))
+        If bytes < 1024L * 1024 * 1024 Then Return Radios.Lexicon.Get("logging.size.megabytes", ("value", bytes \ (1024L * 1024)))
+        Return Radios.Lexicon.Get("logging.size.gigabytes", ("value", (bytes / (1024.0 * 1024 * 1024)).ToString("F1")))
     End Function
 
     ''' <summary>
@@ -1373,14 +1373,15 @@ Module globals
             Dim looseBytes As Long = LoosePlainTextTraceBytes()
             Dim totalBytes As Long = FolderSizeBytes(BaseConfigDir)
 
-            Return $"The settings folder holds about {DescribeBytes(totalBytes)}. " &
-                   $"Crash reports {DescribeBytes(crashBytes)}, " &
-                   $"downloaded firmware {DescribeBytes(firmwareBytes)}, " &
-                   $"saved diagnostic logs {DescribeBytes(archiveBytes)}, " &
-                   $"loose log text {DescribeBytes(looseBytes)}."
+            Return Radios.Lexicon.Get("logging.storage.summary",
+                                      ("total", DescribeBytes(totalBytes)),
+                                      ("crash", DescribeBytes(crashBytes)),
+                                      ("firmware", DescribeBytes(firmwareBytes)),
+                                      ("archive", DescribeBytes(archiveBytes)),
+                                      ("loose", DescribeBytes(looseBytes)))
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
-            Return "The size of the settings folder could not be measured."
+            Return Radios.Lexicon.Get("logging.storage.unmeasurable")
         End Try
     End Function
 

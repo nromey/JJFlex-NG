@@ -200,20 +200,21 @@ Module CrashReporter
             Using zipStream = New FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None)
                 Using zip = New ZipArchive(zipStream, ZipArchiveMode.Create)
                     zip.CreateEntryFromFile(txtPath, Path.GetFileName(txtPath), CompressionLevel.Optimal)
-                    bundle.Included.Add("Crash report text: " & Path.GetFileName(txtPath))
+                    bundle.Included.Add(Radios.Lexicon.Get("logging.crash.item_report_text", ("fileName", Path.GetFileName(txtPath))))
 
                     If File.Exists(dmpPath) Then
                         zip.CreateEntryFromFile(dmpPath, Path.GetFileName(dmpPath), CompressionLevel.Optimal)
                         bundle.DumpIncludedLocally = True
-                        bundle.Included.Add($"Process memory dump: {Path.GetFileName(dmpPath)} ({FormatSize(dmpPath)})")
+                        bundle.Included.Add(Radios.Lexicon.Get("logging.crash.item_dump",
+                                                              ("fileName", Path.GetFileName(dmpPath)), ("size", FormatSize(dmpPath))))
                     End If
 
                     AddTraceToBundle(zip, currentPart, "trace-current-part.txt",
-                                     LocalTraceAttachMaxBytes, bundle, "current session trace")
+                                     LocalTraceAttachMaxBytes, bundle, Radios.Lexicon.Get("logging.crash.label_current_trace"))
                     If Not String.IsNullOrEmpty(previousPart) AndAlso
                        Not String.Equals(previousPart, currentPart, StringComparison.OrdinalIgnoreCase) Then
                         AddTraceToBundle(zip, previousPart, "trace-previous-part.txt",
-                                         LocalTraceAttachMaxBytes, bundle, "previous session trace part")
+                                         LocalTraceAttachMaxBytes, bundle, Radios.Lexicon.Get("logging.crash.label_previous_trace"))
                     End If
 
                     For Each tracePath As String In recentTraces
@@ -222,7 +223,7 @@ Module CrashReporter
                                 zip.CreateEntryFromFile(tracePath,
                                     "traces/" & Path.GetFileName(tracePath),
                                     CompressionLevel.NoCompression) ' already LZMA-compressed
-                                bundle.Included.Add("Archived trace: " & Path.GetFileName(tracePath))
+                                bundle.Included.Add(Radios.Lexicon.Get("logging.crash.item_archived_trace", ("fileName", Path.GetFileName(tracePath))))
                             End If
                         Catch
                             ' Best-effort — a single unreadable trace shouldn't fail the bundle.
@@ -249,7 +250,7 @@ Module CrashReporter
             PruneCrashReports()
 
             Radios.ScreenReaderOutput.Speak(
-                "JJ Flexible Radio Access hit an unexpected error. A crash report was saved.",
+                Radios.Lexicon.Get("logging.crash.saved_speech"),
                 Radios.VerbosityLevel.Critical, True)
 
             ' Per project_no_silent_phone_home.md: the bundle is local until
@@ -291,7 +292,7 @@ Module CrashReporter
                                  maxBytes As Long, bundle As BundleContents, label As String)
         Try
             If String.IsNullOrEmpty(sourcePath) OrElse Not File.Exists(sourcePath) Then
-                bundle.Withheld.Add($"{label}: not available")
+                bundle.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_not_available", ("label", label)))
                 Return
             End If
 
@@ -310,7 +311,8 @@ Module CrashReporter
                         src.Seek(info.Length - maxBytes, SeekOrigin.Begin)
                         SkipToLineStart(src)
                         Dim notice As Byte() = Encoding.UTF8.GetBytes(
-                            $"--- truncated: this is the last {FormatBytes(info.Length - src.Position)} of a {FormatBytes(info.Length)} trace ---" &
+                            Radios.Lexicon.Get("logging.crash.truncate_notice",
+                                               ("kept", FormatBytes(info.Length - src.Position)), ("total", FormatBytes(info.Length))) &
                             Environment.NewLine)
                         dest.Write(notice, 0, notice.Length)
                     End If
@@ -320,14 +322,19 @@ Module CrashReporter
             End Using
 
             If keptBytes < info.Length Then
-                bundle.Included.Add($"{label} ({entryName}): last {FormatBytes(keptBytes)} of {FormatBytes(info.Length)}")
-                bundle.Withheld.Add($"{label}: the first {FormatBytes(info.Length - keptBytes)} was too large to include")
+                bundle.Included.Add(Radios.Lexicon.Get("logging.crash.item_trace_partial",
+                                                      ("label", label), ("entryName", entryName),
+                                                      ("kept", FormatBytes(keptBytes)), ("total", FormatBytes(info.Length))))
+                bundle.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_trace_head",
+                                                      ("label", label), ("dropped", FormatBytes(info.Length - keptBytes))))
             Else
-                bundle.Included.Add($"{label} ({entryName}): {FormatBytes(info.Length)}")
+                bundle.Included.Add(Radios.Lexicon.Get("logging.crash.item_trace_whole",
+                                                      ("label", label), ("entryName", entryName), ("size", FormatBytes(info.Length))))
             End If
         Catch attachEx As Exception
             ' Never let one unreadable trace take down the bundle — but say so.
-            bundle.Withheld.Add($"{label}: could not be read ({attachEx.GetType().Name})")
+            bundle.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_unreadable",
+                                                   ("label", label), ("error", attachEx.GetType().Name)))
         End Try
     End Sub
 
@@ -353,47 +360,47 @@ Module CrashReporter
                                     localBundlePath As String, isUploadCopy As Boolean)
         Try
             Dim sb As New StringBuilder()
-            sb.AppendLine("JJ Flexible Radio Access crash bundle contents")
-            sb.AppendLine($"Written: {DateTime.Now:u}")
-            sb.AppendLine(If(isUploadCopy,
-                "This is the copy that was uploaded. It is a reduced version of the bundle saved on the user's machine.",
-                "This is the complete bundle as saved on the user's machine."))
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_title"))
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_written", ("timestamp", DateTime.Now.ToString("u"))))
+            sb.AppendLine(Radios.Lexicon.Get(If(isUploadCopy,
+                "logging.crash.manifest_upload_copy",
+                "logging.crash.manifest_local_copy")))
             sb.AppendLine()
 
             If bundle.SessionHasParts Then
-                sb.AppendLine($"The crashed session's trace was rotated into parts; it was writing part {bundle.PartNumber:D3} when the crash happened.")
-                sb.AppendLine("Earlier parts of the same session are in the trace archive under the same file stem.")
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_parts", ("partNumber", bundle.PartNumber.ToString("D3"))))
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_parts_note"))
                 sb.AppendLine()
             End If
 
-            sb.AppendLine("Included in this bundle:")
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_included_header"))
             If bundle.Included.Count = 0 Then
-                sb.AppendLine("  - nothing (bundle assembly failed)")
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_included_none"))
             Else
                 For Each item As String In bundle.Included
-                    sb.AppendLine("  - " & item)
+                    sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_bullet", ("item", item)))
                 Next
             End If
             sb.AppendLine()
 
-            sb.AppendLine("Exists but withheld from this bundle:")
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_withheld_header"))
             If bundle.Withheld.Count = 0 Then
-                sb.AppendLine("  - nothing was withheld")
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_withheld_none"))
             Else
                 For Each item As String In bundle.Withheld
-                    sb.AppendLine("  - " & item)
+                    sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_bullet", ("item", item)))
                 Next
             End If
             sb.AppendLine()
 
             If isUploadCopy Then
-                sb.AppendLine("The complete bundle, including the process memory dump, is on the user's computer at:")
-                sb.AppendLine("  " & localBundlePath)
-                sb.AppendLine("It was not uploaded because it exceeds the receiver's size limit.")
-                sb.AppendLine("Ask the user for it if the dump is needed.")
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_upload_where"))
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_path", ("path", localBundlePath)))
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_upload_why"))
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_upload_ask"))
             Else
-                sb.AppendLine("Saved at:")
-                sb.AppendLine("  " & localBundlePath)
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_saved_at"))
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_path", ("path", localBundlePath)))
             End If
 
             Dim entry As ZipArchiveEntry = zip.CreateEntry("bundle-manifest.txt", CompressionLevel.Optimal)
@@ -577,10 +584,10 @@ Module CrashReporter
     Friend Function DescribeCrashReports() As String
         Try
             Dim baseDir = CrashReportDir
-            If Not Directory.Exists(baseDir) Then Return "No crash reports are saved on this computer."
+            If Not Directory.Exists(baseDir) Then Return Radios.Lexicon.Get("logging.crash.reports_none")
 
             Dim bundles = Directory.GetFiles(baseDir, "JJFlexError-*.zip")
-            If bundles.Length = 0 Then Return "No crash reports are saved on this computer."
+            If bundles.Length = 0 Then Return Radios.Lexicon.Get("logging.crash.reports_none")
 
             Dim unresolved As Integer = 0
             Dim total As Long = 0
@@ -593,15 +600,18 @@ Module CrashReporter
             Try : keepNewest = Math.Max(1, DiagnosticsSettings.KeepCrashReports) : Catch : End Try
 
             Dim sizeText As String = DescribeBytes(total)
-            Dim head As String = $"{bundles.Length} crash {If(bundles.Length = 1, "report", "reports")} saved, about {sizeText}."
-            Dim tail As String =
-                $" The newest {keepNewest} are always kept, and a report you have never sent or dismissed is never removed automatically."
+            Dim head As String = Radios.Lexicon.Get(
+                If(bundles.Length = 1, "logging.crash.reports_head_one", "logging.crash.reports_head_many"),
+                ("count", bundles.Length), ("size", sizeText))
+            Dim tail As String = Radios.Lexicon.Get("logging.crash.reports_tail", ("keepNewest", keepNewest))
             If unresolved > 0 Then
-                tail = $" {unresolved} {If(unresolved = 1, "has", "have")} not been sent or dismissed, so {If(unresolved = 1, "it is", "they are")} being kept for you." & tail
+                tail = Radios.Lexicon.Get(
+                    If(unresolved = 1, "logging.crash.reports_unresolved_one", "logging.crash.reports_unresolved_many"),
+                    ("count", unresolved), ("tail", tail))
             End If
             Return head & tail
         Catch
-            Return "The crash reports on this computer could not be counted."
+            Return Radios.Lexicon.Get("logging.crash.reports_count_failed")
         End Try
     End Function
 
@@ -686,38 +696,34 @@ Module CrashReporter
             Dim oversize As Boolean = localBytes > UploadMaxBytes
 
             Dim sb As New StringBuilder()
-            sb.AppendLine("JJ Flexible Radio Access hit an unexpected error.")
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_intro"))
             sb.AppendLine()
-            sb.AppendLine("A crash report was saved to:")
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_saved_to"))
             sb.AppendLine(zipPath)
             sb.AppendLine()
-            sb.AppendLine($"The report contains ({FormatSize(zipPath)} total):")
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_contains", ("size", FormatSize(zipPath))))
             For Each item As String In bundle.Included
-                sb.AppendLine("  - " & item)
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_bullet", ("item", item)))
             Next
             If bundle.Withheld.Count > 0 Then
                 sb.AppendLine()
-                sb.AppendLine("Not included:")
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_not_included"))
                 For Each item As String In bundle.Withheld
-                    sb.AppendLine("  - " & item)
+                    sb.AppendLine(Radios.Lexicon.Get("logging.crash.manifest_bullet", ("item", item)))
                 Next
             End If
             sb.AppendLine()
             If oversize Then
                 ' Honest, and stated before the user chooses — not after a
                 ' failed POST comes back with a raw server error.
-                sb.AppendLine("This report is larger than the support server accepts, so the")
-                sb.AppendLine("large crash file will not be sent. The report text and the trace")
-                sb.AppendLine("from the moments before the crash will be sent — those are what")
-                sb.AppendLine("diagnosis needs. The full report stays saved on this computer if")
-                sb.AppendLine("support asks for it.")
+                sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_oversize", ("newline", Environment.NewLine)))
                 sb.AppendLine()
             End If
-            sb.AppendLine("Send this report to the JJ Flexible Data Provider?")
-            sb.AppendLine($"It will upload to {CrashEndpoint}")
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_send_question"))
+            sb.AppendLine(Radios.Lexicon.Get("logging.crash.prompt_endpoint", ("endpoint", CrashEndpoint)))
 
             Dim choice = MessageBox.Show(AppShellForm, sb.ToString(),
-                "JJ Flexible Radio Access crash report",
+                Radios.Lexicon.Get("logging.crash.prompt_title"),
                 MessageBoxButtons.YesNo, MessageBoxIcon.Error)
 
             If choice = DialogResult.Yes Then
@@ -733,7 +739,7 @@ Module CrashReporter
 
                 If String.IsNullOrEmpty(uploadPath) Then
                     Radios.ScreenReaderOutput.Speak(
-                        "The crash report is saved on this computer. It could not be prepared for sending.",
+                        Radios.Lexicon.Get("logging.crash.prepare_failed"),
                         Radios.VerbosityLevel.Critical, True)
                     Return
                 End If
@@ -766,7 +772,7 @@ Module CrashReporter
                 ' from the SaveCrash speech but nothing about the upload offer.
                 ' Tell them so they can manually retry / mail the bundle.
                 Radios.ScreenReaderOutput.Speak(
-                    "Crash report saved locally. Couldn't show the upload prompt.",
+                    Radios.Lexicon.Get("logging.crash.prompt_failed"),
                     Radios.VerbosityLevel.Critical, True)
             Catch
             End Try
@@ -805,7 +811,7 @@ Module CrashReporter
                 .DumpIncludedLocally = bundle.DumpIncludedLocally
             }
             If bundle.DumpIncludedLocally Then
-                reduced.Withheld.Add("Process memory dump: too large to send; held on the user's computer")
+                reduced.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_dump"))
             End If
             For Each item As String In bundle.Withheld
                 reduced.Withheld.Add(item)
@@ -828,16 +834,16 @@ Module CrashReporter
                             If destStream.Position < budget Then
                                 CopyTraceTail(srcZip, destZip, reduced, "trace-previous-part.txt")
                             ElseIf srcZip.GetEntry("trace-previous-part.txt") IsNot Nothing Then
-                                reduced.Withheld.Add("Previous trace part: no room under the send limit")
+                                reduced.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_previous_no_room"))
                             End If
 
                             For Each srcEntry As ZipArchiveEntry In srcZip.Entries
                                 If Not srcEntry.FullName.StartsWith("traces/", StringComparison.OrdinalIgnoreCase) Then Continue For
                                 If destStream.Position + srcEntry.CompressedLength > budget Then
-                                    reduced.Withheld.Add($"Archived trace {srcEntry.Name}: no room under the send limit")
+                                    reduced.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_archived_no_room", ("name", srcEntry.Name)))
                                     Continue For
                                 End If
-                                CopyEntry(srcEntry, destZip, reduced, "Archived trace: " & srcEntry.Name)
+                                CopyEntry(srcEntry, destZip, reduced, Radios.Lexicon.Get("logging.crash.item_archived_trace", ("fileName", srcEntry.Name)))
                             Next
 
                             WriteBundleManifest(destZip, reduced, localZipPath, isUploadCopy:=True)
@@ -915,16 +921,20 @@ Module CrashReporter
                 End While
                 Using outStream = destEntry.Open()
                     Dim notice As Byte() = Encoding.UTF8.GetBytes(
-                        $"--- truncated for upload: last {FormatBytes(srcEntry.Length - skipped)} of {FormatBytes(srcEntry.Length)} ---" &
+                        Radios.Lexicon.Get("logging.crash.upload_truncate_notice",
+                                           ("kept", FormatBytes(srcEntry.Length - skipped)), ("total", FormatBytes(srcEntry.Length))) &
                         Environment.NewLine)
                     outStream.Write(notice, 0, notice.Length)
                     inStream.CopyTo(outStream)
                 End Using
             End Using
-            bundle.Included.Add($"{entryName}: last {FormatBytes(srcEntry.Length - skip)} of {FormatBytes(srcEntry.Length)}")
-            bundle.Withheld.Add($"{entryName}: earlier {FormatBytes(skip)} kept only in the local copy")
+            bundle.Included.Add(Radios.Lexicon.Get("logging.crash.item_upload_partial",
+                                                   ("entryName", entryName),
+                                                   ("kept", FormatBytes(srcEntry.Length - skip)), ("total", FormatBytes(srcEntry.Length))))
+            bundle.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_upload_head",
+                                                   ("entryName", entryName), ("skipped", FormatBytes(skip))))
         Catch
-            bundle.Withheld.Add($"{entryName}: could not be copied into the upload")
+            bundle.Withheld.Add(Radios.Lexicon.Get("logging.crash.withheld_upload_failed", ("entryName", entryName)))
         End Try
     End Sub
 
@@ -975,11 +985,11 @@ Module CrashReporter
                                     ' The dump staying behind is a detail, not a
                                     ' failure, and must never read like one.
                                     Radios.ScreenReaderOutput.Speak(
-                                        "Your report was sent. The large crash file is saved on this computer if support asks for it.",
+                                        Radios.Lexicon.Get("logging.crash.uploaded_reduced"),
                                         Radios.VerbosityLevel.Critical, True)
                                 Else
                                     Radios.ScreenReaderOutput.Speak(
-                                        "Crash report uploaded successfully. Thank you.",
+                                        Radios.Lexicon.Get("logging.crash.uploaded"),
                                         Radios.VerbosityLevel.Critical, True)
                                 End If
                                 Return
@@ -1039,7 +1049,7 @@ Module CrashReporter
             File.AppendAllText(Path.Combine(Path.GetTempPath(), "JJFlexRadio-crash.txt"),
                 $"{DateTime.Now:u} UploadCrashBundleAsync failed after {MaxUploadAttempts} attempt(s): {lastError}{Environment.NewLine}")
             Radios.ScreenReaderOutput.Speak(
-                "Crash report upload failed. The report is still saved locally.",
+                Radios.Lexicon.Get("logging.crash.upload_failed"),
                 Radios.VerbosityLevel.Critical, True)
         Catch
         End Try
@@ -1073,7 +1083,7 @@ Module CrashReporter
         End Try
         Try
             Radios.ScreenReaderOutput.Speak(
-                "Your report was saved on this computer. It is too large to send automatically. Support can ask you for it if it is needed.",
+                Radios.Lexicon.Get("logging.crash.held_locally"),
                 Radios.VerbosityLevel.Critical, True)
         Catch
         End Try
@@ -1091,15 +1101,15 @@ Module CrashReporter
         Try
             Return FormatBytes(New FileInfo(filePath).Length)
         Catch
-            Return "size unknown"
+            Return Radios.Lexicon.Get("logging.crash.size_unknown")
         End Try
     End Function
 
     Private Function FormatBytes(bytes As Long) As String
-        If bytes < 1024 Then Return $"{bytes} bytes"
-        If bytes < 1024 * 1024 Then Return $"{bytes \ 1024} KB"
-        If bytes < 1024L * 1024 * 1024 Then Return $"{bytes \ (1024 * 1024)} MB"
-        Return (bytes / (1024.0 * 1024 * 1024)).ToString("0.0") & " GB"
+        If bytes < 1024 Then Return Radios.Lexicon.Get("logging.crash.bytes", ("value", bytes))
+        If bytes < 1024 * 1024 Then Return Radios.Lexicon.Get("logging.crash.kb", ("value", bytes \ 1024))
+        If bytes < 1024L * 1024 * 1024 Then Return Radios.Lexicon.Get("logging.crash.mb", ("value", bytes \ (1024 * 1024)))
+        Return Radios.Lexicon.Get("logging.crash.gb", ("value", (bytes / (1024.0 * 1024 * 1024)).ToString("0.0")))
     End Function
 
     Private Function BuildReport(context As String, ex As Exception, isTerminating As Boolean) As String

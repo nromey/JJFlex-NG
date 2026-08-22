@@ -41,15 +41,15 @@ Partial Class TraceAdmin
     Friend Sub InitializeArchiveBrowser()
         Try
             ' Columns
-            ArchiveListView.Columns.Add("Date", 150, HorizontalAlignment.Left)
-            ArchiveListView.Columns.Add("Duration", 80, HorizontalAlignment.Left)
-            ArchiveListView.Columns.Add("Outcome", 180, HorizontalAlignment.Left)
-            ArchiveListView.Columns.Add("Connection Target", 220, HorizontalAlignment.Left)
-            ArchiveListView.Columns.Add("Size", 80, HorizontalAlignment.Right)
+            ArchiveListView.Columns.Add(Radios.Lexicon.Get("logging.browser.col_date"), 150, HorizontalAlignment.Left)
+            ArchiveListView.Columns.Add(Radios.Lexicon.Get("logging.browser.col_duration"), 80, HorizontalAlignment.Left)
+            ArchiveListView.Columns.Add(Radios.Lexicon.Get("logging.browser.col_outcome"), 180, HorizontalAlignment.Left)
+            ArchiveListView.Columns.Add(Radios.Lexicon.Get("logging.browser.col_target"), 220, HorizontalAlignment.Left)
+            ArchiveListView.Columns.Add(Radios.Lexicon.Get("logging.browser.col_size"), 80, HorizontalAlignment.Right)
 
             ' Outcome dropdown — first item is "Any", followed by every known outcome.
             FilterOutcomeCombo.Items.Clear()
-            FilterOutcomeCombo.Items.Add("Any")
+            FilterOutcomeCombo.Items.Add(Radios.Lexicon.Get("logging.browser.filter_any"))
             For Each kvp In TraceOutcomeLabels.AllOutcomes()
                 FilterOutcomeCombo.Items.Add(kvp.Value)
             Next
@@ -210,9 +210,9 @@ Partial Class TraceAdmin
         Dim today As Date = Date.Now.Date
         Dim dayPart As String
         If localTime.Date = today Then
-            dayPart = If(localTime.Hour >= 17, "Tonight", "Today")
+            dayPart = Radios.Lexicon.Get(If(localTime.Hour >= 17, "logging.browser.day_tonight", "logging.browser.day_today"))
         ElseIf localTime.Date = today.AddDays(-1) Then
-            dayPart = "Yesterday"
+            dayPart = Radios.Lexicon.Get("logging.browser.day_yesterday")
         Else
             dayPart = localTime.ToString("d MMM", CultureInfo.InvariantCulture)
         End If
@@ -220,13 +220,14 @@ Partial Class TraceAdmin
         Dim prefix As String = ""
         If Not String.IsNullOrEmpty(entry.OutcomeDetail) AndAlso
            entry.OutcomeDetail.StartsWith(CaptureOutcomeDetailPrefix, StringComparison.Ordinal) Then
-            prefix = "Detailed capture, "
+            prefix = Radios.Lexicon.Get("logging.browser.capture_prefix")
         End If
-        Return $"{prefix}{dayPart} at {clock}"
+        Return Radios.Lexicon.Get("logging.browser.session_phrase",
+                                  ("prefix", prefix), ("dayPart", dayPart), ("clock", clock))
     End Function
 
     Private Shared Function FormatDuration(durationMs As Long?) As String
-        If Not durationMs.HasValue Then Return "—"
+        If Not durationMs.HasValue Then Return Radios.Lexicon.Get("logging.browser.empty_dash")
         Dim secs As Long = durationMs.Value \ 1000
         Dim hours As Long = secs \ 3600
         Dim mins As Long = (secs Mod 3600) \ 60
@@ -238,29 +239,31 @@ Partial Class TraceAdmin
     End Function
 
     Private Shared Function FormatTarget(target As TraceConnectionTarget) As String
-        If target Is Nothing Then Return "—"
+        If target Is Nothing Then Return Radios.Lexicon.Get("logging.browser.empty_dash")
         Dim parts As New List(Of String)()
         If Not String.IsNullOrEmpty(target.Nickname) Then parts.Add(target.Nickname)
         If Not String.IsNullOrEmpty(target.Serial) Then parts.Add(target.Serial)
         If parts.Count = 0 AndAlso Not String.IsNullOrEmpty(target.SmartlinkAccount) Then parts.Add(target.SmartlinkAccount)
         If parts.Count = 0 AndAlso Not String.IsNullOrEmpty(target.Ip) Then parts.Add(target.Ip)
-        Return If(parts.Count = 0, "—", String.Join(" / ", parts))
+        Return If(parts.Count = 0,
+                  Radios.Lexicon.Get("logging.browser.empty_dash"),
+                  String.Join(Radios.Lexicon.Get("logging.browser.target_join"), parts))
     End Function
 
     Private Shared Function FormatSize(bytes As Long?) As String
-        If Not bytes.HasValue Then Return "—"
+        If Not bytes.HasValue Then Return Radios.Lexicon.Get("logging.browser.empty_dash")
         Dim b As Long = bytes.Value
-        If b < 1024 Then Return $"{b} B"
-        If b < 1024L * 1024 Then Return $"{b \ 1024} KB"
-        Return $"{(b / (1024.0 * 1024.0)):F1} MB"
+        If b < 1024 Then Return Radios.Lexicon.Get("logging.browser.size_bytes", ("value", b))
+        If b < 1024L * 1024 Then Return Radios.Lexicon.Get("logging.browser.size_kb", ("value", b \ 1024))
+        Return Radios.Lexicon.Get("logging.browser.size_mb", ("value", (b / (1024.0 * 1024.0)).ToString("F1")))
     End Function
 
     Private Shared Function FormatSizeSpoken(bytes As Long?) As String
-        If Not bytes.HasValue Then Return "unknown size"
+        If Not bytes.HasValue Then Return Radios.Lexicon.Get("logging.browser.size_unknown")
         Dim b As Long = bytes.Value
-        If b < 1024 Then Return $"{b} bytes"
-        If b < 1024L * 1024 Then Return $"{b \ 1024} kilobytes"
-        Return $"{(b / (1024.0 * 1024.0)):F1} megabytes"
+        If b < 1024 Then Return Radios.Lexicon.Get("logging.browser.size_spoken_bytes", ("value", b))
+        If b < 1024L * 1024 Then Return Radios.Lexicon.Get("logging.browser.size_spoken_kb", ("value", b \ 1024))
+        Return Radios.Lexicon.Get("logging.browser.size_spoken_mb", ("value", (b / (1024.0 * 1024.0)).ToString("F1")))
     End Function
 
     ' --------------------------------------------------------------------
@@ -271,13 +274,13 @@ Partial Class TraceAdmin
     Private Sub UpdateFilterStatusLabel(announce As Boolean)
         Dim total As Integer = _allEntries.Count
         Dim shown As Integer = _shownEntries.Count
-        Dim visualText As String = $"{total} total, {shown} shown"
+        Dim visualText As String = Radios.Lexicon.Get("logging.browser.filter_status", ("total", total), ("shown", shown))
         FilterStatusLabel.Text = visualText
         FilterStatusLabel.AccessibleName = visualText
 
         If announce Then
             Try
-                ScreenReaderOutput.Speak($"{shown} of {total} shown", VerbosityLevel.Terse)
+                ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.filter_status_spoken", ("shown", shown), ("total", total)), VerbosityLevel.Terse)
             Catch
             End Try
         End If
@@ -289,7 +292,9 @@ Partial Class TraceAdmin
         For Each en In _allEntries
             If en.TraceSizeCompressedBytes.HasValue Then total += en.TraceSizeCompressedBytes.Value
         Next
-        FooterLabel.Text = $"Archive total: {FormatSize(total)} across {count} {If(count = 1, "entry", "entries")}"
+        FooterLabel.Text = Radios.Lexicon.Get(
+            If(count = 1, "logging.browser.footer_one", "logging.browser.footer_many"),
+            ("size", FormatSize(total)), ("count", count))
         FooterLabel.AccessibleName = FooterLabel.Text
     End Sub
 
@@ -340,8 +345,11 @@ Partial Class TraceAdmin
         End If
         ApplyFilterAndRefreshList(announce:=False)
         Try
-            Dim direction As String = If(_sortDescending, "descending", "ascending")
-            ScreenReaderOutput.Speak($"Sorted by {ArchiveListView.Columns(_sortColumn).Text}, {direction}", VerbosityLevel.Terse)
+            Dim direction As String = Radios.Lexicon.Get(
+                If(_sortDescending, "logging.browser.sort_descending", "logging.browser.sort_ascending"))
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.sorted_by",
+                                                        ("column", ArchiveListView.Columns(_sortColumn).Text), ("direction", direction)),
+                                     VerbosityLevel.Terse)
         Catch
         End Try
     End Sub
@@ -353,7 +361,7 @@ Partial Class TraceAdmin
     Private Sub UpdateSelectionDetail()
         Dim selected As List(Of TraceSessionEntry) = SelectedEntries()
         If selected.Count = 0 Then
-            SelectionDetailBox.Text = "(no selection)"
+            SelectionDetailBox.Text = Radios.Lexicon.Get("logging.browser.no_selection")
             Return
         End If
         If selected.Count > 1 Then
@@ -361,11 +369,10 @@ Partial Class TraceAdmin
             For Each en In selected
                 If en.TraceSizeCompressedBytes.HasValue Then totalSize += en.TraceSizeCompressedBytes.Value
             Next
-            SelectionDetailBox.Text = String.Format(CultureInfo.InvariantCulture,
-                "{0} entries selected, {1} total compressed.",
-                selected.Count, FormatSize(totalSize))
+            SelectionDetailBox.Text = Radios.Lexicon.Get("logging.browser.multi_selected",
+                                                         ("count", selected.Count), ("size", FormatSize(totalSize)))
             Try
-                ScreenReaderOutput.Speak($"{selected.Count} entries selected", VerbosityLevel.Terse)
+                ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.multi_selected_spoken", ("count", selected.Count)), VerbosityLevel.Terse)
             Catch
             End Try
             Return
@@ -373,23 +380,24 @@ Partial Class TraceAdmin
 
         Dim entry As TraceSessionEntry = selected(0)
         Dim sb As New System.Text.StringBuilder()
-        sb.AppendLine($"Outcome: {TraceOutcomeLabels.Display(entry.Outcome)}")
+        sb.AppendLine(Radios.Lexicon.Get("logging.browser.detail_outcome", ("outcome", TraceOutcomeLabels.Display(entry.Outcome))))
         If Not String.IsNullOrEmpty(entry.OutcomeDetail) Then
-            sb.AppendLine($"Reason: {entry.OutcomeDetail}")
+            sb.AppendLine(Radios.Lexicon.Get("logging.browser.detail_reason", ("reason", entry.OutcomeDetail)))
         End If
         If entry.ConnectionTarget IsNot Nothing Then
-            sb.AppendLine($"Target: {FormatTarget(entry.ConnectionTarget)}")
+            sb.AppendLine(Radios.Lexicon.Get("logging.browser.detail_target", ("target", FormatTarget(entry.ConnectionTarget))))
         End If
         If entry.KeyEvents IsNot Nothing AndAlso entry.KeyEvents.Count > 0 Then
-            sb.AppendLine($"Key events ({entry.KeyEvents.Count}): {String.Join(", ", entry.KeyEvents)}")
+            sb.AppendLine(Radios.Lexicon.Get("logging.browser.detail_key_events",
+                                             ("count", entry.KeyEvents.Count), ("events", String.Join(", ", entry.KeyEvents))))
         End If
         If Not String.IsNullOrEmpty(entry.AppVersion) Then
-            sb.AppendLine($"App version: {entry.AppVersion}")
+            sb.AppendLine(Radios.Lexicon.Get("logging.browser.detail_app_version", ("version", entry.AppVersion)))
         End If
         If Not String.IsNullOrEmpty(entry.VerbosityLevel) Then
-            sb.AppendLine($"Verbosity: {entry.VerbosityLevel}")
+            sb.AppendLine(Radios.Lexicon.Get("logging.browser.detail_verbosity", ("verbosity", entry.VerbosityLevel)))
         End If
-        sb.Append($"File: {ResolveFullPath(entry)}")
+        sb.Append(Radios.Lexicon.Get("logging.browser.detail_file", ("path", ResolveFullPath(entry))))
         SelectionDetailBox.Text = sb.ToString()
 
         AnnounceSelection(entry)
@@ -408,10 +416,13 @@ Partial Class TraceAdmin
                     ' Critical-only verbosity = don't push selection chatter.
                     Return
                 Case VerbosityLevel.Terse
-                    msg = $"{outcome}, {target}, {duration}"
+                    msg = Radios.Lexicon.Get("logging.browser.announce_terse",
+                                             ("outcome", outcome), ("target", target), ("duration", duration))
                 Case Else ' Chatty
                     Dim eventsCount As Integer = If(entry.KeyEvents Is Nothing, 0, entry.KeyEvents.Count)
-                    msg = $"{outcome} on {target}, {duration}, {eventsCount} key {If(eventsCount = 1, "event", "events")}"
+                    msg = Radios.Lexicon.Get(
+                        If(eventsCount = 1, "logging.browser.announce_chatty_one", "logging.browser.announce_chatty_many"),
+                        ("outcome", outcome), ("target", target), ("duration", duration), ("eventsCount", eventsCount))
             End Select
             ScreenReaderOutput.Speak(msg, VerbosityLevel.Terse)
         Catch
@@ -443,18 +454,18 @@ Partial Class TraceAdmin
     Private Sub ViewSelectedTrace()
         Dim selected As List(Of TraceSessionEntry) = SelectedEntries()
         If selected.Count = 0 Then
-            Try : ScreenReaderOutput.Speak("No trace selected", VerbosityLevel.Critical) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.no_trace_selected"), VerbosityLevel.Critical) : Catch : End Try
             Return
         End If
         If selected.Count > 1 Then
-            Try : ScreenReaderOutput.Speak("Select a single trace to view", VerbosityLevel.Critical) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.select_single"), VerbosityLevel.Critical) : Catch : End Try
             Return
         End If
 
         Dim entry As TraceSessionEntry = selected(0)
         Dim archivePath As String = ResolveFullPath(entry)
         If String.IsNullOrEmpty(archivePath) OrElse Not File.Exists(archivePath) Then
-            Try : ScreenReaderOutput.Speak("Trace archive file is missing", VerbosityLevel.Critical) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.file_missing"), VerbosityLevel.Critical) : Catch : End Try
             Return
         End If
 
@@ -462,15 +473,15 @@ Partial Class TraceAdmin
             Dim tempDir As String = Path.Combine(Path.GetTempPath(), "JJFlexRadioTraceView", entry.SessionId)
             Dim extracted As String = SessionArchive.ExtractTraceText(archivePath, tempDir)
             If String.IsNullOrEmpty(extracted) OrElse Not File.Exists(extracted) Then
-                ScreenReaderOutput.Speak("Failed to extract trace", VerbosityLevel.Critical)
+                ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.extract_failed"), VerbosityLevel.Critical)
                 Return
             End If
             Dim psi As New ProcessStartInfo(extracted) With {.UseShellExecute = True}
             Process.Start(psi)
-            ScreenReaderOutput.Speak("Trace opened in text viewer", VerbosityLevel.Critical)
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.opened"), VerbosityLevel.Critical)
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
-            Try : ScreenReaderOutput.Speak("Could not open trace", VerbosityLevel.Critical) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.open_failed"), VerbosityLevel.Critical) : Catch : End Try
         End Try
     End Sub
 
@@ -481,7 +492,7 @@ Partial Class TraceAdmin
     Private Sub CopySelectedPath()
         Dim selected As List(Of TraceSessionEntry) = SelectedEntries()
         If selected.Count = 0 Then
-            Try : ScreenReaderOutput.Speak("No trace selected", VerbosityLevel.Critical) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.no_trace_selected"), VerbosityLevel.Critical) : Catch : End Try
             Return
         End If
         Try
@@ -493,12 +504,12 @@ Partial Class TraceAdmin
             End If
             Clipboard.SetText(text)
             Dim msg As String = If(selected.Count = 1,
-                "Trace path copied to clipboard",
-                $"{selected.Count} trace paths copied to clipboard")
+                Radios.Lexicon.Get("logging.browser.path_copied_one"),
+                Radios.Lexicon.Get("logging.browser.path_copied_many", ("count", selected.Count)))
             ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical)
         Catch ex As Exception
             Tracing.ErrMessageTrace(ex)
-            Try : ScreenReaderOutput.Speak("Could not copy path", VerbosityLevel.Critical) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.copy_failed"), VerbosityLevel.Critical) : Catch : End Try
         End Try
     End Sub
 
@@ -509,7 +520,7 @@ Partial Class TraceAdmin
     Private Sub ExportSelectedTraces()
         Dim selected As List(Of TraceSessionEntry) = SelectedEntries()
         If selected.Count = 0 Then
-            Try : ScreenReaderOutput.Speak("No traces selected to export", VerbosityLevel.Critical) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.none_to_export"), VerbosityLevel.Critical) : Catch : End Try
             Return
         End If
 
@@ -517,7 +528,7 @@ Partial Class TraceAdmin
             dlg.Filter = "Zip archive (*.zip)|*.zip"
             dlg.DefaultExt = "zip"
             dlg.FileName = $"traces-export-{DateTime.Now:yyyyMMdd-HHmmss}.zip"
-            dlg.Title = "Export Selected Traces"
+            dlg.Title = Radios.Lexicon.Get("logging.browser.export_title")
             If dlg.ShowDialog(Me) <> DialogResult.OK Then Return
 
             Try
@@ -530,10 +541,12 @@ Partial Class TraceAdmin
                         outZip.CreateEntryFromFile(full, entryName)
                     Next
                 End Using
-                ScreenReaderOutput.Speak($"{selected.Count} {If(selected.Count = 1, "trace", "traces")} exported", VerbosityLevel.Critical)
+                ScreenReaderOutput.Speak(Radios.Lexicon.Get(
+                    If(selected.Count = 1, "logging.browser.exported_one", "logging.browser.exported_many"),
+                    ("count", selected.Count)), VerbosityLevel.Critical)
             Catch ex As Exception
                 Tracing.ErrMessageTrace(ex)
-                Try : ScreenReaderOutput.Speak("Export failed", VerbosityLevel.Critical) : Catch : End Try
+                Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.export_failed"), VerbosityLevel.Critical) : Catch : End Try
             End Try
         End Using
     End Sub
@@ -545,16 +558,16 @@ Partial Class TraceAdmin
     Private Sub DeleteSelectedTraces()
         Dim selected As List(Of TraceSessionEntry) = SelectedEntries()
         If selected.Count = 0 Then
-            Try : ScreenReaderOutput.Speak("No traces selected to delete", VerbosityLevel.Critical) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.none_to_delete"), VerbosityLevel.Critical) : Catch : End Try
             Return
         End If
 
         Dim prompt As String = If(selected.Count = 1,
-            "Delete the selected trace?",
-            $"Delete {selected.Count} selected traces?")
-        Dim result As DialogResult = MessageBox.Show(Me, prompt, "Confirm Delete", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2)
+            Radios.Lexicon.Get("logging.browser.delete_prompt_one"),
+            Radios.Lexicon.Get("logging.browser.delete_prompt_many", ("count", selected.Count)))
+        Dim result As DialogResult = MessageBox.Show(Me, prompt, Radios.Lexicon.Get("logging.browser.delete_title"), MessageBoxButtons.OKCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2)
         If result <> DialogResult.OK Then
-            Try : ScreenReaderOutput.Speak("Delete cancelled", VerbosityLevel.Terse) : Catch : End Try
+            Try : ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.browser.delete_cancelled"), VerbosityLevel.Terse) : Catch : End Try
             Return
         End If
 
@@ -567,7 +580,9 @@ Partial Class TraceAdmin
         ReloadManifestCache()
         ApplyFilterAndRefreshList(announce:=False)
         Try
-            ScreenReaderOutput.Speak($"Deleted {deleted} {If(deleted = 1, "trace", "traces")}", VerbosityLevel.Critical)
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get(
+                If(deleted = 1, "logging.browser.deleted_one", "logging.browser.deleted_many"),
+                ("count", deleted)), VerbosityLevel.Critical)
         Catch
         End Try
     End Sub
