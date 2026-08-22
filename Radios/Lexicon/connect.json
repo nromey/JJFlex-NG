@@ -174,5 +174,7 @@
   "connect.smartlink.local_only_saved_title": "This radio is now local only",
   "connect.smartlink.local_only_saved_body": "Noted. Nothing about registering this radio with SmartLink will come up again, on this run or any other.\n\n{where}",
   "connect.smartlink.local_only_unsaved_title": "Local only, but it may not stick",
-  "connect.smartlink.local_only_unsaved_body": "Your choice is in effect for this session, but it could not be written to disk, so it may not survive a restart. Your settings folder may be locked or full; the trace file has the details.\n\n{where}"
+  "connect.smartlink.local_only_unsaved_body": "Your choice is in effect for this session, but it could not be written to disk, so it may not survive a restart. Your settings folder may be locked or full; the trace file has the details.\n\n{where}",
+  "connect.home.actions_title": "Actions",
+  "connect.home.actions_list_name": "Actions"
 }

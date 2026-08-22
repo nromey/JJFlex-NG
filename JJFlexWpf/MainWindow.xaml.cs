@@ -4271,7 +4271,7 @@ public partial class MainWindow : UserControl
 
         var dlg = new JJFlexDialog
         {
-            Title = "Actions",
+            Title = Radios.Lexicon.Get("connect.home.actions_title"),
             Width = 250,
             Height = 200,
             ShowInTaskbar = false,
@@ -4282,8 +4282,12 @@ public partial class MainWindow : UserControl
         {
             Margin = new System.Windows.Thickness(8),
         };
-        System.Windows.Automation.AutomationProperties.SetName(list, "Actions");
+        System.Windows.Automation.AutomationProperties.SetName(
+            list, Radios.Lexicon.Get("connect.home.actions_list_name"));
 
+        // The action ITEMS below stay literal on purpose. ExecuteActionToolbarItem
+        // switches on the very same strings, so extracting them would let an
+        // operator's overlay silently disconnect every entry from its action.
         // Build action items based on radio state
         bool hasATU = RigControl.HasATU;
         bool canTx = RigControl.CanTransmit;
