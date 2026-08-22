@@ -88,6 +88,7 @@
   "settings.menus.not_set_up_title": "Menus",
   "settings.mode.selected": "Mode {m}",
   "settings.operators.unavailable": "Operator management is not available.",
+  "settings.pc_audio.action_label": "toggle P C audio",
   "settings.profile.add_failed": "Could not add profile {profile}",
   "settings.profile.added": "Profile {profile} added",
   "settings.profile.cannot_delete_current": "You can't delete a current profile.",

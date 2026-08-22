@@ -1018,7 +1018,8 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.SpeakNoRadioConnected("toggle P C audio");
+            Radios.ScreenReaderOutput.SpeakNoRadioConnected(
+                Radios.Lexicon.Get("settings.pc_audio.action_label"));
             return;
         }
 
