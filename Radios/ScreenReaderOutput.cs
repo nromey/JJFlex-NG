@@ -630,12 +630,7 @@ namespace Radios
             };
 
             // Always announce the new level (this is Critical-level — user needs to know)
-            string label = CurrentVerbosity switch
-            {
-                VerbosityLevel.Critical => "Speech off",
-                VerbosityLevel.Terse => "Speech terse",
-                _ => "Speech chatty",
-            };
+            string label = Lexicon.Get("connect.session.verbosity_changed", CurrentVerbosity);
             Speak(label, true);
             return CurrentVerbosity;
         }
@@ -665,13 +660,13 @@ namespace Radios
                     // later goes wrong and needs reporting.
                     var version = DiagnosticSnapshot.QuickFileVersion;
                     msg = string.IsNullOrEmpty(version)
-                        ? "Welcome to JJ Flexible Radio Access"
-                        : "Welcome to JJ Flexible Radio Access, version " + version;
+                        ? Lexicon.Get("connect.session.greeting")
+                        : Lexicon.Get("connect.session.greeting_with_version", ("version", version));
                     break;
 
                 case VerbosityLevel.Terse:
                     // You just launched it. You know what it is.
-                    msg = "Welcome";
+                    msg = Lexicon.Get("connect.session.greeting_terse");
                     break;
 
                 default:
@@ -700,25 +695,10 @@ namespace Radios
         /// </summary>
         public static void SpeakNoRadioConnected(string? actionLabel = null)
         {
-            string msg;
-            if (string.IsNullOrWhiteSpace(actionLabel))
-            {
-                msg = CurrentVerbosity switch
-                {
-                    VerbosityLevel.Chatty => "JJ Flexible Home, no radio connected",
-                    VerbosityLevel.Terse  => "Home, no radio",
-                    _                     => "No radio connected",
-                };
-            }
-            else
-            {
-                msg = CurrentVerbosity switch
-                {
-                    VerbosityLevel.Chatty => $"Unable to {actionLabel}, JJ Flexible Home no radio connected",
-                    VerbosityLevel.Terse  => $"{actionLabel}, no radio",
-                    _                     => $"{actionLabel}, no radio",
-                };
-            }
+            string msg = string.IsNullOrWhiteSpace(actionLabel)
+                ? Lexicon.Get("connect.no_radio.plain", CurrentVerbosity)
+                : Lexicon.Get("connect.no_radio.action", CurrentVerbosity,
+                    ("actionLabel", actionLabel));
             Speak(msg, VerbosityLevel.Critical, true);
         }
 
@@ -1088,8 +1068,11 @@ namespace Radios
             // speaks our text" is not something an operator needs narrated.
             if (tier == Speech.SpeechTier.ScreenReader)
             {
-                string name = string.IsNullOrEmpty(_screenReaderName) ? "your screen reader" : _screenReaderName;
-                Speak($"Speech now through {name}", Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+                string name = string.IsNullOrEmpty(_screenReaderName)
+                    ? Lexicon.Get("connect.session.screen_reader_unnamed")
+                    : _screenReaderName;
+                Speak(Lexicon.Get("connect.session.speech_channel_changed", ("name", name)),
+                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
             }
         }
 

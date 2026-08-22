@@ -52,17 +52,18 @@ public sealed class AdvisoryDialog : JJFlexDialog
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             MaxHeight = 400,
         };
-        AutomationProperties.SetName(text, "Message");
+        AutomationProperties.SetName(text, Radios.Lexicon.Get("connect.dialog.message_label"));
         root.Children.Add(text);
 
         if (suppressKey != null)
         {
+            string dontShowAgain = Radios.Lexicon.Get("connect.dialog.dont_show_again");
             _dontShowAgain = new CheckBox
             {
-                Content = "_Don't show this again",
+                Content = dontShowAgain,
                 Margin = new Thickness(0, 10, 0, 0),
             };
-            AutomationProperties.SetName(_dontShowAgain, "Don't show this again");
+            AutomationProperties.SetName(_dontShowAgain, dontShowAgain.Replace("_", ""));
             root.Children.Add(_dontShowAgain);
         }
 
@@ -103,15 +104,16 @@ public sealed class AdvisoryDialog : JJFlexDialog
             buttons.Children.Add(button);
         }
 
+        string closeLabel = Radios.Lexicon.Get("connect.dialog.close");
         var close = new Button
         {
-            Content = "_Close",
+            Content = closeLabel,
             MinWidth = 80,
             Height = 28,
             IsDefault = true,
             IsCancel = true,
         };
-        AutomationProperties.SetName(close, "Close");
+        AutomationProperties.SetName(close, closeLabel.Replace("_", ""));
         // IsDefault registers the literal \r character as an access key, and
         // NVDA reads it back as "Close button, carriage return". Explicit
         // values preempt the phantom one.

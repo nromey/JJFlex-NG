@@ -195,9 +195,11 @@ namespace JJFlexWpf
                 // destroys the explanation to announce that an explanation
                 // exists. A failure notice is the SECOND half of a series, not
                 // a supersession of one.
-                string what = string.IsNullOrEmpty(e.What) ? "Something went wrong" : e.What;
+                string what = string.IsNullOrEmpty(e.What)
+                    ? Radios.Lexicon.Get("logging.problem.unnamed")
+                    : e.What;
                 Radios.ScreenReaderOutput.Speak(
-                    $"{what}. Press Control J then Control R for details.",
+                    Radios.Lexicon.Get("logging.problem.announcement", ("what", what)),
                     Radios.Speech.SpeechIntent.Queue,
                     Radios.VerbosityLevel.Critical);
             }

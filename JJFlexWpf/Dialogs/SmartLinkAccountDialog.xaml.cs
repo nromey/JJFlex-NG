@@ -25,15 +25,17 @@ namespace JJFlexWpf.Dialogs
         {
             string lastUsed = LastUsed > DateTime.MinValue
                 ? LastUsed.ToLocalTime().ToString("g")
-                : "Never";
-            string defaultTag = IsDefault ? " (Default)" : "";
+                : Radios.Lexicon.Get("connect.smartlink.account.never_used");
+            string defaultTag = IsDefault ? Radios.Lexicon.Get("connect.smartlink.account.default_tag") : "";
             // Accounts whose friendly name IS the email (the default when no
             // name was chosen) read as "email (email)" through a screen
             // reader — say it once.
             string identity = string.Equals(FriendlyName, Email, StringComparison.OrdinalIgnoreCase)
                 ? Email
-                : $"{FriendlyName} ({Email})";
-            return $"{identity}{defaultTag} - Last used: {lastUsed}";
+                : Radios.Lexicon.Get("connect.smartlink.account.identity",
+                    ("friendlyName", FriendlyName), ("email", Email));
+            return Radios.Lexicon.Get("connect.smartlink.account.line",
+                ("identity", identity), ("defaultTag", defaultTag), ("lastUsed", lastUsed));
         }
     }
 
@@ -175,9 +177,9 @@ namespace JJFlexWpf.Dialogs
             // #128 sweep audit (2026-08-21): immediate-apply operator toggle
             // answers back. Tone before the sentence, per the sweep's ordering.
             EarconPlayer.ToggleTone(enabled);
-            _callbacks.ScreenReaderSpeak?.Invoke(enabled
-                ? $"Remote will start automatically when {item.FriendlyName} is the account in use."
-                : $"Remote will wait for the Remote button for {item.FriendlyName}.", true);
+            _callbacks.ScreenReaderSpeak?.Invoke((enabled ? Radios.Lexicon.Get("connect.smartlink.account.autostart_on",
+                ("friendlyName", item.FriendlyName)) : Radios.Lexicon.Get("connect.smartlink.account.autostart_off",
+                ("friendlyName", item.FriendlyName))), true);
         }
 
         private SmartLinkAccountInfo? GetSelectedAccount()
@@ -268,12 +270,13 @@ namespace JJFlexWpf.Dialogs
                     if (_callbacks.RenameAccount(item.FriendlyName, newName))
                     {
                         LoadAccounts();
-                        _callbacks.ScreenReaderSpeak?.Invoke($"Account renamed to {newName}", true);
+                        _callbacks.ScreenReaderSpeak?.Invoke(
+                            Radios.Lexicon.Get("connect.smartlink.account.renamed", ("newName", newName)), true);
                     }
                     else
                     {
-                        AdvisoryDialog.Show("Rename Failed",
-                            "The account could not be renamed. The name may already be in use by another saved account.");
+                        AdvisoryDialog.Show(Radios.Lexicon.Get("connect.smartlink.account.rename_failed_title"),
+                            Radios.Lexicon.Get("connect.smartlink.account.rename_failed_body"));
                     }
                 }
             }
@@ -286,15 +289,13 @@ namespace JJFlexWpf.Dialogs
 
             string who = string.Equals(item.FriendlyName, item.Email, StringComparison.OrdinalIgnoreCase)
                 ? item.Email
-                : $"\"{item.FriendlyName}\" ({item.Email})";
+                : Radios.Lexicon.Get("connect.smartlink.account.reset_who_quoted",
+                    ("friendlyName", item.FriendlyName), ("email", item.Email));
             var confirm = new ConfirmActionDialog(
-                "Reset Sign-In",
-                $"JJ Flex will reset the sign-in for {who}. " +
-                "The account stays in your list with all its settings. " +
-                "The next connection will ask for the password again. " +
-                "Use this when signing in has stopped working.",
-                question: "Reset the sign-in?",
-                yesLabel: "_Reset");
+                Radios.Lexicon.Get("connect.smartlink.account.reset_title"),
+                Radios.Lexicon.Get("connect.smartlink.account.reset_body", ("who", who)),
+                question: Radios.Lexicon.Get("connect.smartlink.account.reset_question"),
+                yesLabel: Radios.Lexicon.Get("connect.smartlink.account.reset_yes"));
 
             if (confirm.ShowDialog() != true) return;
 
@@ -302,11 +303,13 @@ namespace JJFlexWpf.Dialogs
             {
                 LoadAccounts();
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"Sign-in reset for {item.FriendlyName}. You'll be asked for the password on the next connection.", true);
+                    Radios.Lexicon.Get("connect.smartlink.account.reset_done",
+                        ("friendlyName", item.FriendlyName)), true);
             }
             else
             {
-                _callbacks.ScreenReaderSpeak?.Invoke("Could not reset the sign-in. See the trace file.", true);
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    Radios.Lexicon.Get("connect.smartlink.account.reset_failed"), true);
             }
         }
 
@@ -325,18 +328,13 @@ namespace JJFlexWpf.Dialogs
             if (_callbacks.StartFreshAllAccounts == null) return;
 
             int count = AccountListBox.Items.Count;
-            string accountsWord = count == 1 ? "account" : $"{count} accounts";
+            string accountsWord = count == 1
+                ? Radios.Lexicon.Get("connect.smartlink.account.start_fresh_one")
+                : Radios.Lexicon.Get("connect.smartlink.account.start_fresh_many", ("count", count));
             var result = MessageBox.Show(
-                $"Start fresh with SmartLink?\n\n" +
-                $"This clears the saved sign-in for your {accountsWord} on this computer " +
-                "and then opens a clean sign-in form. " +
-                "The accounts themselves stay in your list with all their settings — " +
-                "names, port choices, and connection modes are kept. " +
-                "Only the stored login data is removed, so each account will ask for " +
-                "its password again the next time you connect.\n\n" +
-                "Use this when SmartLink sign-in has stopped working and resetting " +
-                "a single account hasn't helped.",
-                "Start Fresh with SmartLink",
+                Radios.Lexicon.Get("connect.smartlink.account.start_fresh_body",
+                    ("accountsWord", accountsWord)),
+                Radios.Lexicon.Get("connect.smartlink.account.start_fresh_title"),
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question,
                 MessageBoxResult.No);
@@ -345,8 +343,12 @@ namespace JJFlexWpf.Dialogs
 
             int cleared = _callbacks.StartFreshAllAccounts();
             LoadAccounts();
+            string clearedWord = cleared == 1
+                ? Radios.Lexicon.Get("connect.smartlink.account.start_fresh_cleared_one")
+                : Radios.Lexicon.Get("connect.smartlink.account.start_fresh_cleared_many", ("cleared", cleared));
             _callbacks.ScreenReaderSpeak?.Invoke(
-                $"Sign-in cleared for {(cleared == 1 ? "1 account" : cleared + " accounts")}. Opening a clean sign-in.",
+                Radios.Lexicon.Get("connect.smartlink.account.start_fresh_cleared",
+                    ("clearedWord", clearedWord)),
                 true);
 
             // Force the clean native sign-in through the same door as New
@@ -364,17 +366,18 @@ namespace JJFlexWpf.Dialogs
             if (item == null) return;
 
             var confirm = new ConfirmActionDialog(
-                "Delete Account",
-                $"JJ Flex will delete the saved account \"{item.FriendlyName}\". " +
-                "You will need to log in again to use this account.",
-                question: "Delete it?",
-                yesLabel: "_Delete");
+                Radios.Lexicon.Get("connect.smartlink.account.delete_title"),
+                Radios.Lexicon.Get("connect.smartlink.account.delete_body",
+                    ("friendlyName", item.FriendlyName)),
+                question: Radios.Lexicon.Get("connect.smartlink.account.delete_question"),
+                yesLabel: Radios.Lexicon.Get("connect.smartlink.account.delete_yes"));
 
             if (confirm.ShowDialog() == true)
             {
                 _callbacks.DeleteAccount(item.FriendlyName);
                 LoadAccounts();
-                _callbacks.ScreenReaderSpeak?.Invoke("Account deleted", true);
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    Radios.Lexicon.Get("connect.smartlink.account.deleted"), true);
             }
         }
 
@@ -396,7 +399,7 @@ namespace JJFlexWpf.Dialogs
 
         public RenameAccountDialog(string currentName)
         {
-            Title = "Rename Account";
+            Title = Radios.Lexicon.Get("connect.smartlink.account.rename_dialog_title");
             Width = 350;
             Height = 140;
 
@@ -407,7 +410,7 @@ namespace JJFlexWpf.Dialogs
 
             var label = new TextBlock
             {
-                Text = "Enter new name:",
+                Text = Radios.Lexicon.Get("connect.smartlink.account.rename_prompt"),
                 Margin = new Thickness(0, 0, 0, 4)
             };
             Grid.SetRow(label, 0);
@@ -417,7 +420,8 @@ namespace JJFlexWpf.Dialogs
                 Text = currentName,
                 Margin = new Thickness(0, 0, 0, 8)
             };
-            System.Windows.Automation.AutomationProperties.SetName(NameBox, "New account name");
+            System.Windows.Automation.AutomationProperties.SetName(NameBox,
+                Radios.Lexicon.Get("connect.smartlink.account.rename_box_name"));
             NameBox.SelectAll();
             Grid.SetRow(NameBox, 1);
 

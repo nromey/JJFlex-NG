@@ -58,7 +58,7 @@ namespace Radios
         {
             _manager = manager ?? new SmartLinkAccountManager();
 
-            Text = "SmartLink Sign In";
+            Text = Lexicon.Get("connect.smartlink.login.title");
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -75,39 +75,38 @@ namespace Radios
 
             var intro = new Label
             {
-                Text = "Sign in with your SmartLink account. Your email and password go " +
-                       "directly to Flex's sign-in service — no web page involved.",
+                Text = Lexicon.Get("connect.smartlink.login.intro"),
                 Left = 12, Top = 10, Width = 406, Height = 34,
-                AccessibleName = "Sign in with your SmartLink account. Your email and password go directly to Flex's sign-in service, no web page involved.",
+                AccessibleName = Lexicon.Get("connect.smartlink.login.intro_name"),
             };
             Controls.Add(intro);
 
-            var emailLabel = new Label { Text = "&Email:", Left = 12, Top = 54, Width = 80 };
+            var emailLabel = new Label { Text = Lexicon.Get("connect.smartlink.login.email_label"), Left = 12, Top = 54, Width = 80 };
             Controls.Add(emailLabel);
             _emailBox = new TextBox
             {
                 Left = 100, Top = 51, Width = 318, TabIndex = 0,
                 Text = prefillEmail ?? "",
-                AccessibleName = "SmartLink email address",
+                AccessibleName = Lexicon.Get("connect.smartlink.login.email_name"),
             };
             Controls.Add(_emailBox);
 
-            var passwordLabel = new Label { Text = "&Password:", Left = 12, Top = 84, Width = 80 };
+            var passwordLabel = new Label { Text = Lexicon.Get("connect.smartlink.login.password_label"), Left = 12, Top = 84, Width = 80 };
             Controls.Add(passwordLabel);
             _passwordBox = new TextBox
             {
                 Left = 100, Top = 81, Width = 318, TabIndex = 1,
                 UseSystemPasswordChar = true,
-                AccessibleName = "SmartLink password",
+                AccessibleName = Lexicon.Get("connect.smartlink.login.password_name"),
             };
             Controls.Add(_passwordBox);
 
-            var nameLabel = new Label { Text = "&Name (optional):", Left = 12, Top = 114, Width = 86 };
+            var nameLabel = new Label { Text = Lexicon.Get("connect.smartlink.login.name_label"), Left = 12, Top = 114, Width = 86 };
             Controls.Add(nameLabel);
             _friendlyNameBox = new TextBox
             {
                 Left = 100, Top = 111, Width = 318, TabIndex = 2,
-                AccessibleName = "Account name shown in your list, optional. Leave blank to use the email address.",
+                AccessibleName = Lexicon.Get("connect.smartlink.login.name_name"),
             };
             Controls.Add(_friendlyNameBox);
 
@@ -120,49 +119,49 @@ namespace Radios
             // not a choice.
             _rememberCheck = new CheckBox
             {
-                Text = "&Remember this sign-in on this computer",
+                Text = Lexicon.Get("connect.smartlink.login.remember_label"),
                 Left = 100, Top = 143, Width = 318, TabIndex = 3,
                 Checked = true,
-                AccessibleName = "Remember this sign-in on this computer. Checked by default; you can remove the account later in Manage SmartLink Accounts.",
+                AccessibleName = Lexicon.Get("connect.smartlink.login.remember_name"),
             };
             Controls.Add(_rememberCheck);
 
             _signInButton = new Button
             {
-                Text = "&Sign In", Left = 100, Top = 174, Width = 100, TabIndex = 4,
-                AccessibleName = "Sign in",
+                Text = Lexicon.Get("connect.smartlink.login.signin_button"), Left = 100, Top = 174, Width = 100, TabIndex = 4,
+                AccessibleName = Lexicon.Get("connect.smartlink.login.signin_button_name"),
             };
             _signInButton.Click += async (_, _) => await SignInAsync();
             Controls.Add(_signInButton);
 
             _forgotButton = new Button
             {
-                Text = "&Forgot Password", Left = 206, Top = 174, Width = 130, TabIndex = 5,
-                AccessibleName = "Forgot password. Sends a password reset email to the address above.",
+                Text = Lexicon.Get("connect.smartlink.login.forgot_button"), Left = 206, Top = 174, Width = 130, TabIndex = 5,
+                AccessibleName = Lexicon.Get("connect.smartlink.login.forgot_button_name"),
             };
             _forgotButton.Click += async (_, _) => await ForgotPasswordAsync();
             Controls.Add(_forgotButton);
 
             _browserButton = new Button
             {
-                Text = "Use &Browser Instead", Left = 100, Top = 206, Width = 160, TabIndex = 6,
-                AccessibleName = "Use the browser sign-in page instead",
+                Text = Lexicon.Get("connect.smartlink.login.browser_button"), Left = 100, Top = 206, Width = 160, TabIndex = 6,
+                AccessibleName = Lexicon.Get("connect.smartlink.login.browser_button_name"),
             };
             _browserButton.Click += (_, _) => { DialogResult = DialogResult.Retry; Close(); };
             Controls.Add(_browserButton);
 
             _cancelButton = new Button
             {
-                Text = "Cancel", Left = 266, Top = 206, Width = 100, TabIndex = 7,
+                Text = Lexicon.Get("connect.smartlink.login.cancel_button"), Left = 266, Top = 206, Width = 100, TabIndex = 7,
                 DialogResult = DialogResult.Cancel,
-                AccessibleName = "Cancel sign in",
+                AccessibleName = Lexicon.Get("connect.smartlink.login.cancel_button_name"),
             };
             Controls.Add(_cancelButton);
 
             _statusLabel = new Label
             {
                 Left = 12, Top = 242, Width = 406, Height = 66,
-                AccessibleName = "Sign-in status",
+                AccessibleName = Lexicon.Get("connect.smartlink.login.status_name"),
                 AccessibleRole = AccessibleRole.StaticText,
             };
             Controls.Add(_statusLabel);
@@ -197,11 +196,12 @@ namespace Radios
 
                 string where = tookFocus
                     ? ""
-                    : " This window did not receive focus - press Alt Tab to reach it.";
+                    : Lexicon.Get("connect.smartlink.login.no_focus_suffix");
                 ScreenReaderOutput.Speak(
                     (havePrefill
-                        ? $"SmartLink sign in window. Enter the password for {_emailBox.Text.Trim()}."
-                        : "SmartLink sign in window. Enter your SmartLink email and password.")
+                        ? Lexicon.Get("connect.smartlink.login.opened_with_email",
+                            ("email", _emailBox.Text.Trim()))
+                        : Lexicon.Get("connect.smartlink.login.opened"))
                     + where,
                     VerbosityLevel.Terse, interrupt: true);
             };
@@ -248,19 +248,19 @@ namespace Radios
             string password = _passwordBox.Text;
             if (email.Length == 0)
             {
-                SetStatus("Enter your SmartLink email address first.");
+                SetStatus(Lexicon.Get("connect.smartlink.login.email_required"));
                 _emailBox.Focus();
                 return;
             }
             if (password.Length == 0)
             {
-                SetStatus("Enter your SmartLink password.");
+                SetStatus(Lexicon.Get("connect.smartlink.login.password_required"));
                 _passwordBox.Focus();
                 return;
             }
 
             SetBusy(true);
-            SetStatus("Signing in...");
+            SetStatus(Lexicon.Get("connect.smartlink.login.signing_in"));
             try
             {
                 var result = await _manager.LoginWithPasswordAsync(email, password);
@@ -272,7 +272,7 @@ namespace Radios
                     ExpiresIn = result.ExpiresIn;
                     FriendlyName = _friendlyNameBox.Text.Trim();
                     RememberSignIn = _rememberCheck.Checked;
-                    ScreenReaderOutput.Speak("Signed in.", VerbosityLevel.Terse, interrupt: true);
+                    ScreenReaderOutput.Speak(Lexicon.Get("connect.smartlink.login.signed_in"), VerbosityLevel.Terse, interrupt: true);
                     DialogResult = DialogResult.OK;
                     Close();
                     return;
@@ -281,24 +281,24 @@ namespace Radios
                 switch (result.Error)
                 {
                     case "wrong_credentials":
-                        SetStatus("That email and password combination was not accepted. Check both and try again, or use Forgot Password.");
+                        SetStatus(Lexicon.Get("connect.smartlink.login.wrong_credentials"));
                         _passwordBox.SelectAll();
                         _passwordBox.Focus();
                         break;
                     case "mfa_required":
                         // ROPG cannot carry a second factor; the browser page can.
-                        SetStatus("This account uses two-factor sign-in, which needs the browser page. Opening it.");
+                        SetStatus(Lexicon.Get("connect.smartlink.login.mfa_required"));
                         DialogResult = DialogResult.Retry;
                         Close();
                         break;
                     case "too_many_attempts":
-                        SetStatus("Too many sign-in attempts — the account is temporarily locked by the sign-in service. Wait a few minutes, or use Forgot Password.");
+                        SetStatus(Lexicon.Get("connect.smartlink.login.too_many_attempts"));
                         break;
                     case "network":
-                        SetStatus("Could not reach the sign-in service. Check your internet connection and try again.");
+                        SetStatus(Lexicon.Get("connect.smartlink.login.network"));
                         break;
                     default:
-                        SetStatus("Sign-in failed. You can try again, or choose Use Browser Instead.");
+                        SetStatus(Lexicon.Get("connect.smartlink.login.failed"));
                         Tracing.TraceLine($"SmartLinkLoginForm: unmapped error: {result.ErrorDetail}", TraceLevel.Info);
                         break;
                 }
@@ -319,19 +319,19 @@ namespace Radios
             string email = _emailBox.Text.Trim();
             if (email.Length == 0)
             {
-                SetStatus("Enter your SmartLink email address first, then choose Forgot Password.");
+                SetStatus(Lexicon.Get("connect.smartlink.login.forgot_email_required"));
                 _emailBox.Focus();
                 return;
             }
 
             SetBusy(true);
-            SetStatus("Requesting a password reset email...");
+            SetStatus(Lexicon.Get("connect.smartlink.login.requesting_reset"));
             try
             {
                 bool ok = await _manager.SendPasswordResetEmailAsync(email);
                 SetStatus(ok
-                    ? $"Done. A password reset email is on its way to {email}. Follow its link, set a new password, then come back here and sign in."
-                    : "The reset request was not accepted. Check the email address, or try again in a moment.");
+                    ? Lexicon.Get("connect.smartlink.login.reset_sent", ("email", email))
+                    : Lexicon.Get("connect.smartlink.login.reset_failed"));
             }
             finally
             {

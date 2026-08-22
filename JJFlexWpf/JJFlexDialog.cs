@@ -203,9 +203,12 @@ namespace JJFlexWpf
         protected StackPanel CreateButtonPanel(
             Action? onOk = null,
             Action? onCancel = null,
-            string okText = "_OK",
-            string cancelText = "_Cancel")
+            string? okText = null,
+            string? cancelText = null)
         {
+            okText ??= Radios.Lexicon.Get("connect.dialog.ok");
+            cancelText ??= Radios.Lexicon.Get("connect.dialog.cancel");
+
             var panel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -268,10 +271,12 @@ namespace JJFlexWpf
             Action? onOk = null,
             Action? onApply = null,
             Action? onCancel = null,
-            string okText = "_OK",
-            string applyText = "_Apply",
-            string cancelText = "_Cancel")
+            string? okText = null,
+            string? applyText = null,
+            string? cancelText = null)
         {
+            applyText ??= Radios.Lexicon.Get("connect.dialog.apply");
+
             var panel = CreateButtonPanel(onOk, onCancel, okText, cancelText);
 
             // Insert Apply button before Cancel

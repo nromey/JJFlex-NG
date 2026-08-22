@@ -3,6 +3,8 @@
   "help.context.none_here": "No extra help here. F1 opens the help file.",
   "help.field.heading": "{label} Field",
   "help.field.window_title": "{label} Help",
+  "help.launch.not_found": "Help file not found.",
+  "help.launch.open_failed": "Could not open help file.",
   "help.value_field.body": "Value Field\r\n\r\n  Up / Down       Adjust value\r\n  Page Up / Down  Large step\r\n  Home            Set to minimum\r\n  End             Set to maximum\r\n  Enter           Type exact value\r\n  Escape          Cancel\r\n  Ctrl+Tab        Next category\r\n",
   "help.value_field.window_title": "Value Field Help"
 }
