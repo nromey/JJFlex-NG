@@ -15,10 +15,10 @@ Public Class ReverseBeacon
         Tracing.TraceLine("beacon:" & addr, TraceLevel.Info)
         Try
             Process.Start(New ProcessStartInfo(addr) With {.UseShellExecute = True})
-            Radios.ScreenReaderOutput.Speak("Opening Reverse Beacon in your browser")
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.reverse_beacon.opening_browser"))
         Catch ex As Exception
             Tracing.TraceLine("Reverse Beacon launch failed: " & ex.Message, TraceLevel.Error)
-            Radios.ScreenReaderOutput.Speak("Could not open browser", Radios.VerbosityLevel.Critical)
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.reverse_beacon.browser_failed"), Radios.VerbosityLevel.Critical)
         End Try
         DialogResult = System.Windows.Forms.DialogResult.OK
     End Sub

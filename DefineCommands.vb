@@ -4,8 +4,6 @@ Imports JJTrace
 Imports Radios
 
 Public Class DefineCommands
-    Const dupTitle As String = "Duplicate key Definitions"
-    Const dupMessage As String = "Continue with duplicate key definitions?"
     Dim wasActive As Boolean ' true if active when activated
     Dim theKeys As KeyTableEntry()
     Dim commandChanges, messageChanges As Boolean ' true if changes were made
@@ -49,7 +47,7 @@ Public Class DefineCommands
         ConflictLabel.Text = ""
         Dim count = CommandsListView.Items.Count
         Dim tabName = currentScope.ToString()
-        ScreenReaderOutput.Speak(tabName & " hotkeys tab, " & count.ToString() & " commands", VerbosityLevel.Terse, True)
+        ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.keys.tab_summary", ("scope", tabName), ("count", count)), VerbosityLevel.Terse, True)
     End Sub
 
     ''' <summary>
@@ -75,7 +73,7 @@ Public Class DefineCommands
             End If
             ' Radio + Logging = no conflict (different scopes, never simultaneous).
             If conflicts Then
-                Return KeyString(k) & " conflicts with " & other.HelpText & " in " & other.Scope.ToString() & " scope"
+                Return Radios.Lexicon.Get("settings.keys.conflict_detail", ("key", KeyString(k)), ("command", other.HelpText), ("scope", other.Scope.ToString()))
             End If
         Next
         Return Nothing
@@ -144,7 +142,7 @@ Public Class DefineCommands
         Dim idx = CInt(CommandsListView.SelectedItems(0).Tag)
         ValueBox.Text = KeyString(theKeys(idx).KeyDef.Key)
         ValueBox.Enabled = True
-        PressKeyLabel.Text = "Press desired key to change"
+        PressKeyLabel.Text = Radios.Lexicon.Get("settings.keys.press_key_prompt")
     End Sub
 
     Private Sub ValueBox_KeyDown(ByVal sender As System.Object, ByVal e As System.Windows.Forms.KeyEventArgs) Handles ValueBox.KeyDown
@@ -196,8 +194,9 @@ Public Class DefineCommands
                                 Exit For
                             End If
                         Next
-                        ConflictLabel.Text = "Cleared " & KeyString(k) & " from " & oldCmd
-                        ScreenReaderOutput.Speak("Cleared " & KeyString(k) & " from " & oldCmd, VerbosityLevel.Terse, True)
+                        Dim clearedMsg As String = Radios.Lexicon.Get("settings.keys.cleared_from", ("key", KeyString(k)), ("command", oldCmd))
+                        ConflictLabel.Text = clearedMsg
+                        ScreenReaderOutput.Speak(clearedMsg, VerbosityLevel.Terse, True)
                         commandChanges = True
                     End If
                 Next
@@ -211,14 +210,14 @@ Public Class DefineCommands
 
         ' Announce the assignment (conflict message was already spoken above if applicable).
         If ConflictLabel.Text = "" Then
-            ScreenReaderOutput.Speak(str & " assigned to " & theKeys(idx).HelpText, VerbosityLevel.Terse, True)
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.keys.assigned_to", ("key", str), ("command", theKeys(idx).HelpText)), VerbosityLevel.Terse, True)
         End If
 
         CommandsListView.Focus()
     End Sub
 
     Private Sub ValueBox_Enter(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles ValueBox.Enter
-        PressKeyLabel.Text = "Press desired key to change"
+        PressKeyLabel.Text = Radios.Lexicon.Get("settings.keys.press_key_prompt")
     End Sub
 
     Private Sub ValueBox_Leave(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles ValueBox.Leave
@@ -237,8 +236,8 @@ Public Class DefineCommands
             If HasAnyConflicts() Then
                 ' Block saving — conflicts should never reach this point due to auto-clear,
                 ' but if they do, refuse to save and tell the user.
-                MessageBox.Show("There are conflicting key assignments. Please resolve them before saving.",
-                                dupTitle, MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                MessageBox.Show(Radios.Lexicon.Get("settings.keys.conflicts_block_save"),
+                                Radios.Lexicon.Get("settings.keys.duplicate_title"), MessageBoxButtons.OK, MessageBoxIcon.Warning)
                 ' DELETED 2026-08-18: the modal MessageBox above blocks first and
                 ' the screen reader reads its caption and text. This fired only
                 ' AFTER the operator dismissed it, repeating what they had just
@@ -291,7 +290,7 @@ Public Class DefineCommands
             CommandsListView.SelectedItems(0).SubItems(0).Text = KeyString(defaultCmd.Key)
             ValueBox.Text = KeyString(defaultCmd.Key)
             commandChanges = True
-            ScreenReaderOutput.Speak("Reset to " & KeyString(defaultCmd.Key), VerbosityLevel.Terse, True)
+            ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.keys.reset_to", ("key", KeyString(defaultCmd.Key))), VerbosityLevel.Terse, True)
         End If
     End Sub
 
@@ -307,6 +306,6 @@ Public Class DefineCommands
             End If
         Next
         commandChanges = True
-        ScreenReaderOutput.Speak("All " & scope.ToString() & " keys reset to defaults", VerbosityLevel.Terse, True)
+        ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.keys.all_reset", ("scope", scope.ToString())), VerbosityLevel.Terse, True)
     End Sub
 End Class

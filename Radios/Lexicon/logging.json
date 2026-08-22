@@ -1,3 +1,13 @@
 {
-  "_comment": "This file holds what JJ Flexible says and shows, for the logging area. Logging and cluster. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md."
+  "_comment": "This file holds what JJ Flexible says and shows, for the logging area. Logging and cluster. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {radio} - those are filled in at run time with the actual radio name, frequency and so on. A key whose text is missing is spoken as the key itself, so if you hear something like connect.radio_found read out literally, that key needs text. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. LADDERS: a key may hold three tiers instead of one string - critical, terse and chatty - which is how one message gets shorter as you turn verbosity down. This partition is empty; the extraction tracks fill it. See docs/planning/active/string-store-contract.md.",
+  "logging.entry.form_title": "Log Entry Form",
+  "logging.entry.must_close_entry_form": "You must first close the Log Entry form.",
+  "logging.entry.search_arguments_title": "Get Search Arguments",
+  "logging.entry.write_confirm": "Write the log entry for {call}?",
+  "logging.entry.write_confirm_title": "Write Log Entry",
+  "logging.export.output_filename_title": "Output Filename",
+  "logging.export.overwrite_confirm": "Overwrite file {file}?",
+  "logging.export.overwrite_title": "Overwrite file ",
+  "logging.reverse_beacon.browser_failed": "Could not open browser",
+  "logging.reverse_beacon.opening_browser": "Opening Reverse Beacon in your browser"
 }

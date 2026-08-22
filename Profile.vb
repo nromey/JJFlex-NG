@@ -3,10 +3,6 @@ Imports JJTrace
 Imports Radios
 
 Public Class Profile
-    Private Const mustSelectProfile As String = "You must select a profile."
-    Private Const mustSelectOnRadio As String = "You must select a global profile currently on the radio."
-    Private Const cantDeleteCurrent As String = "You can't delete a current profile."
-
     Private ReadOnly Property theRadio As FlexBase
         Get
             Return RigControl
@@ -136,7 +132,7 @@ Public Class Profile
             Operators.Write(CurrentOp)
             showList()
         Else
-            MsgBox(mustSelectProfile)
+            MsgBox(Radios.Lexicon.Get("settings.profile.must_select"))
             ProfilesListbox.Focus()
         End If
     End Sub
@@ -149,11 +145,11 @@ Public Class Profile
                 Operators.Write(CurrentOp)
                 showList()
             Else
-                MessageBox.Show(cantDeleteCurrent, ErrorHdr, MessageBoxButtons.OK)
+                MessageBox.Show(Radios.Lexicon.Get("settings.profile.cannot_delete_current"), ErrorHdr, MessageBoxButtons.OK)
                 ProfilesListbox.Focus()
             End If
         Else
-            MessageBox.Show(mustSelectProfile, ErrorHdr, MessageBoxButtons.OK)
+            MessageBox.Show(Radios.Lexicon.Get("settings.profile.must_select"), ErrorHdr, MessageBoxButtons.OK)
             ProfilesListbox.Focus()
         End If
     End Sub
@@ -167,11 +163,11 @@ Public Class Profile
                 ' no write here.  Exit dialogue.
                 DialogResult = DialogResult.OK
             Else
-                MessageBox.Show(mustSelectOnRadio, ErrorHdr, MessageBoxButtons.OK)
+                MessageBox.Show(Radios.Lexicon.Get("settings.profile.must_select_global_on_radio"), ErrorHdr, MessageBoxButtons.OK)
                 ProfilesListbox.Focus()
             End If
         Else
-            MessageBox.Show(mustSelectProfile, ErrorHdr, MessageBoxButtons.OK)
+            MessageBox.Show(Radios.Lexicon.Get("settings.profile.must_select"), ErrorHdr, MessageBoxButtons.OK)
             ProfilesListbox.Focus()
         End If
     End Sub
@@ -203,7 +199,7 @@ Public Class Profile
             ' no write here.
             showList()
         Else
-            MsgBox(mustSelectProfile)
+            MsgBox(Radios.Lexicon.Get("settings.profile.must_select"))
             ProfilesListbox.Focus()
         End If
     End Sub
