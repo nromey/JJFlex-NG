@@ -203,8 +203,7 @@ namespace Radios
                     if (string.IsNullOrWhiteSpace(path))
                     {
                         string dir = Path.Combine(
-                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                            "JJFlexRadio", "output-transcripts");
+                            RadioConfig.AppDataRoot, "output-transcripts");
                         Directory.CreateDirectory(dir);
                         PruneOldTranscripts(dir);
                         path = Path.Combine(dir,

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -484,8 +484,7 @@ namespace Radios
         public static string SaveReport(string report)
         {
             var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "JJFlexRadio", "profile-reports");
+                RadioConfig.AppDataRoot, "profile-reports");
             Directory.CreateDirectory(dir);
 
             var filename = $"profile-report-{DateTime.Now:yyyy-MM-dd-HHmmss}.txt";

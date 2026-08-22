@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -116,8 +116,7 @@ namespace JJFlexWpf.Dialogs
                 // Initialize WebView2 — per-account data folder for isolated cookie storage
                 string profileFolder = string.IsNullOrEmpty(AccountEmail) ? "default" : AccountEmail;
                 string userDataFolder = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "JJFlexRadio", "WebView2", profileFolder);
+                    Radios.RadioConfig.AppDataRoot, "WebView2", profileFolder);
 
                 var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
                 await WebView.EnsureCoreWebView2Async(env);

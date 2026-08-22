@@ -567,6 +567,48 @@ Both can coexist. Tester `--publish` satisfies tester needs; end-of-day nightly 
 4. Verify TLS negotiation in remote connect
 5. Update version references
 
+### Testing against a throwaway settings tree (JJFLEX_CONFIG_DIR)
+
+**Set `JJFLEX_CONFIG_DIR` to an absolute path and that run uses it as the whole
+settings root instead of `%AppData%\JJFlexRadio`.** For automated runs, for
+agents that launch their own build, and for anything where the operator's live
+configuration must not be in the blast radius.
+
+**This is a TESTING mechanism. Never tell a user to set it, never surface it in
+the UI, and never document it as a feature.** It is deliberately not a setting
+and not a UI toggle: it decides *which* settings file to read, so it cannot live
+in one; and a persistent "use throwaway settings" switch is a footgun pointed at
+the thing it protects. It is per-launch, and the isolation evaporates with the
+process.
+
+Measured 2026-08-22, on the same build twelve seconds apart: an ordinary launch
+modified **17 files** in the live folder — rewriting `KeyDefs.xml`, rewriting the
+8600's per-radio `config.xml`, adding a trace and deleting seven older ones. The
+same launch under `JJFLEX_CONFIG_DIR` modified **0 of 702**. That gap is why
+yesterday's agent-rewrote-KeyDefs.xml incident was never a freak event.
+
+Guards, because a half-working isolation is worse than none:
+
+- A **relative** path is refused (it would resolve against whatever directory the
+  launcher happened to be in) and the refusal is traced.
+- A path equal to the **real** settings folder is refused — allowing it would
+  report "temporary settings in use" while writing live ones.
+- Any refusal falls back to normal and says so. The app never ends up with
+  nowhere to read from.
+- When it engages, the diagnostic log carries a `ConfigLocation:` line stating
+  the tree in use and that the operator's settings are not being touched.
+
+**If you add any new store under the settings root, resolve it from
+`Radios.RadioConfig.AppDataRoot` — never from
+`Environment.GetFolderPath(SpecialFolder.ApplicationData)` plus `"JJFlexRadio"`.**
+A sweep on 2026-08-22 found **nineteen** places doing the latter; every one
+worked perfectly and every one was invisible to relocation, which is how the
+first isolated run could truthfully report itself isolated while twenty stores
+wrote the live folder anyway. Deliberately still independent: `JJFlexUpdater`
+(does not reference Radios, never runs in a test), `ImportSetup.vb` (extracts an
+operator-chosen zip to the AppData *parent*), and `FlexBase.cs:4078` (points at
+FlexRadio's own folder, not ours).
+
 ### Trace File Location
 - Boot trace: `%AppData%\JJFlexRadio\JJFlexRadioTrace.txt` (enabled when `BootTrace = True` in `globals.vb`)
 - Multi-instance: `%AppData%\JJFlexRadio\JJFlexRadio2Trace.txt` (instance 2+)

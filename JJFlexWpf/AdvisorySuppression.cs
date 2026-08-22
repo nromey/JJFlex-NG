@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -21,8 +21,7 @@ namespace JJFlexWpf;
 public static class AdvisorySuppression
 {
     private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "JJFlexRadio", "suppressed-advisories.json");
+        Radios.RadioConfig.AppDataRoot, "suppressed-advisories.json");
 
     private static readonly object _lock = new();
     private static HashSet<string>? _keys;

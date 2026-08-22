@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -40,8 +40,7 @@ namespace Radios
     public class SmartLinkAccountManager
     {
         private static readonly string AppDataFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "JJFlexRadio");
+            RadioConfig.AppDataRoot);
 
         private static readonly string AccountsFilePath = Path.Combine(AppDataFolder, "SmartLinkAccounts.json");
 

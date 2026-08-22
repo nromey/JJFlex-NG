@@ -559,8 +559,7 @@ namespace JJFlexWpf
         private static string SettingsDirectory()
         {
             string dir = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "JJFlexRadio");
+                Radios.RadioConfig.AppDataRoot);
             return System.IO.Directory.Exists(dir) ? dir : null;
         }
 
@@ -569,8 +568,7 @@ namespace JJFlexWpf
             try
             {
                 string dir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "JJFlexRadio");
+                    Radios.RadioConfig.AppDataRoot);
                 if (!System.IO.Directory.Exists(dir)) return;
 
                 var cfg = Load(dir);

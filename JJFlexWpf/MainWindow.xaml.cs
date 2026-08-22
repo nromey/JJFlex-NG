@@ -252,8 +252,7 @@ public partial class MainWindow : UserControl
         try
         {
             string baseConfigDir = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "JJFlexRadio");
+                Radios.RadioConfig.AppDataRoot);
             if (System.IO.Directory.Exists(baseConfigDir))
             {
                 var userConfig = AudioOutputConfig.Load(baseConfigDir);
@@ -3495,8 +3494,7 @@ public partial class MainWindow : UserControl
             try
             {
                 string baseConfigDir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "JJFlexRadio");
+                    Radios.RadioConfig.AppDataRoot);
                 if (System.IO.Directory.Exists(baseConfigDir))
                 {
                     var rootConfig = AudioOutputConfig.Load(baseConfigDir);

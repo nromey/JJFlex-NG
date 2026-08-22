@@ -503,8 +503,7 @@ namespace Radios
                     // land by convention so "where are your logs" still gets an
                     // answer. Same folder every other AppData consumer uses.
                     TraceFolder = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        "JJFlexRadio");
+                        RadioConfig.AppDataRoot);
                 }
                 if (!string.IsNullOrEmpty(TraceFolder))
                     TraceArchiveFolder = Path.Combine(TraceFolder, "Traces");

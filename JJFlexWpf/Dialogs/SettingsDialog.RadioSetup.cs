@@ -635,8 +635,7 @@ namespace JJFlexWpf.Dialogs
                 }
 
                 string dir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "JJFlexRadio", "firmware");
+                    Radios.RadioConfig.AppDataRoot, "firmware");
 
                 // Drive a real ProgressBar and let the screen reader report it the
                 // way the user configured. No spoken percentages: NVDA already

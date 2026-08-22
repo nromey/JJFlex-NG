@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -17,8 +17,7 @@ namespace Radios
     public class ConnectionProfiler
     {
         internal static readonly string ProfileFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "JJFlexRadio", "connection-profiles");
+            RadioConfig.AppDataRoot, "connection-profiles");
 
         private readonly List<ProfileEvent> _events = new();
         private readonly object _lock = new();

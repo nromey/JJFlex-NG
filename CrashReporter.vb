@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.IO.Compression
 Imports System.Net.Http
 Imports System.Runtime.InteropServices
@@ -160,7 +160,7 @@ Module CrashReporter
 
     Private Sub SaveCrash(context As String, ex As Exception, isTerminating As Boolean)
         Try
-            Dim baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JJFlexRadio", "Errors")
+            Dim baseDir = Path.Combine(Radios.RadioConfig.AppDataRoot, "Errors")
             Directory.CreateDirectory(baseDir)
 
             Dim stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss")
@@ -410,8 +410,7 @@ Module CrashReporter
     Friend ReadOnly Property CrashReportDir As String
         Get
             Return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "JJFlexRadio", "Errors")
+                Radios.RadioConfig.AppDataRoot, "Errors")
         End Get
     End Property
 

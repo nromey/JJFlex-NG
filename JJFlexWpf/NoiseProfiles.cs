@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -25,8 +25,7 @@ public static class NoiseProfileStore
 
     /// <summary>The profiles folder: %AppData%\JJFlexRadio\NoiseProfiles.</summary>
     public static string FolderPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "JJFlexRadio", "NoiseProfiles");
+        Radios.RadioConfig.AppDataRoot, "NoiseProfiles");
 
     /// <summary>
     /// Where the most recent capture auto-saves. Every completed capture

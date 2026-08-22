@@ -711,6 +711,191 @@ namespace Radios
         /// </summary>
         public static string? ResolvedBaseDirectory => ResolveBaseDirectory();
 
+        /// <summary>
+        /// The environment variable that moves the app's ENTIRE settings tree
+        /// somewhere else for one run.
+        /// </summary>
+        public const string ConfigDirOverrideVariable = "JJFLEX_CONFIG_DIR";
+
+        private static string? _appDataRoot;
+
+        /// <summary>
+        /// The one true settings root — <c>%AppData%\JJFlexRadio</c>, or the
+        /// throwaway tree when <see cref="ConfigDirOverrideVariable"/> names
+        /// one. EVERY app-owned store under that root must come through here.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Read this before writing <c>Environment.GetFolderPath(
+        /// SpecialFolder.ApplicationData)</c> anywhere in the app again.</b>
+        /// On 2026-08-22 a sweep found twenty places doing exactly that and
+        /// appending "JJFlexRadio" themselves. Each worked perfectly and each
+        /// was invisible to any attempt to relocate the tree, so the first
+        /// isolated run reported "temporary settings in use" — truthfully, for
+        /// the one directory it governed — while the rest wrote the operator's
+        /// live folder regardless.
+        /// </para>
+        /// <para>
+        /// That is the same defect <see cref="ResolvedBaseDirectory"/> was
+        /// written to stop, one layer up: "two stores resolving the root two
+        /// different ways is the failure that looks like success."
+        /// </para>
+        /// <para>
+        /// <b>Resolved from the environment, NOT from startup state, and that
+        /// is load-bearing.</b> Several callers hold their folder in a
+        /// <c>static readonly</c> field evaluated at type-load, which can
+        /// happen before startup runs. Anything depending on "GetConfigInfo
+        /// already assigned it" would bind the wrong root, sometimes, based on
+        /// which type someone touched first — a bug that reproduces on Tuesday
+        /// and not on Wednesday. Reading the variable makes order irrelevant.
+        /// </para>
+        /// <para>
+        /// Cached after the first read: a process cannot meaningfully change
+        /// its own settings root mid-run, and every store caching a different
+        /// snapshot of it would reintroduce the very split this closes.
+        /// <see cref="ForgetAppDataRoot"/> exists for tests only.
+        /// </para>
+        /// </remarks>
+        public static string AppDataRoot
+        {
+            get
+            {
+                return _appDataRoot ??= ComputeAppDataRoot();
+            }
+        }
+
+        /// <summary>Drop the cached root. Tests only.</summary>
+        internal static void ForgetAppDataRoot() => _appDataRoot = null;
+
+        private static string ComputeAppDataRoot()
+        {
+            string standard;
+            try
+            {
+                standard = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    AppDataFolderName);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig: could not resolve the settings root: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Error);
+                return "";
+            }
+
+            string resolved = ResolveStartupDirectory(
+                standard,
+                Environment.GetEnvironmentVariable(ConfigDirOverrideVariable),
+                out bool isTemporary,
+                out string? refusal);
+
+            if (refusal != null)
+            {
+                Tracing.TraceLine("RadioConfig: " + refusal, System.Diagnostics.TraceLevel.Warning);
+            }
+            else if (isTemporary)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig: settings root redirected to " + resolved +
+                    " by " + ConfigDirOverrideVariable + ".",
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+
+            return resolved;
+        }
+
+        /// <summary>
+        /// Decide where this run's settings live: normally
+        /// <paramref name="defaultDirectory"/>, or somewhere temporary when
+        /// <see cref="ConfigDirOverrideVariable"/> names a place.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why this exists.</b> Until 2026-08-22 there was no way to point a
+        /// SPAWNED build anywhere but the operator's one live
+        /// <c>%AppData%\JJFlexRadio</c>. Tests could set
+        /// <see cref="BaseDirectory"/> because they run in-process; a launched
+        /// exe could not. So every instance, from every build in every
+        /// worktree, read and wrote the operator's real settings.
+        /// </para>
+        /// <para>
+        /// On 2026-08-21 a background agent's worktree build rewrote the
+        /// operator's <c>KeyDefs.xml</c>, and because no copy existed anywhere,
+        /// "did that damage anything?" could not be answered even afterwards.
+        /// That is what this closes: an automated run gets its own tree, and
+        /// the operator's settings are not in the blast radius.
+        /// </para>
+        /// <para>
+        /// <b>It must never engage by accident, and never engage silently.</b>
+        /// Hence the guards below and <paramref name="isTemporary"/>, which the
+        /// caller uses to say so out loud. An app quietly running on settings
+        /// that are not yours is precisely the failure that looks like success.
+        /// </para>
+        /// </remarks>
+        /// <param name="defaultDirectory">Where settings live normally.</param>
+        /// <param name="overrideValue">
+        /// The variable's value. Passed in rather than read here so this is
+        /// testable without touching process environment.
+        /// </param>
+        /// <param name="isTemporary">True when the override took effect.</param>
+        /// <param name="refusal">
+        /// When an override was offered and REFUSED, why. Null otherwise. The
+        /// caller must surface this: a rejected override that falls back
+        /// silently would run against live settings while the person who set it
+        /// believes otherwise, which is worse than either outcome alone.
+        /// </param>
+        public static string ResolveStartupDirectory(
+            string defaultDirectory, string? overrideValue, out bool isTemporary, out string? refusal)
+        {
+            isTemporary = false;
+            refusal = null;
+
+            if (string.IsNullOrWhiteSpace(overrideValue)) return defaultDirectory;
+
+            string candidate = overrideValue!.Trim();
+
+            // A relative path depends on the working directory, which for a
+            // spawned process is whatever the launcher happened to be in. That
+            // is not a location, it is a guess.
+            if (!Path.IsPathRooted(candidate))
+            {
+                refusal = ConfigDirOverrideVariable + " was set to a relative path (" + candidate +
+                          "), which depends on the working directory. Use a full path. " +
+                          "Continuing with the normal settings folder.";
+                return defaultDirectory;
+            }
+
+            string full;
+            try
+            {
+                full = Path.GetFullPath(candidate);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                refusal = ConfigDirOverrideVariable + " was set to something that is not a usable path (" +
+                          candidate + "): " + ex.Message + ". Continuing with the normal settings folder.";
+                return defaultDirectory;
+            }
+
+            // Pointing the override AT the real folder is almost certainly a
+            // mistake, and letting it through would report "temporary" while
+            // writing the operator's live settings — the exact lie this guards.
+            if (!string.IsNullOrEmpty(defaultDirectory) &&
+                string.Equals(
+                    Path.TrimEndingDirectorySeparator(full),
+                    Path.TrimEndingDirectorySeparator(Path.GetFullPath(defaultDirectory)),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                refusal = ConfigDirOverrideVariable + " points at the normal settings folder, so it would " +
+                          "not isolate anything. Continuing with the normal settings folder.";
+                return defaultDirectory;
+            }
+
+            isTemporary = true;
+            return full;
+        }
+
         /// <summary>Load via the app-wide <see cref="BaseDirectory"/>.</summary>
         public static RadioConfig LoadForRadio(string radioId)
         {

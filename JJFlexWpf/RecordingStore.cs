@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -45,8 +45,7 @@ public static class RecordingStore
 
     /// <summary>The recordings folder: %AppData%\JJFlexRadio\Recordings.</summary>
     public static string FolderPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "JJFlexRadio", "Recordings");
+        Radios.RadioConfig.AppDataRoot, "Recordings");
 
     /// <summary>
     /// Where a take goes when the operator has not named it. Recording is one

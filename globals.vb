@@ -212,6 +212,26 @@ Module globals
     Friend BaseConfigDir As String
 
     ''' <summary>
+    ''' True when JJFLEX_CONFIG_DIR moved this run's whole settings tree
+    ''' somewhere throwaway. For automated runs and parallel agents, so they
+    ''' never touch the operator's live folder.
+    ''' </summary>
+    ''' <remarks>
+    ''' Kept as state rather than re-read, because anything reporting the app's
+    ''' condition — the diagnostic log, About, a support conversation — has to
+    ''' be able to say "these are not your normal settings." A run quietly using
+    ''' someone else's configuration is the failure that looks like success.
+    ''' </remarks>
+    Friend UsingTemporaryConfigDir As Boolean
+
+    ''' <summary>
+    ''' Why an offered JJFLEX_CONFIG_DIR was refused, or Nothing. Held until the
+    ''' trace subsystem is up: this is decided before tracing starts, and a
+    ''' message written then would go nowhere.
+    ''' </summary>
+    Friend ConfigDirRefusal As String
+
+    ''' <summary>
     ''' What to say at the START of the next radio-picker session, carried by
     ''' the discovering window's own title.
     '''
@@ -1514,16 +1534,36 @@ Module globals
         myVersion = myAssemblyName.Version
         BaseConfigDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) &
             "\" & InternalName
+
+        ' A run can be pointed at a throwaway settings tree with JJFLEX_CONFIG_DIR.
+        ' For automated runs and parallel agents: without it, every instance from
+        ' every build reads and writes the operator's ONE live folder, which on
+        ' 2026-08-21 is how a background agent rewrote his KeyDefs.xml.
+        '
+        ' Refusals are announced rather than swallowed. An override that was set
+        ' but rejected means someone believes they are isolated while they are
+        ' writing live settings, which is worse than either outcome by itself.
+        BaseConfigDir = Radios.RadioConfig.ResolveStartupDirectory(
+            BaseConfigDir,
+            Environment.GetEnvironmentVariable(Radios.RadioConfig.ConfigDirOverrideVariable),
+            UsingTemporaryConfigDir,
+            ConfigDirRefusal)
+
         Try
             If Not Directory.Exists(BaseConfigDir) Then
-                ' show welcome screen.
-                Dim rslt As DialogResult
-                Do
-                    rslt = Welcome.ShowDialog
-                    If rslt = DialogResult.Abort Then
-                        End
-                    End If
-                Loop While rslt = DialogResult.Cancel
+                ' The welcome screen is for a first-run OPERATOR. A temporary
+                ' tree is a fresh directory by definition, so prompting there
+                ' would block every automated run on a dialog nobody can see.
+                If Not UsingTemporaryConfigDir Then
+                    ' show welcome screen.
+                    Dim rslt As DialogResult
+                    Do
+                        rslt = Welcome.ShowDialog
+                        If rslt = DialogResult.Abort Then
+                            End
+                        End If
+                    Loop While rslt = DialogResult.Cancel
+                End If
                 Directory.CreateDirectory(BaseConfigDir)
             End If
         Catch ex As Exception
@@ -1589,6 +1629,20 @@ Module globals
             Tracing.On = True
             BeginNewTraceSession()
             Tracing.TraceLine("Boot Tracing on instance:" & ProgramInstance & " " & myAssembly.Location & " " & myVersion.ToString() & " " & Date.Now & " level=" & bootLevel.ToString)
+            ' Where this run's settings actually came from. Decided before
+            ' tracing existed, so it is reported here or not at all — and a run
+            ' using settings that are not the operator's must never be silent
+            ' about it, in either direction.
+            If UsingTemporaryConfigDir Then
+                Tracing.TraceLine(
+                    "ConfigLocation: TEMPORARY settings tree in use at " & BaseConfigDir &
+                    " (" & Radios.RadioConfig.ConfigDirOverrideVariable & " is set). " &
+                    "The operator's normal settings are NOT being read or written by this run.",
+                    TraceLevel.Warning)
+            End If
+            If ConfigDirRefusal IsNot Nothing Then
+                Tracing.TraceLine("ConfigLocation: " & ConfigDirRefusal, TraceLevel.Warning)
+            End If
             ' The boot header above identifies the build; this states the log's
             ' state in the machine-readable form every later session also gets.
             ' Post-boot sessions (captures, resumes) have ONLY the CaptureState

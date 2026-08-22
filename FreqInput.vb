@@ -30,7 +30,7 @@
         Else
             ' Play confirm tone based on typing sound mode
             Try
-                Dim configDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) & "\JJFlexRadio\Radios"
+                Dim configDir = Radios.RadioConfig.AppDataRoot & "\Radios"
                 Dim config = JJFlexWpf.AudioOutputConfig.Load(configDir)
                 If config.TypingSound = JJFlexWpf.TypingSoundMode.Mechanical Then
                     JJFlexWpf.EarconPlayer.TypewriterBellTone()
@@ -53,7 +53,7 @@
         ' Play typing sound for digits based on current audio config setting
         If Char.IsDigit(e.KeyChar) OrElse e.KeyChar = "."c Then
             Try
-                Dim configDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData) & "\JJFlexRadio\Radios"
+                Dim configDir = Radios.RadioConfig.AppDataRoot & "\Radios"
                 Dim config = JJFlexWpf.AudioOutputConfig.Load(configDir)
                 JJFlexWpf.EarconPlayer.PlayTypingSound(e.KeyChar, config.TypingSound)
             Catch

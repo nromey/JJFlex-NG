@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -263,8 +263,7 @@ namespace Radios
                 // ONE user data folder for every account — see the per-account
                 // profile block below for why this must not become per-account.
                 string userDataFolder = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "JJFlexRadio", "WebView2");
+                    RadioConfig.AppDataRoot, "WebView2");
 
                 // Async initialization keeps UI thread responsive for screen readers
                 // Retry up to 5 times with 2s delay — WebView2 data folder may be locked
