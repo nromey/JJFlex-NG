@@ -301,88 +301,88 @@ public partial class ScreenFieldsPanel : UserControl
         // without the prefix, "Spectral NR" and "PC Spectral NR" sat in one
         // list daring an operator to guess which was which. Same vocabulary
         // as On-Radio Headphone Level vs PC Output Volume.
-        _neuralNrCheck = MakeToggle("On-Radio Neural NR (RNN)");
-        _neuralNrCheck.Checked += (s, e) => ToggleRig("On-Radio Neural NR", v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, true);
-        _neuralNrCheck.Unchecked += (s, e) => ToggleRig("On-Radio Neural NR", v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, false);
+        _neuralNrCheck = MakeToggle(Lexicon.Get("audio.fields.neural_nr"));
+        _neuralNrCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.neural_nr_spoken"), v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, true);
+        _neuralNrCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.neural_nr_spoken"), v => { if (_rig != null) _rig.NeuralNoiseReduction = v; }, false);
         DspContent.Children.Add(_neuralNrCheck);
 
-        _spectralNrCheck = MakeToggle("On-Radio Spectral NR (NRS)");
-        _spectralNrCheck.Checked += (s, e) => ToggleRig("On-Radio Spectral NR", v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, true);
-        _spectralNrCheck.Unchecked += (s, e) => ToggleRig("On-Radio Spectral NR", v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, false);
+        _spectralNrCheck = MakeToggle(Lexicon.Get("audio.fields.spectral_nr"));
+        _spectralNrCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.spectral_nr_spoken"), v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, true);
+        _spectralNrCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.spectral_nr_spoken"), v => { if (_rig != null) _rig.SpectralNoiseReduction = v; }, false);
         DspContent.Children.Add(_spectralNrCheck);
 
-        _nrfCheck = MakeToggle("NR Filter (NRF)");
-        _nrfCheck.Checked += (s, e) => ToggleRig("NR Filter", v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, true);
-        _nrfCheck.Unchecked += (s, e) => ToggleRig("NR Filter", v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, false);
+        _nrfCheck = MakeToggle(Lexicon.Get("audio.fields.nr_filter"));
+        _nrfCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.nr_filter_spoken"), v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, true);
+        _nrfCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.nr_filter_spoken"), v => { if (_rig != null) _rig.NoiseReductionFilter = v; }, false);
         DspContent.Children.Add(_nrfCheck);
 
-        _legacyNrCheck = MakeToggle("Legacy NR");
+        _legacyNrCheck = MakeToggle(Lexicon.Get("audio.fields.legacy_nr"));
         _legacyNrCheck.Checked += (s, e) =>
         {
-            ToggleRig("Legacy NR", v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, true);
+            ToggleRig(Lexicon.Get("audio.fields.legacy_nr"), v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, true);
             _nrLevelControl.Visibility = Visibility.Visible;
         };
         _legacyNrCheck.Unchecked += (s, e) =>
         {
-            ToggleRig("Legacy NR", v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, false);
+            ToggleRig(Lexicon.Get("audio.fields.legacy_nr"), v => { if (_rig != null) _rig.NoiseReductionLegacy = v; }, false);
             _nrLevelControl.Visibility = Visibility.Collapsed;
         };
         DspContent.Children.Add(_legacyNrCheck);
 
-        _nrLevelControl = MakeValue("NR Level", 1, 15, 1);
+        _nrLevelControl = MakeValue(Lexicon.Get("audio.fields.nr_level"), 1, 15, 1);
         _nrLevelControl.Visibility = Visibility.Collapsed;
         _nrLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.NoiseReductionLegacyLevel = v; };
         DspContent.Children.Add(_nrLevelControl);
 
-        _nbCheck = MakeToggle("Noise Blanker");
+        _nbCheck = MakeToggle(Lexicon.Get("audio.fields.noise_blanker"));
         _nbCheck.Checked += (s, e) =>
         {
-            ToggleRig("Noise Blanker", v => { if (_rig != null) _rig.NoiseBlanker = v; }, true);
+            ToggleRig(Lexicon.Get("audio.fields.noise_blanker"), v => { if (_rig != null) _rig.NoiseBlanker = v; }, true);
             _nbLevelControl.Visibility = Visibility.Visible;
         };
         _nbCheck.Unchecked += (s, e) =>
         {
-            ToggleRig("Noise Blanker", v => { if (_rig != null) _rig.NoiseBlanker = v; }, false);
+            ToggleRig(Lexicon.Get("audio.fields.noise_blanker"), v => { if (_rig != null) _rig.NoiseBlanker = v; }, false);
             _nbLevelControl.Visibility = Visibility.Collapsed;
         };
         DspContent.Children.Add(_nbCheck);
 
-        _nbLevelControl = MakeValue("NB Level", 1, 100, 5);
+        _nbLevelControl = MakeValue(Lexicon.Get("audio.fields.nb_level"), 1, 100, 5);
         _nbLevelControl.Visibility = Visibility.Collapsed;
         _nbLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.NoiseBlankerLevel = v; };
         DspContent.Children.Add(_nbLevelControl);
 
-        _wnbCheck = MakeToggle("Wideband NB");
+        _wnbCheck = MakeToggle(Lexicon.Get("audio.fields.wideband_nb"));
         _wnbCheck.Checked += (s, e) =>
         {
-            ToggleRig("Wideband NB", v => { if (_rig != null) _rig.WidebandNoiseBlanker = v; }, true);
+            ToggleRig(Lexicon.Get("audio.fields.wideband_nb"), v => { if (_rig != null) _rig.WidebandNoiseBlanker = v; }, true);
             _wnbLevelControl.Visibility = Visibility.Visible;
         };
         _wnbCheck.Unchecked += (s, e) =>
         {
-            ToggleRig("Wideband NB", v => { if (_rig != null) _rig.WidebandNoiseBlanker = v; }, false);
+            ToggleRig(Lexicon.Get("audio.fields.wideband_nb"), v => { if (_rig != null) _rig.WidebandNoiseBlanker = v; }, false);
             _wnbLevelControl.Visibility = Visibility.Collapsed;
         };
         DspContent.Children.Add(_wnbCheck);
 
-        _wnbLevelControl = MakeValue("WNB Level", 1, 100, 5);
+        _wnbLevelControl = MakeValue(Lexicon.Get("audio.fields.wnb_level"), 1, 100, 5);
         _wnbLevelControl.Visibility = Visibility.Collapsed;
         _wnbLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.WidebandNoiseBlankerLevel = v; };
         DspContent.Children.Add(_wnbLevelControl);
 
-        _fftNotchCheck = MakeToggle("FFT Auto-Notch");
-        _fftNotchCheck.Checked += (s, e) => ToggleRig("FFT Auto-Notch", v => { if (_rig != null) _rig.AutoNotchFFT = v; }, true);
-        _fftNotchCheck.Unchecked += (s, e) => ToggleRig("FFT Auto-Notch", v => { if (_rig != null) _rig.AutoNotchFFT = v; }, false);
+        _fftNotchCheck = MakeToggle(Lexicon.Get("audio.fields.fft_auto_notch"));
+        _fftNotchCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.fft_auto_notch"), v => { if (_rig != null) _rig.AutoNotchFFT = v; }, true);
+        _fftNotchCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.fft_auto_notch"), v => { if (_rig != null) _rig.AutoNotchFFT = v; }, false);
         DspContent.Children.Add(_fftNotchCheck);
 
-        _legacyNotchCheck = MakeToggle("Legacy Auto-Notch");
-        _legacyNotchCheck.Checked += (s, e) => ToggleRig("Legacy Auto-Notch", v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, true);
-        _legacyNotchCheck.Unchecked += (s, e) => ToggleRig("Legacy Auto-Notch", v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, false);
+        _legacyNotchCheck = MakeToggle(Lexicon.Get("audio.fields.legacy_auto_notch"));
+        _legacyNotchCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.legacy_auto_notch"), v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, true);
+        _legacyNotchCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.legacy_auto_notch"), v => { if (_rig != null) _rig.AutoNotchLegacy = v; }, false);
         DspContent.Children.Add(_legacyNotchCheck);
 
-        _apfCheck = MakeToggle("Audio Peak Filter");
-        _apfCheck.Checked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, true);
-        _apfCheck.Unchecked += (s, e) => ToggleRig("APF", v => { if (_rig != null) _rig.APF = v; }, false);
+        _apfCheck = MakeToggle(Lexicon.Get("audio.fields.apf"));
+        _apfCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.apf_spoken"), v => { if (_rig != null) _rig.APF = v; }, true);
+        _apfCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.apf_spoken"), v => { if (_rig != null) _rig.APF = v; }, false);
         DspContent.Children.Add(_apfCheck);
 
         // PC-side noise reduction (runs on computer, works on ALL radios).
@@ -391,7 +391,7 @@ public partial class ScreenFieldsPanel : UserControl
         // follow the house pattern (level fields appear when the toggle is
         // on); capture and the profile readout stay visible always — they
         // are the doorway into making Spectral NR work at all.
-        _pcRnnCheck = MakeToggle("PC Neural NR");
+        _pcRnnCheck = MakeToggle(Lexicon.Get("audio.fields.pc_neural_nr"));
         _pcRnnCheck.Checked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
@@ -399,7 +399,7 @@ public partial class ScreenFieldsPanel : UserControl
             _pcRnnStrengthControl.Visibility = Visibility.Visible;
             _pcRnnVoiceOnlyCheck.Visibility = Visibility.Visible;
             EarconPlayer.FeatureOnTone();
-            ScreenReaderOutput.Speak("PC Neural NR on", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_on"), VerbosityLevel.Terse, interrupt: true);
             FindMainWindow()?.PersistDspSettings();
         };
         _pcRnnCheck.Unchecked += (s, e) =>
@@ -409,7 +409,7 @@ public partial class ScreenFieldsPanel : UserControl
             _pcRnnStrengthControl.Visibility = Visibility.Collapsed;
             _pcRnnVoiceOnlyCheck.Visibility = Visibility.Collapsed;
             EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak("PC Neural NR off", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_off"), VerbosityLevel.Terse, interrupt: true);
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcRnnCheck);
@@ -417,7 +417,7 @@ public partial class ScreenFieldsPanel : UserControl
         // Strength is a wet/dry mix (0.0-1.0 in the engine) surfaced as a
         // percentage — "80 percent" speaks better than "zero point eight".
         _pcRnnStrengthControl = new ValueFieldControl();
-        _pcRnnStrengthControl.Setup("PC Neural NR Strength", 0, 100, 5, 80, 0, "%");
+        _pcRnnStrengthControl.Setup(Lexicon.Get("audio.fields.pc_neural_nr_strength"), 0, 100, 5, 80, 0, Lexicon.Get("audio.fields.unit_percent"));
         _pcRnnStrengthControl.Visibility = Visibility.Collapsed;
         _pcRnnStrengthControl.ValueChanged += (s, v) =>
         {
@@ -429,14 +429,14 @@ public partial class ScreenFieldsPanel : UserControl
 
         // Checked = the engine steps aside for CW and digital modes (it is
         // speech-trained and chews on data tones).
-        _pcRnnVoiceOnlyCheck = MakeToggle("PC Neural NR Voice Modes Only");
+        _pcRnnVoiceOnlyCheck = MakeToggle(Lexicon.Get("audio.fields.pc_neural_nr_voice_only"));
         _pcRnnVoiceOnlyCheck.Visibility = Visibility.Collapsed;
         _pcRnnVoiceOnlyCheck.Checked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.RnnAutoDisableNonVoice = true;
             EarconPlayer.FeatureOnTone();
-            ScreenReaderOutput.Speak("PC Neural NR voice modes only on", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_voice_only_on"), VerbosityLevel.Terse, interrupt: true);
             FindMainWindow()?.PersistDspSettings();
         };
         _pcRnnVoiceOnlyCheck.Unchecked += (s, e) =>
@@ -444,12 +444,12 @@ public partial class ScreenFieldsPanel : UserControl
             if (_polling || _audioPipeline == null) return;
             _audioPipeline.RnnAutoDisableNonVoice = false;
             EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak("PC Neural NR voice modes only off, runs in every mode", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_neural_nr_voice_only_off"), VerbosityLevel.Terse, interrupt: true);
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcRnnVoiceOnlyCheck);
 
-        _pcSpectralCheck = MakeToggle("PC Spectral NR");
+        _pcSpectralCheck = MakeToggle(Lexicon.Get("audio.fields.pc_spectral_nr"));
         _pcSpectralCheck.Checked += (s, e) =>
         {
             if (_polling || _audioPipeline == null) return;
@@ -460,8 +460,8 @@ public partial class ScreenFieldsPanel : UserControl
             // The no-profile message now names the exit — before this track
             // it announced a dead end no surface in the app could resolve.
             ScreenReaderOutput.Speak(_audioPipeline.HasNoiseProfile
-                ? "PC Spectral NR on"
-                : "PC Spectral NR on, no noise profile loaded. Press Control J then Q to capture one.",
+                ? Lexicon.Get("audio.fields.pc_spectral_nr_on")
+                : Lexicon.Get("audio.fields.pc_spectral_nr_on_no_profile"),
                 VerbosityLevel.Terse, interrupt: true);
             FindMainWindow()?.PersistDspSettings();
         };
@@ -472,13 +472,13 @@ public partial class ScreenFieldsPanel : UserControl
             _pcSpectralStrengthControl.Visibility = Visibility.Collapsed;
             _pcSpectralFloorControl.Visibility = Visibility.Collapsed;
             EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak("PC Spectral NR off", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.pc_spectral_nr_off"), VerbosityLevel.Terse, interrupt: true);
             FindMainWindow()?.PersistDspSettings();
         };
         DspContent.Children.Add(_pcSpectralCheck);
 
         _pcSpectralStrengthControl = new ValueFieldControl();
-        _pcSpectralStrengthControl.Setup("PC Spectral NR Strength", 0, 100, 5, 70, 0, "%");
+        _pcSpectralStrengthControl.Setup(Lexicon.Get("audio.fields.pc_spectral_nr_strength"), 0, 100, 5, 70, 0, Lexicon.Get("audio.fields.unit_percent"));
         _pcSpectralStrengthControl.Visibility = Visibility.Collapsed;
         _pcSpectralStrengthControl.ValueChanged += (s, v) =>
         {
@@ -492,7 +492,7 @@ public partial class ScreenFieldsPanel : UserControl
         // the guard against watery "musical noise". Engine range is 0-1 but
         // useful values are single-digit percent, so the field runs 0-20%.
         _pcSpectralFloorControl = new ValueFieldControl();
-        _pcSpectralFloorControl.Setup("PC Spectral NR Floor", 0, 20, 1, 2, 0, "%");
+        _pcSpectralFloorControl.Setup(Lexicon.Get("audio.fields.pc_spectral_nr_floor"), 0, 20, 1, 2, 0, Lexicon.Get("audio.fields.unit_percent"));
         _pcSpectralFloorControl.Visibility = Visibility.Collapsed;
         _pcSpectralFloorControl.ValueChanged += (s, v) =>
         {
@@ -506,13 +506,13 @@ public partial class ScreenFieldsPanel : UserControl
         // capture runs, this same button cancels it (label follows along).
         _captureNoiseButton = new Button
         {
-            Content = "Capture Noise Profile",
+            Content = Lexicon.Get("audio.fields.capture_noise_button"),
             Margin = new Thickness(0, 2, 0, 2),
             Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left
         };
         System.Windows.Automation.AutomationProperties.SetName(
-            _captureNoiseButton, "Capture a noise profile from the current audio");
+            _captureNoiseButton, Lexicon.Get("audio.fields.capture_noise_name"));
         _captureNoiseButton.Click += (s, e) =>
         {
             var mw = FindMainWindow();
@@ -525,13 +525,13 @@ public partial class ScreenFieldsPanel : UserControl
 
         _noiseProfilesButton = new Button
         {
-            Content = "Noise Profiles",
+            Content = Lexicon.Get("audio.fields.noise_profiles_button"),
             Margin = new Thickness(0, 2, 0, 2),
             Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left
         };
         System.Windows.Automation.AutomationProperties.SetName(
-            _noiseProfilesButton, "Noise profiles: capture settings, save, load, and manage");
+            _noiseProfilesButton, Lexicon.Get("audio.fields.noise_profiles_name"));
         _noiseProfilesButton.Click += (s, e) =>
         {
             var mw = FindMainWindow();
@@ -550,10 +550,10 @@ public partial class ScreenFieldsPanel : UserControl
             Margin = new Thickness(4, 6, 4, 2),
             Focusable = true,
             IsHitTestVisible = true,
-            Text = "Noise profile: none"
+            Text = Lexicon.Get("audio.fields.noise_profile_none")
         };
         System.Windows.Automation.AutomationProperties.SetName(
-            _noiseProfileDisplay, "Noise profile: none");
+            _noiseProfileDisplay, Lexicon.Get("audio.fields.noise_profile_none"));
         _noiseProfileDisplay.GotFocus += (s, e) =>
         {
             // Refresh so the accessible name the screen reader is about to
@@ -566,34 +566,34 @@ public partial class ScreenFieldsPanel : UserControl
         DspContent.Children.Add(_noiseProfileDisplay);
 
         // Meter Tones
-        _meterToneCheck = MakeToggle("Meter Tones");
-        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak("Meter tones on", VerbosityLevel.Terse); } };
-        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak("Meter tones off", VerbosityLevel.Terse); } };
+        _meterToneCheck = MakeToggle(Lexicon.Get("audio.fields.meter_tones"));
+        _meterToneCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = true; EarconPlayer.FeatureOnTone(); ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.tones_on"), VerbosityLevel.Terse); } };
+        _meterToneCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.Enabled = false; EarconPlayer.FeatureOffTone(); ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.tones_off"), VerbosityLevel.Terse); } };
         DspContent.Children.Add(_meterToneCheck);
 
-        _peakWatcherCheck = MakeToggle("Peak Watcher");
+        _peakWatcherCheck = MakeToggle(Lexicon.Get("audio.fields.peak_watcher"));
         // #128: no tone at this control — PeakWatcherEnabled's setter tones,
         // so all three of its roads (this checkbox, the Meters panel checkbox,
         // the menu item) answer back identically. A tone here as well would
         // sound twice per press, the same defect the sweep audit removed from
         // the PC audio chord on 2026-08-21.
-        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; ScreenReaderOutput.Speak("Peak Watcher on", VerbosityLevel.Terse); } };
-        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; ScreenReaderOutput.Speak("Peak Watcher off", VerbosityLevel.Terse); } };
+        _peakWatcherCheck.Checked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = true; ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.peak_watcher_on"), VerbosityLevel.Terse); } };
+        _peakWatcherCheck.Unchecked += (s, e) => { if (!_polling) { MeterToneEngine.PeakWatcherEnabled = false; ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.peak_watcher_off"), VerbosityLevel.Terse); } };
         DspContent.Children.Add(_peakWatcherCheck);
     }
 
     private void BuildAudioControls()
     {
-        _muteCheck = MakeToggle("Mute");
-        _muteCheck.Checked += (s, e) => ToggleBoolRig("Mute", v => { if (_rig != null) _rig.SliceMute = v; }, true);
-        _muteCheck.Unchecked += (s, e) => ToggleBoolRig("Mute", v => { if (_rig != null) _rig.SliceMute = v; }, false);
+        _muteCheck = MakeToggle(Lexicon.Get("audio.fields.mute"));
+        _muteCheck.Checked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.mute"), v => { if (_rig != null) _rig.SliceMute = v; }, true);
+        _muteCheck.Unchecked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.mute"), v => { if (_rig != null) _rig.SliceMute = v; }, false);
         AudioContent.Children.Add(_muteCheck);
 
-        _volumeControl = MakeValue("Volume", 0, 100, 5);
+        _volumeControl = MakeValue(Lexicon.Get("audio.fields.volume"), 0, 100, 5);
         _volumeControl.ValueChanged += (s, v) => { if (_rig != null) _rig.AudioGain = v; };
         AudioContent.Children.Add(_volumeControl);
 
-        _panControl = MakeValue("Pan", 0, 100, 5);
+        _panControl = MakeValue(Lexicon.Get("audio.fields.pan"), 0, 100, 5);
         _panControl.ValueChanged += (s, v) => { if (_rig != null) _rig.AudioPan = v; };
         AudioContent.Children.Add(_panControl);
 
@@ -604,8 +604,8 @@ public partial class ScreenFieldsPanel : UserControl
         AudioContent.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 8) });
 
         _pcVolumeControl = new ValueFieldControl();
-        _pcVolumeControl.Setup("PC Output Volume", FlexBase.PcOutputVolumeDbMin,
-            FlexBase.PcOutputVolumeDbMax, 1, FlexBase.PcOutputVolumeDbSetting, unit: "dB");
+        _pcVolumeControl.Setup(Lexicon.Get("audio.fields.pc_output_volume"), FlexBase.PcOutputVolumeDbMin,
+            FlexBase.PcOutputVolumeDbMax, 1, FlexBase.PcOutputVolumeDbSetting, unit: Lexicon.Get("audio.fields.unit_db"));
         _pcVolumeControl.ValueChanged += (s, v) =>
         {
             if (_rig == null || _polling) return;
@@ -615,7 +615,7 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AudioContent.Children.Add(_pcVolumeControl);
 
-        _micLevelControl = MakeValue("Mic Level", 0, 100, 5);
+        _micLevelControl = MakeValue(Lexicon.Get("audio.fields.mic_level"), 0, 100, 5);
         _micLevelControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.MicGain = v; };
         AudioContent.Children.Add(_micLevelControl);
 
@@ -627,10 +627,10 @@ public partial class ScreenFieldsPanel : UserControl
             Margin = new Thickness(4, 6, 4, 2),
             Focusable = true,
             IsHitTestVisible = true,
-            Text = "Mic audio: transmit to measure"
+            Text = Lexicon.Get("audio.fields.mic_verdict_none")
         };
         System.Windows.Automation.AutomationProperties.SetName(
-            _micVerdictDisplay, "Mic audio: transmit to measure");
+            _micVerdictDisplay, Lexicon.Get("audio.fields.mic_verdict_none"));
         _micVerdictDisplay.GotFocus += (s, e) =>
         {
             // Refresh the name on entry — the poll deliberately leaves the
@@ -648,27 +648,27 @@ public partial class ScreenFieldsPanel : UserControl
         // jacks, which a remote PC-audio operator cannot hear.
         AudioContent.Children.Add(new Separator { Margin = new Thickness(0, 8, 0, 8) });
 
-        _headphoneControl = MakeValue("On-Radio Headphone Level", 0, 100, 5);
+        _headphoneControl = MakeValue(Lexicon.Get("audio.fields.headphone_level"), 0, 100, 5);
         _headphoneControl.ValueChanged += (s, v) => { if (_rig != null) _rig.HeadphoneGain = v; };
         AudioContent.Children.Add(_headphoneControl);
 
-        _lineoutControl = MakeValue("On-Radio Line Out Level", 0, 100, 5);
+        _lineoutControl = MakeValue(Lexicon.Get("audio.fields.lineout_level"), 0, 100, 5);
         _lineoutControl.ValueChanged += (s, v) => { if (_rig != null) _rig.LineoutGain = v; };
         AudioContent.Children.Add(_lineoutControl);
 
-        _headphoneMuteCheck = MakeToggle("Mute Headphone Jack");
-        _headphoneMuteCheck.Checked += (s, e) => ToggleBoolRig("Headphone mute", v => { if (_rig != null) _rig.HeadphoneMute = v; }, true);
-        _headphoneMuteCheck.Unchecked += (s, e) => ToggleBoolRig("Headphone mute", v => { if (_rig != null) _rig.HeadphoneMute = v; }, false);
+        _headphoneMuteCheck = MakeToggle(Lexicon.Get("audio.fields.headphone_mute"));
+        _headphoneMuteCheck.Checked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.headphone_mute_spoken"), v => { if (_rig != null) _rig.HeadphoneMute = v; }, true);
+        _headphoneMuteCheck.Unchecked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.headphone_mute_spoken"), v => { if (_rig != null) _rig.HeadphoneMute = v; }, false);
         AudioContent.Children.Add(_headphoneMuteCheck);
 
-        _lineoutMuteCheck = MakeToggle("Mute Line Out");
-        _lineoutMuteCheck.Checked += (s, e) => ToggleBoolRig("Line out mute", v => { if (_rig != null) _rig.LineoutMute = v; }, true);
-        _lineoutMuteCheck.Unchecked += (s, e) => ToggleBoolRig("Line out mute", v => { if (_rig != null) _rig.LineoutMute = v; }, false);
+        _lineoutMuteCheck = MakeToggle(Lexicon.Get("audio.fields.lineout_mute"));
+        _lineoutMuteCheck.Checked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.lineout_mute_spoken"), v => { if (_rig != null) _rig.LineoutMute = v; }, true);
+        _lineoutMuteCheck.Unchecked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.lineout_mute_spoken"), v => { if (_rig != null) _rig.LineoutMute = v; }, false);
         AudioContent.Children.Add(_lineoutMuteCheck);
 
-        _frontSpeakerMuteCheck = MakeToggle("Mute Front Speaker");
-        _frontSpeakerMuteCheck.Checked += (s, e) => ToggleBoolRig("Front speaker mute", v => { if (_rig != null) _rig.FrontSpeakerMute = v; }, true);
-        _frontSpeakerMuteCheck.Unchecked += (s, e) => ToggleBoolRig("Front speaker mute", v => { if (_rig != null) _rig.FrontSpeakerMute = v; }, false);
+        _frontSpeakerMuteCheck = MakeToggle(Lexicon.Get("audio.fields.front_speaker_mute"));
+        _frontSpeakerMuteCheck.Checked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.front_speaker_mute_spoken"), v => { if (_rig != null) _rig.FrontSpeakerMute = v; }, true);
+        _frontSpeakerMuteCheck.Unchecked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.front_speaker_mute_spoken"), v => { if (_rig != null) _rig.FrontSpeakerMute = v; }, false);
         AudioContent.Children.Add(_frontSpeakerMuteCheck);
 
         // Separator between audio and slice controls
@@ -677,12 +677,12 @@ public partial class ScreenFieldsPanel : UserControl
         // Slice management buttons
         _createSliceButton = new Button
         {
-            Content = "Create Slice",
+            Content = Lexicon.Get("audio.fields.create_slice_button"),
             Margin = new Thickness(0, 2, 0, 2),
             Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left
         };
-        System.Windows.Automation.AutomationProperties.SetName(_createSliceButton, "Create a new slice");
+        System.Windows.Automation.AutomationProperties.SetName(_createSliceButton, Lexicon.Get("audio.fields.create_slice_name"));
         _createSliceButton.Click += (s, e) =>
         {
             if (_rig == null) return;
@@ -690,28 +690,30 @@ public partial class ScreenFieldsPanel : UserControl
             if (ok)
             {
                 int n = _rig.MyNumSlices;
-                ScreenReaderOutput.Speak($"Slice created, {n} {(n == 1 ? "slice" : "slices")} active", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get(
+                    n == 1 ? "audio.fields.slice_created_one" : "audio.fields.slice_created_many",
+                    ("n", n)), VerbosityLevel.Terse);
             }
             else
-                ScreenReaderOutput.Speak("Maximum slices reached", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.max_slices"), VerbosityLevel.Terse);
         };
         AudioContent.Children.Add(_createSliceButton);
 
         _releaseSliceButton = new Button
         {
-            Content = "Release Slice",
+            Content = Lexicon.Get("audio.fields.release_slice_button"),
             Margin = new Thickness(0, 2, 0, 2),
             Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left
         };
-        System.Windows.Automation.AutomationProperties.SetName(_releaseSliceButton, "Release the last slice");
+        System.Windows.Automation.AutomationProperties.SetName(_releaseSliceButton, Lexicon.Get("audio.fields.release_slice_name"));
         _releaseSliceButton.Click += (s, e) =>
         {
             if (_rig == null) return;
             int numSlices = _rig.MyNumSlices;
             if (numSlices <= 1)
             {
-                ScreenReaderOutput.Speak("Cannot release the only slice", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.cannot_release_only_slice"), VerbosityLevel.Terse);
                 return;
             }
             // Release the last slice (highest index)
@@ -719,23 +721,25 @@ public partial class ScreenFieldsPanel : UserControl
             if (ok)
             {
                 int n = _rig.MyNumSlices;
-                ScreenReaderOutput.Speak($"Slice released, {n} {(n == 1 ? "slice" : "slices")} active", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get(
+                    n == 1 ? "audio.fields.slice_released_one" : "audio.fields.slice_released_many",
+                    ("n", n)), VerbosityLevel.Terse);
             }
             else
-                ScreenReaderOutput.Speak("Could not release slice", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.could_not_release_slice"), VerbosityLevel.Terse);
         };
         AudioContent.Children.Add(_releaseSliceButton);
 
         // Multi-slice buttons — mirror the Home-field Shift+M and Shift+Comma hotkeys.
         var muteAllButton = new Button
         {
-            Content = "Mute / Unmute All Slices",
+            Content = Lexicon.Get("audio.fields.mute_all_button"),
             Margin = new Thickness(0, 2, 0, 2),
             Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left
         };
         System.Windows.Automation.AutomationProperties.SetName(
-            muteAllButton, "Mute or unmute all slices at once");
+            muteAllButton, Lexicon.Get("audio.fields.mute_all_name"));
         muteAllButton.Click += (s, e) =>
         {
             if (_rig == null) return;
@@ -744,26 +748,26 @@ public partial class ScreenFieldsPanel : UserControl
             if (target) EarconPlayer.MuteAllOnTone();
             else EarconPlayer.MuteAllOffTone();
             ScreenReaderOutput.Speak(
-                target ? "All slices muted" : "All slices unmuted", VerbosityLevel.Terse);
+                target ? Lexicon.Get("audio.fields.all_slices_muted") : Lexicon.Get("audio.fields.all_slices_unmuted"), VerbosityLevel.Terse);
         };
         AudioContent.Children.Add(muteAllButton);
 
         var releaseAllButton = new Button
         {
-            Content = "Release All Extra Slices",
+            Content = Lexicon.Get("audio.fields.release_all_button"),
             Margin = new Thickness(0, 2, 0, 2),
             Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left
         };
         System.Windows.Automation.AutomationProperties.SetName(
-            releaseAllButton, "Release every slice except the first, back to one slice");
+            releaseAllButton, Lexicon.Get("audio.fields.release_all_name"));
         releaseAllButton.Click += (s, e) =>
         {
             if (_rig == null) return;
             int before = _rig.MyNumSlices;
             if (before <= 1)
             {
-                ScreenReaderOutput.Speak("Only one slice active", VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.fields.only_one_slice"), VerbosityLevel.Terse);
                 return;
             }
             if (_rig.ReleaseAllExtraSlices())
@@ -772,7 +776,9 @@ public partial class ScreenFieldsPanel : UserControl
                 int removed = before - 1;
                 string keptLetter = _rig.VFOToLetter(_rig.RXVFO);
                 ScreenReaderOutput.Speak(
-                    $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, slice {keptLetter} active",
+                    Lexicon.Get(
+                        removed == 1 ? "audio.fields.released_extra_one" : "audio.fields.released_extra_many",
+                        ("removed", removed), ("keptLetter", keptLetter)),
                     VerbosityLevel.Terse);
             }
         };
@@ -781,7 +787,7 @@ public partial class ScreenFieldsPanel : UserControl
 
     private void BuildReceiverControls()
     {
-        _agcModeControl = MakeCycle("AGC Mode", new[] { "Off", "Slow", "Medium", "Fast" });
+        _agcModeControl = MakeCycle(Lexicon.Get("audio.fields.agc_mode"), new[] { Lexicon.Get("audio.fields.agc_off"), Lexicon.Get("audio.fields.agc_slow"), Lexicon.Get("audio.fields.agc_medium"), Lexicon.Get("audio.fields.agc_fast") });
         _agcModeControl.SelectionChanged += (s, idx) =>
         {
             if (_rig == null) return;
@@ -797,32 +803,32 @@ public partial class ScreenFieldsPanel : UserControl
         };
         ReceiverContent.Children.Add(_agcModeControl);
 
-        _agcThresholdControl = MakeValue("AGC Threshold",
+        _agcThresholdControl = MakeValue(Lexicon.Get("audio.fields.agc_threshold"),
             FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax, FlexBase.AGCThresholdIncrement);
         _agcThresholdControl.ValueChanged += (s, v) => { if (_rig != null) _rig.AGCThreshold = v; };
         ReceiverContent.Children.Add(_agcThresholdControl);
 
-        _squelchCheck = MakeToggle("Squelch");
+        _squelchCheck = MakeToggle(Lexicon.Get("audio.fields.squelch"));
         _squelchCheck.Checked += (s, e) =>
         {
-            ToggleRig("Squelch", v => { if (_rig != null) _rig.Squelch = v; }, true);
+            ToggleRig(Lexicon.Get("audio.fields.squelch"), v => { if (_rig != null) _rig.Squelch = v; }, true);
             _squelchLevelControl.Visibility = Visibility.Visible;
         };
         _squelchCheck.Unchecked += (s, e) =>
         {
-            ToggleRig("Squelch", v => { if (_rig != null) _rig.Squelch = v; }, false);
+            ToggleRig(Lexicon.Get("audio.fields.squelch"), v => { if (_rig != null) _rig.Squelch = v; }, false);
             _squelchLevelControl.Visibility = Visibility.Collapsed;
         };
         ReceiverContent.Children.Add(_squelchCheck);
 
-        _squelchLevelControl = MakeValue("Squelch Level",
+        _squelchLevelControl = MakeValue(Lexicon.Get("audio.fields.squelch_level"),
             FlexBase.SquelchLevelMin, FlexBase.SquelchLevelMax, FlexBase.SquelchLevelIncrement);
         _squelchLevelControl.Visibility = Visibility.Collapsed;
         _squelchLevelControl.ValueChanged += (s, v) => { if (_rig != null) _rig.SquelchLevel = v; };
         ReceiverContent.Children.Add(_squelchLevelControl);
 
         // RF Gain bounds are instance fields (vary by radio), set defaults here, updated in Initialize()
-        _rfGainControl = MakeValue("RF Gain", -10, 30, 10);
+        _rfGainControl = MakeValue(Lexicon.Get("audio.fields.rf_gain"), -10, 30, 10);
         _rfGainControl.ValueChanged += (s, v) => { if (_rig != null) _rig.RFGain = v; };
         ReceiverContent.Children.Add(_rfGainControl);
 
@@ -835,13 +841,13 @@ public partial class ScreenFieldsPanel : UserControl
             Focusable = true,
             IsHitTestVisible = true
         };
-        System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, "RX Filter Width");
+        System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, Lexicon.Get("audio.fields.rx_filter_width_name"));
         ReceiverContent.Children.Add(_rxFilterWidthDisplay);
     }
 
     private void BuildTXControls()
     {
-        _txPowerControl = MakeValue("TX Power", 0, 100, 1);
+        _txPowerControl = MakeValue(Lexicon.Get("audio.fields.tx_power"), 0, 100, 1);
         // QB Track I — one control, two personalities: integer watts on a
         // normal TX antenna, centi-dBm transverter drive on the XVTR port.
         _txPowerControl.ValueChanged += (s, v) =>
@@ -852,68 +858,68 @@ public partial class ScreenFieldsPanel : UserControl
         };
         TxContent.Children.Add(_txPowerControl);
 
-        _voxCheck = MakeToggle("VOX");
-        _voxCheck.Checked += (s, e) => ToggleRig("VOX", v => { if (_rig != null) _rig.Vox = v; }, true);
-        _voxCheck.Unchecked += (s, e) => ToggleRig("VOX", v => { if (_rig != null) _rig.Vox = v; }, false);
+        _voxCheck = MakeToggle(Lexicon.Get("audio.fields.vox"));
+        _voxCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, true);
+        _voxCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.vox"), v => { if (_rig != null) _rig.Vox = v; }, false);
         TxContent.Children.Add(_voxCheck);
 
-        _tunePowerControl = MakeValue("Tune Power", 0, 100, 1);
+        _tunePowerControl = MakeValue(Lexicon.Get("audio.fields.tune_power"), 0, 100, 1);
         _tunePowerControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TunePower = v; };
         TxContent.Children.Add(_tunePowerControl);
 
         // Mic Gain
-        _micGainControl = MakeValue("Mic Gain", 0, 100, 1);
+        _micGainControl = MakeValue(Lexicon.Get("audio.fields.mic_gain"), 0, 100, 1);
         _micGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.MicGain = v; };
         TxContent.Children.Add(_micGainControl);
 
         // Mic Boost
-        _micBoostCheck = MakeToggle("Mic Boost (+20 dB)");
-        _micBoostCheck.Checked += (s, e) => ToggleRig("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, true);
-        _micBoostCheck.Unchecked += (s, e) => ToggleRig("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, false);
+        _micBoostCheck = MakeToggle(Lexicon.Get("audio.fields.mic_boost"));
+        _micBoostCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.mic_boost_spoken"), v => { if (_rig != null) _rig.MicBoost = v; }, true);
+        _micBoostCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.mic_boost_spoken"), v => { if (_rig != null) _rig.MicBoost = v; }, false);
         TxContent.Children.Add(_micBoostCheck);
 
         // Mic Bias
-        _micBiasCheck = MakeToggle("Mic Bias (low-voltage electret mic power — not 48-volt phantom)");
-        _micBiasCheck.Checked += (s, e) => ToggleRig("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
-        _micBiasCheck.Unchecked += (s, e) => ToggleRig("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, false);
+        _micBiasCheck = MakeToggle(Lexicon.Get("audio.fields.mic_bias"));
+        _micBiasCheck.Checked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.mic_bias_spoken"), v => { if (_rig != null) _rig.MicBias = v; }, true);
+        _micBiasCheck.Unchecked += (s, e) => ToggleRig(Lexicon.Get("audio.fields.mic_bias_spoken"), v => { if (_rig != null) _rig.MicBias = v; }, false);
         TxContent.Children.Add(_micBiasCheck);
 
         // Compander
-        _companderCheck = MakeToggle("Compander");
+        _companderCheck = MakeToggle(Lexicon.Get("audio.fields.compander"));
         _companderCheck.Checked += (s, e) =>
         {
-            ToggleRig("Compander", v => { if (_rig != null) _rig.Compander = v; }, true);
+            ToggleRig(Lexicon.Get("audio.fields.compander"), v => { if (_rig != null) _rig.Compander = v; }, true);
             _companderLevelControl.Visibility = Visibility.Visible;
         };
         _companderCheck.Unchecked += (s, e) =>
         {
-            ToggleRig("Compander", v => { if (_rig != null) _rig.Compander = v; }, false);
+            ToggleRig(Lexicon.Get("audio.fields.compander"), v => { if (_rig != null) _rig.Compander = v; }, false);
             _companderLevelControl.Visibility = Visibility.Collapsed;
         };
         TxContent.Children.Add(_companderCheck);
 
         // Compander Level (shown when Compander is on)
-        _companderLevelControl = MakeValue("Compander Level", 0, 100, 5);
+        _companderLevelControl = MakeValue(Lexicon.Get("audio.fields.compander_level"), 0, 100, 5);
         _companderLevelControl.Visibility = Visibility.Collapsed;
         _companderLevelControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.CompanderLevel = v; };
         TxContent.Children.Add(_companderLevelControl);
 
         // Speech Processor
-        _processorCheck = MakeToggle("Speech Processor");
+        _processorCheck = MakeToggle(Lexicon.Get("audio.fields.speech_processor"));
         _processorCheck.Checked += (s, e) =>
         {
-            ToggleRig("Speech Processor", v => { if (_rig != null) _rig.ProcessorOn = v; }, true);
+            ToggleRig(Lexicon.Get("audio.fields.speech_processor"), v => { if (_rig != null) _rig.ProcessorOn = v; }, true);
             _processorSettingControl.Visibility = Visibility.Visible;
         };
         _processorCheck.Unchecked += (s, e) =>
         {
-            ToggleRig("Speech Processor", v => { if (_rig != null) _rig.ProcessorOn = v; }, false);
+            ToggleRig(Lexicon.Get("audio.fields.speech_processor"), v => { if (_rig != null) _rig.ProcessorOn = v; }, false);
             _processorSettingControl.Visibility = Visibility.Collapsed;
         };
         TxContent.Children.Add(_processorCheck);
 
         // Processor Setting (shown when Processor is on)
-        _processorSettingControl = MakeCycle("Processor Mode", new[] { "Normal", "DX", "DX+" });
+        _processorSettingControl = MakeCycle(Lexicon.Get("audio.fields.processor_mode"), new[] { Lexicon.Get("audio.fields.processor_normal"), Lexicon.Get("audio.fields.processor_dx"), Lexicon.Get("audio.fields.processor_dx_plus") });
         _processorSettingControl.Visibility = Visibility.Collapsed;
         _processorSettingControl.SelectionChanged += (s, idx) =>
         {
@@ -923,31 +929,31 @@ public partial class ScreenFieldsPanel : UserControl
         TxContent.Children.Add(_processorSettingControl);
 
         // TX Filter Low
-        _txFilterLowControl = MakeValue("TX Filter Low", 0, 9950, 50);
+        _txFilterLowControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_low"), 0, 9950, 50);
         _txFilterLowControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TXFilterLow = v; };
         TxContent.Children.Add(_txFilterLowControl);
 
         // TX Filter High
-        _txFilterHighControl = MakeValue("TX Filter High", 50, 10000, 50);
+        _txFilterHighControl = MakeValue(Lexicon.Get("audio.fields.tx_filter_high"), 50, 10000, 50);
         _txFilterHighControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.TXFilterHigh = v; };
         TxContent.Children.Add(_txFilterHighControl);
 
         // TX Monitor
-        _monitorCheck = MakeToggle("TX Monitor");
+        _monitorCheck = MakeToggle(Lexicon.Get("audio.fields.tx_monitor"));
         _monitorCheck.Checked += (s, e) =>
         {
-            ToggleRig("TX Monitor", v => { if (_rig != null) _rig.Monitor = v; }, true);
+            ToggleRig(Lexicon.Get("audio.fields.tx_monitor"), v => { if (_rig != null) _rig.Monitor = v; }, true);
             _monitorLevelControl.Visibility = Visibility.Visible;
         };
         _monitorCheck.Unchecked += (s, e) =>
         {
-            ToggleRig("TX Monitor", v => { if (_rig != null) _rig.Monitor = v; }, false);
+            ToggleRig(Lexicon.Get("audio.fields.tx_monitor"), v => { if (_rig != null) _rig.Monitor = v; }, false);
             _monitorLevelControl.Visibility = Visibility.Collapsed;
         };
         TxContent.Children.Add(_monitorCheck);
 
         // Monitor Level (shown when Monitor is on)
-        _monitorLevelControl = MakeValue("Monitor Level", 0, 100, 5);
+        _monitorLevelControl = MakeValue(Lexicon.Get("audio.fields.monitor_level"), 0, 100, 5);
         _monitorLevelControl.Visibility = Visibility.Collapsed;
         _monitorLevelControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SBMonitorLevel = v; };
         TxContent.Children.Add(_monitorLevelControl);
@@ -956,7 +962,7 @@ public partial class ScreenFieldsPanel : UserControl
     private void BuildAntennaControls()
     {
         // RX/TX antenna combos — populated dynamically at Initialize
-        _rxAntennaControl = MakeCycle("RX Antenna", new[] { "ANT1", "ANT2" });
+        _rxAntennaControl = MakeCycle(Lexicon.Get("audio.fields.rx_antenna"), new[] { "ANT1", "ANT2" });
         _rxAntennaControl.SelectionChanged += (s, idx) =>
         {
             // No Speak — the control announces its new value natively.
@@ -967,7 +973,7 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AntennaContent.Children.Add(_rxAntennaControl);
 
-        _txAntennaControl = MakeCycle("TX Antenna", new[] { "ANT1", "ANT2" });
+        _txAntennaControl = MakeCycle(Lexicon.Get("audio.fields.tx_antenna"), new[] { "ANT1", "ANT2" });
         _txAntennaControl.SelectionChanged += (s, idx) =>
         {
             // No Speak — the control announces its new value natively.
@@ -978,18 +984,18 @@ public partial class ScreenFieldsPanel : UserControl
         };
         AntennaContent.Children.Add(_txAntennaControl);
 
-        _atuCheck = MakeToggle("ATU");
-        _atuCheck.Checked += (s, e) => ToggleBoolRig("ATU", v =>
+        _atuCheck = MakeToggle(Lexicon.Get("audio.fields.atu"));
+        _atuCheck.Checked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.atu"), v =>
         {
             if (_rig != null) _rig.FlexTunerType = FlexBase.FlexTunerTypes.auto;
         }, true);
-        _atuCheck.Unchecked += (s, e) => ToggleBoolRig("ATU", v =>
+        _atuCheck.Unchecked += (s, e) => ToggleBoolRig(Lexicon.Get("audio.fields.atu"), v =>
         {
             if (_rig != null) _rig.FlexTunerType = FlexBase.FlexTunerTypes.none;
         }, false);
         AntennaContent.Children.Add(_atuCheck);
 
-        _atuModeControl = MakeCycle("ATU Mode", new[] { "None", "Manual", "Auto" });
+        _atuModeControl = MakeCycle(Lexicon.Get("audio.fields.atu_mode"), new[] { Lexicon.Get("audio.fields.atu_mode_none"), Lexicon.Get("audio.fields.atu_mode_manual"), Lexicon.Get("audio.fields.atu_mode_auto") });
         _atuModeControl.SelectionChanged += (s, idx) =>
         {
             if (_rig == null) return;
@@ -1061,7 +1067,9 @@ public partial class ScreenFieldsPanel : UserControl
         setter(isOn ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         // interrupt: true cuts off NVDA's native "checked"/"not checked" announcement
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", VerbosityLevel.Terse, interrupt: true);
+        ScreenReaderOutput.Speak(
+            Lexicon.Get(isOn ? "audio.fields.toggle_on" : "audio.fields.toggle_off", ("label", label)),
+            VerbosityLevel.Terse, interrupt: true);
     }
 
     private void ToggleBoolRig(string label, Action<bool> setter, bool isOn)
@@ -1069,7 +1077,9 @@ public partial class ScreenFieldsPanel : UserControl
         if (_polling || _rig == null) return;
         setter(isOn);
         if (isOn) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-        ScreenReaderOutput.Speak($"{label} {(isOn ? "on" : "off")}", VerbosityLevel.Terse, interrupt: true);
+        ScreenReaderOutput.Speak(
+            Lexicon.Get(isOn ? "audio.fields.toggle_on" : "audio.fields.toggle_off", ("label", label)),
+            VerbosityLevel.Terse, interrupt: true);
     }
 
     #endregion
@@ -1208,11 +1218,11 @@ public partial class ScreenFieldsPanel : UserControl
         float recent = _rig.ScMicRecentDb;
         float max = _rig.ScMicMaxDb;
         if (_rig.Transmit && recent > -140f)
-            text = MicAudioReport.Compose(_rig, "Mic audio now:", recent, live: true);
+            text = MicAudioReport.Compose(_rig, Lexicon.Get("audio.fields.mic_verdict_now"), recent, live: true);
         else if (max > -140f)
-            text = MicAudioReport.Compose(_rig, "Mic audio last transmit:", max, live: false);
+            text = MicAudioReport.Compose(_rig, Lexicon.Get("audio.fields.mic_verdict_last"), max, live: false);
         else
-            text = "Mic audio: transmit to measure";
+            text = Lexicon.Get("audio.fields.mic_verdict_none");
 
         if (text != _micVerdictDisplay.Text)
         {
@@ -1232,18 +1242,18 @@ public partial class ScreenFieldsPanel : UserControl
     {
         string text;
         if (NoiseCaptureNarrator.IsRunning)
-            text = "Noise profile: capturing now";
+            text = Lexicon.Get("audio.fields.noise_profile_capturing");
         else if (_audioPipeline == null)
-            text = "Noise profile: no radio connected";
+            text = Lexicon.Get("audio.fields.noise_profile_no_radio");
         else if (_audioPipeline.HasNoiseProfile)
         {
             string name = _audioPipeline.NoiseProfileName;
             text = string.IsNullOrEmpty(name)
-                ? "Noise profile: captured this session"
+                ? Lexicon.Get("audio.fields.noise_profile_this_session")
                 : $"Noise profile: {name}";
         }
         else
-            text = "Noise profile: none. Press Capture Noise Profile, or Control J then Q.";
+            text = Lexicon.Get("audio.fields.noise_profile_none_hint");
 
         if (text != _noiseProfileDisplay.Text)
         {
@@ -1260,10 +1270,10 @@ public partial class ScreenFieldsPanel : UserControl
     private void UpdateCaptureButtonLabel()
     {
         bool running = NoiseCaptureNarrator.IsRunning;
-        _captureNoiseButton.Content = running ? "Cancel Noise Capture" : "Capture Noise Profile";
+        _captureNoiseButton.Content = running ? Lexicon.Get("audio.fields.cancel_noise_button") : Lexicon.Get("audio.fields.capture_noise_button");
         System.Windows.Automation.AutomationProperties.SetName(_captureNoiseButton,
-            running ? "Cancel the noise capture in progress"
-                    : "Capture a noise profile from the current audio");
+            running ? Lexicon.Get("audio.fields.cancel_noise_name")
+                    : Lexicon.Get("audio.fields.capture_noise_name"));
         UpdateNoiseProfileDisplay();
     }
 
@@ -1322,8 +1332,10 @@ public partial class ScreenFieldsPanel : UserControl
         int filterHigh = _rig.FilterHigh;
         int filterWidth = filterHigh - filterLow;
         string widthText = filterWidth >= 1000
-            ? $"RX Filter: {filterLow} to {filterHigh}, {filterWidth / 1000.0:F1} kHz"
-            : $"RX Filter: {filterLow} to {filterHigh}, {filterWidth} Hz";
+            ? Lexicon.Get("audio.fields.rx_filter_width_khz", ("filterLow", filterLow),
+                ("filterHigh", filterHigh), ("filterWidth", $"{filterWidth / 1000.0:F1}"))
+            : Lexicon.Get("audio.fields.rx_filter_width_hz", ("filterLow", filterLow),
+                ("filterHigh", filterHigh), ("filterWidth", filterWidth));
         _rxFilterWidthDisplay.Text = widthText;
         System.Windows.Automation.AutomationProperties.SetName(_rxFilterWidthDisplay, widthText);
     }
@@ -1340,13 +1352,13 @@ public partial class ScreenFieldsPanel : UserControl
         _txPowerXvtrMode = xvtr;
         if (xvtr && _rig != null)
         {
-            _txPowerControl.Setup("TX Power", FlexBase.XvtrDriveMinCentiDbm,
+            _txPowerControl.Setup(Lexicon.Get("audio.fields.tx_power"), FlexBase.XvtrDriveMinCentiDbm,
                 _rig.XvtrDriveMaxCentiDbm, FlexBase.XvtrDriveIncrementCentiDbm,
-                _rig.XvtrDrivePowerCentiDbm, decimalPlaces: 2, unit: "dBm");
+                _rig.XvtrDrivePowerCentiDbm, decimalPlaces: 2, unit: Lexicon.Get("audio.fields.unit_dbm"));
         }
         else
         {
-            _txPowerControl.Setup("TX Power", 0, 100, 1, _rig?.XmitPower ?? 0);
+            _txPowerControl.Setup(Lexicon.Get("audio.fields.tx_power"), 0, 100, 1, _rig?.XmitPower ?? 0);
         }
     }
 
@@ -1365,8 +1377,8 @@ public partial class ScreenFieldsPanel : UserControl
             if (_txPowerControl.IsKeyboardFocusWithin)
             {
                 ScreenReaderOutput.Speak(xvtrNow
-                    ? "TX power now transverter drive, in d B m"
-                    : "TX power now in watts", VerbosityLevel.Terse, interrupt: true);
+                    ? Lexicon.Get("audio.fields.tx_power_now_dbm")
+                    : Lexicon.Get("audio.fields.tx_power_now_watts"), VerbosityLevel.Terse, interrupt: true);
             }
         }
 
@@ -1701,7 +1713,7 @@ public partial class ScreenFieldsPanel : UserControl
         }
 
         ScreenReaderOutput.Speak(
-            "All panels collapsed, home", VerbosityLevel.Terse, interrupt: true);
+            Lexicon.Get("audio.fields.all_collapsed"), VerbosityLevel.Terse, interrupt: true);
 
         // Return focus to Home (FreqOut) — MainWindow wires this event to
         // FreqOut.FocusDisplay() per the pattern established pre-Sprint-28.
