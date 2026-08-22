@@ -94,20 +94,24 @@ namespace JJFlexWpf.Dialogs
 
         private static readonly (int hz, string label)[] CoarseStepOptions =
         {
-            (1000, "1 kHz"), (2000, "2 kHz"), (5000, "5 kHz")
+            (1000, Lexicon.Get("settings.tuning.coarse_step_1_khz")),
+            (2000, Lexicon.Get("settings.tuning.coarse_step_2_khz")),
+            (5000, Lexicon.Get("settings.tuning.coarse_step_5_khz"))
         };
 
         private static readonly (int hz, string label)[] FineStepOptions =
         {
-            (5, "5 Hz"), (10, "10 Hz"), (100, "100 Hz")
+            (5, Lexicon.Get("settings.tuning.fine_step_5_hz")),
+            (10, Lexicon.Get("settings.tuning.fine_step_10_hz")),
+            (100, Lexicon.Get("settings.tuning.fine_step_100_hz"))
         };
 
         private static readonly (string label, HamBands.Bands.Licenses value)[] LicenseClassMap =
         {
-            ("Extra", HamBands.Bands.Licenses.extra),
-            ("Advanced", HamBands.Bands.Licenses.advanced),
-            ("General", HamBands.Bands.Licenses.general),
-            ("Technician", HamBands.Bands.Licenses.technition)
+            (Lexicon.Get("settings.license.class_extra"), HamBands.Bands.Licenses.extra),
+            (Lexicon.Get("settings.license.class_advanced"), HamBands.Bands.Licenses.advanced),
+            (Lexicon.Get("settings.license.class_general"), HamBands.Bands.Licenses.general),
+            (Lexicon.Get("settings.license.class_technician"), HamBands.Bands.Licenses.technition)
         };
 
         private static readonly string[] MeterPresetOptions =
@@ -168,17 +172,17 @@ namespace JJFlexWpf.Dialogs
             };
 
             // Configure volume controls
-            MasterVolumeControl.Label = "Master volume";
+            MasterVolumeControl.Label = Lexicon.Get("settings.audio.master_volume_label");
             MasterVolumeControl.Min = 0;
             MasterVolumeControl.Max = 100;
             MasterVolumeControl.Step = 5;
 
-            EarconVolumeControl.Label = "Alert volume";
+            EarconVolumeControl.Label = Lexicon.Get("settings.audio.alert_volume_label");
             EarconVolumeControl.Min = 0;
             EarconVolumeControl.Max = 100;
             EarconVolumeControl.Step = 5;
 
-            MeterVolumeControl.Label = "Meter volume";
+            MeterVolumeControl.Label = Lexicon.Get("settings.audio.meter_volume_label");
             MeterVolumeControl.Min = 0;
             MeterVolumeControl.Max = 100;
             MeterVolumeControl.Step = 5;
@@ -231,9 +235,9 @@ namespace JJFlexWpf.Dialogs
             DebounceDelayPanel.IsEnabled = _audioConfig.TuneDebounceEnabled;
 
             // Frequency units combo
-            FreqUnitsCombo.Items.Add("Dotted (14.225.000)");
-            FreqUnitsCombo.Items.Add("Kilohertz (14,225 kHz)");
-            FreqUnitsCombo.Items.Add("Megahertz (14.225 MHz)");
+            FreqUnitsCombo.Items.Add(Lexicon.Get("settings.tuning.frequency_units_dotted"));
+            FreqUnitsCombo.Items.Add(Lexicon.Get("settings.tuning.frequency_units_kilohertz"));
+            FreqUnitsCombo.Items.Add(Lexicon.Get("settings.tuning.frequency_units_megahertz"));
             FreqUnitsCombo.SelectedIndex = (int)_pttConfig.FrequencyDisplayUnits;
 
             // License tab — populate from LicenseConfig
@@ -251,7 +255,8 @@ namespace JJFlexWpf.Dialogs
             TxLockoutCheckbox.IsChecked = _licenseConfig.TxLockout;
 
             // Country selector — display names, stored as country codes
-            _countryMap = new[] { ("US", "United States") }; // Future: add ("UK", "United Kingdom"), etc.
+            _countryMap = new[] { ("US", Lexicon.Get("settings.license.country_united_states")) };
+            // Future: add ("UK", "United Kingdom"), etc.
             foreach (var (code, name) in _countryMap)
                 CountryCombo.Items.Add(name);
             string currentCode = _licenseConfig.Country ?? "US";
@@ -279,7 +284,7 @@ namespace JJFlexWpf.Dialogs
             MeterVolumeControl.Value = (int)(_audioConfig.MeterMasterVolume * 100);
 
             // Meter device dropdown: first item is "Same as Alerts", then all devices
-            MeterDeviceCombo.Items.Add("Same as Alerts");
+            MeterDeviceCombo.Items.Add(Lexicon.Get("settings.audio.meter_device_same_as_alerts"));
             foreach (var (devNum, name) in devices)
                 MeterDeviceCombo.Items.Add(name);
             if (_audioConfig.MeterDeviceNumber == -1)
@@ -321,16 +326,16 @@ namespace JJFlexWpf.Dialogs
             BrailleCellsCombo.SelectedIndex = cellIdx >= 0 ? cellIdx : 2; // default 40
 
             // Verbosity & Notifications tab
-            SpeechVerbosityCombo.Items.Add("Off (critical only)");  // 0
-            SpeechVerbosityCombo.Items.Add("Terse");                // 1
-            SpeechVerbosityCombo.Items.Add("Chatty");               // 2
+            SpeechVerbosityCombo.Items.Add(Lexicon.Get("settings.speech.verbosity_off"));     // 0
+            SpeechVerbosityCombo.Items.Add(Lexicon.Get("settings.speech.verbosity_terse"));   // 1
+            SpeechVerbosityCombo.Items.Add(Lexicon.Get("settings.speech.verbosity_chatty"));  // 2
             SpeechVerbosityCombo.SelectedIndex = Math.Clamp(_audioConfig.SpeechVerbosity, 0, 2);
 
             // Mic-audio verdict output (Audio Arc Keys Track). Item order
             // matches MicVerdictOutputMode values.
-            MicVerdictOutputCombo.Items.Add("Plain English plus decibels (default)"); // 0 Both
-            MicVerdictOutputCombo.Items.Add("Plain English only");                    // 1 Plain
-            MicVerdictOutputCombo.Items.Add("Decibels only");                         // 2 Numbers
+            MicVerdictOutputCombo.Items.Add(Lexicon.Get("settings.speech.mic_verdict_both"));    // 0 Both
+            MicVerdictOutputCombo.Items.Add(Lexicon.Get("settings.speech.mic_verdict_plain"));   // 1 Plain
+            MicVerdictOutputCombo.Items.Add(Lexicon.Get("settings.speech.mic_verdict_numbers")); // 2 Numbers
             MicVerdictOutputCombo.SelectedIndex = Math.Clamp(_audioConfig.MicVerdictOutput, 0, 2);
 
             EarconsEnabledCheck.IsChecked = _audioConfig.EarconsEnabled;
@@ -358,8 +363,8 @@ namespace JJFlexWpf.Dialogs
 
                 // #146 — pitch source. Index 0 is the configured tone, which is
                 // both the default and the behaviour every existing config has.
-                CwPitchSourceCombo.Items.Add("Use the frequency below");
-                CwPitchSourceCombo.Items.Add("Follow the radio's CW sidetone");
+                CwPitchSourceCombo.Items.Add(Lexicon.Get("settings.sound.cw_pitch_from_setting"));
+                CwPitchSourceCombo.Items.Add(Lexicon.Get("settings.sound.cw_pitch_follows_radio"));
                 CwPitchSourceCombo.SelectedIndex = _audioConfig.CwPitchFollowsRadio ? 1 : 0;
 
                 // #145 — keying tone shape.
@@ -399,8 +404,8 @@ namespace JJFlexWpf.Dialogs
             PortForwardUdpBox.Text = "4992";
             PortForwardSeparatePortsCheck.IsChecked = false;
             PortForwardUdpBox.IsEnabled = false;
-            PortForwardTcpLabel.Text = "Port (TCP and UDP):";
-            NetworkCurrentStateText.Text = "No radio connected.";
+            PortForwardTcpLabel.Text = Lexicon.Get("settings.network.port_label_shared");
+            NetworkCurrentStateText.Text = Lexicon.Get("settings.no_radio_connected");
 
             // Task #102 — path learning (Network tab, bottom). Commits live
             // rather than on OK/Apply; see SettingsDialog.PathLearning.cs.
@@ -501,15 +506,13 @@ namespace JJFlexWpf.Dialogs
                 // connection settings (including hole punch with no port-forward
                 // config at all) live on the Radios tab and work offline.
                 NetworkCurrentStateText.Text =
-                    "No radio connected. Connect to a radio to configure port forwarding. " +
-                    "Per-radio connection settings, including hole punch, are on the Radios tab " +
-                    "and can be edited any time, connected or not.";
+                    Lexicon.Get("settings.network.no_radio_configure_forwarding");
                 PortForwardEnabledCheck.IsChecked = false;
                 PortForwardTcpBox.Text = "4992";
                 PortForwardUdpBox.Text = "4992";
                 PortForwardSeparatePortsCheck.IsChecked = false;
                 PortForwardUdpBox.IsEnabled = false;
-                PortForwardTcpLabel.Text = "Port (TCP and UDP):";
+                PortForwardTcpLabel.Text = Lexicon.Get("settings.network.port_label_shared");
                 // Sprint 27 Track F — without a connected radio, force Tier 1
                 // selection and disable Tier 2 / Tier 3. The radio group stays
                 // visible + focusable so screen-reader users can explore the
@@ -530,16 +533,17 @@ namespace JJFlexWpf.Dialogs
             PortForwardUdpBox.Text = (udp > 0 ? udp : 4992).ToString();
             PortForwardSeparatePortsCheck.IsChecked = portsDiffer;
             PortForwardUdpBox.IsEnabled = portsDiffer;
-            PortForwardTcpLabel.Text = portsDiffer ? "TCP port:" : "Port (TCP and UDP):";
+            PortForwardTcpLabel.Text = portsDiffer ? Lexicon.Get("settings.network.port_label_tcp_only") : Lexicon.Get("settings.network.port_label_shared");
             // Track C wording fix: the radio advertises these external ports;
             // it listens on its LAN address at 4994/4993. Saying "listens on
             // your port" sent a live debugging session down the wrong road.
             NetworkCurrentStateText.Text = enabled
                 ? (portsDiffer
-                    ? $"The radio advertises external TCP port {tcp} and UDP port {udp} for SmartLink. "
-                    : $"The radio advertises external port {tcp} (TCP and UDP) for SmartLink. ")
+                    ? Lexicon.Get("settings.network.advertises_separate_ports",
+                        ("tcp", tcp), ("udp", udp))
+                    : Lexicon.Get("settings.network.advertises_one_port", ("tcp", tcp)))
                   + DescribeRouterMapping(tcp, udp)
-                : "Radio currently uses UPnP or hole-punch (no manual forwarding).";
+                : Lexicon.Get("settings.network.uses_upnp_or_hole_punch");
 
             // Sprint 27 Track F — load the account's saved ConnectionMode into
             // the 3-option radio group. Null → Tier 1 (safe default for accounts
@@ -662,7 +666,7 @@ namespace JJFlexWpf.Dialogs
             if (PortForwardUdpBox == null || PortForwardTcpLabel == null) return;
             bool separate = PortForwardSeparatePortsCheck.IsChecked == true;
             PortForwardUdpBox.IsEnabled = separate;
-            PortForwardTcpLabel.Text = separate ? "TCP port:" : "Port (TCP and UDP):";
+            PortForwardTcpLabel.Text = separate ? Lexicon.Get("settings.network.port_label_tcp_only") : Lexicon.Get("settings.network.port_label_shared");
             if (!separate)
                 PortForwardUdpBox.Text = PortForwardTcpBox.Text;
         }
@@ -690,9 +694,12 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private string DescribeRouterMapping(int tcp, int udp)
         {
-            string lanIp = _rig?.CurrentRadioIP?.ToString() ?? "the radio's LAN IP";
-            return $"Router rules: forward external TCP port {tcp} to {lanIp} port {FlexBase.SmartLinkRadioTlsPort}, " +
-                   $"and external UDP port {udp} to {lanIp} port {FlexBase.SmartLinkRadioUdpPort}.";
+            string lanIp = _rig?.CurrentRadioIP?.ToString()
+                ?? Lexicon.Get("settings.network.radio_lan_ip_unknown");
+            return Lexicon.Get("settings.network.router_rules",
+                ("tcp", tcp), ("udp", udp), ("lanIp", lanIp),
+                ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                ("udpPort", FlexBase.SmartLinkRadioUdpPort));
         }
 
         /// <summary>
@@ -718,8 +725,7 @@ namespace JJFlexWpf.Dialogs
                 // An enabled checkbox is the one signal of real intent — and it
                 // must not evaporate silently.
                 if (wantEnabled)
-                    queued.Add("Port forwarding was not changed. It writes settings into the radio itself, " +
-                        "so it needs a connected radio. Connect, then set it again on the Network tab.");
+                    queued.Add(Lexicon.Get("settings.network.forwarding_needs_a_radio"));
                 return true;
             }
 
@@ -729,16 +735,18 @@ namespace JJFlexWpf.Dialogs
                 if (!int.TryParse(PortForwardTcpBox.Text, out tcp) || tcp < 1024 || tcp > 65535)
                 {
                     SelectTabByHeader("Network");
-                    NetworkCurrentStateText.Text = "Invalid TCP port. Must be 1024 to 65535.";
-                    ScreenReaderOutput.Speak("Invalid TCP port.", VerbosityLevel.Terse, interrupt: true);
+                    NetworkCurrentStateText.Text = Lexicon.Get("settings.network.tcp_port_invalid");
+                    ScreenReaderOutput.Speak(Lexicon.Get("settings.network.tcp_port_invalid_spoken"),
+                        VerbosityLevel.Terse, interrupt: true);
                     PortForwardTcpBox.Focus();
                     return false;
                 }
                 if (!int.TryParse(PortForwardUdpBox.Text, out udp) || udp < 1024 || udp > 65535)
                 {
                     SelectTabByHeader("Network");
-                    NetworkCurrentStateText.Text = "Invalid UDP port. Must be 1024 to 65535.";
-                    ScreenReaderOutput.Speak("Invalid UDP port.", VerbosityLevel.Terse, interrupt: true);
+                    NetworkCurrentStateText.Text = Lexicon.Get("settings.network.udp_port_invalid");
+                    ScreenReaderOutput.Speak(Lexicon.Get("settings.network.udp_port_invalid_spoken"),
+                        VerbosityLevel.Terse, interrupt: true);
                     PortForwardUdpBox.Focus();
                     return false;
                 }
@@ -759,7 +767,7 @@ namespace JJFlexWpf.Dialogs
                 // is never at their radio and must not be locked out of it.
                 string? declineNote = null;
                 _rig.RequirePortSettingsAuthority(
-                    reason: "change SmartLink port settings",
+                    reason: Lexicon.Get("settings.network.authority_reason"),
                     onConfirmed: () =>
                     {
                         // Confirmation dialog with default focus on No for conservative safety.
@@ -767,19 +775,17 @@ namespace JJFlexWpf.Dialogs
                         confirm.Owner = this;
                         if (confirm.ShowDialog() != true)
                         {
-                            declineNote = "Port forwarding was left unchanged — you answered No to its confirmation.";
+                            declineNote = Lexicon.Get("settings.network.forwarding_declined");
                             return;
                         }
                         if (PerformPortForwardApply(wantEnabled, tcp, udp))
                             applied.Add(NetworkCurrentStateText.Text);
                         else
-                            declineNote = "The port forwarding command failed. See the trace file for details.";
+                            declineNote = Lexicon.Get("settings.network.forwarding_command_failed");
                     },
                     onDenied: () =>
                     {
-                        declineNote = "Port settings were not changed: you must be the primary operator at " +
-                            "the radio, or turn on allowing port changes from remote connections, on the " +
-                            "Radios tab.";
+                        declineNote = Lexicon.Get("settings.network.authority_denied");
                     });
                 if (declineNote != null)
                 {
@@ -798,7 +804,8 @@ namespace JJFlexWpf.Dialogs
                 if (_rig.CurrentAccountConnectionMode != uiMode
                     && _rig.SaveCurrentAccountConnectionMode(uiMode))
                 {
-                    applied.Add($"SmartLink connection mode saved for {_rig.CurrentSmartLinkAccountEmail}.");
+                    applied.Add(Lexicon.Get("settings.network.connection_mode_saved",
+                        ("email", _rig.CurrentSmartLinkAccountEmail)));
                 }
             }
             return true;
@@ -841,23 +848,27 @@ namespace JJFlexWpf.Dialogs
                 // ports — they are the external ports it advertises. The router
                 // recipe names the real radio-side ports (4994 TCP / 4993 UDP).
                 string baseMessage = enabled
-                    ? $"Applied. The radio now advertises external TCP port {tcp} and UDP port {udp} for SmartLink. "
+                    ? Lexicon.Get("settings.network.forwarding_applied", ("tcp", tcp), ("udp", udp))
                       + DescribeRouterMapping(tcp, udp)
-                    : "Applied. Port forwarding disabled on the radio.";
+                    : Lexicon.Get("settings.network.forwarding_disabled");
                 string prefSuffix = savedPreference
                     ? (enabled
-                        ? $" Saved as the preference for SmartLink account {_rig.CurrentSmartLinkAccountEmail}."
-                        : $" Preference cleared for SmartLink account {_rig.CurrentSmartLinkAccountEmail}.")
+                        ? Lexicon.Get("settings.network.preference_saved",
+                            ("email", _rig.CurrentSmartLinkAccountEmail))
+                        : Lexicon.Get("settings.network.preference_cleared",
+                            ("email", _rig.CurrentSmartLinkAccountEmail)))
                     : string.Empty;
                 NetworkCurrentStateText.Text = baseMessage + prefSuffix;
                 ScreenReaderOutput.Speak(enabled
-                    ? $"Port forwarding set to {tcp}."
-                    : "Port forwarding disabled.", VerbosityLevel.Terse, interrupt: true);
+                    ? Lexicon.Get("settings.network.forwarding_set_spoken", ("tcp", tcp))
+                    : Lexicon.Get("settings.network.forwarding_disabled_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
             else
             {
-                NetworkCurrentStateText.Text = "Command failed. See trace file for details.";
-                ScreenReaderOutput.Speak("Command failed.", VerbosityLevel.Terse, interrupt: true);
+                NetworkCurrentStateText.Text = Lexicon.Get("settings.network.command_failed");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.command_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
             return ok;
         }
@@ -876,15 +887,19 @@ namespace JJFlexWpf.Dialogs
         {
             if (!int.TryParse(PortForwardTcpBox.Text, out int port))
             {
-                NetworkCurrentStateText.Text = "Port is not a number. Enter a value between 1024 and 65535.";
-                ScreenReaderOutput.Speak("Port is not a number.", VerbosityLevel.Terse, interrupt: true);
+                NetworkCurrentStateText.Text = Lexicon.Get("settings.network.port_not_a_number");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.port_not_a_number_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 PortForwardTcpBox.Focus();
                 return;
             }
             if (!SmartLinkAccountManager.IsValidPort(port))
             {
-                NetworkCurrentStateText.Text = $"Port {port} is out of the manual range. Use 1024 to 65535.";
-                ScreenReaderOutput.Speak($"Port {port} out of range.", VerbosityLevel.Terse, interrupt: true);
+                NetworkCurrentStateText.Text =
+                    Lexicon.Get("settings.network.port_out_of_range", ("port", port));
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.network.port_out_of_range_spoken", ("port", port)),
+                    VerbosityLevel.Terse, interrupt: true);
                 PortForwardTcpBox.Focus();
                 return;
             }
@@ -893,22 +908,27 @@ namespace JJFlexWpf.Dialogs
             // still technically valid.
             string? conflictHint = port switch
             {
-                3389 => "Windows Remote Desktop",
-                5900 => "VNC screen sharing",
-                8080 => "web servers and HTTP proxies",
+                3389 => Lexicon.Get("settings.network.port_conflict_remote_desktop"),
+                5900 => Lexicon.Get("settings.network.port_conflict_vnc"),
+                8080 => Lexicon.Get("settings.network.port_conflict_web"),
                 _ => null,
             };
             if (conflictHint != null)
             {
-                NetworkCurrentStateText.Text = $"Port {port} is valid, but it is commonly used by {conflictHint}. If you have that running on this network you should pick a different port; otherwise you can keep this one.";
-                ScreenReaderOutput.Speak($"Port {port} valid but often used by {conflictHint}.", VerbosityLevel.Terse, interrupt: true);
+                NetworkCurrentStateText.Text = Lexicon.Get("settings.network.port_valid_but_common",
+                    ("port", port), ("conflictHint", conflictHint));
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.network.port_valid_but_common_spoken",
+                        ("port", port), ("conflictHint", conflictHint)),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
-            NetworkCurrentStateText.Text =
-                $"Port {port} is valid. Remember the two router rules: forward external TCP port {port} to the " +
-                $"radio's LAN IP at port {FlexBase.SmartLinkRadioTlsPort}, and external UDP port {port} to the " +
-                $"radio's LAN IP at port {FlexBase.SmartLinkRadioUdpPort}.";
-            ScreenReaderOutput.Speak($"Port {port} is valid.", VerbosityLevel.Terse, interrupt: true);
+            NetworkCurrentStateText.Text = Lexicon.Get("settings.network.port_valid",
+                ("port", port),
+                ("tlsPort", FlexBase.SmartLinkRadioTlsPort),
+                ("udpPort", FlexBase.SmartLinkRadioUdpPort));
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.network.port_valid_spoken", ("port", port)),
+                VerbosityLevel.Terse, interrupt: true);
         }
 
         /// <summary>
@@ -935,21 +955,22 @@ namespace JJFlexWpf.Dialogs
                 return true; // not a punched session — nothing to warn about
 
             var confirm = new ConfirmActionDialog(
-                "Test Network on a Hole-Punched Connection",
-                "This radio is connected through a hole-punched link. The network test asks the radio to probe its own ports from the internet, and on a hole-punched link that probe is known to drop the live connection.",
+                Lexicon.Get("settings.network.punched_test_title"),
+                Lexicon.Get("settings.network.punched_test_body"),
                 new[]
                 {
-                    "You may lose this connection and have to reconnect to the radio.",
+                    Lexicon.Get("settings.network.punched_test_warning"),
                 },
-                question: "Run the test anyway?",
-                yesLabel: "_Run the test",
-                noLabel: "_Not now")
+                question: Lexicon.Get("settings.network.punched_test_question"),
+                yesLabel: Lexicon.Get("settings.network.punched_test_yes"),
+                noLabel: Lexicon.Get("settings.network.punched_test_no"))
             {
                 Owner = this,
             };
             if (confirm.ShowDialog() == true) return true;
 
-            ScreenReaderOutput.Speak("Network test not run. The connection stays up.", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.network.punched_test_declined_spoken"),
+                VerbosityLevel.Terse, interrupt: true);
             return false;
         }
 
@@ -957,20 +978,22 @@ namespace JJFlexWpf.Dialogs
         {
             if (_rig == null || !_rig.IsConnected)
             {
-                NetworkDiagnosticResultText.Text = "No radio connected. Connect to a radio first.";
-                ScreenReaderOutput.Speak("No radio connected.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.test_needs_a_radio");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.no_radio_connected"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             if (!ConfirmNetworkTestOnPunchedSession())
             {
                 NetworkDiagnosticResultText.Text =
-                    "Network test not run — it can drop a hole-punched connection. Run it after disconnecting, or from a port-forwarded connection.";
+                    Lexicon.Get("settings.network.test_punched_declined");
                 return;
             }
 
-            NetworkDiagnosticResultText.Text = "Probing SmartLink. Waiting for results — this usually takes a few seconds.";
-            ScreenReaderOutput.Speak("Probing network.", VerbosityLevel.Terse, interrupt: true);
+            NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.probing");
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probing_spoken"),
+                VerbosityLevel.Terse, interrupt: true);
 
             Radios.SmartLink.NetworkDiagnosticReport? report;
             try
@@ -979,22 +1002,27 @@ namespace JJFlexWpf.Dialogs
             }
             catch (Exception ex)
             {
-                NetworkDiagnosticResultText.Text = $"Probe failed: {ex.Message}";
-                ScreenReaderOutput.Speak("Probe failed.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text =
+                    Lexicon.Get("settings.network.probe_failed", ("message", ex.Message));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probe_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             if (report == null)
             {
-                NetworkDiagnosticResultText.Text = "No active SmartLink session. Connect via SmartLink first.";
-                ScreenReaderOutput.Speak("No SmartLink session.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_smartlink_session");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.radio.check.no_smartlink_session_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
             if (!report.ProbeCompleted)
             {
-                NetworkDiagnosticResultText.Text = $"Probe did not complete: {report.ErrorDetail}";
-                ScreenReaderOutput.Speak("Probe did not complete.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text =
+                    Lexicon.Get("settings.network.probe_incomplete", ("detail", report.ErrorDetail));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.probe_incomplete_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -1007,11 +1035,18 @@ namespace JJFlexWpf.Dialogs
 
         private static string BuildNetworkDiagnosticSummary(Radios.SmartLink.NetworkDiagnosticReport r)
         {
-            string Yn(bool? v) => v switch { true => "yes", false => "no", null => "unknown" };
-            return
-                $"UPnP TCP {Yn(r.UpnpTcpReachable)}, UPnP UDP {Yn(r.UpnpUdpReachable)}, " +
-                $"manual TCP {Yn(r.ManualForwardTcpReachable)}, manual UDP {Yn(r.ManualForwardUdpReachable)}, " +
-                $"hole-punch support {Yn(r.NatSupportsHolePunch)}.";
+            string Yn(bool? v) => v switch
+            {
+                true => Lexicon.Get("settings.network.diagnostic_yes"),
+                false => Lexicon.Get("settings.network.diagnostic_no"),
+                null => Lexicon.Get("settings.network.diagnostic_unknown"),
+            };
+            return Lexicon.Get("settings.network.diagnostic_summary",
+                ("upnpTcp", Yn(r.UpnpTcpReachable)),
+                ("upnpUdp", Yn(r.UpnpUdpReachable)),
+                ("manualTcp", Yn(r.ManualForwardTcpReachable)),
+                ("manualUdp", Yn(r.ManualForwardUdpReachable)),
+                ("holePunch", Yn(r.NatSupportsHolePunch)));
         }
 
         /// <summary>
@@ -1025,20 +1060,24 @@ namespace JJFlexWpf.Dialogs
             var report = _rig?.MostRecentNetworkReport;
             if (report == null)
             {
-                NetworkDiagnosticResultText.Text = "No network diagnostic report yet. Run 'Test network' first.";
-                ScreenReaderOutput.Speak("No report to copy.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_report_yet");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.no_report_to_copy_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
             try
             {
                 System.Windows.Clipboard.SetText(report.ToMarkdown());
-                NetworkDiagnosticResultText.Text = "Network diagnostic report copied to clipboard as markdown.";
-                ScreenReaderOutput.Speak("Report copied.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.report_copied");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.report_copied_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
             catch (Exception ex)
             {
-                NetworkDiagnosticResultText.Text = $"Copy failed: {ex.Message}";
-                ScreenReaderOutput.Speak("Copy failed.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text =
+                    Lexicon.Get("settings.network.copy_failed", ("message", ex.Message));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.copy_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
         }
 
@@ -1052,8 +1091,9 @@ namespace JJFlexWpf.Dialogs
             var report = _rig?.MostRecentNetworkReport;
             if (report == null)
             {
-                NetworkDiagnosticResultText.Text = "No network diagnostic report yet. Run 'Test network' first.";
-                ScreenReaderOutput.Speak("No report to save.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text = Lexicon.Get("settings.network.no_report_yet");
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.no_report_to_save_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
 
@@ -1061,8 +1101,8 @@ namespace JJFlexWpf.Dialogs
             {
                 FileName = $"JJFlex-NetworkDiagnostic-{report.TimestampUtc:yyyy-MM-dd-HHmm}.md",
                 DefaultExt = ".md",
-                Filter = "Markdown (*.md)|*.md|Text file (*.txt)|*.txt|All files (*.*)|*.*",
-                Title = "Save network diagnostic report",
+                Filter = Lexicon.Get("settings.network.save_report_filter"),
+                Title = Lexicon.Get("settings.network.save_report_title"),
             };
             bool? ok = dlg.ShowDialog(this);
             if (ok != true) return;
@@ -1070,13 +1110,17 @@ namespace JJFlexWpf.Dialogs
             try
             {
                 System.IO.File.WriteAllText(dlg.FileName, report.ToMarkdown());
-                NetworkDiagnosticResultText.Text = $"Report saved to {dlg.FileName}.";
-                ScreenReaderOutput.Speak("Report saved.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text =
+                    Lexicon.Get("settings.network.report_saved", ("fileName", dlg.FileName));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.report_saved_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
             catch (Exception ex)
             {
-                NetworkDiagnosticResultText.Text = $"Save failed: {ex.Message}";
-                ScreenReaderOutput.Speak("Save failed.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text =
+                    Lexicon.Get("settings.network.save_failed", ("message", ex.Message));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.save_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
         }
 
@@ -1094,21 +1138,28 @@ namespace JJFlexWpf.Dialogs
             string path = System.IO.Path.Combine(AppContext.BaseDirectory, "help", fileName);
             if (!System.IO.File.Exists(path))
             {
-                NetworkDiagnosticResultText.Text = $"Help file not found at {path}.";
-                ScreenReaderOutput.Speak("Help file not found.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text =
+                    Lexicon.Get("settings.network.help_file_missing", ("path", path));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.help_file_missing_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
                 return;
             }
             try
             {
                 var psi = new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true };
                 System.Diagnostics.Process.Start(psi);
-                NetworkDiagnosticResultText.Text = $"Opened {fileName}.";
-                ScreenReaderOutput.Speak($"Opened help for {fileName}.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text =
+                    Lexicon.Get("settings.network.help_opened", ("fileName", fileName));
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.network.help_opened_spoken", ("fileName", fileName)),
+                    VerbosityLevel.Terse, interrupt: true);
             }
             catch (Exception ex)
             {
-                NetworkDiagnosticResultText.Text = $"Could not open help: {ex.Message}";
-                ScreenReaderOutput.Speak("Could not open help.", VerbosityLevel.Terse, interrupt: true);
+                NetworkDiagnosticResultText.Text =
+                    Lexicon.Get("settings.network.help_open_failed", ("message", ex.Message));
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.network.help_open_failed_spoken"),
+                    VerbosityLevel.Terse, interrupt: true);
             }
         }
 
@@ -1137,21 +1188,30 @@ namespace JJFlexWpf.Dialogs
         private void PopulateTypingSoundCombo()
         {
             TypingSoundCombo.Items.Clear();
-            TypingSoundCombo.Items.Add("Musical notes");       // 0 — was "Click beep", maps to Beep enum
-            TypingSoundCombo.Items.Add("Single tone");         // 1
-            TypingSoundCombo.Items.Add("Random tones");        // 2
+            // 0 — was "Click beep", maps to Beep enum
+            TypingSoundCombo.Items.Add(Lexicon.Get("settings.sound.typing_musical_notes"));
+            TypingSoundCombo.Items.Add(Lexicon.Get("settings.sound.typing_single_tone"));
+            TypingSoundCombo.Items.Add(Lexicon.Get("settings.sound.typing_random_tones"));
 
             // Unlockable modes slot in between the always-on audio modes and "Off".
             bool mechUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref2, _audioConfig.TuningHash);
             bool dtmfUnlocked = FreqOutHandlers.IsCalibrationUnlocked(CalibrationEngine.Ref1, _audioConfig.TuningHash);
 
             int mechIdx = -1, dtmfIdx = -1;
-            if (mechUnlocked) { mechIdx = TypingSoundCombo.Items.Count; TypingSoundCombo.Items.Add("Mechanical keyboard"); }
-            if (dtmfUnlocked) { dtmfIdx = TypingSoundCombo.Items.Count; TypingSoundCombo.Items.Add("Touch-tone (DTMF)"); }
+            if (mechUnlocked)
+            {
+                mechIdx = TypingSoundCombo.Items.Count;
+                TypingSoundCombo.Items.Add(Lexicon.Get("settings.sound.typing_mechanical_keyboard"));
+            }
+            if (dtmfUnlocked)
+            {
+                dtmfIdx = TypingSoundCombo.Items.Count;
+                TypingSoundCombo.Items.Add(Lexicon.Get("settings.sound.typing_touch_tone"));
+            }
 
             // "Off" is always last.
             int offIdx = TypingSoundCombo.Items.Count;
-            TypingSoundCombo.Items.Add("Off");
+            TypingSoundCombo.Items.Add(Lexicon.Get("settings.sound.typing_off"));
 
             // Select current mode
             int idx = _audioConfig.TypingSound switch
@@ -1172,8 +1232,8 @@ namespace JJFlexWpf.Dialogs
             // PTT tab — parse and validate
             if (!int.TryParse(PttTimeoutBox.Text, out int timeout) || timeout < 10 || timeout > 900)
             {
-                MessageBox.Show("Timeout must be between 10 and 900 seconds.",
-                    "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Lexicon.Get("settings.ptt.timeout_out_of_range"),
+                    Lexicon.Get("settings.dialog_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttTimeoutBox.Focus();
                 return false;
@@ -1181,8 +1241,8 @@ namespace JJFlexWpf.Dialogs
 
             if (!int.TryParse(PttWarning1Box.Text, out int w1))
             {
-                MessageBox.Show("First warning must be a number.",
-                    "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Lexicon.Get("settings.ptt.warning1_not_a_number"),
+                    Lexicon.Get("settings.dialog_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttWarning1Box.Focus();
                 return false;
@@ -1190,8 +1250,8 @@ namespace JJFlexWpf.Dialogs
 
             if (!int.TryParse(PttWarning2Box.Text, out int w2))
             {
-                MessageBox.Show("Second warning must be a number.",
-                    "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Lexicon.Get("settings.ptt.warning2_not_a_number"),
+                    Lexicon.Get("settings.dialog_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttWarning2Box.Focus();
                 return false;
@@ -1199,8 +1259,8 @@ namespace JJFlexWpf.Dialogs
 
             if (!int.TryParse(PttOhCrapBox.Text, out int ohCrap))
             {
-                MessageBox.Show("Final warning must be a number.",
-                    "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Lexicon.Get("settings.ptt.final_warning_not_a_number"),
+                    Lexicon.Get("settings.dialog_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttOhCrapBox.Focus();
                 return false;
@@ -1208,8 +1268,8 @@ namespace JJFlexWpf.Dialogs
 
             if (!int.TryParse(PttAlcBox.Text, out int alc) || alc < 0 || (alc > 0 && alc < 10) || alc > 300)
             {
-                MessageBox.Show("ALC auto-release must be 0 (disabled) or between 10 and 300 seconds.",
-                    "Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Lexicon.Get("settings.ptt.alc_out_of_range"),
+                    Lexicon.Get("settings.dialog_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 SelectTabByHeader("PTT");  // Track C papercut: focusing a field on an unselected tab fails silently
                 PttAlcBox.Focus();
                 return false;
@@ -1409,7 +1469,7 @@ namespace JJFlexWpf.Dialogs
                 if (queued.Count > 0)
                 {
                     var body = new System.Text.StringBuilder(
-                        "Everything you set was saved. These items cannot take effect yet:");
+                        Lexicon.Get("settings.commit.some_items_wait_lead"));
                     foreach (var note in queued)
                     {
                         body.AppendLine();
@@ -1420,20 +1480,23 @@ namespace JJFlexWpf.Dialogs
                     {
                         body.AppendLine();
                         body.AppendLine();
-                        body.Append("Done right away: " + string.Join(" ", applied));
+                        body.Append(Lexicon.Get("settings.commit.done_right_away_lead")
+                            + string.Join(" ", applied));
                     }
-                    AdvisoryDialog.Show("Saved — Some Items Wait", body.ToString());
+                    AdvisoryDialog.Show(Lexicon.Get("settings.commit.some_items_wait_title"),
+                        body.ToString());
                 }
                 else
                 {
-                    ScreenReaderOutput.Speak("Settings saved.", VerbosityLevel.Terse, interrupt: true);
+                    ScreenReaderOutput.Speak(Lexicon.Get("settings.commit.saved_spoken"),
+                        VerbosityLevel.Terse, interrupt: true);
                 }
             }
             else
             {
-                string summary = "Settings applied.";
+                string summary = Lexicon.Get("settings.commit.applied_spoken");
                 if (queued.Count > 0)
-                    summary += " Waiting: " + string.Join(" ", queued);
+                    summary += Lexicon.Get("settings.commit.waiting_lead") + string.Join(" ", queued);
                 else if (applied.Count > 0)
                     summary += " " + string.Join(" ", applied);
                 ScreenReaderOutput.Speak(summary, VerbosityLevel.Terse, interrupt: true);
@@ -1480,8 +1543,9 @@ namespace JJFlexWpf.Dialogs
         {
             if (string.IsNullOrEmpty(ConfigDirectory) || string.IsNullOrEmpty(OperatorName))
             {
-                MessageBox.Show("Filter presets require an active operator profile.",
-                    "Not Available", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(Lexicon.Get("settings.filter_presets.needs_operator_profile"),
+                    Lexicon.Get("settings.filter_presets.needs_operator_profile_title"),
+                    MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -1493,10 +1557,8 @@ namespace JJFlexWpf.Dialogs
             if (corruptPath != null)
             {
                 Radios.ScreenReaderOutput.Speak(
-                    "Your saved filter presets file could not be read, so the "
-                    + "editor shows the built-in defaults. The unreadable file "
-                    + "was kept next to it as "
-                    + System.IO.Path.GetFileName(corruptPath) + ".",
+                    Lexicon.Get("settings.filter_presets.unreadable",
+                        ("fileName", System.IO.Path.GetFileName(corruptPath))),
                     Radios.VerbosityLevel.Critical);
             }
             var editor = new FilterPresetEditorDialog(presets);
@@ -1506,11 +1568,10 @@ namespace JJFlexWpf.Dialogs
                 // Announce what actually happened — a failed write spoken as
                 // "saved" is the lying receipt this arc keeps hunting down.
                 if (presets.Save(ConfigDirectory, OperatorName))
-                    Radios.ScreenReaderOutput.Speak("Filter presets saved", true);
+                    Radios.ScreenReaderOutput.Speak(Lexicon.Get("settings.filter_presets.saved"), true);
                 else
                     Radios.ScreenReaderOutput.Speak(
-                        "The filter presets could not be written to disk. Your "
-                        + "changes are in effect for now but will not survive a restart.",
+                        Lexicon.Get("settings.filter_presets.not_written"),
                         Radios.VerbosityLevel.Critical, true);
             }
         }
