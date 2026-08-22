@@ -35,6 +35,23 @@
          must be checked against System.<X> for the same reason. -->
     <EmbeddedResource Include="ChainChecks\tx-chain-rules.txt"
                       LogicalName="Radios.ChainChecks.tx-chain-rules.txt" />
+
+    <!-- The lexicon ships the same way and for the same reasons: embedded, so a
+         partition can never go missing from an install, with the operator's own
+         copy under %AppData%\JJFlexRadio\lexicon\ layering on top.
+
+         One deliberate difference from the ruleset above: the overlay merges
+         KEY BY KEY rather than replacing the file. An operator editing one rule
+         wants the built-ins gone; an operator editing one WORD must not lose the
+         other four hundred, which would then each be spoken as their own key.
+
+         Note this is a FOLDER named Lexicon holding only .json — it declares no
+         C# namespace, so the Radios.<X> shadowing rule above is not in play. The
+         class itself is Radios.Lexicon, directly in the Radios namespace, which
+         is why it is not called Strings: Radios.Strings would shadow
+         Microsoft.VisualBasic.Strings for every VB file that imports Radios. -->
+    <EmbeddedResource Include="Lexicon\*.json"
+                      LogicalName="Radios.Lexicon.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- No screen-reader natives are copied to the app root. Speech and braille
