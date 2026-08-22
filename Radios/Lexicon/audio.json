@@ -271,7 +271,21 @@
   "audio.device.mic_check_only_noise_floor": "Microphone check stopped. Nothing but the electrical noise floor was heard, peak {peak}.",
   "audio.device.mic_check_loudest_heard": "Microphone check stopped. Loudest sound heard:",
 
-  "_17_device_roles": "What each device is FOR, in the sentences that name it. Three of these describe the same radio output and word it three different ways today; that is recorded here rather than quietly tidied, because which wording survives is the owner's call. See the Track E report.",
+  "_17_device_reading": "How a microphone reading is worded. The VERDICT words themselves (Good, Hot, Quiet and so on) do not live here - they come from MicAudioReport, which every surface shares so one measurement cannot have two vocabularies.",
+
+  "audio.device.reading_plain": "{lead} {verdict}",
+  "audio.device.reading_numbers": "{lead} {numbers}.",
+  "audio.device.reading_full": "{lead} {numbers}. {verdict}",
+  "audio.device.peak_nothing_at_all": "nothing at all",
+  "audio.device.peak_dbfs": "{db} dBFS",
+  "audio.device.loudness_lufs": ", loudness {lufs} LUFS",
+  "audio.device.advice_lower_boost": "Microphone Boost is at plus {boost} dB — lower the Boost slider below first, then run the check again.",
+  "audio.device.advice_lower_slider": "Lower the Windows input level slider below and run the check again.",
+  "audio.device.advice_lower_in_windows": "Lower this microphone's input level in Windows Sound settings and run the check again.",
+  "audio.device.advice_raise_slider": "Raise the Windows input level slider below and run the check again.",
+  "audio.device.advice_raise_in_windows": "Raise this microphone's input level in Windows Sound settings and run the check again.",
+
+  "_18_device_roles": "What each device is FOR, in the sentences that name it. Three of these describe the same radio output and word it three different ways today; that is recorded here rather than quietly tidied, because which wording survives is the owner's call. See the Track E report.",
 
   "audio.device.role_output_note": "radio receive audio",
   "audio.device.role_output_refusal": "radio audio output",
@@ -284,7 +298,7 @@
   "audio.device.commit_unchanged": "{role}: {device}, unchanged",
   "audio.device.commit_not_connected": "{role}: {device}, still saved but not connected",
 
-  "_18_workshop": "The Audio Workshop window itself.",
+  "_19_workshop": "The Audio Workshop window itself.",
 
   "audio.workshop.unnamed_section": "Section",
   "audio.workshop.section_nothing_to_adjust": "{section}, nothing to adjust here."

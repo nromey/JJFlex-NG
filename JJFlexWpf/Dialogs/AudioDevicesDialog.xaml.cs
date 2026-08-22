@@ -1393,14 +1393,18 @@ namespace JJFlexWpf.Dialogs
 
             // Plain English only: the operator asked not to hear figures.
             if (mode == MicVerdictOutputMode.Plain)
-                return $"{lead} {verdict}" + (withAdvice ? advice : "");
+                return Lexicon.Get("audio.device.reading_plain",
+                    ("lead", lead), ("verdict", verdict)) + (withAdvice ? advice : "");
 
             // Decibels only: the figures, and the direction to move them,
             // without the coaching sentence around it.
             if (mode == MicVerdictOutputMode.Numbers)
-                return $"{lead} {numbers}." + (withAdvice ? advice : "");
+                return Lexicon.Get("audio.device.reading_numbers",
+                    ("lead", lead), ("numbers", numbers)) + (withAdvice ? advice : "");
 
-            return $"{lead} {numbers}. {verdict}" + (withAdvice ? advice : "");
+            return Lexicon.Get("audio.device.reading_full",
+                ("lead", lead), ("numbers", numbers), ("verdict", verdict))
+                + (withAdvice ? advice : "");
         }
 
         /// <summary>
@@ -1435,15 +1439,15 @@ namespace JJFlexWpf.Dialogs
         /// </remarks>
         private static string PeakText(float db)
         {
-            if (db <= MicProbe.SilenceDb) return "nothing at all";
-            if (db > -1f) return $"{db:F1} dBFS";
-            return $"{db:F0} dBFS";
+            if (db <= MicProbe.SilenceDb) return Lexicon.Get("audio.device.peak_nothing_at_all");
+            if (db > -1f) return Lexicon.Get("audio.device.peak_dbfs", ("db", $"{db:F1}"));
+            return Lexicon.Get("audio.device.peak_dbfs", ("db", $"{db:F0}"));
         }
 
         private static string LoudnessPart(float lufs, float peakDb)
         {
             if (lufs <= LufsMeter.Floor || peakDb >= ClippedDb) return "";
-            return $", loudness {lufs:F0} LUFS";
+            return Lexicon.Get("audio.device.loudness_lufs", ("lufs", $"{lufs:F0}"));
         }
 
         /// <summary>
@@ -1475,17 +1479,17 @@ namespace JJFlexWpf.Dialogs
                 catch { /* device gone; the plain advice still stands */ }
                 if (boost > 0f)
                 {
-                    return $" Microphone Boost is at plus {boost:F0} dB — lower the Boost slider "
-                        + "below first, then run the check again.";
+                    return " " + Lexicon.Get("audio.device.advice_lower_boost",
+                        ("boost", $"{boost:F0}"));
                 }
-                return level != null
-                    ? " Lower the Windows input level slider below and run the check again."
-                    : " Lower this microphone's input level in Windows Sound settings and run the check again.";
+                return " " + (level != null
+                    ? Lexicon.Get("audio.device.advice_lower_slider")
+                    : Lexicon.Get("audio.device.advice_lower_in_windows"));
             }
 
-            return level != null
-                ? " Raise the Windows input level slider below and run the check again."
-                : " Raise this microphone's input level in Windows Sound settings and run the check again.";
+            return " " + (level != null
+                ? Lexicon.Get("audio.device.advice_raise_slider")
+                : Lexicon.Get("audio.device.advice_raise_in_windows"));
         }
 
         // ------------------------------------------------ windows input level
