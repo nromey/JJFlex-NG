@@ -456,12 +456,31 @@ namespace Radios
             try
             {
                 if (!File.Exists(path)) return null;
-                return Parse(File.ReadAllText(path, Encoding.UTF8));
+
+                var skipped = new List<string>();
+                Dictionary<string, LexiconEntry> parsed =
+                    Parse(File.ReadAllText(path, Encoding.UTF8), strict: false, skipped: skipped);
+
+                if (skipped.Count != 0)
+                {
+                    // The file itself was readable; individual entries were not.
+                    // Those keys keep the built-in wording and are named, so an
+                    // edit that did not take is explainable rather than a
+                    // mystery.
+                    problems.Add(new LexiconProblem(partition, path,
+                        skipped.Count + " entr" + (skipped.Count == 1 ? "y was" : "ies were") +
+                        " skipped and left with the built-in wording, because the text was " +
+                        "missing or the entry was malformed: " + string.Join(", ", skipped)));
+                }
+
+                return parsed;
             }
             catch (JsonException ex)
             {
-                // Hand-edited by the operator. A stray comma must not brick the
-                // app — skip this overlay, keep the baseline, say what happened.
+                // The whole FILE could not be parsed — a stray comma or brace,
+                // which breaks the structure rather than one entry. Skip the
+                // overlay, keep the baseline, say what happened. A hand-edited
+                // file must never brick the program he controls his radio with.
                 problems.Add(new LexiconProblem(partition, path,
                     "Not valid JSON, so this file was ignored and the built-in wording " +
                     "is being used instead. " + ex.Message));
@@ -509,6 +528,21 @@ namespace Radios
         /// </summary>
         internal static Dictionary<string, LexiconEntry> Parse(string json)
         {
+            return Parse(json, strict: true, skipped: null);
+        }
+
+        /// <summary>
+        /// Parse one partition, optionally forgiving individual bad entries.
+        /// </summary>
+        /// <param name="strict">
+        /// True for the shipped baseline: any bad entry throws, because it is a
+        /// build defect. False for an operator's overlay: the offending key is
+        /// skipped and named in <paramref name="skipped"/>, so one mistake does
+        /// not discard four hundred good edits alongside it.
+        /// </param>
+        internal static Dictionary<string, LexiconEntry> Parse(
+            string json, bool strict, List<string>? skipped)
+        {
             var result = new Dictionary<string, LexiconEntry>(StringComparer.Ordinal);
             if (string.IsNullOrWhiteSpace(json)) return result;
 
@@ -544,20 +578,48 @@ namespace Radios
                         "two wordings would vanish with nothing to show for it. Merge them by hand.");
                 }
 
-                switch (property.Value.ValueKind)
+                try
                 {
-                    case JsonValueKind.String:
-                        result[property.Name] = LexiconEntry.Plain(property.Value.GetString() ?? string.Empty);
-                        break;
+                    switch (property.Value.ValueKind)
+                    {
+                        case JsonValueKind.String:
+                            string text = property.Value.GetString() ?? string.Empty;
 
-                    case JsonValueKind.Object:
-                        result[property.Name] = ReadLadder(property.Name, property.Value);
-                        break;
+                            // An empty value is the one case the missing-key
+                            // fallback cannot cover: the key IS there, so
+                            // nothing looks absent, but Speak drops an empty
+                            // string and the app says nothing at all. Silence
+                            // is invisible to exactly the operator who most
+                            // needs the words, and it is what clearing a line
+                            // while editing produces. Never accept it.
+                            if (string.IsNullOrWhiteSpace(text))
+                            {
+                                throw new JsonException(
+                                    "Key '" + property.Name + "' has no text. An empty value would " +
+                                    "make the app say nothing at all, which is never the right " +
+                                    "answer — delete the key to fall back to the built-in wording, " +
+                                    "or give it words.");
+                            }
 
-                    default:
-                        throw new JsonException(
-                            "Key '" + property.Name + "' must be either a string or a verbosity " +
-                            "ladder object, but was " + property.Value.ValueKind + ".");
+                            result[property.Name] = LexiconEntry.Plain(text);
+                            break;
+
+                        case JsonValueKind.Object:
+                            result[property.Name] = ReadLadder(property.Name, property.Value);
+                            break;
+
+                        default:
+                            throw new JsonException(
+                                "Key '" + property.Name + "' must be either a string or a verbosity " +
+                                "ladder object, but was " + property.Value.ValueKind + ".");
+                    }
+                }
+                catch (JsonException) when (!strict)
+                {
+                    // An overlay is hand-edited. One bad entry loses that entry
+                    // and nothing else — the key falls back to the built-in
+                    // wording, and the operator is told which one.
+                    skipped?.Add(property.Name);
                 }
             }
 
@@ -577,6 +639,18 @@ namespace Radios
                 }
 
                 string text = tier.Value.GetString() ?? string.Empty;
+
+                // Same rule as a plain value: an empty tier is silence at that
+                // verbosity, which the operator would experience as the app
+                // going mute only when terse — nearly impossible to diagnose.
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    throw new JsonException(
+                        "Key '" + key + "' has an empty '" + tier.Name + "' tier. That would make " +
+                        "the app say nothing at that verbosity — remove the tier to fall back, or " +
+                        "give it words.");
+                }
+
                 if (string.Equals(tier.Name, "critical", StringComparison.OrdinalIgnoreCase)) critical = text;
                 else if (string.Equals(tier.Name, "terse", StringComparison.OrdinalIgnoreCase)) terse = text;
                 else if (string.Equals(tier.Name, "chatty", StringComparison.OrdinalIgnoreCase)) chatty = text;

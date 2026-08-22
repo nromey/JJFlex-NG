@@ -26,6 +26,17 @@ namespace Radios.Tests
     /// literal written by a person.
     /// </para>
     /// </remarks>
+    // LEXICON_SCANNER_EXEMPT — the sample call sites below are illustrations,
+    // not real ones, so this file must not be swept for missing keys.
+    //
+    // Joined to the RadioConfig statics collection because this class calls
+    // Lexicon.Forget() and Lexicon.Load(), and LexiconTests in that collection
+    // mutates the same process-wide state. xUnit runs test CLASSES in parallel,
+    // so without this the other class clears the store part-way through this
+    // sweep and the failure surfaces here, far from its cause. That is exactly
+    // what the collection's own doc comment warns about, and exactly what
+    // happened on 2026-08-22 — intermittently, which is the worst way.
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class LexiconKeyCoverageTests
     {
         private static readonly Regex CallStart = new Regex(

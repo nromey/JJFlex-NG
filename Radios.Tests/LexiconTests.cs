@@ -298,6 +298,25 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void AnOverlayValueThatIsEmptyMustNotProduceSILENCE()
+        {
+            // The case Noel asked about, and the one the missing-key fallback
+            // does NOT cover: the key is present, so nothing is "missing" —
+            // the operator has simply cleared the text, by accident or while
+            // editing. Speak() drops an empty string, so the app would say
+            // nothing at all, which is the one outcome this design exists to
+            // refuse. Silence is invisible to exactly the operator who most
+            // needs the words.
+            File.WriteAllText(Path.Combine(_temp, "connect.json"),
+                "{ \"connect.greeting\": \"\" }", Encoding.UTF8);
+
+            Lexicon.Load(new[] { Lexicon.Connect });
+
+            Assert.False(string.IsNullOrWhiteSpace(Lexicon.Get("connect.greeting")),
+                "an emptied overlay value produced silence");
+        }
+
+        [Fact]
         public void AGoodOverlayIsAppliedAndReported()
         {
             // The positive control for the test above: prove the overlay path
