@@ -3258,7 +3258,20 @@ public class KeyCommands
                 break;
 
             // Help
-            case Keys.Oem2: // ? key (forward slash)
+            //
+            // BOTH forms, and the Shift one is the one that actually fires.
+            // "?" is Shift+/ on a US keyboard, so it arrives here as
+            // Keys.Oem2 | Keys.Shift — this switch carries modifier bits (see
+            // the Keys.H | Keys.Shift slice-jump cases below). A bare
+            // Keys.Oem2 therefore never matched, and every "?" fell through to
+            // the unknown-command arm since the day it was written, while the
+            // leader help text advertised "H or ?" the whole time.
+            //
+            // Found 2026-08-22 by Noel pressing it. Same family as the Alt+L
+            // binding that shipped dead on 2026-08-13: it compiles, it reads
+            // correctly, and only the keypress tells you.
+            case Keys.Oem2:
+            case Keys.Oem2 | Keys.Shift:
                 LeaderKeyHelp();
                 break;
             case Keys.H:
@@ -3446,7 +3459,11 @@ public class KeyCommands
             case Keys.Up: AdjustVolumeTarget(rig, +1); return true;
             case Keys.Down: AdjustVolumeTarget(rig, -1); return true;
 
-            case Keys.Oem2: // ? — help without stealing H from headphone
+            // Both forms — "?" is Shift+/ and arrives with the Shift bit set,
+            // so the bare case alone never fired. Same defect as the leader
+            // help case above.
+            case Keys.Oem2:
+            case Keys.Oem2 | Keys.Shift: // ? — help without stealing H from headphone
                 EarconPlayer.LeaderHelpTone();
                 Radios.ScreenReaderOutput.Speak(
                     Radios.Lexicon.Get("audio.volume_mode.help"),
