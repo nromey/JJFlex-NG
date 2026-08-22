@@ -186,22 +186,24 @@ namespace JJFlexWpf.Dialogs
             {
                 if (DualHomed)
                 {
-                    return IsRemote
-                        ? "local network and SmartLink, using SmartLink"
-                        : "local network and SmartLink, using local network";
+                    return Lexicon.Get(IsRemote
+                        ? "connect.row.dual_using_smartlink"
+                        : "connect.row.dual_using_local");
                 }
-                if (LanAvailable) return "local network";
-                if (WanAvailable) return "remote via SmartLink";
+                if (LanAvailable) return Lexicon.Get("connect.row.local");
+                if (WanAvailable) return Lexicon.Get("connect.row.remote");
 
                 // Nothing has answered YET is not the same as nothing is there.
                 // Discovery needs a second or two, so until it settles this row
                 // says so instead of asserting an absence it cannot know about.
                 // Noel, 2026-08-17, landing on his own live radio and hearing it
                 // called offline: "which isn't true."
-                if (!DiscoverySettled) return "checking";
+                if (!DiscoverySettled) return Lexicon.Get("connect.row.checking");
 
                 // Roster row: say it is offline first, then how it was last seen.
-                var age = string.IsNullOrEmpty(LastSeenText) ? "" : ", " + LastSeenText;
+                var age = string.IsNullOrEmpty(LastSeenText)
+                    ? ""
+                    : Lexicon.Get("connect.row.age_suffix", ("lastSeenText", LastSeenText));
 
                 // Another account's radio — the only case where naming the
                 // owner is load-bearing. Before this branch, a foreign radio
@@ -212,27 +214,31 @@ namespace JJFlexWpf.Dialogs
                 if (ForeignAccount && !string.IsNullOrWhiteSpace(BoundAccount))
                 {
                     return !string.IsNullOrWhiteSpace(PreferredAccount)
-                        ? $"offline, preferred account {PreferredAccount}{age}"
-                        : $"offline, registered to {LastSeenViaAccount}{age}";
+                        ? Lexicon.Get("connect.row.offline_preferred_account",
+                            ("preferredAccount", PreferredAccount), ("age", age))
+                        : Lexicon.Get("connect.row.offline_registered_to",
+                            ("lastSeenViaAccount", LastSeenViaAccount), ("age", age));
                 }
 
                 if (FromAccountCache && !string.IsNullOrWhiteSpace(LastSeenViaAccount))
                 {
-                    var refreshing = RefreshInFlight ? ", refreshing" : "";
-                    return $"offline, last known for {LastSeenViaAccount}{age}{refreshing}";
+                    var refreshing = RefreshInFlight ? Lexicon.Get("connect.row.refreshing_suffix") : "";
+                    return Lexicon.Get("connect.row.offline_last_known_for",
+                        ("lastSeenViaAccount", LastSeenViaAccount), ("age", age), ("refreshing", refreshing));
                 }
 
                 // 0.5c: LastSeenText carries its own "last seen" prefix, and
                 // the old path wording repeated it ("last seen on the local
                 // network, last seen 4 hours ago"). Fold path and age into one
                 // sentence; an unknown age is omitted rather than spoken.
-                var path = LastSeenRemote ? "remote via SmartLink" : "on the local network";
+                var path = Lexicon.Get(LastSeenRemote ? "connect.row.remote" : "connect.row.last_seen_local");
                 var bareAge = LastSeenText.StartsWith("last seen ", StringComparison.OrdinalIgnoreCase)
                     ? LastSeenText.Substring("last seen ".Length)
                     : LastSeenText;
                 return string.IsNullOrEmpty(bareAge) || bareAge == "unknown"
-                    ? $"offline, last seen {path}"
-                    : $"offline, last seen {path} {bareAge}";
+                    ? Lexicon.Get("connect.row.offline_last_seen", ("path", path))
+                    : Lexicon.Get("connect.row.offline_last_seen_age",
+                        ("path", path), ("bareAge", bareAge));
             }
         }
 
@@ -251,20 +257,22 @@ namespace JJFlexWpf.Dialogs
         {
             get
             {
-                var fav = IsFavorite ? "Favorite, " : "";
-                var autoConn = AutoConnect ? "[AutoConnect] " : "";
-                var lbw = LowBW ? "[LowBW] " : "";
+                var fav = IsFavorite ? Lexicon.Get("connect.row.favorite_prefix") : "";
+                var autoConn = AutoConnect ? Lexicon.Get("connect.row.autoconnect_marker") : "";
+                var lbw = LowBW ? Lexicon.Get("connect.row.lowbw_marker") : "";
                 // The operator's chosen label wins over the radio's broadcast
                 // name — a choice outranks an observation (task #75).
                 var shownName = !string.IsNullOrWhiteSpace(UserLabel) ? UserLabel : Name;
-                var namePart = NameIsMissing(shownName) ? "Unnamed" : shownName;
+                var namePart = NameIsMissing(shownName) ? Lexicon.Get("connect.row.unnamed") : shownName;
                 var modelPart = string.IsNullOrWhiteSpace(ModelName) || ModelName == "Unknown"
-                    ? "Unknown model" : ModelName;
+                    ? Lexicon.Get("connect.row.unknown_model") : ModelName;
                 // Source, not serial. Two radios that differ only by where they
                 // are were indistinguishable by ear — an unnamed local rig and a
                 // remote one read as near-identical rows of digits. The serial is
                 // rarely what the user needs and never what they navigate by.
-                return $"{fav}{autoConn}{lbw}{namePart}, {modelPart}, {WhereText}";
+                return Lexicon.Get("connect.row.display",
+                    ("fav", fav), ("autoConn", autoConn), ("lbw", lbw),
+                    ("namePart", namePart), ("modelPart", modelPart), ("whereText", WhereText));
             }
         }
 
@@ -404,7 +412,11 @@ namespace JJFlexWpf.Dialogs
 
     public partial class RigSelectorDialog : JJFlexDialog
     {
-        private const string MustSelect = "You must select a radio.";
+        // Lexicon-backed, so no longer const: a const must be a compile-time
+        // literal and Lexicon.Get is resolved at run time.
+        private static string MustSelect => Lexicon.Get("connect.selector.must_select");
+
+        private static string SelectRadioTitle => Lexicon.Get("connect.selector.select_radio_title");
 
         /// <summary>
         /// How long the empty-list announcement waits for discovery to land.
@@ -697,8 +709,9 @@ namespace JJFlexWpf.Dialogs
                 // open, so "loaded" alone would quietly become a lie.
                 if (_anyLiveRadioSeen)
                 {
-                    AnnounceLoadedState("Local loaded",
-                        "Local connection list loaded, still listening");
+                    AnnounceLoadedState(
+                        Lexicon.Get("connect.selector.local_loaded_terse"),
+                        Lexicon.Get("connect.selector.local_loaded_chatty"));
                     return;
                 }
 
@@ -749,7 +762,7 @@ namespace JJFlexWpf.Dialogs
                         "RigSelector: AutoStartRemote pass beginning — background, not operator-initiated (#85)",
                         System.Diagnostics.TraceLevel.Info);
                     Radios.ScreenReaderOutput.Speak(
-                        "Starting remote radios for your account.",
+                        Lexicon.Get("connect.selector.autostart_remote"),
                         Radios.VerbosityLevel.Diagnostic, false);
                     StartRemoteFlow(operatorInitiated: false);
                 }), DispatcherPriority.Background);
@@ -907,15 +920,19 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         private void SpeakLoadedState()
         {
-            string local = _localSettled
-                ? "Local loaded, still listening."
-                : "Local still loading.";
-            string remote = _remoteDiscoveryInFlight
-                ? "Remote loading."
-                : _remoteListLive ? "Remote loaded." : "Remote not loaded.";
+            string local = Lexicon.Get(_localSettled
+                ? "connect.selector.f2_local_loaded"
+                : "connect.selector.f2_local_loading");
+            string remote = Lexicon.Get(_remoteDiscoveryInFlight
+                ? "connect.selector.f2_remote_loading"
+                : _remoteListLive ? "connect.selector.f2_remote_loaded" : "connect.selector.f2_remote_not_loaded");
             int live = LiveCount();
-            string count = $" {live} radio{(live == 1 ? "" : "s")} online.";
-            _callbacks.ScreenReaderSpeak?.Invoke($"{local} {remote}{count}", true);
+            string count = Lexicon.Get(
+                live == 1 ? "connect.selector.f2_count_one" : "connect.selector.f2_count_many",
+                ("live", live));
+            _callbacks.ScreenReaderSpeak?.Invoke(
+                Lexicon.Get("connect.selector.f2_summary",
+                    ("local", local), ("remote", remote), ("count", count)), true);
         }
 
         /// <summary>
@@ -974,17 +991,17 @@ namespace JJFlexWpf.Dialogs
             if (known == 0)
             {
                 AnnounceLoadedState(
-                    "Discovering radios",
-                    "Discovering radios. Nothing found yet. For SmartLink radios, "
-                    + "press Shift F10 and choose Show Remote Radios.");
+                    Lexicon.Get("connect.selector.discovering_terse"),
+                    Lexicon.Get("connect.selector.discovering_none_chatty"));
                 return;
             }
 
             AnnounceLoadedState(
-                "Discovering radios",
-                $"Discovering radios. {known} known radio{(known == 1 ? "" : "s")} listed. "
-                + "Press Enter on a radio to connect, and JJ Flexible looks for it "
-                + "where its connection path says to.");
+                Lexicon.Get("connect.selector.discovering_terse"),
+                Lexicon.Get(known == 1
+                    ? "connect.selector.discovering_known_chatty_one"
+                    : "connect.selector.discovering_known_chatty_many",
+                    ("known", known)));
         }
 
         // ------------------------------------------------------------------
@@ -1150,7 +1167,7 @@ namespace JJFlexWpf.Dialogs
                 row.WanAvailable = avail.wan;
 
                 var who = string.IsNullOrWhiteSpace(name)
-                    ? (string.IsNullOrWhiteSpace(row.Name) ? "A radio" : row.Name)
+                    ? (string.IsNullOrWhiteSpace(row.Name) ? Lexicon.Get("connect.selector.a_radio") : row.Name)
                     : name;
 
                 if (row.IsLive)
@@ -1161,9 +1178,10 @@ namespace JJFlexWpf.Dialogs
                     if (wasDual)
                     {
                         _callbacks.ScreenReaderSpeak?.Invoke(
-                            row.LanAvailable
-                                ? $"{who} is no longer listed over SmartLink. Still on the local network."
-                                : $"{who} left the local network. Still available over SmartLink.",
+                            Lexicon.Get(row.LanAvailable
+                                ? "connect.selector.left_smartlink"
+                                : "connect.selector.left_local",
+                                ("who", who)),
                             false);
                     }
                     return;
@@ -1177,7 +1195,7 @@ namespace JJFlexWpf.Dialogs
                 // SmartLink also listed it — "press Remote to look again" is
                 // useless advice for a rig that was sitting on the same LAN.
                 row.LastSeenRemote = hadWan && !hadLan;
-                row.LastSeenText = "last seen just now";
+                row.LastSeenText = Lexicon.Get("connect.selector.last_seen_just_now");
                 row.FromAccountCache = false;
 
                 bool hadKeyboard = RadiosBox.IsKeyboardFocusWithin;
@@ -1187,7 +1205,8 @@ namespace JJFlexWpf.Dialogs
                     RadiosBox.SelectedIndex = 0;
                     if (hadKeyboard) FocusRadioList();
                 }
-                _callbacks.ScreenReaderSpeak?.Invoke($"{who} went offline.", false);
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    Lexicon.Get("connect.selector.went_offline", ("who", who)), false);
             });
         }
 
@@ -1301,8 +1320,11 @@ namespace JJFlexWpf.Dialogs
                 if (onlyLive != null)
                 {
                     RadiosBox.SelectedIndex = RadiosBox.Items.IndexOf(onlyLive);
-                    var name = string.IsNullOrWhiteSpace(onlyLive.Name) ? "radio" : onlyLive.Name;
-                    _callbacks.ScreenReaderSpeak?.Invoke($"{name} selected. Press Enter to connect.", false);
+                    var name = string.IsNullOrWhiteSpace(onlyLive.Name)
+                        ? Lexicon.Get("connect.selector.default_radio_word")
+                        : onlyLive.Name;
+                    _callbacks.ScreenReaderSpeak?.Invoke(
+                        Lexicon.Get("connect.selector.only_live_selected", ("name", name)), false);
                 }
             }
 
@@ -1332,19 +1354,21 @@ namespace JJFlexWpf.Dialogs
             string name;
             if (count == 0)
             {
-                name = _localSettled
-                    ? "Radio list, empty, no radios found"
-                    : "Radio list, discovering radios";
+                name = Lexicon.Get(_localSettled
+                    ? "connect.selector.list_empty_settled"
+                    : "connect.selector.list_empty_discovering");
             }
             else if (live == 0)
             {
-                name = _localSettled
-                    ? $"Known radios, {count} listed, none online"
-                    : $"Known radios, {count} listed, discovering";
+                name = Lexicon.Get(_localSettled
+                    ? "connect.selector.list_none_online"
+                    : "connect.selector.list_discovering",
+                    ("count", count));
             }
             else
             {
-                name = $"Available radios, {count} listed, {live} online";
+                name = Lexicon.Get("connect.selector.list_available",
+                    ("count", count), ("live", live));
             }
 
             System.Windows.Automation.AutomationProperties.SetName(RadiosBox, name);
@@ -1386,7 +1410,7 @@ namespace JJFlexWpf.Dialogs
                     ShowNoRadiosGuidance();
                 else
                 {
-                    new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                    new MessageDialog { Title = SelectRadioTitle, Message = MustSelect, Owner = this }.ShowDialog();
                     RadiosBox.Focus();
                 }
                 return;
@@ -1436,13 +1460,14 @@ namespace JJFlexWpf.Dialogs
                 if (target == null)
                 {
                     _callbacks.ScreenReaderSpeak?.Invoke(
-                        $"{radioName} is registered to {radio.BoundAccount}, and that account is not saved " +
-                        "on this computer. Sign in to it from Manage SmartLink Accounts to reach this radio.", true);
+                        Lexicon.Get("connect.selector.foreign_account_not_saved",
+                            ("radioName", radioName), ("boundAccount", radio.BoundAccount)), true);
                     return;
                 }
 
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"{radioName} uses account {target.Email}. Switching to {target.Email} and refreshing the radio list.", true);
+                    Lexicon.Get("connect.selector.switching_account",
+                        ("radioName", radioName), ("email", target.Email)), true);
                 _callbacks.SetSessionAccount?.Invoke(target.Email);
                 UpdateAccountAffordances();
                 SwitchToAccount(CurrentAccountState());
@@ -1459,8 +1484,8 @@ namespace JJFlexWpf.Dialogs
                 else
                 {
                     _callbacks.ScreenReaderSpeak?.Invoke(
-                        $"{radioName} is not on the local network right now, and connect locally does not fall back. " +
-                        "It may be powered off or on a different network.", true);
+                        Lexicon.Get("connect.selector.force_local_unavailable",
+                            ("radioName", radioName)), true);
                 }
                 return;
             }
@@ -1476,10 +1501,10 @@ namespace JJFlexWpf.Dialogs
                 if (TryStartRemoteLookFor(radio, forced: ConnectPathKind.SmartLink, radioName)) return;
 
                 var acct = string.IsNullOrWhiteSpace(radio.LastSeenViaAccount)
-                    ? "this account" : radio.LastSeenViaAccount;
+                    ? Lexicon.Get("connect.selector.this_account") : radio.LastSeenViaAccount;
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"{radioName} is not in {acct}'s radio list, and connect over SmartLink does not fall back to local. " +
-                    "It may be powered off, or registered to a different account.", true);
+                    Lexicon.Get("connect.selector.force_remote_unavailable",
+                        ("radioName", radioName), ("acct", acct)), true);
                 return;
             }
 
@@ -1508,7 +1533,7 @@ namespace JJFlexWpf.Dialogs
                             fallbacks: chain.Skip(i + 1).ToList());
                         return;
                     }
-                    notes.Add("is not on the local network");
+                    notes.Add(Lexicon.Get("connect.selector.note_not_local"));
                     continue;
                 }
 
@@ -1523,8 +1548,8 @@ namespace JJFlexWpf.Dialogs
                 var acctName = string.IsNullOrWhiteSpace(radio.LastSeenViaAccount)
                     ? CurrentAccountEmail() : radio.LastSeenViaAccount;
                 notes.Add(string.IsNullOrWhiteSpace(acctName)
-                    ? "is not in the SmartLink radio list"
-                    : $"is not in {acctName}'s radio list");
+                    ? Lexicon.Get("connect.selector.note_not_in_smartlink_list")
+                    : Lexicon.Get("connect.selector.note_not_in_account_list", ("acctName", acctName)));
             }
 
             // Chain exhausted with nothing reachable. Notes are subject-less
@@ -1532,8 +1557,10 @@ namespace JJFlexWpf.Dialogs
             // once per rung.
             _callbacks.ScreenReaderSpeak?.Invoke(
                 notes.Count > 0
-                    ? $"{radioName} {string.Join(", and ", notes)}. It may be powered off."
-                    : $"{radioName} is not reachable right now. It may be powered off.",
+                    ? Lexicon.Get("connect.selector.chain_exhausted",
+                        ("radioName", radioName),
+                        ("notes", string.Join(Lexicon.Get("connect.selector.notes_join"), notes)))
+                    : Lexicon.Get("connect.selector.not_reachable", ("radioName", radioName)),
                 true);
         }
 
@@ -1551,7 +1578,7 @@ namespace JJFlexWpf.Dialogs
                 _pendingConnectSerial = radio.Serial;
                 _pendingConnectForced = forced;
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"Still looking for {radioName} over SmartLink. It will connect when found.", true);
+                    Lexicon.Get("connect.selector.still_looking", ("radioName", radioName)), true);
                 return true;
             }
             if (!_remoteListLive)
@@ -1559,7 +1586,7 @@ namespace JJFlexWpf.Dialogs
                 _pendingConnectSerial = radio.Serial;
                 _pendingConnectForced = forced;
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"Signing in to SmartLink to look for {radioName}.", true);
+                    Lexicon.Get("connect.selector.signing_in_to_look", ("radioName", radioName)), true);
                 StartRemoteFlow();
                 return true;
             }
@@ -1583,9 +1610,11 @@ namespace JJFlexWpf.Dialogs
             var acctEmail = CurrentAccountEmail();
             var via = remote
                 ? string.IsNullOrWhiteSpace(acctEmail)
-                    ? "over SmartLink" : $"over SmartLink as {acctEmail}"
-                : "on the local network";
-            _callbacks.ScreenReaderSpeak?.Invoke($"Connecting to {radioName} {via}", true);
+                    ? Lexicon.Get("connect.selector.via_smartlink")
+                    : Lexicon.Get("connect.selector.via_smartlink_as", ("acctEmail", acctEmail))
+                : Lexicon.Get("connect.selector.via_local");
+            _callbacks.ScreenReaderSpeak?.Invoke(
+                Lexicon.Get("connect.selector.connecting", ("radioName", radioName), ("via", via)), true);
             // AS prosign (wait / standing by) alongside the "Connecting to X" speech.
             // Pair with BT which fires at connect-ready in MainWindow.PowerOn.
             if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
@@ -1630,7 +1659,7 @@ namespace JJFlexWpf.Dialogs
             if (!success)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"Could not reach SmartLink to look for {RowName(row)}.", true);
+                    Lexicon.Get("connect.selector.smartlink_unreachable", ("radioName", RowName(row))), true);
                 return;
             }
 
@@ -1708,9 +1737,11 @@ namespace JJFlexWpf.Dialogs
         // Keep these in step with the context menu's Default Connection Path
         // submenu, which writes the same store — ONE vocabulary, so a setting
         // changed by one door reads identically at the other.
-        private const string PathAutomatic = "Automatic: local network first, then SmartLink";
-        private const string PathLocalFirst = "Local network first, then SmartLink";
-        private const string PathSmartLinkFirst = "SmartLink first, then local network";
+        // Lexicon-backed, so no longer const — a const must be a compile-time
+        // literal. Still one vocabulary shared by the combo, the menu and speech.
+        private static string PathAutomatic => Lexicon.Get("connect.selector.path_automatic");
+        private static string PathLocalFirst => Lexicon.Get("connect.selector.path_local_first");
+        private static string PathSmartLinkFirst => Lexicon.Get("connect.selector.path_smartlink_first");
 
         /// <summary>
         /// What the path control should currently be showing. Compared before
@@ -1757,7 +1788,7 @@ namespace JJFlexWpf.Dialogs
                 {
                     PathCombo.IsEnabled = false;
                     System.Windows.Automation.AutomationProperties.SetName(
-                        PathCombo, "Connection path, no radio selected");
+                        PathCombo, Lexicon.Get("connect.selector.path_combo_name_none"));
                     JJFlexHelp.SetText(PathCombo, PathComboHelp + " " + DescribeLearningState());
                     return;
                 }
@@ -1770,9 +1801,9 @@ namespace JJFlexWpf.Dialogs
                 // are stored choices and a stored choice always wins.
                 PathCombo.Items.Add(
                     radio.ChainIsLearned
-                        ? (radio.LearnedPath == ConnectPathKind.SmartLink
-                            ? "Automatic, learned: SmartLink first"
-                            : "Automatic, learned: local network first")
+                        ? Lexicon.Get(radio.LearnedPath == ConnectPathKind.SmartLink
+                            ? "connect.selector.path_learned_smartlink"
+                            : "connect.selector.path_learned_local")
                         : PathAutomatic);
                 PathCombo.Items.Add(PathLocalFirst);
                 PathCombo.Items.Add(PathSmartLinkFirst);
@@ -1790,7 +1821,7 @@ namespace JJFlexWpf.Dialogs
                 // arrow past. Cost of a Name is paid on every visit; value is
                 // paid once.
                 System.Windows.Automation.AutomationProperties.SetName(
-                    PathCombo, "Connection path");
+                    PathCombo, Lexicon.Get("connect.selector.path_combo_name"));
 
                 // The Ctrl+F1 explanation, composed here rather than in XAML
                 // because its last sentence has to report the CURRENT learning
@@ -1806,14 +1837,7 @@ namespace JJFlexWpf.Dialogs
             }
         }
 
-        private const string PathComboHelp =
-            "Which way JJ Flexible tries to reach this radio, and in what order. It is saved "
-            + "with the radio, so it travels with the radio rather than with your account. "
-            + "Automatic means the local network first and SmartLink after it. The two explicit "
-            + "orders are your own choice, and a choice always outranks anything JJ Flexible has "
-            + "worked out for itself: if the option reads 'learned', that is a suggestion from "
-            + "this radio's own connection history, and picking either explicit order replaces it "
-            + "for good.";
+        private static string PathComboHelp => Lexicon.Get("connect.selector.path_combo_help");
 
         /// <summary>
         /// Where path learning currently stands, in one sentence, honest about
@@ -1824,14 +1848,9 @@ namespace JJFlexWpf.Dialogs
         {
             var cfg = ConnectPathLearningConfig.Current;
             return cfg.LearnFromHistory
-                ? $"Right now JJ Flexible does take that hint, after {cfg.TrendThreshold} connects "
-                  + "in a row the same way. Change it, or switch it off, under Learning Your "
-                  + "Connection Path on the Network tab in Settings. To make it forget what it has "
-                  + "learned about this one radio, press Shift F10 here and choose Forget the "
-                  + "Learned Connection Path."
-                : "Right now JJ Flexible does not take that hint at all — learning is switched off "
-                  + "under Learning Your Connection Path on the Network tab in Settings, so no "
-                  + "option here will ever read 'learned'.";
+                ? Lexicon.Get("connect.selector.learning_on",
+                    ("trendThreshold", cfg.TrendThreshold))
+                : Lexicon.Get("connect.selector.learning_off");
         }
 
         private void PathCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1898,13 +1917,13 @@ namespace JJFlexWpf.Dialogs
             if (!persisted)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    order + ". This is in effect now, but it could not be written to disk,"
-                    + " so it may not be here next time you start. Your trace file has the reason.",
+                    Lexicon.Get("connect.selector.path_not_persisted", ("order", order)),
                     true);
             }
             else if (confirm)
             {
-                _callbacks.ScreenReaderSpeak?.Invoke(order + ".", true);
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    Lexicon.Get("connect.selector.path_confirmed", ("order", order)), true);
             }
 
             RefreshRadiosList();
@@ -1928,9 +1947,9 @@ namespace JJFlexWpf.Dialogs
             // "first, then the other" would be a flat lie if one ever did.
             if (chain.Count == 1)
             {
-                return chain[0] == ConnectPathKind.SmartLink
-                    ? "SmartLink only, never the local network"
-                    : "Local network only, never SmartLink";
+                return Lexicon.Get(chain[0] == ConnectPathKind.SmartLink
+                    ? "connect.selector.path_smartlink_only"
+                    : "connect.selector.path_local_only");
             }
 
             return chain[0] == ConnectPathKind.SmartLink ? PathSmartLinkFirst : PathLocalFirst;
@@ -1953,7 +1972,7 @@ namespace JJFlexWpf.Dialogs
         private static string RowName(RadioListItem r) =>
             !RadioListItem.NameIsMissing(r.UserLabel) ? r.UserLabel
             : !RadioListItem.NameIsMissing(r.Name) ? r.Name
-            : "This radio";
+            : Lexicon.Get("connect.selector.this_radio");
 
         private void ReselectBySerial(string serial)
         {
@@ -1987,9 +2006,13 @@ namespace JJFlexWpf.Dialogs
         {
             var radio = GetSelectedRadio();
             bool fav = radio?.IsFavorite == true;
-            FavoriteMenuItem.Header = fav ? "Remove from Favorites" : "Add to Favorites";
+            FavoriteMenuItem.Header = Lexicon.Get(fav
+                ? "connect.selector.menu_remove_favorite"
+                : "connect.selector.menu_add_favorite");
             System.Windows.Automation.AutomationProperties.SetName(FavoriteMenuItem,
-                fav ? "Remove selected radio from favorites" : "Add selected radio to favorites");
+                Lexicon.Get(fav
+                    ? "connect.selector.menu_remove_favorite_name"
+                    : "connect.selector.menu_add_favorite_name"));
             FavoriteMenuItem.IsEnabled = radio != null;
             ConnectLocalMenuItem.IsEnabled = radio != null;
             ConnectRemoteMenuItem.IsEnabled = radio != null;
@@ -1997,11 +2020,13 @@ namespace JJFlexWpf.Dialogs
             // shows the radios, after one it refreshes them (the server
             // sends its list once per TLS session, so a repeat is a
             // session-cycling refresh).
-            RemoteListMenuItem.Header = _remoteListLive ? "Refresh Remote List" : "Show Remote Radios";
+            RemoteListMenuItem.Header = Lexicon.Get(_remoteListLive
+                ? "connect.selector.menu_refresh_remote"
+                : "connect.selector.menu_show_remote");
             System.Windows.Automation.AutomationProperties.SetName(RemoteListMenuItem,
-                _remoteListLive
-                    ? "Refresh Remote List. Reconnects to SmartLink and looks again, picking up radios that came online since."
-                    : "Show this account's SmartLink radios");
+                Lexicon.Get(_remoteListLive
+                    ? "connect.selector.menu_refresh_remote_name"
+                    : "connect.selector.menu_show_remote_name"));
             // Task #102: only offer to forget something there is something to
             // forget. An always-enabled item that answers "there was nothing
             // learned for this radio" is an item that teaches the operator to
@@ -2011,9 +2036,9 @@ namespace JJFlexWpf.Dialogs
             bool hasLearned = radio?.LearnedPath.HasValue == true;
             ForgetLearnedPathMenuItem.IsEnabled = hasLearned;
             System.Windows.Automation.AutomationProperties.SetName(ForgetLearnedPathMenuItem,
-                hasLearned
-                    ? "Forget the learned connection path for selected radio"
-                    : "Forget the learned connection path. Nothing has been learned for this radio.");
+                Lexicon.Get(hasLearned
+                    ? "connect.selector.menu_forget_learned_name"
+                    : "connect.selector.menu_forget_learned_name_none"));
 
             BuildPreferredAccountSubmenu(radio);
             BuildDefaultPathSubmenu(radio);
@@ -2036,35 +2061,31 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                new MessageDialog { Title = SelectRadioTitle, Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
 
             var rowName = RowName(radio);
             var confirm = new ConfirmActionDialog(
-                "Forget the Learned Connection Path",
-                $"JJ Flexible worked out how {rowName} usually connects by reading that radio's own "
-                + "connection history. There is nowhere else it is written down, so forgetting what "
-                + "was learned means clearing that history.",
+                Lexicon.Get("connect.selector.forget_title"),
+                Lexicon.Get("connect.selector.forget_body", ("rowName", rowName)),
                 new[]
                 {
-                    "This radio loses its record of the last ten connection attempts: which way each "
-                    + "one went, whether it worked, and how long it took.",
-                    "Your own choice of connection path for this radio is NOT touched. Only what "
-                    + "JJ Flexible worked out on its own goes away.",
-                    "It starts learning again from the next connection.",
+                    Lexicon.Get("connect.selector.forget_warning_history"),
+                    Lexicon.Get("connect.selector.forget_warning_choice"),
+                    Lexicon.Get("connect.selector.forget_warning_restart"),
                 },
-                question: $"Clear the connection history for {rowName}?",
-                yesLabel: "_Forget it",
-                noLabel: "_Keep it")
+                question: Lexicon.Get("connect.selector.forget_question", ("rowName", rowName)),
+                yesLabel: Lexicon.Get("connect.selector.forget_yes"),
+                noLabel: Lexicon.Get("connect.selector.forget_no"))
             {
                 Owner = this,
             };
 
             if (confirm.ShowDialog() != true)
             {
-                _callbacks.ScreenReaderSpeak?.Invoke("Nothing was cleared.", true);
+                _callbacks.ScreenReaderSpeak?.Invoke(Lexicon.Get("connect.selector.forget_declined"), true);
                 FocusRadioList();
                 return;
             }
@@ -2072,8 +2093,7 @@ namespace JJFlexWpf.Dialogs
             if (!ConnectionHistory.Clear(radio.Serial))
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    "The connection history could not be cleared, so this radio may still follow "
-                    + "its old habit. Your trace file has the reason.", true);
+                    Lexicon.Get("connect.selector.forget_failed"), true);
                 FocusRadioList();
                 return;
             }
@@ -2089,7 +2109,7 @@ namespace JJFlexWpf.Dialogs
             SyncPathAffordance();
 
             _callbacks.ScreenReaderSpeak?.Invoke(
-                $"{rowName} connection history cleared. Learning starts again from the next connection.",
+                Lexicon.Get("connect.selector.forget_done", ("rowName", rowName)),
                 true);
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
@@ -2141,7 +2161,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                new MessageDialog { Title = SelectRadioTitle, Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -2153,7 +2173,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                new MessageDialog { Title = SelectRadioTitle, Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -2180,12 +2200,12 @@ namespace JJFlexWpf.Dialogs
 
             var auto = new MenuItem
             {
-                Header = "Automatic",
+                Header = Lexicon.Get("connect.selector.menu_account_automatic"),
                 IsCheckable = true,
                 IsChecked = string.IsNullOrWhiteSpace(radio.PreferredAccount),
             };
             System.Windows.Automation.AutomationProperties.SetName(auto,
-                "Automatic. Use the account that last listed this radio, or the default account.");
+                Lexicon.Get("connect.selector.menu_account_automatic_name"));
             auto.Click += (_, _) => SetPreferredAccountForRow(radio, "");
             PreferredAccountMenuItem.Items.Add(auto);
 
@@ -2196,7 +2216,8 @@ namespace JJFlexWpf.Dialogs
                 var label = string.IsNullOrWhiteSpace(acct.FriendlyName)
                             || string.Equals(acct.FriendlyName, email, StringComparison.OrdinalIgnoreCase)
                     ? email
-                    : $"{acct.FriendlyName} ({email})";
+                    : Lexicon.Get("connect.selector.account_label",
+                        ("friendlyName", acct.FriendlyName), ("email", email));
                 var item = new MenuItem
                 {
                     // "_" in a header is an access-key marker; emails keep theirs.
@@ -2221,7 +2242,7 @@ namespace JJFlexWpf.Dialogs
             if (!KnownRadioRoster.SetPreferredAccount(radio.Serial, email))
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    "Could not save the preferred account. It would not survive a restart, so nothing was changed.",
+                    Lexicon.Get("connect.selector.preferred_account_save_failed"),
                     true);
                 return;
             }
@@ -2234,8 +2255,9 @@ namespace JJFlexWpf.Dialogs
             var rowName = RowName(radio);
             _callbacks.ScreenReaderSpeak?.Invoke(
                 string.IsNullOrWhiteSpace(email)
-                    ? $"{rowName} preferred account cleared. Automatic."
-                    : $"{rowName} will connect as {email}.",
+                    ? Lexicon.Get("connect.selector.preferred_account_cleared", ("rowName", rowName))
+                    : Lexicon.Get("connect.selector.preferred_account_set",
+                        ("rowName", rowName), ("email", email)),
                 true);
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
@@ -2268,7 +2290,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                new MessageDialog { Title = SelectRadioTitle, Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -2279,15 +2301,17 @@ namespace JJFlexWpf.Dialogs
                 // The store declined. Saying "added to favorites" here would be a
                 // promise the next launch breaks.
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    "Could not save the favorite setting. It would not survive a restart, so nothing was changed.",
+                    Lexicon.Get("connect.selector.favorite_save_failed"),
                     true);
                 return;
             }
 
             radio.IsFavorite = wanted;
             _callbacks.ScreenReaderSpeak?.Invoke(
-                wanted ? $"{RowName(radio)} added to favorites. Favorites sort to the top."
-                       : $"{RowName(radio)} removed from favorites.",
+                Lexicon.Get(wanted
+                    ? "connect.selector.favorite_added"
+                    : "connect.selector.favorite_removed",
+                    ("rowName", RowName(radio))),
                 true);
             RefreshRadiosList();
             ReselectBySerial(radio.Serial);
@@ -2303,7 +2327,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                new MessageDialog { Title = SelectRadioTitle, Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -2333,10 +2357,8 @@ namespace JJFlexWpf.Dialogs
             {
                 new MessageDialog
                 {
-                    Title = "Radio In Use",
-                    Message =
-                        $"You are connected to {rowName} right now, so it cannot be removed. "
-                        + "Disconnect from it first, then remove it.",
+                    Title = Lexicon.Get("connect.selector.in_use_title"),
+                    Message = Lexicon.Get("connect.selector.in_use_body", ("rowName", rowName)),
                     Owner = this,
                 }.ShowDialog();
                 FocusRadioList();
@@ -2349,7 +2371,8 @@ namespace JJFlexWpf.Dialogs
             };
             if (dialog.ShowDialog() != true)
             {
-                _callbacks.ScreenReaderSpeak?.Invoke($"{rowName} was not removed.", true);
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    Lexicon.Get("connect.selector.remove_declined", ("rowName", rowName)), true);
                 FocusRadioList();
                 return;
             }
@@ -2401,26 +2424,22 @@ namespace JJFlexWpf.Dialogs
             string speech;
             if (!ok)
             {
-                speech = $"{rowName} is off the list for now, but the change could not be written "
-                       + "to disk, so it will be back the next time you start. Your trace file has "
-                       + "the reason.";
+                speech = Lexicon.Get("connect.selector.remove_not_persisted", ("rowName", rowName));
             }
             else if (deleteSettings)
             {
-                speech = $"{rowName} removed, along with everything set up for it.";
+                speech = Lexicon.Get("connect.selector.remove_with_settings", ("rowName", rowName));
             }
             else if (radio.IsLive)
             {
                 // Say it BEFORE it happens rather than letting the operator
                 // discover it. The dialog warned; this is the receipt matching
                 // the warning.
-                speech = $"{rowName} removed from the list, with its settings kept. It is reachable "
-                       + "right now, so discovery will list it again shortly.";
+                speech = Lexicon.Get("connect.selector.remove_live", ("rowName", rowName));
             }
             else
             {
-                speech = $"{rowName} removed from the list. Its settings were kept, and it comes "
-                       + "back if this radio is ever seen again.";
+                speech = Lexicon.Get("connect.selector.remove_offline", ("rowName", rowName));
             }
 
             _callbacks.ScreenReaderSpeak?.Invoke(speech, true);
@@ -2470,7 +2489,8 @@ namespace JJFlexWpf.Dialogs
         {
             if (_remoteDiscoveryInFlight)
             {
-                _callbacks.ScreenReaderSpeak?.Invoke("Remote discovery is already running.", false);
+                _callbacks.ScreenReaderSpeak?.Invoke(
+                    Lexicon.Get("connect.selector.remote_already_running"), false);
                 return;
             }
 
@@ -2497,9 +2517,10 @@ namespace JJFlexWpf.Dialogs
             var state = CurrentAccountState();
             if (!string.IsNullOrWhiteSpace(state.Email))
             {
-                string accountLine = refreshing
-                    ? $"Refreshing the radio list for {state.Email}."
-                    : $"Connecting to SmartLink as {state.Email}.";
+                string accountLine = Lexicon.Get(refreshing
+                    ? "connect.selector.refreshing_for_account"
+                    : "connect.selector.connecting_as_account",
+                    ("email", state.Email));
                 if (operatorInitiated)
                     _callbacks.ScreenReaderSpeak?.Invoke(accountLine, false);
                 else
@@ -2519,7 +2540,9 @@ namespace JJFlexWpf.Dialogs
             // window and owns its own announcement.
             _closeConnecting = operatorInitiated
                 ? _callbacks.ShowConnecting?.Invoke(
-                    refreshing ? "Refreshing remote radios..." : "Connecting to SmartLink...")
+                    Lexicon.Get(refreshing
+                        ? "connect.selector.connecting_window_refresh"
+                        : "connect.selector.connecting_window"))
                 : null;
 
             var liveBefore = LiveSerialSet();
@@ -2567,8 +2590,9 @@ namespace JJFlexWpf.Dialogs
                     // line leads and the delta follows, both queued.
                     if (success)
                     {
-                        AnnounceLoadedState("Remote loaded",
-                            "Remote connection list loaded");
+                        AnnounceLoadedState(
+                            Lexicon.Get("connect.selector.remote_loaded_terse"),
+                            Lexicon.Get("connect.selector.remote_loaded_chatty"));
                     }
                     AnnounceListDelta(liveBefore, success);
 
@@ -2622,14 +2646,17 @@ namespace JJFlexWpf.Dialogs
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
                     liveNow.Count == 0
-                        ? "Radio list updated. No radios online."
-                        : $"Radio list unchanged. {liveNow.Count} online.",
+                        ? Lexicon.Get("connect.selector.delta_none_online")
+                        : Lexicon.Get("connect.selector.delta_unchanged", ("count", liveNow.Count)),
                     false);
                 return;
             }
 
             _callbacks.ScreenReaderSpeak?.Invoke(
-                $"Radio list updated. {liveNow.Count} radio{(liveNow.Count == 1 ? "" : "s")} online.", false);
+                Lexicon.Get(liveNow.Count == 1
+                    ? "connect.selector.delta_updated_one"
+                    : "connect.selector.delta_updated_many",
+                    ("count", liveNow.Count)), false);
         }
 
         /// <summary>
@@ -2718,32 +2745,34 @@ namespace JJFlexWpf.Dialogs
 
             if (state.Count <= 0)
             {
-                AccountButton.Content = "_Sign in to SmartLink";
+                AccountButton.Content = Lexicon.Get("connect.selector.account_button_signin");
                 System.Windows.Automation.AutomationProperties.SetName(AccountButton,
-                    "Sign in to SmartLink. No SmartLink account is saved on this computer yet.");
-                AccountStatusText.Text = "SmartLink account: none saved. Use Sign in to SmartLink to add one.";
+                    Lexicon.Get("connect.selector.account_button_signin_name"));
+                AccountStatusText.Text = Lexicon.Get("connect.selector.account_status_none");
             }
             else if (state.Count == 1)
             {
-                AccountButton.Content = "_SmartLink Account";
+                AccountButton.Content = Lexicon.Get("connect.selector.account_button_one");
                 System.Windows.Automation.AutomationProperties.SetName(AccountButton,
                     string.IsNullOrWhiteSpace(who)
-                        ? "SmartLink Account. One account saved."
-                        : $"SmartLink Account. Using {who}.");
+                        ? Lexicon.Get("connect.selector.account_button_one_name")
+                        : Lexicon.Get("connect.selector.account_button_one_name_who", ("who", who)));
                 AccountStatusText.Text = string.IsNullOrWhiteSpace(who)
-                    ? "SmartLink account: one saved"
-                    : $"SmartLink account: {who}";
+                    ? Lexicon.Get("connect.selector.account_status_one")
+                    : Lexicon.Get("connect.selector.account_status_one_who", ("who", who));
             }
             else
             {
-                AccountButton.Content = "_Switch Account";
+                AccountButton.Content = Lexicon.Get("connect.selector.account_button_switch");
                 System.Windows.Automation.AutomationProperties.SetName(AccountButton,
                     string.IsNullOrWhiteSpace(who)
-                        ? $"Switch Account. {state.Count} accounts saved."
-                        : $"Switch Account. Currently using {who}, {state.Count} accounts saved.");
+                        ? Lexicon.Get("connect.selector.account_button_switch_name", ("count", state.Count))
+                        : Lexicon.Get("connect.selector.account_button_switch_name_who",
+                            ("who", who), ("count", state.Count)));
                 AccountStatusText.Text = string.IsNullOrWhiteSpace(who)
-                    ? $"SmartLink account: {state.Count} saved, none chosen"
-                    : $"SmartLink account: {who} ({state.Count} saved)";
+                    ? Lexicon.Get("connect.selector.account_status_many", ("count", state.Count))
+                    : Lexicon.Get("connect.selector.account_status_many_who",
+                        ("who", who), ("count", state.Count));
             }
 
             // The full address is deliberately NOT appended here. When a
@@ -2781,7 +2810,7 @@ namespace JJFlexWpf.Dialogs
             if (rosterChanged)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"Saved accounts updated. {after.Count} saved.", false);
+                    Lexicon.Get("connect.selector.accounts_updated", ("count", after.Count)), false);
                 return;
             }
 
@@ -2789,8 +2818,8 @@ namespace JJFlexWpf.Dialogs
             // control, so say what is still true.
             _callbacks.ScreenReaderSpeak?.Invoke(
                 string.IsNullOrWhiteSpace(after.Email)
-                    ? "No account change."
-                    : $"No account change. Still using {after.Email}.",
+                    ? Lexicon.Get("connect.selector.no_account_change")
+                    : Lexicon.Get("connect.selector.no_account_change_who", ("email", after.Email)),
                 false);
         }
 
@@ -2807,12 +2836,13 @@ namespace JJFlexWpf.Dialogs
             if (cached > 0)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"Last known radios for {state.Email}: {cached} listed. Refreshing.", false);
+                    Lexicon.Get("connect.selector.switch_cached",
+                        ("email", state.Email), ("cached", cached)), false);
             }
             else
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"Switched to {state.Email}. No saved radio list for this account yet. Fetching.", false);
+                    Lexicon.Get("connect.selector.switch_no_cache", ("email", state.Email)), false);
             }
 
             // A live fetch, always. The cached rows are a fast paint and nothing
@@ -2851,7 +2881,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                new MessageDialog { Title = SelectRadioTitle, Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -2860,10 +2890,13 @@ namespace JJFlexWpf.Dialogs
             var (hasOther, otherName) = _callbacks.CheckOtherAutoConnect(radio.Serial);
             if (hasOther && !radio.AutoConnect)
             {
-                var displayOther = string.IsNullOrEmpty(otherName) ? "Another radio" : otherName;
+                var displayOther = string.IsNullOrEmpty(otherName)
+                    ? Lexicon.Get("connect.selector.autoconnect_other")
+                    : otherName;
                 var result = MessageBox.Show(
-                    $"{displayOther} currently has auto-connect enabled.\n\nSwitch auto-connect to {radio.Name}?",
-                    "Switch Auto-Connect",
+                    Lexicon.Get("connect.selector.autoconnect_switch_body",
+                        ("displayOther", displayOther), ("radioName", radio.Name)),
+                    Lexicon.Get("connect.selector.autoconnect_switch_title"),
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Question);
 
@@ -2902,10 +2935,11 @@ namespace JJFlexWpf.Dialogs
 
                     RefreshRadiosList();
 
-                    if (newAutoConnect)
-                        _callbacks.ScreenReaderSpeak?.Invoke($"Auto-connect set for {radio.Name}", true);
-                    else
-                        _callbacks.ScreenReaderSpeak?.Invoke($"Auto-connect cleared for {radio.Name}", true);
+                    _callbacks.ScreenReaderSpeak?.Invoke(
+                        Lexicon.Get(newAutoConnect
+                            ? "connect.selector.autoconnect_set"
+                            : "connect.selector.autoconnect_cleared",
+                            ("radioName", radio.Name)), true);
                 });
         }
 
@@ -2953,7 +2987,7 @@ namespace JJFlexWpf.Dialogs
                 // it more often than not, and the announcement would be
                 // contradicted a half-second later (C2 item 6).
                 if (!_anyLiveRadioSeen && !_remoteDiscoveryInFlight)
-                    ScreenReaderOutput.Speak("No radios found yet. Searching.", VerbosityLevel.Critical, true);
+                    ScreenReaderOutput.Speak(Lexicon.Get("connect.selector.no_radios_yet"), VerbosityLevel.Critical, true);
                 return;
             }
 
@@ -3071,7 +3105,7 @@ namespace JJFlexWpf.Dialogs
             var radio = GetSelectedRadio();
             if (radio == null)
             {
-                new MessageDialog { Title = "Select Radio", Message = MustSelect, Owner = this }.ShowDialog();
+                new MessageDialog { Title = SelectRadioTitle, Message = MustSelect, Owner = this }.ShowDialog();
                 RadiosBox.Focus();
                 return;
             }
@@ -3079,13 +3113,13 @@ namespace JJFlexWpf.Dialogs
             if (!radio.IsLive)
             {
                 _callbacks.ScreenReaderSpeak?.Invoke(
-                    $"{RowName(radio)} is offline. There is nothing to test until it turns up.", true);
+                    Lexicon.Get("connect.selector.test_offline", ("rowName", RowName(radio))), true);
                 return;
             }
 
             if (_callbacks.OpenParms == null)
             {
-                _callbacks.ScreenReaderSpeak?.Invoke("Connection testing not available", true);
+                _callbacks.ScreenReaderSpeak?.Invoke(Lexicon.Get("connect.selector.test_unavailable"), true);
                 return;
             }
 
@@ -3111,9 +3145,8 @@ namespace JJFlexWpf.Dialogs
             // a radio's path chain asks for it).
             new MessageDialog
             {
-                Title = "No Radios Found",
-                Message = "No radios found on the local network yet. To look for radios through SmartLink, " +
-                          "press Shift F10 on the radio list and choose Show Remote Radios.",
+                Title = Lexicon.Get("connect.selector.no_radios_title"),
+                Message = Lexicon.Get("connect.selector.no_radios_body"),
                 Owner = this
             }.ShowDialog();
         }
