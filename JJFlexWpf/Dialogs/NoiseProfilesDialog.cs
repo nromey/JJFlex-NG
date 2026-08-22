@@ -182,9 +182,9 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
             "Open the noise profiles folder in File Explorer");
         folderButton.Click += (s, e) =>
         {
-            ScreenReaderOutput.Speak(NoiseProfileStore.OpenFolder()
-                ? "Profiles folder opened in File Explorer"
-                : "Could not open the profiles folder", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get(NoiseProfileStore.OpenFolder()
+                ? "audio.noise.folder_opened"
+                : "audio.noise.folder_open_failed"), VerbosityLevel.Terse, interrupt: true);
         };
         panel.Children.Add(folderButton);
 
@@ -274,7 +274,7 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
 
     private void ApplyRecommendedLevels()
     {
-        if (_pipeline == null) { ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Terse, interrupt: true); return; }
+        if (_pipeline == null) { ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Terse, interrupt: true); return; }
         bool rnn = _pipeline.RnnEnabled;
         bool sub = _pipeline.SpectralEnabled;
         string spoken;
@@ -286,22 +286,22 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
             _pipeline.SpectralStrength = 0.45f;
             _pipeline.SpectralFloor = 0.04f;
             _pipeline.RnnStrength = 0.65f;
-            spoken = "Balanced for both stages: spectral strength 45 percent, floor 4 percent, neural strength 65 percent";
+            spoken = Lexicon.Get("audio.noise.recommended_both");
         }
         else if (sub)
         {
             _pipeline.SpectralStrength = 0.7f;
             _pipeline.SpectralFloor = 0.02f;
-            spoken = "Spectral strength 70 percent, floor 2 percent";
+            spoken = Lexicon.Get("audio.noise.recommended_spectral");
         }
         else if (rnn)
         {
             _pipeline.RnnStrength = 0.8f;
-            spoken = "Neural strength 80 percent";
+            spoken = Lexicon.Get("audio.noise.recommended_neural");
         }
         else
         {
-            ScreenReaderOutput.Speak("Turn on a PC noise reduction stage first",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.turn_a_stage_on_first"),
                 VerbosityLevel.Terse, interrupt: true);
             return;
         }
@@ -313,11 +313,11 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
 
     private void LoadSelected()
     {
-        if (_pipeline == null) { ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Terse, interrupt: true); return; }
+        if (_pipeline == null) { ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Terse, interrupt: true); return; }
         if (_profileList.SelectedItem is not ListBoxItem item ||
             item.Tag is not NoiseProfileStore.ProfileFile profile)
         {
-            ScreenReaderOutput.Speak("Select a profile in the list first", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.select_a_profile_first"), VerbosityLevel.Terse, interrupt: true);
             return;
         }
         if (_pipeline.LoadNoiseProfile(profile.Path))
@@ -325,26 +325,27 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
             RememberProfilePath(profile.Path);
             string tail = _pipeline.SpectralEnabled
                 ? ""
-                : " PC Spectral NR is off — Control J then Shift S turns it on.";
+                : " " + Lexicon.Get("audio.noise.spectral_is_off_hint");
             EarconPlayer.ConfirmTone();
-            ScreenReaderOutput.Speak($"Loaded noise profile: {profile.Describe()}.{tail}",
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.noise.profile_loaded", ("profile", profile.Describe())) + tail,
                 VerbosityLevel.Terse, interrupt: true);
         }
         else
         {
             EarconPlayer.Warning1Beep();
-            ScreenReaderOutput.Speak("Could not load that profile", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.load_failed"), VerbosityLevel.Terse, interrupt: true);
         }
         RefreshAll();
     }
 
     private void SaveCurrentAs()
     {
-        if (_pipeline == null) { ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Terse, interrupt: true); return; }
+        if (_pipeline == null) { ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Terse, interrupt: true); return; }
         if (!_pipeline.HasNoiseProfile)
         {
             EarconPlayer.Warning1Beep();
-            ScreenReaderOutput.Speak("No noise profile to save. Capture one first.",
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.nothing_to_save"),
                 VerbosityLevel.Terse, interrupt: true);
             return;
         }
@@ -366,28 +367,29 @@ public sealed class NoiseProfilesDialog : JJFlexDialog
             _pipeline.LoadNoiseProfile(path);
             RememberProfilePath(path);
             EarconPlayer.ConfirmTone();
-            ScreenReaderOutput.Speak($"Saved noise profile {name}", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.profile_saved", ("profile", name)),
+                VerbosityLevel.Terse, interrupt: true);
         }
         else
         {
             EarconPlayer.Warning1Beep();
-            ScreenReaderOutput.Speak("Could not save the profile", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.save_failed"), VerbosityLevel.Terse, interrupt: true);
         }
         RefreshAll();
     }
 
     private void ClearProfile()
     {
-        if (_pipeline == null) { ScreenReaderOutput.Speak("No radio connected", VerbosityLevel.Terse, interrupt: true); return; }
+        if (_pipeline == null) { ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Terse, interrupt: true); return; }
         if (!_pipeline.HasNoiseProfile)
         {
-            ScreenReaderOutput.Speak("No noise profile is loaded", VerbosityLevel.Terse, interrupt: true);
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.none_loaded"), VerbosityLevel.Terse, interrupt: true);
             return;
         }
         _pipeline.ClearNoiseProfile();
         RememberProfilePath("");
         EarconPlayer.ConfirmTone();
-        ScreenReaderOutput.Speak("Noise profile cleared", VerbosityLevel.Terse, interrupt: true);
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.noise.profile_cleared"), VerbosityLevel.Terse, interrupt: true);
         RefreshAll();
     }
 
