@@ -425,7 +425,7 @@ public partial class FrequencyDisplay : UserControl
         => field.Key switch
         {
             "Freq" => !IsModernMode,
-            "RIT" or "XIT" => GetSpeechText(field) != "off",
+            "RIT" or "XIT" => GetSpeechText(field) != Radios.Lexicon.Get("settings.home.value_off"),
             _ => false
         };
 
@@ -444,7 +444,7 @@ public partial class FrequencyDisplay : UserControl
         if (field.Key == "SquelchLevel"
             && _fieldDict.TryGetValue("Squelch", out var squelch))
         {
-            return GetSpeechText(squelch) == "off";
+            return GetSpeechText(squelch) == Radios.Lexicon.Get("settings.home.value_off");
         }
         return false;
     }
@@ -558,7 +558,11 @@ public partial class FrequencyDisplay : UserControl
         // Clamp check — announce boundary instead of silently stopping
         if (newPos < 0 || newPos >= totalLen)
         {
-            Radios.ScreenReaderOutput.Speak(direction < 0 ? "Beginning" : "End", Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(
+                direction < 0
+                    ? Radios.Lexicon.Get("settings.home.nav_beginning")
+                    : Radios.Lexicon.Get("settings.home.nav_end"),
+                Radios.VerbosityLevel.Terse, true);
             return;
         }
 
@@ -573,13 +577,13 @@ public partial class FrequencyDisplay : UserControl
             string value = GetSpeechText(newField);
             string speech = FormatFieldAnnouncement(newField);
 
-            if (value != "off")
+            if (value != Radios.Lexicon.Get("settings.home.value_off"))
             {
                 int fieldStart = newField.Position + newField.LeftDelim.Length;
                 int posInField = newPos - fieldStart;
                 string? stepName = GetStepName(newField.Key, posInField, newField.Length, newField.Text);
                 if (stepName != null)
-                    speech += $", {stepName}";
+                    speech += Radios.Lexicon.Get("settings.home.step_suffix", ("step", stepName));
             }
 
             Radios.ScreenReaderOutput.Speak(speech, Radios.VerbosityLevel.Terse, true);
@@ -596,7 +600,7 @@ public partial class FrequencyDisplay : UserControl
             // inactive field; user can continue arrowing to the next field or
             // press R/X to activate.
             string valueForGate = GetSpeechText(newField);
-            if (valueForGate == "off") return;
+            if (valueForGate == Radios.Lexicon.Get("settings.home.value_off")) return;
 
             int fieldStart = newField.Position + newField.LeftDelim.Length;
             int posInField = newPos - fieldStart;
@@ -604,7 +608,9 @@ public partial class FrequencyDisplay : UserControl
             if (stepName != null)
             {
                 char digit = posInField < newField.Text.Length ? newField.Text[posInField] : ' ';
-                Radios.ScreenReaderOutput.Speak($"{digit}, {stepName}", Radios.VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("settings.home.digit_and_step", ("digit", digit), ("step", stepName)),
+                    Radios.VerbosityLevel.Terse, true);
             }
         }
     }
@@ -623,13 +629,13 @@ public partial class FrequencyDisplay : UserControl
         string speech = FormatFieldAnnouncement(field);
 
         // Announce step size for position-sensitive fields, but not when RIT/XIT is "off"
-        if (value != "off")
+        if (value != Radios.Lexicon.Get("settings.home.value_off"))
         {
             // Modern mode provides its own step names (preset-based, not position-based)
             string? stepName = StepNameOverride?.Invoke(field)
                 ?? GetStepName(field.Key, offset, field.Length, field.Text);
             if (stepName != null)
-                speech += $", {stepName}";
+                speech += Radios.Lexicon.Get("settings.home.step_suffix", ("step", stepName));
         }
 
         Radios.ScreenReaderOutput.Speak(speech, Radios.VerbosityLevel.Terse, true);
@@ -660,14 +666,14 @@ public partial class FrequencyDisplay : UserControl
                 }
                 return digitsToRight switch
                 {
-                    >= 7 => "10 megahertz",
-                    6 => "1 megahertz",
-                    5 => "100 kilohertz",
-                    4 => "10 kilohertz",
-                    3 => "1 kilohertz",
-                    2 => "100 hertz",
-                    1 => "10 hertz",
-                    0 => "1 hertz",
+                    >= 7 => Radios.Lexicon.Get("settings.tuning.step_name_10_megahertz"),
+                    6 => Radios.Lexicon.Get("settings.tuning.step_name_1_megahertz"),
+                    5 => Radios.Lexicon.Get("settings.tuning.step_name_100_kilohertz"),
+                    4 => Radios.Lexicon.Get("settings.tuning.step_name_10_kilohertz"),
+                    3 => Radios.Lexicon.Get("settings.tuning.step_name_1_kilohertz"),
+                    2 => Radios.Lexicon.Get("settings.tuning.step_name_100_hertz"),
+                    1 => Radios.Lexicon.Get("settings.tuning.step_name_10_hertz"),
+                    0 => Radios.Lexicon.Get("settings.tuning.step_name_1_hertz"),
                     _ => null
                 };
             }
@@ -676,14 +682,14 @@ public partial class FrequencyDisplay : UserControl
             int exponent = fieldLen - 1 - posInField;
             return exponent switch
             {
-                >= 7 => "10 megahertz",
-                6 => "1 megahertz",
-                5 => "100 kilohertz",
-                4 => "10 kilohertz",
-                3 => "1 kilohertz",
-                2 => "100 hertz",
-                1 => "10 hertz",
-                0 => "1 hertz",
+                >= 7 => Radios.Lexicon.Get("settings.tuning.step_name_10_megahertz"),
+                6 => Radios.Lexicon.Get("settings.tuning.step_name_1_megahertz"),
+                5 => Radios.Lexicon.Get("settings.tuning.step_name_100_kilohertz"),
+                4 => Radios.Lexicon.Get("settings.tuning.step_name_10_kilohertz"),
+                3 => Radios.Lexicon.Get("settings.tuning.step_name_1_kilohertz"),
+                2 => Radios.Lexicon.Get("settings.tuning.step_name_100_hertz"),
+                1 => Radios.Lexicon.Get("settings.tuning.step_name_10_hertz"),
+                0 => Radios.Lexicon.Get("settings.tuning.step_name_1_hertz"),
                 _ => null
             };
         }
@@ -696,10 +702,10 @@ public partial class FrequencyDisplay : UserControl
             return exponent switch
             {
                 >= 4 => null, // sign position
-                3 => "1000 hertz",
-                2 => "100 hertz",
-                1 => "10 hertz",
-                0 => "1 hertz",
+                3 => Radios.Lexicon.Get("settings.tuning.step_name_1000_hertz"),
+                2 => Radios.Lexicon.Get("settings.tuning.step_name_100_hertz"),
+                1 => Radios.Lexicon.Get("settings.tuning.step_name_10_hertz"),
+                0 => Radios.Lexicon.Get("settings.tuning.step_name_1_hertz"),
                 _ => null
             };
         }
@@ -736,8 +742,8 @@ public partial class FrequencyDisplay : UserControl
         if (field.Key == "Slice")
         {
             return string.IsNullOrEmpty(value)
-                ? "Slice selector"
-                : $"Slice selector: slice {value} active";
+                ? Radios.Lexicon.Get("settings.home.slice_selector")
+                : Radios.Lexicon.Get("settings.home.slice_selector_active", ("letter", value));
         }
 
         if (field.Key == "SliceOps")
@@ -745,11 +751,13 @@ public partial class FrequencyDisplay : UserControl
             // Label is set dynamically in MainWindow.ShowFrequency to include
             // the active slice letter. Volume value intentionally omitted from
             // focus-landing speech — it's announced when arrow up/down adjusts.
-            return field.Label ?? "Slice operations";
+            return field.Label ?? Radios.Lexicon.Get("settings.home.slice_operations");
         }
 
         string label = field.Label ?? field.Key;
-        return string.IsNullOrEmpty(value) ? label : $"{label} {value}";
+        return string.IsNullOrEmpty(value)
+            ? label
+            : Radios.Lexicon.Get("settings.home.field_announcement", ("label", label), ("value", value));
     }
 
     /// <summary>
@@ -763,29 +771,36 @@ public partial class FrequencyDisplay : UserControl
         string raw = field.Text.Trim();
         string key = field.Key;
 
+        // NOTE (Sprint 34 Track A): these words are BOTH spoken and used as
+        // control sentinels — IsPositionSensitive and ShouldSkipField compare
+        // against the "off" value. Both sides go through the same key so an
+        // operator overlay moves them together and behaviour is unchanged.
+        string on = Radios.Lexicon.Get("settings.home.value_on");
+        string off = Radios.Lexicon.Get("settings.home.value_off");
+
         // RIT inactive shows as "rrrr" on braille — speak "off"
         if (key == "RIT" && raw.Replace("r", "").Length == 0 && raw.Length > 0)
-            return "off";
+            return off;
 
         // XIT inactive shows as "xxxx" on braille — speak "off"
         if (key == "XIT" && raw.Replace("x", "").Length == 0 && raw.Length > 0)
-            return "off";
+            return off;
 
         // Toggle fields: translate display characters to speech
         if (key == "Split")
-            return raw == "S" ? "on" : "off";
+            return raw == "S" ? on : off;
 
         if (key == "VOX")
-            return raw == "V" ? "on" : "off";
+            return raw == "V" ? on : off;
 
         if (key == "Mute")
-            return raw == "M" ? "on" : "off";
+            return raw == "M" ? on : off;
 
         if (key == "Offset")
         {
-            if (raw == "+") return "plus";
-            if (raw == "-") return "minus";
-            return "off";
+            if (raw == "+") return Radios.Lexicon.Get("settings.home.value_plus");
+            if (raw == "-") return Radios.Lexicon.Get("settings.home.value_minus");
+            return off;
         }
 
         // Sprint 28 Phase 3.9.3 — Squelch speech translation.
@@ -795,12 +810,12 @@ public partial class FrequencyDisplay : UserControl
         // translation is needed; the default `return raw` at the end reads the
         // number directly.
         if (key == "Squelch")
-            return raw == "Q" ? "on" : "off";
+            return raw == "Q" ? on : off;
 
         // QB Track I — Transmit slice: shows the TX slice letter, "-" when no
         // slice keys the radio. "Dash" as speech would be meaningless.
         if (key == "TXSlice")
-            return raw == "-" ? "none" : raw;
+            return raw == "-" ? Radios.Lexicon.Get("settings.home.value_none") : raw;
 
         return raw;
     }
@@ -889,12 +904,13 @@ public partial class FrequencyDisplay : UserControl
             if (_fieldDict.TryGetValue("Freq", out var freqField))
                 freq = freqField.Text.Trim();
             announcement = string.IsNullOrEmpty(freq)
-                ? $"JJ Flexible Home, {fieldLabel}"
-                : $"JJ Flexible Home, {fieldLabel}, {freq}";
+                ? Radios.Lexicon.Get("settings.home.destination_chatty", ("field", fieldLabel))
+                : Radios.Lexicon.Get("settings.home.destination_chatty_with_freq",
+                    ("field", fieldLabel), ("freq", freq));
         }
         else
         {
-            announcement = $"Home, {fieldLabel}";
+            announcement = Radios.Lexicon.Get("settings.home.destination_terse", ("field", fieldLabel));
         }
 
         Radios.ScreenReaderOutput.Speak(
@@ -910,17 +926,17 @@ public partial class FrequencyDisplay : UserControl
     {
         return key switch
         {
-            "Freq" => "frequency",
-            "SMeter" => "S meter",
-            "Slice" => "slice",
-            "TXSlice" => "transmit slice",
-            "Mute" => "mute",
-            "Volume" => "volume",
-            "Split" => "split",
-            "VOX" => "VOX",
-            "Offset" => "offset",
-            "RIT" => "RIT",
-            "XIT" => "XIT",
+            "Freq" => Radios.Lexicon.Get("settings.home.field_label_freq"),
+            "SMeter" => Radios.Lexicon.Get("settings.home.field_label_smeter"),
+            "Slice" => Radios.Lexicon.Get("settings.home.field_label_slice"),
+            "TXSlice" => Radios.Lexicon.Get("settings.home.field_label_txslice"),
+            "Mute" => Radios.Lexicon.Get("settings.home.field_label_mute"),
+            "Volume" => Radios.Lexicon.Get("settings.home.field_label_volume"),
+            "Split" => Radios.Lexicon.Get("settings.home.field_label_split"),
+            "VOX" => Radios.Lexicon.Get("settings.home.field_label_vox"),
+            "Offset" => Radios.Lexicon.Get("settings.home.field_label_offset"),
+            "RIT" => Radios.Lexicon.Get("settings.home.field_label_rit"),
+            "XIT" => Radios.Lexicon.Get("settings.home.field_label_xit"),
             _ => key.ToLower()
         };
     }
