@@ -464,6 +464,7 @@ namespace Radios.ChainChecks
             // are the same defect from opposite ends.
             MeterReading fwdMeter = inv?.Find("FWDPWR");
             MeterReading swrMeter = inv?.Find("SWR");
+            MeterReading refMeter = inv?.Find("REFPWR");
 
             Probe(f, "forward-power", "Forward power", () =>
             {
@@ -480,15 +481,95 @@ namespace Radios.ChainChecks
                         rig.ForwardPowerWatts, "watts", "the radio's FWDPWR meter");
             });
 
+            Probe(f, "reflected-power", "Reflected power", () =>
+            {
+                if (refMeter == null)
+                    return DiagnosticFact.Absent("reflected-power", "Reflected power",
+                        "the radio is not currently publishing a reflected power meter, so what is "
+                        + "coming back from the antenna cannot be read here", "the radio");
+                if (!refMeter.HasReading)
+                    return DiagnosticFact.Silent("reflected-power", "Reflected power",
+                        "the radio's reflected power meter has not reported yet; it reports while "
+                        + "transmitting, so transmit to measure",
+                        "the radio's REFPWR meter");
+                return DiagnosticFact.Measure("reflected-power", "Reflected power",
+                        rig.ReflectedPowerWatts, "watts", "the radio's REFPWR meter");
+            });
+
+            // The fact that actually caught the open antenna port on 2026-08-22,
+            // and the reason it is here rather than leaving SWR to do the job
+            // alone: a fraction cannot blow up. SWR runs to infinity as the match
+            // worsens and gets numerically unstable near the end of its range,
+            // while "how much of it came back" stays a plain percentage from 0 to
+            // 100 whatever happens. Into the dummy load it was 0.05 percent; into
+            // an empty connector on the same radio it was 76.
+            Probe(f, "reflected-percent", "Power coming back", () =>
+            {
+                if (fwdMeter == null || refMeter == null)
+                    return DiagnosticFact.Absent("reflected-percent", "Power coming back",
+                        "this needs both the forward and the reflected power meter, and the radio is "
+                        + "not publishing both", "the radio");
+                if (!fwdMeter.HasReading || !refMeter.HasReading)
+                    return DiagnosticFact.Silent("reflected-percent", "Power coming back",
+                        "the forward and reflected power meters report while transmitting, so "
+                        + "transmit to measure",
+                        "the radio's FWDPWR and REFPWR meters");
+                float fraction = rig.ReflectedFraction;
+                if (float.IsNaN(fraction))
+                    return DiagnosticFact.Silent("reflected-percent", "Power coming back",
+                        "there is too little forward power to work out what fraction of it is "
+                        + "coming back",
+                        "the radio's FWDPWR and REFPWR meters");
+                return DiagnosticFact.Measure("reflected-percent", "Power coming back",
+                        fraction * 100f, "percent", "the radio's FWDPWR and REFPWR meters");
+            });
+
+            // -- Why this fact no longer reports what the SWR meter says --
+            //
+            // On 2026-08-22 the bench 8600 transmitted into an EMPTY ANT1
+            // connector with the dummy load sitting on ANT2. 76 percent of the
+            // power came straight back -- 13.4 W reflected of 17.5 W forward, the
+            // radio folding itself back hard to survive it -- and the radio's own
+            // SWR meter reported 1.008. Two full sessions of measurements were
+            // taken through that reassuring number before anyone noticed the load
+            // was never getting warm.
+            //
+            // A safety reading that is correct when things are fine and wrong
+            // when they are not is worse than no reading, because it is only ever
+            // consulted in the second case. So compute it from the two numbers
+            // the radio does report honestly, and fall back to the meter only
+            // when the arithmetic cannot be done.
+            //
+            // The sentinel matters as much as the arithmetic. The same radio, in
+            // the same session, published -25 mid-transmission to mean "no
+            // reading". HasReading is TRUE for that value -- the meter did
+            // report, it just reported a non-answer -- and -25 is not "above 3",
+            // so the high-swr rule read a screaming mismatch as a healthy stage
+            // and said nothing. Treat the sentinel as silence, which is what it
+            // means. Anything at or below 1 is physically impossible, so the test
+            // catches the sentinel without hard-coding its exact value.
             Probe(f, "swr", "Standing wave ratio", () =>
             {
+                float computed = rig.ComputedSWR;
+                if (!float.IsNaN(computed))
+                    return DiagnosticFact.Measure("swr", "Standing wave ratio",
+                            computed, "to 1",
+                            "worked out from the radio's forward and reflected power meters");
+
                 if (swrMeter == null)
                     return DiagnosticFact.Absent("swr", "Standing wave ratio",
-                        "the radio is not currently publishing a standing wave ratio meter", "the radio");
+                        "the radio is not currently publishing a standing wave ratio meter, and "
+                        + "there is not enough power reported to work one out", "the radio");
                 if (!swrMeter.HasReading)
                     return DiagnosticFact.Silent("swr", "Standing wave ratio",
                         "the radio's standing wave ratio meter has not reported yet; it reports "
                         + "while transmitting, so transmit to measure",
+                        "the radio's SWR meter");
+                if (rig.SWRValue <= 1f)
+                    return DiagnosticFact.Silent("swr", "Standing wave ratio",
+                        "the radio's standing wave ratio meter is reporting its no-reading value "
+                        + "rather than a measurement, and there is not enough power reported to "
+                        + "work one out instead",
                         "the radio's SWR meter");
                 return DiagnosticFact.Measure("swr", "Standing wave ratio",
                         rig.SWRValue, "to 1", "the radio's SWR meter");
@@ -496,6 +577,14 @@ namespace Radios.ChainChecks
             Probe(f, "rf-power-setting", "Transmit power setting",
                   () => DiagnosticFact.Measure("rf-power-setting", "Transmit power setting",
                                                rig.XmitPower, "percent", "the radio"));
+            // Stands the power and standing-wave rules down while the tuner is
+            // working. A tune cycle transmits into a deliberately bad match and
+            // walks toward a good one, so high reflected power during one is the
+            // tuner doing its job, not a fault. Without this fact, every tune-up
+            // would report a broken antenna.
+            Probe(f, "atu-tuning", "The antenna tuner is running a tune cycle",
+                  () => DiagnosticFact.Flag("atu-tuning", "The antenna tuner is running a tune cycle",
+                                            rig.ATUTuneInProgress, "the radio"));
             Probe(f, "dummy-load", "Dummy load mode",
                   () => DiagnosticFact.Flag("dummy-load", "Dummy load mode", rig.DummyLoadMode, "the app"));
             Probe(f, "ptt-source", "What is keying the transmitter",
@@ -575,8 +664,11 @@ namespace Radios.ChainChecks
             yield return "meter-patemp";
             yield return "transmitting";
             yield return "forward-power";
+            yield return "reflected-power";
+            yield return "reflected-percent";
             yield return "swr";
             yield return "rf-power-setting";
+            yield return "atu-tuning";
             yield return "dummy-load";
             yield return "ptt-source";
             yield return "ptt-hardware";
@@ -599,7 +691,10 @@ namespace Radios.ChainChecks
                 case "pc-audio": return "Radio audio through this computer";
                 case "sc-mic-peak": return "Loudest transmit audio the radio has heard";
                 case "forward-power": return "Forward power";
+                case "reflected-power": return "Reflected power";
+                case "reflected-percent": return "Power coming back";
                 case "swr": return "Standing wave ratio";
+                case "atu-tuning": return "The antenna tuner is running a tune cycle";
                 case "transmitting": return "The radio is transmitting right now";
                 default: return name.Replace('-', ' ');
             }

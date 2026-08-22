@@ -632,6 +632,20 @@ namespace Radios
         /// </summary>
         public bool ATUHardwarePresent => theRadio?.ATUPresent == true;
 
+        /// <summary>
+        /// True while the antenna tuner is actively running a tune cycle.
+        /// <para>Exists because a tune cycle is the one time high reflected
+        /// power is <b>expected</b>. The tuner transmits into a deliberately
+        /// bad match and walks its way to a good one, so any rule that judges
+        /// standing wave ratio or reflected power has to stand down while this
+        /// is true or it will report a fault every single time the operator
+        /// tunes up.</para>
+        /// <para>Read live from the radio rather than from
+        /// <see cref="FlexTunerOn"/>, which is a latch set by our own code and
+        /// is known to stick true when the tuner is bypassed.</para>
+        /// </summary>
+        public bool ATUTuneInProgress => theRadio?.ATUTuneStatus == ATUTuneStatus.InProgress;
+
         // --- SmartLink manual port forwarding (Sprint 27 preview) ---
 
         /// <summary>
@@ -8243,8 +8257,29 @@ namespace Radios
         public float Volts => _VoltsData;
 
         private float _ReflectedPower;
-        /// <summary>Reflected power in dBm.</summary>
+        /// <summary>
+        /// Reflected power as the meter reports it, in <b>dBm</b> — NOT watts.
+        /// <para>The name is the trap. It matches <c>forwardPower</c> in the
+        /// meter trace, and on 2026-08-22 a whole bench session was analysed
+        /// with these values read as watts: 50 dBm was reported as "50 watts"
+        /// when it is 100, and the resulting "the radio will not make full
+        /// power" conclusion was fabricated out of a unit error. Use
+        /// <see cref="ReflectedPowerWatts"/> anywhere a human will see the
+        /// number.</para>
+        /// </summary>
         public float ReflectedPower => _ReflectedPower;
+
+        /// <summary>
+        /// Reflected power in watts, the companion to
+        /// <see cref="ForwardPowerWatts"/>.
+        /// <para>Exists so that no caller has to remember the dBm conversion,
+        /// and so that forward and reflected are reached the same way. Into a
+        /// good dummy load this is a rounding error — 0.054 W against 101.2 W
+        /// forward, measured 2026-08-22. Into an open connector on the same
+        /// radio minutes earlier it was 13.4 W against 17.5 W forward, which is
+        /// most of the transmitter's output arriving back at the finals.</para>
+        /// </summary>
+        public float ReflectedPowerWatts => DBmToWatts(_ReflectedPower);
 
         private void reflectedPowerData(float data)
         {

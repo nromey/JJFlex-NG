@@ -64,8 +64,11 @@ namespace Radios.Tests
             f.Add(DiagnosticFact.Flag("transmitting", "The radio is transmitting right now", true));
             f.Add(DiagnosticFact.Measure("sc-mic-recent", "Transmit audio heard", -8, "dBFS"));
             f.Add(DiagnosticFact.Measure("forward-power", "Forward power", 45, "watts"));
+            f.Add(DiagnosticFact.Measure("reflected-power", "Reflected power", 0.5, "watts"));
+            f.Add(DiagnosticFact.Measure("reflected-percent", "Power coming back", 1.1, "percent"));
             f.Add(DiagnosticFact.Measure("swr", "Standing wave ratio", 1.2, "to 1"));
             f.Add(DiagnosticFact.Measure("rf-power-setting", "Transmit power setting", 50, "percent"));
+            f.Add(DiagnosticFact.Flag("atu-tuning", "The antenna tuner is running a tune cycle", false));
             f.Add(DiagnosticFact.Flag("dummy-load", "Dummy load mode", false));
             return f;
         }

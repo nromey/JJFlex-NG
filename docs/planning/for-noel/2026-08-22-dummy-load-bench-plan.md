@@ -111,10 +111,63 @@ and **every later test in this document is void.** Stop and say so.
 
 ### Test 0 RESULT — 2026-08-22, ~12:25. PASSES.
 
-Load: Palstar DL2500 (2500 W rating), connected and confirmed. Meter scale set
-to the 500 W range — there is no amplifier in line yet, so nothing can exceed
-it. Fan switch verified working, and deliberately left off: at 100 W the load
-is at 4 percent of its rating and never got warm. Noel afterwards: "the load basically sneezed at those
+Load: Palstar **DL2K**, connected and confirmed. Noel, 2026-08-22: "it's a
+dl2k which says it's 2000 watts for one minute at tuner tone duty cycle."
+
+READ THAT RATING CAREFULLY, BECAUSE IT IS NOT WHAT IT LOOKS LIKE. 2000 W is
+not a continuous rating. It is 2000 W **for one minute**, at **tuning duty
+cycle** — the intermittent key-down a human does while adjusting a tuner.
+It is a thermal budget, not a ceiling, and the number that matters is watts
+multiplied by seconds.
+
+THE STATION'S REAL CEILING IS 500 W, NOT 2000. Noel, 2026-08-22: "based on
+the power I have available (not 220) I can only transmit 500 even with the
+amplifier." The shack is on 120 V, so the amplifier cannot deliver more
+than about 500 W regardless of what the load or the amplifier could take.
+**500 W is the number every budget, every declared-load default and every
+sweep ceiling should be built around.** 2000 W is a property of the load;
+500 W is a property of this station, and the smaller number is the one
+that governs.
+
+Two consequences worth stating plainly:
+
+The meter stays on the 500 range PERMANENTLY, not just until the amplifier
+arrives. An earlier draft of this file said "until an amplifier is in
+line," which was wrong — with a 500 W ceiling, the 2500 range would never
+be the right choice here at all.
+
+The fan becomes relevant at 500 W. Today at 100 W it was verified working
+and deliberately left off, and the load never got warm. At five times the
+power, assume it is needed and turn it on before a sweep rather than
+after.
+
+THE CONSTRAINT THIS PLACES ON AUTOMATED TESTING. An automated sweep is
+exactly the thing that violates a duty-cycle rating, because it does not
+get bored. A human tuning up transmits for a few seconds and stops when it
+feels wrong. A level sweep across eight power steps, or a tone sweep across
+a band, keys down for as long as the script says and never once thinks
+"that is getting warm." Every automated transmit test must therefore budget
+total key-down time, insert cool-down between runs, and **stop on a rising
+PATEMP rather than trusting an elapsed-time count** — a timer assumes the
+thermal model, the temperature meter measures it.
+
+A caution about the arithmetic, so nobody builds a budget out of it. The
+naive energy equivalence — 2000 W for one minute, so 500 W for four
+minutes — is not how a heatsink behaves. There is some continuous
+dissipation level the load sheds indefinitely and never approaches its
+rating at, and some level above which time genuinely accumulates; the
+manual may state the continuous figure, and this file does not know it.
+Treat four minutes as an order of magnitude, not a permission slip, and let
+the temperature reading be the authority.
+
+The 500/2500 button selects the built-in wattmeter's full-scale range; it
+does not change what the load can dissipate. On the 500 range, 100 W puts
+the needle at a fifth of full scale, and 500 W is full scale — which makes
+the independent cross-check Noel proposed, having a sighted person read the
+load's own physical meter against the radio's reported figure, actually
+mean something across this station's whole range. (Range-selector behaviour
+inferred from how these meters generally work, not yet confirmed against
+the DL2K manual — worth confirming in the same pass as the port labels.) Noel afterwards: "the load basically sneezed at those
 power levels, it didn't get hot it didn't turn on the fan." Tests 1 through 7
 have large thermal margin.
 

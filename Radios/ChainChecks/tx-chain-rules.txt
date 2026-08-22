@@ -112,9 +112,14 @@
 # THRESHOLDS
 #
 # Every number in this file that is not a physical zero is marked below with
-# where it came from. Several are guesses that want confirming against a real
-# radio on a real antenna; they are marked BENCH. Do not add a threshold
-# without saying which kind it is.
+# where it came from. Do not add a threshold without saying which kind it is.
+#
+#   BENCH     A reasoned guess that wants confirming against a real radio on a
+#             real antenna. Most of this file is still BENCH.
+#   MEASURED  Taken from an actual reading, with the date and the conditions
+#             written next to it. A MEASURED threshold can be argued with by
+#             taking a better measurement; a BENCH one can be argued with by
+#             anybody.
 
 ruleset: Transmit chain check
 version: 1
@@ -395,16 +400,47 @@ verdict: Your radio is transmitting but almost no power is leaving it: forward p
 fix: Check that your transmit power setting is not at the bottom, and that the transmit slice is on a band this radio can transmit on.
 evidence: rf-power-setting, tx-slice, tx-mode, ptt-source
 
+# MEASURED: 40 percent, and this is the first threshold in this file taken from
+# a real radio into a real load rather than guessed. On 2026-08-22 the bench
+# 8600 transmitted into an EMPTY antenna connector, the dummy load being on the
+# other port, and 76 percent of the power came straight back. Minutes later,
+# into the load, it was 0.05 percent. Those are three orders of magnitude apart,
+# so 40 sits in an enormous empty gap rather than on a judgement call. For scale,
+# 40 percent back is a standing wave ratio around 5 to 1 — well past anything a
+# working antenna presents, and firmly in "something is not connected" country.
+#
+# This rule is deliberately listed BEFORE high-swr. The analyzer reports the
+# first rule that fires in a stage, and when both apply this is the more useful
+# sentence: it names a cause the operator can act on rather than a ratio they
+# have to interpret.
+rule: power-coming-back
+in-stage: 12
+needs: transmitting is yes
+needs: dummy-load is no
+needs: atu-tuning is no
+needs: forward-power at least 1
+broken-when: reflected-percent above 40
+verdict: {reflected-percent} percent of your transmit power is coming straight back into the radio instead of going out. That is far more than any working antenna sends back, and the usual cause is that the selected antenna port has nothing connected to it, or that the feedline is open.
+fix: Check that the antenna is connected to the port the radio is actually transmitting on, and that you have selected the port you think you have. Stop transmitting until you have.
+evidence: forward-power, reflected-power, swr, rf-power-setting, meter-patemp
+
 # BENCH: 3 to 1. The figure hams generally treat as the point where a solid
 # state radio starts folding back, and where a Flex protects itself. The exact
 # point this radio folds back at has not been measured, and the guard of at
 # least one watt is there so a meter wandering at very low power cannot trip it.
+#
+# The {swr} this quotes is no longer the radio's SWR meter. That meter reported
+# 1.008 into an open connector on 2026-08-22 while three quarters of the power
+# was coming back, so this rule could not have fired no matter how bad the match
+# got. The fact is now worked out from forward and reflected power, and falls
+# back to the meter only when the arithmetic cannot be done.
 rule: high-swr
 in-stage: 12
 needs: transmitting is yes
 needs: dummy-load is no
+needs: atu-tuning is no
 needs: forward-power at least 1
 broken-when: swr above 3
 verdict: Your standing wave ratio is {swr}, which is high enough that the radio will reduce its own power to protect itself. You will be heard, but not at the power you set.
 fix: Check the antenna, the feedline and any tuner in the path before transmitting further.
-evidence: forward-power, rf-power-setting, meter-revpwr, meter-patemp
+evidence: forward-power, reflected-power, reflected-percent, rf-power-setting, meter-revpwr, meter-patemp
