@@ -74,8 +74,8 @@ public partial class StatusDialog : JJFlexDialog
 
         if (Rig == null)
         {
-            AddItem("Not connected to a radio.");
-            AddItem("Connect to a radio to see status here.");
+            AddItem(Lexicon.Get("connect.status.not_connected"));
+            AddItem(Lexicon.Get("connect.status.connect_hint"));
             CommitLines();
             return;
         }
@@ -83,25 +83,27 @@ public partial class StatusDialog : JJFlexDialog
         var snap = RadioStatusBuilder.BuildDetailedStatus(Rig);
         if (!snap.IsConnected)
         {
-            AddItem("Not connected to a radio.");
+            AddItem(Lexicon.Get("connect.status.not_connected"));
             CommitLines();
             return;
         }
 
         // Radio info section
-        AddSection("Radio");
+        AddSection(Lexicon.Get("connect.status.section_radio"));
         AddItem($"{snap.RadioModel}");
         if (!string.IsNullOrEmpty(snap.RadioNickname))
-            AddItem($"Name: {snap.RadioNickname}");
-        AddItem(snap.IsRemote ? "Connected via SmartLink (remote)" : "Connected on local network");
+            AddItem(Lexicon.Get("connect.status.radio_name", ("nickname", snap.RadioNickname)));
+        AddItem(snap.IsRemote
+            ? Lexicon.Get("connect.status.via_smartlink")
+            : Lexicon.Get("connect.status.via_local"));
 
         // Slice section
         int numSlices = Rig.MyNumSlices;
-        AddSection($"Slices ({numSlices} active)");
+        AddSection(Lexicon.Get("connect.status.section_slices", ("numSlices", numSlices)));
 
         if (numSlices == 0)
         {
-            AddItem("No active slices");
+            AddItem(Lexicon.Get("connect.status.no_slices"));
         }
         else
         {
@@ -116,7 +118,7 @@ public partial class StatusDialog : JJFlexDialog
         }
 
         // Meters section
-        AddSection("Meters");
+        AddSection(Lexicon.Get("connect.status.section_meters"));
         string meterSummary = MeterToneEngine.GetMeterSpeechSummary();
         if (!string.IsNullOrWhiteSpace(meterSummary))
         {
@@ -129,24 +131,26 @@ public partial class StatusDialog : JJFlexDialog
         }
 
         // TX state
-        AddSection("Transmit");
-        AddItem(snap.IsTransmitting ? "Transmitting" : "Receiving");
+        AddSection(Lexicon.Get("connect.status.section_transmit"));
+        AddItem(snap.IsTransmitting
+            ? Lexicon.Get("connect.status.transmitting")
+            : Lexicon.Get("connect.status.receiving"));
         if (Rig.CanTransmit)
         {
             string txLetter = Rig.TXSliceLetter;
             if (!string.IsNullOrEmpty(txLetter))
-                AddItem($"TX slice: {txLetter}");
+                AddItem(Lexicon.Get("connect.status.tx_slice", ("txLetter", txLetter)));
         }
 
         // ATU section
         if (Rig.HasATU)
         {
-            AddSection("Antenna Tuner");
+            AddSection(Lexicon.Get("connect.status.section_tuner"));
             string tunerState = Rig.FlexTunerType switch
             {
-                FlexBase.FlexTunerTypes.auto => "ATU: Automatic",
-                FlexBase.FlexTunerTypes.manual => "ATU: Manual (bypass)",
-                _ => "ATU: Not available"
+                FlexBase.FlexTunerTypes.auto => Lexicon.Get("connect.status.atu_automatic"),
+                FlexBase.FlexTunerTypes.manual => Lexicon.Get("connect.status.atu_manual"),
+                _ => Lexicon.Get("connect.status.atu_unavailable")
             };
             AddItem(tunerState);
         }
@@ -159,7 +163,7 @@ public partial class StatusDialog : JJFlexDialog
         // Blank line before section (except first)
         if (_lines.Count > 0)
             _lines.Add("");
-        _lines.Add($"--- {heading} ---");
+        _lines.Add(Lexicon.Get("connect.status.section_marker", ("heading", heading)));
     }
 
     private void AddItem(string text)
@@ -178,8 +182,9 @@ public partial class StatusDialog : JJFlexDialog
     private string BuildClipboardText()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("JJ Flexible Radio Access — Status Snapshot");
-        sb.AppendLine($"Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine(Lexicon.Get("connect.status.clipboard_title"));
+        sb.AppendLine(Lexicon.Get("connect.status.clipboard_generated",
+            ("generated", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))));
         sb.AppendLine();
 
         sb.AppendLine(StatusText.Text);
@@ -188,7 +193,7 @@ public partial class StatusDialog : JJFlexDialog
         // too — a pasted status report that omits how the radio is reached is
         // half a report. Same builder the card uses, so the text matches.
         sb.AppendLine();
-        sb.AppendLine("--- Network identity ---");
+        sb.AppendLine(Lexicon.Get("connect.status.clipboard_network_section"));
         foreach (string line in Radios.NetworkIdentityInfo.BuildLines(Rig))
         {
             sb.AppendLine(line);
@@ -202,11 +207,11 @@ public partial class StatusDialog : JJFlexDialog
         try
         {
             Clipboard.SetText(BuildClipboardText());
-            Radios.ScreenReaderOutput.Speak("Status copied to clipboard", VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Lexicon.Get("connect.status.copied"), VerbosityLevel.Terse, true);
         }
         catch
         {
-            Radios.ScreenReaderOutput.Speak("Could not copy to clipboard", VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Lexicon.Get("connect.status.copy_failed"), VerbosityLevel.Critical, true);
         }
     }
 
