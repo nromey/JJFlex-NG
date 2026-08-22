@@ -1,107 +1,117 @@
-# The string store — a plan that fits before the load arrives
+# The string store — a one-day fleet job
 
-Written 2026-08-21 at 21:00, for Saturday morning. The dummy load lands between
-14:00 and 18:00, so the window is the morning and early afternoon.
+Written 2026-08-21 21:00, revised the same evening after Noel's call: **track it
+and it lands Saturday. Sunday is the bench day with the load.**
 
-## What is honestly achievable, and what is not
+That resequencing is right, and it also fixes the risk the first draft was worried
+about. A string store half-landed on Monday, three days before Don's build, is
+dangerous. A string store fully landed Saturday, with Sunday and Monday to test it,
+is ordinary.
 
-Measured tonight: **732 `Speak`/`Output` call sites, 850 `AutomationProperties.Name`
-in XAML, 449 XAML `Content=`, 60 help files. Roughly 2,031 sites.** Not extractable
-in a morning, and the task's own note says every extraction is a chance to notice
-two places saying the same thing differently — so it cannot be done mindlessly
-either.
+## The size, measured
 
-But volume was never the blocker. **Five unmade decisions are.** Nothing can start
-until they are settled, and settling them touches no strings at all. Decisions,
-plus a working store, plus one domain proven end to end, is a realistic morning
-and it converts the remaining 2,000 into ordinary parallel work.
+**732 `Speak`/`Output` call sites. 850 `AutomationProperties.Name` in XAML. 449
+XAML `Content=`. 60 help files. About 2,031 sites.** Too many for one session, which
+is exactly what parallel tracks are for — six domains, six tracks, no two touching
+the same files.
 
-## Phase 1 — the five decisions (no code)
+## What makes this safe now, and did not before
 
-**Key shape.** Hierarchical and behaviour-describing, never screen-position
+The historic reason #65 kept being deferred: externalise two thousand strings and
+you cannot tell whether you changed the app's voice. Verifying it meant listening
+to the whole app twice and remembering.
+
+**The output transcript removes that.** Record a session before the extraction,
+record the same session after, diff the speech events. Every string that came from
+the store is in the transcript with its text and origin. Matching transcripts prove
+the voice is unchanged; a differing line is either an intended consolidation or a
+bug, and it is named rather than hunted.
+
+**So the acceptance test for every track is a transcript diff, not a listen.** Any
+track that cannot produce one for its domain has not finished.
+
+## Serial first — these cannot be parallelised
+
+### Step 1: the five decisions (no code)
+
+**Key shape.** Hierarchical, behaviour-describing, never screen-position
 describing. `connect.smartlink.offer_local_only` survives a redesign;
-`settings.tab3.checkbox2` does not. Keys appear in translation files and bug
-reports, so they are read by humans who cannot see the screen.
+`settings.tab3.checkbox2` does not. Keys reach translation files and bug reports,
+where they are read by people who cannot see the screen.
 
-**Missing-key fallback.** Show the key itself. Never empty, never silent. Silence
-is invisible to the operator who most needs the text, and a key on screen is a bug
+**Missing-key fallback.** Show the key. Never empty, never silent — silence is
+invisible to the operator who most needs the text, and a key on screen is a bug
 report that writes itself.
 
-**Verbosity ladders are data.** Several utterances already choose between Chatty,
-Terse and Critical in a `switch`. Those three variants belong in the store as a set
-under one key, not as branches at the call site. This is the single biggest reason
-the store is worth building: the ladder becomes reviewable as a ladder.
+**Verbosity ladders are DATA.** Several utterances already pick between Chatty,
+Terse and Critical in a `switch`. Those three belong in the store as a set under
+one key. This is the single strongest argument for the whole job: the ladder
+becomes reviewable as a ladder.
 
-**Interpolation.** Named placeholders, not positional. `{radio}` and `{freq}`
-survive reordering by a translator; `{0}` and `{1}` do not, and a translator
-working in a language with different word order will reorder.
+**Interpolation: named placeholders.** `{radio}` and `{freq}`, never `{0}` and
+`{1}` — a translator reordering a sentence breaks positional ones silently.
 
-**Partition boundaries.** Six domains: connect and session lifecycle; audio and
-DSP; settings and per-radio config; logging and cluster; earcon and CW vocabulary;
-help text. Split for REVIEW, not for speed — an in-memory dictionary is the same
-speed whichever file the entry came from. Stated explicitly because otherwise
-someone partitions for the wrong reason and splits a hot set across files.
+**Six partitions, split for REVIEW not speed.** An in-memory dictionary is the same
+speed whichever file it loaded from. Say this out loud or someone splits a hot set
+across files chasing an imaginary gain. Load strategy is a separate axis: the five
+non-help domains load at startup and stay resident (frequency and meter
+announcements fire many times a second and can never wait on a file); help text
+loads lazily on first `Ctrl+F1`.
 
-Load strategy is a separate axis from partitioning: the first five load at startup
-and stay resident (a few thousand short strings cost nothing, and frequency and
-meter announcements fire many times a second and can never wait on a file). Help
-text loads lazily on first `Ctrl+F1`.
+### Step 2: the store, with zero strings in it
 
-## Phase 2 — the store itself
+Loader, lookup, fallback, tests. Lands with nothing calling it, so it is reviewable
+in isolation. Tests that matter: a missing key returns the key; a malformed file
+fails LOUDLY at startup rather than returning empties (the #49 corrupt-preset
+lesson); and every key present in one verbosity tier is present in all three, or
+the ladder has a hole nobody hears until an operator switches tiers.
 
-A loader, a lookup, the fallback behaviour, and tests. Small and self-contained.
-It ships with **zero strings extracted** and nothing calling it, which is the point:
-it can land, be reviewed and be tested without touching a single user-facing line.
+**Both steps must be finished and merged before any track starts.** They are the
+shared contract; six tracks inventing it independently is six different stores.
 
-Tests that matter: a missing key returns the key; a malformed file fails loudly at
-startup rather than silently returning empties (the corrupt-preset lesson from
-#49); every key present in one verbosity tier is present in all three, or the
-ladder has a hole nobody would hear until an operator switched tiers.
+## Then six tracks, in parallel
 
-## Phase 3 — one domain, proven end to end
+- **Track A — connect and session lifecycle.** The noisiest and best-understood
+  vocabulary; #85, #87, #80 and #107 already settled its wording, so drift found
+  here is real drift, not work in flight. **Also the highest-stakes**, because it is
+  the first thing Don hears Tuesday.
+- **Track B — audio and DSP.**
+- **Track C — settings and per-radio config.**
+- **Track D — logging and cluster.**
+- **Track E — earcon and CW vocabulary.** Pairs with #113's registry: if earcons
+  gain display names, they belong in this store, not a second one.
+- **Track F — help text.** By far the largest set, and the only lazily-loaded one.
 
-**Connect and session lifecycle**, and specifically because it is the noisiest and
-best understood — #85, #87, #80 and #107 all worked on exactly this vocabulary, so
-its wording is settled and any drift found is real drift rather than work in
-flight.
+### Rules every track brief must carry
 
-This is the phase that proves the design. If the key shape is wrong, or
-interpolation is awkward, or the verbosity ladder does not fit, one domain is a
-cheap place to find out and a cheap place to change it.
+**Verify your base commit.** Name the specific SHA. Four of five agents on
+2026-08-21 were handed worktrees cut from an old commit, and one built an entire
+feature against a library deleted four days earlier. `git log --oneline -1`, then
+`git merge --ff-only <sha>` if stale, and say so in the report.
 
-The output transcript makes this verifiable in a way it would not have been last
-week: run a connect with `--record`, and every string that came out of the store is
-in the transcript with its origin. Extraction can be proven not to have changed the
-voice.
+**REPORT inconsistencies, never silently normalise them.** Two places saying the
+same thing differently is a finding. Choosing which wording survives is the owner's
+call. #71 was one instance of that drift and it was found by ear, which does not
+scale — the entire point of the store is that it stops needing ears.
 
-## Phase 4 — the remaining five domains
+**Do not improve wording while extracting.** Extraction and editing are separate
+passes. A track that does both makes the transcript diff useless, because every
+intentional change hides a possible accident.
 
-Ordinary parallel work once Phase 3 has proven the shape. This is the fleet job,
-and it is the part that does NOT fit before the load arrives.
+**Produce the transcript diff.** Before and after, same session, for your domain.
+That is the deliverable, not the file.
 
-**Agents must REPORT inconsistencies, never silently normalise them.** Two places
-saying the same thing differently is a finding, and choosing which wording survives
-is the owner's call, not an agent's. #71 was one instance of that drift and it was
-found by ear, which does not scale.
+## The schedule this now implies
 
-## Why now is a good moment, and the one risk
+- **Saturday** — steps 1 and 2 in the morning, six tracks after. Load arrives
+  between 14:00 and 18:00; when it lands, run **Test 0 only** (two keyings, about
+  five minutes) so the meter chain is proven before Sunday depends on it.
+- **Sunday** — the bench day. Tests 1 through 7 with the load.
+- **Monday** — build, full test pass, upgrade-over-existing check (#179).
+- **Tuesday** — Don's radio returns.
 
-The task deferred itself for a specific reason: it collides with every wording
-change in flight, and doing it while tracks are editing user-facing text guarantees
-merge pain and captures a voice that is still moving.
+## The one thing to protect
 
-**That blocker is gone.** Sprint 33 is fully merged, no tracks are live, and #91
-settled where help text lives.
-
-The remaining risk is the reverse: a string store landing right before a build for
-Don. Phases 1 and 2 are safe — they change no behaviour. **Phase 3 touches the
-connect vocabulary, which is the first thing Don will hear.** So either Phase 3
-lands and gets tested properly, or it waits until after Tuesday. It should not be
-half-landed on Monday.
-
-## Suggested shape for Saturday
-
-Phase 1 and 2 in the morning, both reviewable and both safe. Phase 3 only if the
-morning goes fast and there is time to run a real connect against it before the
-load arrives. If the truck is early, stop — the bench session is time-boxed by
-daylight and the string store is not.
+If Saturday runs long, **Track A is the one to hold back**, not the one to rush.
+Everything else can land half-done and be finished Monday without touching what Don
+hears on connect. Track A cannot.
