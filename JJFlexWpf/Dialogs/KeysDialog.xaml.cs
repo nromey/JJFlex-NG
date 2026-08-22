@@ -51,7 +51,9 @@ namespace JJFlexWpf.Dialogs
             _editable = editable;
             InitializeComponent();
             ResizeMode = ResizeMode.CanResizeWithGrip;
-            Title = Radios.Lexicon.Get(editable ? "settings.keys.editor.title_editable" : "settings.keys.editor.title_readonly");
+            Title = editable
+                ? Radios.Lexicon.Get("settings.keys.editor.title_editable")
+                : Radios.Lexicon.Get("settings.keys.editor.title_readonly");
 
             if (!editable)
             {

@@ -306,9 +306,9 @@ public class NativeMenuBar : IDisposable
         var newVal = Rig.ToggleOffOn(current);
         setter(newVal);
         EarconPlayer.ToggleTone(newVal == FlexBase.OffOnValues.on);
-        SpeakAfterMenuClose(Radios.Lexicon.Get(
-            newVal == FlexBase.OffOnValues.on ? "audio.dsp.toggled_on" : "audio.dsp.toggled_off",
-            ("label", label)));
+        SpeakAfterMenuClose(newVal == FlexBase.OffOnValues.on
+            ? Radios.Lexicon.Get("audio.dsp.toggled_on", ("label", label))
+            : Radios.Lexicon.Get("audio.dsp.toggled_off", ("label", label)));
     }
 
     /// <summary>
@@ -414,8 +414,9 @@ public class NativeMenuBar : IDisposable
             // chord all toned, and an operator who learned the sound from any
             // of those reads this menu's silence as the command failing.
             EarconPlayer.ToggleTone(p.RnnEnabled);
-            SpeakAfterMenuClose(Radios.Lexicon.Get(
-                p.RnnEnabled ? "audio.pc_nr.neural_on" : "audio.pc_nr.neural_off"));
+            SpeakAfterMenuClose(p.RnnEnabled
+                ? Radios.Lexicon.Get("audio.pc_nr.neural_on")
+                : Radios.Lexicon.Get("audio.pc_nr.neural_off"));
         }, () => _window.FieldsPanel?.AudioPipeline?.RnnEnabled == true);
         AddChecked(pcSub, "PC Spectral NR\tCtrl+J, Shift+S", () =>
         {
@@ -426,10 +427,10 @@ public class NativeMenuBar : IDisposable
             // #128 sweep audit (2026-08-21): same as PC Neural NR above — the
             // menu was the one silent road of four into this state.
             EarconPlayer.ToggleTone(p.SpectralEnabled);
-            SpeakAfterMenuClose(Radios.Lexicon.Get(
-                !p.SpectralEnabled ? "audio.pc_nr.spectral_off"
-                : p.HasNoiseProfile ? "audio.pc_nr.spectral_on"
-                : "audio.pc_nr.spectral_on_no_profile"));
+            SpeakAfterMenuClose(
+                !p.SpectralEnabled ? Radios.Lexicon.Get("audio.pc_nr.spectral_off")
+                : p.HasNoiseProfile ? Radios.Lexicon.Get("audio.pc_nr.spectral_on")
+                : Radios.Lexicon.Get("audio.pc_nr.spectral_on_no_profile"));
         }, () => _window.FieldsPanel?.AudioPipeline?.SpectralEnabled == true);
 
         // DSP controls track (2026-08-11) — the capture and the profile
@@ -458,9 +459,9 @@ public class NativeMenuBar : IDisposable
         });
         AddWired(pcSub, "Open Noise Profiles Folder", () =>
         {
-            SpeakAfterMenuClose(Radios.Lexicon.Get(NoiseProfileStore.OpenFolder()
-                ? "audio.noise_profiles.folder_opened"
-                : "audio.noise_profiles.folder_open_failed"));
+            SpeakAfterMenuClose(NoiseProfileStore.OpenFolder()
+                ? Radios.Lexicon.Get("audio.noise_profiles.folder_opened")
+                : Radios.Lexicon.Get("audio.noise_profiles.folder_open_failed"));
         });
 
         // === Auto Notch ===
@@ -518,8 +519,9 @@ public class NativeMenuBar : IDisposable
         AddChecked(meterSub, "Peak Watcher", () =>
         {
             MeterToneEngine.PeakWatcherEnabled = !MeterToneEngine.PeakWatcherEnabled;
-            SpeakAfterMenuClose(Radios.Lexicon.Get(MeterToneEngine.PeakWatcherEnabled
-                ? "audio.meter.peak_watcher_on" : "audio.meter.peak_watcher_off"));
+            SpeakAfterMenuClose(MeterToneEngine.PeakWatcherEnabled
+                ? Radios.Lexicon.Get("audio.meter.peak_watcher_on")
+                : Radios.Lexicon.Get("audio.meter.peak_watcher_off"));
         }, () => MeterToneEngine.PeakWatcherEnabled);
     }
 
@@ -700,7 +702,9 @@ public class NativeMenuBar : IDisposable
                 // below this has always toned too, which is what makes the
                 // omission here read as an oversight rather than a decision.
                 EarconPlayer.ToggleTone(newMute);
-                SpeakAfterMenuClose(Radios.Lexicon.Get(newMute ? "audio.mute.muted" : "audio.mute.unmuted"));
+                SpeakAfterMenuClose(newMute
+                    ? Radios.Lexicon.Get("audio.mute.muted")
+                    : Radios.Lexicon.Get("audio.mute.unmuted"));
             }, () => Rig?.SliceMute == true);
 
             AddWired(parent, "Mute/Unmute All Slices", () =>
@@ -710,8 +714,9 @@ public class NativeMenuBar : IDisposable
                 Rig.SetAllMySlicesMute(target);
                 if (target) EarconPlayer.MuteAllOnTone();
                 else EarconPlayer.MuteAllOffTone();
-                SpeakAfterMenuClose(Radios.Lexicon.Get(
-                    target ? "audio.mute.all_slices_muted" : "audio.mute.all_slices_unmuted"));
+                SpeakAfterMenuClose(target
+                    ? Radios.Lexicon.Get("audio.mute.all_slices_muted")
+                    : Radios.Lexicon.Get("audio.mute.all_slices_unmuted"));
             });
 
             AddWired(parent, "Release All Extra Slices", () =>
@@ -724,10 +729,11 @@ public class NativeMenuBar : IDisposable
                     EarconPlayer.MuteAllOnTone();
                     int removed = before - 1;
                     string keptLetter = Rig.VFOToLetter(Rig.RXVFO);
-                    SpeakAfterMenuClose(Radios.Lexicon.Get(
-                        removed == 1 ? "settings.slice.released_extras_one"
-                                     : "settings.slice.released_extras_many",
-                        ("removed", removed), ("keptLetter", keptLetter)));
+                    SpeakAfterMenuClose(removed == 1
+                        ? Radios.Lexicon.Get("settings.slice.released_extras_one",
+                            ("removed", removed), ("keptLetter", keptLetter))
+                        : Radios.Lexicon.Get("settings.slice.released_extras_many",
+                            ("removed", removed), ("keptLetter", keptLetter)));
                 }
             });
 
@@ -751,10 +757,10 @@ public class NativeMenuBar : IDisposable
                 // configured, and a rising tone over a toggle that did not
                 // happen is a confident lie.
                 EarconPlayer.ToggleTone(actual);
-                SpeakAfterMenuClose(Radios.Lexicon.Get(
-                    actual ? "audio.pc_audio.on"
-                    : wanted ? "audio.pc_audio.could_not_start"
-                    : "audio.pc_audio.off"));
+                SpeakAfterMenuClose(
+                    actual ? Radios.Lexicon.Get("audio.pc_audio.on")
+                    : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
+                    : Radios.Lexicon.Get("audio.pc_audio.off"));
             }, () => Rig?.PCAudio == true);
 
             AddSep(parent);
@@ -910,7 +916,9 @@ public class NativeMenuBar : IDisposable
             bool isOn = Rig.FlexTunerType != FlexBase.FlexTunerTypes.none;
             Rig.FlexTunerType = isOn ? FlexBase.FlexTunerTypes.none : FlexBase.FlexTunerTypes.auto;
             EarconPlayer.ToggleTone(!isOn);
-            SpeakAfterMenuClose(Radios.Lexicon.Get(isOn ? "settings.atu.turned_off" : "settings.atu.turned_on"));
+            SpeakAfterMenuClose(isOn
+                ? Radios.Lexicon.Get("settings.atu.turned_off")
+                : Radios.Lexicon.Get("settings.atu.turned_on"));
         }, () => Rig?.FlexTunerType != FlexBase.FlexTunerTypes.none);
 
         AddWired(parent, "ATU Mode", () =>
@@ -960,8 +968,9 @@ public class NativeMenuBar : IDisposable
                 if (Rig == null) { SpeakNoRadio(); return; }
                 Rig.ToggleDiversity();
                 EarconPlayer.ToggleTone(Rig.DiversityOn);
-                SpeakAfterMenuClose(Radios.Lexicon.Get(
-                    Rig.DiversityOn ? "settings.diversity.on" : "settings.diversity.off"));
+                SpeakAfterMenuClose(Rig.DiversityOn
+                    ? Radios.Lexicon.Get("settings.diversity.on")
+                    : Radios.Lexicon.Get("settings.diversity.off"));
             }, () => Rig?.DiversityOn == true);
             return;
         }
@@ -1268,9 +1277,9 @@ public class NativeMenuBar : IDisposable
             Rig.ProcessorSetting = next;
             string label = next switch
             {
-                FlexBase.ProcessorSettings.DX => "DX",
-                FlexBase.ProcessorSettings.DXX => "DX plus",
-                _ => "Normal"
+                FlexBase.ProcessorSettings.DX => Radios.Lexicon.Get("audio.processor.name_dx"),
+                FlexBase.ProcessorSettings.DXX => Radios.Lexicon.Get("audio.processor.name_dx_plus"),
+                _ => Radios.Lexicon.Get("audio.processor.name_normal")
             };
             SpeakAfterMenuClose(Radios.Lexicon.Get("audio.processor.mode", ("label", label)));
         });
@@ -1437,10 +1446,11 @@ public class NativeMenuBar : IDisposable
             if (otherSlices > 0)
             {
                 AddWired(selSub, $"{otherSlices} in use by other stations", () =>
-                    SpeakAfterMenuClose(Radios.Lexicon.Get(
-                        otherSlices == 1 ? "settings.slice.in_use_by_others_one"
-                                         : "settings.slice.in_use_by_others_many",
-                        ("otherSlices", otherSlices))));
+                    SpeakAfterMenuClose(otherSlices == 1
+                        ? Radios.Lexicon.Get("settings.slice.in_use_by_others_one",
+                            ("otherSlices", otherSlices))
+                        : Radios.Lexicon.Get("settings.slice.in_use_by_others_many",
+                            ("otherSlices", otherSlices))));
             }
 
             AddSep(selSub);
@@ -1628,7 +1638,9 @@ public class NativeMenuBar : IDisposable
                 rit.Active = !rit.Active;
                 Rig.RIT = rit;
                 EarconPlayer.ToggleTone(rit.Active);
-                SpeakAfterMenuClose(Radios.Lexicon.Get(rit.Active ? "settings.rit.on" : "settings.rit.off"));
+                SpeakAfterMenuClose(rit.Active
+                    ? Radios.Lexicon.Get("settings.rit.on")
+                    : Radios.Lexicon.Get("settings.rit.off"));
             });
             AddWired(tuningSub, "XIT On/Off", () =>
             {
@@ -1637,7 +1649,9 @@ public class NativeMenuBar : IDisposable
                 xit.Active = !xit.Active;
                 Rig.XIT = xit;
                 EarconPlayer.ToggleTone(xit.Active);
-                SpeakAfterMenuClose(Radios.Lexicon.Get(xit.Active ? "settings.xit.on" : "settings.xit.off"));
+                SpeakAfterMenuClose(xit.Active
+                    ? Radios.Lexicon.Get("settings.xit.on")
+                    : Radios.Lexicon.Get("settings.xit.off"));
             });
 
             // Receiver
@@ -1727,8 +1741,9 @@ public class NativeMenuBar : IDisposable
             _window.FieldsPanelUserVisible = newVisible;
             _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
             EarconPlayer.ToggleTone(newVisible);
-            SpeakAfterMenuClose(Radios.Lexicon.Get(
-                newVisible ? "settings.field_panel.shown" : "settings.field_panel.hidden"));
+            SpeakAfterMenuClose(newVisible
+                ? Radios.Lexicon.Get("settings.field_panel.shown")
+                : Radios.Lexicon.Get("settings.field_panel.hidden"));
         }, () => _window.FieldsPanel.Visibility == Visibility.Visible);
         AddSep(screenFields);
         AddWired(screenFields, "Noise Reduction and DSP\tCtrl+Shift+N",

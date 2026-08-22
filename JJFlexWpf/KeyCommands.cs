@@ -643,7 +643,7 @@ public class KeyCommands
         // teaches the operator it is broken; a key that says "nothing here"
         // teaches them where the explanations are.
         Radios.ScreenReaderOutput.Speak(
-            "No extra help here. F1 opens the help file.",
+            Radios.Lexicon.Get("help.context.none_here"),
             Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical);
     }
 
@@ -708,11 +708,11 @@ public class KeyCommands
         if (rig != null)
         {
             rig.StopCW();
-            Radios.ScreenReaderOutput.Speak("CW stopped", Radios.VerbosityLevel.Terse, false);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.stopped"), Radios.VerbosityLevel.Terse, false);
         }
         else
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical, true);
         }
     }
 
@@ -764,7 +764,7 @@ public class KeyCommands
         // LATEST, keyed by the gain's own label, so holding the key speaks
         // where it landed rather than every value on the way.
         Radios.ScreenReaderOutput.Speak(
-            $"{label} {newVal}",
+            Radios.Lexicon.Get("audio.gain.output_level", ("label", label), ("newVal", newVal)),
             Radios.Speech.SpeechIntent.Latest,
             Radios.VerbosityLevel.Terse,
             coalesceKey: $"gain:{label}");
@@ -789,11 +789,11 @@ public class KeyCommands
         if (rig == null) return;
         if (rig.Mode != "CW")
         {
-            Radios.ScreenReaderOutput.Speak("Zerobeat requires CW mode", Radios.VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.zerobeat.requires_cw"), Radios.VerbosityLevel.Critical, true);
             return;
         }
         rig.CWZeroBeat();
-        Radios.ScreenReaderOutput.Speak("Zerobeat", Radios.VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.zerobeat.done"), Radios.VerbosityLevel.Terse, true);
     }
 
     #endregion
@@ -817,7 +817,9 @@ public class KeyCommands
         // only clue was the S-meter quietly "changing units" (2026-08-07
         // live finding). Speech makes any future mis-dispatch self-diagnosing.
         Radios.ScreenReaderOutput.Speak(
-            rig.SmeterInDBM ? "S meter in dBm" : "S meter in S units",
+            rig.SmeterInDBM
+                ? Radios.Lexicon.Get("audio.smeter.in_dbm")
+                : Radios.Lexicon.Get("audio.smeter.in_s_units"),
             Radios.VerbosityLevel.Terse, true);
     }
 
@@ -826,7 +828,7 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical);
             return;
         }
         int smeter = (int)rig.SMeter;
@@ -834,16 +836,17 @@ public class KeyCommands
         if (rig.Transmit)
             // Real watts, with their unit. This read "Power 0" for 174 mW of
             // measured RF, and never named a unit at all.
-            msg = $"Power {Radios.FlexBase.FormatForwardPowerSpoken(rig.ForwardPowerWatts)}";
+            msg = Radios.Lexicon.Get("audio.smeter.power",
+                ("power", Radios.FlexBase.FormatForwardPowerSpoken(rig.ForwardPowerWatts)));
         else if (rig.SmeterInDBM)
-            msg = $"S meter {smeter} dBm";
+            msg = Radios.Lexicon.Get("audio.smeter.dbm", ("smeter", smeter));
         else if (smeter > 9)
             // Over S9, SMeter already returns dB-over-S9 plus 9, so the excess
             // IS decibels. Multiplying it (by 10 here, by 6 elsewhere) inflated
             // the reading — 4 dB over S9 was announced as "S9 plus 40".
-            msg = $"S 9 plus {smeter - 9} dB";
+            msg = Radios.Lexicon.Get("audio.smeter.over_s9", ("over", smeter - 9));
         else
-            msg = $"S {smeter}";
+            msg = Radios.Lexicon.Get("audio.smeter.s_units", ("smeter", smeter));
 
         // LATEST: an S-meter reading superseded by a newer one has no value -
         // the operator wants the signal now, not a recital of the last five.
@@ -872,7 +875,8 @@ public class KeyCommands
     private void CycleMeterPresetHandler()
     {
         MeterToneEngine.CyclePreset();
-        Radios.ScreenReaderOutput.Speak($"Meter preset: {MeterToneEngine.CurrentPreset}", Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.meter.preset",
+            ("preset", MeterToneEngine.CurrentPreset)), Radios.VerbosityLevel.Terse);
     }
 
     private void SpeakMetersHandler() => MeterToneEngine.SpeakMeters();
@@ -889,7 +893,8 @@ public class KeyCommands
         rig.TXFilterLow = newLow;
         EarconPlayer.FilterEdgeMoveTone(true);
         int width = rig.TXFilterHigh - newLow;
-        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}", Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.low_moved",
+            ("newLow", newLow), ("width", width)), Radios.VerbosityLevel.Terse);
     }
 
     private void TXFilterLowUpHandler()
@@ -908,7 +913,8 @@ public class KeyCommands
         }
         rig.TXFilterLow = newLow;
         int width = rig.TXFilterHigh - newLow;
-        Radios.ScreenReaderOutput.Speak($"TX low {newLow}, width {width}", Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.low_moved",
+            ("newLow", newLow), ("width", width)), Radios.VerbosityLevel.Terse);
     }
 
     private void TXFilterHighDownHandler()
@@ -927,7 +933,8 @@ public class KeyCommands
         }
         rig.TXFilterHigh = newHigh;
         int width = newHigh - rig.TXFilterLow;
-        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}", Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.high_moved",
+            ("newHigh", newHigh), ("width", width)), Radios.VerbosityLevel.Terse);
     }
 
     private void TXFilterHighUpHandler()
@@ -938,7 +945,8 @@ public class KeyCommands
         rig.TXFilterHigh = newHigh;
         EarconPlayer.FilterEdgeMoveTone(false);
         int width = newHigh - rig.TXFilterLow;
-        Radios.ScreenReaderOutput.Speak($"TX high {newHigh}, width {width}", Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_filter.high_moved",
+            ("newHigh", newHigh), ("width", width)), Radios.VerbosityLevel.Terse);
     }
 
     private void SpeakTXFilterHandler() => SpeakTXFilterWidth();
@@ -959,7 +967,7 @@ public class KeyCommands
         if (_context.GetActiveUIMode() == 2)
         {
             Radios.ScreenReaderOutput.Speak(
-                "In Logging mode. Press Control Shift L to return to tuning.",
+                Radios.Lexicon.Get("settings.tuning_mode.in_logging_mode"),
                 Radios.VerbosityLevel.Terse, true);
             return;
         }
@@ -1025,9 +1033,9 @@ public class KeyCommands
 
         bool actual = rig.PCAudio;
         Radios.ScreenReaderOutput.Speak(
-            actual ? "PC audio on"
-            : wanted ? "PC audio could not start, still off"
-            : "PC audio off",
+            actual ? Radios.Lexicon.Get("audio.pc_audio.on")
+            : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
+            : Radios.Lexicon.Get("audio.pc_audio.off"),
             Radios.VerbosityLevel.Terse);
     }
     private void AudioSetupHandler() => _context.AudioSetup();
@@ -1064,7 +1072,7 @@ public class KeyCommands
         if (!rig.HasATU)
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("No antenna tuner on this radio", Radios.VerbosityLevel.Critical);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.atu.none_on_radio"), Radios.VerbosityLevel.Critical);
             return;
         }
         _context.GetMainWindow()?.StartATUTuneCycle();
@@ -1114,7 +1122,7 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical, true);
             return;
         }
         bool newMute = !rig.SliceMute;
@@ -1122,7 +1130,9 @@ public class KeyCommands
         if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
         string letter = rig.VFOToLetter(rig.RXVFO);
         Radios.ScreenReaderOutput.Speak(
-            newMute ? $"Slice {letter} muted" : $"Slice {letter} unmuted",
+            newMute
+                ? Radios.Lexicon.Get("audio.mute.slice_muted", ("letter", letter))
+                : Radios.Lexicon.Get("audio.mute.slice_unmuted", ("letter", letter)),
             Radios.VerbosityLevel.Terse, true);
     }
 
@@ -1131,7 +1141,7 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical, true);
             return;
         }
         bool target = !rig.AllMySlicesMuted;
@@ -1139,7 +1149,9 @@ public class KeyCommands
         if (target) EarconPlayer.MuteAllOnTone();
         else EarconPlayer.MuteAllOffTone();
         Radios.ScreenReaderOutput.Speak(
-            target ? "All slices muted" : "All slices unmuted",
+            target
+                ? Radios.Lexicon.Get("audio.mute.all_slices_muted")
+                : Radios.Lexicon.Get("audio.mute.all_slices_unmuted"),
             Radios.VerbosityLevel.Terse, true);
     }
 
@@ -1148,13 +1160,13 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical, true);
             return;
         }
         int before = rig.MyNumSlices;
         if (before <= 1)
         {
-            Radios.ScreenReaderOutput.Speak("Only one slice active", Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.slice.only_one_active"), Radios.VerbosityLevel.Terse, true);
             return;
         }
         if (rig.ReleaseAllExtraSlices())
@@ -1163,7 +1175,11 @@ public class KeyCommands
             int removed = before - 1;
             string keptLetter = rig.VFOToLetter(rig.RXVFO);
             Radios.ScreenReaderOutput.Speak(
-                $"Released {removed} extra {(removed == 1 ? "slice" : "slices")}, slice {keptLetter} active",
+                removed == 1
+                    ? Radios.Lexicon.Get("settings.slice.released_extras_one",
+                        ("removed", removed), ("keptLetter", keptLetter))
+                    : Radios.Lexicon.Get("settings.slice.released_extras_many",
+                        ("removed", removed), ("keptLetter", keptLetter)),
                 Radios.VerbosityLevel.Terse, true);
         }
     }
@@ -1194,14 +1210,15 @@ public class KeyCommands
         {
             string verdict = rig.ScMicRecentDb > -140f
                 ? FormatMicVerdict(rig.ScMicRecentDb)
-                : "Mic audio, no reading yet";
+                : Radios.Lexicon.Get("audio.mic.no_reading_yet");
             var status = mw?.GetPttStatusText();
             string text = status != null ? verdict + ". " + status : verdict;
             Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Terse, true);
             return;
         }
 
-        Radios.ScreenReaderOutput.Speak(mw?.GetPttStatusText() ?? "Receiving",
+        Radios.ScreenReaderOutput.Speak(
+            mw?.GetPttStatusText() ?? Radios.Lexicon.Get("settings.ptt.receiving"),
             Radios.VerbosityLevel.Terse, true);
     }
 
@@ -1214,7 +1231,9 @@ public class KeyCommands
     {
         return MicAudioReport.Compose(
             _context.GetRigControl(),
-            lastTransmit ? "Mic audio last transmit" : "Mic audio",
+            lastTransmit
+                ? Radios.Lexicon.Get("audio.mic.label_last_transmit")
+                : Radios.Lexicon.Get("audio.mic.label_live"),
             peakDb,
             live: !lastTransmit);
     }
@@ -1229,7 +1248,7 @@ public class KeyCommands
     private void RepeatLastMessageHandler()
     {
         if (!Radios.ScreenReaderOutput.RepeatRecent())
-            Radios.ScreenReaderOutput.Speak("No previous message");
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.repeat.no_previous_message"));
     }
 
     // #153. Mirrors the speech walk one modifier away, and the empty case
@@ -1240,7 +1259,7 @@ public class KeyCommands
     private void RepeatLastCwHandler()
     {
         if (!Radios.ScreenReaderOutput.RepeatRecentCw())
-            Radios.ScreenReaderOutput.Speak("No recent CW", Radios.VerbosityLevel.Critical);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.repeat.no_recent_cw"), Radios.VerbosityLevel.Critical);
     }
 
     private void CycleVerbosityHandler()
@@ -1264,8 +1283,11 @@ public class KeyCommands
         // to confirm that alert sounds are off would be the joke it sounds
         // like. The speech below covers the off direction.
         if (EarconPlayer.EarconsEnabled) EarconPlayer.ToggleTone(true);
-        string state = EarconPlayer.EarconsEnabled ? "on" : "off";
-        Radios.ScreenReaderOutput.Speak($"Alert sounds {state}", Radios.VerbosityLevel.Terse, true);
+        Radios.ScreenReaderOutput.Speak(
+            EarconPlayer.EarconsEnabled
+                ? Radios.Lexicon.Get("earcon.alerts_on")
+                : Radios.Lexicon.Get("earcon.alerts_off"),
+            Radios.VerbosityLevel.Terse, true);
         // Save to config
         var configDir = _context.GetConfigDirectory?.Invoke();
         if (configDir != null)
@@ -2480,7 +2502,7 @@ public class KeyCommands
             if (k == Keys.Escape)
             {
                 EarconPlayer.LeaderCancelTone();
-                Radios.ScreenReaderOutput.Speak("Cancelled", Radios.VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.cancelled"), Radios.VerbosityLevel.Terse, true);
                 return true;
             }
             return DoLeaderCommand(k);
@@ -2491,7 +2513,7 @@ public class KeyCommands
         {
             _leaderKeyActive = true;
             EarconPlayer.LeaderEnterTone();
-            Radios.ScreenReaderOutput.Speak("JJ", Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.armed"), Radios.VerbosityLevel.Terse, true);
             return true;
         }
 
@@ -2552,7 +2574,7 @@ public class KeyCommands
             var cwText = _context.GetCWText();
             if (mods == Keys.Control && keyCode >= Keys.D1 && keyCode <= Keys.D7 && cwText.Length == 0)
             {
-                Radios.ScreenReaderOutput.Speak("No CW messages configured", Radios.VerbosityLevel.Critical, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.no_messages_configured"), Radios.VerbosityLevel.Critical, true);
                 rv = true;
             }
             else
@@ -2894,7 +2916,7 @@ public class KeyCommands
         var cwText = _context.GetCWText();
         if (id < 0 || id >= cwText.Length)
         {
-            Radios.ScreenReaderOutput.Speak("No CW message at this position", Radios.VerbosityLevel.Critical, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.no_message_at_position"), Radios.VerbosityLevel.Critical, true);
         }
         else
         {
@@ -2905,7 +2927,7 @@ public class KeyCommands
             _context.SendCW(msg);
             _context.WriteTextX(1, msg, 0, false); // WindowIDs.SendDataOut = 1
             if (!string.IsNullOrEmpty(label))
-                Radios.ScreenReaderOutput.Speak("Sending " + label, Radios.VerbosityLevel.Terse, false);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.cw.sending", ("label", label)), Radios.VerbosityLevel.Terse, false);
         }
     }
 
@@ -2956,7 +2978,7 @@ public class KeyCommands
                 else if (!rig.NeuralNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak("On-Radio Neural NR not available on this radio", Radios.VerbosityLevel.Critical);
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.nr.neural_unsupported"), Radios.VerbosityLevel.Critical);
                 }
                 else
                     ToggleLeaderDSP("On-Radio Neural NR",
@@ -2968,7 +2990,7 @@ public class KeyCommands
                 else if (!rig.NeuralNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak("On-Radio Spectral NR not available on this radio", Radios.VerbosityLevel.Critical);
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.nr.spectral_unsupported"), Radios.VerbosityLevel.Critical);
                 }
                 else
                     ToggleLeaderDSP("On-Radio Spectral NR",
@@ -2980,7 +3002,7 @@ public class KeyCommands
                 else if (!rig.NeuralNRHardwareSupported)
                 {
                     EarconPlayer.LeaderInvalidTone();
-                    Radios.ScreenReaderOutput.Speak("NR Filter not available on this radio", Radios.VerbosityLevel.Critical);
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.nr.filter_unsupported"), Radios.VerbosityLevel.Critical);
                 }
                 else
                     ToggleLeaderDSP("NR Filter",
@@ -2996,13 +3018,17 @@ public class KeyCommands
                     else if (pipeline == null)
                     {
                         EarconPlayer.LeaderInvalidTone();
-                        Radios.ScreenReaderOutput.Speak("PC audio pipeline not ready", Radios.VerbosityLevel.Critical);
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_pipeline.not_ready"), Radios.VerbosityLevel.Critical);
                     }
                     else
                     {
                         pipeline.RnnEnabled = !pipeline.RnnEnabled;
                         if (pipeline.RnnEnabled) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                        Radios.ScreenReaderOutput.Speak($"PC Neural NR {(pipeline.RnnEnabled ? "on" : "off")}", Radios.VerbosityLevel.Terse);
+                        Radios.ScreenReaderOutput.Speak(
+                            pipeline.RnnEnabled
+                                ? Radios.Lexicon.Get("audio.pc_nr.neural_on")
+                                : Radios.Lexicon.Get("audio.pc_nr.neural_off"),
+                            Radios.VerbosityLevel.Terse);
                         _context.GetMainWindow()?.PersistDspSettings();
                     }
                 }
@@ -3015,7 +3041,7 @@ public class KeyCommands
                     else if (pipeline == null)
                     {
                         EarconPlayer.LeaderInvalidTone();
-                        Radios.ScreenReaderOutput.Speak("PC audio pipeline not ready", Radios.VerbosityLevel.Critical);
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_pipeline.not_ready"), Radios.VerbosityLevel.Critical);
                     }
                     else
                     {
@@ -3026,9 +3052,9 @@ public class KeyCommands
                         // nothing in the app could resolve.
                         string msg = pipeline.SpectralEnabled
                             ? (pipeline.HasNoiseProfile
-                                ? "PC Spectral NR on"
-                                : "PC Spectral NR on, no noise profile loaded. Press Control J then Q to capture one.")
-                            : "PC Spectral NR off";
+                                ? Radios.Lexicon.Get("audio.pc_nr.spectral_on")
+                                : Radios.Lexicon.Get("audio.pc_nr.spectral_on_no_profile"))
+                            : Radios.Lexicon.Get("audio.pc_nr.spectral_off");
                         Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse);
                         _context.GetMainWindow()?.PersistDspSettings();
                     }
@@ -3051,7 +3077,7 @@ public class KeyCommands
                     else if (pipeline == null)
                     {
                         EarconPlayer.LeaderInvalidTone();
-                        Radios.ScreenReaderOutput.Speak("PC audio pipeline not ready", Radios.VerbosityLevel.Critical);
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_pipeline.not_ready"), Radios.VerbosityLevel.Critical);
                     }
                     else
                         NoiseCaptureNarrator.Toggle(rig, pipeline,
@@ -3073,7 +3099,7 @@ public class KeyCommands
                     if (mode != null && !mode.StartsWith("CW", StringComparison.OrdinalIgnoreCase))
                     {
                         EarconPlayer.LeaderInvalidTone();
-                        Radios.ScreenReaderOutput.Speak("Audio Peak Filter is CW only", Radios.VerbosityLevel.Critical);
+                        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.apf.cw_only"), Radios.VerbosityLevel.Critical);
                     }
                     else
                         ToggleLeaderDSP("Audio Peak Filter",
@@ -3256,7 +3282,7 @@ public class KeyCommands
             default:
                 _context.Trace("Leader:no command for " + k);
                 EarconPlayer.LeaderInvalidTone();
-                Radios.ScreenReaderOutput.Speak("Unknown command. Press H for help.", true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.unknown_command"), true);
                 break;
         }
 
@@ -3294,7 +3320,7 @@ public class KeyCommands
             EarconPlayer.ConfirmTone();
             // Announce the TRUE letter read back from the slice itself.
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {rig.VFOToLetter(vfo)} active",
+                Radios.Lexicon.Get("settings.slice.active", ("letter", rig.VFOToLetter(vfo))),
                 Radios.VerbosityLevel.Terse, true);
             return;
         }
@@ -3311,21 +3337,22 @@ public class KeyCommands
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {letter} not available on this radio. Maximum {totalCap} slices.",
+                Radios.Lexicon.Get("settings.slice.not_available_on_radio",
+                    ("letter", letter), ("totalCap", totalCap)),
                 Radios.VerbosityLevel.Critical, true);
         }
         else if (rig.SliceIndexOwnedByOther(sliceIndex))
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {letter} is in use by another station.",
+                Radios.Lexicon.Get("settings.slice.in_use_by_another", ("letter", letter)),
                 Radios.VerbosityLevel.Critical, true);
         }
         else
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(
-                $"Slice {letter} not yet created. From the Slice field, press period to create the next slice.",
+                Radios.Lexicon.Get("settings.slice.not_yet_created", ("letter", letter)),
                 Radios.VerbosityLevel.Critical, true);
         }
     }
@@ -3350,8 +3377,7 @@ public class KeyCommands
         _volumeModePcDirty = false;
         EarconPlayer.LeaderEnterTone();
         Radios.ScreenReaderOutput.Speak(
-            "Volume mode. H headphone, P PC output, M mic, L line out, " +
-            "C compander, S processor. Up and down adjust. Escape exits.",
+            Radios.Lexicon.Get("audio.volume_mode.entered"),
             Radios.VerbosityLevel.Terse, true);
     }
 
@@ -3367,7 +3393,7 @@ public class KeyCommands
         if (speak)
         {
             EarconPlayer.LeaderCancelTone();
-            Radios.ScreenReaderOutput.Speak("Volume mode closed", Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.closed"), Radios.VerbosityLevel.Terse, true);
         }
     }
 
@@ -3394,7 +3420,7 @@ public class KeyCommands
             ExitVolumeMode(speak: false);
             _leaderKeyActive = true;
             EarconPlayer.LeaderEnterTone();
-            Radios.ScreenReaderOutput.Speak("JJ", Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.armed"), Radios.VerbosityLevel.Terse, true);
             return true;
         }
 
@@ -3422,16 +3448,14 @@ public class KeyCommands
             case Keys.Oem2: // ? — help without stealing H from headphone
                 EarconPlayer.LeaderHelpTone();
                 Radios.ScreenReaderOutput.Speak(
-                    "Volume mode targets: H on-radio headphone, P PC output, M mic level, " +
-                    "L on-radio line out, C compander level, S processor mode. " +
-                    "Up and down adjust the picked target. Escape exits.",
+                    Radios.Lexicon.Get("audio.volume_mode.help"),
                     Radios.VerbosityLevel.Terse, true);
                 return true;
 
             default:
                 EarconPlayer.LeaderInvalidTone();
                 Radios.ScreenReaderOutput.Speak(
-                    "Volume mode: H, P, M, L, C, or S picks a target, up and down adjust, Escape exits.",
+                    Radios.Lexicon.Get("audio.volume_mode.unknown_key"),
                     Radios.VerbosityLevel.Terse, true);
                 return true;
         }
@@ -3445,31 +3469,32 @@ public class KeyCommands
         {
             case VolumeTarget.Headphone:
                 _volumeShadow = rig.HeadphoneGain;
-                announce = $"On-radio headphone {_volumeShadow}";
+                announce = Radios.Lexicon.Get("audio.volume_mode.headphone_selected", ("value", _volumeShadow));
                 break;
             case VolumeTarget.PcOutput:
                 _volumeShadow = rig.PcOutputVolumeDb;
-                announce = $"PC volume {_volumeShadow} dB";
+                announce = Radios.Lexicon.Get("audio.volume_mode.pc_output_selected", ("value", _volumeShadow));
                 break;
             case VolumeTarget.MicLevel:
                 _volumeShadow = rig.MicGain;
-                announce = $"Mic level {_volumeShadow}";
+                announce = Radios.Lexicon.Get("audio.volume_mode.mic_selected", ("value", _volumeShadow));
                 break;
             case VolumeTarget.Lineout:
                 _volumeShadow = rig.LineoutGain;
-                announce = $"On-radio line out {_volumeShadow}";
+                announce = Radios.Lexicon.Get("audio.volume_mode.lineout_selected", ("value", _volumeShadow));
                 break;
             case VolumeTarget.CompanderLevel:
                 _volumeShadow = rig.CompanderLevel;
-                announce = $"Compander {_volumeShadow}";
+                announce = Radios.Lexicon.Get("audio.volume_mode.compander_selected", ("value", _volumeShadow));
                 if (rig.Compander != FlexBase.OffOnValues.on)
-                    announce += ", compander is off";
+                    announce += Radios.Lexicon.Get("audio.volume_mode.compander_is_off_suffix");
                 break;
             case VolumeTarget.ProcessorMode:
                 _volumeShadow = (int)rig.ProcessorSetting;
-                announce = $"Processor {ProcessorSettingName(_volumeShadow)}";
+                announce = Radios.Lexicon.Get("audio.volume_mode.processor_selected",
+                    ("name", ProcessorSettingName(_volumeShadow)));
                 if (rig.ProcessorOn != FlexBase.OffOnValues.on)
-                    announce += ", processor is off";
+                    announce += Radios.Lexicon.Get("audio.volume_mode.processor_is_off_suffix");
                 break;
             default:
                 return;
@@ -3495,7 +3520,7 @@ public class KeyCommands
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(
-                "Pick a target first: H, P, M, L, C, or S.",
+                Radios.Lexicon.Get("audio.volume_mode.pick_target_first"),
                 Radios.VerbosityLevel.Terse, true);
             return;
         }
@@ -3505,52 +3530,58 @@ public class KeyCommands
             case VolumeTarget.Headphone:
                 _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
                 rig.HeadphoneGain = _volumeShadow;
-                Radios.ScreenReaderOutput.Speak($"Headphone {_volumeShadow}", Radios.VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.headphone_adjusted",
+                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
                 break;
             case VolumeTarget.PcOutput:
                 _volumeShadow = Math.Clamp(_volumeShadow + direction,
                     Radios.FlexBase.PcOutputVolumeDbMin, Radios.FlexBase.PcOutputVolumeDbMax);
                 rig.PcOutputVolumeDb = _volumeShadow;
                 _volumeModePcDirty = true;
-                Radios.ScreenReaderOutput.Speak($"PC volume {_volumeShadow} dB", Radios.VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.pc_output_selected",
+                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
                 break;
             case VolumeTarget.MicLevel:
                 _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
                 rig.MicGain = _volumeShadow;
-                Radios.ScreenReaderOutput.Speak($"Mic level {_volumeShadow}", Radios.VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.mic_selected",
+                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
                 break;
             case VolumeTarget.Lineout:
                 _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
                 rig.LineoutGain = _volumeShadow;
-                Radios.ScreenReaderOutput.Speak($"Line out {_volumeShadow}", Radios.VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.lineout_adjusted",
+                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
                 break;
             case VolumeTarget.CompanderLevel:
                 _volumeShadow = Math.Clamp(_volumeShadow + direction * FlexBase.CompanderLevelIncrement,
                     FlexBase.CompanderLevelMin, FlexBase.CompanderLevelMax);
                 rig.CompanderLevel = _volumeShadow;
-                Radios.ScreenReaderOutput.Speak($"Compander {_volumeShadow}", Radios.VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.compander_selected",
+                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
                 break;
             case VolumeTarget.ProcessorMode:
                 // Up = stronger (Normal → DX → DX+), Down = gentler. Clamps at
                 // the ends — wrapping on an arrow key is disorienting speech.
                 _volumeShadow = Math.Clamp(_volumeShadow + direction, 0, 2);
                 rig.ProcessorSetting = (FlexBase.ProcessorSettings)_volumeShadow;
-                Radios.ScreenReaderOutput.Speak($"Processor {ProcessorSettingName(_volumeShadow)}", Radios.VerbosityLevel.Terse, true);
+                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.processor_selected",
+                    ("name", ProcessorSettingName(_volumeShadow))), Radios.VerbosityLevel.Terse, true);
                 break;
         }
     }
 
     private static string ProcessorSettingName(int setting) => setting switch
     {
-        1 => "DX",
-        2 => "DX plus",
-        _ => "Normal",
+        1 => Radios.Lexicon.Get("audio.processor.name_dx"),
+        2 => Radios.Lexicon.Get("audio.processor.name_dx_plus"),
+        _ => Radios.Lexicon.Get("audio.processor.name_normal"),
     };
 
     private void LeaderNoRadio()
     {
         EarconPlayer.LeaderInvalidTone();
-        Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical);
     }
 
     /// <summary>
@@ -3572,11 +3603,11 @@ public class KeyCommands
         if (rig.Transmit && rig.ScMicRecentDb > -140f)
             msg = FormatMicVerdict(rig.ScMicRecentDb);
         else if (rig.Transmit)
-            msg = "Mic audio, no reading yet";
+            msg = Radios.Lexicon.Get("audio.mic.no_reading_yet");
         else if (rig.ScMicMaxDb > -140f)
             msg = FormatMicVerdict(rig.ScMicMaxDb, lastTransmit: true);
         else
-            msg = "Mic audio, transmit to measure";
+            msg = Radios.Lexicon.Get("audio.mic.transmit_to_measure");
         Radios.ScreenReaderOutput.Speak(msg, Radios.VerbosityLevel.Terse, true);
     }
 
@@ -3604,7 +3635,7 @@ public class KeyCommands
             // its next arm.
             PttSafetyController.KeyDownAnnouncementExtra = null;
             EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak("Test tone disarmed. Microphone restored.",
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.tx_tone.disarmed"),
                 Radios.VerbosityLevel.Critical, true);
             return;
         }
@@ -3613,7 +3644,8 @@ public class KeyCommands
         if (!string.IsNullOrEmpty(trouble))
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("Test tone not armed. " + trouble,
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("audio.tx_tone.not_armed", ("trouble", trouble)),
                 Radios.VerbosityLevel.Critical, true);
             return;
         }
@@ -3633,12 +3665,11 @@ public class KeyCommands
         PttSafetyController.KeyDownAnnouncementExtra =
             () => BuildLeaderToneAnnouncement(_context.GetRigControl());
 
-        string line = $"Test tone armed: {freq} hertz at {level} dBFS. " +
-            "It replaces your microphone while you transmit. Control J, G disarms.";
+        string line = Radios.Lexicon.Get("audio.tx_tone.armed", ("freq", freq), ("level", level));
         if (freq < rig.TXFilterLow || freq > rig.TXFilterHigh)
         {
-            line += $" Warning: {freq} hertz is outside your transmit filter, " +
-                $"{rig.TXFilterLow} to {rig.TXFilterHigh}. Nothing will go out.";
+            line += Radios.Lexicon.Get("audio.tx_tone.outside_filter_warning",
+                ("freq", freq), ("low", rig.TXFilterLow), ("high", rig.TXFilterHigh));
             EarconPlayer.Warning2Beep();
         }
         else
@@ -3658,11 +3689,11 @@ public class KeyCommands
         if (rig == null || !rig.TxToneEngaged) return null;
         string trouble = rig.TxTonePathTrouble;
         if (!string.IsNullOrEmpty(trouble))
-            return "The test tone is armed but is not going out. " + trouble;
+            return Radios.Lexicon.Get("audio.tx_tone.armed_not_going_out", ("trouble", trouble));
         int freq = (int)rig.TxToneFrequency;
-        string line = $"Sending the {freq} hertz test tone instead of your microphone.";
+        string line = Radios.Lexicon.Get("audio.tx_tone.riding_transmit", ("freq", freq));
         if (freq < rig.TXFilterLow || freq > rig.TXFilterHigh)
-            line += " Warning: the tone is outside your transmit filter. Nothing is going out.";
+            line += Radios.Lexicon.Get("audio.tx_tone.riding_outside_filter_warning");
         return line;
     }
 
@@ -3677,12 +3708,14 @@ public class KeyCommands
         if (newVal == FlexBase.OffOnValues.on)
         {
             EarconPlayer.FeatureOnTone();
-            Radios.ScreenReaderOutput.Speak(label + " on", Radios.VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("audio.dsp.toggled_on", ("label", label)), Radios.VerbosityLevel.Terse);
         }
         else
         {
             EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(label + " off", Radios.VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("audio.dsp.toggled_off", ("label", label)), Radios.VerbosityLevel.Terse);
         }
     }
 
@@ -3693,7 +3726,7 @@ public class KeyCommands
         if (config == null)
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("No audio configuration loaded", Radios.VerbosityLevel.Critical);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.tune_debounce.no_audio_config"), Radios.VerbosityLevel.Critical);
             return;
         }
 
@@ -3701,12 +3734,12 @@ public class KeyCommands
         if (config.TuneDebounceEnabled)
         {
             EarconPlayer.FeatureOnTone();
-            Radios.ScreenReaderOutput.Speak("Tuning debounce on", Radios.VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.tune_debounce.on"), Radios.VerbosityLevel.Terse);
         }
         else
         {
             EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak("Tuning debounce off", Radios.VerbosityLevel.Terse);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.tune_debounce.off"), Radios.VerbosityLevel.Terse);
         }
 
         // Persist immediately.
@@ -3720,14 +3753,15 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical);
             return;
         }
         int low = rig.FilterLow;
         int high = rig.FilterHigh;
         int width = high - low;
         string widthKHz = (width / 1000.0).ToString("F1");
-        Radios.ScreenReaderOutput.Speak($"RX filter {low} to {high}, {widthKHz} kilohertz", Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.filter.rx_report",
+            ("low", low), ("high", high), ("widthKHz", widthKHz)), Radios.VerbosityLevel.Terse);
     }
 
     private void SpeakTXFilterWidth()
@@ -3735,14 +3769,15 @@ public class KeyCommands
         var rig = _context.GetRigControl();
         if (rig == null)
         {
-            Radios.ScreenReaderOutput.Speak("No radio connected", Radios.VerbosityLevel.Critical);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical);
             return;
         }
         int low = rig.TXFilterLow;
         int high = rig.TXFilterHigh;
         int width = high - low;
         string widthKHz = (width / 1000.0).ToString("F1");
-        Radios.ScreenReaderOutput.Speak($"TX filter {low} to {high}, {widthKHz} kilohertz", Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.filter.tx_report",
+            ("low", low), ("high", high), ("widthKHz", widthKHz)), Radios.VerbosityLevel.Terse);
     }
 
     /// <summary>
@@ -3759,7 +3794,7 @@ public class KeyCommands
         if (!DiagnosticsBridge.IsAvailable)
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("Detailed capture is not available.",
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.diagnostics.capture_unavailable"),
                 Radios.VerbosityLevel.Critical);
             return;
         }
@@ -3800,7 +3835,7 @@ public class KeyCommands
         catch
         {
             EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak("The problems list could not be opened.",
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.diagnostics.problems_list_failed"),
                 Radios.VerbosityLevel.Critical);
         }
     }
