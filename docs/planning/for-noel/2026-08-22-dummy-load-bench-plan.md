@@ -109,6 +109,59 @@ and **every later test in this document is void.** Stop and say so.
 
 ---
 
+### Test 0 RESULT — 2026-08-22, ~12:25. PASSES.
+
+Load: Palstar DL-2000, connected and confirmed, set for 500 W, fan verified
+working but never needed. Noel afterwards: "the load basically sneezed at those
+power levels, it didn't get hot it didn't turn on the fan." So Tests 1 through 7
+have large thermal margin.
+
+Four keyings, peak forward power, from the meter stream:
+
+- keying 1 — **23.5 W**
+- keying 2 — **42.7 W**
+- keying 3 — **45.5 W**
+- keying 4 — **47.4 W**
+
+**The positive control is satisfied.** Forward power differs between keyings by
+a wide margin and in the right direction, so the meters are reading rather than
+holding a constant.
+
+**SWR settles it harder.** It moved between the −25 idle sentinel, 1.000 and
+**1.008**. The 1.008 is the important digit: this document's whole worry was
+that a dummy load reads 1.0 and that number is indistinguishable from the idle
+value it already had. A stored constant cannot produce 1.008.
+
+**So every test below is live.**
+
+### But an unresolved observation came with it
+
+Noel set 25 and 500, and thinks he also tried 100 — but could not reconstruct
+afterwards which setting went with which keying, so the pairing is unknown.
+
+What the data shows regardless: keying 1 sits near 20 W, consistent with a 25 W
+request. **Keyings 2, 3 and 4 all land between 42.7 and 47.4 W** — a 10 percent
+spread that reads like thermal settling, not like three different power
+settings. If 100 and 500 were among them, both produced roughly 45 W.
+
+Two explanations fit equally from here, and they are very different:
+
+- a real ceiling — drive, ALC, band, or the radio's own limit
+- **#164**, the radio acking a transmit write it does not apply
+
+**Tests 1 and 2 resolve this**, and now have a specific question to answer
+rather than a general one: set power deliberately, one value per keying, record
+the requested value alongside the measured one, and see whether the two ever
+diverge. Do not rely on remembering the order afterwards — write each setting
+down before keying it.
+
+This also feeds #187 (a JJ key for power): if the radio silently ignores some
+power writes, a power control that announces the value it REQUESTED rather than
+the value the meter reached would be precisely the class of instrument this
+project keeps having to repair.
+
+---
+
 ## Test 1 — the dead-key floor (#163)
 
 **Measures:** what forward power a genuine dead key reports on this radio. This
