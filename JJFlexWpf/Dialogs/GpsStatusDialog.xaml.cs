@@ -113,48 +113,52 @@ namespace JJFlexWpf.Dialogs
         private string BuildStatusText(FlexBase.GpsStatusSnapshot s)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("Summary");
+            sb.AppendLine(Lexicon.Get("connect.gps.section_summary"));
             sb.AppendLine(_summary);
             sb.AppendLine();
 
-            sb.AppendLine("Installed reference hardware");
+            sb.AppendLine(Lexicon.Get("connect.gps.section_hardware"));
             sb.AppendLine(FlexBase.DescribeInstalledReferences(s));
             sb.AppendLine();
 
-            sb.AppendLine("Reference oscillator");
+            sb.AppendLine(Lexicon.Get("connect.gps.section_oscillator"));
             // Lock leads. It is the fact that decides whether the radio is
             // actually disciplined, and it can disagree with the GPS fix text
             // while a fix is being acquired — so it goes first here too, not
             // trailing the sentence as an afterthought.
             sb.AppendLine(s.RadioConnected
-                ? (s.OscillatorLocked ? "Locked. " : "Not locked. ") +
-                  $"Running on {FlexBase.DescribeOscillatorInUse(s)}. " +
-                  FlexBase.FormatFreqErrorPpb(s.FreqErrorPpb) + "."
-                : "No radio connected.");
-            sb.AppendLine("The choice below sets which 10 MHz reference the radio disciplines itself to. Automatic is the usual choice — the radio picks the best one it has and falls back on its own if the GPS loses lock.");
+                ? Lexicon.Get("connect.gps.oscillator_line",
+                    ("lock", Lexicon.Get(s.OscillatorLocked ? "connect.gps.locked" : "connect.gps.not_locked")),
+                    ("oscillator", FlexBase.DescribeOscillatorInUse(s)),
+                    ("error", FlexBase.FormatFreqErrorPpb(s.FreqErrorPpb)))
+                : Lexicon.Get("connect.gps.no_radio"));
+            sb.AppendLine(Lexicon.Get("connect.gps.oscillator_choice_note"));
             sb.AppendLine();
 
-            sb.AppendLine("Details");
-            sb.AppendLine("GPS status: " + Or(s.Status, "not reported"));
-            sb.AppendLine($"Satellites visible: {Or(s.SatellitesVisible, "not reported")}. " +
-                          $"Satellites tracked: {Or(s.SatellitesTracked, "not reported")}.");
-            sb.AppendLine("Grid square: " + Or(s.Grid, "not reported"));
-            sb.AppendLine($"Latitude: {Or(s.Latitude, "not reported")}. Longitude: {Or(s.Longitude, "not reported")}.");
-            sb.AppendLine("Altitude: " + Or(s.Altitude, "not reported"));
-            sb.AppendLine("GPS time, UTC: " + Or(s.UtcTime, "not reported"));
+            string notReported = Lexicon.Get("connect.gps.not_reported");
+            sb.AppendLine(Lexicon.Get("connect.gps.section_details"));
+            sb.AppendLine(Lexicon.Get("connect.gps.detail_status", ("status", Or(s.Status, notReported))));
+            sb.AppendLine(Lexicon.Get("connect.gps.detail_satellites",
+                ("visible", Or(s.SatellitesVisible, notReported)),
+                ("tracked", Or(s.SatellitesTracked, notReported))));
+            sb.AppendLine(Lexicon.Get("connect.gps.detail_grid", ("grid", Or(s.Grid, notReported))));
+            sb.AppendLine(Lexicon.Get("connect.gps.detail_position",
+                ("latitude", Or(s.Latitude, notReported)), ("longitude", Or(s.Longitude, notReported))));
+            sb.AppendLine(Lexicon.Get("connect.gps.detail_altitude", ("altitude", Or(s.Altitude, notReported))));
+            sb.AppendLine(Lexicon.Get("connect.gps.detail_utc", ("utcTime", Or(s.UtcTime, notReported))));
             // Two different figures, so two labelled lines. The first is the
             // GPS receiver's own text, passed through unchanged and without an
             // invented unit; the second is the radio's clock correction, which
             // genuinely is parts per billion.
-            sb.AppendLine("GPS frequency error: " + Or(s.FreqError, "not reported"));
-            sb.AppendLine($"Clock correction: {s.FreqErrorPpb} parts per billion");
+            sb.AppendLine(Lexicon.Get("connect.gps.detail_freq_error", ("freqError", Or(s.FreqError, notReported))));
+            sb.AppendLine(Lexicon.Get("connect.gps.detail_clock_correction", ("freqErrorPpb", s.FreqErrorPpb)));
             sb.AppendLine();
 
             // The radio is an NTP server when it has a fix, not an NTP client.
             // Stated here because it is the single most misunderstood thing
             // about this feature.
-            sb.AppendLine("Time");
-            sb.Append("With a GPS fix the radio keeps very accurate time and offers it to your network as a time server. It does not get its time from anywhere else, and there is nothing to configure here — point a computer at the radio's address if you want to use it.");
+            sb.AppendLine(Lexicon.Get("connect.gps.section_time"));
+            sb.Append(Lexicon.Get("connect.gps.time_note"));
             return sb.ToString();
         }
 
@@ -196,19 +200,25 @@ namespace JJFlexWpf.Dialogs
                 // dialog opening, and the summary already covers it.
                 if (first) return;
 
+                // The separating space stays in code. It is composition, not
+                // vocabulary, and a leading space inside a stored string is
+                // invisible to the operator editing that file by ear.
                 string sats = string.IsNullOrWhiteSpace(s.SatellitesTracked)
                     ? string.Empty
-                    : $" {s.SatellitesTracked} satellites tracked.";
+                    : " " + Lexicon.Get("connect.gps.sats_tracked", ("tracked", s.SatellitesTracked));
 
                 // Lock first, then what it is running on, then the GPS phase.
                 // The fix text used to lead, and it is the supporting detail —
                 // the two can disagree while a fix is being acquired, and lock
                 // is what decides whether the radio is disciplined at all.
-                string gps = string.IsNullOrWhiteSpace(s.Status) ? "" : $" GPS {s.Status}.";
+                string gps = string.IsNullOrWhiteSpace(s.Status)
+                    ? ""
+                    : " " + Lexicon.Get("connect.gps.phase", ("status", s.Status));
                 StateAnnounceText.Text = s.OscillatorLocked && s.OscillatorInUse.Equals("gpsdo", StringComparison.OrdinalIgnoreCase)
-                    ? $"Reference locked. The radio is now using the GPS reference.{gps}{sats}"
-                    : (s.OscillatorLocked ? "Reference locked." : "Reference not locked.")
-                      + $" Running on {FlexBase.DescribeOscillatorInUse(s)}.{gps}{sats}";
+                    ? Lexicon.Get("connect.gps.reference_locked_gpsdo") + gps + sats
+                    : Lexicon.Get(s.OscillatorLocked ? "connect.gps.reference_locked" : "connect.gps.reference_not_locked")
+                      + " " + Lexicon.Get("connect.gps.running_on",
+                          ("oscillator", FlexBase.DescribeOscillatorInUse(s))) + gps + sats;
                 return;
             }
 
@@ -225,8 +235,9 @@ namespace JJFlexWpf.Dialogs
                 && DateTime.UtcNow - _pendingSatsSince >= SatelliteSettleTime)
             {
                 _lastAnnouncedSats = tracked;
-                StateAnnounceText.Text =
-                    $"{Or(tracked, "unknown")} satellites tracked, {Or(s.SatellitesVisible, "unknown")} visible.";
+                string unknown = Lexicon.Get("connect.gps.unknown");
+                StateAnnounceText.Text = Lexicon.Get("connect.gps.sats_tracked_and_visible",
+                    ("tracked", Or(tracked, unknown)), ("visible", Or(s.SatellitesVisible, unknown)));
             }
         }
 
@@ -241,14 +252,16 @@ namespace JJFlexWpf.Dialogs
 
             if (_rig.SetSelectedOscillator(value))
             {
-                ScreenReaderOutput.Speak($"Reference set to {item.Content}.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("connect.gps.reference_set", ("reference", item.Content)),
+                    VerbosityLevel.Terse, interrupt: true);
                 // The radio takes a moment to report back what it settled on, so
                 // the state line updates on the next property change rather than
                 // being guessed at here.
             }
             else
             {
-                ScreenReaderOutput.Speak("The reference could not be changed.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.gps.reference_change_failed"), VerbosityLevel.Terse, interrupt: true);
             }
         }
 
@@ -266,12 +279,12 @@ namespace JJFlexWpf.Dialogs
         {
             try
             {
-                Clipboard.SetText("GPS and reference status\r\n\r\n" + StatusText.Text);
-                ScreenReaderOutput.Speak("Copied.", VerbosityLevel.Terse, interrupt: true);
+                Clipboard.SetText(Lexicon.Get("connect.gps.clipboard_heading") + "\r\n\r\n" + StatusText.Text);
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.gps.copied"), VerbosityLevel.Terse, interrupt: true);
             }
             catch
             {
-                ScreenReaderOutput.Speak("Copy failed.", VerbosityLevel.Terse, interrupt: true);
+                ScreenReaderOutput.Speak(Lexicon.Get("connect.gps.copy_failed"), VerbosityLevel.Terse, interrupt: true);
             }
         }
 

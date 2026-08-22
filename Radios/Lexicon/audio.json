@@ -59,5 +59,16 @@
   "audio.power.range_watts": "Range 0 to 100 watts, whole watts only — the radio's power control is an integer. Arrows adjust by 1, type digits then Enter for an exact value.",
   "audio.power.unit_dbm": "Power, in d B m.",
   "audio.power.unit_dbm_named": "Power, in d B m, transverter {name} drive.",
-  "audio.power.unit_watts": "Power, in watts."
+  "audio.power.unit_watts": "Power, in watts.",
+  "audio.meters.tones_on": "Meter tones on",
+  "audio.meters.tones_off": "Meter tones off",
+  "audio.meters.alc_high": "ALC high",
+  "audio.meters.alc_warning": "ALC warning",
+  "audio.meters.no_radio": "No radio connected",
+  "audio.meters.s_meter": "S-meter S{sUnits}.",
+  "audio.meters.s_meter_over_9": "S-meter S9 plus {overS9} dB.",
+  "audio.meters.forward_power": "Forward power {power}.",
+  "audio.meters.swr": "SWR {swr}.",
+  "audio.meters.alc": "ALC {alc}.",
+  "audio.meters.mic": "Mic {mic} dB."
 }

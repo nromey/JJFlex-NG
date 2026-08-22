@@ -14,7 +14,9 @@ namespace JJFlexWpf.Dialogs;
 /// </summary>
 public partial class ScanDialog : JJFlexDialog
 {
-    private const string SpeedError = "The speed must be 1 through 600 tenths of a second.";
+    // Was a const, which cannot call into the store. A property keeps every
+    // call site reading exactly as it did.
+    private static string SpeedError => Radios.Lexicon.Get("connect.scan.speed_range");
 
     #region Delegates
 
@@ -120,26 +122,30 @@ public partial class ScanDialog : JJFlexDialog
 
         if (low == null)
         {
-            MessageBox.Show("Invalid starting frequency.", "Scan", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(Radios.Lexicon.Get("connect.scan.invalid_start"),
+                Radios.Lexicon.Get("connect.scan.caption"), MessageBoxButton.OK, MessageBoxImage.Warning);
             StartFreqBox.Focus();
             return false;
         }
         if (high == null)
         {
-            MessageBox.Show("Invalid ending frequency.", "Scan", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(Radios.Lexicon.Get("connect.scan.invalid_end"),
+                Radios.Lexicon.Get("connect.scan.caption"), MessageBoxButton.OK, MessageBoxImage.Warning);
             EndFreqBox.Focus();
             return false;
         }
         if (string.Compare(high, low, StringComparison.Ordinal) <= 0)
         {
-            MessageBox.Show("The ending frequency must exceed the starting frequency.", "Scan",
+            MessageBox.Show(Radios.Lexicon.Get("connect.scan.end_must_exceed_start"),
+                Radios.Lexicon.Get("connect.scan.caption"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             StartFreqBox.Focus();
             return false;
         }
         if (string.IsNullOrEmpty(increment))
         {
-            MessageBox.Show("The increment must be in kHz, 0.01 through 999.99", "Scan",
+            MessageBox.Show(Radios.Lexicon.Get("connect.scan.increment_range"),
+                Radios.Lexicon.Get("connect.scan.caption"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             IncrementBox.Focus();
             return false;
@@ -147,7 +153,8 @@ public partial class ScanDialog : JJFlexDialog
 
         if (!int.TryParse(SpeedBox.Text, out int speed) || speed < 1 || speed > 600)
         {
-            MessageBox.Show(SpeedError, "Scan", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(SpeedError, Radios.Lexicon.Get("connect.scan.caption"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
             SpeedBox.Focus();
             return false;
         }
@@ -206,7 +213,8 @@ public partial class ScanDialog : JJFlexDialog
         string? name = GetScanName?.Invoke();
         if (string.IsNullOrEmpty(name))
         {
-            MessageBox.Show("You must provide a name.", "Save Scan",
+            MessageBox.Show(Radios.Lexicon.Get("connect.scan.name_required"),
+                Radios.Lexicon.Get("connect.scan.save_caption"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -222,7 +230,8 @@ public partial class ScanDialog : JJFlexDialog
 
         if (SaveScan?.Invoke(preset) != true)
         {
-            MessageBox.Show($"{name} already exists.", "Save Scan",
+            MessageBox.Show(Radios.Lexicon.Get("connect.scan.name_taken", ("name", name)),
+                Radios.Lexicon.Get("connect.scan.save_caption"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }

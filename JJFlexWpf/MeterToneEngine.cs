@@ -71,8 +71,12 @@ namespace JJFlexWpf
         public static void ToggleEnabled()
         {
             Enabled = !Enabled;
-            string state = Enabled ? "on" : "off";
-            ScreenReaderOutput.Speak($"Meter tones {state}", VerbosityLevel.Terse, true);
+            // Two whole utterances rather than a template plus a bare "on" /
+            // "off": the state word alone is not a string anybody can review,
+            // and a shared on/off key would be edited from six directions.
+            ScreenReaderOutput.Speak(
+                Lexicon.Get(Enabled ? "audio.meters.tones_on" : "audio.meters.tones_off"),
+                VerbosityLevel.Terse, true);
             if (Enabled) EarconPlayer.FeatureOnTone();
             else EarconPlayer.FeatureOffTone();
         }
@@ -685,7 +689,7 @@ namespace JJFlexWpf
                 _lastPeakWarningTicks = nowTicks;
                 try { EarconPlayer.Warning2Beep(); } catch { }
                 if (SpeechEnabled)
-                    ScreenReaderOutput.Speak("ALC high", VerbosityLevel.Critical);
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.alc_high"), VerbosityLevel.Critical);
             }
             else if (alcValue > AlcWarningThreshold)
             {
@@ -701,7 +705,7 @@ namespace JJFlexWpf
                     _lastPeakWarningTicks = nowTicks;
                     try { EarconPlayer.Warning1Beep(); } catch { }
                     if (SpeechEnabled)
-                        ScreenReaderOutput.Speak("ALC warning", VerbosityLevel.Critical);
+                        ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.alc_warning"), VerbosityLevel.Critical);
                 }
             }
             else
@@ -722,7 +726,7 @@ namespace JJFlexWpf
         /// </summary>
         public static string GetMeterSpeechSummary()
         {
-            if (_rig == null) return "No radio connected";
+            if (_rig == null) return Lexicon.Get("audio.meters.no_radio");
 
             var sb = new StringBuilder();
             bool tx = _rig.Transmit;
@@ -731,30 +735,33 @@ namespace JJFlexWpf
             {
                 // RX meters
                 int sUnits = _rig.SMeter;
+                // The sentence lives in the store; the separating space stays
+                // in code, where it belongs.
                 if (sUnits <= 9)
-                    sb.Append($"S-meter S{sUnits}. ");
+                    sb.Append(Lexicon.Get("audio.meters.s_meter", ("sUnits", sUnits))).Append(' ');
                 else
                     // Over S9 the excess is already dB (SMeter returns
                     // dB-over-S9 plus 9); the old x6 inflated it sixfold.
-                    sb.Append($"S-meter S9 plus {sUnits - 9} dB. ");
+                    sb.Append(Lexicon.Get("audio.meters.s_meter_over_9", ("overS9", sUnits - 9))).Append(' ');
             }
             else
             {
                 // TX meters. Forward power comes from the float path — this
                 // used to truncate locally, so 174 mW of real RF was spoken
                 // as "Forward power 0 watts".
-                sb.Append($"Forward power {FlexBase.FormatForwardPowerSpoken(_rig.ForwardPowerWatts)}. ");
+                sb.Append(Lexicon.Get("audio.meters.forward_power",
+                    ("power", FlexBase.FormatForwardPowerSpoken(_rig.ForwardPowerWatts)))).Append(' ');
 
                 float swr = _rig.SWRValue;
                 if (swr > 0)
-                    sb.Append($"SWR {swr:F1}. ");
+                    sb.Append(Lexicon.Get("audio.meters.swr", ("swr", $"{swr:F1}"))).Append(' ');
 
                 float alc = _rig.ALC;
                 if (alc > 0.01f)
-                    sb.Append($"ALC {alc:F2}. ");
+                    sb.Append(Lexicon.Get("audio.meters.alc", ("alc", $"{alc:F2}"))).Append(' ');
 
                 float mic = _rig.MicData;
-                sb.Append($"Mic {mic:F1} dB. ");
+                sb.Append(Lexicon.Get("audio.meters.mic", ("mic", $"{mic:F1}"))).Append(' ');
             }
 
             return sb.ToString().TrimEnd();
