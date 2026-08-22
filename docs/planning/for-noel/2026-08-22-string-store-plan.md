@@ -55,6 +55,36 @@ A fallback of empty string would have been invisible to the operator AND to the
 test. Two reasons, one decision, and the second only became visible once the
 transcript existed.
 
+### But the runtime check only sees what got TRIGGERED
+
+Noel again, and this is the limit that decides how much the detector is worth: the
+diff cannot see a missing string, and the transcript scan only sees strings a test
+actually caused to be spoken. **The detector's coverage is exactly the test suite's
+coverage, no more.** A missing key on a path nothing walks — an error branch, a
+rare dialog, a failure message — never reaches the transcript and stays invisible
+until a user finds it.
+
+So a THIRD check is needed, static this time, and the three together are complete:
+
+- **Static, at build time.** Scan every `Strings.Get("...")` call site and confirm
+  the named key exists in the store. Catches untriggered paths precisely because it
+  runs nothing.
+- **Runtime, from the transcript.** No speech event's text may look like a key.
+  Catches what static analysis structurally cannot: keys assembled at runtime, like
+  `$"connect.{phase}.done"`, where no literal ever appears in source.
+- **The diff.** Catches changed text, which neither of the others looks at.
+
+Each one's blind spot is another's strength. Dynamic key construction defeats the
+static check; untriggered paths defeat the runtime one; and a string that is
+present, reachable and simply WRONG is only caught by the diff.
+
+**Design rule that follows: keys should be literals wherever possible.** A
+dynamically assembled key cannot be verified until something executes it, which for
+an error path may be a user's machine months later. Pay the verbosity cost and keep
+them statically checkable. Where a key genuinely must be built — a per-band or
+per-slice family, say — the track should say so in its report, because those are
+the entries whose only safety net is a test that happens to reach them.
+
 ## Serial first — these cannot be parallelised
 
 ### Step 1: the five decisions (no code)
