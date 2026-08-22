@@ -29,16 +29,20 @@ public partial class RadioAssociationsDialog : JJFlexDialog
         public KnownRadioEntry Entry { get; init; } = null!;
         public override string ToString()
         {
-            var name = string.IsNullOrWhiteSpace(Entry.Nickname) ? "Unnamed" : Entry.Nickname;
-            var model = string.IsNullOrWhiteSpace(Entry.Model) ? "Unknown model" : Entry.Model;
+            var name = string.IsNullOrWhiteSpace(Entry.Nickname)
+                ? Lexicon.Get("settings.associations.unnamed_radio") : Entry.Nickname;
+            var model = string.IsNullOrWhiteSpace(Entry.Model)
+                ? Lexicon.Get("settings.associations.unknown_model") : Entry.Model;
 
             string account;
             if (!string.IsNullOrWhiteSpace(Entry.PreferredAccount))
-                account = $"preferred account {Entry.PreferredAccount}";
+                account = Lexicon.Get("settings.associations.preferred_account",
+                    ("account", Entry.PreferredAccount));
             else if (!string.IsNullOrWhiteSpace(Entry.LastSeenViaAccount))
-                account = $"registered to {Entry.LastSeenViaAccount}";
+                account = Lexicon.Get("settings.associations.registered_to",
+                    ("account", Entry.LastSeenViaAccount));
             else
-                account = "automatic";
+                account = Lexicon.Get("settings.associations.automatic_lowercase");
 
             // Orphan-and-show: a binding to an account this machine no longer
             // holds is stated, not hidden and not silently cleared.
@@ -46,14 +50,15 @@ public partial class RadioAssociationsDialog : JJFlexDialog
             if (!string.IsNullOrWhiteSpace(bound)
                 && FlexBase.SharedAccountManager.GetAccountByEmail(bound) == null)
             {
-                account += ", account not saved on this computer";
+                account += Lexicon.Get("settings.associations.account_not_on_this_computer");
             }
 
-            return $"{name}, {model}, {account}";
+            return Lexicon.Get("settings.associations.row",
+                ("name", name), ("model", model), ("account", account));
         }
     }
 
-    private const string AutomaticLabel = "Automatic";
+    private static string AutomaticLabel => Lexicon.Get("settings.associations.automatic_label");
 
     public RadioAssociationsDialog()
     {
@@ -82,7 +87,7 @@ public partial class RadioAssociationsDialog : JJFlexDialog
 
         if (RadioList.Items.Count == 0)
         {
-            RadioList.Items.Add("No radios known yet. Radios appear here after they are seen once.");
+            RadioList.Items.Add(Lexicon.Get("settings.associations.none_known"));
             return;
         }
 
@@ -134,7 +139,7 @@ public partial class RadioAssociationsDialog : JJFlexDialog
         if (!KnownRadioRoster.SetPreferredAccount(row.Entry.Serial, email))
         {
             ScreenReaderOutput.Speak(
-                "Could not save the preferred account. It would not survive a restart, so nothing was changed.",
+                Lexicon.Get("settings.associations.save_failed"),
                 interrupt: true);
             return;
         }
@@ -142,8 +147,8 @@ public partial class RadioAssociationsDialog : JJFlexDialog
         var name = string.IsNullOrWhiteSpace(row.Entry.Nickname) ? row.Entry.Serial : row.Entry.Nickname;
         ScreenReaderOutput.Speak(
             string.IsNullOrWhiteSpace(email)
-                ? $"{name} preferred account cleared. Automatic."
-                : $"{name} will connect as {email}.",
+                ? Lexicon.Get("settings.associations.preference_cleared", ("name", name))
+                : Lexicon.Get("settings.associations.will_connect_as", ("name", name), ("email", email)),
             interrupt: true);
 
         ReloadRadios(row.Entry.Serial);

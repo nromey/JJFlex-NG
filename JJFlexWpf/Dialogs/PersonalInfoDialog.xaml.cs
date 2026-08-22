@@ -59,10 +59,10 @@ namespace JJFlexWpf.Dialogs
 
     public partial class PersonalInfoDialog : JJFlexDialog
     {
-        private const string NoDupMsg = "There is already an operator with this name and handle.";
-        private const string NoName = "The operator must have a name";
-        private const string BrlDispError = "The braille display size must be a positive, nonzero, value.";
-        private const string NotValidHost = "The cluster address is not a valid hostname.";
+        private static string NoDupMsg => Radios.Lexicon.Get("settings.operator.duplicate");
+        private static string NoName => Radios.Lexicon.Get("settings.operator.name_required");
+        private static string BrlDispError => Radios.Lexicon.Get("settings.operator.braille_size_invalid");
+        private static string NotValidHost => Radios.Lexicon.Get("settings.operator.hostname_invalid");
 
         private readonly PersonalInfoCallbacks _callbacks;
         private readonly bool _isUpdate;
@@ -94,12 +94,12 @@ namespace JJFlexWpf.Dialogs
 
             if (_isUpdate)
             {
-                OKButton.Content = "Update";
+                OKButton.Content = Radios.Lexicon.Get("settings.operator.ok_update");
                 PopulateFields(existingData!);
             }
             else
             {
-                OKButton.Content = "Add";
+                OKButton.Content = Radios.Lexicon.Get("settings.operator.ok_add");
             }
 
             UpdateCallbookFieldsEnabled();
@@ -146,7 +146,7 @@ namespace JJFlexWpf.Dialogs
             var fullName = FullNameBox.Text.Trim();
             if (string.IsNullOrEmpty(fullName))
             {
-                MessageBox.Show(NoName, "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(NoName, Radios.Lexicon.Get("settings.validation_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 FullNameBox.Focus();
                 return;
             }
@@ -154,7 +154,7 @@ namespace JJFlexWpf.Dialogs
             var handle = HandleBox.Text.Trim();
             if (_callbacks.IsDuplicate(fullName, handle))
             {
-                MessageBox.Show(NoDupMsg, "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(NoDupMsg, Radios.Lexicon.Get("settings.validation_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 FullNameBox.Focus();
                 return;
             }
@@ -162,7 +162,7 @@ namespace JJFlexWpf.Dialogs
             var clusterHost = AddressBox.Text.Trim();
             if (!string.IsNullOrEmpty(clusterHost) && !_callbacks.ValidateHostname(clusterHost))
             {
-                MessageBox.Show(NotValidHost, "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(NotValidHost, Radios.Lexicon.Get("settings.validation_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                 AddressBox.Focus();
                 return;
             }
@@ -174,7 +174,7 @@ namespace JJFlexWpf.Dialogs
             {
                 if (!int.TryParse(brlText, out brlSize) || brlSize < 0)
                 {
-                    MessageBox.Show(BrlDispError, "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show(BrlDispError, Radios.Lexicon.Get("settings.validation_title"), MessageBoxButton.OK, MessageBoxImage.Warning);
                     BRLSizeBox.Focus();
                     return;
                 }
@@ -268,7 +268,9 @@ namespace JJFlexWpf.Dialogs
             var apiKey = QrzLogbookApiKeyBox.Text.Trim();
             if (string.IsNullOrEmpty(apiKey))
             {
-                MessageBox.Show("Enter an API key first.", "QRZ Logbook", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(Radios.Lexicon.Get("settings.operator.api_key_required"),
+                    Radios.Lexicon.Get("settings.operator.qrz_logbook_title"),
+                    MessageBoxButton.OK, MessageBoxImage.Information);
                 QrzLogbookApiKeyBox.Focus();
                 return;
             }
