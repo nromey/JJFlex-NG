@@ -157,24 +157,31 @@ reason this store exists.
 separate passes. A track that does both makes the transcript diff useless,
 because every intentional change hides a possible accident.
 
-**NEVER spawn the app.** Corrected 2026-08-22, before any track started.
+**Do not spawn the app — and if you ever do, set `JJFLEX_CONFIG_DIR` first.**
 
-`RadioConfig.BaseDirectory` is set once, at `ApplicationEvents.vb:308`, from the
-fixed `%AppData%\JJFlexRadio`. There is no environment variable or switch that
-redirects it — the tests set the static in-process, which a spawned exe cannot
-do. So every running instance, from any build in any worktree, reads and writes
-the operator's ONE live configuration.
+Written 2026-08-22 as an absolute ban, then softened the same morning once the
+reason was fixed. Both halves are worth knowing.
 
-That is not a theoretical concern. On 2026-08-21 a background agent's worktree
-build rewrote the operator's `KeyDefs.xml`, and because no copy existed
-anywhere, "did that damage anything?" could not be answered even afterwards —
-which is why `backup-appdata-to-nas.ps1` was written the same day. Six tracks
-each spawning a build to record a transcript would reproduce that six times
-concurrently, against live settings, while also contending for one radio.
+The ban existed because the settings root could not be moved. Nineteen stores
+resolved `%AppData%\JJFlexRadio` independently, so every instance — from any
+build in any worktree — read and wrote the operator's one live configuration.
+Measured: an ordinary twelve-second launch changed **17 files** there, rewriting
+`KeyDefs.xml` and the 8600's per-radio `config.xml`. That is also what really
+happened on 2026-08-21 when a background agent's build rewrote `KeyDefs.xml`;
+it was never a freak event.
 
-**So a track's gate is: the static check passes, the unit suite passes, and the
-build is clean.** All three run in parallel safely because none of them starts
-the program.
+`JJFLEX_CONFIG_DIR` now relocates the whole tree, and all nineteen stores
+resolve through `RadioConfig.AppDataRoot`. The same launch under it changes
+**0 of 702**. So spawning is no longer dangerous — **provided the variable is
+set to your own temp directory.** Without it you are writing the operator's
+real settings, and nothing will tell you so.
+
+**A track's gate is still: the static check passes, the unit suite passes, and
+the build is clean.** Not because spawning is unsafe now, but because none of
+those need the app, and the transcript diff is a better instrument when it runs
+once over the merged whole than six times over six domains — the app's voice is
+one integrated thing, and per-domain diffs are each blind to what crosses
+between them.
 
 **The transcript diff is one serialized pass after the merge**, run at the desk,
 not per track. That is also the better instrument: the app's voice is one
