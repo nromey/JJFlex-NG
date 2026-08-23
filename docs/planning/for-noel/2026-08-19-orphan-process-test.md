@@ -21,7 +21,69 @@ teardown-order work.
 > comparison afterwards. If the laptop is dirty and the ms-02 clean, that is a
 > timing race and the difference between the machines is the clue.
 >
-> **SHELVED 2026-08-19** pending a laptop build.
+> **UNSHELVED 2026-08-23.** Noel has a build on the laptop and has run five
+> open-and-close cycles there, with no survivor.
+>
+> **Whether those five runs count turns entirely on one question: was PC audio
+> on?** If it was off, `startRemoteAudioThread()` never ran, there was no thread
+> to orphan, and five clean runs are five repetitions of a null result rather
+> than five pieces of evidence. That is the whole reason for the "Setup" step
+> below, and it is the thing every previous casual attempt got wrong.
+>
+> **Also corrected 2026-08-23:** the banner above says run it on the laptop, and
+> that instruction stands — but for the right reason. It is not because the
+> ms-02 is precious; Noel has since ruled the opposite ("MS-02 is in truth more
+> disposable and the laptop's my daily driver"). It is because **the laptop is
+> the machine where the survivor has actually been seen**, and testing on a
+> machine where a bug does not occur is testing where the bug is not.
+
+---
+
+## What would close this task — added 2026-08-23, at Noel's request
+
+His question: "this being open makes me wonder if we should not declare
+parameters for what would suffice. What would convince us that we're done."
+
+Counting clean runs cannot answer that, because there is no defensible number.
+The four conditions below can. All four must hold; the general form of this rule
+is in memory as `feedback_exit_criteria_for_absence_of_a_bug`.
+
+**1. Named mechanism — PARTIALLY MET.** #14 identified the `Audio.Finished()`
+timeout loop that could never time out, plus the foreground-thread and
+teardown-order work. That is a real mechanism. What is missing is proof that
+this mechanism is the one that produced the ghosts Noel saw, rather than a
+separate bug that happened to be fixed nearby.
+
+**2. Positive control — NOW MET for the automated detector, NOT MET for the
+manual test.** `radiocheck.ps1 -SelfTestOrphan` skips the polite close so the
+app is guaranteed to still be running when the window expires; that run MUST
+report ORPHAN and fail the smoke tier. If it passes, the detector is blind.
+The manual test has no equivalent: nobody has produced a ghost on demand, on
+any build, ever. The cheapest route to one is a **pre-#14 debug build from the
+NAS historical tree**, run on the laptop with PC audio on. If the old build also
+refuses to produce a ghost, then the reproduction recipe is unknown and no
+amount of manual repetition on the new build will mean anything.
+
+**3. Standing assertion — NOW MET.** Every `radiocheck` smoke run checks for the
+orphan shape, on every build, forever. Before 2026-08-23 it did not: the check
+only fired if a process survived `Kill()`, while the real shape was recorded as
+a prose detail that left the tier passing. The runner named after #21 could not
+detect #21.
+
+**4. Stated falsifier — MET, stated here.** This reopens on any of: a
+`radiocheck` run reporting ORPHAN; a survivor observed by Noel or a tester after
+a normal close; or a trace showing `audio.Finished:didn't stop within 5s,
+abandoning wait`, which is the abandoned-wait path #14 created and is the
+signature of the thread that never got the stop signal.
+
+**Therefore:** with 1 partially met, #21 closes as **CONTAINED, not FIXED** —
+meaning the detector stays permanent, it is proven able to fire, and we accept
+the thing may resurface. The one piece of work that would upgrade it to FIXED is
+condition 2's pre-#14 build: reproduce the ghost once, then show it gone.
+
+**If you would rather not spend the effort on that, say so and it closes as
+CONTAINED today.** That is a legitimate stopping point and not a compromise —
+condition 3 is the one that actually protects the shipped build.
 
 Mark results inline with `**** `.
 

@@ -64,10 +64,11 @@ That is a serious piece of work, and it is why it reads as finished.
 single valid result.** The pressing half exists: `jjprobe` implements `windows`,
 `tree`, `focus`, `press`, `sweep` and `invoke`. But two things stop it:
 
-- It needs the interactive desktop. `SendInput` injects into the foreground
-  queue of the active desktop, and this is a blind operator's only machine. The
-  standing recommendation in the harness's own README is to run it on the
-  laptop.
+- It needs an interactive desktop it can have to itself. `SendInput` injects
+  into the foreground queue of the active desktop, so a human and the harness
+  cannot share a machine — whichever box runs it is out of service while it
+  runs. The harness's own README recommends the laptop; **that recommendation
+  rests on a wrong premise and is corrected in Part two.**
 - **#175: injection is broken on this machine anyway** — it reports
   `foregrounded true, routed empty`, even with a radio connected.
 
@@ -105,15 +106,36 @@ blockers.
 
 ## Part two — the single highest-leverage unblock
 
-**Get a build onto the laptop.**
+**Correction from you, 2026-08-23: the ms-02 is the disposable machine and the
+laptop is your daily driver.** I had that backwards, and it was load-bearing —
+the previous draft of this section recommended moving the harness onto the
+laptop, which is the one machine it should not live on.
 
-It clears #21 (the orphan bug that has never reproduced on the ms-02), it clears
-the foreground problem for #148 Tier 2, and it gives #175 a second machine to
-distinguish "injection is broken" from "injection is broken *here*". The harness
-already supports it: the nightly debug zip is an existing transfer artifact and
-`radiocheck.ps1 -DeskFree -ExePath <unzipped exe>` is the whole invocation.
+Two different questions got collapsed into one. Separated:
 
-Three open tasks, one afternoon of setup, no new code.
+**Which machine can be interrupted right now?** Whichever one you are not at.
+That is already settled and needs no policy — you say you are stepping away, and
+the standing keying authorization covers either machine. It is a per-run answer.
+
+**Which machine should absorb the harness's damage?** The ms-02, permanently.
+Tier 2 is machine-hostile by design: it takes the foreground, injects keystrokes
+into whatever has focus, spawns app instances that can orphan (#21), and — found
+yesterday — rewrites `%AppData%\JJFlexRadio\KeyDefs.xml` against live settings
+whenever an agent launches its own build. `JJFLEX_CONFIG_DIR` now contains the
+config half of that. It does not contain the foreground-theft half or the orphan
+half. That residue belongs on the box you would not miss.
+
+So the arrangement inverts: **the ms-02 is the test rig, the laptop is your
+seat.** That is also the cheaper arrangement, because the ms-02 already holds the
+worktrees, the build, the NAS mount and the radio on the LAN. The "one afternoon
+of setup" I costed into the previous draft disappears — there is nothing to set
+up.
+
+**What the laptop is still genuinely needed for, and only this:** #175.
+Injection reports `foregrounded true, routed empty` here, and one machine cannot
+distinguish "injection is broken" from "injection is broken *on this box*". That
+wants one build on a second machine, run once, as a diagnostic — not the laptop
+becoming the harness's home.
 
 ---
 
@@ -128,9 +150,13 @@ These are not slow, they are queued. They close in a burst. Two can start now
 regardless: #193's read-only APD readout needs no amplifier, and #180's load
 declaration is UI that should exist before the first sweep runs.
 
-### Waiting on the laptop
+### Waiting on a free desktop, not on code
 
-#21 · #148 Tier 2 · #175
+#21 · #148 Tier 2 — these need the ms-02 to itself, which is now one sentence
+from you rather than a second machine and a setup afternoon.
+
+#175 — this is the one that genuinely wants a second machine, once, to tell a
+broken mechanism apart from a broken box.
 
 ### Waiting on the radio and your presence
 

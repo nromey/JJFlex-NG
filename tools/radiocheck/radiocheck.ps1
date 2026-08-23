@@ -74,6 +74,19 @@ param(
     [switch]$SkipUnit,
     [switch]$SkipSmoke,
 
+    # POSITIVE CONTROL for the #21 orphan detector. Skips the polite
+    # close so the spawned app is guaranteed to still be running when the
+    # 15-second window expires, driving the exact code path a real orphan
+    # drives. A run with this switch MUST report ORPHAN and MUST fail the
+    # smoke tier; if it passes, the detector is blind and every clean run
+    # it has ever produced means nothing.
+    #
+    # This exists because the detector WAS blind, from the day it was
+    # written until 2026-08-23: it only fired when a process survived
+    # Kill(), which is a different and near-impossible bug, while the real
+    # shape was recorded as a prose detail that left the tier passing.
+    [switch]$SelfTestOrphan,
+
     # The human's declaration that the desk is free. Enables the
     # foreground tier (JJFlexWpf.Tests). This is deliberately a switch a
     # person passes, not a state the script detects: "the desk is free"
@@ -469,6 +482,24 @@ if ($SkipSmoke) {
         # Belt and suspenders: flags win over env vars, but set both.
         $psi.Environment['JJFLEX_RENDER'] = '0'
 
+        # Settings isolation. Added 2026-08-23; the runner had been
+        # spawning the app against the operator's LIVE %AppData%
+        # \JJFlexRadio the whole time, which is precisely the 2026-08-21
+        # incident where an agent's build rewrote KeyDefs.xml underneath
+        # him. Measured that day: an ordinary launch touched 17 live
+        # files; the same launch under JJFLEX_CONFIG_DIR touched 0 of 702.
+        #
+        # The app REFUSES a relative path and REFUSES the real settings
+        # folder, falling back to normal and tracing why — so a typo here
+        # degrades to the old behaviour rather than to a half-isolated run
+        # that reports itself isolated. Verify by reading the
+        # 'ConfigLocation:' line in the run's trace, not by trusting this
+        # line.
+        $configSandbox = Join-Path $OutDir 'appdata'
+        New-Item -ItemType Directory -Force -Path $configSandbox | Out-Null
+        $psi.Environment['JJFLEX_CONFIG_DIR'] = (Resolve-Path $configSandbox).Path
+        $smokeTier.detail.Add("settings isolated to $configSandbox (operator's %AppData%\JJFlexRadio untouched)")
+
         $proc = [System.Diagnostics.Process]::Start($psi)
         $smokeTier.detail.Add("spawned pid $($proc.Id)")
 
@@ -549,14 +580,50 @@ if ($SkipSmoke) {
                 # ever by the process OBJECT we spawned — never by name,
                 # because the operator may be running his own jjflexible
                 # and killing by name would take his session down.
+                #
+                # #21 LIVES IN THIS BLOCK, and until 2026-08-23 the block
+                # was blind to it. The orphan shape is "the window closed
+                # and the process kept running" — which lands in the killed
+                # branch below and used to be recorded as a prose detail
+                # that left the tier PASSING. The only graded check was
+                # further down and fired only if a process survived Kill(),
+                # which is a different and near-impossible bug. So the
+                # runner named after #21 could not have detected #21, and
+                # any clean run it produced was evidence of nothing.
                 $closed = $false
-                try { $closed = $proc.CloseMainWindow() } catch { }
+                if ($SelfTestOrphan) {
+                    Write-Host '  -SelfTestOrphan: skipping the polite close on purpose; this run MUST report ORPHAN.'
+                    $closed = $true
+                } else {
+                    try { $closed = $proc.CloseMainWindow() } catch { }
+                }
                 if (-not $proc.WaitForExit(15000)) {
+                    # Capture the evidence BEFORE killing, because it is
+                    # gone afterwards. Burning CPU is a spinning loop; idle
+                    # with live threads is a thread that never got the stop
+                    # signal. Different bugs, and you get one look.
+                    $pidText = $proc.Id
+                    $cpuText = 'unknown'
+                    $thrText = 'unknown'
+                    try {
+                        $proc.Refresh()
+                        $cpuText = [string][math]::Round($proc.TotalProcessorTime.TotalSeconds, 1)
+                        $thrText = [string]$proc.Threads.Count
+                    } catch { }
                     try { $proc.Kill() } catch { }
                     $proc.WaitForExit(5000) | Out-Null
-                    $smokeTier.detail.Add('app did not close politely within 15s; killed (transcript lines are flushed per event, so nothing is lost but the session-end)')
+                    $smokeTier.status = 'fail'
+                    if ($closed) {
+                        $smokeTier.detail.Add("ORPHAN (#21 shape): the main window accepted the close and pid $pidText was still running 15s later; killed. At kill time: CPU ${cpuText}s across $thrText thread(s). Burning CPU is a spinning loop; idle with live threads is a thread that never got the stop signal.")
+                    } else {
+                        $smokeTier.detail.Add("pid $pidText had no main window to close (CloseMainWindow returned false) and did not exit within 15s; killed. NOT the #21 shape — this is a launch or shutdown failure.")
+                    }
                 } else {
                     $smokeTier.detail.Add("app closed politely (CloseMainWindow accepted: $closed)")
+                    if ($SelfTestOrphan) {
+                        $smokeTier.status = 'broken'
+                        $smokeTier.detail.Add('SELF-TEST FAILED: -SelfTestOrphan was passed, the polite close was never sent, and the app exited anyway within 15s. The detector was not exercised, so this run proves nothing about it.')
+                    }
                 }
 
                 # Read the whole transcript and summarise. Event counts
@@ -587,13 +654,15 @@ if ($SkipSmoke) {
             }
         }
 
-        # Orphan check: the pid we spawned must be gone. #21's
-        # orphan-process bug is exactly an instance that outlives its
-        # window; a runner that leaks one per run would reproduce the
-        # problem it exists to catch.
+        # Last line of defence: the pid we spawned must be gone, even
+        # after Kill(). This is NOT the #21 shape — #21 is caught in the
+        # teardown block above. A process that survives Kill() is stuck in
+        # an uninterruptible wait, which is a worse and rarer bug. The
+        # wording used to claim this was #21 and that claim is what let
+        # the real detector stay missing.
         if (-not $proc.HasExited) {
             $smokeTier.status = 'broken'
-            $smokeTier.detail.Add("ORPHAN: pid $($proc.Id) survived teardown including Kill(). Report this — it is the #21 shape.")
+            $smokeTier.detail.Add("UNKILLABLE: pid $($proc.Id) survived teardown including Kill(). Rarer and worse than #21 — likely stuck in an uninterruptible wait. Report it.")
         }
     }
 }
@@ -603,9 +672,11 @@ if ($SkipSmoke) {
 $fgTier = New-Tier 'foreground (JJFlexWpf.Tests — takes the desktop)'
 if (-not $DeskFree) {
     $fgTier.status = 'deferred'
-    $fgTier.detail.Add('DEFERRED: needs the interactive desktop and this is the operator''s only machine. ' +
-        'Run with -DeskFree after the handshake ("gonna run a UI probe tool" / "cool have at it"), or run it ' +
-        'on the laptop — see tools/radiocheck/README.md for the standing recommendation.')
+    $fgTier.detail.Add('DEFERRED: needs an interactive desktop it can have to itself — it takes the foreground ' +
+        'and injects keystrokes, so a human cannot share the machine while it runs. ' +
+        'Run with -DeskFree once Noel says he is stepping away. Corrected 2026-08-23: the ms-02 is the ' +
+        'DISPOSABLE machine and the laptop is his daily driver, so the ms-02 is the right host for this tier, ' +
+        'not the laptop as previously recommended.')
 } else {
     Write-Host 'Tier: foreground (JJFlexWpf.Tests) — desk declared free ...'
     Invoke-DotnetTestTier $fgTier (Join-Path $RepoRoot 'JJFlexWpf.Tests\JJFlexWpf.Tests.csproj') `
