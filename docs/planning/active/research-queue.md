@@ -305,102 +305,26 @@ sentence.
 
 ---
 
-### Imported 2026-08-14 from `for-noel/2026-08-14-don-6300-rf-truth-test.md`
+### Imported 2026-08-14 — RECONCILED 2026-08-23, section removed
 
-Not yet in the task store. Numbering is the runbook's own; most important first.
+All fifteen items were checked against `task-register.md` and the code.
+**Eleven were already done or already tracked; three became tasks #202, #203
+and #204; one was a note, not work.** The full original text is in git —
+`git log -p docs/planning/active/research-queue.md` — and the runbook it came
+from is still at `for-noel/2026-08-14-don-6300-rf-truth-test.md`.
 
-**Context that frames all of them — the A/B verdict.** Laptop via exit node →
-SmartLink → forwarded ports → the 8600 keyed with PC audio and produced the
-delayed monitor echo, identical to LAN. **Client, SmartLink and the Opus
-upstream transport are proven good end to end over WAN.** The fault isolates to
-Don's end: Tony's router's handling of sustained inbound UDP, the 6300 itself,
-or radio config surviving reboots. **SmartSDR fails on Don's radio too**, which
-acquits JJ Flex's client code outright. Support-call posture, not a bug hunt.
+Already fixed in code, verified by reading it, do NOT redo:
+the `startOpusInputChannel` busy-spin (it starts once now); SC_MIC and SW ALC,
+which went far past the two TraceLine calls asked for and are now a modelled
+peak-hold surface; the `mic_selection=PC` assertion and divergence warning
+(`FlexBase.cs`, Track B 2026-08-16); and the drifted
+`SetSmartLinkPortForwarding` doc comment, which now carries its own
+correction naming the session it misled.
 
-**Root cause found for the network side:** the AT&T BGW320-500's IP Passthrough
-is DHCPS-fixed to an ASUS MAC (`…:6c`) unused since **June 20**, while the live
-WAN port is `…:70`. The network has been silently double-NATed for two months,
-not since the recent outage. Fix is the MAC or DHCPS-dynamic; saving restarts
-the gateway.
-
-1. **Presence check broken after client remove/re-add** — the authority gate
-   denies a local operator. Trace-proven: the client is re-added with an EMPTY
-   clientId and the same ClientHandle, so `IsCurrentClientLocalPtt` reads the
-   impostor record. Fix by matching on ClientHandle, which survives the re-add.
-   Likely shared root with the roster double-Enter and station binding. **HIGH.**
-2. **Roster never falls back to SmartLink for a known-local radio that is
-   unreachable.** Trace-proven: discovery drained zero packets, both attempts
-   took the LOCAL branch and hung 20-30 s, and the trace contains **zero**
-   SmartLink activity while the same radio showed Available from another
-   machine. Design intent is local first, then SmartLink automatically.
-   **HIGH — the headline roster defect behind the double-Enter and
-   offline-display complaints.**
-3. **Settings → Network: OK silently discards unapplied port-forward edits.** A
-   settings-are-intents violation; see `memory/project_settings_are_intents_not_commands.md`.
-4. **Settings → Network: display the router mapping** — external TCP → radio
-   port 4994, external UDP → radio port 4993. Also fix the drifted doc comment
-   on `FlexBase.SetSmartLinkPortForwarding`, which claims the radio listens on
-   the entered ports and misled a live debugging session.
-5. **Roster connect needs two Enters** (refresh, then connect). Fold the refresh
-   into the first.
-6. **RemoteAudio transmit loop busy-spins** — `startOpusInputChannel` traced
-   3.36M lines in 4 minutes, about 14,000 calls/sec during TX. Needs a sleep and
-   a trace guard. This is also what rotates 256 MB trace parts in ~20 s.
-7. **SC_MIC and SW ALC meters are not trace-instrumented** — both handlers store
-   values only (`FlexBase.cs:6958-6965`). Two TraceLine calls fix a blind spot
-   that cost a debugging session.
-8. **Assert `mic_selection=PC` while PC TX audio runs, and warn on divergence.**
-   The one-shot set at opus-output start can be reverted by a later profile
-   load, and nothing re-asserts or warns. Not the bug on the day, but it is the
-   arc's thesis: never stream TX audio silently into a closed gate.
-9. **Forward-power readout rounds sub-watt RF to zero** — Jim's
-   S-meter-as-power display (`FlexBase.cs:7196`). Real RF displays as 0 W at low
-   power and mimics no-transmit. Offer dBm or tenths.
-10. **Trace parts rotation ate the live analysis twice.** Parts rotate by size
-    with a "continues from part N" header; tooling tailing the live file must
-    follow rotations. Note for the diagnostic-log surface work.
-11. **VAC cable wedge (external).** The Virtual Audio Cable driver delivered
-    digital silence to all capture clients until a default-device switch forced
-    an engine rebuild. Not our bug — but the app's silent-capture warning was
-    the only thing that spoke truth. Keep investing in that detection.
-12. **Updater manifest 404** — `https://data.jjflexible.radio/jjflex-app-manifest.json`
-    returns 404. Either not deployed to R2 yet or the path is wrong.
-13. **Re-run the hole-punch test on the restored single-NAT topology.** The
-    2026-08-06 failure was measured through an unknown double NAT, so the
-    source-port rewrite may be gone. **Variant B** is the Tony-free
-    discriminator for Don's radio: punch bypasses the static forward and its
-    inbound policy. **Safety prerequisite: patch a debug connect override into
-    the client first** so Don's radio stays reachable to restore `wan set` if
-    punch fails. Do not clear his advertisement without that retreat path.
-14. **Microphone Check device picker and mono capture devices.** See the
-    correction below — this is an engine limitation, not a picker bug.
-15. **Tooling built 2026-08-14 (exists, works, keep):**
-    `tools/rigbench/make_pattern_tone.py`, `tools/rigbench/VacPlay`,
-    `C:\temp\tone-pattern-700.wav`, `C:\temp\id_k5ner.m4a`.
-
-**Two corrections to the runbook's item 4 / mono finding, verified 2026-08-14:**
-
-Mono devices **are** listed. `UsableForRadioAudio` returns false and the row is
-tagged "mono, not usable yet", but it appears — the comment in `Devices.cs`
-records why hiding by channel count was wrong (it made a laptop's only
-microphone unselectable, task #33). **The real constraint is the engine**, which
-opens two channels and cannot open mono and upmix. Filing it as a picker bug
-sends the fix to the wrong file.
-
-Separately, **the basic-mode filter merged 2026-08-13 hides virtual audio cables
-by name**, and VAC lines are named exactly that. So the rigbench rig is hidden in
-basic mode by design and Advanced is the intended path for bench work — that is
-the filter working as specified meeting a use case that did not exist when it
-shipped, not a regression.
-
-**FOOTNOTE carried forward:** the 2026-08-06 hole-punch capture analysis
-(`punch-capture-results-20260806.md`, and the source-latch design in
-`memory/project_hole_punch_wiring_gap.md`) unknowingly ran on the double NAT.
-The conclusion that "the rewriting NAT is the ASUS" should be re-examined — the
-BGW320 was also in the path. The source-latch fix stands either way; the
-attribution does not.
-
----
+**The lesson worth keeping:** this section was headed "Not yet in the task
+store" and most of it had been done. A stale list understates progress just
+as easily as it overstates it, and both readings are wrong in a way nothing
+announces.
 
 ### Closed 2026-08-11 → 2026-08-13 (reference — do not re-open without reading)
 

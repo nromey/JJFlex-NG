@@ -5,7 +5,7 @@ from the Claude task store. Hand edits are discarded on the next run.
 To change something here, change the task.
 
 **Generated:** 2026-08-23 from session `b06e594e-0593-4553-93ae-bf30e08d38ff`.
-**Totals:** 197 tasks - 77 open, 120 closed.
+**Totals:** 200 tasks - 80 open, 120 closed.
 
 Why this file exists: the task store lives under the user profile, is not
 in git, and is invisible to every other window, worktree and machine. This
@@ -17,7 +17,7 @@ Run `export-task-register.ps1 -Check` to prove this one has not.
 
 ---
 
-## Open (77)
+## Open (80)
 
 ### #10 - Audio Track F — receiver simulation on IQ playback
 
@@ -2753,6 +2753,50 @@ DESIGN NOTES:
 - Braille pages are expensive in paper and bulk. Ruthless selection matters more than in print.
 - Test on a real display and, if possible, a real embosser. A BRF that looks right in a text editor can still be wrong braille.
 - Check what the multi-braille work already established before choosing tables (index_product_identity, Jamie Teh thread).
+
+### #202 - Settings, Network: OK discards unapplied port-forward edits, and the router mapping is never shown
+
+Two defects in one dialog, both found 2026-08-14 during Don's 6300 RF truth test, both surviving the 2026-08-23 reconciliation of the research queue's import list.
+
+ONE — OK SILENTLY DISCARDS UNAPPLIED PORT-FORWARD EDITS. A settings-are-intents violation: the operator types a value, presses OK, and the edit evaporates with no word about it. See memory/project_settings_are_intents_not_commands.md. Not verified in code on 2026-08-23 - the reconciliation checked the two claims that were greppable and left this one, which needs the dialog open.
+
+TWO — THE DIALOG NEVER DISPLAYS THE ACTUAL ROUTER MAPPING. It should say plainly: external TCP port -> radio LAN IP port 4994, external UDP port -> radio LAN IP port 4993. A blind operator configuring a router from another room cannot infer this, and getting it wrong produces a radio that is discoverable and unusable.
+
+ALREADY FIXED, do not redo: the drifted doc comment on FlexBase.SetSmartLinkPortForwarding. It claimed the radio listens on the ports you pass in, which was wrong and misled a live debugging session. FlexBase.cs:693-695 now carries an explicit correction naming that session. The DOC half is done; the UI half above is not.
+
+Provenance: docs/planning/for-noel/2026-08-14-don-6300-rf-truth-test.md, items 3 and 4.
+
+### #203 - Roster connect needs two Enters — refresh, then connect
+
+Found 2026-08-14 during Don's 6300 RF truth test; survived the 2026-08-23 reconciliation of the research queue's import list, meaning nothing in the task store covers it.
+
+The roster requires pressing Enter twice: once to refresh the list, once to actually connect. Fold the refresh into the first Enter.
+
+WHY IT IS WORSE THAN A NUISANCE FOR THIS AUDIENCE: a sighted operator sees the list repopulate and knows the first Enter did something. A blind operator presses Enter, hears nothing conclusive, and cannot tell a refresh from a failed connect from a hung one. The runbook records it sitting alongside the "roster shows offline" and double-Enter complaints, which is consistent with the same confusion being reported three different ways.
+
+RELATED, and worth reading before touching this: the original runbook grouped this with two roster defects that ARE now covered in the task store - the presence-check authority gate (ClientHandle matching) and the missing SmartLink fallback for a known-local radio that is unreachable. If those share a root with this, fixing the root may close all three; check before designing a narrow fix.
+
+Not verified in code on 2026-08-23 - it needs the roster in front of you, not a grep.
+
+Provenance: docs/planning/for-noel/2026-08-14-don-6300-rf-truth-test.md, item 5.
+
+### #204 - The 2026-08-06 hole-punch analysis ran through an undiscovered double NAT — re-examine the attribution
+
+Carried forward from the research queue's import list during the 2026-08-23 reconciliation. This is a CONFIDENCE problem in a conclusion we already acted on, not a new bug.
+
+WHAT HAPPENED. The 2026-08-06 hole-punch capture analysis (punch-capture-results-20260806.md, and the source-latch design in memory/project_hole_punch_wiring_gap.md) concluded that "the rewriting NAT is the ASUS." That measurement was taken through a path nobody knew was double-NATed.
+
+Root cause found 2026-08-14: the AT&T BGW320-500's IP Passthrough was DHCPS-fixed to an ASUS MAC ending :6c, unused since June 20, while the live WAN port was :70. The network had been silently double-NATed for roughly two months - since well before the 2026-08-06 capture, and not caused by the later outage as was assumed at the time.
+
+SO: the BGW320 was also in the path. The source-latch FIX stands either way and should not be reverted. The ATTRIBUTION does not - we do not actually know which box rewrote the source port.
+
+WHAT TO DO. Re-run the punch test on the restored single-NAT topology and see whether the source-port rewrite is still there at all. Variant B is the Tony-free discriminator for Don's radio, because a punch bypasses the static forward and its inbound policy.
+
+SAFETY PREREQUISITE, non-negotiable: patch a debug connect override into the client BEFORE touching Don's radio, so it stays reachable to restore "wan set" if the punch fails. Do not clear his advertisement without that retreat path.
+
+CHECK FIRST: memory/project_hole_punch_wiring_gap.md records "our half verified correct 2026-08-18; far end never opened." That later verification may already answer part of this. Read it before scheduling radio time.
+
+Provenance: docs/planning/for-noel/2026-08-14-don-6300-rf-truth-test.md, item 13 and its closing footnote.
 
 ---
 
