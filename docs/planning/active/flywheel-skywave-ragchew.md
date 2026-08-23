@@ -147,7 +147,64 @@ Better than expected. `JJFlexControl/` is a full project, referenced from
   **nine button gestures exist and several are free.** The budget for modal
   layers is already there.
 
-### The hole, precisely located — this is #198
+### Correction: FlexLib has no knob support
+
+Verified 2026-08-23, with a positive control on the search (59 files in
+`FlexLib_API/` match "slice", so the grep works). Searching the vendored tree for
+`flexcontrol`, `knob` or `SerialPort` returns exactly one file — `ComPortPTT`, a
+serial-PTT sample unrelated to the knob.
+
+**Everything we have for the knob is Jim's own work**, including the protocol:
+`JJFlexControl/Serial.cs` opens a `SerialPort` at 9600 baud and decodes the
+device's event bytes itself. There is no vendor layer underneath to fall back on,
+which matters for scoping any rewrite.
+
+### Noel's ruling, 2026-08-23: rewrite the abstraction
+
+> "I think it really should be re-written from the ground up... the sky's the
+> limit as far as what each button does, what the presses do and how JJ Flex
+> interacts. JJ didn't have an app that was very interactive. He had basically
+> one form with an edit box for tuning and settings... I think we could take some
+> of the features but write a better flex knob abstraction for accessibility and
+> then just simply implement it better."
+
+**The framing that makes this right rather than merely preferred:** Jim's knob
+design was correctly scoped to Jim's application — a single form with an edit box
+for tuning and settings. A flat list of twelve actions is a good design for an app
+with one surface. It is the wrong design for an app with modes, dialogs, a leader
+layer, Home regions and a Command Finder. The constraint changed, not the quality
+of the original judgement.
+
+#### What to keep
+
+**`Serial.cs` and the device event decode.** It reads bytes off a COM port and
+produces fourteen discrete events. That is protocol, the device speaks what it
+speaks, and it is the one part that definitely works. Rewriting it buys nothing
+and risks the only solid ground we have.
+
+**The concepts** from `Action_t`: named, described, remappable actions with a
+value-readback delegate. Those ideas are sound. The implementation is not what
+survives — the shape of the idea is.
+
+#### What to replace, and the reason it is not just cleanup
+
+`FlexKnob.vb`, the flat action list, and the WinForms configuration dialogs.
+
+**The load-bearing architectural point: Jim's knob owns its own action registry,
+separate from the application's command system.** The app already has a command
+registry behind the keyboard, the leader layer, the Command Finder and F1 help.
+A knob with a parallel registry means every command must be registered twice, and
+the two lists will drift — which is this project's dominant defect class, invited
+in by design.
+
+**The rewrite should make the knob a fourth input ROUTE into the existing command
+registry, not a separate action system.** Do that and the knob inherits Command
+Finder discoverability, F1 help, the leader-layer vocabulary and the keyboard
+audit machinery for free, instead of needing parallel versions of each. It also
+lands directly on #185, which is about testing every action by every route a user
+can reach it; the knob becomes one more route rather than an untested island.
+
+### The hole this replaces, precisely located — this is #198
 
 `Action_t` carries a delegate whose documented purpose is *"Provides the current
 value."* Its **only consumer in the codebase** is `ShowKeysAndActions.cs:53`,
