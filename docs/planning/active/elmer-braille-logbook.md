@@ -81,33 +81,61 @@ heading, DBT has nothing to map and the result is flat.
 So the pandoc template is load-bearing and belongs under version control with the
 rest of the build. Style mapping in DBT gets configured once and reused.
 
-### The Duxbury API is called Swift
+### SWIFT — looked up 2026-08-23, and it is not an API
 
-Noel, 2026-08-23: it is **Swift**, and it works by connecting to a **Swift
-server** that drives Duxbury. His caveat: "it's not very well documented but it's
-out there."
+Noel supplied the name and remembered it as connecting to a "SWIFT server."
+Checked against Duxbury's own documentation, and the answer is different — and
+more convenient for us than an API would have been.
 
-**Nobody should design around it from memory, mine included.** Recording the name
-here so it is not lost; the shape, licensing terms and platform constraints all
-need looking up before any of this depends on them.
+**SWIFT is a Microsoft Word template.** It adds a menu and toolbar inside Word
+that sends the current document to DBT without making you start DBT and open the
+file by hand, and it can send DBT's translated output **straight to a braille
+embosser with no further user intervention**. It also does style-mapping
+customisation, hyperlink formatting and acronym handling.
 
-**But the client/server shape alone already tells us something worth acting on.**
-If Swift requires a Duxbury installation with a server process behind it, then
-the release-BRF step can only run on a machine that holds the licence. That means
-it is **not** a build-server target — it is a "run on the machine with DBT on it"
-target, however well it automates. Worth deciding deliberately rather than
-discovering when a build fails somewhere else.
+What the documentation does **not** describe: any API, command line, batch mode
+or unattended run. It requires DBT installed locally, and it is version-locked —
+a given SWIFT release states it "will not work with any earlier versions of DBT."
 
-So the design fork is:
+**On the server Noel remembered: could not confirm it, and could not disprove
+it.** The SWIFT page describes only the Word template, and DBT 12.5's
+what's-new page mentions SWIFT once in passing — as something whose table markup
+the Word importer has to *correct*. Two pages is not a survey, and there may well
+be a newer variant or an enterprise offering that is not in the public docs. If
+it matters, ask Duxbury directly rather than inferring from silence.
 
-- **Swift viable** — the release BRF becomes a build target on the licensed
-  machine, and the fast and slow loops collapse into one. Best case.
-- **Swift not viable, or not worth it** — the manual Word-import route into DBT
-  is the baseline, run once per release. This definitely works and the plan does
-  not depend on the other branch.
+### What that changes
 
-Build for the second and adopt the first if it earns its place. The liblouis fast
-loop is unaffected either way, which is the point of having it.
+**Almost nothing, and in a good way.** The pipeline already produces a Word file
+via pandoc, and a Word file is exactly what SWIFT consumes. The route is short:
+pandoc emits the .docx, open it in Word, SWIFT hands it to DBT, DBT translates and
+formats, out to BRF or straight to the embosser.
+
+So the earlier "manual Word-import baseline" and "the API branch" collapse into
+one path, and it is the one we were going to build for anyway.
+
+Two consequences worth carrying forward:
+
+- **The pandoc Word template becomes even more load-bearing**, because SWIFT is
+  where style mapping is configured. Real Heading 1/2/3 map. Hand-formatted bold
+  does not.
+- **That passing mention of SWIFT introducing "problematic Listed Table markup"
+  is a real hint that its table handling is imperfect.** It does not touch us —
+  the accessibility rule already forbids tables in our artifacts — but it is a
+  reason not to reach for one later.
+
+**If full automation is ever wanted**, the realistic route is Word COM automation
+from PowerShell — open the document, invoke the SWIFT command — not a documented
+interface. Known-messy but workable on Windows. An option, not a plan, and it
+still pins the step to the machine holding the licence.
+
+The liblouis fast loop is unaffected by all of this, which remains the point of
+having a fast loop that does not depend on the answer.
+
+**Sources:** Duxbury's SWIFT documentation
+(`duxburysystems.com/documentation/dbt$11.1/working_with_word/SWIFT/swift.htm`)
+and the DBT what's-new page (`duxburysystems.org/dbtwebhelp/`), both read
+2026-08-23.
 
 ---
 

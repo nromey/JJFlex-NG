@@ -10,6 +10,26 @@
 
 ## OPEN WORK REGISTER — mirrored from the task store 2026-08-14
 
+> ## STALE — SUPERSEDED 2026-08-23. DO NOT READ THIS AS AN INVENTORY.
+>
+> **The live backlog is now `task-register.md` in this directory**, generated
+> from the task store by `export-task-register.ps1`. Read that instead.
+>
+> This section said **72 tasks, 34 open**. Nine days later the store held **197
+> tasks, 77 open** — it was missing about two thirds of the backlog, and nothing
+> flagged it, because a mirror that has drifted looks exactly like one that has
+> not.
+>
+> That is the whole argument for generating it. A hand-maintained mirror carrying
+> the instruction "keep this current" is a promise with no enforcement, and this
+> one broke in nine days. `export-task-register.ps1 -Check` now exits non-zero on
+> drift, so the seal can verify rather than trust.
+>
+> **Kept rather than deleted for one reason:** the "Imported 2026-08-14 from the
+> RF truth-test runbook" subsection below may contain items that never became
+> tasks. Those need reconciling into the task store before this section can go.
+> Everything else here is superseded.
+
 **Why this section exists.** The live task list is served by an MCP server and
 stored as JSON under `~/.claude/tasks/<session-id>/`. On 2026-08-14 that server
 disconnected mid-session — the data survived, but nothing could read or write it
