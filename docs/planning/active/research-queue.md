@@ -8,6 +8,39 @@
 
 ---
 
+---
+
+## Where things live — read this before adding to this file
+
+**This file is a HUB, not a container.** It reached 890 lines by accumulating
+everything, and 60 percent of that turned out to be superseded or closed. Add a
+pointer here; put the substance in a topic file.
+
+Each pointer below NAMES what is in its target on purpose. The recurring failure
+is not being unable to find a document, it is not realising one exists — the same
+lesson the memory index learned when it was split on 2026-08-19.
+
+- **The live backlog: `task-register.md`** — all open and closed tasks, generated
+  from the task store by `export-task-register.ps1`. Never hand-edit it. Run it
+  with `-Check` to prove it has not drifted. This replaces the OPEN WORK REGISTER
+  section below.
+- **Arc ordering: `arc-sequencing.md`** — Noel's decision on which arcs run in
+  which order, and why.
+- **Tuning, the knob, flywheel physics: `flywheel-skywave-ragchew.md`** — smooth
+  tune DSP, adaptive steps, the knob rewrite and its modal layers.
+- **The manual, braille and print: `elmer-braille-logbook.md`** — BRF, liblouis
+  versus Duxbury, SWIFT, and the generated key reference.
+- **The test harness: `barefoot-harness-pileup.md`** and the triage in
+  `2026-08-20-master-test-list-triage.md`.
+- **Closed history: `../archive/2026-08-07-queue-burn-ensemble.md`** — the
+  eleven-track ensemble evening.
+
+**Still to reconcile, flagged 2026-08-23:** the OPEN WORK REGISTER section below
+is superseded EXCEPT for its "Imported 2026-08-14 from the RF truth-test runbook"
+subsection, and the "Queued — wave 2" section is a prose list that mostly
+duplicates the task store. Both need reading against `task-register.md` to find
+items that never became tasks. Until that is done, neither can be deleted.
+
 ## OPEN WORK REGISTER — mirrored from the task store 2026-08-14
 
 > ## STALE — SUPERSEDED 2026-08-23. DO NOT READ THIS AS AN INVENTORY.
@@ -390,292 +423,13 @@ mic verdict (#8).
 
 ---
 
-## Arc sequencing decided 2026-08-11 (Noel)
-
-**Order: finish the audio arc → backend reporting + infrastructure + signing →
-CW rewrite.** The CW rewrite was previously "the next arc"; it is not. An
-infrastructure phase goes in front of it.
-
-**This does NOT supersede the audio work.** Noel was explicit — the
-honest-TX-audio arc (`docs/planning/vision/honest-tx-audio.md`) finishes first.
-This entry exists so the infrastructure phase is not forgotten, not to reorder
-anything in flight.
-
-**What the infrastructure phase covers:**
-
-- **Storage and processing on R2 plus rarbox/roarbox** for crash reports, user
-  feedback, and problem reports — the server side of the three report types
-  that currently have designs but no destination. Existing design memory:
-  `project_sprint29_crash_reporter_vision.md`,
-  `project_user_initiated_feedback_session.md`,
-  `project_crash_triage_bundle_flow.md`. Hosting precedent:
-  `project_data_provider_hosting.md`.
-- **The update pipeline** — `active/auto-update-research.md`,
-  `project_sprint29_updater_vision.md`, `project_chained_updater_pattern.md`.
-  Note the app-update manifest at `data.jjflexible.radio` still 404s.
-- **Code signing** — `active/signing-track.md`,
-  `project_microsoft_trusted_signing.md`.
-
-**THE TRACE BROWSER IS THE CLIENT-SIDE HALF OF THAT PIPELINE — AND IT HAS NEVER
-BEEN TESTED (Noel, 2026-08-11).** Sprint 29 Track H shipped a Trace Browser tab
-in the TraceAdmin dialog (`ff7b3b16`, 2026-05-09, on main): date/outcome/text
-filters, sortable list, detail panel, and **View / Export / Delete / Prune**
-actions over the trace archive.
-
-- **Noel does not recall ever testing it, and the evidence agrees:** the
-  Sprint 29 test matrix already carries a written checklist for it
-  (`agile/sprint29-test-matrix.md`, "Track H — Trace Archive Browser tab") with
-  **every functional box still unchecked.** The test plan exists; nobody ran it.
-  This is shipped, unverified code sitting in a release branch.
-- **Architecturally it is further along than it looks.** A crash report, a
-  feedback bundle and a problem report all need the same client-side act: *find
-  the relevant trace, select it, package it, send it.* The browser already does
-  find / filter / select / **Export**. What is missing is the transport (upload
-  to R2) and the backend that receives and processes. **So the reporting work is
-  mostly a transport-and-backend job with the selection UI already built** — and
-  testing that UI is therefore a prerequisite for the phase, not a side errand.
-- **Do this when the audio arc's radio-seat session happens**, since the browser
-  needs real archived traces to browse and the audio testing generates them.
-
-**AND IT IS NOT JUST THE BROWSER — SPRINT 29 WAS NEVER SYSTEMATICALLY TESTED
-(Noel, 2026-08-11: "that was about the time I said I needed a JJ Flexible
-break").** `agile/sprint29-test-matrix.md` holds **83 test items across 8
-tracks and not one is ticked.**
-
-- **The evidence survives a control check.** Unticked boxes would prove nothing
-  if ticking were not the practice — so: `sprint25-test-matrix.md` is **55
-  checked out of 55**, same checkbox format, worked through completely. The
-  sprints between (23, 24, 26) and `4.1.17` / `pre-4.2-foundation-drop` use no
-  checkbox syntax at all, so they are silent rather than negative. **Sprint 25
-  proves the practice exists and gets finished when it runs; Sprint 29 is the
-  one that uses the format and shows zero.** Honest limit: this proves the
-  *matrix* was never worked through, not that zero testing happened — some
-  tracks were likely exercised informally. Treat it as "no record of systematic
-  verification."
-- **THE REFRAME THAT MATTERS FOR THE INFRASTRUCTURE PHASE: five of Sprint 29's
-  eight tracks ARE that phase, already built and shipped.** Track A (trace
-  persistence, 9 items), Track D (**app-updater client**, delta-fetch + XZ, 12),
-  Track H (**trace browser**, 16), Track M (**updater helper exe**, atomic file
-  replacement, 10), Track N (**server-side manifest generation**, 12) — **59 of
-  the 83 items.** So the phase Noel is queuing is substantially a
-  **verify-and-deploy** job on existing code, not a from-scratch build. What is
-  genuinely new is the R2/rarbox/roarbox storage and processing for the three
-  report types, and the signing track.
-- **This also explains the 404.** The app-update manifest at
-  `data.jjflexible.radio` returns nothing because Track N built the *generator*
-  and nothing was ever generated or deployed. That is a deployment gap, not a
-  missing feature.
-- **Track J (self-contained build pipeline, 9 items) is the sharpest one.**
-  `CLAUDE.md` states fresh-VM verification is **mandatory before public
-  release** — install on a Windows VM that has never had .NET 10 and confirm
-  jjflexible.exe launches to Home without a runtime prompt. Those 9 items are
-  unchecked, so the release-blocking test our own SOP calls mandatory has no
-  record of ever running.
-  - **The ms-02 cannot serve as that proof, and it is worth writing down before
-    someone proposes it again (checked 2026-08-11).** JJFlex launching fine on
-    the ms-02 is not evidence of self-containment: `dotnet --list-runtimes`
-    there reports **Microsoft.NETCore.App 10.0.9 and
-    Microsoft.WindowsDesktop.App 10.0.9**, installed alongside SDK 10.0.301. A
-    build machine necessarily has the runtime — **the box you build on is the
-    one box that can never validate self-containment.** Nor is .NET 10 bundled
-    with Windows 11; Windows ships .NET *Framework* 4.8, a different and much
-    older product, so "it must have come with the OS" does not explain it
-    either.
-  - **The configuration itself is verified good:** the x64 Release output does
-    carry `coreclr.dll`, `clrjit.dll`, `hostfxr.dll` and `hostpolicy.dll`, so
-    `<SelfContained>` is doing its job. What is missing is only the *proof on a
-    machine without the runtime*.
-  - **The Lenovo is disqualified too (Noel, 2026-08-11): it was the build
-    machine in May, before the ms-02 existed.** So both available Windows boxes
-    have the SDK and neither can serve as the control. Don's and Justin's
-    machines are no better — pre-self-contained builds required a .NET 10
-    Desktop Runtime install, so testers likely acquired it that way.
-  - **USE WINDOWS SANDBOX, not a provisioned VM.** Checked on the ms-02
-    2026-08-11: `HypervisorPresent: True`, edition **Windows 11 Pro**, so it is
-    supported; the feature is simply not enabled yet
-    (`WindowsSandbox.exe` absent). Enable once with elevation plus a reboot:
-    `Enable-WindowsOptionalFeature -Online -FeatureName "Containers-DisposableClientVM"`.
-    Why it beats a VM for this specific job:
-    - **Disposable means the control cannot rot.** Every launch is a fresh
-      Windows image, so it is structurally impossible for .NET 10 to be present
-      unless something in the test installs it. A hand-built VM is clean once
-      and drifts thereafter — exactly how a fresh-VM test quietly stops proving
-      anything.
-    - **No ISO, licence or disk provisioning** — it derives from the host image.
-    - **It makes the SOP sustainable.** CLAUDE.md calls this mandatory before
-      every public release; a five-minute repeatable check gets run, a
-      provisioned-VM ritual does not.
-    - **It is verifiable without sight or a screen reader inside the sandbox,
-      which is the part that matters here.** A `.wsb` config takes
-      `MappedFolders` plus a `LogonCommand`, so the run can be fully scripted:
-      assert `dotnet --list-runtimes` is empty (proving the control is valid),
-      run the installer silently, launch `jjflexible.exe`, wait, then assert the
-      process is alive, a main window exists, and no dialog mentioning ".NET" or
-      "runtime" appeared — writing a plain-text verdict to the mapped folder.
-      **Noel reads the result file on the host with NVDA.** This is not a
-      workaround for blindness; a written assertion is stronger evidence than
-      anyone eyeballing a VM screen, and it satisfies
-      `feedback_accessibility_is_end_to_end.md` rather than straining it.
-    - Scope note: the publish-shape items (~180-190 MB, ~364 files, satellite
-      dirs, runtime DLLs present) are **host-side** checks and need no sandbox
-      at all. Only the launch-without-runtime assertion does.
-  - **REFRAME — THE TEST IS NO LONGER ABOUT .NET, AND "IT LAUNCHED FINE" IS THE
-    WRONG ASSERTION (2026-08-11).** Noel's reasoning that SmartSDR ran on Tony's
-    runtime-free machine using the same technique is sound about the *technique*
-    — and the .NET question is settled more directly than that anyway, by
-    inspection: our own output carries `coreclr.dll`, `clrjit.dll`,
-    `hostfxr.dll`, `hostpolicy.dll` and `vcruntime140_cor3.dll`. **What a fresh
-    machine uniquely catches is everything else the app silently assumes is
-    present — and the two leading candidates do not fail at launch:**
-    - **WebView2 Evergreen Runtime.** The build bundles the managed wrappers and
-      `WebView2Loader.dll`, but **the loader is a shim that loads a separately
-      installed system runtime** (Microsoft Edge WebView2 Runtime); it is not
-      the browser engine. Windows 11 preinstalls it, Windows 10 machines may
-      not. **Failure surface is SmartLink/Auth0 login, not startup** — the app
-      opens to Home perfectly and then cannot log in.
-    - **The public VC++ redistributable for the native audio DLLs.**
-      `portaudio.dll` and `libopus.dll` are bundled under
-      `runtimes/win-x64/native/`, but they are MSVC-built natives that may bind
-      to system `msvcp140.dll` / `vcruntime140.dll`. .NET's private
-      `vcruntime140_cor3.dll` is a renamed copy those natives will not use.
-      **Failure surface is audio not starting** — again, well after launch.
-    - **So the sandbox script must exercise more than a launch:** open to Home,
-      attempt a SmartLink login far enough to prove WebView2 instantiates, and
-      start the audio engine far enough to prove both natives load. A
-      launch-only check would return a green result on a machine where the two
-      things remote operators depend on are both broken.
-- **Remaining tracks:** F (tuning UX bundle, 13) and G (stuck-modal escape
-  changelog, 2) — user-facing, not infrastructure, but equally unverified.
-- **Suggested shape:** do not treat this as one 83-item slog. Split it — the
-  five infrastructure tracks become the front half of the infrastructure phase
-  (verify, then deploy, then build the report backend on top), while F and G
-  ride along with whatever radio-seat session happens next.
-
-**SPLIT BY WHAT ACTUALLY NEEDS A RADIO (Noel, 2026-08-11 — "mechanics of making
-sure buttons click, CW announces right, etc. can easily be tested with this
-radio rather than tying up Don's").** Read against the matrix, the radio burden
-is far smaller than 83 items suggests:
-
-- **NO RADIO AT ALL — 45 of 83 items.** Track D (updater client: on-demand
-  check, SHA-256 tamper detection, channel selector), Track G (changelog prose
-  review), Track J (build output size/file count/satellite dirs, fresh-VM
-  install), Track M (helper waits for PID, per-file backup→download→rename,
-  SHA-mismatch rollback), Track N (`manifest_gen.py` dry run, R2 upload,
-  hash-match skip, XZ magic-byte check). These are file, network and build
-  assertions. **A rig would not participate even if one were connected.**
-- **NEEDS ARCHIVED TRACES, NOT A LIVE RADIO — Track H's 16.** Tab visibility,
-  filters, sorting, detail panel, View/Export/Delete/Prune all operate on the
-  archive. **The audio investigation has already generated a large trace corpus**,
-  so the archive is likely populated enough to test against right now.
-- **NEEDS A RADIO, AND THE BENCH 8600 FULLY SUFFICES — 22 items.** Track A's 9
-  (connect/disconnect archiving, AS-retry marker, killed-session detection) and
-  Track F's 13 (coarse/fine tuning steps, the retired `C` binding, the split
-  Settings fields). **No antenna required** — none of it transmits.
-- **NEEDS DON'S RADIO: ZERO ITEMS.** Nothing in Sprint 29's matrix requires his
-  6300, which matters because his radio is a production station and never a test
-  target (`memory/project_don_radio_lives_at_tonys.md`).
-
-**Two consequences worth acting on:**
-
-1. **Testing Track N IS the deployment.** N's items run `manifest_gen.py` and
-   push to `data.jjflexible.radio` — so working through that track produces the
-   manifest whose absence is the current 404, which in turn unblocks Track D's
-   items (D needs a manifest to fetch). The update pipeline therefore has a
-   natural test ORDER that is also a rollout order: **N → deploy → D → M → J's
-   fresh-VM install as the end-to-end proof.** Do not test them in matrix order.
-2. **D, M and N are largely scriptable, so background agents can run them.**
-   Hash comparisons, XZ magic bytes (`FD 37 7A 58 5A`), helper.log assertions,
-   PID-exit sequencing and upload skip-on-hash-match are all machine-checkable
-   without a human or a screen reader. Track J's size and file-count assertions
-   too — only its fresh-VM launch needs a person. **What genuinely needs Noel at
-   the keyboard with NVDA is Track H's browser mechanics, Track A's labels, and
-   Track F's tuning feel.**
-
-## Decisions captured 2026-08-07 (overnight)
-
-- **Reboot gets a second home on the Radio menu** (Noel's call; Radio Setup step 7 stays). The Radio menu grows a maintenance section: Reboot, firmware update entry, plus other radio-function candidates at Claude's judgment (rename lands there via Track F's Radio Setup work). → Track A.
-- **CW notifications default stays FALSE.** Noel: not everyone does CW; his podcasts will demonstrate the checkbox. The grouping fix (CW-enable beside the Alert-device combo) still ships. → Track B.
-- **Build 4.1.16.536 published to testers' `debug\`** (2026-08-07, replaces 517) after Noel confirmed the LAN ghost sweep live — radios appear on discovery and are removed when powered off. Major coding today; testers get the next drop when we're ready. Don is the only regular tester right now.
-- **rarbox WireGuard NAT lab: GO.** Noel authorized execution 2026-08-07; rarbox is in approve mode (expect at most one approval prompt). Read `memory/project_rarbox_hardening.md` before any command. Orchestrator runs it while tracks code.
-- **Confirmed live by Noel 2026-08-07:** Use Now (Alt+U) session override; auto-connect startup announcement (verified earlier at the radio); LAN radio add/remove in the selector. The selector slice is fully verified except the two waits-on-circumstance items in Blocked below.
-- **Signing + CI track ratified (2026-08-07 evening) — next infra slot, parallel to the CW arc.** Two steps: (1) local signing hook in `build-installers.bat` — sign jjflexible.exe + both NSIS installers against Trusted Signing profile `romeycert` (account already provisioned; reference the working pipeline at `C:\dev\Civ-vi-access\.github\workflows\release.yml`); (2) GitHub Actions release workflow for `nromey/JJFlex-NG` adapted from that file — tag push → build both arches → sign → verify → publish. Noel's part: add the federated credential / copy the secrets from the Civ VI setup, one `az login`, and the Certificate Profile Signer role grant if his user lacks it. Strategic frame: this plus the updater is the JJFlex self-sufficiency work that precedes the eventual all-in-on-Connect lock (see `project_jjflexible_connect.md`). Track M's install manifest doubles as the delta-updater's file-hash schema — the updater arc inherits it.
-
-## Queue-burn ensemble — LANDED 2026-08-07 evening
-
-Eleven track agents (Fable: A/C/D/F/G/H/I/J; Opus: B/E/K) plus the NAT-lab
-agent, all spawned as background subagents from the orchestrator session,
-all completed the same evening. Merge order as executed: J, B, K, E, F, C,
-D, A, I, G, H — clean Debug x64 build verified at every landing. Branch
-head after the train: `f7ff5716` on `track/flexlib-4220`, pushed. Per-track
-design decisions live in `docs/planning/agile/archive/track-instructions/
-qb-track-*.md`. The NAT lab is live on rarbox (port-restricted active);
-run report at `docs/planning/active/natlab-run-report.md`.
-
-**Consolidated Needs Noel (taste calls and live verifications, none
-blocking):**
-
-- Guided testing run covers most live verifications — doc at
-  `docs/planning/active/nightowl-guided-testing.md`.
-- Track A: connect success earcon shape (classic double vs distinct rising
-  arrival — one-line change); stub-speech phrasing check.
-- Track B: relax the stereo-only mic filter (mono USB headsets are common
-  blind-op hardware; needs one live mono-capture test, then a one-line
-  change); menu-vs-key level step mismatch (menu 10, keys 5); AudioSetup
-  registered `KeyScope.Radio` so Command Finder hides it with no radio.
-- Track C: want a machine-wide "never hole punch from this computer"
-  policy on top of per-radio? Legacy account punch fallback retirement
-  timing.
-- Track D: refused-vs-timeout wording against Don's real router failure;
-  speak-connection-summary hotkey proposal (needs keyboard-audit yes/no);
-  should the identity card get a non-Settings quick surface?
-- Track E: Alt+P accelerator sign-off; favorites-first vs live-first
-  ordering taste; dual-homed live test (8600 on LAN while
-  SmartLink-registered — NAT loopback unknown until tried).
-- Track F: hosted forgot-password link live test; wording approval on new
-  confirm labels.
-- Track G: -10 dBm drive de-overload question (the open clean-demodulation
-  item) — **Don's answers 2026-08-08 supply an eyewitness recipe pointing
-  the same way: the demo he saw drove sub-watt via a defined XVTR band, not
-  integer watts, and possibly used a separate RX port**; ears-slice level
-  telemetry — plumb it or accept fixed drive; temp XVTR band auto-creation
-  yes/no — **effectively answered YES by the same datapoint, pending the
-  levelled-loopback rerun (plan §6 item 1b)**; record/play timing over
-  SmartLink with Don; **new: RX-bandwidth-matched-to-TX before recording,
-  Don's stated condition for the record tier (plan §6 item 1a)**.
-- Track H: optional default chords for MemoryScan / SpeakFrequency (now
-  honest-unbound); NVDA rebind-persist-reset loop is in the guided doc.
-- Track I: gate "No Transmit Slice" behind a confirmation? XVTR end-to-end
-  needs a real transverter. NVDA pass on new menu mnemonics.
-- Track J: miss-announcement wording ("Slice D is in use by another
-  station") when next on the air.
-
-**Post-merge follow-ups (Claude-side, queued):**
-
-- Fold Track I's TXSlice field keys + four Command Finder rows into
-  KeyInventory (in-code markers say where); the keyboard-reference TXSlice
-  section is already added.
-- Wire Track D's NetworkIdentityCard into the selector detail area — Track
-  E left grid Row 4 empty for it.
-- Wire D's failure advice into AutoConnectFailedDialog body text (D left it
-  as Track A territory).
-- Start-fresh auto-offer after N consecutive AUTH failures (now possible —
-  D's AuthFailed classification landed).
-- Bound `DebugInfo.GetDebugInfo`'s 30-day archive zip (needs a size-aware
-  ZipUtils; shared code).
-- Delete dead code: `JJTraceListener.cs`, `Tracing - Copy.cs`,
-  `FlexBase.SliceState(int)`; decide fate of orphaned FiltersDspControl /
-  RadioNumberBox (Sprint 8 archaeology, per Track A).
-- RadioInfoDialog's Feature Availability tab is dead UI
-  (`ShowRadioInfoDialog` never assigned) — wire or remove.
-- Track G changelog entry at ship time (deliberately deferred).
-- `UploadMaxBytes` hardcoded to the receiver's 50 MB limit — move together
-  if the receiver's limit moves.
 
 ## In flight
 
 - **Queue-burn session (2026-08-07):** six parallel tracks (A–F) being set up — see the plan file in `docs/planning/active/` and each worktree's TRACK-INSTRUCTIONS.md. Track assignments are annotated per item below.
 - **Audio Workshop plan DELIVERED (2026-08-07, Phil2's window): `docs/planning/active/audio-workshop-plan.md` (mox-parrot-sidetone), committed `9b69ac5e` + live refinements.** Absorbed into **Track G** (one track, phased — not three: all slices edit AudioWorkshopDialog). Phases 1 AND 3 buildable now — **verification rounds 1–2 ran live 2026-08-07: the transverter LOOPBACK IS VERIFIED on the 8600** (FDX on via raw command, XVT A both sides, 1W, monitor off — Noel: "you can totally tell exactly how you sound — amazing"); antenna lists answered (XVT A/B in both pickers, zero new plumbing); MicGain-targets-selected-input answered; monitor rides the PC-audio stream (DAF audible even on LAN). **COMPLETE (2026-08-07 marathon): recording tests done, three-model saga closed (real RF through an overloaded receiver), G fully unblocked** — all results in the plan file (Phil2's deliverable). Remaining radio-seat items live in the Blocked section; DAXIQ probe now doubles as the instrument-verification lesson. Don: YouTube-link ask + 6300 guided experiment (see Third parties).
 - **Phase 0 Section F3-G — rarbox FastAPI receiver** — handed to rarbox-Claude 2026-05-07 (briefing `docs/planning/active/rarbox-claude-F3-G-briefing.md`). **Status stale — verify on next rarbox session** (the NAT lab visit is a natural moment).
+
 
 ## Blocked on Noel (clear these to unblock the items behind them)
 
@@ -686,91 +440,6 @@ blocking):**
 - **Third parties (Noel is the channel):** Don — busy-radio announcement retest (needs his slices full), and the 6300 guided record-during-mute experiment (likely-confirm after the FDX-off simulation; his radio gets the final word — and since he has never run the trick himself, he is the experiment now, not the informant). ~~Ask for the YouTube link~~ **ANSWERED 2026-08-07 evening, absorbed 2026-08-08: all six transverter questions came back — no video existed (in-person demo by another ham, unidentified 6000-series radio), the demo drove ~100 mW via a defined XVTR band rather than integer watts, Jim's version never achieved duplex, and the record tier must match RX bandwidth to TX bandwidth. Full absorption in `audio-workshop-plan.md` §4c.** Andre — Pi DNAT rule, only if hotspot and NAT lab both fail.
 - **WAN self-testing enabler (Noel idea 2026-08-07):** port-forward his own radio (external → internal TCP 4994 / UDP 4993) so he can operate his 8600 over SmartLink from home — enables the remote-side ghost sweep test and all WAN-path testing without Don. Alternative: punch working via NAT lab findings.
 
-## Queued — assigned to queue-burn tracks — ALL SHIPPED 2026-08-07
-
-Every entry below landed with its track (see the ensemble section at the
-top). Full specs and design decisions live in the archived
-`qb-track-*.md` instruction files. Kept for one seal cycle as the
-queue-of-record, then prunable.
-
-**Track A (orchestrator lane, main worktree — small fixes):**
-- Radio menu maintenance section: Reboot (decided above), firmware update entry, candidates per judgment.
-- ~~TX-slice hidden door~~ → **moved to Track I** (it IS menu-parity work: Transmit submenu mirroring Selection, slice-page TX field, Command Finder registration — letters per Track J's post-fix semantics). ~~Field-char enumerability~~ → **moved to Track H** (the `?` speaks-this-field's-keys handler, generated from the same table as the key manifest so doc and speech can't drift).
-- **Radio-side reverts of a user setting are SILENT — announce them (Noel, live at the radio 2026-08-09).** Symptom as experienced: "I selected mode USB on the slice and it did nothing." Trace `JJFlexRadioTrace-20260809-151748.txt` shows it twice, reproducibly: `91047 DemodMode:slice 0 USB` → `96070 DemodMode:slice 0 FM` (5s later), then `119631 USB` → `123707 FM` (4s later). The revert was RADIO-side — band persistence re-applying the stored 2m settings (FM + ANT 1) with `band_persistence_enabled=1` — and the same mechanism was also silently reverting the RX/TX antenna back to ANT 1 during the transverter setup, which is what made that look like a transverter-band problem. **The app OBSERVED the revert** (those `DemodMode:` lines are inside `mainLoop:RXDemodMode`, i.e. the read path) **and said nothing.** No-silent-keystrokes in its subtler form: the keystroke was not silent, its REVERSAL was. Fix shape: when a slice property the user just set changes back underneath them within a short window, speak it ("mode back to FM, the radio's band settings changed it") rather than letting the control read as broken. Generalizes past mode — antenna, filter, anything band persistence owns. Noel reports hitting this before without being able to pin it down, so it is a recurring confusion, not a one-off. Related: whether JJFlex should surface `band_persistence_enabled` at all (it is radio-global, currently reachable nowhere in the app, and its effects are invisible).
-- Lineout Up/Down key handlers refuse to run while PC audio is on (`KeyCommands.cs:578,584` gate on `!rig.PCAudio`) — headphone handlers don't, outputs are independent; the gate looks wrong.
-- `LocalAudioMute` (`FlexBase.cs:7321`) gangs all three outputs and is dead code — keep or kill.
-- Vestigial duplicate PlayCwSK wiring at `MainWindow.xaml.cs:2352-2362` (PowerOn re-wire) duplicates ctor wiring at :110-114, re-introduces the BUG-061 gap pattern — remove the PowerOn copy.
-- Remote re-click on a live SmartLink session times out 10s waiting for a list the server never resends (trace 20260805-163019) — satisfy the wait from `myRadioList` when session already connected; treat later unsolicited list as refresh.
-- "Start fresh with SmartLink" button in the account manager — clear token state per account (or all), force clean sign-in; the button version of delete-SmartLinkAccounts.json Noel talked Don through by hand. Consider auto-offering after N consecutive auth failures.
-- **Negative numbers unenterable in value fields (Noel live find, 2026-08-07, RX RF gain).** `ValueFieldControl.HandleNumberEntryKey` (`ValueFieldControl.xaml.cs:188`) accepts only digits/Backspace/Enter/Escape — no `OemMinus`/`Subtract` — and entry mode only STARTS on a digit, so "-8" can't begin. Fix: minus toggles the buffer's sign and can start entry, gated on `_min < 0` (non-negative fields reject with earcon + speech, no-silent-keystrokes); speak "minus". Workaround meanwhile: arrows reach negatives fine (bounds are radio-correct in ScreenFields). **Sibling bug, same session:** `FiltersDspControl` RF Gain box hardcodes 0–50 (`FiltersDspControl.xaml.cs:205`) — can't reach negative gain at all on that surface and overshoots the ceiling; wire it to `RFGainMin/Max/Increment` like ScreenFieldsPanel:204. Audit `RadioNumberBox` for the same minus gap. Cross-ref Track I: XVTR dBm entry needs minus AND decimal on this same control — build the minus fix with the decimal extension in mind.
-- **Menu stub audit (Noel live find, 2026-08-07: "Alt+T → Hotkey Editor says it's not wired").** Tools → Hotkey Editor is an `AddNotImplemented` stub (`NativeMenuBar.cs:1138`) left over from the native-menu migration — but the editor EXISTS (`SetupKeysDialog`, shipped Sprint 7, still reachable via Help → Key Assignments → Update). Wire the menu item to it. While there: (a) the three Help "Key Assignments" variants (:1297-1299) all open the same dialog with no sort mode — honor the variants or collapse them; (b) sweep ALL `AddNotImplemented` stubs for ones whose implementations already exist — Station Lookup (:1131) is a stub while `CommandValues.StationLookup` is a registered working command; check Operators, Connected Stations, Local PTT On, Band Plans, Log Characteristics, Import/Export Log, LOTW Merge; (c) verify whether SetupKeysDialog is the Sprint 7 tabbed editor (Global/Radio/Logging tabs + conflict detection per changelog :730) or an older key-action mapper — if the tabbed editor got lost, that's a bigger rebuild, scope it separately.
-- Optional: NativeMenuBar guard to skip RebuildCurrentMenu during teardown (belt-and-suspenders from the ActiveSlice sweep).
-- Stretch: connect double-beep on EVERY successful connect path (picker local / picker remote / auto-connect) — the signature sound (memory `project_connect_earcon_signature_sound.md`); dispatch paths are not unified, audit each.
-
-**Track B (Settings → Audio surface + device pickers):**
-- "Radio Outputs" group (radio-connected only): headphone level + line out level as set-once sliders (FlexBase wrappers exist, 0–100, `FlexBase.cs:7332-7357`), plus the mutes (`HeadphoneMute`/`LineoutMute`/`FrontSpeakerMute`), live-apply. Field driver: on a non-M radio, software is the only volume knob that exists.
-- PC Audio checkbox in the audio settings — inspectable/override surface, not required setup; reflect the live state (PC audio auto-enables on remote connect, `FlexBase.cs` ~9875); saved "off" must not silently fight the auto-enable.
-- Rebuild the audio device picker (old C2 item 16): the legacy twice-in-sequence `devList` WinForms dialogs are unusable by ear and gate ALL audio on a fresh install. One surface: radio input/output, alert device, CW output; arrow-readable; current selection announced; system default marked; also reachable from Settings' audio section; EnsureAudioDevicesConfigured offers the picker in words.
-- Group the CW-enable checkbox with the Alert-device combo (default stays FALSE per decision above). Device-missing fallback: fall back to system default WITH a spoken note, never silent.
-- "Radio outputs at zero/muted" visibility affordance + the "why is my radio silent" advisory ladder — **first rung is CONNECTED state**: a Flex makes no audio, including at the physical jacks, until a client connects (Noel's silent-headphone mystery, solved 2026-08-06).
-- Help topic: `docs/help/md/audio-troubleshooting.md` + a getting-started line for operators migrating from conventional rigs ("radio on but silent? Connect first"). Noel wants to voice this in recorded documentation later.
-- Multiple-doors principle, ratified: every audio setting also appears in the audio settings surface.
-
-**Track C (per-radio network settings, serial-keyed):**
-- Per-radio profile in the existing serial-keyed store (`radios\<serial>\config.xml`): mode = Auto | ForwardOnly | HolePunch (Auto follows radio-reported `fwdTcp/fwdUdp/punch` flags — zero config, friction-tax) + optional fixed punch port.
-- Editable OFFLINE from the known-radios list (kills the connect-first chicken-and-egg, SettingsDialog.xaml.cs:375); punch selectable with no forward config (kills the backwards gate at :469); `ConfiguredListenPort` double-duty resolved (one field, two meanings today, line 610 vs punch box).
-- Account-level fields demote to legacy defaults; per-radio wins; `sendRemoteConnect` consults per-radio → account → radio-reported.
-- Folds in the "disable hole punch" option: ForwardOnly mode skips doomed punch attempts and fails fast into guidance instead of 30s of silent grinding.
-- Real-world driver: Don's radio needs forward mode, Noel's 8600 needs punch + fixed port; per-account settings can't describe both.
-- Interim unblocker (still valid): hand-edit `%AppData%\JJFlexRadio\SmartLinkAccounts.json` (app closed): `"connectionMode": 2` + `"configuredListenPort": 40420`.
-
-**Track D (connectivity truth & guidance):**
-- Surface `test_connection` results we already collect (fwdTcp/fwdUdp/upnpTcp/upnpUdp/holePunch — ground truth from OUTSIDE) on connect failure: "the radio reports its forwarded TCP port is not reachable — check the router rule." Don's traces read fwdTcp=False for hours while we guessed. Caveat: never auto-run the probe on a punched session (it's at minimum useless and was once suspected of killing them; the f842e93f skip-gate stays).
-- Distinguish refused (<200ms — router answered, nothing behind the rule) from timed out (packets never arrived); different advice, currently both "open failed."
-- Generate the router rule from radio-reported values: external ports the radio advertises (`public_tls_port`/`public_udp_port`), internal fixed (TCP 4994 / UDP 4993 for the SmartLink path), LAN IP from discovery. Nobody's memory gets a vote (`feedback_never_assert_config_values_from_memory.md`).
-- "No RX antenna" is a misleading message when the audio path never came up — now that `failureReason` is populated, say the real thing.
-- Network identity card, read side (old C2 item 10): IP, serial, model, firmware, public IP/forwarded-port status — tabbable and arrow-readable, picker detail area and/or Status dialog; works for remote radios too (`Radio.ParseNetParamsStatus`, Radio.cs:6914). Write side (static IP controls) stays settings-parity work, NOT this track.
-- setupRemote's ConnectFailed treats every failure as auth-shaped and prescribes an interactive login; classify by session status / failure class — non-auth failures must not summon a sign-in form.
-- User-initiated Settings "Test network" (`RunNetworkDiagnosticAsync`) would kill a live punched session — needs warn/defer/detach, not a silent gate.
-
-**Track E (selector, roster, dual-homing):**
-- Favorite radios / known-radios roster: enumerate the serial-keyed store + last-seen/via-which-account metadata; selector marks rows live/offline via RadioFound/RadioRemoved; favorites sort first; offline favorite can offer "wait for it" once camping ships. Pairs with set-connected-radio-as-default.
-- **Dual-homing with path CHOICE (expanded by Noel 2026-08-07):** a radio that is both local and SmartLink-registered always presents as "local" today (LAN wins the row, WAN identity never shows). Surface both homes per radio AND let the user choose the connection path — "connect via SmartLink even though it's local." Three payoffs: users learn both paths exist, Noel can test WAN behavior (ghost sweep, punch) from the comfy chair, and it's the honest UI for the roster.
-- Per-account radio-list cache as fast paint, not authority: paint cached list immediately on account switch, live fetch in parallel, replace + announce "radio list updated"; provenance beats TTL ("last known radios for <account>, refreshing"); never connect from cache without a refresh in flight; extend `radioConnectionCacheV1.xml`, don't add a second store.
-- LAN vs Remote in each row's accessible name ("FLEX-8600, local network" vs "6300inshack, remote via SmartLink") — old C2 item 13 addendum.
-- Old C2 item 6: empty-list "no radios found yet" announcement collides with discovery landing right after — only announce if still empty after discovery has had a real chance.
-- Old C2 item 7: state-driven SmartLink account button (zero accounts → "Sign in to SmartLink"; one → "SmartLink Account"; two+ → "Switch Account"); fix the unconditional "Account updated" speech on cancel.
-- Old C2 item 14: arrowing off the top of the radio list escapes to the auto-connect checkbox — arrows must stay inside the list (DirectionalNavigation Contained), Tab is the way out.
-- Old C2 item 15: say which SmartLink account is active — speak on Remote press ("Connecting to SmartLink as …"), readable text near the account button, accessible name carries it.
-
-**Track F (dialog & SmartLink account sweep — C2 revival):**
-Ledger carried forward from the archived C2 instructions (`docs/planning/agile/archive/track-instructions/track-dialog-sweep-C2.md`) with statuses updated: items 2/4 DONE (merged), 12 SHIPPED as Use Now, 11 narrowed by native login (WebView2 is now MFA-fallback only), 16 → Track B, 6/7/14/15 → Track E. Remaining in F:
-- Item 1: the ~94-site MessageBox.Show sweep (judgment per site; AdvisoryDialog for advisories; errors never get suppress keys).
-- Item 3: GPS status dialog arrowability (LiveStatusTextBox).
-- Item 5: radio rename field (FlexLib `Radio.Nickname` setter works, persists radio-side, flows through discovery, works over SmartLink) — Radio Setup GroupBox + FlexBase setter + auto-connect display-name refresh. Urgency context: the unnamed 8600 row is what Noel mis-picked aiming for Don's 6300.
-- Item 5b: ConfirmActionDialog warnings unreadable — highest-stakes text in the flow (keying guidance, do-not-power-off); give it the AdvisoryDialog read-only reviewable treatment. Second sighting during the firmware run.
-- Item 8: native SmartLink signup + forgot password (hosted page's signup half-works then reports failure; SmartSDR posts `dbconnections/signup` / `change_password` natively — endpoints and error mapping in the archived ledger; reference script `smartlink-signup.ps1` in the 2026-08-04 scratchpad). Test the hosted page's forgot-password link too.
-- Item 8a: propagate a mid-session sign-in to the live connection (load account into live FlexBase, re-run SuggestRegistrationIfUnregisteredAsync; today's only recourse is restarting the app).
-- Item 13: "not registered" advisory must name the account it checked and handle registered-elsewhere.
-- Item 17: "See the message" dead-end sweep — any spoken string that refers the user to text they must go find is a bug; speak the reason itself. Plus: affordances should announce as unavailable when remote, not fail-then-explain.
-- Startup speech ordering policy: while the advisory chain is active, main-window bring-up speech queues behind it (welcome line + focus-driven slice speech are separate un-parked paths); check how Tab reaches the main window behind a modal.
-- NVDA lessons to carry into every dialog touched: blank lines need a single space (degenerate UIA range re-reads neighbors); every IsDefault button needs explicit AccessKey/AcceleratorKey (else "carriage return"); arrow through every line of every converted dialog under NVDA.
-
-**Track J (slice identity — position vs letter; promoted from Track A 2026-08-07):**
-The bug cluster moves here from the blocked list — nothing about it is blocked; the code-read is high-confidence and Noel's trace (when it lands) only confirms the trigger sequence. Scope: make the LETTER the identity — keep `mySlices` sorted by radio slice index (or map by letter), so position and letter can never disagree; then audit every positional consumer: `VFOToSlice`/`SliceToVFO` (`FlexBase.cs:6446/6458`), the direct-select `ch - 'A'` (`FreqOutHandlers.cs:1292`), `JumpToSlice`'s fabricated `(char)('A'+index)` letter (`KeyCommands.cs:2152`), RXVFO/TXVFO stale-position risk across slice removal (`FlexBase.cs:10294-10360` restore paths), and `ReleaseAllExtraSlices` keeping position-RXVFO (`FlexBase.cs:7263` — Noel's lived keeps-slice-A experience). Verify the mode-menu symptom dies (menu → `Rig.Mode` → `theRadio.ActiveSlice.DemodMode` lands on the slice the user means). Add the Slice menu Selection labels as the regression canary (they show true letters in position order). Model: Fable — core correctness with subtle event-ordering semantics (sliceAdded arrival order, another client's churn). Merge early; no other track touches these regions.
-
-**Track K (trace rotation + crash-bundle size policy — design ratified 2026-08-07, plan section 4b):**
-Driver: the live `JJFlexRadioTrace.txt` hit 11.7 GB in one marathon session; today's crash bundle is missing its trace because a whole-file attach was impossible. Ratified design: (1) size-based rotation — at ~250-500 MB close the active file, zip into the archive as a session PART, start fresh; long sessions become chains of parts; (2) crash bundles attach the CURRENT part (the tail is the evidence), bounded by construction; (3) upload size policy — report text + trace tail always; full memory dump only under the server limit, else held locally with a spoken "saved here if support asks" (the "couldn't save a stream of that size" dialog was most plausibly the ~500 MB upload rejection — an honest "saved fine, too big to auto-send" message is half the fix). Files: `JJTrace/Tracing.cs`, TraceArchiveBootMaintenance, SaveCrash/bundle assembly, upload path. Model: Opus — the design is ratified and spec-shaped. No overlap with any other track.
-
-**Track I (menu-parity audit + XVTR-aware power control — routed from the audio session 2026-08-07, plan section 4a):**
-App-wide UI architecture, bigger than the audio track (Phil2's routing note, ratified by Noel's "pass to Phil the first"). (1) **Menu-parity audit:** every actionable ScreenFields control (transmit, receive, antenna sections) gets an addressable menu path with accelerators — Alt+R → T → P should walk to a Power dialog. Part add-missing (power has NO menu path anywhere), part make-findable (TX/RX antenna submenus already exist in NativeMenuBar ~685-707 and Noel has never met them), part verify-every-menu-mode-builds-them (four un-unified dispatch paths, per memory). (2) **XVTR-aware power control:** the Power dialog and the ScreenFields power field switch to dBm/decimal entry (`Xvtr.MaxPower` semantics, -10.0..+10.0 dBm) when the selected TX antenna is a transverter port; integer watts otherwise (`Radio.RFPower` is int — fractional watts impossible on the main control, which is why 1W is the loopback floor). Check the power field accepts typed digits. Model: Fable. Worktree cut at launch.
-
-**Track H (hotkey surface redesign + key coverage audit — Noel-directed 2026-08-07):**
-Live falsification: Help → Key Assignments → Update → SetupKeysDialog cannot actually change a key. Diagnosis: ShowKeysDialog/SetupKeysDialog are Jim's legacy key-action system, predating (and likely orphaned from) Sprint 23's unified KeyCommands v5 dispatch; the Sprint 7 "tabbed hotkey editor" (changelog :730) also predates v5. Redesign, don't rewire: ONE Keys surface backed by the KeyCommands registry — views by scope/alphabetical/function-group; real editing (press-new-key capture, conflict detection that names the collision + steal/cancel, live rebind, unbind, per-key and global reset-to-default); field-level character keys shown as read-only rows (not rebindable, but enumerated — pairs with the `?` speak-field-keys idea); Tools → Hotkey Editor and ONE Help → Key Assignments both open it (edit vs view mode — multiple doors, one room; the three duplicate Help variants collapse). Deliverable: generated canonical key manifest (registry + field-handler introspection) reconciled against keyboard-reference.md — the CLAUDE.md keyboard-audit automation seed. Verify-then-delete the legacy dialog pair (check their keyFile isn't still consumed; migrate if it is). **Plus the no-shadow audit (from the Ctrl+Shift+W incident): no control-local handler may shadow a Global-scope chord — every bound key speaks its TRUE action in every state; G fixes the specific workshop shadow, H sweeps for the class.** Model: Fable. Merge after A and G (absorbs their registrations). Worktree cut at launch.
-**Slice add/release keys are poorly chosen — Noel, 2026-08-09, at the radio ("gotta be better keys to use like del for delete"); explicitly deferred, not now.** Today: `.` creates a slice, `,` releases the current one, `Shift+,` releases all but the first (`FreqOutHandlers.cs:1084,1099`; `keyboard-reference.md:107,155,171`). Punctuation keys carry no mnemonic relationship to add/remove and are easy to hit by accident next to the number row. **Constraint the redesign must respect: `Delete` is ALREADY BOUND — it clears the transmit slice, a soft TX lockout (`keyboard-reference.md:261`, Delete or Backspace).** So the obvious "Del deletes a slice" mapping collides with a safety-adjacent command and cannot be taken without relocating that first. `Insert` is ruled out independently: it is NVDA's default modifier key, so a bare Insert binding is hostile to the primary screen reader. Whatever replaces them needs the same three-way shape (create / release one / release all but first) and a changelog heads-up, since removals need warning per the keyboard-audit SOP.
-
-**Track G (Audio Workshop — hear yourself): ALL THREE PHASES BUILDABLE (2026-08-07 marathon complete).**
-Spec is the living plan file `docs/planning/active/audio-workshop-plan.md` (mox-parrot-sidetone) — read sections 4/4b/6 for the day's verified results and the final RF-with-overload model. Phase 1: Audio Check session (MOX via `PttSafetyController` lock path; low-power default ON; two-stage Escape; **key-up announcement is SAFETY-CRITICAL, not polish** — software wire-keying left the operator transmitting unaware; safety line speaks frequency + power; remote-DAF advisory), mode-aware monitor **for phone modes only — the CW-monitor half is DEFERRED behind the CW pipeline rewrite (Noel, 2026-08-07; see wave 2)**, TX-source awareness aimed at the ACTIVE source (MicGain targets the SELECTED input — verified; surface/set the mic source: **source coherence is the precondition for every honest measurement**; RCA hardware keying can't be software-unkeyed — `source=` is the diagnostic), help rewrite, Command Finder registration, Ctrl+Shift+W shadow fix, MicInput="PC" investigation (`FlexBase.cs:9147`). Phase 2 (UNBLOCKED — record semantics fully verified live): record/play wrappers (`RecordOn`/`PlayOn`/`PlayEnabled`); auto-play-on-unkey default (performed live: unkey → playback in ~1s); **check recorder state before re-arming** (a live re-arm race nearly wiped takes); 120s buffer cap, ring-like retention, two-take A/B workflow viable; fidelity labeled honestly — the recording carries the FULL processing chain (verified by A/B with processor cranked). Phase 3: Loopback Check button per the verified recipe — BUT with the final model's honesty: it's genuine port-to-port RF into a **massively overloaded receiver**; today's yield is "a simulacrum — basically splatter" (Noel's ratified framing) proving audio present/processed/roughly right, NOT a faithful off-air listen; **new hard requirement: manage coupling level** (dBm-precision XVTR drive into the receiver's linear range, plausibly auto-calibrated against S-meter/overload) — whether that upgrades it to clean demodulation is an OPEN question, not a promise; SDR-on-a-real-antenna is elevated to the first-class ground-truth tier in help/positioning. Plus the crash fix pair (plan 4b): TX-getter family null-guards (`MicGain` FlexBase.cs:7839 + boost/bias/compander/processor/filter-edge/monitor-gain siblings — missed by the 8/5 sweep) and stop `_meterTimer` when the RIG dies (the singleton outlives the radio; today only dialog-close stops it). 1-SCU: record-during-mute PROVED ground truth under FDX-off simulation; Don's 6300 is now a likely-confirm guided experiment (his radio gets the final word).
 
 ## Queued — wave 2 (after this queue-burn; mostly gated or cross-cutting)
 
@@ -888,12 +557,14 @@ Spec is the living plan file `docs/planning/active/audio-workshop-plan.md` (mox-
   - Phase 2 (RNN model selection, `.rnnn` three-tier distribution) stays gated on the Xiph v0.2 P/Invoke work and the format-compatibility spike; Phase 1 above does not depend on it.
   - **RNN wants more than the two knobs, and presets once we can generate models (Noel, 2026-08-08).** Phase 1 surfaces strength + auto-disable-non-voice; the fuller knob set and *presets* (band/condition-shaped model choices) depend on being able to train our own. **Training-host correction: the design memo's item 15 says a Mac with Apple Silicon GPU does the training — that is stale. The ML training host is ms-02 with its NVIDIA GPU (16 GB confirmed, same host the CW neural decode work targets).** The capture-side half of that memo still stands (JJFlex on Windows captures clean-speech and noise windows through the existing pipeline; ~50% of the capture code is the SUB capture flow already), and it is the third consumer of the shared capture mechanism above. Presets are the payoff: no ham-specific RNN model exists in public circulation, so a band-and-conditions preset set trained in-house is both the missing default-quality fix and the differentiator flagged in `project_rm_noise_strategic_positioning.md`.
 
+
 ## Connect design inputs (feed Noel's protocol reading — `for-noel/2026-08-05-connect-protocol-reading-list.md`, then `cookie-sked-keydown.md`)
 
 - **Slice brokering:** the broker should know CAPACITY, not just reachability — the radio already advertises `available_slices` upstream, so the read path may be free; control stream becomes pub/sub; queue semantics need design (FIFO vs priority, TTL, notify-and-hold, owner preemption — token possession is the trust boundary); TX is the other mutex the same primitive extends to; merges with MultiFlex time-slot scheduling (reservations = planned path, wait-queue = ad-hoc path); ntfy push rides roarbox.
 - **Messaging is a PLANE, not a transport feature:** bidirectional chat/requests/grants/history/identity/blocking are Connect-native (SmartLink's server is closed to us; chat between strangers needs identity to moderate against). Three honest SmartLink-era moves: presence as courtesy signal (station/program strings are ours to set — worked live: Don heard "K5NER connected" and offered a slice out-of-band); ntfy one-way owner pings as prototype; spec the message schema NOW (request-slice / offer / grant / deny / ETA / freeform) so prototypes and Connect share one vocabulary. Renders per the verbosity architecture.
 - **Shared-radio courtesy: keying should not interrupt other clients' listening (Noel, 2026-08-07 loopback session).** Every listener's RX mutes when the operator keys because full duplex defaults off; on 2-SCU radios `FullDuplexEnabled` is exactly the mechanism to keep listener slices alive through TX. Design input for sharing/scheduling/Connect (TX-is-a-mutex, slice camping, MultiFlex scheduling): a "keep listeners listening" policy on shared 2-SCU radios, with the antenna caveat (a listener on a nearby antenna hears the TX — their choice).
 - **IPv6 candidates from day one:** SmartLink's rendezvous is IPv4-only end to end; mobile carriers are v6-native and v6↔v6 needs no punch at all — Connect should carry v6 candidate addresses so direct paths skip traversal entirely.
+
 
 ## Hole punch — current state (2026-08-07)
 
@@ -902,10 +573,12 @@ Spec is the living plan file `docs/planning/active/audio-workshop-plan.md` (mox-
 - **Validation path: the rarbox WireGuard NAT lab (GO, see Decisions).** Test-infrastructure fact, learned hard: an unmodified Tailscale/WG exit node can NEVER validate the latch — default masquerade drops the radio's asymmetric-source UDP (endpoint-dependent filtering). The lab's nftables presets dial in full-cone / port-restricted / symmetric personalities on demand. Fallbacks: T-Mobile hotspot (five minutes, RFC 6888 CGNATs often endpoint-independent), Andre's Pi + one DNAT rule, or field validation for free via the trace line.
 - **Everything links FlexLib (`net10.0-windows`)** — no Linux-side punch probe possible; `tools/SmartLinkSessionHarness` stops at the session layer.
 
+
 ## Reference (settled facts that keep getting re-derived)
 
 - **SmartLink remote path forwards to internal UDP 4993 / TCP 4994** (per FlexRadio's own setup article + working experience). **The LAN path uses TCP 4992 / UDP 4991.** Both sets are real; they belong to different paths. Do not generalize one into the other (`feedback_never_assert_config_values_from_memory.md`).
 - **For the Flex alpha channel report (accumulating):** (a) radio's ~415ms TLS response stall burns half its own punch budget; (b) the ~900ms punch give-up FIN carries no diagnostic and allows no retry; (c) network self-test reports holePunch=False while a punched TCP session is live; (d) `failed_ptt` as the registration-refusal label for "client connected" will bite every third-party client; (e) the SmartLink server is flaky on first registration attempts (retry-once already shipped client-side).
+
 
 ## Agent research — FIRED 2026-08-07 (memos land in `docs/planning/research/cw/`)
 
