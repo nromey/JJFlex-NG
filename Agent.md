@@ -9,6 +9,140 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-22 — THE DAY A WARNING WORKED AND STILL FAILED
+
+67 commits on `honest-tx-audio`, `cced54c8` through `8c70ac4d`. 139 files,
++9,897 / -3,086. Suite **332 → 351**. Sealed early, under a power outage, with
+the ms-02, the radio and the server all going down for battery.
+
+### The shape of the day
+
+The morning shipped #65, the string store: 2,330 keys across six partitions,
+2,619 call sites, six agent tracks merged and contained. That was the plan.
+
+Everything after it came from a dummy load arriving, and the theme turned out
+to be the same one three times over: **an instrument reporting what it never
+measured, and the reporting being indistinguishable from health.**
+
+- The radio's SWR meter read **1.008** while 76 percent of the transmit power
+  came back out of an empty ANT1 connector. Two full bench sessions were
+  measured through that reassurance before anyone noticed the load — sitting on
+  ANT2 — was never getting warm.
+- The transmit chain check consulted that meter, so the `high-swr` rule tested
+  "above 3" against a number that could not exceed it. Stage 12 read healthy.
+  Nothing failed. Nothing warned.
+- The meter also publishes **-25** to mean "no reading", mid-transmission.
+  `HasReading` is true for it, and -25 is not above 3, so a screaming mismatch
+  sorted as a perfect match.
+- And the galloping monitor tone, chased since the morning, turned out to be
+  playback-queue starvation that **PortAudio structurally cannot report** —
+  because *we* supply the silence, not the driver. Every previous check came
+  back "no glitches" and was true about the wrong instrument.
+
+### What shipped
+
+**#189, closed.** `SwrFromPower` computes the ratio from forward and reflected
+power. Agrees with the radio to three decimals on a good load; reports above 10
+where the meter said 1.008. `ReflectedPowerWatts` added beside
+`ForwardPowerWatts`, because the raw property is dBm despite its name and that
+unit collision already produced one fabricated conclusion today.
+
+**A new `power-coming-back` rule**, firing above 40 percent reflected and naming
+a cause rather than a ratio. That threshold is the **first MEASURED one in the
+rules file** — 76 percent open versus 0.05 percent loaded, three orders of
+magnitude apart — and the file's threshold convention grew a MEASURED marker to
+distinguish it from the guesses. An `atu-tuning` fact stands the power rules
+down during a tune cycle, because a tuner transmits into a bad match on purpose
+and a warning that cries wolf on a routine action is worse than none.
+
+**A live warning during transmit**, in `Radios.TransmitSafety` rather than
+inside the WPF controller — deliberately, so a test can drive it with numbers
+instead of requiring a real transmitter keyed into a real fault. Verified by
+mutation: stubbing the threshold to `return false` fails exactly one test, the
+positive control, and nothing else.
+
+### The finding that matters most
+
+**The warning worked and still failed.**
+
+It fired on time. It named the port. The number was right — "80 percent of your
+power is coming back on ANT2", against 79.6 measured. The once-per-transmission
+latch held. And Noel missed it entirely and had to key a second time, because
+key-down had queued 25 words about a test tone and the warning politely waited
+its turn.
+
+Correct, unit-tested ten ways, mutation-verified, confirmed present in the
+binary — and useless the first time it mattered. **Nothing short of a person
+listening would ever have found that.** Fixed twice over: the key-down notice is
+now "Transmitting {freq} tone", and the warning speaks at `SpeechIntent.Urgent`,
+the flushing tier, so it cuts the preamble off mid-word.
+
+A second flaw was caught the same way, before the bench rather than after. The
+warning originally read `if (!rig.DummyLoadMode)`, copied from the dead-carrier
+check where skipping is correct. For reflected power it is inverted — a declared
+dummy load is where near-zero reflected is MOST expected — so the gate would
+have silenced the warning in **precisely the scenario it was written for**. Found
+by thinking through how the test would actually run.
+
+### Bench results, ANT1 into the DL2K
+
+The ladder was honest end to end: 5 → 5.10 W, 10 → 9.95, 25 → 24.99, 50 → 48.35,
+100 → 98.58. Worst error 3.3 percent, and the **low end is the best part of it**.
+That closes one of the two stacked unknowns in #195 — when the PGXL goes in, any
+nonlinearity measured will be the amplifier's, not the radio lying about drive.
+
+The load is excellent: 0.03 to 0.06 W reflected regardless of power, SWR 1.04 at
+100 W. Total key-down into it was 21.0 s delivering 1.11 kJ — on the order of a
+1 K rise for any plausible heatsink mass, which is why it never got warm.
+
+Two accidental validations worth more than the tests that were designed. The
+first ladder key-up caught the ramp at 0.086 W forward with 38 percent back —
+**over the fraction threshold, and correctly ignored by the 1-watt floor**, which
+had been put in on reasoning alone. And the reflected meter turns out to have a
+fixed floor near 0.03 W, which is why "percent back" climbs at low power; that
+is instrument, not load.
+
+### Gaps found, not closed
+
+- **PATEMP is subscribed and exposed but not recorded** — traced at Verbose and
+  absent from the coalesced meter stream, which records seven meters. #192's
+  thermal budget specifies "abort on rising PATEMP". Cannot abort on a meter we
+  do not record.
+- **Output-stream starvations are counted but not timestamped**, so we cannot
+  yet tell whether the 20 dropouts cluster during transmit or spread evenly —
+  and those point at different causes.
+- **FlexLib implements APD fully** (603 lines, live `Radio.APD` instance) and our
+  code has never touched it. `APDSamplerPorts` confirms Noel's reading: RX_A and
+  RX_B are the sampler paths, fed by the PGXL's own low-level APD A / APD B
+  outputs.
+- **No drive calibration exists in FlexLib at all.** The amplifier object has no
+  gain, drive or target-power concept. That mapping is ours to measure.
+
+### Cross-surface activity
+
+- **JJFlex-NG**: 67 commits, all pushed. Eight branches pushed to origin under
+  the outage, including six sprint32 tracks that had **never had a remote**.
+  Unpushed count now zero.
+- **Freight Fate**: no commits today, 1 dirty file, **16 unpushed** — unchanged,
+  still Noel's call.
+- **Civ VI Access**: no commits today, 2 dirty, **45 unpushed** — unchanged.
+- **rigmeter**: 1 unpushed commit.
+- **jjf-data**: clean.
+- Memory: 10 project trees snapshotted. AppData config, private docs, session
+  transcripts all to NAS.
+- Dependency advisory check: **clean**, no NU1902/NU1903.
+
+### Tomorrow
+
+#196 first — timestamp the output starvations, since one capture then answers
+whether the gallop clusters during transmit. Then the ATU redesign Noel
+specified (on/off only, Ctrl+T context-sensitive, Ctrl+Shift+T always carrier),
+#190 detect-antennas, and the read-only APD readout that measures before any
+controls get built.
+
+**Don's radio returns Tuesday 2026-08-25.** #179 is the gate.
+
+
 ## END-OF-DAY SEAL — 2026-08-21 — THE DAY THE INSTRUMENTS GOT CHECKED
 
 24 commits on `honest-tx-audio`, `a18617f0` through `dd707a4c`. +22,234 net
