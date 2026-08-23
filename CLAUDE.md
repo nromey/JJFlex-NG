@@ -482,6 +482,24 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    (Blind Hams data, rarbox triage) or planning docs that were archived on
    purpose. The number to watch is a NEW entry appearing, not the total.
 
+3c-bis. **Task register check:** run
+   `& "C:\dev\JJFlex-NG\export-task-register.ps1"` to regenerate
+   `docs/planning/active/task-register.md`, or `-Check` to verify it without
+   writing. Seconds, and it is the only thing keeping the backlog readable by a
+   session that did not create it — the task store lives under the user profile,
+   is not in git, and vanishes with the terminal.
+
+   **Added 2026-08-23, after finding the hand-maintained version of exactly this
+   had rotted.** `research-queue.md` carried an OPEN WORK REGISTER created
+   2026-08-14 for this precise reason, carrying the instruction "keep this
+   current." Nine days later it said 34 open while the store held 77. Nothing
+   flagged it, because a drifted mirror looks identical to a correct one — which
+   is why the check exists rather than a reminder.
+
+   The same day's reconciliation found the drift also runs the *other* way: a
+   section headed "Not yet in the task store" turned out to be 11 of 15 already
+   done. **A stale list understates progress as readily as it overstates it.**
+
 3d. **AppData config backup:** run `& "C:\dev\JJFlex-NG\backup-appdata-to-nas.ps1"`.
    Snapshots the operator's CONFIGURATION out of `%AppData%\JJFlexRadio\` to
    `historical\appdata\` as a dated zip. About 73 files and 0.07 MB compressed,
