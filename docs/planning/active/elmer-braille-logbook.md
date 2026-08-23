@@ -81,12 +81,33 @@ heading, DBT has nothing to map and the result is flat.
 So the pandoc template is load-bearing and belongs under version control with the
 rest of the build. Style mapping in DBT gets configured once and reused.
 
-**Worth investigating: Duxbury's API backend.** Noel raised it and it is the
-piece that could collapse the two loops into one. If DBT can be driven
-non-interactively, the release BRF becomes another build target rather than a
-manual pass. I do not know the current shape, licensing or platform constraints
-of that interface well enough to design around it — check before committing to
-it, and treat the manual Word-import route as the baseline that definitely works.
+### The Duxbury API is called Swift
+
+Noel, 2026-08-23: it is **Swift**, and it works by connecting to a **Swift
+server** that drives Duxbury. His caveat: "it's not very well documented but it's
+out there."
+
+**Nobody should design around it from memory, mine included.** Recording the name
+here so it is not lost; the shape, licensing terms and platform constraints all
+need looking up before any of this depends on them.
+
+**But the client/server shape alone already tells us something worth acting on.**
+If Swift requires a Duxbury installation with a server process behind it, then
+the release-BRF step can only run on a machine that holds the licence. That means
+it is **not** a build-server target — it is a "run on the machine with DBT on it"
+target, however well it automates. Worth deciding deliberately rather than
+discovering when a build fails somewhere else.
+
+So the design fork is:
+
+- **Swift viable** — the release BRF becomes a build target on the licensed
+  machine, and the fast and slow loops collapse into one. Best case.
+- **Swift not viable, or not worth it** — the manual Word-import route into DBT
+  is the baseline, run once per release. This definitely works and the plan does
+  not depend on the other branch.
+
+Build for the second and adopt the first if it earns its place. The liblouis fast
+loop is unaffected either way, which is the point of having it.
 
 ---
 
