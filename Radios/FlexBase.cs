@@ -8239,11 +8239,33 @@ namespace Radios
         private float _PATempData;
         private void PATempDataHandler(float data)
         {
-            Tracing.TraceLine("PATempDataHandler:" + data.ToString(), TraceLevel.Verbose);
+            // Reported through the coalesced meter stream, NOT as a Verbose
+            // trace line. #196-era finding, 2026-08-22: this handler existed,
+            // the property existed, and PATEMP appeared in the meter model and
+            // in the transmit chain evidence — but the diagnostic capture
+            // carried only seven meters and this was not one of them, because
+            // Verbose lines are dropped at the Normal detail level a real
+            // session runs at. So an entire bench evening produced no
+            // temperature record at all.
+            //
+            // That mattered the moment unattended keying was authorised
+            // (2026-08-22). #192 specifies that automated sweeps abort on
+            // RISING PA temperature rather than on an elapsed-time count — a
+            // timer assumes the thermal model, the temperature measures it —
+            // and a sweep cannot abort on a meter nobody records. While a
+            // human was present the gap was theoretical. Unattended, against a
+            // load rated 2000 W for ONE MINUTE at tuning duty, it is the
+            // actual safety mechanism.
+            meterTrace.Report("paTemp:", data);
             _PATempData = data;
         }
 
-        /// <summary>PA temperature in degrees C.</summary>
+        /// <summary>
+        /// PA temperature in degrees C.
+        /// <para>The abort signal for unattended transmit sweeps. Watch the
+        /// TREND rather than an absolute: what matters is whether it is still
+        /// climbing when a run wants to key again.</para>
+        /// </summary>
         public float PATemp => _PATempData;
 
         private float _VoltsData;

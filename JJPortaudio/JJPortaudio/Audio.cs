@@ -624,6 +624,25 @@ namespace JJPortaudio
             public long StarvationFills;        // silent buffers AFTER data had been flowing
             public bool OutputDataSeen;         // a queued buffer has been consumed
             public bool StarvationLogged;       // first-occurrence line emitted
+            // #196, 2026-08-23: WHEN the starvations happen, not just how many.
+            // The 2026-08-22 capture reported "20 mid-stream starvation" at
+            // stream close and nothing else — enough to name the galloping
+            // monitor tone as queue starvation, and not enough to say whether
+            // the twenty were spread evenly or clustered inside the seconds
+            // the operator was transmitting. Those point at different causes:
+            // clustered means something about transmitting starves the
+            // playback path, evenly spread means the jitter buffer is simply
+            // too shallow.
+            //
+            // Rate-limited to at most one line per second, and only in a
+            // second that actually had one. That is the same discipline the
+            // coalesced meter stream uses, and it keeps the audio callback out
+            // of the flooding failure the status-flag comment above describes.
+            // The trace's own leading timestamp shares a time base with the
+            // output transcript, so these lines can be read directly against
+            // TxStart and TxStop without correlating anything by hand.
+            public long StarvationWindowTick;   // Environment.TickCount64 of the open window
+            public long StarvationInWindow;     // starvations counted in it
         }
         internal class staticQueues
         {
@@ -1302,6 +1321,26 @@ namespace JJPortaudio
                         if (data.OutputDataSeen)
                         {
                             data.StarvationFills++;
+
+                            // #196: rate-limited "when". Environment.TickCount64
+                            // is a cheap read with no allocation, safe from the
+                            // realtime callback; the string is built at most
+                            // once a second and only while something is wrong.
+                            long nowTick = Environment.TickCount64;
+                            if (data.StarvationWindowTick == 0) data.StarvationWindowTick = nowTick;
+                            data.StarvationInWindow++;
+                            if (nowTick - data.StarvationWindowTick >= 1000)
+                            {
+                                Tracing.TraceLine("audio output stream: "
+                                    + data.StarvationInWindow + " starvation(s) in the last "
+                                    + (nowTick - data.StarvationWindowTick) + " ms"
+                                    + " (running total " + data.StarvationFills
+                                    + ", callback " + data.StatusCallbackCount + ")",
+                                    TraceLevel.Error);
+                                data.StarvationWindowTick = nowTick;
+                                data.StarvationInWindow = 0;
+                            }
+
                             if (!data.StarvationLogged)
                             {
                                 data.StarvationLogged = true;
@@ -1369,6 +1408,16 @@ namespace JJPortaudio
                 // starvation is evidence too — with statusFlags also clean it
                 // acquits the whole playback side and points the click hunt
                 // upstream (see the receive-continuity meter in FlexBase).
+                // #196: flush a partial window, so starvations in the final
+                // second are reported rather than silently discarded at close.
+                if (data.StarvationInWindow > 0)
+                {
+                    Tracing.TraceLine("audio output stream: "
+                        + data.StarvationInWindow + " starvation(s) in the final partial second"
+                        + " (callback " + data.StatusCallbackCount + ")",
+                        TraceLevel.Error);
+                    data.StarvationInWindow = 0;
+                }
                 Tracing.TraceLine("audio output queue summary: "
                     + data.SilenceFills + " silent fill(s), of which "
                     + data.StarvationFills + " were mid-stream starvation"
