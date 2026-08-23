@@ -122,6 +122,38 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_declared_dummy_load_does_not_silence_the_warning()
+        {
+            // The gate that was here originally, copied from the dead-carrier
+            // check where skipping IS correct, would have silenced this warning
+            // in the exact scenario it was written for: on 2026-08-22 the load
+            // was connected to the port that was not selected. A declared dummy
+            // load makes a high reflected reading MORE diagnostic, not less,
+            // because the operator has just told us to expect nothing back.
+            //
+            // ShouldWarnReflected deliberately takes no dummy-load parameter, so
+            // there is no knob to get backwards a second time. This test stands
+            // guard over the wording instead.
+            string s = TransmitSafety.ReflectedWarningText(0.76f, "ANT2", dummyLoadDeclared: true);
+
+            Assert.NotEmpty(s);
+            Assert.Contains("76", s);
+            Assert.Contains("ANT2", s);
+            Assert.Contains("dummy load", s);
+        }
+
+        [Fact]
+        public void Without_a_declared_load_the_sentence_does_not_mention_one()
+        {
+            // The negative control for the test above. A sentence that always
+            // mentioned a dummy load would pass it while being wrong for every
+            // operator on a real antenna.
+            string s = TransmitSafety.ReflectedWarningText(0.76f, "ANT2");
+
+            Assert.DoesNotContain("dummy load", s);
+        }
+
+        [Fact]
         public void The_sentence_still_works_when_the_antenna_is_unknown()
         {
             // A missing antenna name must not produce "coming back on ." or a

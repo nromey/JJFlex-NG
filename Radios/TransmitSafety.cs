@@ -113,22 +113,43 @@ namespace Radios
         }
 
         /// <summary>
-        /// The sentence to speak, naming the transmit antenna when one is known.
+        /// The sentence to speak, naming the transmit antenna when one is known
+        /// and sharpening the wording when the operator has declared a dummy
+        /// load.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Naming the port is the whole point rather than a nicety. "Check the
         /// antenna" is advice; "check ANT1" is an instruction — and the operator
         /// this is built for is blind and cannot read the labels moulded into
-        /// the back panel. That is exactly the case where the software has to be
-        /// the thing that knows which socket it is talking about.
+        /// the back panel.
+        /// </para>
+        /// <para>
+        /// The declared-load variant exists because that combination is not a
+        /// weaker signal, it is a far stronger one. An operator who has said "I
+        /// am into a dummy load" has told us to expect almost nothing back. Most
+        /// of it coming back means the load is not in the path they think it is
+        /// — which is EXACTLY the fault of 2026-08-22, where the load sat on
+        /// ANT2 while ANT1 was selected and two sessions of measurements were
+        /// taken before anyone noticed it never got warm. That sentence is worth
+        /// saying out loud rather than folding into the generic one.
+        /// </para>
         /// </remarks>
-        public static string ReflectedWarningText(float fraction, string antennaName)
+        public static string ReflectedWarningText(
+            float fraction, string antennaName, bool dummyLoadDeclared = false)
         {
             int percent = (int)Math.Round(fraction * 100f);
-            return string.IsNullOrWhiteSpace(antennaName)
-                ? Lexicon.Get("audio.ptt.power_coming_back", ("percent", percent))
-                : Lexicon.Get("audio.ptt.power_coming_back_on",
-                              ("percent", percent), ("antenna", antennaName));
+            bool named = !string.IsNullOrWhiteSpace(antennaName);
+
+            string key = dummyLoadDeclared
+                ? (named ? "audio.ptt.power_coming_back_on_dummy_load"
+                         : "audio.ptt.power_coming_back_dummy_load")
+                : (named ? "audio.ptt.power_coming_back_on"
+                         : "audio.ptt.power_coming_back");
+
+            return named
+                ? Lexicon.Get(key, ("percent", percent), ("antenna", antennaName))
+                : Lexicon.Get(key, ("percent", percent));
         }
     }
 }

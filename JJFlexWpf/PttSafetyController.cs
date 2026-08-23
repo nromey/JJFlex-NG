@@ -530,7 +530,18 @@ namespace JJFlexWpf
             // warnings can afford to wait five seconds. Power coming back can
             // not: it is arriving at the finals now, and it does not care which
             // key the operator is holding.
-            if (!rig.DummyLoadMode) CheckReflectedPower(rig);
+            //
+            // AND IT RUNS IN DUMMY LOAD MODE TOO. This line originally read
+            // `if (!rig.DummyLoadMode)`, copied from the dead-carrier check
+            // below where skipping is correct because drive genuinely behaves
+            // differently. For reflected power it is backwards, and backwards
+            // in the worst possible way: a declared dummy load is the case where
+            // near-zero reflected power is MOST expected, so a high reading
+            // there is MORE diagnostic, not less. On 2026-08-22 the fault was
+            // precisely a dummy load connected to the port that was not
+            // selected — so the original gate would have silenced this warning
+            // in the exact scenario it was written for.
+            CheckReflectedPower(rig);
 
             // A held PTT stops here. The state machine has always treated hold
             // as the operator's own hand on the key, and this preserves that.
@@ -629,7 +640,8 @@ namespace JJFlexWpf
 
             EarconPlayer.WarningAlarmTone();
             ScreenReaderOutput.Speak(
-                TransmitSafety.ReflectedWarningText(back, antenna), VerbosityLevel.Critical);
+                TransmitSafety.ReflectedWarningText(back, antenna, rig.DummyLoadMode),
+                VerbosityLevel.Critical);
             Tracing.TraceLine(
                 $"PTT: Health warning — reflected power {back * 100f:F0}% "
                 + $"(fwd {forward:F1} W, refl {reflected:F2} W, "
