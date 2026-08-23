@@ -600,7 +600,7 @@
   "audio.tx_tone.not_armed": "Test tone not armed. {trouble}",
   "audio.tx_tone.outside_filter_warning": " Warning: {freq} hertz is outside your transmit filter, {low} to {high}. Nothing will go out.",
   "audio.tx_tone.riding_outside_filter_warning": " Warning: the tone is outside your transmit filter. Nothing is going out.",
-  "audio.tx_tone.riding_transmit": "Sending the {freq} hertz test tone instead of your microphone.",
+  "audio.tx_tone.riding_transmit": "Transmitting {freq} tone.",
   "audio.unit.second": "second",
   "audio.unit.seconds": "seconds",
   "audio.unit.watt": "watt",

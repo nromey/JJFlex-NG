@@ -639,8 +639,23 @@ namespace JJFlexWpf
             string antenna = rig.TXAntennaName ?? "";
 
             EarconPlayer.WarningAlarmTone();
+            // URGENT, the flushing tier — not a plain Critical utterance.
+            //
+            // Verified on the bench 2026-08-22, and the transcript is the
+            // evidence. Key-down queued three things at 82,040 ms: the TX tone,
+            // "Transmitting, locked", and the test-tone notice. This warning
+            // arrived at 84,035 ms and had to WAIT for all of it. Noel missed it
+            // entirely on the first transmission and had to key a second time,
+            // which is a warning that failed at the only job it has.
+            //
+            // Urgent is what GoIdle already uses for transmit timeout, hard kill
+            // and ALC release, on the grounds that a safety outcome outranks
+            // whatever is mid-sentence. Power arriving back at the finals is
+            // that class of thing. It cuts the preamble off mid-word, on
+            // purpose.
             ScreenReaderOutput.Speak(
                 TransmitSafety.ReflectedWarningText(back, antenna, rig.DummyLoadMode),
+                Radios.Speech.SpeechIntent.Urgent,
                 VerbosityLevel.Critical);
             Tracing.TraceLine(
                 $"PTT: Health warning — reflected power {back * 100f:F0}% "
