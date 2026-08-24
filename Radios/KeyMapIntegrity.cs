@@ -164,11 +164,25 @@ public static class KeyMapIntegrity
             Keys hereNow = currentDefaultFor(b.Id);
             if (b.SavedDefault == hereNow) { consistent++; continue; }
 
-            // The signature of an insertion: this entry carries what the command
-            // one NUMBER below it has as its default today. Numeric, because the
-            // damage was numeric — the enum's source order is irrelevant.
-            Keys oneBelowNow = currentDefaultFor(b.Id - 1);
-            if (oneBelowNow != Keys.None && b.SavedDefault == oneBelowNow)
+            // The signature of a shift: this entry carries what a NEIGHBOURING
+            // number has as its default today. Numeric, because the damage was
+            // numeric — the enum's source order is irrelevant.
+            //
+            // DIRECTION, and it was wrong here until 2026-08-24. An INSERTION
+            // pushes everything at and after the insertion point UP by one, so
+            // a command saved at number N now lives at N+1 and the entry's
+            // recorded default matches today's default at N+1. Measured:
+            // snapshot id 96 held 196692 and the live file holds 196692 at 97.
+            // A REMOVAL shifts the other way, so both are checked.
+            //
+            // The first version tested only N-1, and the unit tests BUILT their
+            // fixture the same wrong way, so nine tests passed against a
+            // detector that could not see the real file. Only running it
+            // against the actual damaged snapshot caught it.
+            Keys upNow = currentDefaultFor(b.Id + 1);
+            Keys downNow = currentDefaultFor(b.Id - 1);
+            if ((upNow != Keys.None && b.SavedDefault == upNow) ||
+                (downNow != Keys.None && b.SavedDefault == downNow))
             {
                 slipped++;
                 if (firstSlipped < 0 || b.Id < firstSlipped) firstSlipped = b.Id;

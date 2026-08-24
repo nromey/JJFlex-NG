@@ -25,10 +25,15 @@ namespace Radios.Tests
     public class KeyMapIntegrityTests
     {
         // A stand-in defaults table: command n has default key (1000 + n).
-        // Contiguous and injective, so "the default of the command one number
-        // below" is unambiguous and a slip is unmistakable.
+        // Contiguous and injective, so "the default of a neighbouring number"
+        // is unambiguous and a slip is unmistakable.
+        //
+        // Range runs past the 122 commands the fixtures build, because an
+        // INSERTION shifts UP: the last entry's recorded default is the one at
+        // id+1, and a table that ended at 122 would make that read as untracked
+        // rather than as the slip it is.
         private static Keys DefaultFor(int id) =>
-            id >= 0 && id < 122 ? (Keys)(1000 + id) : Keys.None;
+            id >= 0 && id < 200 ? (Keys)(1000 + id) : Keys.None;
 
         private static List<KeyMapIntegrity.SavedBinding> Healthy(int count)
         {
@@ -48,7 +53,9 @@ namespace Radios.Tests
                 // A slipped entry carries the PREVIOUS command's key AND that
                 // command's recorded default — which is why it looks internally
                 // consistent and why it is safe to repair.
-                Keys d = DefaultFor(i < insertAt ? i : i - 1);
+                // An INSERTION shifts up: a command saved at N now lives at N+1,
+                // so the entry's recorded default is today's default at N+1.
+                Keys d = DefaultFor(i < insertAt ? i : i + 1);
                 l.Add(new KeyMapIntegrity.SavedBinding(i, d, d));
             }
             return l;
@@ -123,7 +130,7 @@ namespace Radios.Tests
             // quiet; the threshold is five.
             var l = Healthy(122);
             for (int i = 118; i < 122; i++)
-                l[i] = new KeyMapIntegrity.SavedBinding(i, DefaultFor(i - 1), DefaultFor(i - 1));
+                l[i] = new KeyMapIntegrity.SavedBinding(i, DefaultFor(i + 1), DefaultFor(i + 1));
 
             var v = KeyMapIntegrity.Check(l, DefaultFor);
 
@@ -138,7 +145,7 @@ namespace Radios.Tests
             // threshold could be off by one in either direction unnoticed.
             var l = Healthy(122);
             for (int i = 117; i < 122; i++)
-                l[i] = new KeyMapIntegrity.SavedBinding(i, DefaultFor(i - 1), DefaultFor(i - 1));
+                l[i] = new KeyMapIntegrity.SavedBinding(i, DefaultFor(i + 1), DefaultFor(i + 1));
 
             var v = KeyMapIntegrity.Check(l, DefaultFor);
 
@@ -202,7 +209,7 @@ namespace Radios.Tests
             // the wrong command — only they know what they meant, so it is
             // reported and left alone.
             var l = ShiftedFrom(122, 96);
-            l[100] = new KeyMapIntegrity.SavedBinding(100, (Keys)7777, DefaultFor(99));
+            l[100] = new KeyMapIntegrity.SavedBinding(100, (Keys)7777, DefaultFor(101));
 
             var v = KeyMapIntegrity.Check(l, DefaultFor);
 
@@ -229,7 +236,7 @@ namespace Radios.Tests
             // The trace line is the only thing a human reads, and "22 slipped"
             // without "how many can be fixed for free" is not actionable.
             var l = ShiftedFrom(122, 96);
-            l[100] = new KeyMapIntegrity.SavedBinding(100, (Keys)7777, DefaultFor(99));
+            l[100] = new KeyMapIntegrity.SavedBinding(100, (Keys)7777, DefaultFor(101));
             string d = KeyMapIntegrity.Check(l, DefaultFor).Describe();
 
             Assert.Contains("never customised", d);
