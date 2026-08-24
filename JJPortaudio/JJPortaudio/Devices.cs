@@ -1058,12 +1058,35 @@ namespace JJPortaudio
                             + ", " + ex.Message, TraceLevel.Info);
                     }
 
-                    // Log every endpoint by name/API/channels — the one line that
-                    // lets us diagnose a bad device pick from a trace (a mono or
-                    // multi-channel mic hidden by the stereo filter is otherwise
-                    // invisible in every other log).
+                    // Log every endpoint by name/API/channels/RATE — the one line
+                    // that lets us diagnose a bad device pick from a trace (a
+                    // mono or multi-channel mic hidden by the stereo filter is
+                    // otherwise invisible in every other log).
+                    //
+                    // The rate was missing until 2026-08-24, and its absence cost
+                    // a diagnosis that same evening: a device row reading "cannot
+                    // carry audio to or from the radio", and the picker's advice
+                    // to fall back to MME, are BOTH decided by this number, and
+                    // neither the number nor the decision reached the trace. The
+                    // question "why is it telling me MME?" could not be answered
+                    // from a 256 KB trace of the exact session that asked it.
+                    //
+                    // Say the verdict too, not just the figure. A reader who
+                    // knows Opus takes 8/12/16/24/48 kHz can derive it; a reader
+                    // who does not is exactly the reader the line is for. And
+                    // MME and DirectSound RESAMPLE, so their figure is a polite
+                    // fiction — marked as such rather than left to mislead.
+                    string rateNote;
+                    if (!HostApiReportsTrueRate(apiTypeId))
+                        rateNote = " rate=" + pinfo.defaultSampleRate + " (converted by " + apiName + ", not the hardware rate)";
+                    else if (AudioAnchor.isOpusRate((uint)pinfo.defaultSampleRate))
+                        rateNote = " rate=" + pinfo.defaultSampleRate;
+                    else
+                        rateNote = " rate=" + pinfo.defaultSampleRate + " CANNOT CARRY RADIO AUDIO";
+
                     Tracing.TraceLine("Devices.Enumerate: dev " + i + ": \"" + pinfo.name + "\" api=" + apiName
                         + " in=" + pinfo.maxInputChannels + " out=" + pinfo.maxOutputChannels
+                        + rateNote
                         + ((i == defaultInputId) ? " [default in]" : "")
                         + ((i == defaultOutputId) ? " [default out]" : ""), TraceLevel.Info);
 
