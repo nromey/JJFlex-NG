@@ -15265,6 +15265,47 @@ namespace Radios
             return rv;
         }
 
+        /// <summary>
+        /// Choose a transmit antenna for a slice on a scratch setup, without
+        /// guessing from the receive list. Part of #205.
+        /// </summary>
+        /// <remarks>
+        /// <para>Order of preference: whatever the radio already has, then the
+        /// slice's own <c>TXAntList</c>. Never <c>Radio.RXAntList</c>, which is
+        /// what this replaced — see the comment at the call site.</para>
+        /// <para><c>Slice.TXAntList</c> never returns empty: when the radio has
+        /// not sent a list, FlexLib substitutes ANT1/ANT2/XVTR. So a value here
+        /// may be a vendor fallback rather than the radio's real capability,
+        /// which is why the choice is traced rather than assumed correct.</para>
+        /// </remarks>
+        private void applyScratchTxAntenna(Slice s)
+        {
+            if (s == null) return;
+
+            if (!string.IsNullOrEmpty(s.TXAnt))
+            {
+                Tracing.TraceLine("setupFromScratch:TXAnt already set to " + s.TXAnt
+                    + ", leaving it alone", TraceLevel.Info);
+                return;
+            }
+
+            string[] txList = s.TXAntList;
+            if (txList != null && txList.Length > 0)
+            {
+                s.TXAnt = txList[0];
+                Tracing.TraceLine("setupFromScratch:TXAnt was empty, took " + txList[0]
+                    + " from the slice's TX antenna list (" + string.Join(",", txList) + ")",
+                    TraceLevel.Info);
+                return;
+            }
+
+            // Deliberately leaves TXAnt unset. An operator who cannot transmit
+            // and is told why is better off than one transmitting into a
+            // receive antenna nobody chose.
+            Tracing.TraceLine("setupFromScratch:TXAnt is empty and the slice reports no TX"
+                + " antenna list; leaving it unset rather than guessing (#205)", TraceLevel.Error);
+        }
+
         private bool setupFromScratch()
         {
             bool rv;
@@ -15312,8 +15353,36 @@ namespace Radios
                     if (extra != null) extra.Mute = true;
                 }
 
+                // --- Antenna and power on a scratch setup (#205) --------------
+                //
+                // FIXED 2026-08-23. This block did two unsafe things silently,
+                // and Noel caught both at the bench: a trace showed his radio
+                // going from RFPower:0 to 100 thirteen seconds into a connect
+                // he had never configured. His words: "I actually don't think I
+                // have power set to 100 in this profile, I never saved it."
+                // He hadn't. This did.
+                //
+                // 1. The TRANSMIT antenna was taken from theRadio.RXAntList[0]
+                //    — the RECEIVE list. Nothing makes the first receive
+                //    antenna a safe transmit antenna, and on a station whose RX
+                //    list begins with a beverage, a loop, or any receive-only
+                //    wire, that puts power into something never built to take
+                //    it. Slice.TXAntList is the correct source and FlexBase
+                //    already reads it (see the TXAntennas property).
+                //
+                // 2. RFPower was forced to 100 — maximum — and TunePower
+                //    followed to 100. Tune power is exactly the setting an
+                //    operator keeps low, because a tune carrier into a bad
+                //    match is how a finals stage or a tuner gets cooked.
+                //
+                // Neither was announced, so a blind operator had no way to
+                // learn either had changed. Settings are intents: with no saved
+                // profile there is no intent to act on, so leave the radio's
+                // own persisted values alone and RECORD them instead of
+                // overwriting them. See
+                // memory/project_settings_are_intents_not_commands.
                 Slice rxs = VFOToSlice(RXVFO);
-                if (rxs != null) rxs.TXAnt = theRadio.RXAntList[0];
+                if (rxs != null) applyScratchTxAntenna(rxs);
                 if (CanTransmit)
                 {
                     _TXVFO = 0;
@@ -15321,9 +15390,14 @@ namespace Radios
                     if (txs != null)
                     {
                         txs.IsTransmitSlice = true;
-                        txs.TXAnt = theRadio.RXAntList[0];
+                        applyScratchTxAntenna(txs);
                     }
-                    theRadio.RFPower = 100;
+                    // Was: theRadio.RFPower = 100. Report, do not overwrite.
+                    Tracing.TraceLine("setupFromScratch:leaving transmit power as the radio has it"
+                        + " — RFPower " + theRadio.RFPower
+                        + ", TunePower " + theRadio.TunePower
+                        + " (this used to be forced to 100 unconditionally, #205)",
+                        TraceLevel.Info);
                     theRadio.CWBreakIn = false;
                     theRadio.CWIambic = false;
                     theRadio.SpeechProcessorEnable = true;
