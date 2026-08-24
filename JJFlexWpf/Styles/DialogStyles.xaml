@@ -27,6 +27,26 @@
         <Setter Property="Margin" Value="0,0,8,0"/>
     </Style>
 
+    <!-- A label that a control can be JUMPED to by name.
+
+         A TextBlock cannot carry an access key. It can sit next to a combo
+         and read "Audio system:" and still leave that combo reachable only by
+         walking the tab order — which, in a dialog whose explanatory notes are
+         themselves tab stops, means the prose about a control is easier to
+         find than the control.
+
+         Found 2026-08-24: Noel, looking for the audio-system selector, landed
+         on the read-only note in front of it and reasonably concluded there
+         was no selector at all. AudioDevicesDialog had SEVEN access keys and
+         every one of them was on a button; not one section control had a way
+         in. Use this with Target set and an underscore in the text, and the
+         control gets a name a keyboard reaches directly. -->
+    <Style x:Key="DialogFieldLabel" TargetType="Label">
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,0,8,0"/>
+    </Style>
+
     <!-- Standard text input in dialogs -->
     <Style x:Key="DialogTextBox" TargetType="TextBox">
         <Setter Property="Height" Value="24"/>

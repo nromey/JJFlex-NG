@@ -57,9 +57,10 @@
                      shorter rather than longer. One selector governs both
                      directions, the DAW convention; the advanced toggle at
                      the bottom is where they can be set apart. -->
-                <TextBlock Text="Audio system:"
-                           Style="{StaticResource DialogLabel}"
-                           Margin="0,0,0,2"/>
+                <Label Content="_Audio system:"
+                       Target="{Binding ElementName=HostApiCombo}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"/>
                 <ComboBox x:Name="HostApiCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,4"
@@ -73,9 +74,10 @@
                            Focusable="True"
                            AutomationProperties.Name="Audio system note"/>
 
-                <TextBlock Text="Radio receive audio plays through:"
-                           Style="{StaticResource DialogLabel}"
-                           Margin="0,0,0,2"/>
+                <Label Content="Radio receive audio _plays through:"
+                       Target="{Binding ElementName=RadioOutputList}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"/>
                 <ListBox x:Name="RadioOutputList"
                          Height="110"
                          Margin="0,0,0,4"
@@ -90,9 +92,10 @@
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Radio receive audio device note"/>
 
-                <TextBlock Text="Microphone sent to the radio:"
-                           Style="{StaticResource DialogLabel}"
-                           Margin="0,0,0,2"/>
+                <Label Content="M_icrophone sent to the radio:"
+                       Target="{Binding ElementName=RadioInputList}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"/>
                 <ListBox x:Name="RadioInputList"
                          Height="110"
                          Margin="0,0,0,4"
@@ -114,9 +117,10 @@
                      request rather than a command: the device settles the rate
                      before the encoder is built, so the note under it says
                      what actually happened last time. -->
-                <TextBlock Text="Transmit audio quality:"
-                           Style="{StaticResource DialogLabel}"
-                           Margin="0,0,0,2"/>
+                <Label Content="Transmit audio _quality:"
+                       Target="{Binding ElementName=TxRateCombo}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"/>
                 <ComboBox x:Name="TxRateCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,4"
@@ -242,18 +246,20 @@
                            Style="{StaticResource DialogLabel}"
                            Margin="0,0,0,2"/>
 
-                <TextBlock Text="Alert and CW notification device:"
-                           Style="{StaticResource DialogLabel}"
-                           Margin="0,0,0,2"/>
+                <Label Content="Alert and CW notification _device:"
+                       Target="{Binding ElementName=AlertDeviceCombo}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"/>
                 <ComboBox x:Name="AlertDeviceCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,8"
                           AutomationProperties.Name="Alert and CW notification output device"
                           local:JJFlexHelp.Text="These are JJ Flex's own sounds, not the radio's. CW notifications play through this device; there is no separate CW output to choose."/>
 
-                <TextBlock Text="Meter tone device:"
-                           Style="{StaticResource DialogLabel}"
-                           Margin="0,0,0,2"/>
+                <Label Content="Meter _tone device:"
+                       Target="{Binding ElementName=MeterDeviceCombo}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"/>
                 <ComboBox x:Name="MeterDeviceCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,8"
