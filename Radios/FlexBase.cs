@@ -13916,7 +13916,17 @@ namespace Radios
                 // wait in Disconnect() before it flips PCAudio off). Sleep
                 // instead; nothing here is latency-sensitive once we're
                 // tearing down.
-                if (Disconnecting) { Thread.Sleep(10); continue; }
+                if (Disconnecting)
+                {
+                    // The gate below never runs while disconnecting, so stop
+                    // the self-clock here rather than leaving it feeding a
+                    // channel that is being torn down. Idempotent, and the
+                    // teardown path stops it again — belt and braces on the
+                    // one thing that must not outlive the connection.
+                    stopSelfClockedTxInput();
+                    Thread.Sleep(10);
+                    continue;
+                }
 
                 string mode = "";
                 lock (mySlices)
@@ -13928,13 +13938,56 @@ namespace Radios
                 {
                     if (Transmit)
                     {
-                        startOpusInputChannel(); // only starts it once
+                        // ── INNER GATE: which producer feeds the encoder ──
+                        //
+                        // A source that generates its own samples — the test
+                        // tone, a voice file — has no clock, and until
+                        // 2026-08-24 it borrowed the microphone's. That handed
+                        // a synthesized signal every property of a device that
+                        // contributes nothing to it, including the device's
+                        // true rate. A capture device a fraction of a percent
+                        // off nominal produces a CONSTANT rate error, and a
+                        // constant rate error against the radio's jitter
+                        // buffer is heard as a PERIODIC correction — which is
+                        // why the fault sounded like a metronome rather than
+                        // like something ragged. See #208.
+                        //
+                        // Idle, not Engaged, and the difference is the ten
+                        // milliseconds after a release is requested: the
+                        // source is no longer muting the microphone but is
+                        // still ramping its own signal down, and cutting that
+                        // short is the click the ramps exist to prevent.
+                        if (!TxInputSources.Idle)
+                        {
+                            // Order is load-bearing. Both producers share ONE
+                            // Opus encoder and Opus is stateful, so the
+                            // capture stream must be fully stopped before the
+                            // self-clock starts. StopAudio waits for the
+                            // callback to quiesce, so there is no overlap.
+                            stopOpusInputChannel();
+                            startSelfClockedTxInput();
+                        }
+                        else
+                        {
+                            stopSelfClockedTxInput();
+                            startOpusInputChannel(); // only starts it once
+                        }
                         // Never stream transmit audio into a closed gate
                         // without saying so. Throttled internally.
                         checkPcMicSelection();
                     }
                     else
                     {
+                        // ── OUTER GATE: unkey stops everything ──
+                        //
+                        // Ratified by Noel 2026-08-24: transmit stop stops
+                        // everything, tone or microphone, no drain and no
+                        // tail. Deliberately NOT conditional on which source
+                        // was live — audio continuing past an unkey is a
+                        // safety fault, not a cosmetic one, and a gate that
+                        // has to know what it is gating is a gate that can be
+                        // wrong about it.
+                        stopSelfClockedTxInput();
                         stopOpusInputChannel(); // only stops it once.
                     }
                 }
@@ -14408,6 +14461,56 @@ namespace Radios
                 }
             }
             return opusInputChannel.Started;
+        }
+
+        private bool _selfClockedTxStartFailed;
+
+        /// <summary>
+        /// Start the self-clocked transmit source — frames paced by elapsed
+        /// time rather than by the capture device (#208). Idempotent; the main
+        /// loop calls this on every poll while a generated source is engaged.
+        /// </summary>
+        /// <remarks>
+        /// The caller must have stopped the capture stream first: one Opus
+        /// encoder is shared, and Opus is stateful.
+        /// </remarks>
+        private bool startSelfClockedTxInput()
+        {
+            if (!opusInputAvailable || opusInputChannel == null) return false;
+            JJPortaudio.JJAudioStream stream = opusInputChannel.PortAudioStream;
+            if (stream == null) return false;
+            // Cheap first, and it is the answer on all but one poll in
+            // thousands — the loop spins on Thread.Yield().
+            if (stream.SelfClockedTxRunning) return true;
+
+            bool started = stream.StartSelfClockedTx();
+            if (started)
+            {
+                _selfClockedTxStartFailed = false;
+            }
+            else if (!_selfClockedTxStartFailed)
+            {
+                // Only on the transition into failure. A start that keeps
+                // failing is retried on every poll, so an unconditional line
+                // here is a trace flood by another route — the same lesson
+                // startOpusInputChannel learned on 2026-08-14.
+                _selfClockedTxStartFailed = true;
+                Tracing.TraceLine("startSelfClockedTxInput: could not start the self-clocked"
+                    + " transmit source; a generated source is engaged but nothing is pacing it,"
+                    + " so this transmission will be silent", TraceLevel.Error);
+            }
+            return started;
+        }
+
+        /// <summary>
+        /// Stop the self-clocked transmit source. Hard and immediate.
+        /// Idempotent.
+        /// </summary>
+        private void stopSelfClockedTxInput()
+        {
+            JJPortaudio.JJAudioStream stream = opusInputChannel?.PortAudioStream;
+            if (stream == null || !stream.SelfClockedTxRunning) return;
+            stream.StopSelfClockedTx();
         }
 
         private void stopOpusInputChannel()

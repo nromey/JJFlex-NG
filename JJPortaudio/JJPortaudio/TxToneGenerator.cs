@@ -117,6 +117,15 @@ namespace JJPortaudio
             }
         }
 
+        /// <inheritdoc/>
+        /// <remarks>
+        /// The state machine's own resting state. Note it is false through
+        /// ToneFadeOut and MicFadeIn — the ten milliseconds after
+        /// <see cref="Engaged"/> has already gone false — which is precisely
+        /// the window a self-clocked source must keep supplying buffers for.
+        /// </remarks>
+        public bool Idle => _state == StIdle;
+
         /// <summary>
         /// Engage the tone: the mic ramps out, then the tone ramps in. If TX
         /// audio is not flowing yet, the tone simply starts clean at the next

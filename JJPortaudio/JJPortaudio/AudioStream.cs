@@ -200,6 +200,50 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// Produce transmit frames from elapsed time instead of from the
+        /// capture device (#208).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// For a source that has no clock of its own — a synthesized tone, a
+        /// file being played out — the capture device contributes nothing to
+        /// the signal, and borrowing its clock hands the signal every property
+        /// of a device it never touched. A device running a fraction of a
+        /// percent off its nominal rate produces a constant rate error, and a
+        /// constant rate error against the radio's jitter buffer is heard as a
+        /// periodic correction: the galloping.
+        /// </para>
+        /// <para>
+        /// <b>Stop the capture stream first.</b> Both producers share one Opus
+        /// encoder, and Opus is stateful — running them together would corrupt
+        /// the bitstream into something the radio renders as noise rather than
+        /// as an error. <see cref="StopAudio"/> waits for the callback to
+        /// quiesce, so a stop-then-start handover has no overlap.
+        /// </para>
+        /// </remarks>
+        public bool StartSelfClockedTx()
+        {
+            return (aud != null) && aud.StartSelfClockedTx();
+        }
+
+        /// <summary>
+        /// Stop the self-clock — hard and immediate, no drain, no tail.
+        /// </summary>
+        /// <remarks>
+        /// Ratified 2026-08-24: transmit stop stops everything, whichever
+        /// source was feeding it. Letting a source finish its release ramp is a
+        /// different decision made one level up, by not calling this until the
+        /// source reports <see cref="ITxInputSource.Idle"/>.
+        /// </remarks>
+        public void StopSelfClockedTx()
+        {
+            aud?.StopSelfClockedTx();
+        }
+
+        /// <summary>True while transmit frames are coming from the self-clock.</summary>
+        public bool SelfClockedTxRunning => (aud != null) && aud.SelfClockedTxRunning;
+
+        /// <summary>
         /// Stop an open audio device.
         /// </summary>
         /// <returns>True on success</returns>

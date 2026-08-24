@@ -259,6 +259,83 @@ public class TxInjectionTests
         Assert.True(sawPartialMic,
             "the microphone came back with no ramp — that is an audible click");
     }
+
+    // ── The handover contract (#208) ──────────────────────────────────────
+    //
+    // Idle became necessary the day a source stopped being fed by the capture
+    // stream. While every frame came from the microphone, nothing had to ask:
+    // the stream ran whether a source was engaged or not, so a release ramp
+    // always got its buffers for free. A self-clocked source is started and
+    // stopped AROUND the source it carries, so something has to know when the
+    // handover back to the microphone is safe.
+
+    [Fact]
+    public void IdleIsNotSimplyTheOppositeOfEngaged()
+    {
+        // THE test, and the whole reason the member exists. Between "release
+        // requested" and "release finished" a source is neither engaged nor
+        // idle: it has stopped muting the microphone but is still ramping its
+        // own signal down. Treating not-Engaged as safe-to-swap cuts the tone
+        // dead mid-ramp, which is the click the ramps were written to prevent.
+        var tone = new TxToneGenerator();
+        Assert.True(tone.Idle);
+        Assert.False(tone.Engaged);
+
+        tone.Start();
+        tone.Process(MicBuffer(0f), Floats, Rate);   // cold start -> tone fading in
+        tone.Process(MicBuffer(0f), Floats, Rate);   // -> tone at level
+        Assert.True(tone.Engaged);
+        Assert.False(tone.Idle);
+
+        tone.Stop();
+        Assert.False(tone.Engaged);                  // the microphone is un-muted...
+        Assert.False(tone.Idle);                     // ...but the tone is still sounding
+    }
+
+    [Fact]
+    public void IdleBecomesTrueOnlyAfterTheReleaseRampHasFinished()
+    {
+        // The other half: it must eventually say yes, or the self-clocked
+        // source would run forever and the microphone would never come back.
+        var tone = new TxToneGenerator();
+        tone.Start();
+        tone.Process(MicBuffer(0f), Floats, Rate);
+        tone.Process(MicBuffer(0f), Floats, Rate);
+        tone.Stop();
+
+        // Each ramp state is one 10 ms buffer at this rate; a handful of
+        // buffers is comfortably enough to walk out of both of them.
+        for (int i = 0; i < 5 && !tone.Idle; i++) tone.Process(MicBuffer(0f), Floats, Rate);
+
+        Assert.True(tone.Idle,
+            "the tone never reported idle, so the microphone would never get the slot back");
+    }
+
+    [Fact]
+    public void AMuxIsIdleOnlyWhenEveryOneOfItsSourcesIs()
+    {
+        // Asking the mux is asking on behalf of all of them. A mux that
+        // answered from the ENGAGED source alone would report idle while a
+        // just-released source was still ramping — and whoever is supplying
+        // the buffers would stop mid-ramp, which is the fault this whole
+        // member exists to prevent.
+        var tone = new TxToneGenerator();
+        var file = new TxFilePlayer();
+        var mux = new TxInputSourceMux(tone, file);
+
+        Assert.True(mux.Idle);
+
+        tone.Start();
+        tone.Process(MicBuffer(0f), Floats, Rate);
+        Assert.False(mux.Idle);
+
+        tone.Stop();
+        Assert.False(tone.Engaged);
+        Assert.False(mux.Idle);      // still ramping, and the mux must say so
+
+        for (int i = 0; i < 5 && !tone.Idle; i++) mux.Process(MicBuffer(0f), Floats, Rate);
+        Assert.True(mux.Idle);
+    }
 }
 
 /// <summary>

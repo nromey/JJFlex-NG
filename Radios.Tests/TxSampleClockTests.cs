@@ -1,4 +1,5 @@
 using System;
+using JJPortaudio;
 using Xunit;
 
 namespace Radios.Tests

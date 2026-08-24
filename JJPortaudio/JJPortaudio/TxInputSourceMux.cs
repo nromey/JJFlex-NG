@@ -61,6 +61,29 @@ namespace JJPortaudio
 
         /// <inheritdoc/>
         /// <remarks>
+        /// Every source, not just the engaged one — and the difference matters
+        /// at exactly the moment this gets asked. A source that has just been
+        /// released is no longer <see cref="Active"/> but is still ramping
+        /// down, so a mux that answered from <c>Active</c> alone would report
+        /// idle while a tone was still sounding, and whoever is supplying the
+        /// buffers would stop mid-ramp.
+        /// </remarks>
+        public bool Idle
+        {
+            get
+            {
+                var sources = _sources;
+                for (int i = 0; i < sources.Length; i++)
+                {
+                    var s = sources[i];
+                    if (s != null && !s.Idle) return false;
+                }
+                return true;
+            }
+        }
+
+        /// <inheritdoc/>
+        /// <remarks>
         /// Answers for whichever source is engaged, so the callback's decision
         /// to stand the conditioning chain down follows the thing that is
         /// actually producing samples. Nothing engaged means nothing to

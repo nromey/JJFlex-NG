@@ -179,6 +179,14 @@ namespace JJPortaudio
 
         /// <inheritdoc/>
         /// <remarks>
+        /// False through FileFadeOut and MicFadeIn as well as while playing:
+        /// the release ramp still needs buffers, and a self-clocked source must
+        /// not stop supplying them until this reads true.
+        /// </remarks>
+        public bool Idle => _state == StIdle;
+
+        /// <inheritdoc/>
+        /// <remarks>
         /// Always false. A voice file must travel the conditioning chain, or
         /// it is measuring a chain the operator's voice never uses.
         /// </remarks>

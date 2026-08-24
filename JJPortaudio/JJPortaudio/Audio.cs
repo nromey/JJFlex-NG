@@ -492,7 +492,16 @@ namespace JJPortaudio
                                     else item.StreamBlock.Open = false;
                                 }
                                 if (item.StreamBlock.opusPool != null) item.StreamBlock.opusPool.Done();
-                                if (item.StreamBlock.Encoder != null) item.StreamBlock.Encoder.Dispose();
+                                if (item.StreamBlock.Encoder != null)
+                                {
+                                    OpusEncoder enc = item.StreamBlock.Encoder;
+                                    // Null it FIRST — the setter drops the
+                                    // pipeline's encode delegate with it, so a
+                                    // frame arriving late finds nothing to
+                                    // encode rather than a disposed encoder.
+                                    item.StreamBlock.Encoder = null;
+                                    enc.Dispose();
+                                }
                                 if (item.StreamBlock.Decoder != null) item.StreamBlock.Decoder.Dispose();
                                 WasapiAutoConvert.Release(ref item.StreamBlock.WasapiAutoConvertInfo);
                                 Audio.queues.Remove(item.StreamBlock.CBUser);
@@ -543,8 +552,42 @@ namespace JJPortaudio
             public bool UseOpus = false;
             public uint OpusFrameSZ;
             public bufPool opusPool;
-            public OpusEncoder Encoder;
+            /// <summary>
+            /// The shared transmit tail — injection, conditioning, metering,
+            /// encode, send — written once so the capture callback and the
+            /// self-clocked source cannot drift apart. See TxFramePipeline.
+            /// </summary>
+            public readonly TxFramePipeline TxPipeline = new TxFramePipeline();
+            private OpusEncoder _encoder;
+            /// <summary>
+            /// Setting this rebinds the pipeline's encode step in the same
+            /// breath, so there is no window in which the stream holds one
+            /// encoder and the pipeline encodes through another — including at
+            /// close, where a null here nulls the pipeline's too and a frame
+            /// arriving late cannot reach a disposed encoder.
+            /// </summary>
+            public OpusEncoder Encoder
+            {
+                get { return _encoder; }
+                set
+                {
+                    _encoder = value;
+                    TxPipeline.Encode = (value != null) ? value.Encode : (Func<float[], byte[]>)null;
+                }
+            }
             public OpusDecoder Decoder;
+
+            /// <summary>
+            /// This stream's answer to the pipeline's teardown question,
+            /// cached once. The input callback passes it a hundred times a
+            /// second and must not allocate a closure per frame.
+            /// </summary>
+            public readonly Func<bool> IsActive;
+
+            public StreamCB()
+            {
+                IsActive = () => Active;
+            }
             public Queue Q = Queue.Synchronized(new Queue());
             public uint Offset = 0; // outputCallback's buffer offset
             public float[] Buffer; // for output data
@@ -576,7 +619,11 @@ namespace JJPortaudio
             public PortAudio.PaStreamCallbackDelegate CB;
             public int CBUser;
             public WavCallback WavInputHandler;
-            public OpusCallback OpusInputHandler;
+            public OpusCallback OpusInputHandler
+            {
+                get { return TxPipeline.Handler; }
+                set { TxPipeline.Handler = value; }
+            }
             public AudioSentCallback AudioSent;
             public bool SilentPeriod = false;
             // Audio Track C: optional TX injection source. When engaged, its
@@ -586,15 +633,35 @@ namespace JJPortaudio
             // never really about tones — it is the one place anything can
             // stand in for the microphone — so it is now ITxInputSource,
             // shared by the test tone and the reference-file player.
-            public ITxInputSource ToneSource;
+            //
+            // 2026-08-24: these three, and the encoder and handler above, now
+            // live in TxPipeline rather than here. They are still reachable by
+            // their old names because two dozen call sites use them and the
+            // rename would be churn, but there is only ONE copy of each, and
+            // the self-clocked source sees the same one the capture callback
+            // does. That is the point: the promise that an injected tone rides
+            // the identical path as a voice is now structural.
+            public ITxInputSource ToneSource
+            {
+                get { return TxPipeline.Source; }
+                set { TxPipeline.Source = value; }
+            }
             // Track I: optional TX conditioning processor (NR + gate), run
             // AFTER the tone injection point and BEFORE the meter, so the
             // meter still measures what genuinely goes to the encoder.
-            public TxAudioProcessorCallback InputProcessor;
+            public TxAudioProcessorCallback InputProcessor
+            {
+                get { return TxPipeline.Conditioner; }
+                set { TxPipeline.Conditioner = value; }
+            }
             // Engine Track: optional LUFS meter, fed in inputCallback AFTER
             // the tone injection point so it measures whatever is actually
             // being transmitted, tone or mic.
-            public LufsMeter InputMeter;
+            public LufsMeter InputMeter
+            {
+                get { return TxPipeline.Meter; }
+                set { TxPipeline.Meter = value; }
+            }
             // Engine Track: end-of-stream callback diagnostics. These were
             // static across ALL streams (meaningless with an input and an
             // output stream open at once); now per-stream.
@@ -917,8 +984,75 @@ namespace JJPortaudio
             Tracing.await(() => { return !CBData.Started; }, 5000);
         }
 
+        #region Self-clocked transmit (#208)
+        // The tone's own clock. Built on first use and kept, so the encoder,
+        // the source and the meter are the SAME objects the capture path uses
+        // — the pipeline is shared, only the thing supplying frames differs.
+        private TxSelfClockedSource _selfClockedTx;
+
+        /// <summary>True while transmit frames are coming from the self-clock.</summary>
+        internal bool SelfClockedTxRunning => _selfClockedTx != null && _selfClockedTx.Running;
+
+        /// <summary>
+        /// Start producing transmit frames from elapsed time rather than from
+        /// the capture device.
+        /// </summary>
+        /// <remarks>
+        /// The caller must have stopped the PortAudio capture stream first.
+        /// Two producers sharing one Opus encoder would corrupt the bitstream
+        /// into something the radio renders as noise rather than as an error —
+        /// see the thread model on TxFramePipeline.
+        /// </remarks>
+        internal bool StartSelfClockedTx()
+        {
+            StreamCB cb = CBData;
+            if (cb == null)
+            {
+                Tracing.TraceLine("Audio.StartSelfClockedTx: no stream", TraceLevel.Error);
+                return false;
+            }
+            if (!cb.UseOpus || cb.Encoder == null || cb.OpusFrameSZ == 0)
+            {
+                Tracing.TraceLine("Audio.StartSelfClockedTx: this stream has no Opus encoder,"
+                    + " so there is nothing to pace", TraceLevel.Error);
+                return false;
+            }
+
+            // Interleaved stereo: OpusFrameSZ counts floats across both
+            // channels, the clock counts samples per channel.
+            int samplesPerFrame = (int)(cb.OpusFrameSZ / 2);
+
+            // Noel, 2026-08-24: "make sure that the sample rate doesn't
+            // change." A kept clock that no longer matches the stream would
+            // keep confidently producing a hundred frames a second of the
+            // wrong thing — healthy-looking and wrong, the worst shape a fault
+            // can take here. Rebuild rather than adapt; the clock has no rate
+            // setter precisely so this is the only available answer.
+            if (_selfClockedTx != null && !_selfClockedTx.Matches(cb.SampleRate, samplesPerFrame))
+            {
+                Tracing.TraceLine("Audio.StartSelfClockedTx: "
+                    + _selfClockedTx.Pump.Clock.DescribeMismatch((int)cb.SampleRate, samplesPerFrame),
+                    TraceLevel.Warning);
+                _selfClockedTx.Stop();
+                _selfClockedTx = null;
+            }
+
+            _selfClockedTx ??= new TxSelfClockedSource(cb.TxPipeline, cb.SampleRate, samplesPerFrame);
+            return _selfClockedTx.Start();
+        }
+
+        /// <summary>Stop the self-clock. Hard and immediate; see TxSelfClockedSource.Stop.</summary>
+        internal void StopSelfClockedTx()
+        {
+            _selfClockedTx?.Stop();
+        }
+        #endregion
+
         internal void Finished()
         {
+            // Nothing may still be feeding the encoder when the stream closes
+            // and the encoder is disposed underneath it.
+            StopSelfClockedTx();
             Tracing.TraceLine("Audio.Finished", TraceLevel.Info);
             AudioAnchor.workItem item = new AudioAnchor.workItem(AudioAnchor.workItems.close, CBData);
             AudioAnchor.work.Add(item);
@@ -1170,39 +1304,37 @@ namespace JJPortaudio
                                 buf[i] = *(inPtr++);
                             }
                         }
-                        // Audio Track C: TX injection. When a source is engaged
-                        // this REPLACES the mic samples in buf (mute-by-discard,
-                        // never a mix) before the Opus encode, so whatever is
-                        // injected rides the identical encode-and-send path the
-                        // mic does — an honest test of the whole TX chain.
-                        data.ToneSource?.Process(buf, (int)data.OpusFrameSZ, data.SampleRate);
-                        // Track I: TX conditioning (NR + gate) — the third
-                        // thing at this insertion point. The source injects,
-                        // this MODIFIES, the meter observes.
+                        // Inject, condition, meter, encode, send — all five in
+                        // TxFramePipeline, which is also what the self-clocked
+                        // transmit source calls.
                         //
-                        // Sprint 33 Track I: whether to stand this down is now
-                        // the SOURCE's answer, not an assumption about tones.
-                        // A test tone says yes, because it is a calibrated
-                        // reference (-10 dBFS must read -10 on SC_MIC) and
-                        // conditioning a synthesized sine would quietly break
-                        // that property — there is no room noise in it to
-                        // clean. A recorded VOICE says no: the whole point of
-                        // playing a known voice down this path is to measure
-                        // the chain a voice really travels.
-                        if (data.InputProcessor != null
-                            && (data.ToneSource == null
-                                || !data.ToneSource.Engaged
-                                || !data.ToneSource.BypassesConditioning))
+                        // This used to be written out here, and it was the only
+                        // definition of a transmit frame's journey. Once a
+                        // second producer existed (2026-08-24, the tone that
+                        // paces itself instead of borrowing the microphone's
+                        // clock), one definition in one place stopped being a
+                        // tidiness question: two copies would drift, and they
+                        // would drift SILENTLY, because a tone that skipped the
+                        // meter or the conditioner still sounds like a tone.
+                        //
+                        // Emit returns false when the frame was abandoned at
+                        // teardown or the encode failed. Both mean stop, which
+                        // is exactly what the old `if (!data.Active) break;`
+                        // between encode and send did — it moved into the
+                        // pipeline as StillRunning so both producers honour it.
+                        if (!data.TxPipeline.Emit(buf, (int)data.OpusFrameSZ, data.SampleRate, data.IsActive))
                         {
-                            data.InputProcessor(buf, (int)data.OpusFrameSZ, data.SampleRate);
+                            // False has two causes and they need different
+                            // answers. Teardown: Active is already false and
+                            // the loop condition below turns it into
+                            // paComplete, the ordinary path. Encode failure
+                            // while still active: the stream cannot recover —
+                            // this used to throw out of Encode into the catch
+                            // below and abort, and it must still abort, or a
+                            // broken encoder becomes silence with no complaint.
+                            if (data.Active) rv = PortAudio.PaStreamCallbackResult.paAbort;
+                            break;
                         }
-                        // Engine Track: LUFS metering, deliberately AFTER the
-                        // tone injection — the meter reads whatever is really
-                        // going to the encoder, tone or mic, pre-Opus.
-                        data.InputMeter?.Process(buf, (int)data.OpusFrameSZ, data.SampleRate);
-                        byte[] encodedBuf = data.Encoder.Encode(buf);
-                        if (!data.Active) break;
-                        data.OpusInputHandler(encodedBuf);
                         data.diagBufCount++;
                         data.diagByteCount += buf.Length;
                     } while (data.Active && (inPtr != endPtr));

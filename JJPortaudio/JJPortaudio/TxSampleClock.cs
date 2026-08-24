@@ -1,6 +1,6 @@
 using System;
 
-namespace Radios;
+namespace JJPortaudio;
 
 /// <summary>
 /// Decides how many audio frames a self-clocked transmit source owes the radio,

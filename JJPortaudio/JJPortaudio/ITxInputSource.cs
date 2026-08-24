@@ -39,6 +39,32 @@ namespace JJPortaudio
         bool Engaged { get; }
 
         /// <summary>
+        /// True when this source has nothing in flight at all and the
+        /// microphone may take the slot back.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is NOT the negation of <see cref="Engaged"/>, and the gap
+        /// between them is the whole reason it exists. <c>Engaged</c> means
+        /// "the microphone is muted"; it goes false the instant a release is
+        /// requested, while the source is still ramping its own signal down.
+        /// Those last ten milliseconds are exactly the ones that must not be
+        /// cut off — cutting them is the click the ramps were written to
+        /// prevent.
+        /// </para>
+        /// <para>
+        /// <b>Why it became necessary on 2026-08-24.</b> While every transmit
+        /// frame came from the capture device, nothing ever had to ask: the
+        /// stream ran whether a source was engaged or not, so a release ramp
+        /// always got its buffers for free. A self-clocked source is started
+        /// and stopped around the source it carries, so something has to know
+        /// when the handover back to the microphone is safe. This is that
+        /// question, asked of the only thing that knows the answer.
+        /// </para>
+        /// </remarks>
+        bool Idle { get; }
+
+        /// <summary>
         /// True when the transmit conditioning chain (noise reduction and the
         /// gate) should stand aside while this source is engaged.
         /// </summary>
