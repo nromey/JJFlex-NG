@@ -1933,6 +1933,15 @@ public class KeyCommands
                 return;
             }
 
+            // Before ANY of it is applied: has this map slipped onto the wrong
+            // commands? A file written before 2026-08-18 is in the old
+            // positional numbering, so 22 bindings load against the command one
+            // number below where they belong. SmartMergeDefaults cannot see it
+            // — it only acts when a default was REMOVED, and here every current
+            // default is a real present key, so its branch never runs. See
+            // Radios/KeyMapIntegrity.cs and task #209.
+            RepairSlippedKeyMap(kData.Items);
+
             // v5+: Load saved bindings, then smart-merge changed defaults.
             SetValues(kData.Items!, KeyTypes.AllKeys, false);
             SmartMergeDefaults(kData.Items!);
@@ -2137,6 +2146,83 @@ public class KeyCommands
     /// Get the default KeyDefType for a given command.
     /// Used by the Reset button in DefineCommands.
     /// </summary>
+    /// <summary>
+    /// Correct a key map whose bindings slipped onto the wrong commands, and
+    /// say loudly that it happened. Silent to the operator; loud in the trace.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only bindings the operator never customised are touched. A slipped entry
+    /// carries the previous command's key AND that command's recorded default,
+    /// so <c>Key == SavedDefaultKey</c> proves it was never chosen by anyone —
+    /// it is a default, merely the wrong command's default, and replacing it
+    /// with the right one loses nothing. Where the two differ the operator did
+    /// pick that key, and only they know what they meant by it, so those are
+    /// named in the trace and left exactly as they are.
+    /// </para>
+    /// <para>
+    /// <b>Both Key and SavedDefaultKey are rewritten</b>, not just Key. Leaving
+    /// the stale SavedDefaultKey behind would make the entry read as
+    /// <c>Key != SavedDefaultKey</c> — an explicit customisation — to
+    /// SmartMergeDefaults immediately afterwards, which is the opposite of what
+    /// just happened.
+    /// </para>
+    /// <para>
+    /// Noel's call, 2026-08-24, and the reason nothing is spoken: the operator
+    /// cannot act on this and has lost nothing, so an announcement would only
+    /// alarm. The trace carries it at Error level so it survives the Normal
+    /// detail a real session runs at — "just in case it falls over."
+    /// </para>
+    /// </remarks>
+    private void RepairSlippedKeyMap(KeyDefType[]? items)
+    {
+        if (items == null) return;
+
+        var saved = new List<KeyMapIntegrity.SavedBinding>(items.Length);
+        foreach (var it in items)
+        {
+            if (it != null)
+                saved.Add(new KeyMapIntegrity.SavedBinding((int)it.Id, it.Key, it.SavedDefaultKey));
+        }
+
+        var verdict = KeyMapIntegrity.Check(
+            saved, id => GetDefaultKey((CommandValues)id)?.Key ?? Keys.None);
+
+        if (!verdict.LooksShifted)
+        {
+            _context.Trace("KeyCommands: " + verdict.Describe());
+            return;
+        }
+
+        Tracing.TraceLine("KeyCommands: " + verdict.Describe(), System.Diagnostics.TraceLevel.Error);
+
+        var toFix = new HashSet<int>(verdict.RepairableIds);
+        int fixedCount = 0;
+        foreach (var it in items)
+        {
+            if (it == null || !toFix.Contains((int)it.Id)) continue;
+            var correct = GetDefaultKey(it.Id);
+            if (correct == null) continue;   // no default to restore — leave it
+
+            Tracing.TraceLine("KeyCommands:repaired " + it.Id + " " + it.Key
+                + " -> " + correct.Key + " (was the default of the command one number below)",
+                System.Diagnostics.TraceLevel.Error);
+            it.Key = correct.Key;
+            it.SavedDefaultKey = correct.Key;
+            fixedCount++;
+        }
+
+        foreach (int id in verdict.CustomisedIds)
+        {
+            Tracing.TraceLine("KeyCommands: id " + id + " slipped but carries a key the operator chose"
+                + " — left alone, it may now be on the wrong command", System.Diagnostics.TraceLevel.Error);
+        }
+
+        Tracing.TraceLine("KeyCommands: repaired " + fixedCount + " slipped binding(s), left "
+            + verdict.CustomisedIds.Count + " customised one(s) alone. Nothing was spoken;"
+            + " the operator lost no binding they chose.", System.Diagnostics.TraceLevel.Error);
+    }
+
     public KeyDefType? GetDefaultKey(CommandValues cmdId)
     {
         foreach (var def in _defaultKeys)
