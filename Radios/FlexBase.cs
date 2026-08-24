@@ -6384,6 +6384,54 @@ namespace Radios
                 case "ProfileTXSelection":
                     Tracing.TraceLine("ProfileTXSelection:" + r.ProfileTXSelection, TraceLevel.Info);
                     break;
+                case "ProfileMICSelection":
+                    {
+                        // THE field that decides whether transmit audio modulates
+                        // anything. A radio whose mic-profile selection is EMPTY has
+                        // no transmit-audio DSP chain: SC_MIC pins at -120 and the
+                        // operator keys up into silence. Established by pcap diff
+                        // against the vendor client on the bench 8600, 2026-08-10 -
+                        // every command matched except this one, "Default" there and
+                        // empty here. See the ANNOUNCES-never-writes note further
+                        // down this file for why we do not simply repair it.
+                        //
+                        // ADDED 2026-08-23, after a bench session found the VALUE was
+                        // never recorded at all. ProfileTXSelection printed its value
+                        // one case above; this printed only a bare property-changed
+                        // notice. So the single most diagnostic field in the whole
+                        // silent-transmit investigation was invisible in every trace
+                        // anyone had ever collected, including the ones used to chase
+                        // it for weeks.
+                        //
+                        // Empty is traced at ERROR on purpose: the one state that
+                        // matters is the one that must not be quiet, and Error
+                        // survives the Normal detail level a real session runs at.
+                        string mic = r.ProfileMICSelection;
+                        if (string.IsNullOrEmpty(mic))
+                        {
+                            Tracing.TraceLine("ProfileMICSelection:EMPTY - the radio has no"
+                                + " transmit-audio DSP chain, so PC transmit audio will modulate"
+                                + " nothing and SC_MIC will sit at -120", TraceLevel.Error);
+                        }
+                        else
+                        {
+                            Tracing.TraceLine("ProfileMICSelection:" + mic, TraceLevel.Info);
+                        }
+                    }
+                    break;
+                case "ProfileMICList":
+                    {
+                        // Recorded so an empty SELECTION can be told apart from a
+                        // radio that has no mic profiles to select. Different
+                        // problems, identical symptom.
+                        string line = "";
+                        if (r.ProfileMICList != null)
+                        {
+                            foreach (string str in r.ProfileMICList) line += str + " ";
+                        }
+                        Tracing.TraceLine("ProfileMICList:" + line, TraceLevel.Info);
+                    }
+                    break;
                 case "PTTSource":
                     Tracing.TraceLine("PTTSource:" + r.PTTSource.ToString(), TraceLevel.Info);
                     break;
