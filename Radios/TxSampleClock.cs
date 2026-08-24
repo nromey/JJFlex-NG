@@ -92,6 +92,55 @@ public sealed class TxSampleClock
     /// <summary>Samples per channel in one frame.</summary>
     public int SamplesPerFrame => _samplesPerFrame;
 
+    /// <summary>The rate this clock was built for. Never changes.</summary>
+    public int SampleRate => _sampleRate;
+
+    /// <summary>
+    /// Does this clock still describe the stream it is pacing?
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Noel, 2026-08-24: "make sure that the sample rate doesn't change,
+    /// though not often, sometimes it happens."</b> Windows can change a
+    /// device's shared-mode format, a device can be reconfigured, and a
+    /// reconnect can negotiate differently.
+    /// </para>
+    /// <para>
+    /// The capture-driven path had one accidental virtue: when the device's
+    /// format changed, the callback changed with it, so the rate could never
+    /// silently disagree. A self-clocked source loses that. It computes frames
+    /// from the rate it was CONSTRUCTED with, so if the negotiated rate moves
+    /// underneath it and nothing checks, it keeps confidently producing a
+    /// hundred frames a second of the wrong thing — healthy-looking and wrong,
+    /// which is the worst shape a fault can take here.
+    /// </para>
+    /// <para>
+    /// So the clock is deliberately IMMUTABLE in rate and offers this instead:
+    /// the caller asks before every start whether the clock still matches the
+    /// live stream, and builds a new one if it does not. Same family as #53,
+    /// where the Opus encoder was built from the REQUESTED rate rather than the
+    /// NEGOTIATED one. Three things must agree — this clock, the encoder, and
+    /// what the radio actually opened — and a mismatch must be loud, not
+    /// absorbed.
+    /// </para>
+    /// </remarks>
+    public bool Matches(int sampleRate, int samplesPerFrame) =>
+        sampleRate == _sampleRate && samplesPerFrame == _samplesPerFrame;
+
+    /// <summary>
+    /// Why a mismatch happened, for the trace. Empty when it matches.
+    /// </summary>
+    public string DescribeMismatch(int sampleRate, int samplesPerFrame)
+    {
+        if (Matches(sampleRate, samplesPerFrame)) return "";
+        return "transmit sample clock no longer matches the stream: built for "
+            + _sampleRate + " Hz / " + _samplesPerFrame + " samples per frame ("
+            + FrameMs.ToString("0.##") + " ms), stream now reports "
+            + sampleRate + " Hz / " + samplesPerFrame + " samples per frame. "
+            + "Pacing would be wrong in a way nothing else would report, so the "
+            + "clock must be rebuilt rather than reused.";
+    }
+
     /// <summary>Nominal frame duration in milliseconds, for tracing.</summary>
     public double FrameMs => 1000.0 * _samplesPerFrame / _sampleRate;
 

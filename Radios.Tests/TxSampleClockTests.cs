@@ -185,6 +185,54 @@ namespace Radios.Tests
             Assert.Equal(0, Started().FramesDue(Ms(100), 0));
         }
 
+
+        [Fact]
+        public void A_clock_knows_when_it_no_longer_matches_the_stream()
+        {
+            // Noel, 2026-08-24: "make sure that the sample rate doesn't change,
+            // though not often, sometimes it happens." Windows can change a
+            // device's shared-mode format and a reconnect can negotiate
+            // differently. The capture-driven path noticed by accident, because
+            // the callback changed with the device; a self-clocked one has to be
+            // asked.
+            var c = new TxSampleClock(Rate, PerFrame);
+
+            Assert.True(c.Matches(Rate, PerFrame));
+            Assert.False(c.Matches(48000, PerFrame));      // rate moved
+            Assert.False(c.Matches(Rate, 480));            // frame size moved
+            Assert.False(c.Matches(48000, 480));           // both
+        }
+
+        [Fact]
+        public void A_mismatch_explains_itself_in_terms_a_trace_reader_can_act_on()
+        {
+            // The message is the whole value of the check. "Mismatch" tells a
+            // reader nothing; the two rates and what happens if it is ignored
+            // tell them what to do.
+            var c = new TxSampleClock(Rate, PerFrame);
+
+            Assert.Equal("", c.DescribeMismatch(Rate, PerFrame));
+
+            string d = c.DescribeMismatch(48000, 480);
+            Assert.Contains("24000", d);
+            Assert.Contains("48000", d);
+            Assert.Contains("rebuilt", d);
+        }
+
+        [Fact]
+        public void The_rate_is_immutable_so_a_stale_clock_cannot_quietly_adapt()
+        {
+            // Deliberately no setter. A clock that could be re-pointed at a new
+            // rate mid-flight would carry its old FramesEmitted into the new
+            // timebase and drift from the first call. Rebuilding is the only
+            // correct response to a rate change, and the type enforces it.
+            var c = Started();
+            c.FramesDue(Ms(500), Tps);
+
+            Assert.Equal(Rate, c.SampleRate);
+            Assert.Null(typeof(TxSampleClock).GetProperty("SampleRate")!.SetMethod);
+        }
+
         /// <summary>Poll at a fixed step to the end and total what was owed.</summary>
         private static long TotalOver(TxSampleClock c, long endTicks, long stepTicks)
         {
