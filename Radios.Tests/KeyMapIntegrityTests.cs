@@ -34,7 +34,7 @@ namespace Radios.Tests
         {
             var l = new List<KeyMapIntegrity.SavedBinding>();
             for (int i = 0; i < count; i++)
-                l.Add(new KeyMapIntegrity.SavedBinding(i, DefaultFor(i)));
+                l.Add(new KeyMapIntegrity.SavedBinding(i, DefaultFor(i), DefaultFor(i)));
             return l;
         }
 
@@ -44,7 +44,13 @@ namespace Radios.Tests
         {
             var l = new List<KeyMapIntegrity.SavedBinding>();
             for (int i = 0; i < count; i++)
-                l.Add(new KeyMapIntegrity.SavedBinding(i, DefaultFor(i < insertAt ? i : i - 1)));
+            {
+                // A slipped entry carries the PREVIOUS command's key AND that
+                // command's recorded default — which is why it looks internally
+                // consistent and why it is safe to repair.
+                Keys d = DefaultFor(i < insertAt ? i : i - 1);
+                l.Add(new KeyMapIntegrity.SavedBinding(i, d, d));
+            }
             return l;
         }
 
@@ -84,7 +90,7 @@ namespace Radios.Tests
             // requires a RUN. This is the test that keeps the check honest
             // rather than merely sensitive.
             var l = Healthy(122);
-            l[40] = new KeyMapIntegrity.SavedBinding(40, (Keys)999);   // was reassigned
+            l[40] = new KeyMapIntegrity.SavedBinding(40, (Keys)999, (Keys)999);   // was reassigned
 
             var v = KeyMapIntegrity.Check(l, DefaultFor);
 
@@ -100,7 +106,7 @@ namespace Radios.Tests
             // problem, and it must not be counted either way.
             var l = new List<KeyMapIntegrity.SavedBinding>();
             for (int i = 0; i < 30; i++)
-                l.Add(new KeyMapIntegrity.SavedBinding(i, Keys.None));
+                l.Add(new KeyMapIntegrity.SavedBinding(i, (Keys)(500 + i), Keys.None));
 
             var v = KeyMapIntegrity.Check(l, DefaultFor);
 
@@ -117,7 +123,7 @@ namespace Radios.Tests
             // quiet; the threshold is five.
             var l = Healthy(122);
             for (int i = 118; i < 122; i++)
-                l[i] = new KeyMapIntegrity.SavedBinding(i, DefaultFor(i - 1));
+                l[i] = new KeyMapIntegrity.SavedBinding(i, DefaultFor(i - 1), DefaultFor(i - 1));
 
             var v = KeyMapIntegrity.Check(l, DefaultFor);
 
@@ -132,7 +138,7 @@ namespace Radios.Tests
             // threshold could be off by one in either direction unnoticed.
             var l = Healthy(122);
             for (int i = 117; i < 122; i++)
-                l[i] = new KeyMapIntegrity.SavedBinding(i, DefaultFor(i - 1));
+                l[i] = new KeyMapIntegrity.SavedBinding(i, DefaultFor(i - 1), DefaultFor(i - 1));
 
             var v = KeyMapIntegrity.Check(l, DefaultFor);
 
@@ -169,6 +175,65 @@ namespace Radios.Tests
             // it is part of the contract, not decoration.
             Assert.Contains("SHIFTED", KeyMapIntegrity.Check(ShiftedFrom(122, 96), DefaultFor).Describe());
             Assert.Contains("consistent", KeyMapIntegrity.Check(Healthy(122), DefaultFor).Describe());
+        }
+
+        [Fact]
+        public void An_untouched_slipped_binding_is_repairable()
+        {
+            // DON'S CASE, and the one that decides whether this can be fixed
+            // silently. He upgrades from a pre-2026-08-18 build and (as far as
+            // anyone knows) never customised a key. Every slipped entry then
+            // still carries the default it was saved with, so replacing it with
+            // the correct default loses nothing he chose.
+            var v = KeyMapIntegrity.Check(ShiftedFrom(122, 96), DefaultFor);
+
+            Assert.True(v.LooksShifted, v.Describe());
+            Assert.Equal(v.SlippedByOne, v.RepairableIds.Count);
+            Assert.Empty(v.CustomisedIds);
+            Assert.Contains(96, v.RepairableIds);
+        }
+
+        [Fact]
+        public void A_slipped_binding_the_operator_chose_is_NOT_repairable()
+        {
+            // The other half, and the reason this is not a blanket reset. If the
+            // key differs from the default recorded beside it, the operator
+            // picked it on purpose. The binding is real and merely filed under
+            // the wrong command — only they know what they meant, so it is
+            // reported and left alone.
+            var l = ShiftedFrom(122, 96);
+            l[100] = new KeyMapIntegrity.SavedBinding(100, (Keys)7777, DefaultFor(99));
+
+            var v = KeyMapIntegrity.Check(l, DefaultFor);
+
+            Assert.True(v.LooksShifted, v.Describe());
+            Assert.Contains(100, v.CustomisedIds);
+            Assert.DoesNotContain(100, v.RepairableIds);
+            // Everything else in the run is still free to repair.
+            Assert.Equal(v.SlippedByOne - 1, v.RepairableIds.Count);
+        }
+
+        [Fact]
+        public void A_healthy_map_offers_nothing_to_repair()
+        {
+            // Negative control for both lists at once.
+            var v = KeyMapIntegrity.Check(Healthy(122), DefaultFor);
+
+            Assert.Empty(v.RepairableIds);
+            Assert.Empty(v.CustomisedIds);
+        }
+
+        [Fact]
+        public void The_description_reports_both_halves_of_the_split()
+        {
+            // The trace line is the only thing a human reads, and "22 slipped"
+            // without "how many can be fixed for free" is not actionable.
+            var l = ShiftedFrom(122, 96);
+            l[100] = new KeyMapIntegrity.SavedBinding(100, (Keys)7777, DefaultFor(99));
+            string d = KeyMapIntegrity.Check(l, DefaultFor).Describe();
+
+            Assert.Contains("never customised", d);
+            Assert.Contains("operator chose", d);
         }
     }
 }

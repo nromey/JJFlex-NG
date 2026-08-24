@@ -46,12 +46,15 @@ public static class KeyMapIntegrity
     {
         /// <summary>The command number the entry is filed under.</summary>
         public readonly int Id;
+        /// <summary>The key the operator actually has bound.</summary>
+        public readonly Keys Key;
         /// <summary>The default this command had when the file was written.</summary>
         public readonly Keys SavedDefault;
 
-        public SavedBinding(int id, Keys savedDefault)
+        public SavedBinding(int id, Keys key, Keys savedDefault)
         {
             Id = id;
+            Key = key;
             SavedDefault = savedDefault;
         }
     }
@@ -70,13 +73,30 @@ public static class KeyMapIntegrity
         /// <summary>Lowest id that slipped, or -1. The insertion point, when there is one.</summary>
         public readonly int FirstSlippedId;
 
-        public Verdict(int consistent, int slippedByOne, int unexplained, int untracked, int firstSlippedId)
+        /// <summary>
+        /// Slipped ids the operator never customised — <c>Key</c> still equals
+        /// the <c>SavedDefault</c> recorded beside it. Safe to drop and let the
+        /// correct default take over, because nothing the operator chose is lost.
+        /// </summary>
+        public readonly IReadOnlyList<int> RepairableIds;
+
+        /// <summary>
+        /// Slipped ids carrying a key the operator DID choose. The binding is
+        /// real but filed under the wrong command, and only they know what they
+        /// meant by it — so these are reported and left alone.
+        /// </summary>
+        public readonly IReadOnlyList<int> CustomisedIds;
+
+        public Verdict(int consistent, int slippedByOne, int unexplained, int untracked, int firstSlippedId,
+                       IReadOnlyList<int>? repairableIds = null, IReadOnlyList<int>? customisedIds = null)
         {
             Consistent = consistent;
             SlippedByOne = slippedByOne;
             Unexplained = unexplained;
             Untracked = untracked;
             FirstSlippedId = firstSlippedId;
+            RepairableIds = repairableIds ?? Array.Empty<int>();
+            CustomisedIds = customisedIds ?? Array.Empty<int>();
         }
 
         /// <summary>
@@ -100,7 +120,10 @@ public static class KeyMapIntegrity
                 return "key map looks SHIFTED: " + SlippedByOne + " binding(s) carry the default of the"
                     + " command one number below them, first at id " + FirstSlippedId
                     + ". A file written before the command numbers were frozen loads its bindings onto"
-                    + " the wrong commands. " + Consistent + " consistent, " + Unexplained + " unexplained, "
+                    + " the wrong commands. Of those, " + RepairableIds.Count
+                    + " were never customised and can be corrected silently, and " + CustomisedIds.Count
+                    + " carry a key the operator chose and are left alone. "
+                    + Consistent + " consistent, " + Unexplained + " unexplained, "
                     + Untracked + " untracked.";
             }
             return "key map consistent: " + Consistent + " matched, " + SlippedByOne + " slipped, "
@@ -129,6 +152,8 @@ public static class KeyMapIntegrity
             return new Verdict(0, 0, 0, 0, -1);
 
         int consistent = 0, slipped = 0, unexplained = 0, untracked = 0, firstSlipped = -1;
+        var repairable = new List<int>();
+        var customised = new List<int>();
 
         foreach (var b in saved)
         {
@@ -147,12 +172,28 @@ public static class KeyMapIntegrity
             {
                 slipped++;
                 if (firstSlipped < 0 || b.Id < firstSlipped) firstSlipped = b.Id;
+
+                // THE SPLIT THAT DECIDES WHETHER THIS IS SAFE TO FIX.
+                //
+                // The same internal consistency that hides the slip from
+                // SmartMergeDefaults is what proves the repair is free: if the
+                // operator's Key still equals the SavedDefault recorded beside
+                // it, they never touched this binding. It is a default — just
+                // the wrong command's default. Replacing it with the right one
+                // loses nothing anybody chose.
+                //
+                // If the two differ, the operator DID choose that key. The
+                // binding is real and merely filed under the wrong command, and
+                // only they know what they meant by it. Report; do not guess.
+                if (b.Key == b.SavedDefault) repairable.Add(b.Id);
+                else customised.Add(b.Id);
                 continue;
             }
 
             unexplained++;
         }
 
-        return new Verdict(consistent, slipped, unexplained, untracked, firstSlipped);
+        return new Verdict(consistent, slipped, unexplained, untracked, firstSlipped,
+                           repairable, customised);
     }
 }
