@@ -217,15 +217,38 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Land on the radio output list rather than the first control in tab
-        /// order.
+        /// Land on the audio-system selector rather than the first control in
+        /// tab order.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// The button row is declared first so it docks to the bottom, which
         /// means the base class's "first focusable element" is Refresh — a
-        /// perfectly good button and completely the wrong place to start. Radio
-        /// receive audio is what almost everyone opens this dialog to set, so
-        /// that is where focus goes, with its current value already spoken.
+        /// perfectly good button and completely the wrong place to start.
+        /// </para>
+        /// <para>
+        /// It landed on the RADIO OUTPUT LIST until 2026-08-24, on the
+        /// reasoning that receive audio is what almost everyone opens this
+        /// dialog to set. True, and it put focus PAST the one control that
+        /// decides what those lists can contain — with two focusable notes
+        /// between, so getting back to it meant Shift+Tab twice through prose.
+        /// Noel could not find the selector at all that evening and reasonably
+        /// concluded it did not exist.
+        /// </para>
+        /// <para>
+        /// The section is deliberately ordered audio-system-first because the
+        /// choice governs both lists; focus now agrees with that order instead
+        /// of contradicting it.
+        /// </para>
+        /// <para>
+        /// <b>The trade, stated because it is real:</b> a closed WPF combo
+        /// changes selection on Up/Down without opening, so an operator who
+        /// arrows the moment they arrive changes the audio system and rebuilds
+        /// both lists. That is recoverable — Cancel restores the entry value,
+        /// and the note under the combo says what changed — but it is a
+        /// louder first keystroke than arrowing a device list was. If that
+        /// turns out to bite, this is the one place to change back.
+        /// </para>
         /// </remarks>
         protected override void FocusFirstControl()
         {
@@ -242,6 +265,16 @@ namespace JJFlexWpf.Dialogs
                     StartMicCheck();
                     if (MicCheckReading != null && MicCheckReading.Focus()) return;
                 }
+            }
+
+            // The audio system first — it decides what both lists below can
+            // contain. Skipped when the machine offers only one driver model,
+            // because LoadHostApis disables the combo in that case and the
+            // house rule keeps dead controls out of the operator's way.
+            if (HostApiCombo != null && HostApiCombo.IsEnabled && HostApiCombo.Items.Count > 1)
+            {
+                HostApiCombo.Focus();
+                return;
             }
 
             if (RadioOutputList != null && RadioOutputList.IsEnabled)
