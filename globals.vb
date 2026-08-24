@@ -3185,6 +3185,12 @@ Module globals
 
             Tracing.TraceLine("TryAutoConnectOnStartup: attempting " & _autoConnectConfig.RadioName, TraceLevel.Info)
 
+            ' The other way the launch wait ends. Auto-connect skips the
+            ' discovery window entirely and speaks for itself immediately
+            ' below, so the startup progress voice has done its job and must
+            ' not talk over the announcement that names the radio.
+            Radios.ProgressVoice.Stop("auto-connect taking over")
+
             ' Announce only when auto-connect actually fires; when it's off the
             ' selector opens silently. Critical + interrupt so it always speaks --
             ' the connecting window's own phase speech is verbosity-gated and

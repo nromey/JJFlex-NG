@@ -70,6 +70,13 @@ namespace JJFlexWpf.Dialogs
         /// </param>
         public DiscoveringRadiosWindow(string? lead = null)
         {
+            // The launch wait ends here: this window is the first thing that
+            // speaks about radios, and its title flushes anything queued behind
+            // it anyway (see the `lead` remarks below). Stopping the progress
+            // voice BEFORE the title is set means it cannot get one more word
+            // in and then be cut off mid-sentence by this window opening.
+            Radios.ProgressVoice.Stop("discovery window opened");
+
             // The title IS the message. It was "JJ Flexible", which meant the
             // operator heard the application's name - which they already knew,
             // having just launched it - and then the actual message from the

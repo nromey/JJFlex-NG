@@ -98,20 +98,49 @@ Namespace My
             ' carried a 2-second sleep instead.
             Radios.ScreenReaderOutput.SpeakGreeting()
 
+            ' Give the launch wait a voice. Measured 2026-08-24 from three
+            ' consecutive speech transcripts: 5.6, 6.0 and 6.0 seconds between
+            ' this greeting and the first word about radios, with nothing said
+            ' in between. Six seconds of silence is indistinguishable from a
+            ' hang, and a blind operator has no filling window to watch.
+            '
+            ' Stopped by DiscoveringRadiosWindow when it announces itself, and
+            ' by the auto-connect path, which are the two ways this wait ends.
+            ' It also has its own ceiling, so neither of them failing to call
+            ' Stop can leave it talking.
+            Radios.ProgressVoice.Start(
+                "startup discovery",
+                "Starting up.",
+                "Starting up, looking for radios on your network.",
+                "Still looking.",
+                "Still looking for radios.")
+
             ' Initialize NAudio-based earcon player for UI sound effects.
+            ' Traced with elapsed time: this and the two after it sit inside
+            ' the measured launch gap and none of them said anything about how
+            ' long they took, which is why the six seconds could be measured
+            ' but not attributed. See task #215.
+            Dim phaseClock = Stopwatch.StartNew()
             JJFlexWpf.EarconPlayer.Initialize()
+            JJTrace.Tracing.TraceLine($"Startup phase: EarconPlayer.Initialize took {phaseClock.ElapsedMilliseconds} ms", TraceLevel.Info)
 
             ' Initialize compiled help file launcher.
+            phaseClock.Restart()
             JJFlexWpf.HelpLauncher.Initialize()
+            JJTrace.Tracing.TraceLine($"Startup phase: HelpLauncher.Initialize took {phaseClock.ElapsedMilliseconds} ms", TraceLevel.Info)
 
             ' Purge connection profiles older than 7 days.
+            phaseClock.Restart()
             Radios.ConnectionProfiler.PurgeOldProfiles()
+            JJTrace.Tracing.TraceLine($"Startup phase: PurgeOldProfiles took {phaseClock.ElapsedMilliseconds} ms", TraceLevel.Info)
 
             ' ── Create the ShellForm and get the WPF content ───────────────
             ' We create ShellForm here (before OnCreateMainForm) so we can wire
             ' callbacks. OnCreateMainForm will use the same instance.
+            phaseClock.Restart()
             TheShellForm = New ShellForm()
             WpfMainWindow = TheShellForm.WpfContent
+            JJTrace.Tracing.TraceLine($"Startup phase: ShellForm + WPF content took {phaseClock.ElapsedMilliseconds} ms", TraceLevel.Info)
 
             ' Wire WPF dispatcher exception capture. WPF runs inside ElementHost
             ' so there is no System.Windows.Application.Current to subscribe to;
