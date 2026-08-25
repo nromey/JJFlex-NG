@@ -102,6 +102,25 @@ namespace JJFlexWpf
         private void JJFlexDialog_Loaded(object sender, RoutedEventArgs e)
         {
             // Set automation name from title for screen readers
+            // A dialog announcing itself is real speech arriving, which is
+            // exactly what a progress voice exists to stand in for until it
+            // does. Stop it HERE — at the announcement — rather than anywhere
+            // earlier.
+            //
+            // It was in DiscoveringRadiosWindow's constructor for a few hours
+            // on 2026-08-25 and that was wrong in the way that matters: the
+            // window is CONSTRUCTED, then discovery runs for five and a half
+            // seconds on the same thread, and only THEN is it shown. Measured
+            // that morning — constructed at 1295 ms, spoke at 6899 ms. So the
+            // voice fell silent one second in and the operator got the entire
+            // wait in silence anyway, with zero repeats. Noel heard exactly
+            // that: one line, then nothing.
+            //
+            // Here it also covers every other dialog for free, which is right:
+            // whatever a progress voice was covering, a dialog opening has
+            // superseded it.
+            Radios.ProgressVoice.Stop("dialog announced: " + (Title ?? "(untitled)"));
+
             if (!string.IsNullOrEmpty(Title))
             {
                 AutomationProperties.SetName(this, Title);

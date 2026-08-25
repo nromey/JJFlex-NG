@@ -3675,6 +3675,25 @@ Module globals
         Try
             Dim settling As New JJFlexWpf.Dialogs.DiscoveringRadiosWindow(PendingDisconnectLead)
             PendingDisconnectLead = Nothing
+
+            ' THIS is where the wait actually is, and it is here on BOTH routes
+            ' — launch, and Radio menu then Connect. Measured 2026-08-25:
+            ' the window is constructed, StartLocalDiscovery blocks for about
+            ' five and a half seconds, and only then does ShowDialog announce
+            ' anything. The launch-time voice started in ApplicationEvents
+            ' covers the run-up to here; this one covers the block itself and
+            ' is the only cover the manual route gets, because on that route
+            ' there is no launch to have started one.
+            '
+            ' Start supersedes rather than stacks, so starting again when one
+            ' is already running is deliberate and harmless.
+            Radios.ProgressVoice.Start(
+                "local discovery",
+                "Looking for radios.",
+                "Looking for radios on your network.",
+                "Still looking.",
+                "Still looking for radios.")
+
             ' Through the callback, NOT RigControl.LocalRadios() directly, so
             ' the picker's own start finds discovery already running.
             callbacks.StartLocalDiscovery.Invoke()
