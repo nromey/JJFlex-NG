@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -141,13 +141,19 @@ namespace JJFlexWpf
             if (!tx && EnabledFields.HasFlag(BrailleFields.SMeter))
             {
                 int s = _rig.SMeter;
-                // Over S9 the excess is ALREADY decibels — SMeter returns
-                // dB-over-S9 plus 9. Multiplying it by 6 inflated every
-                // over-S9 reading sixfold.
+                // The arithmetic comes from SMeterReading, which is the one
+                // place that knows SMeter returns dB-over-S9 PLUS 9. The two
+                // braille renderings differ from each other and from speech on
+                // purpose — cells are scarce — but none of them re-derives
+                // the excess.
                 if (wide)
-                    parts.Add(s <= 9 ? $"S{s}" : $"S9+{s - 9}dB");
+                    parts.Add(SMeterReading.IsOverS9(s)
+                        ? $"S9+{SMeterReading.ExcessOverS9(s)}dB"
+                        : $"S{s}");
                 else
-                    parts.Add(s <= 9 ? $"SM{s}" : $"SM9+{s - 9}");
+                    parts.Add(SMeterReading.IsOverS9(s)
+                        ? $"SM9+{SMeterReading.ExcessOverS9(s)}"
+                        : $"SM{s}");
             }
 
             if (EnabledFields.HasFlag(BrailleFields.Slice) && _rig.MyNumSlices > 1)

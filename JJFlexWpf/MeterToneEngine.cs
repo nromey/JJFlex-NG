@@ -737,12 +737,14 @@ namespace JJFlexWpf
                 int sUnits = _rig.SMeter;
                 // The sentence lives in the store; the separating space stays
                 // in code, where it belongs.
-                if (sUnits <= 9)
+                if (!SMeterReading.IsOverS9(sUnits))
                     sb.Append(Lexicon.Get("audio.meters.s_meter", ("sUnits", sUnits))).Append(' ');
                 else
-                    // Over S9 the excess is already dB (SMeter returns
-                    // dB-over-S9 plus 9); the old x6 inflated it sixfold.
-                    sb.Append(Lexicon.Get("audio.meters.s_meter_over_9", ("overS9", sUnits - 9))).Append(' ');
+                    // The excess comes from SMeterReading rather than being
+                    // subtracted here. The SENTENCE is the store's; the NUMBER
+                    // in it is the one every other surface reports.
+                    sb.Append(Lexicon.Get("audio.meters.s_meter_over_9",
+                        ("overS9", SMeterReading.ExcessOverS9(sUnits)))).Append(' ');
             }
             else
             {

@@ -59,5 +59,25 @@ namespace Radios
                  + ExcessOverS9(smeter).ToString(CultureInfo.InvariantCulture)
                  + " dB";
         }
+        /// <summary>
+        /// The reading where space is scarce: "S5", and "S9+4 dB" above S9.
+        /// </summary>
+        /// <remarks>
+        /// <b>A second rendering, deliberately — not a second rule.</b> A
+        /// braille display and a meter readout cannot spend three cells on the
+        /// word "plus", and speech cannot use the plus SIGN because voices read
+        /// it inconsistently or not at all. So the WORDS differ and the
+        /// ARITHMETIC does not: both call
+        /// <see cref="ExcessOverS9"/>, which is the part that broke.
+        /// </remarks>
+        public static string Compact(int smeter)
+        {
+            if (!IsOverS9(smeter))
+                return "S" + smeter.ToString(CultureInfo.InvariantCulture);
+
+            return "S9+"
+                 + ExcessOverS9(smeter).ToString(CultureInfo.InvariantCulture)
+                 + " dB";
+        }
     }
 }

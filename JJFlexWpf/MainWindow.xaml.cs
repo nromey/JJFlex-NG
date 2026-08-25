@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -2832,9 +2832,13 @@ public partial class MainWindow : UserControl
                 {
                     FreqOut.Write("SMeter", smeter.ToString());
                 }
-                else if (smeter > 9)
+                else if (SMeterReading.IsOverS9(smeter))
                 {
-                    FreqOut.Write("SMeter", "+" + (smeter - 9).ToString());
+                    // A third rendering — this one goes to an external display
+                    // that wants a bare signed number — built from the same
+                    // arithmetic as speech and braille.
+                    FreqOut.Write("SMeter",
+                        "+" + SMeterReading.ExcessOverS9(smeter).ToString());
                 }
                 else
                 {

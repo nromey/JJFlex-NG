@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Windows;
@@ -128,11 +128,13 @@ public partial class AudioWorkshopDialog
     {
         if (_rig == null) return;
 
-        int sVal = _rig.SMeter;
-        // Over S9 the excess is already dB — SMeter returns dB-over-S9
-        // plus 9, so the old x6 inflated the reading sixfold.
-        string sText = sVal <= 9 ? $"S{sVal}" : $"S9+{sVal - 9} dB";
-        SetMeterText(_sMeterBox, $"S-Meter: {sText}");
+        // SMeterReading owns the arithmetic (Radios/SMeterReading.cs). This
+        // was a fifth independent copy of a rule that has already shipped
+        // wrong once — correct here today, but only by luck rather than by
+        // structure. Compact rather than Display because this is a readout,
+        // not speech: "S9+5 dB" reads fine on a screen and the spoken surfaces
+        // say "plus" from the same numbers.
+        SetMeterText(_sMeterBox, "S-Meter: " + SMeterReading.Compact(_rig.SMeter));
 
         // dBm AND watts. dBm is the honest raw figure the bench notes are
         // written in; watts is what an operator sets power in. Showing both

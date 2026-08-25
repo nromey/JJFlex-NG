@@ -116,5 +116,43 @@ namespace Radios.Tests
             for (int raw = 0; raw <= 60; raw++)
                 Assert.Equal(SMeterReading.Display(raw), SMeterReading.Display(raw));
         }
+        // ---- the compact rendering, and the one thing it must share ----
+
+        [Theory]
+        [InlineData(0, "S0")]
+        [InlineData(9, "S9")]
+        [InlineData(14, "S9+5 dB")]
+        [InlineData(19, "S9+10 dB")]
+        public void The_compact_reading_drops_the_word_but_not_the_unit(int raw, string expected)
+        {
+            // Braille cells and a meter readout cannot afford "plus". They can
+            // afford "dB", and must keep it: without a unit the number is
+            // ambiguous by a factor of six.
+            Assert.Equal(expected, SMeterReading.Compact(raw));
+        }
+
+        [Fact]
+        public void Every_rendering_reports_the_same_number()
+        {
+            // THE point of having two renderings in one class. The words may
+            // differ; the arithmetic may not. This is what five independent
+            // copies of the rule could not guarantee — and four of them were
+            // found still live in the tree on 2026-08-25, correct only by luck.
+            for (int raw = 10; raw <= 60; raw++)
+            {
+                int excess = SMeterReading.ExcessOverS9(raw);
+                Assert.Contains(excess.ToString(), SMeterReading.Display(raw));
+                Assert.Contains(excess.ToString(), SMeterReading.Compact(raw));
+            }
+        }
+
+        [Fact]
+        public void Both_renderings_agree_on_where_the_boundary_is()
+        {
+            for (int raw = 0; raw <= 60; raw++)
+                Assert.Equal(SMeterReading.Display(raw).Contains("9 plus")
+                          || SMeterReading.Display(raw).StartsWith("S9 plus"),
+                             SMeterReading.Compact(raw).StartsWith("S9+"));
+        }
     }
 }
