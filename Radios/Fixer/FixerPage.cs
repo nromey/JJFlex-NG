@@ -363,9 +363,23 @@ namespace Radios.Fixer
         {
             if (stage.SkipChoices.Count == 0) return;
 
+            // "SAY WHY" WAS WRONG ABOUT THE INTERACTION, not merely clipped:
+            // these are radio buttons, so the operator SELECTS a reason and
+            // says nothing. Noel caught it reading the page (2026-08-25) and
+            // thought he had corrected the same shape somewhere before.
+            //
+            // The sentence was also in the LEGEND, which NVDA announces on
+            // entering the group and, in some modes, prepends to every option
+            // in it. A legend is heard once per choice; it has to be short.
+            //
+            // So the legend is now a QUESTION and each option reads as an
+            // answer to it, which is what a fieldset is for. The reason it
+            // matters — and it does matter, or an operator picks the first one
+            // to get past the screen — moves out into its own sentence above.
+            sb.AppendLine("<p>The reason you choose changes what the report can say about "
+                        + "the rest of the run, so pick the one that is actually true.</p>");
             sb.AppendLine("<fieldset>");
-            sb.AppendLine("<legend>If you need to skip this stage, say why — the reason "
-                        + "changes what the report can conclude:</legend>");
+            sb.AppendLine("<legend>Why are you skipping this stage?</legend>");
 
             foreach (FixerSkipChoice c in stage.SkipChoices)
             {
@@ -413,9 +427,45 @@ namespace Radios.Fixer
         {
             sb.AppendLine("<section aria-labelledby=\"report-heading\">");
             sb.AppendLine("<h2 id=\"report-heading\">The report</h2>");
-            sb.AppendLine("<p>This is the whole run as one document — every stage in order, "
-                        + "with the test ID at the top. Copy puts the plain-text form on the "
-                        + "clipboard, ready to paste into an email.</p>");
+            // WHAT TO DO WITH THE REPORT, next to the button that produces it.
+            // Noel wrote this on 2026-08-25: "This may be way more detail than
+            // what we need and you might want to reword it but it needed to be
+            // said ... it's got to be near this paste button."
+            //
+            // The SmartSDR paragraph is the load-bearing one, and it is task
+            // #217 in a sentence: evidence for Flex has to survive a reader who
+            // distrusts our software entirely. An operator who reports a fault
+            // from third-party software invites one reply — "does it happen in
+            // SmartSDR?" — and the exchange costs days. Getting that answer
+            // BEFORE sending turns the report from a complaint into a finding.
+            //
+            // Naming SmartSDR here is not naming a competitor: it is the
+            // manufacturer's own client, and pointing at it is what makes the
+            // report credible.
+            sb.AppendLine("<p>This is the whole run as one document, every stage in order, "
+                        + "with the test ID at the top. That ID belongs to this report alone, "
+                        + "so quote it in any message about the problem.</p>");
+            // SAYS "FLEX" OUTRIGHT, on Noel's call 2026-08-25: "Right now we
+            // don't have other radios, so if you just want to mention Flex,
+            // that's cool for now." The generic "your radio's manufacturer"
+            // hedge bought nothing while Flex is the only radio supported, and
+            // it cost the paragraph a conditional clause.
+            //
+            // REVISIT WHEN A NON-FLEX RADIO ARRIVES. Hamlib and the TS-590G are
+            // real planned work, and on the day one of them connects, these two
+            // paragraphs name the wrong manufacturer and point at software the
+            // operator does not own. Recorded here rather than left to be
+            // discovered by whoever ships it.
+            sb.AppendLine("<p>Copy puts an email-ready version on the clipboard, ready to "
+                        + "send to Flex support. It separates what was measured from what "
+                        + "was concluded, so their staff can read the numbers without taking "
+                        + "anything on trust.</p>");
+            sb.AppendLine("<p>One thing worth doing before you send it: run the same test in "
+                        + "SmartSDR and see whether the problem follows you there. If it "
+                        + "does, say so in your message. A fault that shows up in Flex's own "
+                        + "software as well as in JJ Flexible Radio Access points at the "
+                        + "radio or the station rather than at either program, and saying "
+                        + "that up front will save you an exchange of emails.</p>");
             sb.AppendLine("<p><button type=\"button\" data-action=\"copy\">"
                         + "Copy the report as plain text</button></p>");
 
