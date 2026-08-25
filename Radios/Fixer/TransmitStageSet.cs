@@ -245,9 +245,10 @@ namespace Radios.Fixer
             return new FixerStageSet(
                 id: "transmit",
                 name: "Transmit",
-                intro: "Start at stage 0 and work forward — each stage leans on the ones "
-                     + "before it. You can jump anywhere, but a report that skips the "
-                     + "early stages tells you less. The first two stages transmit nothing.",
+                intro: "Start at stage 0 and work forward. Each stage uses what the "
+                     + "earlier ones found. You can run them in any order you like, but "
+                     + "skipping ahead leaves the later stages with no baseline, and the "
+                     + "report will say so. The first two stages do not transmit.",
                 stages: stages,
                 fixActions: fixes,
                 runDeclarations: new[]

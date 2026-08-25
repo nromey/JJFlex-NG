@@ -230,8 +230,8 @@ namespace Radios.Fixer
                     + string.Join("; ", notAttempted.Select(st =>
                         "stage " + st.Number.ToString(CultureInfo.InvariantCulture)
                         + " (" + st.Title + ")"))
-                    + ". That weakens the overall answer, because each stage rules something in "
-                    + "or out that the others lean on.");
+                    + ". That weakens the overall answer: each stage rules something in "
+                    + "or out, and the stages after it depend on knowing that.");
             }
 
             foreach (FixerStageResult r in results.Where(r => r.Status == FixerStageStatus.Skipped))
