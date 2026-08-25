@@ -75,6 +75,34 @@ public sealed class FixerDialog : JJFlexDialog
         _radio = radio;
         _gate = new FixerTransmitGate();
 
+        // The transmit-audio boundary — one instance, like the gate, because
+        // stage 4 is read against stage 3's meter capture and somebody has to
+        // hold it between the two runs. Everything it transmits goes through
+        // the same gate as the transmitter probe.
+        FixerTransmitAudioBoundary? audio = FixerTransmitAudioBoundary.Create(
+            _gate,
+            () => _radio() ?? null!,
+            prepareVoice: PrepareReferenceVoice,
+            pcMicrophone: DescribePcMicrophone,
+            // The dialog's stage-timeout token, polled — the host delegate
+            // signatures carry no CancellationToken, and this is the only
+            // road the 120-second ceiling has into a keyed stage.
+            stopRequested: () =>
+            {
+                CancellationTokenSource? c = _stageCancel;
+                try { return c != null && c.IsCancellationRequested; }
+                catch (ObjectDisposedException) { return true; }
+            },
+            // Spoken while the UI thread is blocked inside the stage, which
+            // is exactly why it is speech: the page cannot render a notice
+            // until the stage is over, and the moment to speak is now.
+            speakNow: () => ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.fixer.speak_now"),
+                VerbosityLevel.Critical, interrupt: true),
+            speakDone: () => ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.fixer.speak_done"),
+                VerbosityLevel.Critical, interrupt: true));
+
         var hosts = new TransmitStageSet.Hosts
         {
             // WIRED. The transmit boundary, consulting the gate before anything
@@ -104,14 +132,17 @@ public sealed class FixerDialog : JJFlexDialog
             // measuring again.
             MeasureMicrophone = FixerHostWiring.Microphone(),
 
-            // STILL NOT WIRED. Both need the injection pipeline, and a
-            // stand-in would let a stage report a measurement nothing made.
-            // Null is the engine's honest signal: it records the stage as
-            // unable to run and says so in the report.
-            //
-            //   RunInjectedTransmit — needs the injection pipeline
-            //   RunSpokenTransmit   — needs that plus a live microphone path
-            //   the five fix actions
+            // WIRED. The two transmit-audio stages, through the shared
+            // boundary above: the injected probes ride the same injection
+            // pipeline the Audio Workshop's test tone and reference recording
+            // use, and the spoken check listens to the same SC_MIC meter —
+            // nothing measured here was invented for the Fixer.
+            RunInjectedTransmit = audio?.InjectedTransmit(TransmitStageSet.InjectedTransmit),
+            RunSpokenTransmit = audio?.SpokenTransmit(TransmitStageSet.SpokenTransmit),
+
+            // STILL NOT WIRED: the five fix actions. Each needs a careful
+            // hand-off to the surface that owns the fix, and a stand-in would
+            // let a button report an action nothing took.
         };
 
         _run = new FixerRun(TransmitStageSet.Build(hosts));
@@ -187,6 +218,52 @@ public sealed class FixerDialog : JJFlexDialog
         static void Note(string what, Exception ex) =>
             Tracing.TraceLine("FixerDialog: could not read " + what + " — "
                               + ex.Message, TraceLevel.Warning);
+    }
+
+    /// <summary>
+    /// Make the reference voice ready to transmit: whatever recording the
+    /// operator already loaded (their personal baseline, from the Audio
+    /// Workshop) if one is in the player, else the shipped reference. Returns
+    /// empty when ready, otherwise why not — the boundary turns that into an
+    /// honestly Unavailable voice probe rather than a stage failure.
+    /// </summary>
+    private static string PrepareReferenceVoice(FlexBase rig)
+    {
+        try
+        {
+            if (rig.TxFilePlayer.HasContent) return "";
+            if (!ReferenceVoice.IsInstalled)
+                return "no reference recording is installed on this computer";
+            return TxAudioFile.TryLoadInto(rig, ReferenceVoice.FilePath, out _, out string trouble)
+                ? "" : trouble;
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: reference voice preparation failed — " + ex.Message,
+                              TraceLevel.Warning);
+            return "the reference recording could not be prepared: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// The PC microphone the transmit stream captures from, for the spoken
+    /// stage's evidence — resolved through the SAME resolver the microphone
+    /// check (stage 1) uses, so the two stages that are read against each
+    /// other name the same device the same way.
+    /// </summary>
+    private static (string device, string hostApi) DescribePcMicrophone()
+    {
+        try
+        {
+            JJPortaudio.Devices.DeviceInfo? row = RecordingNarrator.ResolveMicrophone(out _);
+            return (row?.Name ?? "", row?.HostApiName ?? "");
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: microphone description failed — " + ex.Message,
+                              TraceLevel.Warning);
+            return ("", "");
+        }
     }
 
     /// <summary>

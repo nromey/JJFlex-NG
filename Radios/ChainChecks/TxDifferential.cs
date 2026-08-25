@@ -188,6 +188,23 @@ namespace Radios.ChainChecks
         /// </remarks>
         public const double SignificantDelta = 3.0;
 
+        /// <summary>
+        /// The SC_MIC level above which transmit audio counts as having
+        /// REACHED the radio.
+        /// </summary>
+        /// <remarks>
+        /// One line, shared by everything that answers "did audio arrive":
+        /// this comparison, and the Fixer's injected and spoken probes
+        /// (<see cref="TxAudioProbe"/>). Two thresholds would let the same
+        /// SC_MIC reading arrive in one stage and fail in the next, and an
+        /// operator reading both would rightly conclude the tool cannot make
+        /// up its mind. The figure sits far above the −120 the meter pins at
+        /// when nothing feeds the chain, and far below anything a real signal
+        /// reads — it separates "audio" from "no audio", not "good" from
+        /// "bad", which is <c>MicAudioReport</c>'s job.
+        /// </remarks>
+        public const double ReachedRadioDbfs = -45.0;
+
         /// <summary>One meter, compared across the two runs.</summary>
         public readonly struct MeterComparison
         {
@@ -279,7 +296,7 @@ namespace Radios.ChainChecks
                      + "Run the injected step first — it needs no microphone.";
 
             MeterSample? injMic = injected.Find("SC_MIC");
-            bool injectedReachedRadio = injMic?.Reported == true && injMic.Value.Value > -45.0;
+            bool injectedReachedRadio = injMic?.Reported == true && injMic.Value.Value > ReachedRadioDbfs;
 
             if (spoken == null || !spoken.Ran)
             {
@@ -304,7 +321,7 @@ namespace Radios.ChainChecks
             }
 
             MeterSample? spkMic = spoken.Find("SC_MIC");
-            bool spokenReachedRadio = spkMic?.Reported == true && spkMic.Value.Value > -45.0;
+            bool spokenReachedRadio = spkMic?.Reported == true && spkMic.Value.Value > ReachedRadioDbfs;
 
             if (injectedReachedRadio && !spokenReachedRadio)
                 return "Injected audio reached the radio and your voice did not. Everything after the "
