@@ -138,7 +138,8 @@ namespace Radios.ChainChecks
         /// and this text is read by someone deciding what to tell a vendor.
         /// </para>
         /// </remarks>
-        public static string ExplainSplit(IReadOnlyList<ProbeResult> results)
+        public static string ExplainSplit(IReadOnlyList<ProbeResult> results,
+                                         bool? conditioningActive = null)
         {
             var byProbe = (results ?? Array.Empty<ProbeResult>())
                 .Where(r => r.Counted).ToDictionary(r => r.Probe, r => r.Outcome);
@@ -171,11 +172,44 @@ namespace Radios.ChainChecks
                           || Got(Probe.ToneLadder, Outcome.DidNotReach);
 
             if (tonesThrough && Got(Probe.Voice, Outcome.DidNotReach))
+            {
+                // THE EXPLANATION HAS TO CONSULT THE SETTING IT NAMES.
+                //
+                // Caught by Noel 2026-08-25 before it ever ran: the gate,
+                // RNNoise and spectral subtraction all default to OFF (bare
+                // `private volatile bool _enabled;` and two auto-properties
+                // with no initialiser), and Don is coming to this build having
+                // never seen it, with a settings file that predates every one
+                // of them. Telling him to check a conditioning chain that is
+                // bypassed would send him into a tab he has never opened to
+                // turn off something already off — and, worse, would look like
+                // an answer while being none.
+                //
+                // Same family as the description-drift defect this project
+                // keeps finding: text that names a thing without verifying the
+                // thing is there.
+                if (conditioningActive == true)
+                    return "Tones reached the radio and the generated voice did not. The tones "
+                         + "bypass the transmit conditioning chain on purpose — a calibrated "
+                         + "reference has to arrive unmodified — and the voice deliberately does "
+                         + "not. Your conditioning IS on, so that chain is the likely difference: "
+                         + "the noise gate, the noise reduction, or the processing settings. "
+                         + "Turning those off and running the voice again would confirm it.";
+
+                if (conditioningActive == false)
+                    return "Tones reached the radio and the generated voice did not. The usual "
+                         + "cause is the transmit conditioning chain, which tones bypass and a "
+                         + "voice does not — but your gate and noise reduction are OFF, so that "
+                         + "is NOT the difference here. Check instead whether the voice actually "
+                         + "rendered and at what level: a voice much quieter than the tone, or a "
+                         + "render that produced silence, looks exactly like this.";
+
                 return "Tones reached the radio and the generated voice did not. The tones bypass "
-                     + "the transmit conditioning chain on purpose — a calibrated reference has to "
-                     + "arrive unmodified — and the voice deliberately does not. So the difference "
-                     + "is in that chain: the noise gate, the noise reduction, or the processing "
-                     + "settings. Turning those off and running the voice again would confirm it.";
+                     + "the transmit conditioning chain on purpose and the voice does not, so if "
+                     + "your noise gate or noise reduction is on, that chain is the likely "
+                     + "difference. If they are both off, check instead whether the voice rendered "
+                     + "and at what level.";
+            }
 
             if (tonesDead && Got(Probe.Voice, Outcome.ReachedRadio))
                 return "The generated voice reached the radio and the tones did not. That is the "
@@ -194,7 +228,8 @@ namespace Radios.ChainChecks
         /// coy with the person using the app helps nobody. The vendor-facing
         /// block is a different document with a different grammar (#217).
         /// </remarks>
-        public static string OperatorSummary(IReadOnlyList<ProbeResult> results)
+        public static string OperatorSummary(IReadOnlyList<ProbeResult> results,
+                                            bool? conditioningActive = null)
         {
             var all = (results ?? Array.Empty<ProbeResult>()).ToList();
             var counted = all.Where(r => r.Counted).ToList();
@@ -217,14 +252,14 @@ namespace Radios.ChainChecks
                     + "— downstream of where they are injected, not in any one signal." + skipped,
 
                 Agreement.MostlyReached =>
-                    "Most probes reached the radio, but not all. " + ExplainSplit(all) + skipped,
+                    "Most probes reached the radio, but not all. " + ExplainSplit(all, conditioningActive) + skipped,
 
                 Agreement.MostlyFailed =>
-                    "Most probes failed to reach the radio. " + ExplainSplit(all) + skipped,
+                    "Most probes failed to reach the radio. " + ExplainSplit(all, conditioningActive) + skipped,
 
                 Agreement.EvenlySplit =>
                     "Only two probes could run and they disagree, so there is no majority to go on. "
-                    + ExplainSplit(all) + skipped,
+                    + ExplainSplit(all, conditioningActive) + skipped,
 
                 _ =>
                     "Fewer than two probes produced a result, so there is nothing to compare."

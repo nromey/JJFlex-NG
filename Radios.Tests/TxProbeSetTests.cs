@@ -101,24 +101,65 @@ namespace Radios.Tests
 
         // ── What a split actually points at ───────────────────────────────
 
-        [Fact]
-        public void Tones_through_and_voice_dead_names_the_conditioning_chain()
-        {
-            // The one confident explanation, and it is confident because the
-            // mechanism is known rather than guessed: tones BYPASS the
-            // conditioning chain by design, the voice deliberately does not.
-            // So the difference is in that chain and nowhere else.
-            var s = Set(
-                R(Probe.SingleTone, Outcome.ReachedRadio),
-                R(Probe.ToneLadder, Outcome.ReachedRadio),
-                R(Probe.Voice, Outcome.DidNotReach));
+        /// <summary>Tones through, voice dead — the split that names a setting.</summary>
+        private static List<ProbeResult> TonesThroughVoiceDead() => Set(
+            R(Probe.SingleTone, Outcome.ReachedRadio),
+            R(Probe.ToneLadder, Outcome.ReachedRadio),
+            R(Probe.Voice, Outcome.DidNotReach));
 
-            string e = ExplainSplit(s);
+        [Fact]
+        public void With_conditioning_ON_the_chain_is_named_as_the_likely_difference()
+        {
+            // Confident here because the mechanism is known rather than
+            // guessed: tones BYPASS the conditioning chain by design, a voice
+            // deliberately does not, and the chain is actually running.
+            string e = ExplainSplit(TonesThroughVoiceDead(), conditioningActive: true);
 
             Assert.Contains("bypass", e);
             Assert.Contains("gate", e);
-            // And a next step, not just a name.
-            Assert.Contains("again", e);
+            Assert.Contains("IS on", e);
+            Assert.Contains("again", e);   // a next step, not just a name
+        }
+
+        [Fact]
+        public void With_conditioning_OFF_it_says_that_is_NOT_the_difference()
+        {
+            // THE test Noel caught before it ever ran. The gate, RNNoise and
+            // spectral subtraction ALL default to off, and Don arrives at this
+            // build having never seen it with a settings file that predates
+            // every one of them. Sending him to turn off something already off
+            // would look like an answer while being none — and would cost him
+            // a trip into a tab he has never opened.
+            string e = ExplainSplit(TonesThroughVoiceDead(), conditioningActive: false);
+
+            Assert.Contains("NOT the difference", e);
+            // Says what to check instead, rather than shrugging.
+            Assert.Contains("rendered", e);
+            Assert.Contains("level", e);
+            // And must not send him to the controls that are already off.
+            Assert.DoesNotContain("Turning those off", e);
+        }
+
+        [Fact]
+        public void With_the_conditioning_state_unknown_it_hedges_both_ways()
+        {
+            // Not knowing is a third state, not a reason to guess. The caller
+            // that cannot determine it gets text that is true either way.
+            string e = ExplainSplit(TonesThroughVoiceDead());
+
+            Assert.Contains("if ", e, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("both off", e);
+        }
+
+        [Fact]
+        public void The_conditioning_state_reaches_the_operator_summary_too()
+        {
+            // The summary is what an operator actually reads; an explanation
+            // that only got it right in the sub-function would still ship the
+            // wrong advice.
+            var s = TonesThroughVoiceDead();
+            Assert.Contains("NOT the difference", OperatorSummary(s, conditioningActive: false));
+            Assert.Contains("IS on", OperatorSummary(s, conditioningActive: true));
         }
 
         [Fact]
