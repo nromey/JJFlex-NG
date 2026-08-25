@@ -178,10 +178,10 @@ namespace Radios.Fixer
                     Id = TransmitterCheck,
                     Number = 2,
                     Title = "Transmitter check",
-                    Question = "Does the transmitter produce RF with no audio involved?",
+                    Question = "Does the radio produce RF on TUNE?",
                     Explanation =
-                        "The radio keys its own tune carrier, so no microphone, no "
-                        + "computer audio and no streaming take any part in this. Forward "
+                        "The radio is put into TUNE, so it keys its own carrier and no "
+                        + "microphone, computer audio or streaming takes any part. Forward "
                         + "power and SWR are read while it is keyed. If power appears, the "
                         + "transmitter is working and whatever is wrong lies somewhere in "
                         + "the audio path. If no power appears, you never had an audio "

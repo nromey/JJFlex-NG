@@ -155,9 +155,9 @@ namespace Radios.Fixer
                     // immediate hazard is handled before any words render.
                     findings.Add(new FixerFinding("tx-no-power", FixOwner.Operator,
                         "This is not an audio problem, and no amount of microphone testing "
-                        + "will find it. The transmitter was asked to key its own carrier "
-                        + "with nothing of yours in the path, and no RF came out, so the "
-                        + "fault is upstream of anything the remaining stages measure.",
+                        + "will find it. TUNE asks the radio to key its own carrier with "
+                        + "nothing of yours in the path, and no RF came out, so the fault "
+                        + "sits upstream of anything the remaining stages can measure.",
                         "Check the antenna connection, the band, whether the slice is set "
                         + "to transmit, and whether anything is inhibiting transmit. Then "
                         + "run this stage again.",

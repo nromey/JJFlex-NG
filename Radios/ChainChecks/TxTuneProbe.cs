@@ -422,13 +422,15 @@ namespace Radios.ChainChecks
             switch (r.Verdict)
             {
                 case Verdict.MakesPower:
-                    return "The transmitter was keyed with no audio involved at all, and " +
-                           "produced RF. The transmitter itself is working, so anything " +
-                           "wrong with your transmitted audio lies in the audio path rather " +
-                           "than in the radio's ability to transmit.";
+                    return "The radio was put into TUNE and produced RF. Your microphone, " +
+                           "your computer's audio and the mic profile were all out of the " +
+                           "path, so the transmitter itself is working and anything wrong " +
+                           "with your transmitted audio lies in the audio path rather than " +
+                           "in the radio's ability to transmit.";
 
                 case Verdict.MakesPowerLoadSuspect:
-                    return "The transmitter produced RF, so it is working. A large share " +
+                    return "The radio produced RF on TUNE, so the transmitter is working. " +
+                           "A large share " +
                            "of that power came back rather than going out, though, so check " +
                            "what is connected to the antenna port before reading anything " +
                            "into the audio measurements.";
@@ -440,8 +442,9 @@ namespace Radios.ChainChecks
                     // twice in two voices, once here and once immediately
                     // below. It also SHOUTED, which some voices spell out
                     // letter by letter.
-                    return "The transmitter was keyed with no audio involved at all, and " +
-                           "produced no RF.";
+                    return "The radio was put into TUNE and produced no RF at all. Your " +
+                           "microphone, your computer's audio and the mic profile were all " +
+                           "out of the path.";
 
                 case Verdict.NoForwardPowerMeter:
                     return "The transmitter was keyed, but this radio did not report a forward " +
