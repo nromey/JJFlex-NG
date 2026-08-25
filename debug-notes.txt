@@ -1,58 +1,58 @@
-Hello Don — this one is mostly for you, and there are three specific things
-only you can answer. Your radio has been back since Monday night, and this
-build carries the fixes that were waiting on it.
+Hello Don — there is one thing I would really like you to do with this build,
+and it is new.
 
-WHAT I NEED YOU TO TRY
+TOOLS, THEN FIX, THEN TRANSMIT PROBLEMS
 
-1. The tone that used to gallop.
-   Arm the test tone and transmit for a good long while — a minute or more,
-   longer than feels necessary. It should stay dead steady. It was wobbling
-   before, and it is fixed and confirmed here at my bench, but never once over
-   SmartLink at a real station, which is your setup and not mine.
+That is JJ Flexible Fix. It walks your transmit chain one stage at a time and
+tells you where it dies, instead of leaving you to guess. Nobody has used it on
+a real radio yet — you would be the first, and yours is exactly the setup I
+most need it tried on: a 6300, over SmartLink, at a real station rather than on
+my bench three feet from the rig.
 
-2. Your keyboard shortcuts.
-   Some command numbering changed under the hood a week ago, and any key map
-   written before that would have loaded with keys attached to the wrong
-   commands. This build repairs that automatically on first launch. Please just
-   run through the shortcuts you actually use and tell me if ANY of them do
-   something you did not expect. This is the one I most want to hear about,
-   because a wrong key is worse than a missing one.
+Please just open it and go through it. That is the whole ask.
 
-3. Push to talk, under JAWS.
-   Hold Control plus Space and speak for ten or fifteen seconds. If the
-   transmitter drops out and comes back several times a second while you are
-   still holding the key, that is the bug I am chasing. It does not happen
-   under NVDA, which is why I need your ears specifically. The build watches
-   for it and writes to the log by itself — nothing changes in how it behaves,
-   so if it is happening you should hear it.
+WHAT TO EXPECT
 
-ALSO NEW, AND WORTH A LOOK IF YOU HAVE TIME
+It asks first what your antenna socket is connected to. Nothing transmits until
+you answer that, so if you are not sure, leave it — the checks that transmit
+will wait and everything else still runs.
 
-Tools, then Fix, then Transmit problems. This is new: it walks your transmit
-chain a stage at a time and tells you where it dies. Stages 0 and 1 do not key
-the radio at all. Stage 2 onward will transmit, and it will not transmit
-anything until you have told it what is on the antenna socket.
+Then five stages, numbered 0 to 4. Stage 0 reads what your computer's audio is
+actually doing. Stage 1 listens to your microphone with the radio out of it
+entirely. Neither of those keys the radio. Stage 2 onward does transmit, and
+each one says so before you run it.
 
-It is honest about what it cannot see, and it produces a report written to be
-pasted into an email to Flex support. Have a poke at it if you are curious, but
-it is not what this build is for and I am not asking you to test it yet.
+At the bottom there is a report covering the whole run, and a Copy button that
+puts an email-ready version on the clipboard.
 
-The Audio Workshop also got rearranged today. Transmit audio used to be one
-enormous page; it is now three shorter ones — This Computer, Transmit Settings,
-and Hear Yourself. And the two meter pages are one page called Meters, with the
-full meter list behind a button.
+WHAT I WANT BACK FROM YOU
 
-KNOWN AND NOT YET FIXED
+Not a bug list. Just tell me how it went, in your own words:
 
-- Nobody has pressed the buttons in the new Fix tool on a live radio yet.
-  Automated checks prove the buttons reach the application, which is not the
-  same as proving they do the right thing to your rig.
-- If you have two microphones with the same name in Windows, the application
-  can pick the wrong one. Uncommon, but it is real, and I know about it.
+- Did it make sense? Could you tell what each stage was asking you?
+- Did anything read oddly, or sound like a computer wrote it?
+- Did the buttons do what you expected when you pressed them? Genuinely
+  unknown, this one — the checks I can run prove a button reaches the
+  application, which is not the same as proving it does the right thing to
+  your rig.
+- Did it find anything, and was the answer useful or just noise?
+- Anywhere you got stuck, lost, or had to guess what to do next.
 
-As always — anything that sounds wrong, sounds odd, or just annoys you, tell
-me. Especially the small annoying things. Those are the ones that never get
-reported and never get fixed.
+If it is confusing, that is a fault in the tool and not in you. Confusing is
+the most useful thing you can report.
+
+ALSO IN THIS BUILD, no action needed
+
+The test tone no longer wobbles on a long transmit. Your keyboard shortcuts
+are repaired automatically on first launch if they were written before last
+week — if any key does something you did not expect, tell me immediately,
+because a wrong key is worse than a missing one. The Audio Workshop's transmit
+page is now three shorter pages, and the two meter pages are one.
+
+KNOWN, so you do not waste time reporting it
+
+If you have two microphones with the same name in Windows, the application can
+pick the wrong one. Uncommon, but real, and on my list.
 
 73
 Noel, K5NER
