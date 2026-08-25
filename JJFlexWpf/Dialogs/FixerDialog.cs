@@ -89,15 +89,28 @@ public sealed class FixerDialog : JJFlexDialog
             // the report and the value that opened the gate cannot differ.
             ReadLoadDeclaration = () => _gate.LoadDeclaration,
 
-            // DELIBERATELY NOT WIRED YET. Every one of these needs a real
-            // measurement path, and a stand-in would let a stage report a
-            // measurement nothing made. Null is the engine's honest signal: it
-            // records the stage as unable to run and says so in the report.
+            // WIRED. What the audio system is ACTUALLY running, read live —
+            // never from the configuration file, because the whole value of
+            // this stage is catching the case where the two differ.
             //
-            //   ReadAudioSetup      — needs the live PortAudio stream state
-            //   MeasureMicrophone   — needs the microphone check plumbed through
+            // Wrapped rather than used directly: three of its facts are about
+            // the RADIO SESSION and cannot be read without a FlexBase, which
+            // FixerHostWiring is structurally forbidden to touch. It leaves
+            // them at their defaults and says so; the host, which does hold the
+            // radio, fills them in here.
+            ReadAudioSetup = WithRadioFacts(FixerHostWiring.AudioSetup()),
+
+            // WIRED. Reuses the existing microphone probe rather than
+            // measuring again.
+            MeasureMicrophone = FixerHostWiring.Microphone(),
+
+            // STILL NOT WIRED. Both need the injection pipeline, and a
+            // stand-in would let a stage report a measurement nothing made.
+            // Null is the engine's honest signal: it records the stage as
+            // unable to run and says so in the report.
+            //
             //   RunInjectedTransmit — needs the injection pipeline
-            //   RunSpokenTransmit   — needs both of the above
+            //   RunSpokenTransmit   — needs that plus a live microphone path
             //   the five fix actions
         };
 
@@ -114,6 +127,66 @@ public sealed class FixerDialog : JJFlexDialog
 
         Loaded += OnLoaded;
         Closing += OnClosing;
+    }
+
+    /// <summary>
+    /// Fill in the three audio-setup facts that need a radio.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>FixerHostWiring</c> reads the audio system and nothing else — it
+    /// never touches a <c>FlexBase</c>, which is what keeps it testable and
+    /// keeps stages 0 and 1 genuinely RF-silent. But three of the facts stage 0
+    /// reports are about the radio SESSION: whether PC audio is on, whether the
+    /// radio is remote, and whether the microphone profile is empty.
+    /// </para>
+    /// <para>
+    /// <b>Leaving them at their defaults is not harmless.</b> The defaults
+    /// cannot raise a false finding — a local radio suppresses the PC-audio
+    /// finding, and a non-empty profile raises nothing — but the EVIDENCE lines
+    /// still print, saying "PC audio: off" and "Microphone profile: has
+    /// settings" as though those had been read. That is a measurement nothing
+    /// made, in a document written to be shown to FlexRadio.
+    /// </para>
+    /// <para>
+    /// It also matters for the operator this was built for: Don's radio is
+    /// REMOTE, and an empty microphone profile is the confirmed cause of a
+    /// silent transmitter. Those are exactly the two findings the defaults
+    /// suppress.
+    /// </para>
+    /// <para>
+    /// Each read is guarded on its own. One unreadable fact must not cost the
+    /// other eleven the wiring already gathered.
+    /// </para>
+    /// </remarks>
+    private Func<AudioSetupFacts> WithRadioFacts(Func<AudioSetupFacts> inner)
+    {
+        if (inner == null) return null;
+
+        return () =>
+        {
+            AudioSetupFacts f = inner();
+            if (f == null) return null;
+
+            FlexBase? rig;
+            try { rig = _radio(); } catch { rig = null; }
+            if (rig == null) return f;   // no radio: the defaults are honest
+
+            try { f.RemoteRadio = rig.RemoteRig; }
+            catch (Exception ex) { Note("RemoteRig", ex); }
+
+            try { f.PcAudioOn = rig.PCAudio; }
+            catch (Exception ex) { Note("PCAudio", ex); }
+
+            try { f.MicProfileEmpty = rig.MicProfileSelectionEmpty; }
+            catch (Exception ex) { Note("MicProfileSelectionEmpty", ex); }
+
+            return f;
+        };
+
+        static void Note(string what, Exception ex) =>
+            Tracing.TraceLine("FixerDialog: could not read " + what + " — "
+                              + ex.Message, TraceLevel.Warning);
     }
 
     /// <summary>
