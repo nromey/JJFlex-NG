@@ -107,6 +107,38 @@ namespace Radios.ChainChecks
         }
 
         /// <summary>
+        /// Turn the page's <c>source</c> string into a <see cref="Source"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Anything unrecognised becomes <see cref="Source.StopButton"/>,
+        /// never a refusal and never a no-op.</b> The source is recorded for
+        /// the trace and gates nothing, so the only thing an unknown value
+        /// could reasonably do is stop the test — and the alternative, ignoring
+        /// a stop request because its label was not on a list, is a stop that
+        /// fails at precisely the moment somebody wanted out.
+        /// </para>
+        /// <para>
+        /// <c>StopButton</c> rather than <c>EscapeKey</c> as the fallback
+        /// because the button is the surface's primary way out: Escape can be
+        /// swallowed by a screen reader in browse mode, so attributing an
+        /// unknown stop to Escape would make the trace suggest Escape works
+        /// when the evidence for that is exactly what we are trying to gather.
+        /// </para>
+        /// </remarks>
+        public static Source SourceFrom(string source)
+        {
+            string s = (source ?? "").Trim();
+
+            if (s.Equals("escape", StringComparison.OrdinalIgnoreCase)) return Source.EscapeKey;
+            if (s.Equals("button", StringComparison.OrdinalIgnoreCase)) return Source.StopButton;
+            if (s.Equals("host", StringComparison.OrdinalIgnoreCase)) return Source.HostChord;
+            if (s.Equals("closing", StringComparison.OrdinalIgnoreCase)) return Source.WindowClosing;
+
+            return Source.StopButton;
+        }
+
+        /// <summary>
         /// True when the request must be acted on before anything else can be
         /// considered — used by the host to decide whether it may take its
         /// time. Any keyed stop is urgent regardless of where it came from.

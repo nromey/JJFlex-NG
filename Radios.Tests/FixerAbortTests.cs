@@ -202,6 +202,54 @@ namespace Radios.Tests
                 Assert.NotEmpty(Decide(keyed, s, running).Steps);
         }
 
+        // ---- the page speaks strings; this side speaks an enum ----
+
+        [Theory]
+        [InlineData("escape", Source.EscapeKey)]
+        [InlineData("ESCAPE", Source.EscapeKey)]
+        [InlineData("  escape  ", Source.EscapeKey)]
+        [InlineData("button", Source.StopButton)]
+        [InlineData("host", Source.HostChord)]
+        [InlineData("closing", Source.WindowClosing)]
+        public void The_pages_own_words_for_a_stop_are_understood(string raw, Source expected)
+        {
+            Assert.Equal(expected, SourceFrom(raw));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("who-knows")]
+        [InlineData("esc")]
+        public void An_unrecognised_stop_still_stops(string raw)
+        {
+            // The failure this forbids: ignoring a stop because its label was
+            // not on a list. That is a stop that fails at exactly the moment
+            // somebody wanted out. The source gates nothing, so there is no
+            // safety in refusing to understand it.
+            Assert.Equal(Source.StopButton, SourceFrom(raw));
+        }
+
+        [Fact]
+        public void An_unknown_stop_is_not_attributed_to_Escape()
+        {
+            // Escape can be swallowed by a screen reader in browse mode, and
+            // whether it reaches us at all is a thing we are trying to find out
+            // from the trace. Filing unknown stops under Escape would
+            // manufacture evidence for the very question being asked.
+            Assert.NotEqual(Source.EscapeKey, SourceFrom("something else"));
+        }
+
+        [Fact]
+        public void A_stop_from_any_recognised_source_still_unkeys_first_while_keyed()
+        {
+            // Ties the translation back to the invariant: whatever word arrived,
+            // the carrier comes down before anything is asked.
+            foreach (string raw in new[] { "escape", "button", "host", "closing", "gibberish" })
+                Assert.True(Decide(true, SourceFrom(raw), true).UnkeysFirst, raw);
+        }
+
         [Fact]
         public void No_plan_both_asks_and_abandons_without_asking()
         {
