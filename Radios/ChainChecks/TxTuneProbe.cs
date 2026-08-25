@@ -422,14 +422,15 @@ namespace Radios.ChainChecks
             switch (r.Verdict)
             {
                 case Verdict.MakesPower:
-                    return "The radio was put into TUNE and produced RF. Your microphone, " +
+                    return "The radio keyed a tune carrier and produced RF. Your microphone, " +
                            "your computer's audio and the mic profile were all out of the " +
                            "path, so the transmitter itself is working and anything wrong " +
                            "with your transmitted audio lies in the audio path rather than " +
                            "in the radio's ability to transmit.";
 
                 case Verdict.MakesPowerLoadSuspect:
-                    return "The radio produced RF on TUNE, so the transmitter is working. " +
+                    return "The radio keyed a tune carrier and produced RF, so the " +
+                           "transmitter is working. " +
                            "A large share " +
                            "of that power came back rather than going out, though, so check " +
                            "what is connected to the antenna port before reading anything " +
@@ -442,7 +443,7 @@ namespace Radios.ChainChecks
                     // twice in two voices, once here and once immediately
                     // below. It also SHOUTED, which some voices spell out
                     // letter by letter.
-                    return "The radio was put into TUNE and produced no RF at all. Your " +
+                    return "The radio keyed a tune carrier and produced no RF at all. Your " +
                            "microphone, your computer's audio and the mic profile were all " +
                            "out of the path.";
 

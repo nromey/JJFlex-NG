@@ -140,8 +140,12 @@ namespace Radios.Fixer
             var header = new Section();
             header.Para("JJ Flexible Fixer report — " + run.Set.Name);
             header.Para("Test ID: " + run.RunId);
-            header.Para("Started " + Stamp(run.StartedUtc) + ". This report was put together "
-                + Stamp(run.NowUtc) + ".");
+            // "Put together" was clunky, and the two stamps sat in one sentence
+            // where they are usually seconds apart, which made the second look
+            // like padding. Written out, they answer two different questions:
+            // when the measurements were taken, and how old this copy is.
+            header.Para("Run started " + Stamp(run.StartedUtc) + ".");
+            header.Para("This copy of the report was written " + Stamp(run.NowUtc) + ".");
             sections.Add(header);
 
             // ---- what was found, and what to do — first, so a reader who
@@ -202,8 +206,8 @@ namespace Radios.Fixer
                 else
                     line += f.Owner switch
                     {
-                        FixOwner.Us => "JJ Flexible can fix this — on the page, press \""
-                                       + f.WhatToDo + "\".",
+                        FixOwner.Us => "JJ Flexible offers a one-press fix for this ("
+                                       + f.WhatToDo + ").",
                         FixOwner.Operator => "What to do: " + f.WhatToDo,
                         _ => f.WhatToDo,
                     };
@@ -335,8 +339,8 @@ namespace Radios.Fixer
             {
                 s.Bullet(f.WhatIsWrong + " " + f.Owner switch
                 {
-                    FixOwner.Us => "JJ Flexible can fix this — on the page, press \""
-                                   + f.WhatToDo + "\".",
+                    FixOwner.Us => "JJ Flexible offers a one-press fix for this ("
+                                   + f.WhatToDo + ").",
                     FixOwner.Operator => "What to do: " + f.WhatToDo,
                     _ => f.WhatToDo,
                 });

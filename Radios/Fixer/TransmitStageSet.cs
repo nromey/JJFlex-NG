@@ -178,16 +178,17 @@ namespace Radios.Fixer
                     Id = TransmitterCheck,
                     Number = 2,
                     Title = "Transmitter check",
-                    Question = "Does the radio produce RF on TUNE?",
+                    Question = "Does the radio produce RF when it keys a tune carrier?",
                     Explanation =
-                        "The radio is put into TUNE, so it keys its own carrier and no "
-                        + "microphone, computer audio or streaming takes any part. Forward "
-                        + "power and SWR are read while it is keyed. If power appears, the "
+                        "The radio keys a tune carrier — a steady unmodulated signal it "
+                        + "generates itself — so no microphone, computer audio or streaming "
+                        + "takes any part. Forward "
+                        + "power and SWR are read while it is keyed. If RF appears, the "
                         + "transmitter is working and whatever is wrong lies somewhere in "
-                        + "the audio path. If no power appears, you never had an audio "
-                        + "problem at all, and no amount of microphone testing would have "
-                        + "found it. Nothing is transmitted until you have said what is "
-                        + "connected to the antenna port.",
+                        + "the audio path. If no RF appears, you never had an audio problem "
+                        + "at all, and no amount of microphone testing would have found it. "
+                        + "Nothing is transmitted until you have said what is connected to "
+                        + "the antenna port.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/transmitter-check",
                     SkipChoices = new[] { operatorSkip },

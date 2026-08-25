@@ -65,10 +65,21 @@ namespace Radios.Tests
             run.RunStage("fill");
             string text = FixerReport.PlainText(run);
 
-            // Us findings name the button; operator findings say what to do;
-            // nobody-here findings just say so. Three different grammars,
-            // because three different next moves.
-            Assert.Contains("press \"Fix A\"", text);
+            // THE INVARIANT: three owners, three grammars, because three
+            // different next moves. A finding we can fix NAMES the fix; one the
+            // operator must fix says what to do; one nobody here can fix says
+            // so plainly.
+            //
+            // Asserted on "press \"Fix A\"" until 2026-08-25. That broke when the
+            // wording stopped telling the reader to press anything — because
+            // this report's OTHER reader is Flex support, who are not looking
+            // at our page, and imperative instructions about our buttons read
+            // as our UI leaking into evidence. The invariant survived; only the
+            // grammar changed.
+            //
+            // Checks that the fix is NAMED rather than that it is commanded.
+            Assert.Contains("Fix A", text);
+            Assert.Contains("one-press fix", text);
             Assert.Contains("What to do: Do the B thing.", text);
             Assert.Contains("Nothing here can change C.", text);
             Assert.DoesNotContain("What to do: Nothing here can change C.", text);
