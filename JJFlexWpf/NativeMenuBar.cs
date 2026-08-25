@@ -1780,7 +1780,28 @@ public class NativeMenuBar : IDisposable
         // menu; there is no Operations menu in the native menu bar, which is
         // why CLAUDE.md's long-standing "Operations > Tracing" pointer was
         // wrong. Same deep-link pattern as Configure Radio.
-        AddWired(tools, "Diagnostics", () => ShowSettingsDialog("Diagnostics"));
+        // Sprint 34 — the Fixer Tool's door. A submenu from the start rather
+        // than a single item, ruled by Noel 2026-08-25: the tool is a stage
+        // runner over a stage SET, and connection problems are the next set.
+        // A submenu that grows costs nobody a relearn; an item that becomes a
+        // submenu later costs everybody one.
+        var fixSub = AddSubmenu(tools, "Fix");
+        AddWired(fixSub, "Transmit problems...", () =>
+            // MainWindow is a UserControl hosted in WinForms, not a Window, so
+            // the owner is resolved the same way every other dialog here does
+            // it. It can legitimately come back null; JJFlexDialog owns itself
+            // to the main window in that case.
+            Dialogs.FixerDialog.Show(() => Rig, System.Windows.Window.GetWindow(_window)));
+
+        // RENAMED from "Diagnostics" 2026-08-25, and the rename is the point.
+        // This item does not diagnose anything — it deep-links to the settings
+        // tab that turns the diagnostic LOG on and saves a capture. Sitting a
+        // thing called "Diagnostics" next to a thing called "Fix" invited
+        // exactly the wrong guess about which one finds your problem. The name
+        // now says what it is; "Diagnostic Log" is also what the design doc and
+        // the help context already call it, so this narrows the vocabulary
+        // rather than widening it.
+        AddWired(tools, "Diagnostic Log", () => ShowSettingsDialog("Diagnostics"));
         // Sprint 29 Track D — manual update check. Lives next to Settings
         // since the Updates settings tab is its preference home; this entry
         // is the single-action trigger for the same flow.
