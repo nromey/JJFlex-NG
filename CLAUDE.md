@@ -823,6 +823,19 @@ Audit checklist:
    move focus: watch where focus actually lands, and listen to what is announced
    when it gets there.
 
+   **Press it under BOTH screen readers whenever the binding involves holding a
+   key, repeating a key, or push-to-talk.** JAWS and NVDA do not deliver held
+   keys the same way: JAWS synthesises down/up PAIRS roughly 250 ms apart
+   (measured 242-272 ms, first pair at the Windows repeat delay of about 512 ms)
+   while NVDA passes a genuine hold. Any handler that asks "is the key still
+   down" therefore works on one and fails on the other, **and the failure is
+   invisible to whichever one you happen to use.** Two bugs of exactly this
+   shape surfaced on 2026-08-25 — Freight Fate's hold-to-accelerate, and JJ
+   Flexible's push-to-talk unkeying four times a second. Noel runs NVDA daily
+   but tests under JAWS when a binding is in this class, so this work is never
+   blocked on a tester and must not be sequenced as if it were. Detail:
+   `memory/project_jaws_does_not_deliver_held_keys.md`.
+
    Related trap from the same day: `AutomationProperties.HeadingLevel` does NOT
    give a screen reader's single-letter navigation inside a dialog. `H` and
    friends live in **browse mode** — web pages and documents — while a WPF dialog
