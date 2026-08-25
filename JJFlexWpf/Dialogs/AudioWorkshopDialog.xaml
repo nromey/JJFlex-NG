@@ -74,15 +74,51 @@
                     Style="{StaticResource CategoryTabControl}"
                     KeyboardNavigation.TabIndex="3"
                     AutomationProperties.Name="Workshop categories">
-            <!-- TX Audio. NAMED, like every other tab here: the meter merge of
-                 2026-08-25 removed a category, and two poll guards were
-                 comparing SelectedIndex against 0 and 1. An index comparison
-                 does not fail loudly when the order changes — it just starts
+            <!-- ONE category called "TX Audio" until 2026-08-25, holding TEN
+                 sections. That is three different subjects under one name, and
+                 it made the category the operator complained about (Noel: "the
+                 tab with audio check is where the biggest issue is").
+
+                 Ten sections is ten F6 presses to cross, and the name at the
+                 top tells you nothing about which third you are standing in.
+                 Split into three categories of three or four, the category
+                 list — which is now what you land on — does the work it was
+                 built for, and no category is deeper than four.
+
+                 Every tab here is NAMED. The meter merge earlier the same day
+                 removed a category and two poll guards were comparing
+                 SelectedIndex against 0 and 1; an index comparison does not
+                 fail loudly when the order changes, it silently starts
                  refreshing the wrong panel. -->
-            <TabItem x:Name="TxAudioTab" Header="TX Audio"
-                     AutomationProperties.Name="TX Audio Settings">
+
+            <!-- Everything this COMPUTER does to your voice, before the radio
+                 hears any of it: which microphone, what that microphone needs,
+                 and what gets cleaned out of the room. -->
+            <TabItem x:Name="ThisComputerTab" Header="This Computer"
+                     AutomationProperties.Name="This Computer">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-                    <StackPanel x:Name="TxAudioContent" Margin="8" />
+                    <StackPanel x:Name="ThisComputerContent" Margin="8" />
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Everything the RADIO does to it after that: which input it
+                 listens to, how it shapes and band-limits your voice, and how
+                 you hear yourself. -->
+            <TabItem x:Name="TransmitSettingsTab" Header="Transmit Settings"
+                     AutomationProperties.Name="Transmit Settings">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="TransmitSettingsContent" Margin="8" />
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Putting a signal through all of it and listening to the
+                 result: a known tone, a known recording, or your own voice
+                 played back to you. These are how you TUNE the two categories
+                 above — the Fixer is where you go when something is broken. -->
+            <TabItem x:Name="HearYourselfTab" Header="Hear Yourself"
+                     AutomationProperties.Name="Hear Yourself">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel x:Name="HearYourselfContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
 

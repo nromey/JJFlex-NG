@@ -43,12 +43,12 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void BuildTxCleanupSection()
     {
-        AddSectionHeader(TxAudioContent, "PC Cleanup");
+        AddSectionHeader(ThisComputerContent, "PC Cleanup");
 
         _txNrCheck = MakeToggle("Noise Reduction (cleans the room before the radio hears it)");
         _txNrCheck.Checked += (s, e) => SetTxCleanupToggle("Noise reduction", true);
         _txNrCheck.Unchecked += (s, e) => SetTxCleanupToggle("Noise reduction", false);
-        AddToSection(TxAudioContent, _txNrCheck);
+        AddToSection(ThisComputerContent, _txNrCheck);
 
         _txNrStrengthControl = new ValueFieldControl();
         _txNrStrengthControl.Setup(
@@ -60,12 +60,12 @@ public partial class AudioWorkshopDialog
             if (_polling) return;
             TxAudioConditioning.NrStrength = v / 100f;
         };
-        AddToSection(TxAudioContent, _txNrStrengthControl);
+        AddToSection(ThisComputerContent, _txNrStrengthControl);
 
         _txGateCheck = MakeToggle("Noise Gate (quiets the microphone between words — never to silence)");
         _txGateCheck.Checked += (s, e) => SetTxCleanupToggle("Noise gate", true);
         _txGateCheck.Unchecked += (s, e) => SetTxCleanupToggle("Noise gate", false);
-        AddToSection(TxAudioContent, _txGateCheck);
+        AddToSection(ThisComputerContent, _txGateCheck);
 
         // Advanced gate settings, visible only while the gate is on. Each
         // label explains its own default — that is what stops values being
@@ -80,7 +80,7 @@ public partial class AudioWorkshopDialog
             if (_polling) return;
             TxAudioConditioning.ThresholdMarginDb = v;
         };
-        AddToSection(TxAudioContent, _txGateMarginControl);
+        AddToSection(ThisComputerContent, _txGateMarginControl);
 
         _txGateAttackControl = new ValueFieldControl();
         _txGateAttackControl.Setup(
@@ -93,7 +93,7 @@ public partial class AudioWorkshopDialog
             var gate = TxAudioConditioning.Conditioner?.Gate;
             if (gate != null) gate.AttackMs = v;
         };
-        AddToSection(TxAudioContent, _txGateAttackControl);
+        AddToSection(ThisComputerContent, _txGateAttackControl);
 
         _txGateHoldControl = new ValueFieldControl();
         _txGateHoldControl.Setup(
@@ -106,7 +106,7 @@ public partial class AudioWorkshopDialog
             var gate = TxAudioConditioning.Conditioner?.Gate;
             if (gate != null) gate.HoldMs = v;
         };
-        AddToSection(TxAudioContent, _txGateHoldControl);
+        AddToSection(ThisComputerContent, _txGateHoldControl);
 
         _txGateReleaseControl = new ValueFieldControl();
         _txGateReleaseControl.Setup(
@@ -119,7 +119,7 @@ public partial class AudioWorkshopDialog
             var gate = TxAudioConditioning.Conditioner?.Gate;
             if (gate != null) gate.ReleaseMs = v;
         };
-        AddToSection(TxAudioContent, _txGateReleaseControl);
+        AddToSection(ThisComputerContent, _txGateReleaseControl);
 
         _txGateRangeControl = new ValueFieldControl();
         _txGateRangeControl.Setup(
@@ -132,7 +132,7 @@ public partial class AudioWorkshopDialog
             var gate = TxAudioConditioning.Conditioner?.Gate;
             if (gate != null) gate.RangeDb = v;
         };
-        AddToSection(TxAudioContent, _txGateRangeControl);
+        AddToSection(ThisComputerContent, _txGateRangeControl);
 
         // Read-only EDIT, same reasoning as the mic reading: focusable,
         // review-readable, updated silently so the screen reader's own
@@ -147,7 +147,7 @@ public partial class AudioWorkshopDialog
             FontSize = 12
         };
         AutomationProperties.SetName(_txCleanupStatusBox, "Cleanup status");
-        AddToSection(TxAudioContent, _txCleanupStatusBox);
+        AddToSection(ThisComputerContent, _txCleanupStatusBox);
 
         _txCleanupMonitorControl = MakeCycle("Listen to cleanup",
             new[] { "Off", "What goes out", "What was removed", "Both, out left and removed right" });
@@ -165,7 +165,7 @@ public partial class AudioWorkshopDialog
                     Lexicon.Get("audio.cleanup.residual_monitor_meaning"),
                     VerbosityLevel.Terse);
         };
-        AddToSection(TxAudioContent, _txCleanupMonitorControl);
+        AddToSection(ThisComputerContent, _txCleanupMonitorControl);
 
         _txCleanupMonitorVolumeControl = new ValueFieldControl();
         _txCleanupMonitorVolumeControl.Setup("Cleanup monitor volume", 0, 100, 5, 100, 0, "percent");
@@ -175,7 +175,7 @@ public partial class AudioWorkshopDialog
             if (_polling) return;
             TxAudioConditioning.MonitorVolume = v / 100f;
         };
-        AddToSection(TxAudioContent, _txCleanupMonitorVolumeControl);
+        AddToSection(ThisComputerContent, _txCleanupMonitorVolumeControl);
 
         var resetButton = new Button
         {
@@ -193,7 +193,7 @@ public partial class AudioWorkshopDialog
             ScreenReaderOutput.Speak(Lexicon.Get("audio.cleanup.reset_to_recommended"),
                 VerbosityLevel.Terse, interrupt: true);
         };
-        AddToSection(TxAudioContent, resetButton);
+        AddToSection(ThisComputerContent, resetButton);
     }
 
     /// <summary>Toggle handler for the two cleanup switches — same earcon and

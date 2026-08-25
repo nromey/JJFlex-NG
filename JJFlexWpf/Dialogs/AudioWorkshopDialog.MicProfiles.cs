@@ -81,7 +81,7 @@ public partial class AudioWorkshopDialog
 
     private void BuildMicProfileSection()
     {
-        AddSectionHeader(TxAudioContent, "Microphone Profiles");
+        AddSectionHeader(ThisComputerContent, "Microphone Profiles");
 
         // The silent-transmit warning (#99) leads the section, because when it
         // applies it outranks everything below it: no microphone profile the
@@ -110,7 +110,7 @@ public partial class AudioWorkshopDialog
             + "loading a global profile that was saved without a mic profile "
             + "leaves it this way too. Other programs never show it because "
             + "they keep a profile named Default selected at all times.");
-        AddToSection(TxAudioContent, _silentTxNote);
+        AddToSection(ThisComputerContent, _silentTxNote);
 
         // The repair, and it is a BUTTON on purpose (#94/#99). Loading a mic
         // profile writes ProfileMICSelection, which is shared radio state, so
@@ -132,14 +132,14 @@ public partial class AudioWorkshopDialog
             + "every program connected to it, so on a radio JJ Flex does not "
             + "know to be yours it asks first.");
         _silentTxFixButton.Click += (s, e) => LoadMicProfileForSilentTx();
-        AddToSection(TxAudioContent, _silentTxFixButton);
+        AddToSection(ThisComputerContent, _silentTxFixButton);
 
         _micProfileControl = MakeCycle("Microphone profile", new[] { NoMicProfilesOption });
         JJFlexHelp.SetText(_micProfileControl,
             "A saved setup for one microphone: its computer settings plus, per "
             + "radio, the radio's own mic profile to load. Apply puts it into "
             + "effect; nothing changes until you do.");
-        AddToSection(TxAudioContent, _micProfileControl);
+        AddToSection(ThisComputerContent, _micProfileControl);
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2) };
 
@@ -162,7 +162,7 @@ public partial class AudioWorkshopDialog
         deleteBtn.Click += (s, e) => DeleteMicProfile();
         buttons.Children.Add(deleteBtn);
 
-        AddToSection(TxAudioContent, buttons);
+        AddToSection(ThisComputerContent, buttons);
         RefreshMicProfileOptions();
     }
 

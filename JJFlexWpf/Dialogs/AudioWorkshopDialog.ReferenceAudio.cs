@@ -60,7 +60,7 @@ public partial class AudioWorkshopDialog
 
     private void BuildReferenceAudioSection()
     {
-        AddRadioSection(TxAudioContent, "Reference Audio");
+        AddRadioSection(HearYourselfContent, "Reference Audio");
 
         _refPickControl = MakeCycle("Reference recording", new[] { "(none available)" });
         _refPickControl.SelectionChanged += (s, idx) =>
@@ -76,7 +76,7 @@ public partial class AudioWorkshopDialog
             + "reference for YOUR station — your microphone, your room, your "
             + "voice — and is the one to use when you want to know whether "
             + "your audio is better than it was last month.");
-        AddToSection(TxAudioContent, _refPickControl);
+        AddToSection(HearYourselfContent, _refPickControl);
 
         _refArmCheck = MakeToggle("Send the reference instead of my microphone");
         _refArmCheck.Checked += (s, e) => ReferenceArmChanged(true);
@@ -87,7 +87,7 @@ public partial class AudioWorkshopDialog
             + "of your microphone, through exactly the same processing your "
             + "voice goes through. It starts from the beginning each time you "
             + "key, and your microphone comes back when it finishes.");
-        AddToSection(TxAudioContent, _refArmCheck);
+        AddToSection(HearYourselfContent, _refArmCheck);
 
         _refRecordButton = new Button
         {
@@ -106,7 +106,7 @@ public partial class AudioWorkshopDialog
             + "this computer — never on the radio. Read the shipped script and "
             + "say the same words if you want your take to compare with "
             + "everyone else's.");
-        AddToSection(TxAudioContent, _refRecordButton);
+        AddToSection(HearYourselfContent, _refRecordButton);
 
         _refFolderButton = new Button
         {
@@ -128,7 +128,7 @@ public partial class AudioWorkshopDialog
             + "rename, share or delete them with the tools you already use. "
             + "A WAV file you drop in there yourself shows up in the list "
             + "above with no importing.");
-        AddToSection(TxAudioContent, _refFolderButton);
+        AddToSection(HearYourselfContent, _refFolderButton);
 
         _refInfo = new TextBlock
         {
@@ -139,7 +139,7 @@ public partial class AudioWorkshopDialog
         };
         AutomationProperties.SetName(_refInfo, "Reference audio status");
         AutomationProperties.SetLiveSetting(_refInfo, AutomationLiveSetting.Polite);
-        AddToSection(TxAudioContent, _refInfo);
+        AddToSection(HearYourselfContent, _refInfo);
 
         RecordingNarrator.StateChanged += OnRecordingStateChanged;
         RecordingNarrator.RecordingSaved += OnRecordingSaved;

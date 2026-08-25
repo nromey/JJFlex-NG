@@ -347,13 +347,17 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     }
 
     /// <summary>
-    /// Explicit tab order for the TX Audio tab (Threads Track, 2026-08-12):
-    /// Start Audio Check first, the live mic reading second, Mic Gain third,
-    /// then every remaining control in build order. Mic Gain stays put
-    /// VISUALLY (it belongs to the Microphone section) but joins the check
-    /// cluster in the ring, because a running check is an adjust-and-listen
-    /// loop between exactly these three stops: forward tab does things,
-    /// backward tab inspects what just happened.
+    /// Explicit tab order across the three transmit categories (Threads Track,
+    /// 2026-08-12): Start Audio Check first, the live mic reading second, Mic
+    /// Gain third, then every remaining control in build order. A running
+    /// check is an adjust-and-listen loop between exactly those three stops:
+    /// forward tab does things, backward tab inspects what just happened.
+    ///
+    /// Mic Gain used to sit VISUALLY in the Microphone section and join this
+    /// cluster only in the ring. When TX Audio split into three categories on
+    /// 2026-08-25 that stopped being possible — Tab does not cross a category
+    /// — so the gain moved to Hear Yourself and now sits beside the reading in
+    /// both senses. The ring and the layout finally agree.
     ///
     /// Noel also asked about Ctrl+Tab section navigation. Deliberately NOT
     /// added: Ctrl+Tab moves between CATEGORIES in this window, and
@@ -377,7 +381,14 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // not a particular control (Track PC Gain, 2026-08-13).
         if (_pcLevelControl != null) KeyboardNavigation.SetTabIndex(_pcLevelControl, idx++);
         if (_pcLevelNote != null) KeyboardNavigation.SetTabIndex(_pcLevelNote, idx++);
-        ApplyTabOrderWithin(TxAudioContent, ref idx);
+        // One panel until 2026-08-25, three now. Every one gets numbered, in
+        // the order an operator walks them: what this computer does, what the
+        // radio does, then listening to the result. Numbering only the first
+        // would leave the other two on declaration order, which is where the
+        // express lane above would quietly stop mattering.
+        ApplyTabOrderWithin(ThisComputerContent, ref idx);
+        ApplyTabOrderWithin(TransmitSettingsContent, ref idx);
+        ApplyTabOrderWithin(HearYourselfContent, ref idx);
     }
 
     /// <summary>
@@ -696,7 +707,13 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     public static void ShowOrFocusAndStartCheck(FlexBase? rig)
     {
-        ShowOrFocus(rig, 0);
+        // BY NAME, not index 0. Until 2026-08-25 the Audio Check lived on the
+        // first category, so opening at index 0 and starting a check put the
+        // operator where the check was. The three-way split moved it to Hear
+        // Yourself, and index 0 is now This Computer — so this would have
+        // started a check the operator could not see the controls for, which
+        // for a keyed transmit is worse than merely wrong.
+        ShowOrFocus(rig, "Hear Yourself");
         _instance?.ToggleAudioCheck();
     }
 

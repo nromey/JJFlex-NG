@@ -36,12 +36,12 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void BuildTestToneSection()
     {
-        AddRadioSection(TxAudioContent, "Test Tone");
+        AddRadioSection(HearYourselfContent, "Test Tone");
 
         _toneCheck = MakeToggle("Test tone instead of microphone");
         _toneCheck.Checked += (s, e) => ToneArmChanged(true);
         _toneCheck.Unchecked += (s, e) => ToneArmChanged(false);
-        AddToSection(TxAudioContent, _toneCheck);
+        AddToSection(HearYourselfContent, _toneCheck);
 
         _tonePresetControl = MakeCycle("Tone frequency", new[]
         {
@@ -58,7 +58,7 @@ public partial class AudioWorkshopDialog
                 _toneFreqControl.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
             ToneParamsChanged(speakPassband: true);
         };
-        AddToSection(TxAudioContent, _tonePresetControl);
+        AddToSection(HearYourselfContent, _tonePresetControl);
 
         _toneFreqControl = new ValueFieldControl();
         _toneFreqControl.Setup("Custom frequency", 50, 10000, 10, 440, 0, "hertz");
@@ -68,7 +68,7 @@ public partial class AudioWorkshopDialog
             if (_polling) return;
             ToneParamsChanged(speakPassband: true);
         };
-        AddToSection(TxAudioContent, _toneFreqControl);
+        AddToSection(HearYourselfContent, _toneFreqControl);
 
         _toneLevelControl = new ValueFieldControl();
         _toneLevelControl.Setup("Tone level", -40, 0, 1, -10, 0, "dBFS");
@@ -77,13 +77,13 @@ public partial class AudioWorkshopDialog
             if (_polling) return;
             ToneParamsChanged(speakPassband: false);
         };
-        AddToSection(TxAudioContent, _toneLevelControl);
+        AddToSection(HearYourselfContent, _toneLevelControl);
 
         _toneMonitorCheck = MakeToggle("Hear the tone while it transmits");
         _toneMonitorCheck.IsChecked = true;
         _toneMonitorCheck.Checked += (s, e) => ToneMonitorChanged(true);
         _toneMonitorCheck.Unchecked += (s, e) => ToneMonitorChanged(false);
-        AddToSection(TxAudioContent, _toneMonitorCheck);
+        AddToSection(HearYourselfContent, _toneMonitorCheck);
 
         _toneInfo = new TextBlock
         {
@@ -94,7 +94,7 @@ public partial class AudioWorkshopDialog
         };
         AutomationProperties.SetName(_toneInfo, "Test tone passband status");
         AutomationProperties.SetLiveSetting(_toneInfo, AutomationLiveSetting.Polite);
-        AddToSection(TxAudioContent, _toneInfo);
+        AddToSection(HearYourselfContent, _toneInfo);
     }
 
     /// <summary>The effective tone frequency: preset value, or the custom field.</summary>

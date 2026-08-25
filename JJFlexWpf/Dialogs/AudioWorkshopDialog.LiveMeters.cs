@@ -113,7 +113,15 @@ public partial class AudioWorkshopDialog
         if (MetersTab.IsSelected)
             PollMeters();
 
-        if (TxAudioTab.IsSelected)
+        // TX Audio was one category until 2026-08-25 and is now three. The
+        // radio-side values this refreshes are spread across all of them —
+        // the mic source and processing in Transmit Settings, the gain and the
+        // live reading in Hear Yourself, the device readout in This Computer
+        // — so the poll runs while ANY of the three is showing. Testing only
+        // one would leave the other two frozen, which reads as steady rather
+        // than as stopped.
+        if (ThisComputerTab.IsSelected || TransmitSettingsTab.IsSelected
+            || HearYourselfTab.IsSelected)
             PollTxAudio();
 
         // The inventory catches up here when it is showing and a change arrived

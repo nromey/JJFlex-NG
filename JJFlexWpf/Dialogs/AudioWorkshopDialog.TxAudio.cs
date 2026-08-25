@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Windows;
@@ -142,7 +142,7 @@ public partial class AudioWorkshopDialog
         BuildMicProfileSection();
 
         // Microphone section
-        AddSectionHeader(TxAudioContent, "Microphone");
+        AddSectionHeader(TransmitSettingsContent, "Microphone");
 
         // Mic source picker — the precondition for every honest measurement
         // this dialog makes. Verified live (2026-08-07): MicGain acts on the
@@ -165,68 +165,23 @@ public partial class AudioWorkshopDialog
             + "the radio, or this computer's mic carried over the network. "
             + "Every control below acts on whichever source is selected here, "
             + "so set this first.");
-        AddRadioControl(TxAudioContent, _micSourceControl);
+        AddRadioControl(TransmitSettingsContent, _micSourceControl);
 
-        _micGainControl = MakeValue("Mic Gain", 0, 100, 1);
-        _micGainControl.ValueChanged += (s, v) =>
-        {
-            if (_rig != null && !_polling)
-            {
-                _rig.MicGain = v;
-                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.mic_gain", ("value", v)), VerbosityLevel.Terse);
-            }
-        };
-        JJFlexHelp.SetText(_micGainControl,
-            "How hard the radio listens to its microphone jack. Run a mic "
-            + "check, speak the way you actually operate, and nudge this "
-            + "until the verdict says Good. Hot or Clipping means come down; "
-            + "Quiet means come up. Small steps — a few points at a time.");
-        AddRadioControl(TxAudioContent, _micGainControl);
-
-        // The PC-source stand-in for Mic Gain (Track PC Gain, 2026-08-13).
-        // Hiding the jack controls on PC audio left a hole where the gain
-        // was, and Noel asked for the obvious thing to fill it: "why not
-        // still have computer mic adjustment available where mic gain is
-        // when PC audio is selected." So the section always offers the gain
-        // that actually applies — stage one lives on the computer when the
-        // computer is the source. Bound in BindPcLevel, which reads the
-        // saved device name from audioDevices.xml and matches it through
-        // Core Audio only: this dialog must never enumerate PortAudio while
-        // a radio connection may be live (see BuildDeviceSection).
-        _pcLevelControl = MakeValue("Windows Input Level", 0, 100, 1);
-        _pcLevelControl.Visibility = Visibility.Collapsed;
-        _pcLevelControl.IsEnabled = false;
-        _pcLevelControl.ValueChanged += (s, v) =>
-        {
-            var level = _pcMicLevel;
-            if (level == null) return;
-            try { level.Percent = v; }
-            catch (Exception ex) { PcLevelFailed(ex); }
-            // No app speech here, deliberately: the control announces its
-            // own value on every adjustment, and repeating it would be the
-            // same double-speak the Audio Devices sliders were built without.
-        };
-        JJFlexHelp.SetText(_pcLevelControl,
-            "Stage one of your transmit audio when this computer's mic is the "
-            + "source: Windows' own capture level for that microphone. Set it "
-            + "with the mic check the same way as Mic Gain — capture cleanly "
-            + "here first, then let the radio's Processing controls shape the "
-            + "result.");
-        AddToSection(TxAudioContent, _pcLevelControl);
-
-        // Read-only EDIT rather than a label, same reasoning as the device
-        // reading above: focusable, review-readable, and the screen reader's
-        // own read-current-control command speaks it without an app hotkey.
-        _pcLevelNote = new TextBox
-        {
-            IsReadOnly = true,
-            IsReadOnlyCaretVisible = true,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(2),
-            MinWidth = 300,
-            Visibility = Visibility.Collapsed
-        };
-        AddToSection(TxAudioContent, _pcLevelNote);
+        // MIC GAIN AND THE WINDOWS INPUT LEVEL USED TO LIVE HERE, in the
+        // Microphone section. They moved to Hear Yourself on 2026-08-25, with
+        // the split of this category into three.
+        //
+        // Not a tidying decision — the split would otherwise have BROKEN the
+        // loop these controls exist for. Start Audio Check and the live mic
+        // reading are in Hear Yourself; Tab cannot cross a category; so an
+        // operator adjusting gain while listening to their own audio would
+        // have had to Ctrl+Tab between two categories on every nudge. The
+        // express tab ring (ApplyTxAudioTabOrder) was built precisely to keep
+        // those three stops adjacent.
+        //
+        // The gain follows the measurement, and the help text on Mic Gain
+        // already said so before the move: "Run a mic check, speak the way you
+        // actually operate, and nudge this until the verdict says Good."
 
         _micBoostCheck = MakeToggle(MicBoostLabel);
         _micBoostCheck.Checked += (s, e) => SetToggle("Mic Boost", v => { if (_rig != null) _rig.MicBoost = v; }, true);
@@ -237,7 +192,7 @@ public partial class AudioWorkshopDialog
             + "Mic Gain pushed near the top, turn this on and bring the gain "
             + "back down. If it reports Hot with the gain already low, turn "
             + "this off.");
-        AddRadioControl(TxAudioContent, _micBoostCheck);
+        AddRadioControl(TransmitSettingsContent, _micBoostCheck);
 
         _micBiasCheck = MakeToggle(MicBiasLabel);
         _micBiasCheck.Checked += (s, e) => SetToggle("Mic Bias", v => { if (_rig != null) _rig.MicBias = v; }, true);
@@ -247,7 +202,7 @@ public partial class AudioWorkshopDialog
             + "Some headsets and desk mics need it to produce any audio at "
             + "all; it is not forty-eight volt phantom power for studio mics. "
             + "If your mic stays silent no matter the gain, try this.");
-        AddRadioControl(TxAudioContent, _micBiasCheck);
+        AddRadioControl(TransmitSettingsContent, _micBiasCheck);
 
         // Track I: PC Cleanup sits between the Microphone (capture) and the
         // radio's Processing (sculpt) because that is where it runs — the
@@ -256,7 +211,7 @@ public partial class AudioWorkshopDialog
         BuildTxCleanupSection();
 
         // Processing section
-        AddRadioSection(TxAudioContent, "Processing");
+        AddRadioSection(TransmitSettingsContent, "Processing");
 
         _companderCheck = MakeToggle("Compander");
         _companderCheck.Checked += (s, e) =>
@@ -274,7 +229,7 @@ public partial class AudioWorkshopDialog
             + "before they reach the air, so your average power rises without "
             + "your peaks getting any hotter. Turn it on for voice work, then "
             + "set the level below while listening on the TX Monitor.");
-        AddToSection(TxAudioContent, _companderCheck);
+        AddToSection(TransmitSettingsContent, _companderCheck);
 
         _companderLevelControl = MakeValue("Compander Level", 0, 100, 5);
         _companderLevelControl.Visibility = Visibility.Collapsed;
@@ -290,7 +245,7 @@ public partial class AudioWorkshopDialog
             "How firmly the compander squeezes. Higher carries your voice "
             + "further but flattens it. Listen on the TX Monitor while you "
             + "adjust, and stop at the last level that still sounds like you.");
-        AddToSection(TxAudioContent, _companderLevelControl);
+        AddToSection(TransmitSettingsContent, _companderLevelControl);
 
         _processorCheck = MakeToggle("Speech Processor");
         _processorCheck.Checked += (s, e) =>
@@ -308,7 +263,7 @@ public partial class AudioWorkshopDialog
             + "power so more of your signal survives the noise at the far "
             + "end. Turn it on for weak-signal or pileup work, and pick how "
             + "hard it works with Processor Mode below.");
-        AddToSection(TxAudioContent, _processorCheck);
+        AddToSection(TransmitSettingsContent, _processorCheck);
 
         _processorSettingControl = MakeCycle("Processor Mode", new[] { "Normal", "DX", "DX+" });
         _processorSettingControl.Visibility = Visibility.Collapsed;
@@ -327,10 +282,10 @@ public partial class AudioWorkshopDialog
             "Normal for everyday contacts, DX when conditions are rough, DX "
             + "plus when you need every last bit of punch and can live with "
             + "sounding processed. Step up only as far as conditions demand.");
-        AddToSection(TxAudioContent, _processorSettingControl);
+        AddToSection(TransmitSettingsContent, _processorSettingControl);
 
         // TX Filter section
-        AddRadioSection(TxAudioContent, "TX Filter");
+        AddRadioSection(TransmitSettingsContent, "TX Filter");
 
         _txFilterLowControl = MakeValue("TX Filter Low", 0, 9950, 50);
         _txFilterLowControl.ValueChanged += (s, v) =>
@@ -348,7 +303,7 @@ public partial class AudioWorkshopDialog
             + "fuller, higher trims rumble and puts more of your power into "
             + "the part of speech that carries. Pair it with TX Filter High "
             + "and check the width readout below.");
-        AddToSection(TxAudioContent, _txFilterLowControl);
+        AddToSection(TransmitSettingsContent, _txFilterLowControl);
 
         _txFilterHighControl = MakeValue("TX Filter High", 50, 10000, 50);
         _txFilterHighControl.ValueChanged += (s, v) =>
@@ -367,7 +322,7 @@ public partial class AudioWorkshopDialog
             + "narrower — twenty-four hundred — puts real punch in a pileup. "
             + "The width readout below shows what the two filter edges give "
             + "you together.");
-        AddToSection(TxAudioContent, _txFilterHighControl);
+        AddToSection(TransmitSettingsContent, _txFilterHighControl);
 
         _filterWidthLabel = new TextBlock
         {
@@ -377,13 +332,13 @@ public partial class AudioWorkshopDialog
         };
         AutomationProperties.SetName(_filterWidthLabel, "TX filter width");
         AutomationProperties.SetLiveSetting(_filterWidthLabel, AutomationLiveSetting.Polite);
-        AddToSection(TxAudioContent, _filterWidthLabel);
+        AddToSection(TransmitSettingsContent, _filterWidthLabel);
 
         // Monitor section. The header names the mode in phone modes so the
         // screen reader user knows which knob family they're on; in CW mode
         // today's behavior is unchanged (the CW monitor work is deferred
         // behind the CW pipeline rewrite).
-        _monitorHeader = AddRadioSection(TxAudioContent, "TX Monitor");
+        _monitorHeader = AddRadioSection(TransmitSettingsContent, "TX Monitor");
 
         _monitorCheck = MakeToggle("TX Monitor");
         _monitorCheck.Checked += (s, e) =>
@@ -403,7 +358,7 @@ public partial class AudioWorkshopDialog
             + "the most honest way to hear what the compander, processor and "
             + "filters are doing to your voice. Set the level below to where "
             + "your own voice informs without distracting.");
-        AddToSection(TxAudioContent, _monitorCheck);
+        AddToSection(TransmitSettingsContent, _monitorCheck);
 
         _monitorLevelControl = MakeValue("Monitor Level", 0, 100, 5);
         _monitorLevelControl.Visibility = Visibility.Collapsed;
@@ -418,7 +373,7 @@ public partial class AudioWorkshopDialog
         JJFlexHelp.SetText(_monitorLevelControl,
             "How loud your own transmitted audio plays back to you. It only "
             + "changes what you hear — never what goes out on the air.");
-        AddToSection(TxAudioContent, _monitorLevelControl);
+        AddToSection(TransmitSettingsContent, _monitorLevelControl);
 
         _monitorPanControl = MakeValue("Monitor Pan", 0, 100, 5);
         _monitorPanControl.Visibility = Visibility.Collapsed;
@@ -434,7 +389,7 @@ public partial class AudioWorkshopDialog
             "Moves your monitored voice between your left and right ear — "
             + "handy for keeping the far station in one ear and yourself in "
             + "the other. Listening only; it changes nothing on the air.");
-        AddToSection(TxAudioContent, _monitorPanControl);
+        AddToSection(TransmitSettingsContent, _monitorPanControl);
 
         // Built-in test tone — the mic replacement (Audio Track C). Late in
         // the walk: it is the first thing here that reaches the air, and it
@@ -473,7 +428,7 @@ public partial class AudioWorkshopDialog
     /// </remarks>
     private void BuildDeviceSection()
     {
-        AddSectionHeader(TxAudioContent, "This Computer");
+        AddSectionHeader(ThisComputerContent, "This Computer");
 
         // Read-only EDIT rather than a label, same reasoning as the mic
         // reading below: focusable, review-readable, and the screen reader's
@@ -488,7 +443,7 @@ public partial class AudioWorkshopDialog
             HorizontalAlignment = HorizontalAlignment.Left
         };
         AutomationProperties.SetName(_deviceReadingBox, "Microphone this computer is using");
-        AddToSection(TxAudioContent, _deviceReadingBox);
+        AddToSection(ThisComputerContent, _deviceReadingBox);
 
         var deviceButton = new Button
         {
@@ -514,7 +469,7 @@ public partial class AudioWorkshopDialog
             // rather than leaving a stale name sitting above the controls.
             RefreshDeviceReading(announce: true);
         };
-        AddToSection(TxAudioContent, deviceButton);
+        AddToSection(ThisComputerContent, deviceButton);
 
         // "Is it actually working?" is the question that follows "which
         // microphone", so it belongs in the same section and one key away.
@@ -536,7 +491,7 @@ public partial class AudioWorkshopDialog
             "Opens the Audio Devices window and listens to your microphone. "
             + "The radio is not involved and nothing is transmitted.");
         checkButton.Click += (s, e) => OpenMicrophoneCheck();
-        AddToSection(TxAudioContent, checkButton);
+        AddToSection(ThisComputerContent, checkButton);
 
         RefreshDeviceReading(announce: false);
     }

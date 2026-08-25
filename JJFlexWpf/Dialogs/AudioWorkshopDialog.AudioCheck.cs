@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Windows;
@@ -25,7 +25,7 @@ public partial class AudioWorkshopDialog
 
     private void BuildAudioCheckSection()
     {
-        AddRadioSection(TxAudioContent, "Audio Check");
+        AddRadioSection(HearYourselfContent, "Audio Check");
 
         // Order here is Start button first, then the live reading —
         // reordered by the Threads Track (2026-08-12, from Noel's field
@@ -46,7 +46,7 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(_startCheckButton, "Start Audio Check");
         AutomationProperties.SetAcceleratorKey(_startCheckButton, "Ctrl+Enter");
         _startCheckButton.Click += (s, e) => ToggleAudioCheck();
-        AddToSection(TxAudioContent, _startCheckButton);
+        AddToSection(HearYourselfContent, _startCheckButton);
 
         // The live mic reading, as a read-only EDIT (Noel, 2026-08-11). An
         // edit is focusable and review-readable where a label gets skipped;
@@ -66,7 +66,80 @@ public partial class AudioWorkshopDialog
         // while the value moves and a review command always reads fresh.
         // Same lesson Track A learned on the Home expander field.
         AutomationProperties.SetName(_micReadingBox, "Mic audio reading");
-        AddToSection(TxAudioContent, _micReadingBox);
+        AddToSection(HearYourselfContent, _micReadingBox);
+
+        // THE GAIN SITS HERE, one stop from the reading above and the Start
+        // button above that. It is built in this file rather than in the
+        // Microphone section because those three controls are ONE LOOP:
+        // speak, read what arrived, nudge, speak again. Splitting TX Audio
+        // into three categories on 2026-08-25 would have put the gain in a
+        // different category from its own measurement, and Tab does not cross
+        // a category — every nudge would have cost a Ctrl+Tab each way.
+        //
+        // Only one of the two is ever visible: Mic Gain when the radio's own
+        // jack is the source, the Windows input level when this computer is.
+        // Whichever applies is the one the ring lands on (ApplyTxAudioTabOrder).
+
+        _micGainControl = MakeValue("Mic Gain", 0, 100, 1);
+        _micGainControl.ValueChanged += (s, v) =>
+        {
+            if (_rig != null && !_polling)
+            {
+                _rig.MicGain = v;
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tx.mic_gain", ("value", v)), VerbosityLevel.Terse);
+            }
+        };
+        JJFlexHelp.SetText(_micGainControl,
+            "How hard the radio listens to its microphone jack. Run a mic "
+            + "check, speak the way you actually operate, and nudge this "
+            + "until the verdict says Good. Hot or Clipping means come down; "
+            + "Quiet means come up. Small steps — a few points at a time.");
+        AddRadioControl(HearYourselfContent, _micGainControl);
+
+        // The PC-source stand-in for Mic Gain (Track PC Gain, 2026-08-13).
+        // Hiding the jack controls on PC audio left a hole where the gain
+        // was, and Noel asked for the obvious thing to fill it: "why not
+        // still have computer mic adjustment available where mic gain is
+        // when PC audio is selected." So the section always offers the gain
+        // that actually applies — stage one lives on the computer when the
+        // computer is the source. Bound in BindPcLevel, which reads the
+        // saved device name from audioDevices.xml and matches it through
+        // Core Audio only: this dialog must never enumerate PortAudio while
+        // a radio connection may be live (see BuildDeviceSection).
+        _pcLevelControl = MakeValue("Windows Input Level", 0, 100, 1);
+        _pcLevelControl.Visibility = Visibility.Collapsed;
+        _pcLevelControl.IsEnabled = false;
+        _pcLevelControl.ValueChanged += (s, v) =>
+        {
+            var level = _pcMicLevel;
+            if (level == null) return;
+            try { level.Percent = v; }
+            catch (Exception ex) { PcLevelFailed(ex); }
+            // No app speech here, deliberately: the control announces its
+            // own value on every adjustment, and repeating it would be the
+            // same double-speak the Audio Devices sliders were built without.
+        };
+        JJFlexHelp.SetText(_pcLevelControl,
+            "Stage one of your transmit audio when this computer's mic is the "
+            + "source: Windows' own capture level for that microphone. Set it "
+            + "with the mic check the same way as Mic Gain — capture cleanly "
+            + "here first, then let the radio's Processing controls shape the "
+            + "result.");
+        AddToSection(HearYourselfContent, _pcLevelControl);
+
+        // Read-only EDIT rather than a label, same reasoning as the device
+        // reading above: focusable, review-readable, and the screen reader's
+        // own read-current-control command speaks it without an app hotkey.
+        _pcLevelNote = new TextBox
+        {
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(2),
+            MinWidth = 300,
+            Visibility = Visibility.Collapsed
+        };
+        AddToSection(HearYourselfContent, _pcLevelNote);
 
         _listenMethodControl = MakeCycle("Listen method",
             new[] { "Monitor", "Record and play back" });
@@ -82,7 +155,7 @@ public partial class AudioWorkshopDialog
                     Lexicon.Get("audio.check.remote_monitor_advice"),
                     VerbosityLevel.Terse);
         };
-        AddToSection(TxAudioContent, _listenMethodControl);
+        AddToSection(HearYourselfContent, _listenMethodControl);
 
         // Track C-2 (Noel at the radio, 2026-08-11: "you have it at 10
         // watts. If you have no antenna, that's a bit high"): the check
@@ -102,7 +175,7 @@ public partial class AudioWorkshopDialog
             UpdateCheckWattsVisibility();
             SavePerRadioPrefs();
         };
-        AddToSection(TxAudioContent, _checkPowerControl);
+        AddToSection(HearYourselfContent, _checkPowerControl);
 
         _checkWattsControl = new ValueFieldControl();
         _checkWattsControl.Setup("Low power level", 1, 100, 1, 10, 0, "watts");
@@ -112,7 +185,7 @@ public partial class AudioWorkshopDialog
             if (_polling) return;
             SavePerRadioPrefs();
         };
-        AddToSection(TxAudioContent, _checkWattsControl);
+        AddToSection(HearYourselfContent, _checkWattsControl);
 
         _playTakeButton = new Button
         {
@@ -124,7 +197,7 @@ public partial class AudioWorkshopDialog
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
         _playTakeButton.Click += (s, e) => PlayLastTake();
-        AddToSection(TxAudioContent, _playTakeButton);
+        AddToSection(HearYourselfContent, _playTakeButton);
 
         // Loopback check — real RF through the transverter port, inside one
         // radio, no antennas. Doubles as a transmitter self-test: "check my
@@ -142,7 +215,7 @@ public partial class AudioWorkshopDialog
         };
         AutomationProperties.SetName(_loopbackButton, "Loopback Check, transverter port");
         _loopbackButton.Click += (s, e) => StartLoopbackCheck();
-        AddToSection(TxAudioContent, _loopbackButton);
+        AddToSection(HearYourselfContent, _loopbackButton);
 
         _loopbackInfo = new TextBlock
         {
@@ -152,7 +225,7 @@ public partial class AudioWorkshopDialog
             TextWrapping = TextWrapping.Wrap,
             Visibility = Visibility.Collapsed
         };
-        AddToSection(TxAudioContent, _loopbackInfo);
+        AddToSection(HearYourselfContent, _loopbackInfo);
     }
 
     /// <summary>

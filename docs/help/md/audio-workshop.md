@@ -23,9 +23,19 @@ These work anywhere inside the workshop window, and only there:
 - `Alt+E` — export a preset to a file. `Alt+I` — import one from a file. `Alt+R` — reset the transmit chain to defaults.
 - `Escape` — two-stage while a check is transmitting: the first press unkeys, the second closes the workshop. Escape never leaves you transmitting.
 
-## The TX Audio tab
+## Transmit audio: three categories, not one
 
-Everything here speaks as you change it, and the standard value keys work everywhere: Up / Down to nudge, Shift + Up / Down for fine steps, Page Up / Page Down for bigger jumps, Home / End for the ends of the range.
+Your transmit audio used to live on a single category called TX Audio, ten sections deep. It's now three, because it was really three subjects sharing one name:
+
+**This Computer** is what your PC does to your voice before the radio hears any of it — which microphone you're using, everything that microphone needs (your mic profiles), and what gets cleaned out of the room before it goes anywhere.
+
+**Transmit Settings** is what the radio does with it after that — which input it's listening to, how it shapes and band-limits you, and how you hear yourself.
+
+**Hear Yourself** is putting a signal through all of it and listening to the result: a known tone, a known recording, or your own voice played back. Your mic gain lives here too, right next to the reading it changes, because setting a gain without hearing the result isn't really setting it.
+
+If something is *broken* rather than needing adjustment, that's JJ Flexible Fix, not here. This is the bench; that's the diagnosis.
+
+Everything in all three speaks as you change it, and the standard value keys work everywhere: Up / Down to nudge, Shift + Up / Down for fine steps, Page Up / Page Down for bigger jumps, Home / End for the ends of the range.
 
 ### Audio Check — hear yourself
 
@@ -88,9 +98,7 @@ A line under the level names the exact Windows device being adjusted. If JJ Flex
 
 ### Moving around
 
-The TX Audio tab is a walk-through: This Computer, Microphone Profiles,
-Microphone, Processing, TX Filter, TX Monitor, Test Tone, Audio Check, in that
-order, running outward from your computer to the radio to the air.
+The three transmit categories are a walk-through, running outward from your computer to the radio to the air. This Computer holds the audio devices, your microphone profiles, and PC cleanup. Transmit Settings holds the microphone the radio listens to, processing, the TX filter, and the TX monitor. Hear Yourself holds the test tone, the reference recording, the audio check, and your mic gain.
 
 Press **F6** to jump to the next section and **Shift+F6** to go back. Each jump
 names the section you arrived in, wraps around at the ends, and skips any
@@ -100,7 +108,7 @@ you to radio controls that are not on screen.
 Tabbing works too, and your screen reader announces each section as you cross
 into it. F6 is for when you know where you are going.
 
-The Workshop is divided into categories — TX Audio is one of them — and they are listed down the left-hand side of the window. **Ctrl+Tab** moves to the next category and **Ctrl+Shift+Tab** to the previous one, from anywhere in the window; either one lands you on the list, so you hear which category you arrived in and how many there are. F6 then moves between the sections inside it. Categories are the big divisions, sections are the groups within one.
+The Workshop is divided into categories, listed down the left-hand side of the window. **Ctrl+Tab** moves to the next category and **Ctrl+Shift+Tab** to the previous one, from anywhere in the window; either one lands you on the list, so you hear which category you arrived in and how many there are. F6 then moves between the sections inside it. Categories are the big divisions, sections are the groups within one.
 
 ### The sculpting chain
 
