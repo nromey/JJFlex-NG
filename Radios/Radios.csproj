@@ -35,6 +35,8 @@
          must be checked against System.<X> for the same reason. -->
     <EmbeddedResource Include="ChainChecks\tx-chain-rules.txt"
                       LogicalName="Radios.ChainChecks.tx-chain-rules.txt" />
+    <EmbeddedResource Include="ChainChecks\rx-chain-rules.txt"
+                      LogicalName="Radios.ChainChecks.rx-chain-rules.txt" />
 
     <!-- The lexicon ships the same way and for the same reasons: embedded, so a
          partition can never go missing from an install, with the operator's own

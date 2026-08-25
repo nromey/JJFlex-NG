@@ -37,8 +37,14 @@ namespace Radios.ChainChecks
         /// <summary>The transmit chain ruleset's file name, in both places.</summary>
         public const string TxChainFileName = "tx-chain-rules.txt";
 
+        /// <summary>The receive walk's rule file, same contract as the transmit
+        /// one: ships inside the app, replaced entirely by an operator's own
+        /// copy in the settings folder when one is present.</summary>
+        public const string RxChainFileName = "rx-chain-rules.txt";
+
         /// <summary>The embedded copy's resource name.</summary>
         private const string TxChainResource = "Radios.ChainChecks.tx-chain-rules.txt";
+        private const string RxChainResource = "Radios.ChainChecks.rx-chain-rules.txt";
 
         private static readonly object CacheLock = new object();
         private static readonly Dictionary<string, DiagnosticRuleSet> Cache =
@@ -52,6 +58,29 @@ namespace Radios.ChainChecks
         public static DiagnosticRuleSet TxChain()
         {
             return Load(TxChainFileName, TxChainResource);
+        }
+
+        /// <summary>
+        /// The receive walk: why a radio is making no sound.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Added 2026-08-25, replacing a hardcoded if-ladder.</b> The
+        /// receive check was thirty-five lines of C# in
+        /// <c>FlexBase.SilentRadioAdvisory</c> — seven conditions, first match
+        /// wins, returning ONE sentence. No stage names, no evidence, and no
+        /// way to correct a word of it without shipping a binary, while the
+        /// transmit walk beside it had thirteen stages of editable text.
+        /// </para>
+        /// <para>
+        /// Same idea, two implementations, and only one of them could be
+        /// improved by anybody who was not building the app. Both directions
+        /// run through <see cref="ChainAnalyzer"/> now.
+        /// </para>
+        /// </remarks>
+        public static DiagnosticRuleSet RxChain()
+        {
+            return Load(RxChainFileName, RxChainResource);
         }
 
         /// <summary>

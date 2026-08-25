@@ -52,6 +52,11 @@ public partial class AudioWorkshopDialog
     /// staleness note refer to the same run.</summary>
     private ChainReport? _lastTxReport;
 
+    /// <summary>The last receive report. Kept for the same reason as the
+    /// transmit one, and because the evidence block should be able to carry
+    /// receive readings too once the two checks live in one place.</summary>
+    private ChainReport? _lastRxReport;
+
     /// <summary>The inventory we are following. Re-pointed on each check rather
     /// than on a rig change, because the tab has no hook into SetRig and a
     /// subscription to a departed radio's inventory would keep it alive.</summary>
@@ -250,8 +255,26 @@ public partial class AudioWorkshopDialog
             }
             else
             {
-                message = rig.SilentRadioAdvisory()
-                    ?? Lexicon.Get("audio.diagnostics.rx_nothing_wrong",
+                // THROUGH THE ANALYZER as of 2026-08-25, not through the
+                // if-ladder that used to live in FlexBase.
+                //
+                // The ladder returned one sentence and nothing else: no stage
+                // names, no evidence, no way to say what it could not check,
+                // and not a word of it changeable without shipping a binary.
+                // The transmit walk beside it had thirteen stages of editable
+                // text. Two implementations of one idea, and only one of them
+                // could be improved by anybody who was not building the app.
+                //
+                // The ladder's ORDER carried real judgement and is preserved
+                // exactly in rx-chain-rules.txt: a mute is worse news than a
+                // low level, and all three muted is worse news than one.
+                DiagnosticFacts facts = RxChainFacts.Collect(rig);
+                ChainReport rx = ChainAnalyzer.Run(RuleSetLoader.RxChain(), facts);
+                _lastRxReport = rx;
+
+                message = rx.StagesBroken > 0
+                    ? ReportText(rx)
+                    : Lexicon.Get("audio.diagnostics.rx_nothing_wrong",
                         ("headphone", rig.HeadphoneGain), ("lineout", rig.LineoutGain));
             }
         }

@@ -1,0 +1,139 @@
+# Receive chain rules for JJ Flexible.
+#
+# Why a radio is making no sound, walked in the order the faults actually bite.
+# Same file format, same analyzer and same override path as tx-chain-rules.txt:
+# read that file's header for how to write a rule. An operator's own copy at
+# %AppData%\JJFlexRadio\rx-chain-rules.txt replaces this one entirely.
+#
+#
+# WHY THIS FILE EXISTS, added 2026-08-25.
+#
+# The receive check used to be thirty-five lines of C# inside
+# FlexBase.SilentRadioAdvisory: an if-ladder of seven conditions, first match
+# wins, returning ONE sentence and nothing else. No stage names, no evidence
+# block, no way to say what it could NOT check, and not a word of it
+# correctable without shipping a new binary.
+#
+# Sitting beside it was the transmit walk: thirteen stages, twenty-one rules,
+# in text an operator can edit. Two implementations of the same idea, and only
+# one of them could be improved by anybody who was not building the app.
+#
+# The ladder's ORDER was right and is preserved exactly, because it encodes
+# something real: a mute is worse news than a low level, and both are worse
+# news than a routing choice. Say the most disabling thing first.
+
+ruleset: Receive audio check
+version: 1
+
+
+# ── Stage 0 ───────────────────────────────────────────────────────────────
+
+stage: 0 the connection to your radio
+about: A Flex makes no audio at all until a client connects to it.
+
+rule: rx-no-radio
+in-stage: 0
+broken-when: radio-connected is no
+verdict: No radio is connected. A Flex makes no sound at all until a client connects to it, and that includes its own headphone jack on the front panel. This catches nearly everybody once.
+fix: Connect to your radio, then run this check again.
+
+
+# ── Stage 1 ───────────────────────────────────────────────────────────────
+#
+# Mutes before levels, and all-three before any one. An operator who is told
+# "the headphone output is muted" and fixes it, only to find the line out was
+# muted too, has been sent round twice by a check that knew both answers.
+
+stage: 1 the radio's outputs
+about: Whether the radio's own outputs are muted.
+
+rule: rx-everything-muted
+in-stage: 1
+broken-when: headphone-muted is yes
+broken-when: lineout-muted is yes
+broken-when: front-speaker-muted is yes
+verdict: Every output on the radio is muted: headphones, line out, and the front speaker. Nothing can make a sound in this state.
+fix: Unmute the outputs you use. All three are in Settings, Audio.
+evidence: headphone-muted
+evidence: lineout-muted
+evidence: front-speaker-muted
+
+rule: rx-headphone-and-lineout-muted
+in-stage: 1
+broken-when: headphone-muted is yes
+broken-when: lineout-muted is yes
+verdict: The headphone and line out outputs are both muted.
+fix: Unmute whichever one you listen through. Both are in Settings, Audio.
+evidence: headphone-muted
+evidence: lineout-muted
+
+rule: rx-headphone-muted
+in-stage: 1
+broken-when: headphone-muted is yes
+verdict: The headphone output is muted.
+fix: Unmute it in Settings, Audio.
+evidence: headphone-muted
+
+rule: rx-lineout-muted
+in-stage: 1
+broken-when: lineout-muted is yes
+verdict: The line out output is muted.
+fix: Unmute it in Settings, Audio.
+evidence: lineout-muted
+
+
+# ── Stage 2 ───────────────────────────────────────────────────────────────
+
+stage: 2 the radio's output levels
+about: How loud the radio is set to be, which on most Flex models is the only volume control there is.
+
+rule: rx-both-levels-zero
+in-stage: 2
+broken-when: headphone-level at most 0
+broken-when: lineout-level at most 0
+verdict: Both of the radio's output levels are at zero. On a radio with no front panel knob this is the only volume control there is, so nothing is going to make a sound until one of them comes up.
+fix: Raise the level for whichever output you listen through, in Settings, Audio.
+evidence: headphone-level
+evidence: lineout-level
+
+rule: rx-headphone-level-zero
+in-stage: 2
+broken-when: headphone-level at most 0
+verdict: The headphone level is at zero.
+fix: Raise it in Settings, Audio.
+evidence: headphone-level
+
+rule: rx-lineout-level-zero
+in-stage: 2
+broken-when: lineout-level at most 0
+verdict: The line out level is at zero.
+fix: Raise it in Settings, Audio.
+evidence: lineout-level
+
+rule: rx-both-levels-very-low
+in-stage: 2
+broken-when: headphone-level at most 5
+broken-when: lineout-level at most 5
+verdict: Both of the radio's output levels are very low. There may be sound there, but not enough of it to hear over a room.
+fix: Raise the level for whichever output you listen through, in Settings, Audio.
+evidence: headphone-level
+evidence: lineout-level
+
+
+# ── Stage 3 ───────────────────────────────────────────────────────────────
+#
+# Last, because it is a routing CHOICE rather than a fault — except on a
+# remote connection, where it is the whole ball game: there is no other path
+# for the sound to take.
+
+stage: 3 how the audio reaches you
+about: Whether radio audio is being carried to this computer, which on a remote connection is the only way to hear it.
+
+rule: rx-pc-audio-off-on-remote
+in-stage: 3
+needs: remote-radio is yes
+broken-when: pc-audio is no
+verdict: Radio audio is not playing through this computer, and you are connected remotely. There is no other way for the sound to reach you: the radio's own headphone jack is at the radio.
+fix: Turn PC audio on. Control plus J then A toggles it from anywhere, and it is also in Settings, Audio.
+evidence: pc-audio
+evidence: remote-radio
