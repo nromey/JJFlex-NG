@@ -1,58 +1,16 @@
-Hello Don — there is one thing I would really like you to do with this build,
-and it is new.
+WHAT IS NEW AND WHERE TO FIND IT
 
-TOOLS, THEN FIX, THEN TRANSMIT PROBLEMS
+JJ Flexible Fix. Open the Tools menu, then Fix, then Transmit problems.
 
-That is JJ Flexible Fix. It walks your transmit chain one stage at a time and
-tells you where it dies, instead of leaving you to guess. Nobody has used it on
-a real radio yet — you would be the first, and yours is exactly the setup I
-most need it tried on: a 6300, over SmartLink, at a real station rather than on
-my bench three feet from the rig.
+It walks your transmit chain one stage at a time and tells you where it dies,
+rather than leaving you to guess. Five stages, numbered 0 to 4, with a report
+at the bottom you can copy straight into an email.
 
-Please just open it and go through it. That is the whole ask.
+BEFORE YOU RUN IT
 
-WHAT TO EXPECT
+It asks what your antenna socket is connected to. Nothing transmits until you
+answer that question, so if you are not sure, leave it unanswered — the checks
+that transmit will wait, and everything else still runs.
 
-It asks first what your antenna socket is connected to. Nothing transmits until
-you answer that, so if you are not sure, leave it — the checks that transmit
-will wait and everything else still runs.
-
-Then five stages, numbered 0 to 4. Stage 0 reads what your computer's audio is
-actually doing. Stage 1 listens to your microphone with the radio out of it
-entirely. Neither of those keys the radio. Stage 2 onward does transmit, and
-each one says so before you run it.
-
-At the bottom there is a report covering the whole run, and a Copy button that
-puts an email-ready version on the clipboard.
-
-WHAT I WANT BACK FROM YOU
-
-Not a bug list. Just tell me how it went, in your own words:
-
-- Did it make sense? Could you tell what each stage was asking you?
-- Did anything read oddly, or sound like a computer wrote it?
-- Did the buttons do what you expected when you pressed them? Genuinely
-  unknown, this one — the checks I can run prove a button reaches the
-  application, which is not the same as proving it does the right thing to
-  your rig.
-- Did it find anything, and was the answer useful or just noise?
-- Anywhere you got stuck, lost, or had to guess what to do next.
-
-If it is confusing, that is a fault in the tool and not in you. Confusing is
-the most useful thing you can report.
-
-ALSO IN THIS BUILD, no action needed
-
-The test tone no longer wobbles on a long transmit. Your keyboard shortcuts
-are repaired automatically on first launch if they were written before last
-week — if any key does something you did not expect, tell me immediately,
-because a wrong key is worse than a missing one. The Audio Workshop's transmit
-page is now three shorter pages, and the two meter pages are one.
-
-KNOWN, so you do not waste time reporting it
-
-If you have two microphones with the same name in Windows, the application can
-pick the wrong one. Uncommon, but real, and on my list.
-
-73
-Noel, K5NER
+Stages 0 and 1 do not key the radio at all. Stage 2 onward does, and each one
+says so before you run it.
