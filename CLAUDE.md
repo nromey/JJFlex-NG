@@ -122,6 +122,36 @@ dotnet build JJFlexRadio.sln -c Release -p:Platform=x64 --verbosity minimal
 dotnet clean JJFlexRadio.sln -c Release -p:Platform=x64 && dotnet build JJFlexRadio.sln -c Release -p:Platform=x64 --verbosity minimal
 ```
 
+### NEVER run `dotnet test` without naming a project
+
+```batch
+dotnet test                          # NO
+dotnet test JJFlexRadio.sln          # NO
+dotnet test Radios.Tests/Radios.Tests.csproj -c Debug -p:Platform=x64      # yes
+dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64  # yes, deliberately
+```
+
+At solution scope `dotnet test` builds and runs **every** test project, and
+`JJFlexWpf.Tests` **constructs real WPF dialogs on the interactive desktop.**
+On 2026-08-25 a background agent ran the bare command and put a stream of
+dialogs on Noel's screen while he was working; he had to close the application
+to stop it. The same thing happened on 2026-08-20.
+
+A guard now makes `JJFlexWpf.Tests` refuse rather than show windows
+(`JJFlexWpf.Tests/Infrastructure/DeskGuard.cs`, commit `62356dc2`), and it
+fails closed. Name the project anyway — a guard is a last line, not a licence.
+
+`JJFLEX_TIER1_DESK_FREE=1` lifts the refusal. **It is a declaration by a human
+who has stepped away from the machine.** Never set it in a script, never set
+it in an agent brief, never set it "to get the tests running."
+
+**WHEN BRIEFING AN AGENT, WRITE THE PROHIBITION, NOT JUST THE GOAL.** The brief
+that caused this said "`dotnet test Radios.Tests/Radios.Tests.csproj` must stay
+green" — which names success and leaves the dangerous route wide open. A goal
+tells an agent what to achieve; only a prohibition tells it which paths are
+closed, and an agent takes the shortest route to the goal. That route is
+frequently the one nobody thought to forbid.
+
 ### WARNING: `--no-incremental` Does NOT Guarantee Fresh Builds
 
 **Do NOT rely on `--no-incremental` to produce fresh binaries.** It only disables incremental *compilation* but the build system can still skip projects entirely if it believes outputs are up-to-date. This means:
