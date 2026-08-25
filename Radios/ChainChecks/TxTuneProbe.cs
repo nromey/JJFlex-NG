@@ -117,6 +117,15 @@ namespace Radios.ChainChecks
 
             /// <summary>The operator declined, or stopped it part-way.</summary>
             Cancelled,
+
+            /// <summary>
+            /// The host would not allow the measurement. Distinct from the
+            /// reasons above, which are all facts about the STATION: this one
+            /// is a fact about the software, and collapsing it into
+            /// <see cref="Cancelled"/> would tell an operator they stopped
+            /// something they never started.
+            /// </summary>
+            RefusedByHost,
         }
 
         /// <summary>What the tune established.</summary>
@@ -205,11 +214,26 @@ namespace Radios.ChainChecks
             public string Mode { get; }
             public string Antenna { get; }
 
+            /// <summary>
+            /// The refusing layer's own words, when it had better ones than
+            /// <see cref="ExplainSkip"/> can produce from a reason alone.
+            /// Empty otherwise.
+            /// </summary>
+            /// <remarks>
+            /// This exists so a host guard can refuse in specific, speakable
+            /// terms WITHOUT growing a second vocabulary for the same event.
+            /// Two descriptions of one refusal drift apart, and the operator
+            /// ends up hearing one thing and mailing FlexRadio another.
+            /// </remarks>
+            public string SkipDetail { get; }
+
             private Result(Verdict verdict, SkipReason skipped, DateTime atUtc,
                            IReadOnlyList<Reading> meters, int tunePower, double computedSwr,
                            bool stoppedEarly,
-                           string frequency, string mode, string antenna)
+                           string frequency, string mode, string antenna,
+                           string skipDetail = null)
             {
+                SkipDetail = skipDetail ?? "";
                 Verdict = verdict; Skipped = skipped; AtUtc = atUtc;
                 Meters = meters ?? Array.Empty<Reading>();
                 TunePowerSetting = tunePower; ComputedSwr = computedSwr;
@@ -217,9 +241,16 @@ namespace Radios.ChainChecks
                 Frequency = frequency ?? ""; Mode = mode ?? ""; Antenna = antenna ?? "";
             }
 
-            public static Result NotRun(SkipReason why)
+            /// <summary>
+            /// Nothing was measured, and why. <paramref name="detail"/> lets a
+            /// refusing layer supply its own words rather than forcing its
+            /// reason through <see cref="ExplainSkip"/>, which only knows the
+            /// enum.
+            /// </summary>
+            public static Result NotRun(SkipReason why, string detail = null)
                 => new Result(Verdict.NotRun, why, DateTime.UtcNow,
-                              Array.Empty<Reading>(), 0, double.NaN, false, "", "", "");
+                              Array.Empty<Reading>(), 0, double.NaN, false, "", "", "",
+                              detail);
 
             public static Result Ran(Verdict verdict, DateTime atUtc,
                                      IReadOnlyList<Reading> meters, int tunePower,
@@ -416,7 +447,10 @@ namespace Radios.ChainChecks
 
                 case Verdict.NotRun:
                 default:
-                    return ExplainSkip(r.Skipped);
+                    // The refusing layer's own words win when it had them. It
+                    // knew more about why than the enum can carry, and this is
+                    // spoken to somebody who has to act on it.
+                    return r.SkipDetail.Length > 0 ? r.SkipDetail : ExplainSkip(r.Skipped);
             }
         }
 
@@ -441,6 +475,12 @@ namespace Radios.ChainChecks
 
                 case SkipReason.Cancelled:
                     return "The test was stopped before it finished, so there is no result.";
+
+                case SkipReason.RefusedByHost:
+                    // Only reached when the refusing layer supplied no words of
+                    // its own, which it normally does. Deliberately does not
+                    // guess at a cause.
+                    return "This step was not run, and nothing was transmitted.";
 
                 case SkipReason.None:
                 default:
