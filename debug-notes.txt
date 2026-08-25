@@ -1,53 +1,144 @@
-This build exists mainly to get a current JJ Flexible onto the laptop, so the
-orphan-process question can finally be tested on the machine where it actually
-happens.
+Hello Don,
 
-WHAT'S NEW SINCE YOUR LAST BUILD
+This is a big jump from the build you have been running, so the short
+version first: the transmit test tone no longer wobbles, your key
+assignments will be repaired for you automatically, and there are two
+specific things I would like you to try.
 
-- There is a warning sound now, and it sounds like a warning. One long tone with
-  harmonics, three quarters of a second, deliberately unlike every other sound
-  the app makes. It has its own switch in Settings, Notifications, under Alert
-  Sounds, alongside the five that were already there.
+Take your time. Nothing here is urgent and nothing here can hurt your
+radio.
 
-- Connecting to a radio with no microphone profile selected now says so. On a
-  radio you have marked as yours it quietly loads one and tells you; on anyone
-  else's it changes nothing and just tells you what it found. Either way you
-  hear about it before you key up rather than afterwards.
 
-- The Audio Workshop's Earcon Explorer has a Warnings section: the alarm, the
-  problem-recorded tone, and the two feature toggles right beneath them so you
-  can hear them back to back.
+WHAT IS FIXED THAT YOU WILL NOTICE
 
-- The Remove Radio dialog reads better. "Remove from the list only keeps all of
-  it" had nothing you were still holding for "it" to point at.
+The test tone used to gallop. It had a wobble to it, a sort of slow
+metronome about three times every four seconds, and it was there in what
+your radio actually transmitted, not just in what you heard back. That is
+gone. It was fixed on Sunday night and confirmed at a real radio on
+Monday morning.
 
-THE ONE THING WORTH DOING ON THE LAPTOP
+If you ever heard your own audio sounding uneven and could not explain
+it, that may well have been the same fault, because the same problem
+affected a live microphone too.
 
-The orphan-process test. Full procedure is in the repo at
-docs\planning\for-noel\2026-08-19-orphan-process-test.md, but the short version:
 
-  1. Settings, Audio: set PC audio for the radio to "Always on for this radio".
-  2. Connect, and CONFIRM YOU CAN ACTUALLY HEAR RADIO AUDIO. This is the part
-     that makes the test mean anything - switched on is not the same as running.
-  3. Leave it playing half a minute, then close the app normally.
-  4. Task Manager, or PowerShell: does a jjflexible.exe still exist?
+YOUR KEYBOARD WILL BE FIXED FOR YOU
 
-If one survives, do not kill it straight away - note its CPU and thread count
-first. Burning CPU is one bug, sitting idle is a different one, and the evidence
-goes away with the process.
+The build you have been using is old enough that a change we made on the
+18th of August shifted twenty-two of the key assignments onto the wrong
+commands. On your machine that would mean some keys quietly did the wrong
+thing. Control M, for example, would have run the antenna tuner instead
+of opening the meters.
 
-The laptop is the only machine where that survivor has ever been seen. The
-ms-02 has never shown it, which is why testing there proved nothing.
+This build detects that and repairs it on the first run, silently. It
+only repairs keys you had never customised, so nothing you deliberately
+chose gets touched. If you HAD customised a key that got caught in the
+shift, it leaves that one alone and writes a note in the diagnostic log
+rather than guessing what you meant.
 
-KNOWN ISSUES IN THIS BUILD
+You do not need to do anything. It just happens. But if a key does
+something you did not expect, tell me rather than assuming it is you.
 
-- The meters panel (Ctrl+M) is rough. Adding a slot leaves the earlier slots
-  with no controls at all, the Test button starts a tone that will not stop, and
-  pan offers only left, centre and right. All known, all being worked.
 
-- Choosing "Remove the radio and its settings" may quietly do the gentler thing
-  and keep them. Nothing gets destroyed unexpectedly, so it fails in the safe
-  direction, but your choice may not be honoured. Under investigation.
+THE FIRST THING I WOULD LIKE YOU TO TRY
 
-- Meter tone slots cannot be reordered, inserted between, or removed with the
-  Delete key.
+This tells us whether the problem is at your microphone or somewhere
+after it. It is two runs of the same thing with one difference, and you
+key the radio yourself both times.
+
+1.  Connect to your radio and turn PC audio on as you normally would.
+
+2.  Press Control J, then the letter G. That arms the test tone. The tone
+    is generated inside JJ Flexible, so it goes out INSTEAD of your
+    microphone. Your microphone is completely out of the path.
+
+3.  Key up for about five seconds, then unkey.
+
+4.  Press Control J then G again to disarm the tone. Your microphone
+    comes back.
+
+5.  Key up again for about five seconds and talk normally, then unkey.
+
+What I want to know is simply whether those two sound different at the
+far end, or on a receiver you can hear.
+
+If the tone gets out and your voice does not, the problem is on the
+microphone side and we can go looking there. If neither gets out, your
+microphone is not the problem at all and we look further along. If both
+get out, we are chasing something that comes and goes.
+
+Any of those three answers is useful. There is no wrong result.
+
+
+THE SECOND THING, AND THIS ONE ONLY YOU CAN ANSWER
+
+You use JAWS, and that turns out to matter in a way we did not know
+about until this weekend.
+
+JAWS does not pass a held key through the way NVDA does. Instead of one
+long press it sends a rapid series of separate presses and releases,
+about four a second. We found this in another project, where a user
+reported that holding an arrow key would not make something move.
+
+The worry is push to talk. If JAWS treats Control Space that way, then
+holding it to talk would key and unkey your transmitter about four times
+a second, and you would have no way of knowing, because as far as you are
+concerned you are holding the key down and speaking.
+
+We do not know yet whether it does this. It might only do it for the
+arrow keys.
+
+So: hold Control Space and talk for about ten seconds, then let go. Then
+tell me whether your audio sounded continuous at the far end, or chopped.
+
+This build watches for it either way and writes a line in the diagnostic
+log if it sees it, so if you would rather just use the radio normally and
+send me a log afterwards, that works too.
+
+
+IF YOU WANT TO SEND SOMETHING TO FLEX
+
+There is a transmit chain check that produces a block of text you can
+paste into an email. Audio Workshop is Control Shift W, then Control Tab
+across to Diagnostics, then the button called Check My Transmit Chain.
+Below the result there is a second box headed Evidence to send to Flex
+support, and a button that copies it.
+
+It carries your radio's model, serial number and firmware, and the actual
+meter readings with times, so a support engineer can check them
+themselves.
+
+One thing worth knowing about that text. If you can, try the same
+transmission in SmartSDR first. If it fails there too, say so in your
+email, because that single sentence is what turns it from a question
+about our software into a question about your radio. And if it works fine
+in SmartSDR and not here, please do not write to Flex at all, write to
+me, because that means the fault is ours.
+
+
+KNOWN, AND NOT A SURPRISE
+
+The guided version of that two-run test is half built. The measuring and
+comparing is done and tested, but the buttons to walk you through it are
+not there yet, which is why the steps above are by hand. That is coming.
+
+The app takes about six seconds to say anything at startup while it looks
+for radios. It now says "Starting up, looking for radios on your network"
+and then "Still looking" if it drags on, so at least you know it has not
+died. Working out why it takes six seconds is on the list.
+
+This is a debug build, so it is slower than a release build and it writes
+more to disk. That is normal and not something to report.
+
+
+HOW TO SEND ME A DIAGNOSTIC LOG
+
+Control J then Control D starts and stops a detailed capture from
+anywhere, including inside a dialog. Saved captures are in Settings, then
+Diagnostics, then the Saved Diagnostic Logs window.
+
+Thank you for testing on JAWS rather than switching to NVDA to avoid
+bothering me. Problems that only show up on JAWS are invisible to us
+otherwise, and the one above is a good example.
+
+Noel
