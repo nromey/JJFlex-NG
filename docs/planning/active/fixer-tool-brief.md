@@ -51,7 +51,15 @@ differ in exactly one thing. **Stage 1's result is a baseline the spoken stage
 is read against**, not just a gate — a stage 4 failure means something quite
 different depending on whether the microphone measured well minutes earlier.
 
-Stages 0–2 do not transmit. Run them before anything keys.
+**CORRECTION, 2026-08-25 — this brief was wrong here.** It originally said
+"Stages 0–2 do not transmit." Stage 2 IS the tune probe, and
+`TxTuneProbeRunner`'s own doc comment opens "This transmits." It keys a
+carrier. Only **stages 0 and 1 are RF-silent**; stage 2 is marked
+`Transmits = true`, the page says so next to its run control, and the gate is
+consulted for it. Left in rather than quietly edited, because a brief that
+told a builder a transmitting stage was silent is exactly the kind of
+confident wrong sentence this project keeps finding, and it was caught by the
+agent reading it rather than by the person who wrote it.
 
 ---
 
