@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Windows;
@@ -183,7 +183,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         ApplyTxAudioTabOrder();
         BuildLiveMetersTab();
         BuildEarconExplorerTab();
-        BuildMeterInventoryTab();
+        BuildMeterInventorySection();   // inside Meters, below the readings
         BuildAmplifierTab();
         BuildDiagnosticsTab();   // Sprint 32 Track C
 
@@ -192,7 +192,7 @@ public partial class AudioWorkshopDialog : JJFlexDialog
         // this; without this line a Workshop opened while disconnected shows
         // its radio controls enabled until the next connect or disconnect.
         // It sits AFTER all three tab builders on purpose - it used to sit at
-        // the end of BuildTxAudioTab, which would have left the Live Meters
+        // the end of BuildTxAudioTab, which would have left the Meters
         // sections un-gated because they enrol two builders later.
         UpdateRadioControlAvailability();
 
@@ -561,6 +561,17 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     }
 
     /// <summary>
+    /// Show or bring to front the Workshop, opened at the named category.
+    /// Falls back to the first category if the header does not match, so a
+    /// renamed category costs the caller its landing spot and nothing more.
+    /// </summary>
+    public static void ShowOrFocus(FlexBase? rig, string header)
+    {
+        ShowOrFocus(rig, 0);
+        _instance?.FocusTabByHeader(header);
+    }
+
+    /// <summary>
     /// Enable or disable the RADIO-side controls to match connection state.
     ///
     /// With no radio these toggles did nothing but say so unconvincingly:
@@ -770,6 +781,34 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     {
         if (tabIndex >= 0 && tabIndex < MainTabs.Items.Count)
             MainTabs.SelectedIndex = tabIndex;
+    }
+
+    /// <summary>
+    /// Select a category by its header. Returns false, quietly, if no category
+    /// carries that header.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reason to prefer this over <see cref="FocusTab"/>.</b> Menu items
+    /// opened this window at a hard-coded INDEX, which is correct exactly until
+    /// somebody adds or removes a category — and then the menu silently opens
+    /// the wrong one. The meter merge of 2026-08-25 removed a category and left
+    /// "Earcon Explorer" pointing at index 2, which happened to still be the
+    /// Earcon Explorer. Being right by luck is the state this whole audit keeps
+    /// finding. SettingsDialog has had SelectTabByHeader for the same reason.
+    /// </remarks>
+    public bool FocusTabByHeader(string header)
+    {
+        foreach (object item in MainTabs.Items)
+        {
+            if (item is System.Windows.Controls.TabItem tab
+                && string.Equals(tab.Header as string, header,
+                                 StringComparison.OrdinalIgnoreCase))
+            {
+                MainTabs.SelectedItem = tab;
+                return true;
+            }
+        }
+        return false;
     }
 
 }

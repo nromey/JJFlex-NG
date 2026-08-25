@@ -411,8 +411,9 @@ public partial class AudioWorkshopDialog
         // 8600 and belongs in its own export, not pasted into the middle of a
         // support email nobody asked for.
         return body + Environment.NewLine
-             + "The radio's full meter list, with every reading and its age, is on the "
-             + "Meter Inventory page of this workshop and can be copied separately."
+             + "The radio's full meter list, with every reading and its age, is behind "
+             + "Show All Meters on the Meters page of this workshop, and can be copied "
+             + "separately."
              + Environment.NewLine;
     }
 

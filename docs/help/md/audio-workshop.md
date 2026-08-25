@@ -124,11 +124,15 @@ On radios that can't do this, the workshop says why instead of hiding the fact.
 
 Outside the workshop, `Ctrl+Space` is push-to-talk (transmit while held) and `Shift+Space` toggles transmit lock, both from JJ Flexible Home. The Audio Check rides the same safety system those do.
 
-## The Live Meters tab
+## The Meters tab
 
 S-Meter, forward power, SWR, mic audio, TX drive (ALC), amp ALC, PA temperature, and supply voltage, refreshed twice a second while the tab is open. Every reading is a read-only field now: Tab through them, or press F6 to hop between the Receiver, Transmit, and Hardware groups, and read any meter at your own pace with your screen reader's review commands. The meters no longer announce themselves as they change — when you want a value, go ask the field that holds it. During an Audio Check, mic audio and TX drive are the two worth watching — and the transmit health watcher still speaks up on its own if the mic looks silent or the ALC is pegging.
 
 Forward power is shown two ways on purpose: in dBm, which is what the radio itself reports, and in watts alongside it. The watts figure carries decimals when it needs them, so a fraction of a watt reads as a fraction of a watt instead of rounding away to nothing — which matters if you drive a transverter or work QRP, where a fraction of a watt is the normal operating point rather than a fault.
+
+Those eight are the ones worth watching, but they are not all your radio has. Down at the bottom of the page, Show All Meters lists every meter the radio publishes — around a hundred of them on a 6600 or an 8600 — with what each one currently reads. It starts collapsed, because the eight above are what you want almost every time, and a hundred lines you did not ask for is not help. Press it once and the full list appears with your cursor already in it; press it again to take a fresh reading. There is a Copy to clipboard button beside it, though the list is an ordinary text box, so Control A then Control C does the same job.
+
+This used to be a separate category called Meter Inventory, sitting next to Live Meters in the list on the left, and there was no way to tell from the two names which one held the reading you were after. It is one page now.
 
 ## The Earcon Explorer tab
 

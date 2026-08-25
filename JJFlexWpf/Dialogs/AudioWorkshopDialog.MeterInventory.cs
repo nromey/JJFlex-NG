@@ -12,14 +12,14 @@ using Radios;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// Audio Workshop, Meter Inventory tab: which meters this radio actually has,
+/// Audio Workshop, Meters category: which meters this radio actually has,
 /// what each one reads, and which of them have gone quiet.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Read-only, and deliberately shipped before any diagnostic rules exist. The
 /// radio publishes over a hundred meters — a FLEX-8600 reported 102 — and until
-/// now not one of them was visible anywhere in the app: the Live Meters tab
+/// now not one of them was visible anywhere in the app: the Meters page
 /// shows eight hand-picked readings and the full list appeared only in a trace
 /// file nobody reads mid-QSO. An operator asking "does my radio even have a
 /// meter for that?" had no way to find out. This tab answers that, and the
@@ -37,14 +37,14 @@ namespace JJFlexWpf.Dialogs;
 /// Values are a SNAPSHOT taken when the report was built, not a live readout,
 /// and the summary line says so. Rewriting a hundred lines twice a second would
 /// throw a screen reader's review position away on every tick — the exact
-/// failure mode the Live Meters tab's change-only assignment exists to avoid,
+/// failure mode the live readings' change-only assignment exists to avoid,
 /// multiplied by a hundred. Refresh is a key press, and the tab refreshes itself
 /// whenever it is not being read.
 /// </para>
 /// </remarks>
 public partial class AudioWorkshopDialog
 {
-    #region Tab 4: Meter Inventory
+    #region Meters category: the full inventory
 
     /// <summary>How many meters, from when, and whether anything has changed
     /// since. Never focus-stealing: this is where a change that arrives while
@@ -66,12 +66,65 @@ public partial class AudioWorkshopDialog
     /// <summary>When the report text was last built.</summary>
     private DateTime _inventoryBuiltAt;
 
-    private void BuildMeterInventoryTab()
+    /// <summary>The button that reveals the inventory, and afterwards refreshes
+    /// it. Kept so its label can change once the report is showing.</summary>
+    private Button? _inventoryRevealButton;
+
+    /// <summary>Everything below the reveal button, hidden until asked for.</summary>
+    private StackPanel? _inventoryBody;
+
+    /// <summary>
+    /// The full meter inventory, as a section of the Meters category rather
+    /// than a category of its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Collapsed until asked for, and that is the point of the merge.</b>
+    /// It was a peer of the eight live readings until 2026-08-25, which put a
+    /// hundred-line report and an eight-line readout side by side in the
+    /// category list under two names that did not say which was which. The
+    /// readings are what an operator wants almost every time; the full list is
+    /// a deliberate act, so it costs one button press and nothing before that.
+    /// </para>
+    /// <para>
+    /// It is still NOT a radio-only section. With no radio it has something
+    /// true to say, and "no radio connected" is itself the answer to why the
+    /// list is empty.
+    /// </para>
+    /// </remarks>
+    private void BuildMeterInventorySection()
     {
-        // NOT a radio-only section. With no radio this tab still has something
-        // true to say, and "no radio connected" is itself the answer to why the
-        // list is empty — disabling it would leave an operator guessing.
-        AddSectionHeader(MeterInventoryContent, "Summary");
+        AddSectionHeader(MeterInventoryContent, "All meters");
+
+        var intro = new TextBlock
+        {
+            Text = "The eight readings above are the ones worth watching. Your radio "
+                 + "publishes around a hundred more, and this lists every one of them "
+                 + "with what it currently reads.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(2, 0, 2, 6),
+        };
+        AddToSection(MeterInventoryContent, intro);
+
+        _inventoryRevealButton = new Button
+        {
+            Content = "Show All Meters",
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(2, 0, 2, 6),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        AutomationProperties.SetName(_inventoryRevealButton, "Show all meters");
+        JJFlexHelp.SetText(_inventoryRevealButton,
+            "Lists every meter this radio publishes, with its current reading. "
+            + "Once it is showing, this button refreshes it.");
+        _inventoryRevealButton.Click += (s, e) => RevealMeterInventory();
+        AddToSection(MeterInventoryContent, _inventoryRevealButton);
+
+        // Everything else lives in a panel that starts collapsed. Collapsed,
+        // not merely hidden: a Hidden control keeps its tab stop, so the
+        // operator would tab into an empty report they never asked for.
+        _inventoryBody = new StackPanel { Visibility = Visibility.Collapsed };
+        AddToSection(MeterInventoryContent, _inventoryBody);
 
         _inventorySummaryBox = new TextBox
         {
@@ -83,36 +136,21 @@ public partial class AudioWorkshopDialog
             FontSize = 12
         };
         AutomationProperties.SetName(_inventorySummaryBox, "Meter inventory summary");
-        AddToSection(MeterInventoryContent, _inventorySummaryBox);
-
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(2, 4, 2, 2)
-        };
-
-        var refresh = new Button
-        {
-            Content = "Refresh",
-            Padding = new Thickness(8, 4, 8, 4),
-            Margin = new Thickness(0, 0, 6, 0)
-        };
-        AutomationProperties.SetName(refresh, "Refresh the meter inventory");
-        refresh.Click += (s, e) => RefreshMeterInventory(announce: true);
-        buttons.Children.Add(refresh);
+        _inventoryBody.Children.Add(_inventorySummaryBox);
 
         var copy = new Button
         {
             Content = "Copy to clipboard",
-            Padding = new Thickness(8, 4, 8, 4)
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(2, 4, 2, 2),
+            HorizontalAlignment = HorizontalAlignment.Left,
         };
         AutomationProperties.SetName(copy, "Copy the meter inventory to the clipboard");
+        JJFlexHelp.SetText(copy,
+            "The report below is an ordinary text box, so Control A then Control C "
+            + "does the same thing. This is here for when that is not to hand.");
         copy.Click += (s, e) => CopyMeterInventory();
-        buttons.Children.Add(copy);
-
-        AddToSection(MeterInventoryContent, buttons);
-
-        AddSectionHeader(MeterInventoryContent, "The meters");
+        _inventoryBody.Children.Add(copy);
 
         _inventoryReportBox = new TextBox
         {
@@ -130,7 +168,41 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(_inventoryReportBox, "Meter inventory");
         AutomationProperties.SetHelpText(_inventoryReportBox,
             "Read-only. Arrow through it line by line, or select all and copy.");
-        AddToSection(MeterInventoryContent, _inventoryReportBox);
+        _inventoryBody.Children.Add(_inventoryReportBox);
+    }
+
+    /// <summary>True once the operator has asked for the inventory. Everything
+    /// that refreshes it in the background checks this first — there is no
+    /// point rebuilding a hundred lines nobody has looked at.</summary>
+    private bool InventoryShowing => _inventoryBody?.Visibility == Visibility.Visible;
+
+    /// <summary>
+    /// Reveal the inventory, or refresh it if it is already showing.
+    /// </summary>
+    /// <remarks>
+    /// Focus moves to the REPORT on the first reveal, not back to the button.
+    /// The operator pressed a button called "Show All Meters" and the meters
+    /// are the thing they asked for; leaving focus on the button would make
+    /// them hunt for content that is now several tab stops away. On a refresh
+    /// focus stays put, because they are already reading it.
+    /// </remarks>
+    private void RevealMeterInventory()
+    {
+        if (_inventoryBody == null) return;
+
+        bool firstReveal = !InventoryShowing;
+        _inventoryBody.Visibility = Visibility.Visible;
+
+        if (_inventoryRevealButton != null)
+        {
+            _inventoryRevealButton.Content = "Refresh All Meters";
+            AutomationProperties.SetName(_inventoryRevealButton, "Refresh all meters");
+        }
+
+        RefreshMeterInventory(announce: !firstReveal);
+
+        if (firstReveal)
+            _inventoryReportBox?.Focus();
     }
 
     /// <summary>

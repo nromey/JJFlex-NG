@@ -1,4 +1,4 @@
-﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AudioWorkshopDialog"
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.AudioWorkshopDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
@@ -74,17 +74,37 @@
                     Style="{StaticResource CategoryTabControl}"
                     KeyboardNavigation.TabIndex="3"
                     AutomationProperties.Name="Workshop categories">
-            <!-- Tab 1: TX Audio -->
-            <TabItem Header="TX Audio" AutomationProperties.Name="TX Audio Settings">
+            <!-- TX Audio. NAMED, like every other tab here: the meter merge of
+                 2026-08-25 removed a category, and two poll guards were
+                 comparing SelectedIndex against 0 and 1. An index comparison
+                 does not fail loudly when the order changes — it just starts
+                 refreshing the wrong panel. -->
+            <TabItem x:Name="TxAudioTab" Header="TX Audio"
+                     AutomationProperties.Name="TX Audio Settings">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
                     <StackPanel x:Name="TxAudioContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
 
-            <!-- Tab 2: Live Meters -->
-            <TabItem Header="Live Meters" AutomationProperties.Name="Live Meter Readings">
+            <!-- Meters. Two categories until 2026-08-25 — "Live Meters" (eight
+                 hand-picked readings) and "Meter Inventory" (all hundred-odd the
+                 radio publishes). From the operator's chair that was one subject
+                 split across two places in the category list, with no way to
+                 tell from the names which one held the reading you wanted
+                 (Noel: "not sure why we have a meter readings tab and a meter
+                 inventory tab").
+
+                 They are one category now, and the inventory is a BUTTON inside
+                 it rather than a peer of it — which is also the honest shape:
+                 the eight readings are what an operator wants ninety-nine times
+                 out of a hundred, and the full list is a deliberate act. -->
+            <TabItem x:Name="MetersTab" Header="Meters"
+                     AutomationProperties.Name="Meters">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-                    <StackPanel x:Name="LiveMetersContent" Margin="8" />
+                    <StackPanel Margin="8">
+                        <StackPanel x:Name="LiveMetersContent" />
+                        <StackPanel x:Name="MeterInventoryContent" />
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
@@ -92,15 +112,6 @@
             <TabItem Header="Earcon Explorer" AutomationProperties.Name="Earcon Sound Explorer">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
                     <StackPanel x:Name="EarconExplorerContent" Margin="8" />
-                </ScrollViewer>
-            </TabItem>
-
-            <!-- Tab 4: Meter Inventory. Named so code can ask whether it is
-                 selected rather than comparing an index — tabs get reordered. -->
-            <TabItem x:Name="MeterInventoryTab" Header="Meter Inventory"
-                     AutomationProperties.Name="Meter Inventory">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-                    <StackPanel x:Name="MeterInventoryContent" Margin="8" />
                 </ScrollViewer>
             </TabItem>
 

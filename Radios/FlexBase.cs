@@ -1,4 +1,4 @@
-﻿//#define KeepAlive
+//#define KeepAlive
 //#define feedback // for testing mic input
 //#define TwoSlices
 //#define NoATU
@@ -8060,7 +8060,7 @@ namespace Radios
         /// the answer and traces nothing, so what a given radio actually offers
         /// has never been observable from a trace. That became a real gap on
         /// 2026-08-16: the meters subsystem is being designed against the eight
-        /// readings on the Live Meters tab, and those eight are a hand-picked
+        /// readings on the Meters page, and those eight are a hand-picked
         /// hardcoded subset. What an 8600 running four slices reports — how
         /// many, under what names, in what units, and which are per-slice — is
         /// simply unknown.</para>

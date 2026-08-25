@@ -12,7 +12,7 @@ using Radios;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// Audio Workshop, Live Meters tab: the read-only meter readings and the
+/// Audio Workshop, Meters category: the read-only meter readings and the
 /// poll timer that refreshes them.
 ///
 /// Split out of AudioWorkshopDialog.xaml.cs in Sprint 32 Track A, with no
@@ -37,7 +37,7 @@ public partial class AudioWorkshopDialog
 
     #endregion
 
-    #region Tab 2: Live Meters
+    #region Meters category: the eight live readings
 
     /// <summary>
     /// Eight read-only reading boxes in three sections. Tab order is build
@@ -105,19 +105,23 @@ public partial class AudioWorkshopDialog
         // on it.
         UpdateMicReading();
 
-        // Only update meters when the Live Meters tab is selected
-        if (MainTabs.SelectedIndex == 1)
+        // Both of these asked SelectedIndex == 1 and == 0 until 2026-08-25,
+        // which was correct right up until the meter merge removed a category.
+        // An index comparison does not fail loudly when the order changes; it
+        // silently starts polling the wrong panel, and a meter readout that has
+        // quietly stopped refreshing looks exactly like a meter that is steady.
+        if (MetersTab.IsSelected)
             PollMeters();
 
-        // Also refresh TX Audio tab values when visible
-        if (MainTabs.SelectedIndex == 0)
+        if (TxAudioTab.IsSelected)
             PollTxAudio();
 
-        // The Meter Inventory tab catches up here when it is showing and a
-        // change arrived while it was being read. Asked by name rather than by
-        // index because tabs get reordered, and a stale index would silently
-        // refresh the wrong tab.
-        if (MeterInventoryTab.IsSelected && _inventoryPending
+        // The inventory catches up here when it is showing and a change arrived
+        // while it was being read. It now lives inside the Meters category, so
+        // the tab test is the same one the readings use — but it also has to be
+        // REVEALED, because there is no point rebuilding a hundred lines that
+        // are collapsed behind a button nobody has pressed.
+        if (MetersTab.IsSelected && InventoryShowing && _inventoryPending
             && _inventoryReportBox?.IsKeyboardFocusWithin != true)
         {
             RefreshMeterInventory(announce: false);

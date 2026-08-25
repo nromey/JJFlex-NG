@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -2089,7 +2089,7 @@ public class NativeMenuBar : IDisposable
         // Diagnostics. See docs/planning/active/diagnostic-log-surface.md §2.
         AddSep(help);
         AddWired(help, "&Earcon Explorer", () =>
-            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 2));
+            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, "Earcon Explorer"));
         AddSep(help);
         // "b" because Key Assignments owns A.
         AddWired(help, "A&bout", () =>
