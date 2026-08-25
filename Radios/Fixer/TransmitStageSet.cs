@@ -130,12 +130,13 @@ namespace Radios.Fixer
                     Title = "Audio setup",
                     Question = "What is your computer's audio actually set to right now?",
                     Explanation =
-                        "This reads what your audio is really running on — the host API, the "
-                        + "input, the output, the sample rate and the channels — from the "
-                        + "audio system itself, not from the configuration. The two can "
-                        + "differ, and where they do, that difference is itself a finding. "
-                        + "Anything this stage knows how to put right, it offers to fix "
-                        + "right here.",
+                        "This asks your audio system what it is actually doing right "
+                        + "now: which sound system it opened, which microphone, which "
+                        + "speakers, what sample rate, and how many channels. It asks the "
+                        + "audio system itself rather than reading your settings, because "
+                        + "the two can disagree — and when they disagree, that is often "
+                        + "the whole problem. Anything here that this stage knows how to "
+                        + "put right, it offers to fix for you.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/audio-setup",
                     SkipChoices = new[] { operatorSkip },
@@ -180,7 +181,7 @@ namespace Radios.Fixer
                              + "picture entirely?",
                     Explanation =
                         "The radio is asked to key its own tune carrier — no microphone, no "
-                        + "computer audio, no streaming take any part. If power appears, the "
+                        + "computer audio, and no streaming is involved. If power appears, the "
                         + "transmitter works and anything wrong lies in the audio path. If "
                         + "no power appears, this was never an audio problem, and no "
                         + "microphone test would have found it. Nothing is transmitted "
@@ -201,9 +202,11 @@ namespace Radios.Fixer
                     Question = "Does audio reach the radio when your microphone is bypassed?",
                     Explanation =
                         "Tones and a generated voice are sent to the radio with your "
-                        + "microphone out of the path. Together with the spoken check, this "
-                        + "closes the pincer: the two differ in exactly one thing, so "
-                        + "comparing them points at the microphone or away from it.",
+                        + "microphone taken out of the path. This check and the spoken "
+                        + "check differ in exactly one thing: whether your microphone is "
+                        + "involved. So if this one works and the spoken one does not, "
+                        + "your microphone is the problem. If neither works, your "
+                        + "microphone is not the problem.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/injected-transmit",
                     SkipChoices = new[] { operatorSkip },
@@ -221,7 +224,7 @@ namespace Radios.Fixer
                         "You speak, and this watches whether your voice reaches the radio. "
                         + "It differs from the injected check in exactly one thing — your "
                         + "microphone is in the path — and it is read against the "
-                        + "microphone check's earlier result, not judged alone.",
+                        + "microphone check's earlier result rather than on its own.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/spoken-transmit",
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
@@ -243,8 +246,8 @@ namespace Radios.Fixer
                 id: "transmit",
                 name: "Transmit",
                 intro: "Start at stage 0 and work forward — each stage leans on the ones "
-                     + "before it. You can jump anywhere, but a report with early stages "
-                     + "missing answers less. The first two stages transmit nothing.",
+                     + "before it. You can jump anywhere, but a report that skips the "
+                     + "early stages tells you less. The first two stages transmit nothing.",
                 stages: stages,
                 fixActions: fixes,
                 runDeclarations: new[]
@@ -252,9 +255,9 @@ namespace Radios.Fixer
                     new FixerRunDeclaration(
                         LoadDeclaration,
                         "What is the antenna socket connected to right now?",
-                        "Nothing transmits until you have said. If you are not sure, leave "
-                        + "this unanswered — the checks that transmit will wait, and "
-                        + "everything else still runs.",
+                        "Nothing transmits until you answer this question. If you are "
+                        + "not sure, leave it unanswered: the checks that transmit will "
+                        + "wait, and everything else still runs.",
                         new[]
                         {
                             new FixerDeclarationChoice(LoadDummy, "A dummy load"),

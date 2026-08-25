@@ -230,7 +230,7 @@ namespace Radios.Fixer
                     + string.Join("; ", notAttempted.Select(st =>
                         "stage " + st.Number.ToString(CultureInfo.InvariantCulture)
                         + " (" + st.Title + ")"))
-                    + ". The overall answer is weaker for it — each stage rules something in "
+                    + ". That weakens the overall answer, because each stage rules something in "
                     + "or out that the others lean on.");
             }
 
