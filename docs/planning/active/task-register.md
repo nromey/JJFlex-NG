@@ -4,8 +4,8 @@
 from the Claude task store. Hand edits are discarded on the next run.
 To change something here, change the task.
 
-**Generated:** 2026-08-23 from session `b06e594e-0593-4553-93ae-bf30e08d38ff`.
-**Totals:** 200 tasks - 80 open, 120 closed.
+**Generated:** 2026-08-25 from session `b06e594e-0593-4553-93ae-bf30e08d38ff`.
+**Totals:** 216 tasks - 93 open, 123 closed.
 
 Why this file exists: the task store lives under the user profile, is not
 in git, and is invisible to every other window, worktree and machine. This
@@ -17,7 +17,7 @@ Run `export-task-register.ps1 -Check` to prove this one has not.
 
 ---
 
-## Open (80)
+## Open (93)
 
 ### #10 - Audio Track F — receiver simulation on IQ playback
 
@@ -1002,56 +1002,6 @@ Step 2 costs one keyed transmit into a dummy load and settles it. Fold it into t
 Point the Peak Watcher at SW `ALC`. Consider whether `HWALC` deserves its own separate alert once amplifier support exists (#125) — an amp asking the radio to back off is a real event an operator wants to know about, just a different one.
 
 Related: #125 (amplifier support), Track A's meter inventory, `research-queue.md`.
-
-### #140 - HIGH: the TX stream is created with no compression parameter while we send Opus — possible root cause of the whole honest-tx-audio saga
-
-FOUND 2026-08-19 by Sprint 32 Track C while establishing what stage 7 of the TX chain walk could observe. VERIFIED INDEPENDENTLY by the orchestrator the same evening.
-
-=== THE ASYMMETRY, CONFIRMED IN VENDOR SOURCE ===
-
-`FlexLib_API/FlexLib/Radio.cs`:
-
-RECEIVE — explicit, and the vendor cared enough to deprecate the ambiguous form:
-- `:6514` carries `[Obsolete("Use RequestRXRemoteAudioStream(bool isCompressed) to explicitly specify whether to use compression")]`
-- `:6517` (the obsolete path) `stream create type=remote_audio_rx`
-- `:6524` `stream create type=remote_audio_rx compression=opus`
-- `:6528` `stream create type=remote_audio_rx compression=none`
-
-TRANSMIT — one form, and it says nothing:
-- `:6534` `stream create type=remote_audio_tx`
-
-There is no TX overload that sends `compression=` at all. FlexRadio went to the trouble of marking the ambiguous RX call obsolete and never did the same on the TX side.
-
-**And we send Opus payloads on that stream regardless of what the radio decided.** Nothing anywhere checks for a mismatch.
-
-=== WHY THIS MIGHT BE THE ANSWER TO THE ENTIRE BRANCH ===
-
-The honest-tx-audio signature, chased for weeks: mic capturing healthy, correct Opus profile, well-formed VITA packets leaving the registered port for radio:4991 — and the radio's own MicData meter sitting at the -120 floor. Everything upstream provably fine, nothing arriving.
-
-If the radio defaults a TX stream to UNCOMPRESSED when no `compression=` is supplied, then it is interpreting Opus frames as raw PCM. That would produce exactly what was observed: well-formed packets, correct destination, and a mic meter that never moves.
-
-**THE GAP THIS EXPOSES IN THE EARLIER INVESTIGATION.** Three witnesses — our source, the decompiled SmartSDR 4.2.18, and AetherSDR — were compared and agreed our wire bytes were indistinguishable from a working client. But that comparison was of the VITA-49 UDP PAYLOAD. The `stream create` command is a different layer entirely: a TCP command on the control channel. **Nobody ever compared the stream-create line.** A client can emit byte-identical VITA packets into a stream that was created in the wrong mode.
-
-=== EVIDENCE THAT CUTS THE OTHER WAY — DO NOT DECLARE THIS SOLVED ===
-
-The earlier investigation recorded that the radio ACK'd the stream as OPUS. That is genuinely in tension with this hypothesis and must be reconciled before anyone celebrates.
-
-Possible reconciliations, none verified: the ack may have been for the RX stream rather than TX; the radio may report a capability rather than the negotiated mode; or the ack may be real and the defect lies elsewhere entirely. Track C could not check because `IsCompressed` is public on the stream object but there is no public route on `Radio` to obtain it.
-
-**Treat this as the strongest available lead, not a solved case.** Two claims were made confidently from static reading this same day and both were wrong.
-
-=== HOW TO SETTLE IT ===
-
-1. **Capture the control channel during a PC-audio transmit**, not the UDP stream. The TCP command traffic to port 4992 contains the `stream create type=remote_audio_tx` line verbatim. Compare against what SmartSDR sends when it creates its TX stream. That one line is the whole question.
-2. If SmartSDR sends `compression=opus` on TX, we have the answer and the fix is a one-line vendor patch (MIGRATION.md, additive, same shape as `GetMeters()`).
-3. If SmartSDR also sends nothing, then the radio's TX default is Opus and this is a dead end — record that so nobody re-derives it.
-4. Independently: find whether the radio reports the negotiated TX compression anywhere reachable. That plugs stage 7 of the analyzer, which is currently declared unobservable.
-
-=== ADJACENT, SAME AREA ===
-
-`TXRemoteAudioStream.BytesPerSecToRadio` is PUBLIC and PERMANENTLY 0.0 — its setter is never called anywhere. Track C flagged it explicitly: do not let a future track use it as a health signal, because it will always read zero and look like a dead stream. Either wire it or hide it.
-
-Related: the whole `honest-tx-audio` branch, `project_don_remote_tx_audio_investigation`, #122 (the TX chain walk, whose stage 7 this is), #21.
 
 ### #141 - A Radios.X namespace silently shadows System.X for every VB file that imports Radios
 
@@ -2173,36 +2123,28 @@ So the upgrade test for Don specifically: take a config from his current version
 
 Related: #149 (the triage that produced the buckets), #172 (the runner), #174 (the upgrade bug already found), the 2026-08-22 dummy-load bench plan.
 
-### #180 - Load declaration UI — three radio buttons, plus a checkbox only for the amplifier the app cannot see
+### #180 - Load declaration — now a PREREQUISITE for any unattended transmit, not a nicety
 
-DESIGNED 2026-08-21 by Noel: "So we probably have a radio button 'no antenna' 'connected to an antenna' or 'test with a dummy load' it'll know if there's a networked amplifier, there may need to be a checkbox for test with a connected amplifier that's not networked."
+PROMOTED 2026-08-25. Ruled by Noel while designing the two-step transmit differential (#218): "If user does not have a dummy load, transmit at low power out the antenna if antenna connected."
 
-THE CONTROL SET
+That sentence turns this from a convenience into a GATE. The app cannot see what the RF is going into; only the operator knows. So nothing may key the transmitter unattended until the load has been declared.
 
-Radio buttons, three mutually exclusive states — correct control choice, since exactly one is true:
-- No antenna
-- Connected to an antenna
-- Test with a dummy load
+THE TWO TEST STATIONS HAVE OPPOSITE HAZARDS, which is why one setting cannot cover it:
+- Noel's bench 8600 has NO ANTENNA. An automated transmit there goes into an open port, and #189 already established that the SWR meter reads 1.008 into an open port — right when things are fine, wrong when they are not — so the radio's own protection cannot be relied on to notice.
+- Don's 6300 at Tony's has a REAL ANTENNA on a live band. Every automated transmit there is an actual on-air emission: it must identify (#218 carries the callsign requirement) and it must be neighbourly about power.
 
-Plus a checkbox, and ONLY this one: an amplifier that is connected but NOT networked.
+THE RULE:
+- Dummy load declared: normal test power.
+- Antenna declared, no dummy load: LOW power. Enough for the meters to read, no more.
+- Nothing declared, or unknown: REFUSE to transmit automatically, and say why. An unattended transmit into an unknown load is the one case where refusing is plainly correct rather than timid.
 
-THE PRINCIPLE THIS ENCODES: ASK ONLY WHAT CANNOT BE OBSERVED. The radio reports a networked amplifier, so asking about it would make the operator tell us something we already know — the friction tax. A non-networked amplifier is invisible to every layer, so it has to be declared. Two amplifiers, two completely different treatments, and the dividing line is OBSERVABILITY, not category. Same principle as the load declaration itself: the software cannot see what is bolted to the antenna jack, so it must be told. Worth stating explicitly, because the tempting mistake runs the other way — adding a checkbox "for completeness" beside something the app could have detected.
+This gates the AUTOMATED sequencer only. It does not gate the hand-driven differential, where the operator keys the radio themselves and can judge their own station.
 
-PREREQUISITE, AND IT IS NOT OPTIONAL: #137. FlexLib formats one amplifier handle UNPADDED, so networked amp meters silently fail to attach when the handle has a leading zero. If the amp is present but its handle starts with a zero, the app concludes there is no amplifier. That is a SILENT NEGATIVE IN A SAFETY-RELEVANT INPUT — the worst possible place for one — and it moves #137 from a small annoyance to a prerequisite for this work. Fix it first, and add a positive control: prove the detection can see a known-present amp before trusting it to report absence.
+RECORD THE DECLARED LOAD IN THE EVIDENCE. A meter reading with no idea what the RF went into cannot be interpreted by anyone, which is exactly the standard #217 sets — give the reader enough to reproduce the conditions rather than take our word. Same argument as #188 (antenna port never traced): power, antenna port and declared load together, or the numbers are decoration.
 
-WHY AMPLIFIER STATE MATTERS HERE AT ALL: an amp in line changes what "full power" means entirely. Dummy load plus non-networked amp is a very different thing from dummy load alone, because the amp has its own drive limits and its own thermal envelope. The power ceiling has to be computed from the whole declared chain, not from the load alone.
+ORIGINAL SCOPE, still right: three radio buttons — dummy load, antenna, nothing connected — plus a checkbox for an amplifier the app cannot see. The amplifier is separate because it changes what a power figure MEANS, not what is safe to do.
 
-OPEN QUESTION, ASKED AND NOT YET ANSWERED — and it is a safety question, do not guess:
-
-DOES "NO ANTENNA" PERMIT TRANSMITTING AT ALL? Two readings, and they produce different code:
-(a) Nothing is connected, so keying into an open jack is something the wizard REFUSES outright — the state is measure-only, and the radio button is really a hard interlock.
-(b) It is the state meant by "without a dummy load you can do valid, effective tests at low power" — low power into an unterminated jack being acceptable because the Flex folds back on SWR.
-
-Until this is answered, do not implement the "no antenna" branch.
-
-RELATED RULINGS FROM THE SAME EVENING (all in #155): dummy load must be CONFIRMED by the operator before full-power checks; without a dummy load, tests are valid at LOW POWER and the wizard does NOT degrade to measure-only — because most of what the transmit chain needs verifying is whether audio ARRIVES, not how much power leaves; with an antenna, tests must identify as a test and be spaced out. Identification is automatic via CWX (#178).
-
-Related: #155 (the on-air testing task this UI serves), #152 (the wizard that hosts it), #137 (the prerequisite), #125 (amplifier support), #123 (the analyzer's existing two-state dummy-load mode, which this extends to three).
+BLOCKS: the automated half of #218.
 
 ### #181 - A crash report can only be sent in the seconds after the crash, and a terminating crash may never get to ask
 
@@ -2574,73 +2516,6 @@ AND THE SAME HARNESS MEASURES WHAT APD IS WORTH. Run the sweep with APD off, the
 
 Depends on #192 (the sweep harness and its thermal budget), #180 (declared load), #125 (amplifier support). Relates to #193 (APD), #164 (the radio acks writes it does not apply), #188 (the port a measurement came from), #123/#124 (meter model).
 
-### #196 - The galloping monitor tone is playback-queue starvation — 20 mid-stream dropouts, and PortAudio cannot see them
-
-DIAGNOSED 2026-08-22 from the evening bench capture. Noel has reported this since the morning session: a steady 440 Hz test tone comes back through the monitor sounding like "doo doo doo doooo doo doo doo", a galloping cadence, and he noted the crucial clue himself — "No idea why it affects a tone and not speech."
-
-THE EVIDENCE, from trace-20260822-203546:
-
-  59448 [T6] audio output stream: the playback queue ran dry mid-stream at
-  callback 3 — a device buffer was filled with silence, audible as a gap with
-  a click at each edge. PortAudio raises no flag for this (we supplied the
-  zeros ourselves). Further occurrences are counted silently.
-
-  160256 [T6] audio output queue summary: 22 silent fill(s), of which 20 were
-  mid-stream starvation
-
-  159706 [T36] audio output queue summary: 1002 silent fill(s), of which 0
-  were mid-stream starvation (the queue never ran dry while playing)
-
-So on the stream that was actually playing, 20 buffers out of 1011 callbacks —
-about 2 percent — were silence we inserted because the decoded audio had not
-arrived in time. Each one is a gap with a click at both edges. That is the
-gallop, and the rate is right for the cadence he describes.
-
-WHY A TONE AND NOT SPEECH, which is the part that makes the diagnosis certain.
-Twenty short silences punched into a continuous 440 Hz sine are unmistakable:
-the ear tracks a steady tone's phase and amplitude precisely, so every gap is a
-click and every resumption is another. The identical twenty gaps in speech land
-inside a signal that is already full of stops, plosives and level changes, and
-are masked. The symptom is not "the tone path is broken" — it is "a steady tone
-is the only signal that REVEALS this."
-
-AND NOTE WHY IT HID FOR SO LONG. Earlier sessions were checked for PortAudio
-status flags and came back clean, which read as "the audio path is healthy."
-It was a true statement about the wrong instrument: PortAudio raises no flag
-here because WE supplied the zeros, not the driver. Whoever wrote that trace
-line understood the trap exactly and said so in the message. Another instance
-of the day's theme — a negative result from an instrument that could not have
-produced a positive.
-
-WHAT IS STILL UNKNOWN, and the cheap next step. Occurrences after the first are
-counted but NOT timestamped ("counted silently; totals logged when the stream
-closes"). So we cannot yet tell whether the 20 starvations are spread evenly
-across the session or CLUSTERED DURING TRANSMIT — and that distinction points at
-two completely different causes. Clustered during TX suggests the radio's
-stream hiccups or the machine is busier while transmitting; evenly spread
-suggests a jitter buffer that is simply too shallow for this path.
-
-Timestamping each starvation, or emitting a running count once a second into
-the coalesced meter stream, is a small change and would answer it from the next
-capture without any new hardware or procedure.
-
-ALSO WORTH CHECKING: the output stream opens at 48000 Hz ("Audio.Open:Main
-Output 1/2 (Audient EVO8) requested 48000 Hz, 2 channel(s), opus=True") while
-the radio's Opus stream is 24 kHz, so there is resampling in the path, plus a
-PostDecodeProcessor. Any of those stages could be where the timing budget is
-lost.
-
-Noel's own suggestion — record the monitor return to a WAV so the waveform can
-be analysed directly — is still worth building (#150 wants a reference file
-anyway, and JJPortaudio already has WavWriter and MicRecorder). Envelope
-analysis would give the exact gap length and period. But the trace has already
-localised it, so the WAV is now confirmation rather than discovery.
-
-Relates to #31 (log PortAudio statusFlags — implemented, and this is the case it
-cannot see), #29 (tone monitor clicks, previously attributed to RIM's encoding —
-worth re-examining against this), #17 (decoded PC audio arrives quiet), #150
-(reference audio file).
-
 ### #197 - The transcript proves an utterance was emitted, not that it was heard — check queue depth for Critical warnings
 
 FOUND 2026-08-22, at the bench, and it is the gap that let a fully-tested warning fail on its first real outing.
@@ -2798,9 +2673,455 @@ CHECK FIRST: memory/project_hole_punch_wiring_gap.md records "our half verified 
 
 Provenance: docs/planning/for-noel/2026-08-14-don-6300-rf-truth-test.md, item 13 and its closing footnote.
 
+### #205 - setupFromScratch silently sets 100 W and picks the TX antenna from the RX list — and says nothing
+
+FOUND 2026-08-23 at the bench, by Noel: "I actually don't think I have power set to 100 in this profile, I never saved it." He was right — he never set it. The app did.
+
+TRACE EVIDENCE, JJFlexRadioTrace-20260823-225216.txt. The radio reports RFPower:0 and TunePower:0 repeatedly through connect, then at 13566 ms both become 100. FlexRadio's own APD debug lines in the same trace show the transition: "ant=ANT1, rfpower=0" then "ant=ANT1, rfpower=100". Tonight's test therefore ran at 49.9 dBm, about 98 watts, which was nobody's decision.
+
+THE CODE, Radios/FlexBase.cs setupFromScratch (~15316-15331):
+
+    Slice rxs = VFOToSlice(RXVFO);
+    if (rxs != null) rxs.TXAnt = theRadio.RXAntList[0];
+    if (CanTransmit) {
+        _TXVFO = 0;
+        Slice txs = VFOToSlice(TXVFO);
+        if (txs != null) { txs.IsTransmitSlice = true; txs.TXAnt = theRadio.RXAntList[0]; }
+        theRadio.RFPower = 100;
+        theRadio.CWBreakIn = false;
+        theRadio.CWIambic = false;
+        theRadio.SpeechProcessorEnable = true;
+        theRadio.SimpleVOXEnable = false;
+    }
+
+TWO SEPARATE PROBLEMS, and the antenna one is worse.
+
+1. RFPower = 100 unconditionally, and TunePower reached 100 as well. Full output, plus full TUNE power — and tune power is the one an operator deliberately keeps low, because a tune carrier into a bad match is how a finals stage or a tuner gets cooked. Compare #189's warning, which fires at 40 percent reflected after 2 seconds: at 100 W that is real energy already delivered.
+
+2. THE TRANSMIT ANTENNA IS TAKEN FROM RXAntList[0] — the RECEIVE list. There is no reason the first receive antenna should be the transmit antenna. On a station with a receive-only antenna, a beverage or a loop first in that list, this transmits into something never meant to see power. Tonight it was harmless only by coincidence: Noel moved the dummy load to ANT1 on 2026-08-22, and RXAntList[0] happens to be ANT1.
+
+3. NOTHING IS ANNOUNCED. The connect speech at 15228 ms recites slice count, which slice is yours, frequency, mode and pan centre — and never mentions power or antenna. A blind operator has no way to know either changed. This is the accessibility failure, not just a safety one: the two settings that decide what leaves the radio are the two that are not spoken.
+
+Also flipped without a word: SpeechProcessorEnable to true, CWBreakIn and CWIambic to false, SimpleVOXEnable to false.
+
+WHY THIS IS TUESDAY-RELEVANT (#179). Don connects on 2026-08-25. If his per-radio config does not match, setupFromScratch runs and his 6300 goes to full output on whatever RXAntList[0] is, silently. That belongs in the build gate.
+
+ALSO BLOCKS UNATTENDED TESTING (#192). Automated sweeps would key at 100 W by default. Against the DL2K's rating of 2000 W for one minute that is a real thermal budget being spent by a script that never chose the number.
+
+FIX SHAPE, not yet decided: do not write RFPower at all unless there is no saved value; if a default is unavoidable make it LOW, not maximum; take the TX antenna from the TX antenna list, not the RX one; and announce power and antenna on connect whenever the app changed them. Settings are intents — see project_settings_are_intents_not_commands.
+
+RELATED: #188 (antenna never traced — note that FlexRadio's own APD Debug.WriteLine DOES carry ant=, so the information is obtainable), #180 load declaration, #187 a JJ key for power, #164 fractional power readings.
+
+### #206 - A near-miss in the JJ layer says "Unknown command" when the unmodified key is the one you wanted
+
+FOUND 2026-08-23 at the bench. Noel pressed Ctrl+J then Ctrl+G, meaning Ctrl+J then G. He got "Unknown command. Press H for help." and had to re-enter the layer and try again. Transcript: LeaderInvalidTone at 256371 ms, retry succeeded at 257631.
+
+He called it a mistype. It is a mistype the layer invites, and the recovery is worse than it needs to be.
+
+WHY THE SLIP IS PREDICTABLE. The JJ layer mixes three tiers of key — bare letters, Shift+letter, and Ctrl+letter — and several letters carry DIFFERENT, UNRELATED commands depending on the modifier:
+
+- A = Auto Notch, but Ctrl+A = PC audio on or off
+- D = tuning speech debounce, but Ctrl+D = start/stop a detailed capture
+- F = speak TX filter width, Shift+F = speak RX filter width, Ctrl+F = enter a frequency
+- T = meter tones, Shift+T = alert earcons
+
+So the muscle memory built by Ctrl+A and Ctrl+D carries straight into Ctrl+G, where nothing is bound. And the consequences of a slip are not uniform: confusing A with Ctrl+A is the difference between a notch filter and whether you hear the radio at all.
+
+THE FIX, small and high value: when a modified key is unbound but the SAME letter is bound at another modifier level, say so instead of saying nothing useful. "Ctrl+G is not a command. G arms the test tone." That turns a dead end into a one-key recovery, and it teaches the layer while the operator is standing in it.
+
+Generalise it: on any unbound chord in the layer, check the same letter at bare, Shift and Ctrl before falling back to "Unknown command." Name at most one alternative — the bare form first, since that is the most likely intent.
+
+WHY IT MATTERS MORE HERE THAN ELSEWHERE. A sighted user glances at a printed reference. A blind operator standing inside a modal layer cannot, and "Unknown command. Press H for help." asks them to leave what they were doing and read a list of thirty entries to find the one letter they nearly pressed. The information needed to skip all of that is already in the registry.
+
+RELATED: #158 (a browsable JJ key layer — scope help AND search to the layer you are standing in) is the bigger version of this; this is the cheap immediate half. #183 (nothing compares leader help text to the leader switch). Also worth considering whether the layer's modifier scheme should be rationalised at all — see project_ctrl_j_leader_command_layer before changing any binding, and the keyboard audit is mandatory if one moves.
+
+### #207 - Device identity is a display string, and the audio-system combo filters when it should select — Noel's three-level design
+
+REWRITTEN 2026-08-24. The original filing asserted three things and ALL THREE WERE FALSE. Recorded here so nobody rebuilds from the wrong premises - and because filing it wrong is itself an instance of the defect class this project fights.
+
+WHAT I CLAIMED, AND WHY EACH WAS WRONG:
+
+1. "audioDevices.xml does not record the host API." It does. The operator's live file carries <hostApiTypeId>2</hostApiTypeId> and <hostApiName>MME</hostApiName> per device.
+2. "The picker folds duplicates and hides the WASAPI copy." That folding rule was FOUND AND REMOVED on 2026-08-16 (Track E). Devices.cs:141 documents it: "folding is what silently chose a host API on the operator's behalf, landing on MME. MME resamples transparently, so it reports a tidy 48 kHz whatever the hardware is really doing, and every rate problem in the app was invisible behind it."
+3. "We land on MME because the host API is lost." No. The trace says: "Devices.ApplyHostApiSelection: audio system is Windows WASAPI (asked for host API -1)". The DEFAULT resolves to WASAPI. Streams opened MME because the operator's SAVED ROWS are MME rows, chosen back when folding still picked silently. Stale data, not a live bug.
+
+The whole filing came from misreading ONE trace line - "[host API not recorded in audioDevices.xml]" - as "the format cannot hold it" when it means "this saved entry lacks the field."
+
+=== THE REAL DEFECT, IDENTIFIED BY NOEL ===
+
+"I actually don't think that dropdown selects an actual subsystem to use, I think it filters the list. I think it SHOULD pick the subsystem."
+
+He is right. RebuildPickerLists calls SelectPickerRows, which FILTERS which rows are visible. The device row the operator then picks carries its own HostApiTypeId, so the transport actually used is decided by WHICH ROW, not by the combo. The combo is a view control wearing a selector's clothes.
+
+Consequence: your saved device pins you to whatever host API you happened to pick, and there is no way to move an existing setup onto a better transport. And SelectedHostApiTypeId is NEVER PERSISTED - it is -1 at every launch and re-resolved - so the filter you chose is not even remembered.
+
+=== THE CONSTRAINT THAT KILLS THE NAIVE FIX, ALSO NOEL'S ===
+
+"Sometimes device names are different for MME or WASAPI or whatever."
+
+Confirmed in the code. MME truncates to 31 characters (MAXPNAMELEN): "Mic | Line | Instrument 1 (Audient EVO8)" arrives whole from WASAPI and DirectSound, and as "Mic | Line | Instrument 1 (Audi" from MME. So "the same device on a different host API" cannot be resolved by name.
+
+The machinery for it EXISTS: DeviceInfo.GroupOwner, built 2026-08-12, groups endpoints that are the same physical hardware, with the MME truncation allowance already handled. It was built for the folding rule and deliberately kept when folding was removed.
+
+=== NOEL'S DESIGN, AND IT MATCHES THE DATA MODEL BETTER THAN TODAY'S UI ===
+
+Three levels, because that is what audio actually is:
+  HARDWARE   (Audient EVO8)
+  ENDPOINT   (Main Output 1/2, Mic/Line 1/2, Line 3/4)
+  TRANSPORT  (WASAPI / MME / DirectSound)
+
+Today all three are flattened into one long row list plus one filter, which is why 26 rows describe four devices.
+
+ACCESSIBILITY ARGUMENT, and it is the strongest one: three short combos are far easier to navigate by ear than one 26-row list. "Audient EVO8" then "Main Output 1/2" then "WASAPI" - each list short, each meaning obvious. A flat list is hostile to a screen reader in a way a hierarchy is not.
+
+SECOND OPTION HE RAISED: "default rather than device." Let the operator choose FOLLOW THE WINDOWS DEFAULT instead of naming hardware. Today IsDefault is only ever a LABEL on a row - verified, there is no selectable option anywhere in the picker. Making it a real choice survives renames, hot-plugs and driver updates, and removes a whole class of silently-repointed-device bugs. His point that "it'd be us building the list, not relying on the names" is the same insight from the other side.
+
+=== THE ROOT, AND IT IS THE THIRD INSTANCE ===
+
+We use a DISPLAY STRING as a durable identifier. Same shape as #174 (an enum ordinal as a persisted id) and #34 (a PortAudio index as a device id). Every time, something unstable was pressed into service as a name, and every time it broke quietly.
+
+=== NOT FABLE WORK ===
+
+Noel considered handing this to a Fable session. It should not go: it is a UI redesign with a data-model change and real accessibility judgement, not a mechanical sweep. The investigation that produced this rewrite took four greps and overturned every premise - a session working from the original filing would have spent an afternoon hunting a bug fixed eight days ago.
+
+### #209 - A key map written before 2026-08-18 loads 22 bindings onto the wrong commands — Don upgrades across it
+
+MEASURED 2026-08-24, not inferred. This is the upgrade-path gap #179 (Don's Tuesday build gate) flags as covered by nothing, and it is live.
+
+=== WHAT WAS MEASURED ===
+
+Compared the pre-fix NAS AppData snapshot against the operator's live key map as a command-id -> key MAPPING (not as text):
+
+  snapshot \\nas.macaw-jazz.ts.net\jjflex\historical\appdata\appdata-20260821-100458.zip
+  live     %AppData%\JJFlexRadio\KeyDefs.xml
+
+Result: EXACTLY 22 differing ids, beginning at id 96, and every one is the previous entry shifted by one - live id 97 holds what snapshot 96 held, 98 holds 97's, and so on down. That is commit 40307951 (2026-08-18) inserting SpeakContextHelp at position 96, confirmed independently of the original #174 investigation.
+
+BOTH files carry <Version>5</Version>. The version did not move when the format's MEANING changed, which is exactly why nothing could detect this.
+
+=== WHO IS AFFECTED ===
+
+Noel's live file is FINE - it has been rewritten since (116 bindings; ids 119 and 120 are new). The snapshot is the damaged artifact, which makes it a perfect regression fixture. Extract it with 7-Zip; Expand-Archive cannot load its module on this machine.
+
+DON IS THE RISK. If his last build predates 2026-08-18, his KeyDefs.xml is in the pre-insertion numbering and today's build reads 22 of his bindings as belonging to the wrong commands - silently, because a wrong-but-valid key map is indistinguishable from a right one until he presses a key and the wrong thing happens.
+
+OPEN QUESTION, decides urgency: WHICH BUILD IS DON ACTUALLY ON? Not yet established.
+
+=== WHY THE #174 FIX DOES NOT COVER THIS ===
+
+c9a4b984 froze every command number UNCHANGED - "verified by parsing both HEAD and the new file and comparing the full mapping." That prevents FUTURE damage. It does not repair a file already written in the old numbering.
+
+=== THE MECHANISM TO USE, AND IT ALREADY EXISTS ===
+
+JJFlexWpf/KeyCommands.cs load path (~line 1925) already does:
+
+    if (kData.Version < 5) { trace; KeyTableToDefault(true); return; }
+
+and the save path (~line 2015) writes Version = KeyConfigVersion. So a version-gated one-time migration is a PROVEN pattern in this file, not a new invention.
+
+BETTER THAN A VERSION NUMBER, and it is already on disk: each entry stores SavedDefaultKey - what the default was for that command when the file was written (KeyCommandTypes.cs:322, written at KeyCommands.cs:2025). So a shifted file is detectable from EVIDENCE rather than from a guess: for an entry with Id = i, if SavedDefaultKey does not match the current default for i but DOES match the current default for i-1, that entry is shifted. Per-entry, provable, and it also distinguishes bindings the operator actually customised from ones they never touched.
+
+=== DECISION PENDING, deliberately not made unilaterally ===
+
+Option A, WARN ONLY: detect via SavedDefaultKey, trace at Error, announce to the operator, change nothing. Cannot corrupt a working config. Fits the announce-don't-silently-repair principle already written into this codebase.
+
+Option B, RESET: follow the Version < 5 precedent and reset to defaults. Fixes it outright, costs any customisations. Probably free for Don if he never customised; destructive for anyone who did.
+
+RECOMMENDATION for a build shipping 2026-08-25: measure first with Option A, then decide. Behaviour changes to config loading on the eve of a tester build are how regressions ship - see the same reasoning applied to #207 (host API) and #208 (self-clocked tone), both deferred past Tuesday for this reason.
+
+=== RELATED ===
+#174 (the freeze, completed), #179 (Don's Tuesday gate), #34 (audio device keyed on an unstable ordinal - same defect family: an unstable identifier used as a durable one).
+
+### #210 - The tone still needs a microphone to exist, and it no longer should
+
+FOUND while building #208 (self-clocked tone), 2026-08-24. Not a regression — this has always been true — but #208 is what makes it fixable, and the reason to file it now is that it removes the last dependency between a synthesized signal and a physical capture device.
+
+TODAY: the self-clocked source reuses the capture stream's TxFramePipeline, which means it reuses that stream's Opus encoder, which is built in Audio.Open when the microphone opens. So startSelfClockedTxInput() is gated on opusInputAvailable. If the microphone will not open — wrong device saved, device unplugged, exclusive-mode conflict, a 44.1 kHz endpoint Opus cannot follow (#12) — the test tone cannot transmit either, and the operator is told "computer transmit audio is unavailable this session."
+
+WHY THAT IS BACKWARDS: the tone is the diagnostic you reach for WHEN the microphone is the suspect. It is a calibrated reference computed from a formula; it needs no microphone, no capture device, and no PortAudio input stream at all. Making it unavailable exactly when the mic is broken removes the instrument at the moment it is most useful — the same shape as every other "instrument answers the wrong question" finding this arc has produced.
+
+WHAT IT TAKES, and it is small now:
+- Build an OpusEncoder from OpusTxSampleRateSetting directly, with no device to negotiate with (Stereo, Delay10ms, MaxBandwidth SuperWideband — the same profile Audio.Open builds). There is nothing to negotiate WITH, so the requested rate is also the negotiated rate and #53's trap does not apply.
+- Give the standalone path its own TxFramePipeline carrying that encoder, the mux, the conditioner and the LUFS meter, with Handler pointing at sendOpusInput.
+- Relax the opusInputAvailable gate in startSelfClockedTxInput so a generated source can run without one.
+- Say so out loud when it engages: transmitting a tone with no microphone open is a state the operator should hear named, not infer.
+
+CARE REQUIRED: the txStream (RemoteAudioTXStream) must still exist — that is the radio's side, unrelated to the mic — so the gate becomes "do we have a TX stream" rather than "did the mic open." Check the teardown path disposes the standalone encoder; the existing one is nulled in serverProc's close case, which this would not go through.
+
+TEST IT BY: pointing the input at a device that cannot open (or unplugging one), arming the tone, keying up, and watching SC_MIC on the radio. It should read the armed level.
+
+### #211 - The read-only notes are tab stops, so the control is harder to find than the prose about it
+
+FOUND 2026-08-24, from Noel hitting it live: "I see a box shift tab from the selector which is not an edit, it just reads, and I don't see a way to select which system to use."
+
+The Audio system combo WAS there and WAS enabled. He could not find it because HostApiNote sits between it and the device list, and HostApiNote is a TextBlock with Focusable="True". So Shift+Tab from the output list lands on a read-only box, and the control is one further Shift+Tab beyond that. Landing on prose and concluding there is no control is the correct inference from what he was given.
+
+AudioDevicesDialog.xaml has at least three of these: HostApiNote, RadioOutputNote, RadioInputNote, plus FilterNoteText. Tab order through that section runs combo, note, list, note, list, note — six stops for three controls.
+
+THE TENSION, and it is real, not a mistake to simply undo. WPF dialogs run in focus mode, so a screen reader cannot reach static text at all unless it is a tab stop. Focusable="True" is the standard workaround and it was the right instinct: an explanation nobody can reach is not an explanation. The cost was never counted, and the cost is that the explanation now outranks the thing it explains in the one ordering a keyboard user actually walks.
+
+DO NOT just delete Focusable. That silently removes the notes from a blind operator's reach, which is worse than the friction. Options worth weighing:
+
+1. Fold the note into the control's own accessible description (AutomationProperties.HelpText / JJFlexHelp), so it is announced WITH the control rather than after it. The combo already carries a JJFlexHelp.Text saying much the same thing — so the note may be a duplicate the operator hears twice, once on the control and once as its own stop.
+2. Keep the notes reachable, but by a key rather than by Tab — the app already has Ctrl+F1 for exactly this kind of "extra explanation" (#91), and F6 for section navigation (#72). A note that answers to a key costs no tab stop.
+3. Group control + note as one stop, with the note read as part of the group.
+
+CHECK FIRST whether the note text and the control's JJFlexHelp text are duplicates. If they are, that is the answer and it also removes an unnecessary utterance — same family as #63 (the picker speaking rows NVDA already spoke).
+
+SWEEP, do not spot-fix: grep Focusable="True" across JJFlexWpf/Dialogs and count how many dialogs have this shape. This will not be the only one.
+
+Related: #207 (the three-level device design) will rebuild this dialog's top section anyway, so the two should be decided together — but the tab-order question is broader than the device picker and should not be settled inside it.
+
+### #212 - Connect goes silent for seconds while discovery runs, and a blind operator cannot tell it from a hang
+
+REPORTED BY NOEL 2026-08-24, at the radio: "going to radio and connect then says nothing for a while, it's loading the discovery pages and process, but we probably should either use a UIA action or Prism to say 'Connection: please wait...' or something like that, with Chatty, 'Connecting...' with Terse."
+
+THE GAP. Between choosing a radio and the first spoken result, the app does discovery and connection work and says NOTHING. A sighted operator sees a populated window filling in. A blind operator gets silence, and silence is exactly what a hung app sounds like. There is no way to tell "working" from "dead" — which is the single most common accessibility failure in any app that does slow work, and one we exist to not commit.
+
+Worth noting this is NOT a speech-content problem like #93 (the connect-cluster survey) or #87 (the connect dialog reciting its body). Those are about what gets said. This is about latency having no voice at all. Different defect, same surface.
+
+NOEL'S SHAPE, and it is right: verbosity-scaled.
+- Terse: "Connecting..."
+- Chatty: "Connection: please wait..." — and there is room here for what stage it is at, since discovery, TLS, authentication and slice enumeration are distinguishable and a stalled connect is much more diagnosable if the last thing said names the stage it stalled in.
+
+DESIGN QUESTIONS TO SETTLE BEFORE BUILDING:
+1. Mechanism. ScreenReaderOutput.Speak is the obvious route and needs no new plumbing. Noel raised UIA (an AutomationProperties.LiveSetting region the screen reader picks up) as an alternative — that has the advantage of the screen reader owning the interruption policy rather than us. Read project_speech_flushes_on_window_change and feedback_speak_only_when_ui_does_not_convey before choosing: if the window is CHANGING during connect, a queued utterance may be flushed, which would make the silence worse rather than better. That is the trap here and it must be checked, not assumed.
+2. Cadence. One utterance at the start, or progress at each stage? A stage-per-utterance risks becoming the connect-dialog-recites-everything problem again. Probably: one immediately, then only if a stage takes longer than some threshold.
+3. Repeat-on-stall. If nothing has happened for N seconds, say so again — this is the part that distinguishes "slow" from "hung", and it is the part that actually pays.
+4. Interrupt or queue? Almost certainly QUEUE — the operator just pressed a key and may still be hearing its confirmation.
+5. Does it fire on EVERY connect route (roster Enter, Ctrl+J, autoconnect on launch, reconnect after a drop) or just the dialog? All of them, or the ones it misses are the ones that feel broken.
+
+INSTRUMENT ALREADY AVAILABLE: the output transcript (#171) records every utterance with monotonicMs, so the size of the silent window can be MEASURED rather than estimated. Do that first — open a transcript from a real connect, find the gap between the last pre-connect utterance and the first post-connect one, and size the fix to the actual number. transcript-20260824-180205 shows connect completing around 17.9 s into the session; the gap before it is the thing to measure.
+
+Related: #203 (roster connect needs two Enters) is on the same journey and should be tested in the same sitting.
+
+### #213 - Device lists are in PortAudio enumeration order, so "Line 3" and "Line 4" are nowhere near each other
+
+REPORTED BY NOEL 2026-08-24: "The dialog is not sorted alphabetically, so you get line 3 and line 4. When we build device, outputs, API access mode, we can sort that but I thought I'd mention all this."
+
+The two device lists in AudioDevicesDialog come out in PortAudio's enumeration order — which is driver/registry order, not anything an operator can predict. Interfaces with numbered ports are the worst case: an EVO8 or a Virtual Audio Cable set scatters Line 1, Line 2, Line 3, Line 4 across the list with unrelated devices between them.
+
+WHY IT MATTERS MORE FOR US THAN FOR A SIGHTED APP. A sighted operator scans a short list and finds the row. A screen reader user arrows through it linearly, and type-ahead is the fast path — but type-ahead only helps if the thing you would type is the start of the row, and it only feels coherent if related rows are adjacent. See #64, which already established that rows must lead with the words the operator knows.
+
+NOEL'S OWN FRAMING is the right one and this is filed to honour it: fold it into #207 rather than bolting a Sort() on now. #207 splits identity into device / port / access mode, and once a port is a FIELD rather than a substring of a display name, "sort by device then by port number" becomes possible and correct. Sorting the current flat strings alphabetically would put "Line 10" before "Line 2" and would be a visible half-measure.
+
+SO: do not spot-fix. When #207 lands, sorting is: group by physical device, then by port number NUMERICALLY, with the system default first or clearly flagged. Until then, this is a known wart with a named owner.
+
+Cross-check when building: Devices.SelectPickerRows is where rows are chosen, and BuildGroups already computes physical-device grouping (GroupIsSystemDefault depends on it) — so some of the machinery for "group by device" exists already and should be reused rather than reinvented.
+
+### #214 - Menu first-letter navigation is unstable — how many A presses reaches Audio Devices depends on whether a radio is connected
+
+REPORTED BY NOEL 2026-08-24: "when the radio is not connected, alt o+a goes to audio workshop, then audio devices. When I was connected to the radio, on radio levels is there, so alt+a a goes directly to audio devices."
+
+The menu items carry no access keys — deliberately, per the CLAUDE.md accessibility rule "Remove & from menu labels (interferes with screen readers)" — so navigation falls back to Windows' first-letter cycling. That cycling walks whatever items are PRESENT, and the Audio menu's contents change with connection state: the levels items are radio-gated (NativeMenuBar.cs ~782, they SpeakNoRadio when Rig is null) while Audio Devices and Audio Workshop are always there.
+
+Result: the number of times you press a letter to reach a given item depends on whether you are connected. Muscle memory cannot form, which is the entire value of first-letter navigation. An operator who learns "A A" while connected gets somewhere else while disconnected.
+
+DO NOT REFLEXIVELY ADD & MNEMONICS. That rule is in CLAUDE.md and predates me; it may well be Jim-era guidance about WinForms menus that modern NVDA handles fine, but overturning a standing accessibility rule is Noel's call, not a side effect of fixing a menu. Establish first whether it still holds — test a native menu with & mnemonics against NVDA 2026.1 and JAWS before proposing it.
+
+OPTIONS, roughly in order of how much they change:
+1. Give the always-present items distinct first letters so cycling is stable regardless of what else is showing ("Device Setup" rather than "Audio Devices"). Cheapest, but renames a menu item the help pages point at — see the note at NativeMenuBar.cs ~797 explaining the entry survived a previous rename precisely because muscle memory and help both point at it.
+2. Keep radio-gated items PRESENT but disabled rather than absent, so the list shape never changes. Collides with the house rule about keeping dead controls out of the way — though a disabled MENU item is a different thing from a dead tab stop, and Windows menus have always shown grey items.
+3. Access keys, if the & rule turns out to be stale.
+4. Leave it, and lean on Command Finder (Ctrl+/) and the JJ leader layer as the stable routes. Defensible: those ARE the fast paths we tell people to use, and they do not change shape.
+
+Note Audio Workshop has Ctrl+Shift+W and Audio Devices is reachable from Settings and the Workshop toolbar, so nobody is blocked — this is friction, not a wall.
+
+### #215 - Six seconds of launch is measured but unattributed — apiInit and FlexLib's API.Init are both fast
+
+FOUND 2026-08-24 while building the progress voice (#212). The announcement now covers the symptom; this is the cause, and it is still open.
+
+THE MEASUREMENT, from three consecutive speech transcripts on the same machine and build: the gap between the launch greeting and the first word about radios is 5.6 s, 6.0 s, 6.0 s. Tight variance, so it is structural rather than incidental.
+
+THE TRACE, session 20260824-182653:
+  45 ms   greeting spoken
+  454 ms  LocalRadios
+  454 ms  apiInit:True
+  ...     THIRTY-NINE trace lines total between 402 and 8375 ms, and NONE between 454 and 6456
+  6008 ms DiscoveringRadiosWindow speaks "Discovering radios"
+  6456 ms radioAddedHandler (radio answered, on a thread pool worker)
+  6891 ms DiscoveringRadios: settled early
+
+So the main thread went quiet at 454 ms and the next thing it did was open the discovery window at 6008 ms. Six seconds of untraced work.
+
+WHAT IT IS NOT, both checked by reading:
+- Radios.FlexBase.apiInit is trivial — unsubscribe, subscribe, API.Init(), set a flag.
+- FlexLib_API/FlexLib/API.cs API.Init() has no sleeps: reads two log-enable files, subscribes Discovery.RadioDiscovered, Discovery.Start(), wires a cleanup timer. Nothing that should take seconds.
+- DiscoveringRadiosWindow's own settle logic cannot be it: MaxWaitMs is 2000 and it reported "settled early" at 6891, AFTER the window had already opened at 6008.
+
+CANDIDATES, in the order they run after the greeting in ApplicationEvents.vb:
+- EarconPlayer.Initialize() — NAudio, opens an audio device. A device that is slow to open would explain seconds, and it would explain why the variance is small.
+- HelpLauncher.Initialize()
+- ConnectionProfiler.PurgeOldProfiles() — file I/O over a directory that may have grown.
+- new ShellForm() plus WpfContent — first WPF/ElementHost realisation, JIT of a large XAML tree. Also a classic multi-second first-window cost.
+
+ALREADY DONE: all four now trace their elapsed milliseconds (commit e2881a94). The next launch answers this without any further guesswork — read the "Startup phase:" lines.
+
+WHY IT IS WORTH CHASING RATHER THAN JUST NARRATING. Six seconds is the first impression of every session, it is paid on every launch whether or not a radio is present, and if it turns out to be an audio device open then it is the same class of problem as the rest of this arc — a slow thing on the startup path that nothing measured because nothing logged it. If it turns out to be WPF first-realisation, that is a known cost with known mitigations and the honest answer may be "narrate it, it cannot go away".
+
+DO NOT remove the progress voice if this gets fixed. The voice covers slow networks, SmartLink auth, and any future slow path; the six seconds was only what made it visible.
+
+### #216 - Push-to-talk unkeys four times a second under JAWS — the same root cause as the Freight Fate hold bug
+
+FOUND 2026-08-25, reasoning from Noel's Freight Fate finding rather than from a JJ Flexible report. NOT yet reproduced on a JAWS machine — see "verify first" below. Filed at this weight because if it is real it is a transmit fault, not a feel fault.
+
+THE MECHANISM. JAWS does not deliver held keys. It synthesises key-down/key-up PAIRS — first pair at the Windows delay (~512 ms), the rest roughly 250 ms apart (measured 242-272 on Noel's machine, 2026-08-24, with Freight Fate's tools/key_probe.py). NVDA passes unassigned keys straight through, so a hold is a real hold there.
+
+OUR CODE, JJFlexWpf/MainWindow.xaml.cs:
+- ~1702, PreviewKeyDown: Ctrl+Space with `if (!e.IsRepeat && !_pttKeyDown)` calls _pttController.PttDown().
+- ~1746, PreviewKeyUp: Space up, while state is PttHold, calls _pttController.PttUp().
+
+Under JAWS a held Ctrl+Space therefore reads as: key down (TRANSMIT ON), key up about zero milliseconds later (TRANSMIT OFF), then again roughly every 250 ms. The operator is holding the key and speaking; the radio is keying and unkeying four times a second, and the FIRST spurious key-up drops them mid-word.
+
+WHY IT IS WORSE THAN IT SOUNDS. The operator gets no signal that anything is wrong — they are holding the key, so as far as they know they are transmitting. The far end hears chopped audio. This is the same shape as everything else in this arc: a fault that produces a plausible-looking state rather than an error.
+
+VERIFY FIRST, DO NOT FIX BLIND. Two things could make this a non-issue and both are cheap to check:
+1. Does JAWS synthesise pairs for Ctrl+Space, or only for keys it scripts (arrows)? The Freight Fate measurement was ARROWS specifically, and the 250 ms came from JAWS's arrow script. A chord JAWS has no script for may pass through untouched, exactly as NVDA does. This is the single most likely reason the bug does not exist.
+2. Does PttSafetyController already have a hold-timeout or debounce that would absorb it?
+
+Port the probe rather than re-deriving it: Freight Fate has tools/key_probe.py which logs down/up timings and is what produced the measurement. Point it at Ctrl+Space under JAWS and the answer takes minutes.
+
+IF IT IS REAL, the fix is the same trick Freight Fate landed in e1a656a5: learn the repeat spacing from the pairs themselves and hold the key "down" for that spacing plus grace, so a queue of synthetic taps reads as one continuous hold. Do NOT hardcode 250 ms — that is one machine, one JAWS version, one script speed. Cost, which their changelog states plainly: release reads about a third of a second late. For PTT that tail is the thing to think hardest about, because a PTT that unkeys late is its own fault — though a third of a second of extra carrier is far less harmful than chopping the operator's voice, so the trade is probably right.
+
+RELATED: Ctrl+J then Space, and any other hold-shaped binding, want the same audit. And #199/SilkTune is now designed press-driven precisely so it never asks this question — see docs/planning/active/flywheel-skywave-ragchew.md.
+
+### #217 - Evidence for Flex must survive a reader who distrusts our software entirely
+
+RULED BY NOEL 2026-08-25. Order approved; one refinement that changes the spec rather than decorating it.
+
+"They won't wanna touch JJ Flexible with a ten foot pole — that's us that does that. But they will care if we say we tried it in SmartSDR, here are the goods you can use to tell where fault happens."
+
+And, on the verdict: "We need to tell them what we find, but not force them to the conclusion. Give them info to come to the conclusion."
+
+That is NOT the same as burying our verdict, which is what the first draft of this task said. Our findings are welcome and should be stated plainly. What must not happen is stating them as a DIAGNOSIS.
+
+- A diagnosis says "the ALC is the problem." It invites an argument about whether a third-party application is qualified to say so — and from their side, it is not.
+- An observation says "SW ALC read -0.2 dBFS at 14.100 MHz USB on ANT1 at 02:14:33, with forward power at 4 W." That can be verified or refuted on its own terms, it cannot be argued with on grounds of who wrote it, and a support engineer reaches the conclusion themselves — which means they own it.
+
+THE RULE FOR THE WHOLE DOCUMENT: state findings as OBSERVATIONS, not as diagnoses. Every claim should be one a reader could check against their own radio.
+
+TWO ROLES, AND WE HAD THEM BACKWARDS.
+1. Supporting JJ Flexible is OUR job. Flex will never debug our app and it is unreasonable to ask them to, so the report must not require them to.
+2. What they WILL engage with: it reproduces in SmartSDR (their client, their supported path), plus measurements precise enough to LOCATE the fault.
+
+THE LITMUS TEST, line by line: WOULD THIS LINE STILL BE USEFUL TO SOMEONE WHO DISTRUSTS OUR SOFTWARE COMPLETELY? Every number should be one they could have taken themselves, through the published API. Nothing load-bearing may depend on believing our analysis.
+
+Run against the current block: radio identity passes (Model, Serial, Firmware — their data, first thing any support desk asks). Named meter readings with timestamps pass. Our headline verdict, census, stage-by-stage walk and build strings all FAIL as written — not because they are wrong, but because they are phrased as conclusions.
+
+THE ORDER, APPROVED:
+1. The operator's own assertion that it reproduces in SmartSDR. First, because it reframes this from a third-party complaint into a radio question. We cannot know it and must never claim it — the operator affirms it.
+2. Radio identity: model, serial, firmware.
+3. THE PAYLOAD: named meter readings, timestamped, each with frequency, mode and antenna port. Minimally editorialised. Precise enough that Flex can reproduce the conditions with their own SmartSDR rather than take our word — Noel's point that they may simply connect remotely and look.
+4. What we observed, as observations. Plain, checkable, no conclusion attached.
+5. Provenance footer: app, version, and that it reads through the published FlexLib API.
+
+Don writes the email himself; this block is what he pastes into it. So it must read as something a person hands over, not as machine output demanding action.
+
+GENERALISES to any third-party report — a driver vendor, Microsoft, anyone. Instrument, not plaintiff.
+
+RELATED: #123 is the analysis engine; this is presentation. #188 (antenna never traced) is promoted by this from a nicety to a gap in the payload — a meter reading with no recorded antenna port is a number a support engineer cannot reproduce.
+
+DO NOT rewrite before Don's build. The current block is honest and useful; the emphasis is wrong, and the SmartSDR-reproduction affirmation needs designing rather than bolting on.
+
+### #218 - Two-step transmit differential: injected audio, then the operator speaks — with an honest way to skip step two
+
+ASKED FOR BY NOEL 2026-08-25, for Don specifically, then refined into a guided two-step flow rather than two unrelated runs.
+
+"He needs an automated test possibility as well as being able to talk into the microphone. If it's broken at his microphone side, then it'll show, if we can inject stuff directly — sending three test tones and 'this is [callsign] testing, over'."
+
+Then: "So there's two steps. The injected test audio goes out, then Don speaks — unless he clicks a button that says 'I can't speak directly into my radio' or 'I don't have access to a microphone'."
+
+THE FLOW.
+- STEP 1, injected: three spaced tones, then a spoken "this is [callsign] testing", then unkey. Microphone bypassed entirely.
+- STEP 2, spoken: the operator keys and says the same words into their microphone.
+- The ANSWER is the comparison, not either result on its own. Step 1 good and step 2 bad means the fault is at the microphone side — device, gain, mute, privacy setting, cable, profile. Both bad means downstream of the injection point. Both good means intermittent, or the far end.
+
+INJECTED FIRST, AND THAT ORDER IS DELIBERATE. It is the known-good reference: computed samples, a fixed level, nothing physical involved. If it fails, step 2 cannot add information — everything after the injection point is already implicated. It also gives the operator a working baseline before they try the ambiguous half, so a bad step 2 is read against something rather than in a vacuum.
+
+THE SKIP BUTTON IS TWO DIFFERENT REASONS AND THEY MEAN DIFFERENT THINGS. Do not collapse them into one "skip".
+- "I can't speak directly into my radio" — the radio is remote or otherwise not in the room. Don's case: his 6300 lives at Tony's. The radio's own microphone jack is unavailable, but a PC microphone over the remote link may still exist, so a PC-mic comparison is STILL possible and should be offered.
+- "I don't have access to a microphone" — no microphone at all, on either side. The mic-side comparison is impossible, full stop.
+
+These produce different reports. The first narrows the fault domain; the second leaves it open.
+
+A SKIPPED STEP IS NOT A PASSED STEP, and the output must make that impossible to misread. This is the same rule the chain check already states about itself — "a check that could not be made is not a check that passed" — and it matters more here, because the natural reading of "step 1 succeeded" is "transmit works". It does not. It means transmit works FROM THE INJECTION POINT ONWARD, and the microphone was never in the path.
+
+So the record must carry: which steps ran, which did not, and the reason given. The skip button is not an escape hatch, it is EVIDENCE — it records a fact about the station that changes what every other result means.
+
+WHAT WE TELL THE OPERATOR IS NOT WHAT WE PUT IN THE VENDOR'S REPORT, and this is where the two rules meet. To Don we should say plainly "your microphone side looks like the problem, here is what to check" — supporting our own user is our job and reticence there is just unhelpful. To Flex (#217) the same finding goes as observations they can check, never as a diagnosis. Same measurement, two audiences, two grammars. Do not let #217 make the app coy with its own operator.
+
+WHAT IS NEW VERSUS THE SHIPPED REFERENCE VOICE, and it must not be conflated:
+- JJFlexWpf/Resources/ReferenceVoice/jjflex-reference-voice.wav is a MEASUREMENT reference. Deliberately NO callsign, no CQ, and it says "this is a test recording, not a live transmission" twice, so that if it ever reaches the air nobody mistakes it for a station calling.
+- THIS is an actual on-air test transmission, so it MUST identify. Different artifact, different purpose. Backwards is either an unidentified transmission or a reference file that sounds like a contact.
+
+SO IT CANNOT SHIP AS A WAV — the callsign varies per operator, so the spoken part renders at run time. tools/refvoice/Program.cs already does this end to end (System.Speech.Synthesis to a wave stream, then peak-normalise); lift it rather than re-derive it. Normalise for the same reason: a test transmission whose level depends on which Windows voice is installed is not a test. Callsign from FlexBase.RadioCallsign; REFUSE to transmit when it is empty rather than sending unidentified — that refusal is a feature.
+
+PIECES THAT EXIST: TxToneGenerator, TxFilePlayer, TxInputSourceMux, TxFramePump/TxSelfClockedSource (#208 — paces a generated source without borrowing the microphone's clock), PttSafetyController. Missing: the sequencer and the two-step flow around it.
+
+SAFETY, because step 1 keys the transmitter unattended:
+- Through PttSafetyController, never straight to rig.Transmit — the timeout ladder, hard kill and licence check live there.
+- A hard duration cap independent of the script.
+- Escape aborts mid-sequence and unkeys.
+- Unkey on every failure path, including an exception in the sequencer.
+- Announce before it keys; nobody should be surprised by their own radio transmitting.
+- End on the identification, not a tone, so the last thing on the air is the legal part.
+
+DON CAN RUN THE DIFFERENTIAL BY HAND TODAY: arm the tone (Ctrl+J, G), key, unkey; disarm, talk into the mic, key, unkey. Same two runs, same single-stage difference. The automation removes operator error and makes it repeatable — it does not unlock the diagnosis. Put that in his NOTES as a numbered procedure rather than making him wait.
+
+RELATED: #178 (automatic station identification) shares the runtime-TTS-with-callsign machinery and should be built alongside. #177 (four ways to key, one per intent) is the taxonomy this belongs in. #150 (reference voice file) is DONE and is a different thing. #217 is the vendor-facing grammar.
+
+DO NOT BUILD BEFORE DON'S BUILD. It keys a transmitter.
+
+### #219 - Generate the reference voice on the operator's machine instead of shipping 12 MB of it
+
+RULED BY NOEL 2026-08-25: "Why ship it, why not generate it on demand? All Windows systems have text to speech." And: "I wouldn't ship any tests, generate them on the user side machine every time — unless you think we need to ship one in the weird case there's no TTS."
+
+TODAY: JJFlexWpf/Resources/ReferenceVoice/ holds the script (2.7 KB) AND a rendered jjflex-reference-voice.wav (12.25 MB), built by tools/refvoice/Program.cs at development time. The WAV is 12 MB of a roughly 50-55 MB compressed installer, for a file derived entirely from a 2.7 KB script.
+
+THE DECIDING ARGUMENT IS NOT SIZE, IT IS THAT WE ARE ALREADY COMMITTED. #218's test transmission has to say the operator's OWN callsign, which cannot be shipped. So runtime TTS is a dependency of that feature whatever we do here. Once the app can render speech on demand, a shipped WAV is redundant weight.
+
+AND THE COMPARABILITY OBJECTION DOES NOT SURVIVE INSPECTION. The obvious worry is that Don rendering with Microsoft David and Noel with Zira are not transmitting the same signal. But: (a) the differential in #218 compares a station to ITSELF, injected versus spoken on one machine with one voice, so cross-station identity is not needed; and (b) the shipped script ALREADY says the opposite in as many words — "anyone re-recording the reference, in their own voice, on their own microphone, says the same words in the same order, so the two recordings stay comparable." The design accepted voice variation from the start. Words in order is the invariant, not timbre.
+
+SO: generate, do not ship. With three conditions.
+
+1. CACHE IT, do not re-render per run. Cache under the settings root (RadioConfig.AppDataRoot, per the JJFLEX_CONFIG_DIR rule — never SpecialFolder.ApplicationData plus "JJFlexRadio"). Key the cache on the SCRIPT VERSION and the VOICE NAME together, so editing the script or changing voices regenerates and nothing else does. Re-rendering every time costs seconds and, worse, makes two runs in one session non-identical if anything drifts underneath.
+
+2. RECORD WHICH VOICE RENDERED IT, in the evidence block and the trace. This is exactly the provenance #217 demands: a reader reproducing the conditions needs to know what generated the signal. "Rendered by Microsoft David, script version 1" is one line and it removes a whole class of unanswerable question.
+
+3. KEEP THE PEAK NORMALISATION. tools/refvoice already normalises the whole render to -3 dBFS and the comment says why: "a reference file whose level depends on which Windows voice happened to be installed is not a reference." That reasoning gets STRONGER when the render moves to the operator's machine, not weaker.
+
+NO, WE SHOULD NOT SHIP A FALLBACK WAV for the no-TTS case, and there is a better answer than shipping one. The script's tone sections are arithmetic -- [tone: 1000 Hz, -20 dBFS, 2 seconds] needs no voice at all. So with no usable SAPI voice, render the TONES and say plainly that the spoken sections are unavailable on this machine. A tone-only reference is still a real measurement; a 12 MB fallback for a case that may never occur is the waste we are removing, twice.
+
+Worth checking rather than assuming: System.Speech is a NuGet package on .NET Core and later, not part of the shared framework, so this adds a package reference to the app (it is currently only referenced by the tools project). Confirm it works under the self-contained .NET 10 publish before relying on it -- and confirm the no-voice path actually degrades rather than throwing, on a machine with a screen reader but no SAPI voice, which is a real configuration.
+
+CLEANUP WHEN THIS LANDS: delete the WAV from Resources, drop it from the installer file list (generate-deletelist.ps1 walks publish output so it handles itself), and keep tools/refvoice as the offline renderer for development and for anyone wanting a WAV to inspect.
+
+NOT NEEDED FOR DON'S BUILD. He is not blocked by this; it is weight and tidiness plus a dependency #218 will force anyway.
+
+### #220 - Help page: how a blind operator keys SmartSDR — Noel writes the steps, we do not guess them
+
+RAISED BY NOEL 2026-08-25: "We could add in help how a user can transmit using SmartSDR. That's not something we need to write now — I'll have to write repeatable steps on how to guide people using a screen reader to the MOX button."
+
+NOEL WRITES THE CONTENT. This is explicitly not a page to draft from inference. We do not know the reliable route to MOX under a screen reader, and a wrong instruction is worse than none: it sends a blind operator hunting for a control that may not be reachable the way we described, and they have no way to tell "I did it wrong" from "the instruction was wrong". Same class as the description-drift defects this project keeps finding, except the drift would be in someone else's application.
+
+WE ALREADY KNOW IT IS GENUINELY HARD, from the 2026-08-23/24 session: SmartSDR's MOX lives in an AUTO-HIDING FLYOUT that UI Automation cannot reach until the flyout is realised. That evening's attempt to key SmartSDR as a control experiment stalled on exactly this. So the steps need discovering by hand, at a radio, by someone who can verify each one — which is Noel.
+
+THE GAP THIS CLOSES, and it opens the moment #217's checkbox ships. We now ASK the operator "before you send this, did you try the same transmission in SmartSDR?" — and for a blind operator who has never managed to key SmartSDR, the honest answer is "I do not know how". That is not one of the four states, and it should not become one: the state is still NotTested. What has to change is the GUIDANCE for NotTested, which should point at this help page once it exists.
+
+So there is a small wiring job here separate from the writing: SmartSdrCrossCheck.OperatorGuidance for NotTested currently says trying it is "the quickest way to make it far more convincing", and needs to add a route — a help link, an F1 target, or a Command Finder entry. Asking somebody to do something and not telling them how is a question that trains people to answer "no".
+
+WORTH INCLUDING WHEN IT IS WRITTEN:
+- Getting to MOX with the flyout problem named honestly, since anyone who has tried already knows it is awkward.
+- That a tone or a whistle is enough — they do not need to say anything.
+- What to LISTEN for to know they actually transmitted, since they cannot see the meters.
+- How to stop, first, before how to start. An operator who cannot unkey has a much worse problem than one who cannot key.
+- That this is a legal on-air transmission and needs identification, unless they are into a dummy load.
+
+Belongs in docs/help/md/ and therefore in the CHM rebuild (#52's path). Cross-references: #217 (the checkbox that creates the need), #218 (our own two-step test, which is the thing they are cross-checking).
+
 ---
 
-## Closed (120)
+## Closed (123)
 
 Subjects only. Full descriptions stay in the task store; these are here so
 a number in a commit message or a plan can be resolved to what it meant.
@@ -2910,6 +3231,7 @@ a number in a commit message or a plan can be resolved to what it meant.
 - **#132** - DIAGNOSED: the destructive remove option is unreachable by Tab, so confirming commits the safe default
 - **#134** - Replace the Settings tab strip with a category list, NVDA-style — Ctrl+Tab moves categories and returns you to them
 - **#138** - The scratchpad mutes the radio to make earcons audible, defeating the bench it now contains
+- **#140** - ANSWERED 2026-08-23: the radio opens TX streams as OPUS, and PC-audio transmit works — the -120 signature was the wrong meter
 - **#144** - Track E's new earcon vocabulary did not reach the connect series — those still play the old sounds
 - **#146** - Notification CW pitch: let the operator choose FOLLOW SIDETONE or a configured tone — do not auto-offset
 - **#149** - Triage the master test list by tier — most of it is not a job for Noel
@@ -2925,4 +3247,6 @@ a number in a commit message or a plan can be resolved to what it meant.
 - **#173** - The probe must leave the diagnostic capture as it found it — turn it back off on exit
 - **#174** - KeyDefs.xml keys bindings to an implicit enum ordinal, so inserting a command mid-list silently remaps every custom key after it
 - **#189** - The SWR meter reads 1.008 into an open antenna port — it is right when things are fine and wrong when they are not
+- **#196** - The galloping tone — CONFIRMED GONE at the radio 2026-08-25
+- **#208** - Self-clocked test tone — BUILT 2026-08-24, needs a bench listen before it is believed
 

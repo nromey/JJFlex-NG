@@ -3,11 +3,147 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `honest-tx-audio` — **this is where all current work lives**, 19 commits ahead of `main` and 0 behind. **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
+**Branch:** `honest-tx-audio` — **this is where all current work lives**, 610 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
 
 *This header claimed work lived on `track/flexlib-4220` with main 305 commits behind until 2026-08-12 — a day after the merge made that false. It is the same drift documented in `memory/project_description_drift_pattern.md`; check `git rev-parse --abbrev-ref HEAD` rather than trusting this line.*
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-08-25 — THE DAY THE TONE STOPPED GALLOPING
+
+Session ran 2026-08-24 evening through 2026-08-25 02:40, sealed under the new
+date because it crossed midnight. **20 commits on `honest-tx-audio`,
+`d450939c` through `98931bac`. +5,252 / -174. Suite 378 → 463.**
+
+Don's build shipped: **4.1.16.1414**, Debug x64, no version bump, on Dropbox
+under debug/, and on the NAS under historical/4.1.16.1414/x64-debug/. Both verified by byte
+size, not by the script's own report.
+
+### The headline
+
+**#208 and #196 are closed. The galloping tone is gone, confirmed at a real
+radio.** Noel: *"The tone comes through perfectly, switches to mic, unkey, key
+up with tone, unkey. All perfect."*
+
+The cause was that a synthesized tone has no clock and was borrowing the
+microphone's. That handed a computed signal every property of a capture device
+it never touched — including the device's true sample rate. A device a fraction
+of a percent off nominal produces a CONSTANT rate error, and a constant rate
+error against the radio's jitter buffer produces a PERIODIC correction. That is
+why it was heard as a metronome at roughly 750 ms rather than as something
+ragged.
+
+Built as `TxSampleClock` (elapsed-time accumulator, never a per-call delta),
+`TxFramePump`, and `TxSelfClockedSource` (background thread, #14's lesson).
+Plus `TxFramePipeline` — the one definition of inject/condition/meter/encode/
+send, shared by both producers, because with two producers the promise that
+"the tone rides the identical path a voice does" stops being checkable prose
+and has to become a type.
+
+The gate Noel ratified: **outer is unkey and stops everything regardless of
+source; inner selects the producer and asks Idle, not Engaged.** `Idle` is new
+on `ITxInputSource` and is deliberately NOT the negation of `Engaged` — the gap
+is the ten milliseconds after a release while the source still ramps down.
+
+### The theme, again, and it caught me too
+
+Instruments answering a question nobody asked. Six times:
+
+- The **progress voice I shipped at 18:40 fell silent one second into a
+  six-second wait.** Stop was in `DiscoveringRadiosWindow`'s constructor, and
+  that constructor is followed immediately by the 5.6 seconds it was meant to
+  cover. Constructed is not announced. Zero repeats fired — the repeat being
+  the entire reason it exists.
+- The **conditioning advice would have been wrong for Don.** Gate, RNNoise and
+  spectral subtraction all default OFF, and he arrives with a settings file
+  that predates all three. Caught by Noel knowing his tester, not by a test.
+- **`ExplainSplit` compared the tones as a bloc before checking whether the two
+  tone probes agreed with each other** — a confident answer about the wrong
+  comparison. Caught by its own test.
+- The **evidence block reorder passed all 448 tests** because nothing guarded
+  the order. Now seven tests, mutation-verified four ways.
+- The **device enumeration logged everything except the sample rate**, which is
+  the number that decides three user-visible behaviours.
+- **I reported the NAS unreachable when it was fine.** `Test-Path` returned
+  False because my shell had no SMB session; the archive had already succeeded.
+  A negative from an instrument I never gave a positive control.
+
+### Also shipped
+
+- **#209 key-map repair verified end-to-end** on the real damaged config.
+- **Access keys** in AudioDevicesDialog — seven existed, all on buttons, none
+  reaching a device list or the audio system. Alt+A/P/I/Q/D/T now do.
+- **Focus lands on the Audio system combo**, which governs both lists.
+- **Evidence block reordered (#217)**: operator's SmartSDR claim first, radio
+  identity, readings, then our interpretation LAST and labelled as ours.
+- **`SmartSdrCrossCheck`** — four states, and the third routes the operator
+  AWAY from Flex when it works in SmartSDR, because then the bug is ours.
+- **`TxDifferential` / `TxToneLadder` / `TxProbeSet`** — the measuring half of
+  #218, fully tested. The UI is not built; the hand-driven procedure is in
+  Don's NOTES.
+- **PTT JAWS detector (#216)** — detection only, no behaviour change.
+
+### Cross-surface
+
+- JJFlex `honest-tx-audio` only. 18 sprint33/34 worktrees untouched today.
+- **Freight Fate**: `feat/career-1.9`, 1 dirty, **16 unpushed**, none today.
+  Its JAWS input fix (`e1a656a5`) is what produced SilkTune's redesign.
+- **Civ VI Access**: `main`, 2 dirty, **45 unpushed**, none today. Both push
+  counts unchanged since 2026-08-01 and both are Noel's call.
+- Memory: 9 files written or modified.
+- **GAP FOUND: the last AAR is 2026-08-22.** 08-23 and 08-24 appear unsealed.
+
+### Seal mechanics — recorded because two of them were wrong
+
+Everything below ran AFTER this entry was first drafted, so the entry is
+amended rather than rewritten.
+
+- **The blocked-scripts diagnosis in `SEAL-IN-PROGRESS.md` was wrong.** It said
+  PowerShell execution policy. The real fault: Windows PowerShell 5.1, invoked
+  through the Bash sandbox, could not load `Microsoft.PowerShell.Security` at
+  all. Run through **pwsh 7 with the call operator** and every script works with
+  no policy override. Fourth instance of the day's theme, and I committed it
+  while cleaning up the third.
+- **NAS given a positive control before being believed this time.** A local path
+  known to exist returned True first; only then were the NAS results trusted.
+- Backups, all verified from their own output rather than an exit code: memory
+  **10 of 10 projects**; Claude state **344.1 MB zip from 935 MB staged**;
+  AppData config **73 files**; private docs run **twice**, the second at 129
+  files so it captures today's AAR. Dev mirror running at seal time.
+- Nightly published to Dropbox TOP LEVEL: `JJFlex_4.1.16.1414_x64_nightly.zip`,
+  replacing 4.1.16.861. Byte-verified identical across Dropbox top level,
+  Dropbox `debug\`, and NAS — 88,411,040 and 6,039.
+- Rigmeter snapshot on NAS as `2026-08-25-98931bac.json`. Totals: 1,253 authored
+  files / 316,146 lines, 189 vendor files / 55,743 lines.
+- Task register regenerated: **216 tasks, 93 open, 123 closed.**
+- **Memory drift check found a real one and it was fixed.**
+  `project_jim_era_logger_code_slated_for_replacement` still called
+  `Radios/AuthForm.cs` an `[Obsolete]`-marked fallback. It was deleted in
+  `ba6b2e2b`; CLAUDE.md carried the same wrong claim until 2026-08-21 and was
+  corrected then, the memory entry was not. Now corrected, keeping the shape of
+  the error, because "legacy, still present" is exactly the description that
+  outlives the file. Count is 24 flagged entries against 15 last seal — most of
+  the multi-hit ones name estates this machine does not hold.
+
+### CLAUDE.md drift — two items, flagged not applied
+
+1. **Claude-state backup size is stale.** CLAUDE.md says "expect ~180 MB
+   compressed from ~415 MB raw." Actual: **344.1 MB from 935 MB**. The tree has
+   roughly doubled; a future session could read a correct result as anomalous.
+2. **This file's own header said `honest-tx-audio` was 19 commits ahead of
+   `main`.** It is **610** — corrected in this commit. Same description-drift
+   class the header itself warns about, three lines below the wrong number.
+
+### Setup for tomorrow
+
+1. **Don runs the build.** His machine is the ONLY thing that can answer #216,
+   because he is our only JAWS coverage and Noel has told him to stay on JAWS.
+2. **#218's UI** — the two-step flow with the two skip buttons. Engines done.
+3. **#215** — the six seconds is `StartLocalDiscovery` into `apiInit` on the UI
+   thread. Four startup phases now trace elapsed ms; next launch attributes it.
+4. **#220** — Noel writes the SmartSDR keying steps; we do not guess them.
+5. **#180 blocks the automated transmit half of #218.** No unattended keying
+   until the load is declared.
 
 ## END-OF-DAY SEAL — 2026-08-22 — THE DAY A WARNING WORKED AND STILL FAILED
 
