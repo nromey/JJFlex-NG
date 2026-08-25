@@ -239,6 +239,43 @@ namespace Radios.ChainChecks
         }
 
         /// <summary>
+        /// May the probe key the transmitter? Pure, so every combination is
+        /// testable without a radio.
+        /// </summary>
+        /// <returns>
+        /// <see cref="SkipReason.None"/> when it may proceed, otherwise the
+        /// reason it may not.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// Split out from the runner because the runner could only ever be
+        /// tested down its first branch — with no radio you can never reach the
+        /// load-declaration gate, so the gate that MATTERS MOST was the one
+        /// nothing could exercise. Policy and plumbing are different jobs and
+        /// only one of them needs a radio in the room.
+        /// </para>
+        /// <para>
+        /// Order is deliberate. Without a radio nothing else is even knowable —
+        /// we cannot ask whether it is transmitting. The load gate comes next
+        /// because it is a POLICY refusal (#180) rather than a capability one:
+        /// it must not be reachable only by accident of what else happens to be
+        /// wrong. Already-transmitting is last because it is a fact about the
+        /// world rather than about us.
+        /// </para>
+        /// </remarks>
+        public static SkipReason CheckPreconditions(bool haveRadio,
+                                                    bool loadDeclared,
+                                                    bool alreadyTransmitting,
+                                                    bool cancelled)
+        {
+            if (cancelled) return SkipReason.Cancelled;
+            if (!haveRadio) return SkipReason.RadioNotReachable;
+            if (!loadDeclared) return SkipReason.LoadNotDeclared;
+            if (alreadyTransmitting) return SkipReason.AlreadyTransmitting;
+            return SkipReason.None;
+        }
+
+        /// <summary>
         /// Abort above this computed SWR. Higher than <see cref="SwrSuspect"/>
         /// on purpose: "suspect" is something to report, this is something to
         /// act on.
