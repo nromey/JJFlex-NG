@@ -159,11 +159,13 @@ namespace Radios.Fixer
                     Title = "Microphone check",
                     Question = "Is sound from your microphone arriving in this computer?",
                     Explanation =
-                        "This listens to your microphone with no radio involved at all. It "
-                        + "proves — or rules out — the very first link in the chain, and its "
-                        + "result is kept as a baseline: if the spoken transmit check fails "
-                        + "later, what it means depends on whether your microphone measured "
-                        + "well here.",
+                        "This listens to your microphone with the radio out of the "
+                        + "picture entirely, and reports the peak in dBFS along with the "
+                        + "integrated loudness in LUFS. It settles the first link in the "
+                        + "chain before anything downstream is blamed for it. The reading "
+                        + "is also kept as a baseline, because stage 4 is judged against "
+                        + "it: a quiet result there means something quite different "
+                        + "depending on whether your microphone measured well here.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/microphone-check",
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
@@ -176,15 +178,16 @@ namespace Radios.Fixer
                     Id = TransmitterCheck,
                     Number = 2,
                     Title = "Transmitter check",
-                    Question = "Does the transmitter make power, with audio out of the "
-                             + "picture entirely?",
+                    Question = "Does the transmitter make power with no audio involved?",
                     Explanation =
-                        "The radio is asked to key its own tune carrier — no microphone, no "
-                        + "computer audio, and no streaming is involved. If power appears, the "
-                        + "transmitter works and anything wrong lies in the audio path. If "
-                        + "no power appears, this was never an audio problem, and no "
-                        + "microphone test would have found it. Nothing is transmitted "
-                        + "until you have said what is connected to the antenna port.",
+                        "The radio keys its own tune carrier, so no microphone, no "
+                        + "computer audio and no streaming take any part in this. Forward "
+                        + "power and SWR are read while it is keyed. If power appears, the "
+                        + "transmitter is working and whatever is wrong lies somewhere in "
+                        + "the audio path. If no power appears, you never had an audio "
+                        + "problem at all, and no amount of microphone testing would have "
+                        + "found it. Nothing is transmitted until you have said what is "
+                        + "connected to the antenna port.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/transmitter-check",
                     SkipChoices = new[] { operatorSkip },
@@ -201,11 +204,13 @@ namespace Radios.Fixer
                     Question = "Does audio reach the radio when your microphone is bypassed?",
                     Explanation =
                         "Tones and a generated voice are sent to the radio with your "
-                        + "microphone taken out of the path. This check and the spoken "
-                        + "check differ in exactly one thing: whether your microphone is "
-                        + "involved. So if this one works and the spoken one does not, "
-                        + "your microphone is the problem. If neither works, your "
-                        + "microphone is not the problem.",
+                        + "microphone taken out of the path, and the radio's own SC_MIC "
+                        + "meter is watched to see what arrives. This check and stage 4 "
+                        + "differ in exactly one thing, which is whether your microphone "
+                        + "is involved. If this one works and stage 4 does not, your "
+                        + "microphone is the problem. If neither works, your microphone is "
+                        + "not the problem, and the fault lies between this computer and "
+                        + "the radio.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/injected-transmit",
                     SkipChoices = new[] { operatorSkip },
@@ -220,10 +225,13 @@ namespace Radios.Fixer
                     Title = "Spoken transmit",
                     Question = "Does your voice reach the radio through your microphone?",
                     Explanation =
-                        "You speak, and this watches whether your voice reaches the radio. "
-                        + "It differs from the injected check in exactly one thing — your "
-                        + "microphone is in the path — and it is read against the "
-                        + "microphone check's earlier result rather than on its own.",
+                        "You speak, and the radio's SC_MIC meter is watched to see what "
+                        + "arrives. This is the same measurement stage 3 made, with your "
+                        + "microphone put back into the path — that one difference is what "
+                        + "makes the pair worth running. The result is read against your "
+                        + "stage 1 microphone reading rather than judged on its own, so a "
+                        + "quiet result here on a microphone that measured well earlier "
+                        + "points somewhere quite specific.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/spoken-transmit",
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
