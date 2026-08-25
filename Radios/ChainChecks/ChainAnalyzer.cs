@@ -408,22 +408,59 @@ namespace Radios.ChainChecks
         /// Supplied by the caller, which reads them from
         /// <see cref="DiagnosticSnapshot"/> — nothing here assembles its own
         /// version strings.</param>
-        public string EvidenceText(IEnumerable<string> station = null, IEnumerable<string> build = null)
+        /// <param name="reproduction">
+        /// The operator's own statement that the fault also happens outside JJ
+        /// Flexible — typically in SmartSDR. Goes FIRST, because it is the
+        /// sentence that reframes the whole document from a third-party
+        /// complaint into a question about the radio.
+        /// <para>
+        /// We can never write this ourselves and must never imply it. Only the
+        /// operator knows, and an unverifiable claim in our voice would poison
+        /// the one section a vendor is most likely to act on. Empty means the
+        /// section is omitted entirely rather than hedged.
+        /// </para>
+        /// </param>
+        public string EvidenceText(IEnumerable<string> station = null, IEnumerable<string> build = null,
+                                   string reproduction = null)
         {
             var sb = new StringBuilder();
 
-            sb.Append(Rules?.Title ?? "Chain check").AppendLine(" — evidence");
+            sb.Append(Rules?.Title ?? "Chain check").AppendLine(" — measurements");
             sb.Append("Taken ").Append(At.ToString("d MMMM yyyy, HH:mm:ss", CultureInfo.CurrentCulture))
               .Append(' ').Append(TimeZoneInfo.Local.StandardName).AppendLine(".");
             sb.AppendLine();
 
-            sb.AppendLine("Verdict");
-            sb.Append("  ").AppendLine(Headline());
-            sb.Append("  ").AppendLine(Census());
-            if (FirstBroken?.Rule != null)
-                sb.Append("  Recognised by rule ").Append(FirstBroken.Rule.Id)
-                  .Append(" at ").Append(FirstBroken.Title).AppendLine(".");
-            sb.AppendLine();
+            // ── ORDER RULED BY NOEL, 2026-08-25 ────────────────────────────
+            //
+            // "They won't wanna touch JJ Flexible with a ten foot pole — that's
+            // us that does that. But they will care if we say we tried it in
+            // SmartSDR, here are the goods you can use to tell where fault
+            // happens."
+            //
+            // This block used to lead with OUR verdict, OUR census and the rule
+            // id that produced them. That is a well-made bug report FROM A
+            // THIRD-PARTY APPLICATION, and the predictable reply from any
+            // vendor's support desk is "that is third-party software, please
+            // reproduce in SmartSDR" — at which point the operator has spent
+            // their credibility and still has to do the work.
+            //
+            // The litmus test for every line here: WOULD THIS STILL BE USEFUL
+            // TO SOMEONE WHO DISTRUSTS OUR SOFTWARE COMPLETELY? The radio's own
+            // identity passes. Named readings with timestamps pass. Our verdict
+            // does not — not because it is wrong, but because it is ours, and a
+            // reader discounting our software discounts the numbers buried
+            // underneath it.
+            //
+            // So: reproduction first (the operator's claim, never ours), then
+            // the radio, then the readings, then our reading of them, clearly
+            // labelled as ours and last. See #217.
+
+            if (!string.IsNullOrWhiteSpace(reproduction))
+            {
+                sb.AppendLine("Reproduced outside JJ Flexible");
+                sb.Append("  ").AppendLine(reproduction);
+                sb.AppendLine();
+            }
 
             if (station != null)
             {
@@ -456,7 +493,24 @@ namespace Radios.ChainChecks
                 sb.Append("  ").AppendLine(s.Line());
             sb.AppendLine();
 
-            sb.AppendLine("Rules");
+            // LAST, and labelled as ours. Noel: "We need to tell them what we
+            // find, but not force them to the conclusion. Give them info to
+            // come to the conclusion." Our findings are welcome; stating them
+            // as a DIAGNOSIS is what invites an argument about whether a
+            // third-party application is qualified to judge somebody's radio.
+            // Positioned and framed so a support engineer can discard this
+            // section without discarding the measurements above it.
+            sb.AppendLine("What JJ Flexible made of the above");
+            sb.AppendLine("  This is our interpretation, not a measurement. The readings above");
+            sb.AppendLine("  stand on their own.");
+            sb.Append("  ").AppendLine(Headline());
+            sb.Append("  ").AppendLine(Census());
+            if (FirstBroken?.Rule != null)
+                sb.Append("  Recognised by rule ").Append(FirstBroken.Rule.Id)
+                  .Append(" at ").Append(FirstBroken.Title).AppendLine(".");
+            sb.AppendLine();
+
+            sb.AppendLine("How the readings were taken");
             sb.Append("  ").AppendLine(Rules?.Describe() ?? "No rules were loaded.");
             foreach (string p in RuleProblems) sb.Append("  ").AppendLine(p);
 
