@@ -44,7 +44,17 @@ internal static class PrivateDesktop
         {
             if (_desktop == IntPtr.Zero)
             {
-                var name = "JJFlexTier1_" + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                // UNIQUE PER ATTEMPT, not per process. A desktop object lives
+                // as long as a handle to it is open, so a test host that was
+                // KILLED can leave one behind — and Windows recycles process
+                // ids, so the next run picked the same name and CreateDesktop
+                // returned ERROR_BUSY (170). That is what happened on
+                // 2026-08-25: isolation failed, the failure was recorded to a
+                // property nobody read, and the dialogs went to the operator's
+                // screen instead. A Guid cannot collide with a corpse.
+                var name = "JJFlexTier1_"
+                    + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
                 _desktop = CreateDesktop(name, IntPtr.Zero, IntPtr.Zero, 0, GenericAll, IntPtr.Zero);
                 if (_desktop == IntPtr.Zero) LastError = Marshal.GetLastWin32Error();
             }

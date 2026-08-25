@@ -42,6 +42,14 @@ public static class UiThread
     /// <summary>Native thread id of the UI thread, for the modal watchdog.</summary>
     public static uint NativeThreadId { get; private set; }
 
+    /// <summary>
+    /// Whether this run was allowed to create windows, and on what grounds.
+    /// Reported so that an allowed run says WHY — "it was isolated" and
+    /// "somebody waived the check" must never look the same afterwards.
+    /// </summary>
+    internal static DeskGuard.Verdict Guard { get; private set; }
+        = DeskGuard.Verdict.RefusedIsolationFailed;
+
     public static Dispatcher Dispatcher
     {
         get
@@ -66,6 +74,26 @@ public static class UiThread
                 if (RequestPrivateDesktop)
                     Isolation = PrivateDesktop.MoveCurrentThread();
 
+                // THE RESULT IS NOW CHECKED. It used to be assigned here and
+                // read nowhere, so a failed isolation carried straight on and
+                // built the dispatcher — on the operator's own desktop. That is
+                // how a stream of dialogs reached Noel's screen on 2026-08-25
+                // while he was working: the guard ran, reported its own failure
+                // to a property nobody consulted, and let the windows through.
+                Guard = DeskGuard.Decide(RequestPrivateDesktop, Isolation,
+                                         DeskGuard.DeskDeclaredFree);
+
+                if (!DeskGuard.IsAllowed(Guard))
+                {
+                    // Do NOT create the dispatcher. No dispatcher, no window —
+                    // the refusal is enforced by the absence of the thing that
+                    // could show one, not by everyone downstream remembering to
+                    // ask. Ready is still signalled or EnsureStarted would hang
+                    // for thirty seconds and look like a different fault.
+                    ready.Set();
+                    return;
+                }
+
                 // Touching CurrentDispatcher creates it for this thread.
                 _dispatcher = Dispatcher.CurrentDispatcher;
                 ready.Set();
@@ -78,6 +106,16 @@ public static class UiThread
             thread.SetApartmentState(ApartmentState.STA);
             thread.Start();
             ready.Wait(TimeSpan.FromSeconds(30));
+
+            // The thread signals ready either way. A null dispatcher means the
+            // guard refused, and that must surface as a clear stop rather than
+            // as a null-reference somewhere downstream — the reason it refused
+            // is the whole point, and a NullReferenceException would throw it
+            // away.
+            if (_dispatcher == null)
+                throw new DeskNotFreeException(
+                    DeskGuard.Explain(Guard, PrivateDesktop.LastError));
+
             _thread = thread;
         }
     }
@@ -121,7 +159,20 @@ public static class UiThread
         {
             try
             {
-                if (privateDesktop) PrivateDesktop.MoveCurrentThread();
+                // THE SECOND DOOR. This path creates its own thread and used
+                // to discard the isolation result entirely — not merely unread,
+                // as in EnsureStarted, but never even assigned — and then run
+                // the body regardless. A gate on one door is not a gate.
+                var isolation = privateDesktop
+                    ? PrivateDesktop.MoveCurrentThread()
+                    : DesktopIsolation.NotAttempted;
+
+                var verdict = DeskGuard.Decide(privateDesktop, isolation,
+                                               DeskGuard.DeskDeclaredFree);
+                if (!DeskGuard.IsAllowed(verdict))
+                    throw new DeskNotFreeException(
+                        DeskGuard.Explain(verdict, PrivateDesktop.LastError));
+
                 result = body();
             }
             catch (Exception ex)
