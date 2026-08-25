@@ -322,18 +322,26 @@ public partial class AudioWorkshopDialog : JJFlexDialog
     /// </summary>
     protected override void FocusFirstControl()
     {
-        if (MainTabs.SelectedIndex == 0)
-        {
-            if (NoInputDeviceChosen() && _deviceReadingBox != null
-                && _deviceReadingBox.Focus())
-                return;
-            if (_startCheckButton != null && _startCheckButton.Focus())
-                return;
-        }
-        // Opened on any other category: land on the category list, which says
-        // which one (Sprint 32 Track G). The old fallback walked tab order and
-        // landed on Load Preset — a control that tells the operator nothing
-        // about where the deep link just took them.
+        // ALWAYS the category list, whichever category you arrived on.
+        //
+        // Until 2026-08-25 opening the Workshop plainly took you straight to
+        // Start Audio Check — an express lane that made sense while this was
+        // the ONLY place to check your audio. The Fixer Tool now owns that
+        // job, so the shortcut had become a second door to a thing that has
+        // its own door, and landing on it told you nothing about where you
+        // were. Noel, on opening it with both surfaces present: "it is
+        // confusing to me looking at it now with the fix tool being
+        // available."
+        //
+        // The category list says which category you are in, which is what an
+        // operator arriving anywhere needs first — whether they came by menu,
+        // by key, or by a deep link from somewhere else.
+        //
+        // Dropped with it: the special case that put you on the device
+        // reading when no input was chosen. That was help for running a
+        // CHECK, and the check is the Fixer's now. If it turns out to be
+        // missed, it belongs in the Fixer's audio-setup stage rather than
+        // back here.
         if (_categories.FocusSelectedCategory()) return;
         base.FocusFirstControl();
     }
