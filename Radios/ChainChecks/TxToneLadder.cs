@@ -188,6 +188,98 @@ namespace Radios.ChainChecks
         private static int Clamp(int hz)
             => hz < MinToneHz ? MinToneHz : (hz > MaxToneHz ? MaxToneHz : hz);
 
+        /// <summary>What to do about the mode the radio is in.</summary>
+        public enum ModeAction
+        {
+            /// <summary>The mode is already one the ladder can measure.</summary>
+            RunAsIs,
+            /// <summary>Switch to <see cref="ModePlan.SwitchTo"/>, then restore.</summary>
+            SwitchAndRestore,
+            /// <summary>Do not run. <see cref="ModePlan.Reason"/> says why.</summary>
+            Refuse,
+        }
+
+        /// <summary>The decision, and enough to act on and to report.</summary>
+        public readonly struct ModePlan
+        {
+            public readonly ModeAction Action;
+            public readonly string CurrentMode;
+            public readonly string SwitchTo;
+            public readonly string Reason;
+
+            private ModePlan(ModeAction a, string current, string to, string why)
+            { Action = a; CurrentMode = current ?? ""; SwitchTo = to ?? ""; Reason = why ?? ""; }
+
+            public static ModePlan AsIs(string current)
+                => new ModePlan(ModeAction.RunAsIs, current, current, "");
+            public static ModePlan Switch(string current, string to, string why)
+                => new ModePlan(ModeAction.SwitchAndRestore, current, to, why);
+            public static ModePlan No(string current, string why)
+                => new ModePlan(ModeAction.Refuse, current, "", why);
+        }
+
+        /// <summary>
+        /// Below this, the band convention is lower sideband; at or above it,
+        /// upper. Only matters when transmitting into a real antenna, but it
+        /// costs nothing to be right.
+        /// </summary>
+        public const ulong SidebandCrossoverHz = 10_000_000UL;
+
+        /// <summary>
+        /// Decide what to do about the current mode. Pure.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// RULED BY NOEL 2026-08-25: "switch to an appropriate mode if the rig
+        /// is in FM or something weird, then switch back after test." So the
+        /// ladder drives the radio into a mode it can measure rather than
+        /// declining — with one exception.
+        /// </para>
+        /// <para>
+        /// <b>CW is refused rather than switched.</b> Not because switching is
+        /// hard, but because CW has NO TRANSMIT AUDIO PATH at all: switching
+        /// out of it to run a tone ladder would measure a path that operator
+        /// never uses, and report it as though it were theirs. The TUNE probe
+        /// (#222) works in CW natively and is the honest answer there.
+        /// </para>
+        /// <para>
+        /// <b>The caller must read the filter cuts AFTER acting on this, never
+        /// before.</b> TX filter cuts are per-mode, so cuts read before a
+        /// switch describe a passband the test is not going to run in — which
+        /// reintroduces the very bug DeriveRungs exists to fix, one layer
+        /// deeper and harder to see, because the code would then contain a
+        /// truthful-looking "we read the real value" that is still wrong.
+        /// </para>
+        /// </remarks>
+        public static ModePlan PlanForMode(string currentMode, ulong txFrequencyHz)
+        {
+            string mode = (currentMode ?? "").Trim().ToUpperInvariant();
+
+            if (mode.Length == 0)
+                return ModePlan.No(currentMode,
+                    "the radio did not report which mode it is in, so it is not known "
+                    + "whether a tone test would measure anything meaningful");
+
+            if (mode == "CW")
+                return ModePlan.No(currentMode,
+                    "in CW there is no transmit audio path to measure. Switching out of CW "
+                    + "would test a path you do not use. Use the transmitter check instead, "
+                    + "which works in CW.");
+
+            if (mode == "USB" || mode == "LSB")
+                return ModePlan.AsIs(currentMode);
+
+            string want = ConventionalSideband(txFrequencyHz);
+            return ModePlan.Switch(currentMode, want,
+                "a tone ladder measures a voice transmit filter, and " + currentMode
+                + " does not have one in the same sense. Switching to " + want
+                + " for the test and putting " + currentMode + " back afterwards.");
+        }
+
+        /// <summary>The sideband convention for a frequency.</summary>
+        public static string ConventionalSideband(ulong hz)
+            => hz >= SidebandCrossoverHz ? "USB" : "LSB";
+
         /// <summary>The frequency every rung is measured against.</summary>
         public const int ReferenceHz = 1000;
 
