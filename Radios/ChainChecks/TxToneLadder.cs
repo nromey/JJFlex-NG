@@ -76,37 +76,117 @@ namespace Radios.ChainChecks
         }
 
         /// <summary>
-        /// The ladder. Six rungs, low to high.
+        /// The passband the ladder was derived against, or a record that it
+        /// could not be read.
         /// </summary>
         /// <remarks>
-        /// Chosen for what each one can reveal, not for even spacing:
-        /// 200 sits below any sane SSB filter; 300 is the classic low corner;
-        /// 700 and 1500 bracket where speech intelligibility actually lives;
-        /// 2400 sits just inside a 2.7 kHz filter; 3200 is above it. The pair
-        /// at the ends are the controls, the four in the middle are the
-        /// measurement.
+        /// A ladder result without the passband it was measured against cannot
+        /// be re-read later and cannot be compared between two operators. The
+        /// cuts travel with the measurement for the same reason the antenna
+        /// port does (#188).
+        /// </remarks>
+        public readonly struct Passband
+        {
+            public readonly bool Known;
+            public readonly int LowHz;
+            public readonly int HighHz;
+
+            private Passband(bool known, int low, int high)
+            { Known = known; LowHz = low; HighHz = high; }
+
+            public static Passband Read(int lowHz, int highHz)
+                => new Passband(true, lowHz, highHz);
+
+            public static readonly Passband Unknown = new Passband(false, 0, 0);
+
+            public int WidthHz => Known ? HighHz - LowHz : 0;
+
+            public override string ToString()
+                => Known
+                    ? LowHz.ToString(CultureInfo.InvariantCulture) + " to "
+                      + HighHz.ToString(CultureInfo.InvariantCulture) + " Hz"
+                    : "not read";
+        }
+
+        /// <summary>
+        /// How far outside the measured passband the control rungs sit.
+        /// </summary>
+        /// <remarks>
+        /// Far enough that a filter with any real skirt has clearly rolled off,
+        /// and not so far that the tone leaves the range the transmit chain can
+        /// carry at all. A control that is merely at the edge proves nothing:
+        /// filters do not stop dead at their stated corner.
+        /// </remarks>
+        public const int ControlMarginHz = 250;
+
+        /// <summary>Lowest tone worth asking for. Below this the chain, the
+        /// meters and most loudspeakers stop being informative together.</summary>
+        public const int MinToneHz = 50;
+
+        /// <summary>Highest tone worth asking for.</summary>
+        public const int MaxToneHz = 6000;
+
+        /// <summary>How many rungs sit inside the passband.</summary>
+        public const int InPassbandRungs = 4;
+
+        /// <summary>
+        /// Build the ladder for a MEASURED passband. Pure; the caller reads
+        /// TXFilterLow and TXFilterHigh from the radio and passes them in.
+        /// </summary>
+        /// <remarks>
         /// <para>
-        /// 1000 Hz is deliberately NOT here as a rung of its own — it is the
-        /// reference the rest are compared against, and it is what the single
-        /// tone has always used, so it stays the level-setting tone rather than
-        /// becoming one data point among six.
+        /// <b>This replaced a hardcoded six-rung ladder that assumed 300 Hz to
+        /// 2.7 kHz.</b> That assumption was written in the code's own comments
+        /// as though it were a fact; it is a SETTING, and the radio reports it.
+        /// On a wide filter both controls fell INSIDE the passband, came back
+        /// unattenuated, and the ladder reported a broken filter on a radio
+        /// whose filter was fine. On a narrow one, genuine in-band rungs read
+        /// as attenuated. Either way a confident wrong answer, which is the one
+        /// outcome worse than no test (#221).
+        /// </para>
+        /// <para>
+        /// The controls are placed relative to the MEASURED edges, so they are
+        /// outside the passband by construction rather than by luck. The
+        /// in-band rungs are spread across the real width instead of sitting at
+        /// remembered frequencies that may or may not be inside it.
         /// </para>
         /// </remarks>
-        public static readonly Rung[] Rungs =
+        public static Rung[] DeriveRungs(Passband band)
         {
-            new Rung(200,  Placement.BelowPassband,
-                     "below any normal transmit filter — should come back quieter"),
-            new Rung(300,  Placement.InPassband,
-                     "the low corner most SSB filters are built around"),
-            new Rung(700,  Placement.InPassband,
-                     "low speech, where a voice gets its weight"),
-            new Rung(1500, Placement.InPassband,
-                     "where most of the intelligibility lives"),
-            new Rung(2400, Placement.InPassband,
-                     "just inside the high corner of a 2.7 kilohertz filter"),
-            new Rung(3200, Placement.AbovePassband,
-                     "above a normal transmit filter — should come back quieter"),
-        };
+            if (!band.Known || band.WidthHz <= 0) return Array.Empty<Rung>();
+
+            var rungs = new List<Rung>(InPassbandRungs + 2);
+
+            int below = Clamp(band.LowHz - ControlMarginHz);
+            if (below < band.LowHz)
+                rungs.Add(new Rung(below, Placement.BelowPassband,
+                    "below your transmit filter's low edge of "
+                    + band.LowHz.ToString(CultureInfo.InvariantCulture)
+                    + " hertz — should come back quieter"));
+
+            // Spread inside the passband, avoiding both edges: a rung sitting
+            // exactly on a corner is neither in nor out, and reads as whichever
+            // the filter's skirt happens to make it.
+            for (int i = 1; i <= InPassbandRungs; i++)
+            {
+                int hz = band.LowHz + (int)Math.Round(band.WidthHz * (i / (double)(InPassbandRungs + 1)));
+                hz = Clamp(hz);
+                rungs.Add(new Rung(hz, Placement.InPassband,
+                    "inside your transmit filter — should come back at full level"));
+            }
+
+            int above = Clamp(band.HighHz + ControlMarginHz);
+            if (above > band.HighHz)
+                rungs.Add(new Rung(above, Placement.AbovePassband,
+                    "above your transmit filter's high edge of "
+                    + band.HighHz.ToString(CultureInfo.InvariantCulture)
+                    + " hertz — should come back quieter"));
+
+            return rungs.ToArray();
+        }
+
+        private static int Clamp(int hz)
+            => hz < MinToneHz ? MinToneHz : (hz > MaxToneHz ? MaxToneHz : hz);
 
         /// <summary>The frequency every rung is measured against.</summary>
         public const int ReferenceHz = 1000;
@@ -120,8 +200,18 @@ namespace Radios.ChainChecks
         /// </remarks>
         public const int RungMs = 1500;
 
-        /// <summary>Total airtime for a full ladder including the reference.</summary>
-        public static int TotalMs => (Rungs.Length + 1) * RungMs;
+        /// <summary>
+        /// Total airtime for a ladder, including the reference tone.
+        /// </summary>
+        /// <remarks>
+        /// Takes the rungs rather than reading a fixed list, because the ladder
+        /// is now derived from the operator's actual passband and a wide filter
+        /// does not produce the same airtime as a narrow one. An operator is
+        /// told how long their radio will be transmitting before it starts, so
+        /// this has to be the real figure and not a remembered one.
+        /// </remarks>
+        public static int TotalMsFor(IReadOnlyList<Rung> rungs)
+            => ((rungs?.Count ?? 0) + 1) * RungMs;
 
         /// <summary>
         /// How far down a rung must read before it counts as attenuated.

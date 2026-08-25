@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Radios.ChainChecks;
 using Xunit;
@@ -267,21 +268,34 @@ namespace Radios.Tests
     {
         private const double Ref = -10.0;
 
+        /// <summary>
+        /// The filter these fixtures describe. Stated rather than assumed —
+        /// the ladder is derived from the operator's real passband now, so a
+        /// reading only means something alongside the cuts it was taken under.
+        /// </summary>
+        private static readonly Ladder.Passband Band = Ladder.Passband.Read(300, 2700);
+
+        private static Ladder.Rung[] Rungs => Ladder.DeriveRungs(Band);
+
         private static Ladder.RungReading Read(int hz, double db, bool reported = true)
         {
-            Ladder.Rung rung = Ladder.Rungs.First(r => r.Hz == hz);
+            Ladder.Rung rung = Rungs.First(r => r.Hz == hz);
             return new Ladder.RungReading(rung, db, reported);
         }
+
+        /// <summary>The nth rung's frequency, so fixtures do not hardcode tones
+        /// the derivation is free to change.</summary>
+        private static int Hz(int index) => Rungs[index].Hz;
 
         /// <summary>Every in-band rung flat at the reference, both ends well down.</summary>
         private static List<Ladder.RungReading> HealthyFilter() => new()
         {
-            Read(200,  Ref - 20),
-            Read(300,  Ref - 1),
-            Read(700,  Ref),
-            Read(1500, Ref - 0.5),
-            Read(2400, Ref - 2),
-            Read(3200, Ref - 25),
+            Read(Hz(0), Ref - 20),   // below the passband: well down
+            Read(Hz(1), Ref - 1),
+            Read(Hz(2), Ref),
+            Read(Hz(3), Ref - 0.5),
+            Read(Hz(4), Ref - 2),
+            Read(Hz(5), Ref - 25),   // above the passband: well down
         };
 
         [Fact]
@@ -289,9 +303,9 @@ namespace Radios.Tests
         {
             // Without a rung below AND above, there is no control on the filter
             // and the in-band numbers cannot be trusted to mean anything.
-            Assert.Contains(Ladder.Rungs, r => r.Placement == Ladder.Placement.BelowPassband);
-            Assert.Contains(Ladder.Rungs, r => r.Placement == Ladder.Placement.AbovePassband);
-            Assert.True(Ladder.Rungs.Count(r => r.Placement == Ladder.Placement.InPassband) >= 3,
+            Assert.Contains(Rungs, r => r.Placement == Ladder.Placement.BelowPassband);
+            Assert.Contains(Rungs, r => r.Placement == Ladder.Placement.AbovePassband);
+            Assert.True(Rungs.Count(r => r.Placement == Ladder.Placement.InPassband) >= 3,
                 "too few in-band rungs to see a shape");
         }
 
@@ -300,7 +314,7 @@ namespace Radios.Tests
         {
             // The purpose text is read by an operator deciding whether a result
             // matters. A rung with no stated purpose is a number nobody can use.
-            Assert.All(Ladder.Rungs, r => Assert.False(string.IsNullOrWhiteSpace(r.Purpose)));
+            Assert.All(Rungs, r => Assert.False(string.IsNullOrWhiteSpace(r.Purpose)));
         }
 
         [Fact]
@@ -319,8 +333,8 @@ namespace Radios.Tests
             // keeps finding.
             var flatEverywhere = new List<Ladder.RungReading>
             {
-                Read(200, Ref), Read(300, Ref), Read(700, Ref),
-                Read(1500, Ref), Read(2400, Ref), Read(3200, Ref),
+                Read(Hz(0), Ref), Read(Hz(1), Ref), Read(Hz(2), Ref),
+                Read(Hz(3), Ref), Read(Hz(4), Ref), Read(Hz(5), Ref),
             };
 
             Assert.Equal(Ladder.LadderVerdict.NoFilterSeen, Ladder.Read(Ref, flatEverywhere));
@@ -334,7 +348,7 @@ namespace Radios.Tests
         public void Uneven_in_band_rungs_report_shaping()
         {
             var shaped = HealthyFilter();
-            shaped[3] = Read(1500, Ref - 12);   // a big dip where speech lives
+            shaped[3] = Read(Hz(3), Ref - 12);   // a big dip mid-passband
 
             Assert.Equal(Ladder.LadderVerdict.ShapedInBand, Ladder.Read(Ref, shaped));
             Assert.Contains("shaping your audio", Ladder.Describe(Ref, shaped));
@@ -343,7 +357,7 @@ namespace Radios.Tests
         [Fact]
         public void Too_few_readings_is_incomplete_not_a_verdict()
         {
-            var thin = new List<Ladder.RungReading> { Read(700, Ref), Read(1500, Ref) };
+            var thin = new List<Ladder.RungReading> { Read(Hz(2), Ref), Read(Hz(3), Ref) };
             Assert.Equal(Ladder.LadderVerdict.Incomplete, Ladder.Read(Ref, thin));
         }
 
@@ -351,8 +365,8 @@ namespace Radios.Tests
         public void An_unreported_rung_does_not_count_toward_a_verdict()
         {
             var partial = HealthyFilter();
-            partial[0] = Read(200, 0, reported: false);
-            partial[5] = Read(3200, 0, reported: false);
+            partial[0] = Read(Hz(0), 0, reported: false);
+            partial[5] = Read(Hz(5), 0, reported: false);
 
             // Both controls gone, so no verdict, however tidy the middle looks.
             Assert.Equal(Ladder.LadderVerdict.Incomplete, Ladder.Read(Ref, partial));
@@ -366,8 +380,11 @@ namespace Radios.Tests
             string d = Ladder.Describe(Ref, HealthyFilter());
 
             Assert.Contains("against the reference", d);
-            Assert.Contains("200 hertz", d);
-            Assert.Contains("3200 hertz", d);
+            // The control frequencies are derived from the operator's filter,
+            // so name them from the ladder rather than from memory — that is
+            // the whole point of the change (#221).
+            Assert.Contains(Hz(0).ToString(CultureInfo.InvariantCulture) + " hertz", d);
+            Assert.Contains(Hz(5).ToString(CultureInfo.InvariantCulture) + " hertz", d);
         }
 
         [Fact]
@@ -376,8 +393,9 @@ namespace Radios.Tests
             // Seven steps including the reference. Long enough for the radio's
             // meters to settle on each, short enough that nobody's arm aches
             // and no transmit timeout wakes up.
-            Assert.True(Ladder.TotalMs <= 15000,
-                "a ladder of " + Ladder.TotalMs + " ms is too long to hold a PTT key through");
+            int total = Ladder.TotalMsFor(Rungs);
+            Assert.True(total <= 15000,
+                "a ladder of " + total + " ms is too long to hold a PTT key through");
         }
     }
 }
