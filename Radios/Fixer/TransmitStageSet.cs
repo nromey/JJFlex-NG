@@ -128,15 +128,14 @@ namespace Radios.Fixer
                     Id = AudioSetup,
                     Number = 0,
                     Title = "Audio setup",
-                    Question = "What is your computer's audio actually set to right now?",
+                    Question = "What is your audio actually doing right now?",
                     Explanation =
-                        "This asks your audio system what it is actually doing right "
-                        + "now: which sound system it opened, which microphone, which "
-                        + "speakers, what sample rate, and how many channels. It asks the "
-                        + "audio system itself rather than reading your settings, because "
-                        + "the two can disagree — and when they disagree, that is often "
-                        + "the whole problem. Anything here that this stage knows how to "
-                        + "put right, it offers to fix for you.",
+                        "Reads the open audio stream directly: host API, input and "
+                        + "output device, sample rate, channel count. Not your saved "
+                        + "settings — the stream itself. Those two disagree more often "
+                        + "than anyone expects, and when they do, the disagreement is "
+                        + "usually the fault. You would never spot it on a settings page. "
+                        + "Nothing here keys the radio.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/audio-setup",
                     SkipChoices = new[] { operatorSkip },
@@ -245,10 +244,11 @@ namespace Radios.Fixer
             return new FixerStageSet(
                 id: "transmit",
                 name: "Transmit",
-                intro: "Start at stage 0 and work forward. Each stage uses what the "
-                     + "earlier ones found. You can run them in any order you like, but "
-                     + "skipping ahead leaves the later stages with no baseline, and the "
-                     + "report will say so. The first two stages do not transmit.",
+                intro: "Work forward from stage 0. What each stage finds feeds the ones "
+                     + "after it — stage 1 measures your microphone, and stage 4 is judged "
+                     + "against that measurement rather than on its own. Jump around if "
+                     + "you want; the report records what was skipped. Stages 0 and 1 do "
+                     + "not key the radio.",
                 stages: stages,
                 fixActions: fixes,
                 runDeclarations: new[]

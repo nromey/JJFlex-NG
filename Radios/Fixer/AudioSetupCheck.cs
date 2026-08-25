@@ -7,7 +7,7 @@ namespace Radios.Fixer
 {
     /// <summary>
     /// What the audio setup is actually doing, as facts the host read from the
-    /// audio system itself — not from configuration. The two can differ, and
+    /// audio subsystem itself — not from configuration. The two can differ, and
     /// where they do that IS the finding.
     /// </summary>
     /// <remarks>
@@ -118,21 +118,25 @@ namespace Radios.Fixer
                 if (facts.WasapiAvailable)
                 {
                     findings.Add(new FixerFinding(MmeInUse, FixOwner.Us,
-                        "Your audio is running through MME, which misreports the device — it "
-                        + "hands over Windows' converted audio rather than what the hardware "
-                        + "actually runs, so any microphone measurement taken through it "
-                        + "measures the converter, not your microphone.",
+                        "Currently, you have selected the MME audio subsystem. It records "
+                        + "perfectly well, but it will not tell you the truth about your "
+                        + "hardware: Windows resamples behind it and reports its own "
+                        + "converted format back, so the 44.1 kHz shown above may be "
+                        + "48 kHz at the device itself. Every level measured in this run "
+                        + "would belong to that converter rather than to your microphone.",
                         "Switch to WASAPI",
                         FixSwitchToWasapi));
                 }
                 else
                 {
                     findings.Add(new FixerFinding(MmeInUse, FixOwner.NobodyHere,
-                        "Your audio is running through MME, which misreports the device, and "
-                        + "WASAPI is not available on this computer to switch to.",
-                        "Nothing here can change that. Treat the audio measurements in this "
-                        + "run with caution — they describe Windows' conversion as much as "
-                        + "your hardware."));
+                        "Currently, you have selected the MME audio subsystem, and this "
+                        + "computer offers no WASAPI to move to. Recording works normally; "
+                        + "the format MME reports simply does not have to match what the "
+                        + "hardware is really doing.",
+                        "Nothing here can change that. Read every level in this run as "
+                        + "approximate — they describe Windows' resampling as much as your "
+                        + "microphone."));
                 }
             }
 
@@ -142,15 +146,17 @@ namespace Radios.Fixer
                 if (facts.SuggestedInputDevice.Length > 0)
                 {
                     findings.Add(new FixerFinding(NoInputSelected, FixOwner.Us,
-                        "No microphone is chosen, so nothing you say can arrive.",
+                        "You have not selected an input device, so nothing you say can "
+                        + "reach the radio.",
                         "Use " + facts.SuggestedInputDevice,
                         FixUseSuggestedInput));
                 }
                 else
                 {
                     findings.Add(new FixerFinding(NoInputAnywhere, FixOwner.Operator,
-                        "No microphone is chosen, and none was found on this computer to offer.",
-                        "Connect a microphone, then run this stage again."));
+                        "You have not selected an input device, and Windows is not "
+                        + "offering one to choose.",
+                        "Plug a microphone in, then run this stage again."));
                 }
             }
 
@@ -160,8 +166,9 @@ namespace Radios.Fixer
             if (facts.RemoteRadio && !facts.PcAudioOn)
             {
                 findings.Add(new FixerFinding(PcAudioOff, FixOwner.Us,
-                    "PC audio is off, so no audio from this computer reaches the radio over "
-                    + "the network.",
+                    "PC audio is currently switched off, so nothing at all leaves this "
+                    + "computer for the radio — not your microphone, and not the test "
+                    + "tone either.",
                     "Turn PC audio on",
                     FixEnablePcAudio));
             }
@@ -169,9 +176,10 @@ namespace Radios.Fixer
             if (facts.MicProfileEmpty)
             {
                 findings.Add(new FixerFinding(MicProfileEmptyFinding, FixOwner.Us,
-                    "The selected microphone profile is empty, so nothing is set up to carry "
-                    + "your voice.",
-                    "Fill in the profile with working defaults",
+                    "No mic profile is loaded on the radio. It will key up and transmit "
+                    + "silence. Receive is unaffected, and nothing you did caused this — a "
+                    + "Flex arrives from the factory this way.",
+                    "Load a working profile",
                     FixFillMicProfile));
             }
 
@@ -180,19 +188,22 @@ namespace Radios.Fixer
             // becomes a finding.
             if (facts.WindowsInputMuted == true)
                 findings.Add(new FixerFinding(WindowsMuted, FixOwner.Operator,
-                    "Your microphone is muted in Windows itself.",
-                    "Unmute it in the Windows sound settings, then run this stage again."));
+                    "Windows itself has your microphone muted. This is not the radio and "
+                    + "not this application: the mute is in Windows, and it has to be "
+                    + "cleared there.",
+                    "Unmute it in Sound settings, then run this stage again."));
 
             if (facts.MicrophonePrivacyBlocked == true)
                 findings.Add(new FixerFinding(PrivacyBlocked, FixOwner.Operator,
-                    "Windows privacy settings are blocking microphone access for apps.",
-                    "In Windows Settings, under Privacy, allow desktop apps to use the "
-                    + "microphone, then run this stage again."));
+                    "Windows privacy is blocking desktop apps from the microphone. The "
+                    + "device is fine; Windows will not hand it over.",
+                    "Settings, Privacy, Microphone — allow desktop apps, then run this "
+                    + "stage again."));
 
             if (facts.InputDeviceUnplugged == true)
                 findings.Add(new FixerFinding(Unplugged, FixOwner.Operator,
-                    "The chosen microphone reports as unplugged.",
-                    "Check its cable and connector, then run this stage again."));
+                    "The microphone you have selected is reporting itself as unplugged.",
+                    "Check the cable and the connector, then run this stage again."));
 
             // Configuration and reality disagreeing is a finding in itself —
             // it is the exact reason this stage reads what is OPEN.
@@ -201,7 +212,7 @@ namespace Radios.Fixer
             {
                 findings.Add(new FixerFinding(ConfigOpenMismatch, FixOwner.Us,
                     mismatch,
-                    "Reopen audio with the configured device",
+                    "Reopen on the configured device",
                     FixReopenConfiguredAudio));
             }
 
@@ -232,35 +243,106 @@ namespace Radios.Fixer
 
             var parts = new List<string>();
             if (deviceDiffers)
-                parts.Add("the configuration says the input should be " + f.ConfiguredInputDevice
-                        + ", but what is actually open is " + f.OpenInputDevice);
+                parts.Add("you chose " + f.ConfiguredInputDevice
+                        + ", but " + f.OpenInputDevice + " is what is open");
             if (apiDiffers)
-                parts.Add("the configuration says " + f.ConfiguredHostApi
-                        + ", but the audio is actually running on " + f.OpenHostApi);
+                // Full phrase on first mention, short form second: naming the
+                // category twice in one sentence reads like a form letter.
+                parts.Add("you chose " + HostApiPhrase(f.ConfiguredHostApi)
+                        + ", but the stream is actually running on " + f.OpenHostApi);
 
-            return "Your settings and your running audio disagree: "
+            return "Your settings and the open stream disagree — "
                  + string.Join("; and ", parts)
-                 + ". Whatever you set up is not what is in use right now.";
+                 + ". Something overrode your choice, most often a device that "
+                 + "disappeared and came back on a different index.";
+        }
+
+        /// <summary>
+        /// A host API named the way an operator would say it out loud: "the MME
+        /// audio subsystem", not a bare "MME".
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>One home for the phrasing, for the same reason the S-meter has
+        /// one.</b> Noel had to give this correction twice on 2026-08-25,
+        /// because the first pass fixed the finding and left the summary line
+        /// saying "on MME" — the same defect, in the next paragraph.
+        /// </para>
+        /// <para>
+        /// The bare acronym assumes the reader already knows what kind of thing
+        /// MME is. Naming the category costs three words and assumes nothing,
+        /// without explaining anything down to anyone. Use this on FIRST
+        /// mention in a passage; the short form is fine afterwards, which is
+        /// how a person writes.
+        /// </para>
+        /// <para>
+        /// <b>"Audio subsystem" — Noel's word, chosen 2026-08-25.</b> Strictly
+        /// these are APIs: MME is MultiMedia Extensions, WASAPI is the Windows
+        /// Audio Session API, and both are interfaces INTO the Windows audio
+        /// stack rather than subsystems of it. PortAudio calls them host APIs,
+        /// which is why the fact names here are OpenHostApi and
+        /// ConfiguredHostApi. The code keeps the accurate term; the operator
+        /// gets the one Noel picked.
+        /// </para>
+        /// <para>
+        /// <b>OUTSTANDING: AudioDevicesDialog still says "audio system".</b>
+        /// That picker is where this stage's fix button sends the operator, and
+        /// it has said "No audio system was found on this computer", "Each row
+        /// names its own audio system", "choose MME as the audio system above"
+        /// since Track E. Two words for one thing is the drift this project
+        /// keeps paying for, so the picker should be brought onto "subsystem"
+        /// too — flagged to Noel, awaiting his call, NOT changed unilaterally
+        /// because that dialog's wording is his as well.
+        /// </para>
+        /// </remarks>
+        internal static string HostApiPhrase(string hostApi)
+        {
+            if (string.IsNullOrWhiteSpace(hostApi)) return "an unnamed audio subsystem";
+            return "the " + hostApi.Trim() + " audio subsystem";
         }
 
         private static string Answer(AudioSetupFacts f)
         {
             if (f.OpenInputDevice.Length == 0 && f.OpenHostApi.Length == 0)
-                return "Nothing is open right now — no audio device is actually running, so "
-                     + "everything below was read from the configuration alone.";
+                return "No stream is open. Nothing below was measured — it is all read "
+                     + "back from your settings, which is exactly the thing this stage "
+                     + "exists to distrust.";
 
-            var sb = new StringBuilder("Your audio is actually running on ");
-            sb.Append(f.OpenInputDevice.Length > 0 ? f.OpenInputDevice : "an unnamed input");
-            if (f.OpenHostApi.Length > 0) sb.Append(", via ").Append(f.OpenHostApi);
+            // A SENTENCE, not a label. This read "In: <device> on <api>, 44.1 kHz,
+            // 2 channels. Out: <device>." until 2026-08-25, and Noel had it
+            // exactly: "reads like an ingredient list." A spec line is fine on a
+            // datasheet, where the reader's eye can jump between columns. Read
+            // aloud, or read as the first thing a stage says to you, it is a
+            // string of nouns with no grammar holding them together.
+            //
+            // The labelled form still exists and is better for scanning — it is
+            // in Evidence, below, one fact per line. That belongs behind a
+            // disclosure on the page rather than as the stage's opening words.
+            // The device name is QUOTED because it is an opaque label from
+            // Windows, not a phrase with grammar in it. Noel read
+            // "Microphone (USB Audio Device)" and suggested "microphone, a USB
+            // audio device" — which is how Windows means it, and is exactly
+            // why re-punctuating is wrong: in "Line In (Realtek(R) Audio)" the
+            // parenthesis is a real product, and in "Microphone (USB Audio
+            // Device)" it is the placeholder Windows uses when the hardware
+            // supplied no product string. Quoting says "this is a name" and
+            // invents no structure. See task #240.
+            var sb = new StringBuilder("You are recording from ");
+            sb.Append(f.OpenInputDevice.Length > 0
+                      ? "\"" + f.OpenInputDevice + "\""
+                      : "an unnamed device");
+            if (f.OpenHostApi.Length > 0) sb.Append(" using ").Append(HostApiPhrase(f.OpenHostApi));
             if (f.OpenSampleRateHz > 0)
                 sb.Append(", at ")
                   .Append((f.OpenSampleRateHz / 1000.0).ToString("0.#", CultureInfo.InvariantCulture))
                   .Append(" kHz");
-            if (f.OpenChannels > 0)
-                sb.Append(f.OpenChannels == 1 ? ", mono" : ", " + f.OpenChannels + " channels");
-            if (f.OpenOutputDevice.Length > 0)
-                sb.Append(". Output goes to ").Append(f.OpenOutputDevice);
+            if (f.OpenChannels == 1) sb.Append(" in mono");
+            else if (f.OpenChannels == 2) sb.Append(" in stereo");
+            else if (f.OpenChannels > 2)
+                sb.Append(" across ").Append(f.OpenChannels).Append(" channels");
             sb.Append('.');
+            if (f.OpenOutputDevice.Length > 0)
+                sb.Append(" Playback is going to ").Append(f.OpenOutputDevice).Append('.');
             return sb.ToString();
         }
 
