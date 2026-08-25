@@ -104,6 +104,17 @@ public sealed class FixerDialog : JJFlexDialog
             // measuring again.
             MeasureMicrophone = FixerHostWiring.Microphone(),
 
+            // WIRED. The five fixes stage 0 offers at the point of detection.
+            // Each applies its change and then READS IT BACK, reporting what
+            // the setting became in the operator's words — never "done". A fix
+            // that cannot be verified did not succeed, and one that changed
+            // nothing says so rather than claiming credit.
+            SwitchToWasapi = FixerFixActions.SwitchToWasapi(),
+            UseSuggestedInput = FixerFixActions.UseSuggestedInput(),
+            EnablePcAudio = FixerFixActions.EnablePcAudio(_radio),
+            FillMicProfile = FixerFixActions.FillMicProfile(_radio),
+            ReopenConfiguredAudio = FixerFixActions.ReopenConfiguredAudio(_radio),
+
             // STILL NOT WIRED. Both need the injection pipeline, and a
             // stand-in would let a stage report a measurement nothing made.
             // Null is the engine's honest signal: it records the stage as
@@ -111,7 +122,6 @@ public sealed class FixerDialog : JJFlexDialog
             //
             //   RunInjectedTransmit — needs the injection pipeline
             //   RunSpokenTransmit   — needs that plus a live microphone path
-            //   the five fix actions
         };
 
         _run = new FixerRun(TransmitStageSet.Build(hosts));
