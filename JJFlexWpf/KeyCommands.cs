@@ -840,11 +840,14 @@ public class KeyCommands
                 ("power", Radios.FlexBase.FormatForwardPowerSpoken(rig.ForwardPowerWatts)));
         else if (rig.SmeterInDBM)
             msg = Radios.Lexicon.Get("audio.smeter.dbm", ("smeter", smeter));
-        else if (smeter > 9)
-            // Over S9, SMeter already returns dB-over-S9 plus 9, so the excess
-            // IS decibels. Multiplying it (by 10 here, by 6 elsewhere) inflated
-            // the reading — 4 dB over S9 was announced as "S9 plus 40".
-            msg = Radios.Lexicon.Get("audio.smeter.over_s9", ("over", smeter - 9));
+        else if (Radios.SMeterReading.IsOverS9(smeter))
+            // The excess comes from the one place that knows the rule. It was
+            // computed inline here and inline again in the status builder, and
+            // the two drifted — this one multiplied by ten, that one by six,
+            // so 4 dB over S9 was announced as "S9 plus 40" on one surface and
+            // "S9 plus 24" on the other.
+            msg = Radios.Lexicon.Get("audio.smeter.over_s9",
+                                     ("over", Radios.SMeterReading.ExcessOverS9(smeter)));
         else
             msg = Radios.Lexicon.Get("audio.smeter.s_units", ("smeter", smeter));
 

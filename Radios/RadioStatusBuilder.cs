@@ -148,14 +148,11 @@ namespace Radios
             }
             else
             {
-                int s = radio.SMeter;
-                if (s <= 9)
-                    snap.SignalDisplay = $"S{s}";
-                else
-                    // Over S9, SMeter returns dB-over-S9 plus 9, so the excess
-                    // is ALREADY decibels — multiplying it by 6 reported 4 dB
-                    // over S9 as "S9 plus 24".
-                    snap.SignalDisplay = $"S9 plus {s - 9} dB";
+                // One rule, one place. This was inline here and inline again
+                // in the spoken S-meter command, and the two drifted — one
+                // multiplied the excess by six, the other by ten. See
+                // SMeterReading for why multiplying is always wrong.
+                snap.SignalDisplay = SMeterReading.Display(radio.SMeter);
             }
 
             return snap;
