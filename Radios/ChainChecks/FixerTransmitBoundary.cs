@@ -136,8 +136,13 @@ namespace Radios.ChainChecks
         }
 
         // -------- plumbing --------
+        //
+        // Internal rather than private since 2026-08-25: the transmit-audio
+        // boundary (FixerTransmitAudioBoundary) faces the same two questions —
+        // "is there a radio" and "is it keyed" — and two answers to a safety
+        // question is one more than is safe.
 
-        private static FlexBase Safely(RadioSource radio)
+        internal static FlexBase Safely(RadioSource radio)
         {
             // The Fixer Tool only opens when something is already wrong, so the
             // thing it asks for the radio is exactly the thing likely to throw.
@@ -146,7 +151,7 @@ namespace Radios.ChainChecks
             try { return radio(); } catch { return null; }
         }
 
-        private static bool ReadKeyed(FlexBase rig)
+        internal static bool ReadKeyed(FlexBase rig)
         {
             if (rig == null) return false;
 
