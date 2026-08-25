@@ -510,6 +510,21 @@ namespace Radios.Fixer
         // No Escape handling here — the Escape bridge is the host's, because
         // Escape while keyed must not depend on web content having focus.
 
+        /// <summary>
+        /// The page's own script, exposed so the wire contract can be tested.
+        /// </summary>
+        /// <remarks>
+        /// Internal, not public: this is for FixerWireContractTests, which
+        /// checks that every button the page renders is one this script
+        /// handles, and that every message this script can post is one the host
+        /// will parse. Those three names — the data-action, the message kind,
+        /// and the parser's case label — are three separate strings that must
+        /// agree, and when they stop agreeing NOTHING fails. The build passes,
+        /// the page renders, the button looks like a button, and pressing it
+        /// does nothing at all.
+        /// </remarks>
+        internal static string PageScript => Script;
+
         private const string Script = @"(function () {
   'use strict';
   var main = document.querySelector('main');
