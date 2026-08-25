@@ -1,7 +1,9 @@
 using System;
 using System.IO;
 using System.Net.Http;
-using System.Reflection;
+// System.Reflection is deliberately NOT imported. The reflection that used to
+// live here looked up a method that never existed, and its absence is the
+// point — see ReadFirmwareAndAddress.
 using System.Text;
 using System.Text.Json;
 using System.Windows;
@@ -262,27 +264,9 @@ document.addEventListener('keydown', function (e) {
             sb.AppendLine($"<p>Serial: {Escape(Rig.ConnectedSerial)}</p>");
             sb.AppendLine($"<p>Nickname: {Escape(Rig.RadioNickname)}</p>");
 
-            // Firmware via reflection
-            try
-            {
-                var infoMethod = Rig.GetType().GetMethod("infoForAbout",
-                    BindingFlags.NonPublic | BindingFlags.Instance);
-                if (infoMethod != null)
-                {
-                    var info = infoMethod.Invoke(Rig, null) as System.Collections.Generic.List<string>;
-                    if (info != null)
-                    {
-                        foreach (var line in info)
-                        {
-                            if (line.StartsWith("Version:", StringComparison.OrdinalIgnoreCase))
-                                sb.AppendLine($"<p>Firmware: {Escape(line.Substring(8).Trim())}</p>");
-                            else if (line.StartsWith("IP:", StringComparison.OrdinalIgnoreCase))
-                                sb.AppendLine($"<p>IP Address: {Escape(line.Substring(3).Trim())}</p>");
-                        }
-                    }
-                }
-            }
-            catch { }
+            (string firmware, string ip) = ReadFirmwareAndAddress();
+            if (firmware.Length > 0) sb.AppendLine($"<p>Firmware: {Escape(firmware)}</p>");
+            if (ip.Length > 0) sb.AppendLine($"<p>IP Address: {Escape(ip)}</p>");
 
             sb.AppendLine("<h2>Capabilities</h2>");
             sb.AppendLine($"<p>Active slices: {Rig.TotalNumSlices} of {Rig.MaxSlices}</p>");
@@ -301,31 +285,73 @@ document.addEventListener('keydown', function (e) {
             sb.AppendLine($"Serial: {Rig.ConnectedSerial}");
             sb.AppendLine($"Nickname: {Rig.RadioNickname}");
 
-            try
-            {
-                var infoMethod = Rig.GetType().GetMethod("infoForAbout",
-                    BindingFlags.NonPublic | BindingFlags.Instance);
-                if (infoMethod != null)
-                {
-                    var info = infoMethod.Invoke(Rig, null) as System.Collections.Generic.List<string>;
-                    if (info != null)
-                    {
-                        foreach (var line in info)
-                        {
-                            if (line.StartsWith("Version:", StringComparison.OrdinalIgnoreCase))
-                                sb.AppendLine($"Firmware: {line.Substring(8).Trim()}");
-                            else if (line.StartsWith("IP:", StringComparison.OrdinalIgnoreCase))
-                                sb.AppendLine($"IP Address: {line.Substring(3).Trim()}");
-                        }
-                    }
-                }
-            }
-            catch { }
+            (string firmware, string ip) = ReadFirmwareAndAddress();
+            if (firmware.Length > 0) sb.AppendLine($"Firmware: {firmware}");
+            if (ip.Length > 0) sb.AppendLine($"IP Address: {ip}");
 
             sb.AppendLine();
             sb.AppendLine($"Active slices: {Rig.TotalNumSlices} of {Rig.MaxSlices}");
             sb.AppendLine($"Diversity: {(Rig.DiversityHardwareSupported ? "Available" : "Not available")}");
             return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// The radio's firmware version and IP address, or empty strings.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This used to reflect for a private method named
+        /// <c>infoForAbout</c>, and no such method has ever existed.</b> A
+        /// repo-wide search found the name only at the two call sites that
+        /// looked it up. So <c>GetMethod</c> returned null, the guarded block
+        /// never ran, and both the Radio tab and the exported diagnostic report
+        /// have silently omitted firmware and IP address for their whole life.
+        /// </para>
+        /// <para>
+        /// The <c>catch</c> was not what hid it. Nothing threw — a reflection
+        /// lookup for a missing method simply returns null, so this failed by
+        /// doing nothing, and the report still looked complete because two
+        /// absent lines leave no gap. That is why the reflection is DELETED
+        /// rather than repaired: reflecting for a member of a type this
+        /// assembly already references buys nothing and costs the compiler's
+        /// ability to notice a rename. <see cref="FlexBase.RigInfo"/> is
+        /// public and returns exactly this shape.
+        /// </para>
+        /// <para>
+        /// Reading it can still fail — the radio can drop between the check and
+        /// the read — so that is caught and TRACED. A diagnostic report that
+        /// quietly loses fields is worse than one that says it could not read
+        /// them.
+        /// </para>
+        /// </remarks>
+        private (string Firmware, string Ip) ReadFirmwareAndAddress()
+        {
+            // Locals, not fields, on purpose. Both the tab and the export call
+            // this, and if the radio drops between the two calls a cached value
+            // would report a firmware and address that are no longer being read
+            // — silent staleness, which is the thing this method exists to stop.
+            string firmware = "";
+            string ip = "";
+
+            try
+            {
+                foreach (string line in Rig.RigInfo)
+                {
+                    if (line == null) continue;
+                    if (line.StartsWith("Version:", StringComparison.OrdinalIgnoreCase))
+                        firmware = line.Substring("Version:".Length).Trim();
+                    else if (line.StartsWith("IP:", StringComparison.OrdinalIgnoreCase))
+                        ip = line.Substring("IP:".Length).Trim();
+                }
+            }
+            catch (Exception ex)
+            {
+                JJTrace.Tracing.TraceLine(
+                    "AboutDialog: could not read the radio's firmware and address — "
+                    + ex.Message, System.Diagnostics.TraceLevel.Warning);
+            }
+
+            return (firmware, ip);
         }
 
         // --- System tab ---
