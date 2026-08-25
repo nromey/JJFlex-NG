@@ -258,7 +258,43 @@ not-observable: JJ Flexible does not count the transmit packets it sends and can
 stage: 7 the radio's answer to the audio stream
 about: The radio confirms it has opened the stream and says which compression it will accept.
 needs: mic-source is PC
-not-observable: the radio's answer is held privately inside the app and is not published anywhere a check can read it. This one matters: JJ Flexible always sends compressed audio but never asks the radio for compression when it opens the transmit stream, so a radio that answered with something else would be a silent mismatch that nothing notices.
+nothing-to-check: no transmit audio stream is open yet, so the radio has not answered one way or the
+nothing-to-check: other. Turn computer audio on and this step can be checked.
+
+# THIS STAGE WAS not-observable UNTIL 2026-08-25, and the note said the radio's
+# answer was "held privately inside the app and is not published anywhere a
+# check can read it". That was true the day it was written and stopped being
+# true the day Sprint 33 Track G started recording the answer — which went to a
+# trace file and nowhere else, so this stage went on reporting that it could not
+# look at the single most likely cause of silent transmit for weeks afterwards.
+#
+# The file's own instruction covers exactly this: "The day someone adds the
+# missing observable, delete this line and write rules instead." Nobody did.
+# Both halves are done now: FlexBase publishes TxStreamCompression,
+# TxStreamIsOpus and TxStreamStatusLine, TxChainFacts collects them, and the
+# rules below read them.
+#
+# WHY IT MATTERS MORE THAN ITS POSITION SUGGESTS: we encode Opus
+# unconditionally. A radio that opened the stream as anything else reads every
+# packet we send as raw PCM, which is silent transmit with NO other symptom —
+# no error, no warning, and every setting on both sides looking correct. It cost
+# two days of hunting once. It should now cost one sentence.
+
+rule: tx-stream-not-opus
+in-stage: 7
+needs: tx-stream-open is yes
+broken-when: tx-stream-is-opus is no
+verdict: Your radio opened the transmit audio stream as {tx-stream-compression}, but this app always sends compressed Opus audio. The radio is reading every packet as something else, so nobody hears you even though everything else looks correct.
+fix: Turn computer audio off and on again to make the radio open a fresh stream. If it comes back the same way, this is a radio-side fault worth reporting to Flex — send them the evidence below, which includes their radio's own words.
+evidence: tx-stream-status-line
+
+rule: tx-stream-no-compression-key
+in-stage: 7
+needs: tx-stream-open is yes
+broken-when: tx-stream-compression is empty
+verdict: Your radio opened the transmit audio stream without saying what compression it expects. This app sends Opus, so if the radio assumed anything else your audio arrives as noise or as nothing at all.
+fix: Turn computer audio off and on again. If the radio still answers without naming a compression, send the evidence below to Flex.
+evidence: tx-stream-status-line
 
 
 # ── Stage 8 ───────────────────────────────────────────────────────────────

@@ -13563,6 +13563,66 @@ namespace Radios
             txStream = stream;
         }
 
+        /// <summary>
+        /// What the radio said when it opened our transmit audio stream — its
+        /// own word, unparsed. Empty when no stream is open.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This was already being observed and only ever written to a trace
+        /// file.</b> Sprint 33 Track G added the observation because the
+        /// alternative had cost two days: we encode Opus unconditionally, so a
+        /// stream the radio opened as anything else means every packet we send
+        /// is read as raw PCM at the far end — silent transmit with no other
+        /// symptom, no error, and every setting on both sides looking correct.
+        /// </para>
+        /// <para>
+        /// It is exposed here so the transmit chain analyzer can read it.
+        /// Stage 7 of <c>tx-chain-rules.txt</c> was marked
+        /// <c>not-observable</c> with the words "the radio's answer is held
+        /// privately inside the app and is not published anywhere a check can
+        /// read it" — true when written, and untrue from the moment Track G
+        /// landed. An operator with silent transmit was being told the tool
+        /// could not look at the very thing most likely to be wrong.
+        /// </para>
+        /// </remarks>
+        public string TxStreamCompression
+        {
+            get
+            {
+                try { return txStream?.CompressionSetting ?? ""; }
+                catch { return ""; }
+            }
+        }
+
+        /// <summary>
+        /// Whether the radio opened our transmit stream as Opus. Null when no
+        /// transmit stream is open, which is a different answer from "no" and
+        /// must stay distinguishable: no stream is a stage-6 problem, a stream
+        /// opened uncompressed is a stage-7 problem, and sending an operator
+        /// after the wrong one costs them the afternoon.
+        /// </summary>
+        public bool? TxStreamIsOpus
+        {
+            get
+            {
+                try { return txStream == null ? (bool?)null : txStream.IsCompressed; }
+                catch { return null; }
+            }
+        }
+
+        /// <summary>The radio's raw status line for the transmit stream, kept
+        /// for the evidence block: a reader at Flex who distrusts our
+        /// interpretation can read what their own radio actually said.</summary>
+        public string TxStreamStatusLine
+        {
+            get
+            {
+                try { return txStream?.LastStatusLine ?? ""; }
+                catch { return ""; }
+            }
+        }
+
         private Thread remoteAudioThread = null;
         private bool stopRemoteAudio;
 

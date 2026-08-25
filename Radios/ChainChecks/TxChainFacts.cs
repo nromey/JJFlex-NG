@@ -135,6 +135,55 @@ namespace Radios.ChainChecks
             Probe(f, "pc-audio", "Radio audio through this computer",
                   () => DiagnosticFact.Flag("pc-audio", "Radio audio through this computer",
                                             rig.PCAudio, "this computer"));
+            // STAGE 7 — the radio's own answer when it opened our transmit
+            // stream. This was marked not-observable in the rules file with the
+            // words "held privately inside the app and is not published
+            // anywhere a check can read it". True when written; untrue from the
+            // moment Sprint 33 Track G recorded it. The observation existed and
+            // went only to a trace file, so the analyzer kept saying it could
+            // not look at the single most likely cause of silent transmit.
+            //
+            // Three-valued on purpose. No stream open is NOT the same answer as
+            // a stream opened uncompressed: the first is stage 6, the second is
+            // stage 7, and sending an operator after the wrong one costs them
+            // the afternoon.
+            Probe(f, "tx-stream-open", "A transmit audio stream is open",
+                  () => DiagnosticFact.Flag("tx-stream-open",
+                                            "A transmit audio stream is open",
+                                            rig.TxStreamIsOpus.HasValue, "the radio"));
+            Probe(f, "tx-stream-compression", "How the radio opened our transmit stream",
+                  () => rig.TxStreamIsOpus.HasValue
+                        // The radio's own word, UNPARSED, or empty when it sent
+                        // no compression key at all. Deliberately not a
+                        // sentence: a rule that matched on prose would be
+                        // coupled to this file's phrasing, and the evidence
+                        // block already renders an empty text fact as "not
+                        // reported".
+                        ? DiagnosticFact.Text("tx-stream-compression",
+                                              "How the radio opened our transmit stream",
+                                              rig.TxStreamCompression ?? "",
+                                              "the radio")
+                        : DiagnosticFact.Silent("tx-stream-compression",
+                                                "How the radio opened our transmit stream",
+                                                "no transmit audio stream is open, so the radio has "
+                                                + "not answered one way or the other",
+                                                "the radio"));
+            Probe(f, "tx-stream-is-opus", "The radio opened our transmit stream as Opus",
+                  () => rig.TxStreamIsOpus.HasValue
+                        ? DiagnosticFact.Flag("tx-stream-is-opus",
+                                              "The radio opened our transmit stream as Opus",
+                                              rig.TxStreamIsOpus.Value, "the radio")
+                        : DiagnosticFact.Silent("tx-stream-is-opus",
+                                                "The radio opened our transmit stream as Opus",
+                                                "no transmit audio stream is open",
+                                                "the radio"));
+            // The unparsed line, for the evidence block: a reader at Flex who
+            // distrusts our interpretation can read what their own radio said.
+            Probe(f, "tx-stream-status-line", "The radio's transmit stream status line",
+                  () => DiagnosticFact.Text("tx-stream-status-line",
+                                            "The radio's transmit stream status line",
+                                            rig.TxStreamStatusLine ?? "", "the radio"));
+
             Probe(f, "pc-tx-path-trouble", "What the app says is wrong with the computer transmit path",
                   () => DiagnosticFact.Text("pc-tx-path-trouble",
                                             "What the app says is wrong with the computer transmit path",
@@ -630,6 +679,10 @@ namespace Radios.ChainChecks
             yield return "connection";
             yield return "meter-count";
             yield return "pc-audio";
+            yield return "tx-stream-open";
+            yield return "tx-stream-compression";
+            yield return "tx-stream-is-opus";
+            yield return "tx-stream-status-line";
             yield return "pc-tx-path-trouble";
             yield return "pc-tx-audio-flowing";
             yield return "pc-tx-loudness";
@@ -689,6 +742,10 @@ namespace Radios.ChainChecks
                 case "mic-profile": return "Mic profile selected on the radio";
                 case "mic-profile-empty": return "The radio has no mic profile selected";
                 case "pc-audio": return "Radio audio through this computer";
+                case "tx-stream-open": return "A transmit audio stream is open";
+                case "tx-stream-compression": return "How the radio opened our transmit stream";
+                case "tx-stream-is-opus": return "The radio opened our transmit stream as Opus";
+                case "tx-stream-status-line": return "The radio's transmit stream status line";
                 case "sc-mic-peak": return "Loudest transmit audio the radio has heard";
                 case "forward-power": return "Forward power";
                 case "reflected-power": return "Reflected power";
