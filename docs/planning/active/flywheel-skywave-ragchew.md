@@ -58,6 +58,78 @@ before it goes anywhere near marketing copy.
 
 ---
 
+## The constraint that decides the whole design: JAWS does not have "held"
+
+Added 2026-08-25, from a Freight Fate bug report and the measurement that
+followed it. This is not a detail to accommodate later — it invalidates the
+obvious design, so it goes before the design.
+
+**A JAWS user reported that holding Up did not make the truck go.** The cause,
+measured with `tools/key_probe.py` in Freight Fate on 2026-08-24:
+
+- **NVDA** passes a key it has no script for straight through, unadulterated. A
+  held arrow is a real hold: one key-down, OS auto-repeat at roughly 33 ms, one
+  key-up when you let go.
+- **JAWS** does not. It synthesises **key-down/key-up PAIRS**. The first repeat
+  pair arrives at the Windows delay — about 512 ms — and the rest roughly
+  **250 ms apart** (measured 242 to 272), nowhere near the OS repeat rate. JAWS
+  runs an arrow script that takes that long per key, and the repeats queue
+  behind it.
+
+So the same physical action — holding Up — reaches the application as a
+continuous hold under one screen reader and as four discrete taps a second
+under the other. **There is no "how long have you been holding" to read under
+JAWS. It is always zero.**
+
+Freight Fate's fix is worth understanding because we may need the same trick:
+it learns the spacing from the pairs themselves (from the second repeat on,
+synthetic pairs only, the largest of the last eight) and sizes each synthetic
+repeat's pulse to that plus grace, so a queue of taps reads as one hold. Until
+it has learned a spacing, repeats get the fresh pulse, so the first hold of a
+session cannot stutter either. **The price is that letting go reads about a
+third of a second late under JAWS**, and their changelog says so out loud.
+
+**Do NOT hardcode 250 ms.** That is one machine, one JAWS version, one script
+speed, on one day. Learn it or measure it; the number is evidence, not a
+constant. Same lesson as every other number in this project.
+
+### What this means for SilkTune
+
+The keyboard design below said "hold accelerates toward a cap." That is a
+design that works on NVDA and fails on JAWS, and we would have shipped it
+without knowing.
+
+**Noel's answer, 2026-08-25, and it is better than the thing it replaces:**
+drive the flywheel from PRESSES, not from hold duration.
+
+- **Each press of Up adds velocity.** Press it repeatedly to spin up. Under
+  NVDA the OS repeat supplies the presses; under JAWS the synthetic pairs do.
+  Neither path is asked how long anything was held, so both behave the same.
+- **A brake key sheds velocity fast** — Shift (either one), or Space, or
+  whatever the operator binds. This is the part that makes it controllable:
+  when the sweep is running away, you need a way to stop it that is quicker
+  than waiting for the coast.
+- **Releasing everything coasts to zero** on the damping coefficient, as
+  before. The brake is a shortcut through the coast, not a replacement for it.
+
+Freight Fate has the same shape — accelerator, and a brake that stops you
+sooner than lifting off — which is why the comparison Noel drew at the start of
+this plan turned out to be load-bearing rather than decorative.
+
+**The general rule, worth stating because it will come up again:** an input
+design that asks *how long has this been held* works on one screen reader. One
+that asks *how many times has this been pressed* works on both. For an
+accessibility-first application that is not a trade-off to weigh, it is a rule
+to follow.
+
+### Where else this bites, already found
+
+`MainWindow_PreviewKeyUp` releases push-to-talk on Space up. Under JAWS the
+synthetic pairs mean a held Ctrl+Space would key and unkey roughly four times a
+second, and the first spurious key-up would unkey an operator who is still
+speaking. That is a transmit fault rather than a feel fault, so it is tracked
+separately — but it is the same root cause, and it is live today.
+
 ## Part 1 — Flywheel physics
 
 Cheapest, delivers most of the value, needs no DSP whatsoever. Build first.
@@ -67,7 +139,10 @@ the opposite direction applies a **braking torque** rather than reversing
 instantly — that is how you stop a real flywheel VFO, and it is what makes the
 control feel like an object rather than a variable.
 
-- **Keyboard:** hold accelerates toward a cap, release coasts, tap-opposite brakes.
+- **Keyboard:** each PRESS of the tune key adds velocity toward a cap, the brake
+  key sheds it quickly, releasing everything coasts to zero, and tap-opposite
+  also brakes. Press-driven rather than hold-driven, for the JAWS reason above —
+  this is the one line of this plan that the 2026-08-25 finding rewrote.
 - **Physical knob:** the radio has *already* moved by the time we see the event.
   So estimate rate from the event stream and keep tuning past where the knob
   stopped, decaying. That is the flywheel, and it falls out naturally.
@@ -250,8 +325,13 @@ control they are holding.
 
 ## Naming
 
-- **Flywheel** for the mode. Every ham who has touched a Collins or a Drake knows
-  precisely what it means, and it names the feel rather than the implementation.
+- **SilkTune** is the name, chosen by Noel 2026-08-25. It names the feel, it is
+  ours, and it is short enough to be a menu item and a setting label without
+  being cut down.
+- **Flywheel** stays as the word for the PHYSICS inside it. Every ham who has
+  touched a Collins or a Drake knows precisely what it means, so it is the right
+  word in help text and in the plan — but SilkTune is what the operator turns
+  on.
 - **Smooth Tune** for the audio layer, on by default, because it improves
   ordinary slow tuning too and is not only a sweep feature.
 - **Personality goes in the preset names, not the mode name.** "Smooth Operator"
@@ -260,9 +340,12 @@ control they are holding.
 
 ## Open questions
 
-- Does Freight Fate have a physics core worth lifting, or at least design
-  knowledge about making momentum legible through audio? Noel drew the comparison
-  himself, and if "how does a blind operator perceive inertia" is already solved
-  over there, the expensive half is already paid for.
+- ~~Does Freight Fate have a physics core worth lifting, or at least design
+  knowledge about making momentum legible through audio?~~ **ANSWERED
+  2026-08-25, and not where anyone expected.** What Freight Fate had worth
+  lifting was not physics — it was INPUT: the discovery that JAWS does not
+  deliver held keys at all, and the accelerator/brake shape that works without
+  them. See the JAWS section above. The physics question stands open and is now
+  the smaller half.
 - The radio's command rate limit. Measure it.
 - Whether CW should get smoothing, a different smoothing, or none.
