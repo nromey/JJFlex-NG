@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Radios.Fixer;
 using Radios.ChainChecks;
 using Xunit;
 using static Radios.ChainChecks.TxTuneProbe;
@@ -236,12 +238,31 @@ namespace Radios.Tests
         [Fact]
         public void The_no_power_explanation_says_it_is_not_an_audio_problem()
         {
-            // Load-bearing wording, not decoration. Without it the operator's
-            // next move is to go and test their microphone.
+            // LOAD-BEARING WORDING, not decoration. Without it the operator's
+            // next move is to go and test their microphone, and they can lose a
+            // day to that.
+            //
+            // This asserted against Explain() alone until 2026-08-25, and so it
+            // was guarding a LOCATION rather than the invariant. The sentence
+            // then moved: Explain() had been carrying the reading AND the
+            // diagnosis AND the remedy, which meant the operator read the same
+            // paragraph twice, once as the answer and once as the finding
+            // immediately below it. Explain() now reports what happened and the
+            // finding does the diagnosing.
+            //
+            // So the check is against everything the stage says, which is what
+            // an operator actually meets. The sentence may move again; it may
+            // not vanish.
             var r = Result.Ran(Verdict.NoPower, DateTime.UtcNow, Meters(R("FWDPWR", 0.0)),
                                100, double.NaN, false, "", "", "");
-            string text = Explain(r);
-            Assert.Contains("NOT AN AUDIO PROBLEM", text, StringComparison.OrdinalIgnoreCase);
+
+            FixerOutcome outcome = Radios.Fixer.TransmitStages.Transmitter(r);
+            string everythingTheOperatorReads =
+                outcome.Answer + " "
+                + string.Join(" ", outcome.Findings.Select(f => f.WhatIsWrong + " " + f.WhatToDo));
+
+            Assert.Contains("not an audio problem", everythingTheOperatorReads,
+                            StringComparison.OrdinalIgnoreCase);
         }
 
         // ---- evidence text ----

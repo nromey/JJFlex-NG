@@ -154,10 +154,13 @@ namespace Radios.Fixer
                     // drops the carrier early on a bad reading, so the
                     // immediate hazard is handled before any words render.
                     findings.Add(new FixerFinding("tx-no-power", FixOwner.Operator,
-                        "The transmitter was keyed with no audio involved and made no power "
-                        + "— this is not an audio problem, and no microphone test will find it.",
-                        "Check the antenna connection, the band, and whether the slice is "
-                        + "set to transmit, then run this stage again.",
+                        "This is not an audio problem, and no amount of microphone testing "
+                        + "will find it. The transmitter was asked to key its own carrier "
+                        + "with nothing of yours in the path, and no RF came out, so the "
+                        + "fault is upstream of anything the remaining stages measure.",
+                        "Check the antenna connection, the band, whether the slice is set "
+                        + "to transmit, and whether anything is inhibiting transmit. Then "
+                        + "run this stage again.",
                         critical: true));
                     break;
 

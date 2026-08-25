@@ -422,23 +422,26 @@ namespace Radios.ChainChecks
             switch (r.Verdict)
             {
                 case Verdict.MakesPower:
-                    return "The transmitter produced power with no audio involved, " +
-                           "so the transmitter itself is working. Anything wrong with " +
-                           "your transmitted audio is in the audio path, not in the radio's " +
-                           "ability to transmit.";
+                    return "The transmitter was keyed with no audio involved at all, and " +
+                           "produced RF. The transmitter itself is working, so anything " +
+                           "wrong with your transmitted audio lies in the audio path rather " +
+                           "than in the radio's ability to transmit.";
 
                 case Verdict.MakesPowerLoadSuspect:
-                    return "The transmitter produced power, so it is working — but a large " +
-                           "share of that power came back rather than going out. Check what " +
-                           "is connected to the antenna port before reading anything into the " +
-                           "audio measurements.";
+                    return "The transmitter produced RF, so it is working. A large share " +
+                           "of that power came back rather than going out, though, so check " +
+                           "what is connected to the antenna port before reading anything " +
+                           "into the audio measurements.";
 
                 case Verdict.NoPower:
-                    return "The transmitter was keyed and produced no power, with no audio " +
-                           "involved at all. THIS IS NOT AN AUDIO PROBLEM. Testing microphones " +
-                           "will not find it. Look at the antenna connection, the band, whether " +
-                           "the slice is set to transmit, and whether anything is inhibiting " +
-                           "transmit.";
+                    // WHAT HAPPENED, and nothing else. The diagnosis and the
+                    // remedy are the finding's job, and this said both until
+                    // 2026-08-25 — so an operator read the same paragraph
+                    // twice in two voices, once here and once immediately
+                    // below. It also SHOUTED, which some voices spell out
+                    // letter by letter.
+                    return "The transmitter was keyed with no audio involved at all, and " +
+                           "produced no RF.";
 
                 case Verdict.NoForwardPowerMeter:
                     return "The transmitter was keyed, but this radio did not report a forward " +

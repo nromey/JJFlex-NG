@@ -52,9 +52,19 @@ namespace Radios.Tests
             FixerFinding f = Assert.Single(AudioSetupCheck.Analyze(facts).Findings);
             Assert.Equal(FixOwner.Us, f.Owner);
             Assert.Equal(AudioSetupCheck.FixSwitchToWasapi, f.FixActionId);
-            // The one-sentence why: MME does not merely sound worse, it
-            // misreports — a measurement through it measures the converter.
-            Assert.Contains("misreport", f.WhatIsWrong);
+            // THE INVARIANT: the text must explain that MME MISREPORTS THE
+            // FORMAT, not merely that it sounds worse. An operator told "MME is
+            // poor quality" swaps a working microphone; an operator told "the
+            // rate it reports may not be the rate at the device" understands
+            // why the numbers cannot be trusted.
+            //
+            // Asserted on the word "misreport" until 2026-08-25, which broke
+            // the moment the sentence was rewritten to say the same thing
+            // better. "converted format" is the load-bearing fact rather than
+            // any particular verb, so it is the more durable token — but this
+            // is still prose checked against prose. Update it with the wording;
+            // do not delete it.
+            Assert.Contains("converted format", f.WhatIsWrong);
         }
 
         [Fact]
@@ -216,7 +226,13 @@ namespace Radios.Tests
             FixerOutcome outcome = AudioSetupCheck.Analyze(facts);
             Assert.DoesNotContain(outcome.Findings,
                 f => f.Id == AudioSetupCheck.ConfigOpenMismatch);
-            Assert.Contains("Nothing is open", outcome.Answer);
+            // WORDING-SENSITIVE, deliberately. The invariant is that an absent
+            // stream is reported as ABSENT rather than as a disagreement, and
+            // the DoesNotContain above guards the half that matters. This half
+            // guards that the answer actually says so, and the only way to
+            // check prose is against prose — so when the wording changes, change
+            // this with it rather than deleting it.
+            Assert.Contains("No stream is open", outcome.Answer);
         }
 
         // ---- the evidence travels ----

@@ -162,7 +162,11 @@ namespace Radios.Tests
 
             Assert.Contains("Not attempted at all", text);
             Assert.Contains("Boil", text);
-            Assert.Contains("weaker", text);
+            // "weaken" matches both "weaker" and "weakens", so a rewrite
+            // between the two does not break the guard. The invariant is that
+            // a partial run SAYS its answer is worth less, which is the whole
+            // point of listing what was skipped.
+            Assert.Contains("weaken", text);
         }
 
         [Fact]
