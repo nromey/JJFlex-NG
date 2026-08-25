@@ -81,6 +81,36 @@ public partial class AudioWorkshopDialog
         // this tab — it is the FIRST verdict the transmit check gives, and a
         // diagnostic that refuses to run when nothing is connected withholds
         // exactly the answer the operator needs at that moment.
+        // WHICH SURFACE IS WHICH. Noel, using both for the first time: "it is
+        // confusing to me looking at it now with the fix tool being available."
+        //
+        // NOT resolved by deleting this page, which was the obvious move and is
+        // wrong. These checks WALK THIRTEEN STAGES from a rule file an operator
+        // can edit, and the Fixer's five coded stages cover a subset of them —
+        // stages 0, 4 and 10 have no Fixer equivalent at all. And the receive
+        // half has nowhere to go until the Fixer grows its second door. Deleting
+        // either half would lose real ground to make the menu tidier.
+        //
+        // So the cheap honest thing, until the Fixer gains the chain read as
+        // its first stage: SAY which one to reach for. An operator who knows
+        // the difference is not confused by two surfaces; one who does not is
+        // confused by any number of them.
+        var orient = new TextBlock
+        {
+            Text = "These checks read your settings and report what they find. Nothing here "
+                 + "transmits. If you want the radio keyed and measured instead — a tune "
+                 + "carrier, a tone sent to the radio, your own voice tested — that is JJ "
+                 + "Flexible Fix, under Tools.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(2, 0, 2, 10),
+        };
+        // STRAIGHT ONTO THE PANEL, not AddToSection. That helper appends to
+        // (_section ?? fallback), and _section still points at the LAST section
+        // opened — which at this moment belongs to the Amplifier tab, built
+        // immediately before this one. Using it here would have put this
+        // paragraph in a different tab, silently, with nothing failing.
+        DiagnosticsContent.Children.Add(orient);
+
         AddSectionHeader(DiagnosticsContent, "Why is my radio silent");
 
         var rxIntro = new TextBlock
