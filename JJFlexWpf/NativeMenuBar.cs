@@ -79,11 +79,57 @@ public class NativeMenuBar : IDisposable
     private IntPtr _hwnd;
     private IntPtr _currentMenuBar;
     private readonly Dictionary<int, Action> _handlers = new();
+
+    /// <summary>
+    /// What each command id is CALLED, so the trace can name what ran.
+    /// </summary>
+    /// <remarks>
+    /// Added 2026-08-25. Until now only the not-yet-implemented stubs traced
+    /// anything, so when a burst of commands fired unbidden on the operator's
+    /// screen the trace recorded the menu being REBUILT eight times and not one
+    /// command being RUN. We could watch the machinery and not the actions.
+    /// Cleared and rebuilt with <see cref="_handlers"/> so a name can never
+    /// belong to a different build's id.
+    /// </remarks>
+    private readonly Dictionary<int, string> _itemNames = new();
     // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
     private readonly List<(IntPtr popup, int id, Func<bool> stateGetter, string baseText)> _checkItems = new();
     // Top-level popup handle → menu name (for screen reader announcement on open)
     private readonly Dictionary<IntPtr, string> _popupNames = new();
-    private int _nextId;
+    /// <summary>
+    /// Next menu command id. Starts at 1000 and KEEPS CLIMBING across rebuilds
+    /// — it is deliberately not reset.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It used to be reset to 1000 on every rebuild, which looks like tidiness
+    /// and is a trap. The menu is rebuilt on slice and connection events, from
+    /// a dispatcher post, WHILE the operator is using it — eight times in one
+    /// session on 2026-08-25, with a different item count every time. A
+    /// WM_COMMAND already in the Windows queue when a rebuild happens carries
+    /// an id from the OLD menu; with the counter reset, that id is a perfectly
+    /// valid key in the NEW dictionary and invokes whatever command now owns
+    /// the number.
+    /// </para>
+    /// <para>
+    /// Letting it climb makes a stale id MISS the dictionary, so the command
+    /// does nothing — a harmless failure instead of a harmful one. The reset
+    /// was what converted "does nothing" into "does something else".
+    /// </para>
+    /// </remarks>
+    private int _nextId = FirstCommandId;
+
+    /// <summary>Below the Windows range menus reserve, above nothing.</summary>
+    private const int FirstCommandId = 1000;
+
+    /// <summary>
+    /// WM_COMMAND ids are masked to 16 bits, so the counter cannot climb
+    /// forever. At roughly 200 items per rebuild this is some hundreds of
+    /// rebuilds away — but a wrap would silently reintroduce the collision
+    /// above, so it happens deliberately and says so rather than arriving by
+    /// arithmetic.
+    /// </summary>
+    private const int LastCommandId = 60000;
 
     // Feature gate state (persisted across rebuilds)
     private bool _diversityAvailable;
@@ -135,9 +181,21 @@ public class NativeMenuBar : IDisposable
 
         // Reset handler tracking for fresh build
         _handlers.Clear();
+        _itemNames.Clear();
         _checkItems.Clear();
         _popupNames.Clear();
-        _nextId = 1000;
+
+        // NOT reset — see the remarks on _nextId. Wrapped only at the 16-bit
+        // ceiling, loudly, because a wrap brings the stale-id collision back
+        // for one rebuild and that should never be a silent event.
+        if (_nextId > LastCommandId)
+        {
+            Tracing.TraceLine("NativeMenuBar: command ids wrapped to "
+                + FirstCommandId + " after " + _nextId
+                + " — a command posted before this rebuild could now reach the "
+                + "wrong handler", TraceLevel.Warning);
+            _nextId = FirstCommandId;
+        }
 
         // Build new menu bar for this mode
         _currentMenuBar = mode switch
@@ -203,6 +261,15 @@ public class NativeMenuBar : IDisposable
         int id = wParam.ToInt32() & 0xFFFF;
         if (_handlers.TryGetValue(id, out var handler))
         {
+            // EVERY command invocation is traced, not just the unwired ones.
+            // When a burst of commands fired unbidden on 2026-08-25 the trace
+            // showed the menu being rebuilt and nothing being run, so an hour
+            // went into working out what had happened. One line would have
+            // answered it.
+            Tracing.TraceLine("Menu command: "
+                + (_itemNames.TryGetValue(id, out var name) ? name : "id " + id),
+                TraceLevel.Info);
+
             handler();
             _window.Focus();  // Return focus to WPF content after menu action
             return true;
@@ -2095,6 +2162,7 @@ public class NativeMenuBar : IDisposable
         int id = _nextId++;
         AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
         _handlers[id] = handler;
+        _itemNames[id] = text;
     }
 
     /// <summary>Add a checkable menu item — checkmark updated dynamically via WM_INITMENUPOPUP.</summary>
@@ -2103,6 +2171,7 @@ public class NativeMenuBar : IDisposable
         int id = _nextId++;
         AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
         _handlers[id] = handler;
+        _itemNames[id] = text;
         _checkItems.Add((popup, id, stateGetter, text));
     }
 
@@ -2164,6 +2233,7 @@ public class NativeMenuBar : IDisposable
         int id = _nextId++;
         AppendMenuW(popup, MF_STRING | MF_GRAYED, (UIntPtr)id,
             $"{text} - not yet implemented");
+        _itemNames[id] = text + " (not implemented)";
         _handlers[id] = () =>
         {
             Tracing.TraceLine($"Menu: {text} (not yet wired)", TraceLevel.Info);
@@ -2176,6 +2246,7 @@ public class NativeMenuBar : IDisposable
     {
         int id = _nextId++;
         AppendMenuW(popup, MF_STRING | MF_GRAYED, (UIntPtr)id, $"{text} - coming soon");
+        _itemNames[id] = text + " (coming soon)";
         _handlers[id] = () =>
         {
             SpeakAfterMenuClose(Radios.Lexicon.Get("settings.menu.coming_soon", ("text", text)));
