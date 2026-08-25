@@ -460,8 +460,23 @@ namespace Radios.Fixer
                         + "send to Flex support. It separates what was measured from what "
                         + "was concluded, so their staff can read the numbers without taking "
                         + "anything on trust.</p>");
-            sb.AppendLine("<p>One thing worth doing before you send it: run the same test in "
-                        + "SmartSDR and see whether the problem follows you there. If it "
+            // "IF YOU ARE ABLE TO", not an instruction. Noel, minutes after this
+            // shipped: "I don't have steps for how to check it in SmartSDR
+            // right now with a screen reader ... I have no idea how to do it."
+            // If the person who wrote this application cannot say how, no
+            // operator can be assumed to know either.
+            //
+            // Task #220 called this in advance — "asking somebody to do
+            // something and not telling them how is a question that trains
+            // people to answer no" — and this paragraph was doing exactly that
+            // within an hour of the task being written.
+            //
+            // NO HELP LINK HERE YET, deliberately: the page does not exist, and
+            // pointing at one that does not is the drift this project keeps
+            // paying for. When #220 lands, this sentence gets the route.
+            sb.AppendLine("<p>If you are able to transmit in SmartSDR, run the same test "
+                        + "there before you send this, and see whether the problem follows "
+                        + "you. If it "
                         + "does, say so in your message. A fault that shows up in Flex's own "
                         + "software as well as in JJ Flexible Radio Access points at the "
                         + "radio or the station rather than at either program, and saying "
