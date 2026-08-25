@@ -1,144 +1,58 @@
-Hello Don,
+Hello Don — this one is mostly for you, and there are three specific things
+only you can answer. Your radio has been back since Monday night, and this
+build carries the fixes that were waiting on it.
 
-This is a big jump from the build you have been running, so the short
-version first: the transmit test tone no longer wobbles, your key
-assignments will be repaired for you automatically, and there are two
-specific things I would like you to try.
+WHAT I NEED YOU TO TRY
 
-Take your time. Nothing here is urgent and nothing here can hurt your
-radio.
+1. The tone that used to gallop.
+   Arm the test tone and transmit for a good long while — a minute or more,
+   longer than feels necessary. It should stay dead steady. It was wobbling
+   before, and it is fixed and confirmed here at my bench, but never once over
+   SmartLink at a real station, which is your setup and not mine.
 
+2. Your keyboard shortcuts.
+   Some command numbering changed under the hood a week ago, and any key map
+   written before that would have loaded with keys attached to the wrong
+   commands. This build repairs that automatically on first launch. Please just
+   run through the shortcuts you actually use and tell me if ANY of them do
+   something you did not expect. This is the one I most want to hear about,
+   because a wrong key is worse than a missing one.
 
-WHAT IS FIXED THAT YOU WILL NOTICE
+3. Push to talk, under JAWS.
+   Hold Control plus Space and speak for ten or fifteen seconds. If the
+   transmitter drops out and comes back several times a second while you are
+   still holding the key, that is the bug I am chasing. It does not happen
+   under NVDA, which is why I need your ears specifically. The build watches
+   for it and writes to the log by itself — nothing changes in how it behaves,
+   so if it is happening you should hear it.
 
-The test tone used to gallop. It had a wobble to it, a sort of slow
-metronome about three times every four seconds, and it was there in what
-your radio actually transmitted, not just in what you heard back. That is
-gone. It was fixed on Sunday night and confirmed at a real radio on
-Monday morning.
+ALSO NEW, AND WORTH A LOOK IF YOU HAVE TIME
 
-If you ever heard your own audio sounding uneven and could not explain
-it, that may well have been the same fault, because the same problem
-affected a live microphone too.
+Tools, then Fix, then Transmit problems. This is new: it walks your transmit
+chain a stage at a time and tells you where it dies. Stages 0 and 1 do not key
+the radio at all. Stage 2 onward will transmit, and it will not transmit
+anything until you have told it what is on the antenna socket.
 
+It is honest about what it cannot see, and it produces a report written to be
+pasted into an email to Flex support. Have a poke at it if you are curious, but
+it is not what this build is for and I am not asking you to test it yet.
 
-YOUR KEYBOARD WILL BE FIXED FOR YOU
+The Audio Workshop also got rearranged today. Transmit audio used to be one
+enormous page; it is now three shorter ones — This Computer, Transmit Settings,
+and Hear Yourself. And the two meter pages are one page called Meters, with the
+full meter list behind a button.
 
-The build you have been using is old enough that a change we made on the
-18th of August shifted twenty-two of the key assignments onto the wrong
-commands. On your machine that would mean some keys quietly did the wrong
-thing. Control M, for example, would have run the antenna tuner instead
-of opening the meters.
+KNOWN AND NOT YET FIXED
 
-This build detects that and repairs it on the first run, silently. It
-only repairs keys you had never customised, so nothing you deliberately
-chose gets touched. If you HAD customised a key that got caught in the
-shift, it leaves that one alone and writes a note in the diagnostic log
-rather than guessing what you meant.
+- Nobody has pressed the buttons in the new Fix tool on a live radio yet.
+  Automated checks prove the buttons reach the application, which is not the
+  same as proving they do the right thing to your rig.
+- If you have two microphones with the same name in Windows, the application
+  can pick the wrong one. Uncommon, but it is real, and I know about it.
 
-You do not need to do anything. It just happens. But if a key does
-something you did not expect, tell me rather than assuming it is you.
+As always — anything that sounds wrong, sounds odd, or just annoys you, tell
+me. Especially the small annoying things. Those are the ones that never get
+reported and never get fixed.
 
-
-THE FIRST THING I WOULD LIKE YOU TO TRY
-
-This tells us whether the problem is at your microphone or somewhere
-after it. It is two runs of the same thing with one difference, and you
-key the radio yourself both times.
-
-1.  Connect to your radio and turn PC audio on as you normally would.
-
-2.  Press Control J, then the letter G. That arms the test tone. The tone
-    is generated inside JJ Flexible, so it goes out INSTEAD of your
-    microphone. Your microphone is completely out of the path.
-
-3.  Key up for about five seconds, then unkey.
-
-4.  Press Control J then G again to disarm the tone. Your microphone
-    comes back.
-
-5.  Key up again for about five seconds and talk normally, then unkey.
-
-What I want to know is simply whether those two sound different at the
-far end, or on a receiver you can hear.
-
-If the tone gets out and your voice does not, the problem is on the
-microphone side and we can go looking there. If neither gets out, your
-microphone is not the problem at all and we look further along. If both
-get out, we are chasing something that comes and goes.
-
-Any of those three answers is useful. There is no wrong result.
-
-
-THE SECOND THING, AND THIS ONE ONLY YOU CAN ANSWER
-
-You use JAWS, and that turns out to matter in a way we did not know
-about until this weekend.
-
-JAWS does not pass a held key through the way NVDA does. Instead of one
-long press it sends a rapid series of separate presses and releases,
-about four a second. We found this in another project, where a user
-reported that holding an arrow key would not make something move.
-
-The worry is push to talk. If JAWS treats Control Space that way, then
-holding it to talk would key and unkey your transmitter about four times
-a second, and you would have no way of knowing, because as far as you are
-concerned you are holding the key down and speaking.
-
-We do not know yet whether it does this. It might only do it for the
-arrow keys.
-
-So: hold Control Space and talk for about ten seconds, then let go. Then
-tell me whether your audio sounded continuous at the far end, or chopped.
-
-This build watches for it either way and writes a line in the diagnostic
-log if it sees it, so if you would rather just use the radio normally and
-send me a log afterwards, that works too.
-
-
-IF YOU WANT TO SEND SOMETHING TO FLEX
-
-There is a transmit chain check that produces a block of text you can
-paste into an email. Audio Workshop is Control Shift W, then Control Tab
-across to Diagnostics, then the button called Check My Transmit Chain.
-Below the result there is a second box headed Evidence to send to Flex
-support, and a button that copies it.
-
-It carries your radio's model, serial number and firmware, and the actual
-meter readings with times, so a support engineer can check them
-themselves.
-
-One thing worth knowing about that text. If you can, try the same
-transmission in SmartSDR first. If it fails there too, say so in your
-email, because that single sentence is what turns it from a question
-about our software into a question about your radio. And if it works fine
-in SmartSDR and not here, please do not write to Flex at all, write to
-me, because that means the fault is ours.
-
-
-KNOWN, AND NOT A SURPRISE
-
-The guided version of that two-run test is half built. The measuring and
-comparing is done and tested, but the buttons to walk you through it are
-not there yet, which is why the steps above are by hand. That is coming.
-
-The app takes about six seconds to say anything at startup while it looks
-for radios. It now says "Starting up, looking for radios on your network"
-and then "Still looking" if it drags on, so at least you know it has not
-died. Working out why it takes six seconds is on the list.
-
-This is a debug build, so it is slower than a release build and it writes
-more to disk. That is normal and not something to report.
-
-
-HOW TO SEND ME A DIAGNOSTIC LOG
-
-Control J then Control D starts and stops a detailed capture from
-anywhere, including inside a dialog. Saved captures are in Settings, then
-Diagnostics, then the Saved Diagnostic Logs window.
-
-Thank you for testing on JAWS rather than switching to NVDA to avoid
-bothering me. Problems that only show up on JAWS are invisible to us
-otherwise, and the one above is a good example.
-
-Noel
+73
+Noel, K5NER
