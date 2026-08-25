@@ -66,10 +66,23 @@ namespace Radios.ChainChecks
         /// is NOT implemented here yet, and a non-null value that differs from
         /// the current port is refused rather than silently ignored.
         /// </param>
+        /// <param name="onKeyConfirmed">
+        /// Called once, when the RADIO confirms it is transmitting — not when
+        /// the setter returned. The host uses this to start charging key-down
+        /// time, so a grant the radio never honoured is never billed for.
+        /// </param>
+        /// <param name="onUnkeyed">
+        /// Called after the carrier is down, on every path out including a
+        /// throw. Safe to receive without a matching key-confirmed: the host's
+        /// accounting is written to tolerate that, because an unkey notice is
+        /// the one thing that must never be conditional.
+        /// </param>
         public static TxTuneProbe.Result Run(FlexBase rig,
                                              bool loadDeclared,
                                              CancellationToken cancel = default,
-                                             string antennaPort = null)
+                                             string antennaPort = null,
+                                             Action onKeyConfirmed = null,
+                                             Action onUnkeyed = null)
         {
             // --- refusals, before anything is keyed ---
             //
@@ -126,6 +139,7 @@ namespace Radios.ChainChecks
                 // rather than believing the setter — and if it never does, that
                 // is itself the finding, not a reason to keep waiting.
                 everKeyed = WaitForKeyUp(rig, cancel);
+                if (everKeyed) Witness(onKeyConfirmed, "onKeyConfirmed");
                 if (!everKeyed)
                 {
                     Tracing.TraceLine("TxTuneProbeRunner: radio never reported transmitting "
@@ -172,6 +186,11 @@ namespace Radios.ChainChecks
                 // Every path out lands here, including the throw above and the
                 // early returns inside the loop. Unkey, then confirm it took.
                 Unkey(rig);
+
+                // The witness is told AFTER the carrier is down, never before:
+                // its whole purpose is to record that transmitting stopped, and
+                // a witness notified first would be recording an intention.
+                Witness(onUnkeyed, "onUnkeyed");
             }
 
             // A radio that never reported transmitting produced no measurement.
@@ -193,6 +212,28 @@ namespace Radios.ChainChecks
                 TraceLevel.Info);
 
             return result;
+        }
+
+        /// <summary>
+        /// Tell a witness something happened, and never let it break the run.
+        /// </summary>
+        /// <remarks>
+        /// These callbacks exist so the host can account for key-down time and
+        /// hold its own record of what the radio actually did — see
+        /// <c>FixerTransmitGate</c>. One of them fires inside the unkey
+        /// <c>finally</c>, so an exception escaping here would replace whatever
+        /// actually went wrong with a failure to keep a note, and could do it
+        /// while a carrier was on its way down. Swallow, trace, carry on.
+        /// </remarks>
+        private static void Witness(Action a, string which)
+        {
+            if (a == null) return;
+            try { a(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("TxTuneProbeRunner: " + which
+                    + " threw and was ignored — " + ex.Message, TraceLevel.Warning);
+            }
         }
 
         // -------- keying --------
