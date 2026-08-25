@@ -188,6 +188,63 @@ namespace JJFlexWpf
             return _getRadioPowerOn() && _getRigControl() != null;
         }
 
+        // ── Detecting a screen reader that does not deliver held keys (#216) ──
+        //
+        // JAWS synthesises key-down/key-UP pairs rather than passing a held key
+        // through. Measured on Noel's machine 2026-08-24 with Freight Fate's
+        // key probe: the pairs arrive roughly 250 ms apart, and the up follows
+        // its down almost immediately. NVDA passes an unscripted key straight
+        // through, so a hold really is a hold there.
+        //
+        // If Ctrl+Space is treated that way, a held PTT keys and unkeys about
+        // four times a second and the operator — who is holding the key and
+        // talking — has no way to know. That is the shape of fault this whole
+        // arc has been about: a plausible-looking state rather than an error.
+        //
+        // THIS DETECTS AND RECORDS. It deliberately does NOT change what PTT
+        // does. Whether JAWS synthesises for a CHORD it has no script for is
+        // unverified — it may only do it for the arrows it scripts — and
+        // guessing at a transmit path is how you get a stuck transmitter.
+        // Don is our only JAWS coverage; one trace from him settles it.
+        private long _pttDownTicks;
+        private int _implausibleReleases;
+
+        /// <summary>
+        /// Shorter than any human release. A deliberate tap of Ctrl+Space runs
+        /// 80 ms or more; a synthetic pair is near zero. Nothing in between is
+        /// ambiguous enough to matter.
+        /// </summary>
+        private const int ImplausibleReleaseMs = 50;
+
+        /// <summary>
+        /// How many key-ups arrived too fast to be a human letting go. Zero on
+        /// NVDA. Non-zero means the screen reader is synthesising, and every
+        /// hold-shaped binding in the app is suspect — not just this one.
+        /// </summary>
+        public int ImplausiblePttReleases => _implausibleReleases;
+
+        private void NotePttRelease()
+        {
+            if (_pttDownTicks == 0) return;
+            long ms = (Stopwatch.GetTimestamp() - _pttDownTicks) * 1000 / Stopwatch.Frequency;
+            _pttDownTicks = 0;
+            if (ms >= ImplausibleReleaseMs) return;
+
+            _implausibleReleases++;
+            // First occurrence only. If this is real it happens four times a
+            // second, and a line per occurrence is the trace flood that has
+            // already cost this project two debugging sessions.
+            if (_implausibleReleases == 1)
+            {
+                Tracing.TraceLine("PTT: key-up arrived " + ms + " ms after key-down — too fast to be"
+                    + " a human letting go. The screen reader is almost certainly synthesising"
+                    + " key-down/key-up pairs rather than passing a held key through (JAWS does"
+                    + " this; NVDA does not). Transmit is keying and unkeying while the operator"
+                    + " holds the key. See task #216. Further occurrences counted, not logged.",
+                    TraceLevel.Error);
+            }
+        }
+
         private void SetTx(bool on)
         {
             var rig = _getRigControl();
@@ -216,6 +273,7 @@ namespace JJFlexWpf
 
             if (State == PttState.Idle)
             {
+                _pttDownTicks = Stopwatch.GetTimestamp();   // #216, see NotePttRelease
                 State = PttState.PttHold;
                 SetTx(true);
                 StartFreshAudioSample();
@@ -243,6 +301,10 @@ namespace JJFlexWpf
         {
             if (State == PttState.PttHold)
             {
+                // Record BEFORE going idle: a release too fast to be human
+                // means the screen reader is synthesising pairs (#216). The
+                // release still happens — detection only, no behaviour change.
+                NotePttRelease();
                 GoIdle(Lexicon.Get("audio.ptt.announce_receiving"));
             }
             // If locked/warning, key-up does nothing (still locked)
