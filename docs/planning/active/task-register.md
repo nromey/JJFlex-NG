@@ -5,7 +5,7 @@ from the Claude task store. Hand edits are discarded on the next run.
 To change something here, change the task.
 
 **Generated:** 2026-08-25 from session `b06e594e-0593-4553-93ae-bf30e08d38ff`.
-**Totals:** 216 tasks - 93 open, 123 closed.
+**Totals:** 222 tasks - 99 open, 123 closed.
 
 Why this file exists: the task store lives under the user profile, is not
 in git, and is invisible to every other window, worktree and machine. This
@@ -17,7 +17,7 @@ Run `export-task-register.ps1 -Check` to prove this one has not.
 
 ---
 
-## Open (93)
+## Open (99)
 
 ### #10 - Audio Track F — receiver simulation on IQ playback
 
@@ -2330,11 +2330,21 @@ WORTH CONSIDERING while in here: the operator-facing naming. ANT1 and ANT2 are t
 
 Relates to #122 (walk the TX chain), #163 (stage 12 power and SWR rules), #164 (acked but not applied), #139 (TX Peak Watcher may watch the wrong meter).
 
-### #190 - Find and name the antenna ports — let the radio tell a blind operator what is plugged in where
+### #190 - Antenna checker — a Detect Antennas button that keys each port at minimum power and reads reflected, then lets the operator name them
+
+**Blocked by:** #222, #223
 
 NOEL'S IDEA, 2026-08-22, straight out of an hour lost to exactly this: "for a blind person who can't read the port labels, this might be a helpful thing if it could be done."
 
-=== SHAPE RULED BY NOEL, same day ===
+=== EVERY PORT CLAIM IN THIS TASK CARRIES A DATE, AND HERE IS WHY ===
+
+On the MORNING of 2026-08-22 the dummy load was on ANT2 and ANT1 was open. LATER THE SAME DAY NOEL MOVED THE LOAD TO ANT1, where it still is — the task register records the move at the setupFromScratch finding: "Noel moved the dummy load to ANT1 on 2026-08-22, and RXAntList[0] happens to be ANT1."
+
+Noel queried this on 2026-08-25, remembering the load on ANT1. He was right about the present; the text below was right about the measurement. Both true, different moments.
+
+That near-miss happened INSIDE THIS TASK'S OWN DESCRIPTION, which is the point: a port assignment written without a date silently becomes a claim about now, and coax moves. The NUMBERS are not port-specific and are what actually matter — a loaded port reflects almost nothing, an open one reflects most of it.
+
+=== SHAPE RULED BY NOEL, 2026-08-22 ===
 
 A "DETECT ANTENNAS" BUTTON. Explicit, on demand, pressed by the operator. Noel: "I doubt someone should have a check happen always."
 
@@ -2346,31 +2356,54 @@ MUST ANNOUNCE ITSELF BEFORE ACTING. It transmits, so it says so first — what i
 
 REPORTS EVERY PORT, and both-connected is a normal, uninteresting result that should still be stated plainly. Do not only report the anomaly.
 
-=== THE PROBLEM IT SOLVES, demonstrated live today ===
+=== SCOPE WIDENED BY NOEL 2026-08-25: EVERY PORT, INCLUDING TRANSVERTER ===
 
-The dummy load was on ANT2. ANT1 was selected. Two full sessions transmitted into an empty connector while the SWR meter reported 1.008. It was settled only by checking the printed manual for which physical connector is which — a silkscreen a blind operator cannot read, describing a port whose position is ambiguous depending on whether you face the front of the radio or reach over the back. Noel: "as I'm facing the radio, the left most port as I'm reaching over the back of the radio is 1, if they label it as if you're facing the back of the radio, then it could be 2."
+"Include transverter ports as well, just get an inventory of things that are connected and not."
+
+So the deliverable is a COMPLETE PORT INVENTORY, not just the two main antenna jacks. But the ports are not all the same kind of thing, and keying into all of them indiscriminately would be wrong and possibly damaging. Three classes, and the report must be honest about which is which:
+
+1. TX-CAPABLE ANTENNA PORTS (ANT1, ANT2). The reflected-power method works here and is what Part One describes. Enumerate from Slice.TXAntList — NOT from RXAntList. #205 is a live bug about exactly that confusion (setupFromScratch picks the TX antenna out of the RX list), so this must not repeat it.
+
+2. RECEIVE-ONLY PORTS (RX_A, RX_B, and XVTR when the radio reports XVTR_RX_ONLY). There is no transmit-based test at all — you cannot key into a receive port. These belong in the inventory, listed as present with "receive only, cannot be checked by transmitting" as the honest result. Absence of a test is not a finding of absence, and the report must not let the two read the same.
+
+3. TRANSVERTER PORT (XVTR). This is the trap. XVTR is a LOW-LEVEL IF OUTPUT, not a PA output — it is designed to drive a transverter at a fraction of a watt, not to push a hundred watts into coax. The reflected-power discrimination that makes Part One work depends on there being real forward power to reflect, and there will not be. So:
+   - Do NOT reuse the ANT1/ANT2 thresholds here. The 0.05-percent-versus-76-percent contrast was measured at PA power and does not transfer.
+   - Establish on the bench whether the radio reports forward and reflected power for the XVTR path AT ALL before designing a verdict for it. If it does not, say so and stop — an inventory entry reading "transverter port present, connection state cannot be determined from here" is truthful and useful; a guess dressed as a measurement is neither.
+   - FlexLib carries a List<Xvtr> of transverter definitions, so a configured transverter is knowable from configuration even when its physical connection is not measurable. Report the configuration and the measurement as separate things, clearly labelled, because they can disagree — and when they do, that disagreement is itself the finding.
+
+The inventory therefore reports, per port: its raw label, its class, whether it was tested, by what method, what was measured, and the operator's own name for it once Part Two exists. A port that was not tested says why.
+
+=== THE PROBLEM IT SOLVES, demonstrated live on the morning of 2026-08-22 ===
+
+The dummy load was on ANT2, ANT1 was selected, and two full sessions transmitted into an empty connector while the SWR meter reported 1.008. It was settled only by checking the printed manual for which physical connector is which — a silkscreen a blind operator cannot read, describing a port whose position is ambiguous depending on whether you face the front of the radio or reach over the back. Noel: "as I'm facing the radio, the left most port as I'm reaching over the back of the radio is 1, if they label it as if you're facing the back of the radio, then it could be 2."
 
 === PART ONE — FIND ===
 
-Key briefly at MINIMUM power on each port in turn and read REFLECTED power. A port with something real on it reflects almost nothing; an empty one reflects nearly everything. Measured today: the load on ANT2 reflected 0.054 W of 101.2 W, about 0.05 percent. The open ANT1 reflected 13.4 W of 17.5 W, about 76 percent. Not a subtle difference, and it needs no calibration to read.
+Key briefly at MINIMUM power on each TX-capable port in turn and read REFLECTED power. A port with something real on it reflects almost nothing; an empty one reflects nearly everything.
 
-Report in plain words: "ANT1, nothing connected. ANT2, something connected, good match."
+Measured on the morning of 2026-08-22, before the load was moved: the LOADED port reflected 0.054 W of 101.2 W, about 0.05 percent. The OPEN port reflected 13.4 W of 17.5 W, about 76 percent. Not a subtle difference, and it needs no calibration to read.
 
-Safe to run: minimum power gave 0.22 W today, and the radio folds back on mismatch by itself, which it did correctly.
+Report in plain words: "ANT1, something connected, good match. ANT2, nothing connected."
+
+Safe to run: minimum power gave 0.22 W, and the radio folds back on mismatch by itself, which it did correctly.
+
+STOP EARLY ON A BAD READING. Noel 2026-08-25: "you probably want to stop transmitting before any alarms go off if it's open." The measurement is complete the moment the reading is unambiguous; holding the carrier past that adds nothing and puts power into something returning it. Share TxTuneProbe.ShouldStopEarly (#222) rather than writing a second rule — two consecutive bad samples, not one, because the PA ramps and the first sample after key-down can read badly on a good load.
 
 This also answers a question a SIGHTED operator cannot fully answer. They can read the silkscreen, but they cannot see a connector that is not fully seated, or a feedline gone open somewhere outside. Reflected power sees all of it.
 
 === PART TWO — NAME ===
 
-Let the operator give each port their own name, stored per radio by serial (see project_per_radio_config_serial_keyed). ANT2 becomes "dummy load", ANT1 becomes "dipole". The app then says the name everywhere it currently says ANT1 or ANT2 — the antenna control, announcements, the transmit-chain walk, the diagnostic capture per #188.
+Let the operator give each port their own name, stored per radio by serial (see project_per_radio_config_serial_keyed). On Noel's bench AS OF 2026-08-25 that would make ANT1 "dummy load" and XVTR "2m transverter" — and that example will go stale the moment a connector moves, which is precisely the disease this feature treats.
+
+The app then says the name everywhere it currently says ANT1 or ANT2 — the antenna control, announcements, the transmit-chain walk, the diagnostic capture per #188.
 
 That is what makes the unreadable label stop mattering: the operator's own word becomes the identifier, verified once by measurement rather than trusted from a manual.
 
-Keep the raw ANT1/ANT2 available for support conversations, since that is what Flex documentation and other software use. The name is for the operator; the raw label is for talking to somebody else about their radio.
+Keep the raw ANT1/ANT2/XVTR available for support conversations, since that is what Flex documentation and other software use. The name is for the operator; the raw label is for talking to somebody else about their radio.
 
 WHERE IT LIVES: beside the antenna controls in Home's Antenna section, and reachable from Radio Setup, since "which port is my antenna on" is asked once at setup and then forgotten until something breaks.
 
-RELATED, and this sits on top of two of them: #189 (SWR must be computed from forward and reflected, because the reported meter lied in exactly the case this tool detects), #188 (no capture records the port today), #180 (load declaration), #122 (walk the TX chain).
+RELATED: #222 (the TUNE probe builds the keying, sampling, computed-SWR and stop-early machinery this needs — do not reimplement it), #223 (an amplifier in line invalidates the whole method), #224 (the live-operation transmit cutout, deliberately separate), #189 (SWR must be computed from forward and reflected, because the reported meter lied in exactly the case this tool detects), #205 (the TX-list-versus-RX-list confusion this must not repeat), #188 (no capture records the port today), #180 (load declaration), #122 (walk the TX chain).
 
 DEFINITION OF DONE includes running it with the load deliberately on the WRONG port and confirming it says so — the positive control, and free to arrange.
 
@@ -3025,6 +3058,8 @@ DO NOT rewrite before Don's build. The current block is honest and useful; the e
 
 ### #218 - Two-step transmit differential: injected audio, then the operator speaks — with an honest way to skip step two
 
+**Blocked by:** #221, #222
+
 ASKED FOR BY NOEL 2026-08-25, for Don specifically, then refined into a guided two-step flow rather than two unrelated runs.
 
 "He needs an automated test possibility as well as being able to talk into the microphone. If it's broken at his microphone side, then it'll show, if we can inject stuff directly — sending three test tones and 'this is [callsign] testing, over'."
@@ -3118,6 +3153,304 @@ WORTH INCLUDING WHEN IT IS WRITTEN:
 - That this is a legal on-air transmission and needs identification, unless they are into a dummy load.
 
 Belongs in docs/help/md/ and therefore in the CHM rebuild (#52's path). Cross-references: #217 (the checkbox that creates the need), #218 (our own two-step test, which is the thing they are cross-checking).
+
+### #221 - The tone ladder assumes a 300-2700 SSB filter it never reads, so it can report a fault that is not there
+
+**Blocked by:** #222
+
+**Blocks:** #218
+
+RAISED BY NOEL 2026-08-25, from bed, before the machinery ever ran against a second radio.
+
+WHAT IS WRONG. TxToneLadder.cs hardcodes six rungs — 200/300/700/1500/2400/3200 Hz — with 200 and 3200 designated as out-of-band CONTROLS that must come back attenuated. The design doc comment states the assumption out loud: "A standard SSB transmit filter runs roughly 300 Hz to 2.7 kHz." That is an assumption written down as though it were a fact.
+
+It is not a fact. It is a SETTING, and the radio will tell us what it actually is: FlexLib exposes TXFilterLow (Radio.cs:9377) and TXFilterHigh (Radio.cs:9405), documented range 0 to 10000 Hz. We never ask.
+
+WHY IT IS WORSE THAN A GAP. If the operator's TX filter is not ~300-2700, the rungs land in the wrong places and the verdict inverts:
+- Wide filter (say 100-3500, common for DIGU or a deliberately wide voice setup): BOTH controls fall INSIDE the passband, come back unattenuated, and the ladder returns NoFilterSeen — reporting a broken or bypassed filter on a radio whose filter is fine.
+- Narrow filter (say 400-2400, a common contest/DX setting): the 300 Hz rung is now BELOW the passband and 2400 is at/outside the top edge, so genuine in-band rungs read as attenuated and the shape looks like a failing chain.
+Either way the operator is handed a confident wrong answer, which is the one outcome worse than no test. It also defeats the ladder's stated purpose — it was built to be a positive control on the instrument, and a control that can be silently invalid is not a control.
+
+MODE MAKES IT WORSE STILL. The whole ladder presumes an SSB voice path:
+- CW — there is no transmit AUDIO path at all. The tone test is meaningless, not merely inaccurate.
+- FM — deviation-based, and the TX filter concept does not map the same way.
+- AM — different path again.
+- DIGU/DIGL — typically a wide, deliberately flat filter; "attenuated at the edges" may be the wrong expectation entirely.
+- USB/LSB — the only case the current ladder is correct for.
+
+RULED BY NOEL 2026-08-25: "switch to an appropriate mode if the rig is in FM or something weird, then switch back after test." So the test DRIVES the radio into a mode it can measure rather than declining. That is a state mutation on the operator's radio, and it carries two hazards that must be designed for, not discovered.
+
+HAZARD ONE — ORDER. TX filter cuts are PER MODE. Reading TXFilterLow/High before the mode switch builds the ladder against the passband of a mode the test is not going to run in, which reintroduces the exact bug this task exists to fix, one layer deeper and harder to see. Sequence is fixed:
+  1. capture current mode (and anything else about to be changed)
+  2. switch mode
+  3. THEN read TXFilterLow / TXFilterHigh — now correct for the mode actually under test
+  4. derive rungs, run the ladder
+  5. restore
+Never read the filter before the switch.
+
+HAZARD TWO — RESTORE MUST SURVIVE FAILURE. If the test throws, is cancelled, or the app dies mid-run, the operator is left in a mode they did not choose, on a radio they may be about to transmit with. Restore in a finally, restore on cancel, and restore before rethrowing. Same rule as never leaving the radio keyed (#222). Trace the original mode BEFORE changing it, so that even a hard crash leaves a record of what to put back.
+
+WHICH MODE TO SWITCH TO. USB or LSB. Prefer the band-conventional sideband for the current frequency (LSB below 10 MHz, USB above) so that a test into a real antenna is not transmitting on the wrong sideband for the band plan. Announce the switch — a blind operator must not discover their mode changed by hearing it later.
+
+THE FIX.
+1. Capture mode, switch if needed, THEN read TXFilterLow and TXFilterHigh. Derive the rungs from the ACTUAL passband of the mode under test.
+2. Place the two controls a real margin outside the measured edges (a fixed offset below Low and above High, clamped to something the radio can actually produce), and spread the in-band rungs across [Low, High] rather than at fixed frequencies.
+3. Record IN THE EVIDENCE TEXT: the filter cuts in force, the mode the test ran in, and whether that mode was switched for the test. A ladder result without those cannot be re-read later or compared between two operators.
+4. Restore mode in a finally. Announce both the switch and the restore.
+5. If the radio is unreachable or the cuts cannot be read, do NOT fall back to the hardcoded ladder — that is the silent-wrong-answer path. Report Incomparable.
+6. CW still does not get an audio ladder — there is no audio path to measure. Switching out of CW to run a tone test would be measuring something the operator never uses. Point at the TXTune probe (#222) instead, which works in CW natively.
+
+TESTS. Drive the rung derivation from injected filter cuts (no radio needed) and assert: controls always outside the passband; in-band rungs always inside; a wide filter and a narrow filter produce different ladders; a missing filter reading yields Incomparable rather than the default ladder; the mode is restored when the run throws; the filter is read AFTER the switch, not before (assert on call order).
+
+THIS IS THE SESSION'S OWN DEFECT CLASS. A described value standing in for a measured one — the same shape as the -120 mic meter, the NAS Test-Path, and the "19 commits ahead" header. The ladder was even written to be a control against exactly this kind of error, and still shipped with an unread assumption at its centre.
+
+### #222 - Key the rig with TUNE first — prove the transmitter works before blaming the audio chain
+
+**Blocks:** #221, #218, #190
+
+RAISED BY NOEL 2026-08-25: "use the rig's built-in key to see if actual transmit independent of audio is working."
+
+THE IDEA. TXTune (FlexLib Radio.cs:9433, bool) with TunePower (Radio.cs:8553) puts a carrier out with NO audio chain involved whatsoever — no microphone, no PortAudio device, no Opus encode, no VITA stream, no mic profile, no conditioning. It is the transmitter proving itself in isolation.
+
+WHY THIS BELONGS AT THE FRONT. Every transmit test we have built so far measures the audio chain and the transmitter TOGETHER, then attributes any failure to the audio chain by assumption. TXTune separates them, and the logic is clean in both directions:
+- TUNE makes power, voice does not → the fault is DEFINITIVELY in the audio chain, and the differential's stage-by-stage reading is worth reading.
+- TUNE makes no power → this was never an audio problem. Stop testing microphones. Look at antenna, PA, interlock, band, licence/feature gating, TX inhibit, or a slice that is not TX-enabled.
+
+That second branch is the valuable one. Without it, an operator with a transmit-side hardware or configuration fault can be walked through the entire microphone diagnostic and told, wrongly, that their audio is at fault.
+
+IT IS THE POSITIVE CONTROL FOR THE WHOLE TRANSMIT TEST. This is the session's own rule applied to the diagnostic itself: before believing a negative result from the transmit chain, make the instrument produce a positive. TUNE is that positive. It should run FIRST and gate everything after it — if the transmitter cannot key, no audio measurement downstream means anything.
+
+DESIGN NOTES.
+- Runs at TunePower, not full power. Read the operator's configured value; do not set it.
+- MUST respect the load declaration (#180) — this is unattended keying and the same prerequisite applies. Dummy load declared, or low power into a connected antenna per Noel's earlier ruling.
+- Short: a couple of seconds is plenty to read FWDPWR and SWR.
+- Capture FWDPWR, SWR and ALC during the tune, and put them in the evidence text as their own clearly-labelled section — "transmitter, audio chain not involved". A reader at FlexRadio can act on that line without trusting a byte of our audio code, which is exactly the framing #217 established.
+- Works in CW, where the tone ladder cannot run at all — so it is also the answer for the mode gate in the sibling task (#221).
+- Restore prior state on exit, including if it throws. Never leave the radio keyed.
+
+TESTS. Verdicts from injected meter readings — power present, power absent, power present but SWR high — with no radio involved. Assert that the differential refuses to run its audio stages when TUNE reported no power, and says why.
+
+### #223 - An amplifier in the path silently invalidates the antenna checker — it measures the amp's input, not the antenna
+
+**Blocks:** #190
+
+RAISED BY NOEL 2026-08-25: "If amplifier is present, consider checking that ... not sure how the amplifier would handle an open port, but ... just worth thinking about."
+
+Thought about it. The amplifier's tolerance for an open port is the SECOND problem. The first one is worse and is not about safety at all.
+
+THE MEASUREMENT BREAKS, SILENTLY. #190 discriminates a connected port from an empty one by reading reflected power at the RADIO. With an amplifier in line and in Operate, what the radio sees is the AMPLIFIER'S INPUT — a deliberately well-matched 50 ohm load that the amp presents no matter what is hanging off its output. So:
+
+- Antenna connected, amp in line: radio reads a good match. Correct answer, right reason.
+- Antenna DISCONNECTED, amp in line: radio STILL reads a good match, because it is looking at the amp's input, not at the open coax two feet further along.
+
+The checker would report "something connected, good match" on every port of a station whose antenna is on the floor. That is the exact failure class this whole arc exists to kill — a confident wrong answer from an instrument pointed at the wrong thing, and the same shape as #189's SWR meter reading 1.008 into an open connector.
+
+Worse than #189, in one respect: the SWR meter at least had the excuse of being a meter. Here the arithmetic is correct, the readings are honest, and the conclusion is still wrong, because the question being answered is "is the amp input matched" while the question being asked is "is an antenna connected".
+
+WHAT WE CAN SEE. Radios/AmplifierInventory.cs already exposes AmplifierInfo with State and IsOperate, and FlexLib's Amplifier carries AmplifierState including Standby and Operate plus per-amp meters. So the presence and state of an amplifier are knowable before keying — this does not need new discovery, only using what is already there.
+
+THE RULE. The checker must never key through an amplifier in Operate and present the result as an antenna measurement. Three acceptable outcomes, in order of preference:
+
+1. PUT THE AMP IN STANDBY for the duration, restore afterwards. The radio then drives the antenna directly and the reflected reading means what #190 assumes. Requires that FlexLib can command amplifier state, which needs confirming — reading State is proven, setting it is not. Restore in a finally, and announce both the standby and the restore: a blind operator must not be left with an amp in a state they did not choose.
+
+2. ASK THE OPERATOR to put the amp in standby, then continue. Slower, always available, no dependency on a settable API.
+
+3. REFUSE, and say precisely why: "an amplifier is in line and switched to operate, so a check from here would measure the amplifier's input rather than your antenna." A refusal that explains is a useful result. A measurement that quietly answers a different question is not.
+
+READ THE AMP'S OWN METERS IF THEY ARE THERE. An amplifier that publishes its own forward and reflected power can answer the question properly from the far side of itself. Attractive, and NOT the first move: #137 is a live bug where FlexLib formats one amplifier handle unpadded so meters silently fail to attach when the handle has a leading zero. Building the antenna checker's correctness on top of a meter attachment known to fail silently would stack two silent failures. Fix #137 first if this path is taken.
+
+NOEL'S ORIGINAL QUESTION, still open and worth answering on the bench: how does the amp itself handle being keyed into an open port? The radio folds back by itself and did so correctly on 2026-08-22. An amplifier may trip, may fold back, may do neither well, and repeatedly tripping one to satisfy a diagnostic is not kind to the hardware. Since the design above keeps the amp OUT of the path during the check, this stops being load-bearing — but it should be understood before any future feature keys through one deliberately.
+
+RELATED: #190 (the checker this protects), #222 (shares the keying and stop-early machinery), #189 (the same right-arithmetic-wrong-question failure), #137 (the amp meter attachment bug that gates the better solution), #125 (amplifier support, hardware in hand).
+
+### #224 - A setting that cuts transmit when the reflected-power alarm fires above 10 watts
+
+RULED BY NOEL 2026-08-25: "Add to 190 a setting that the alarm, if detected, turns off transmit if power is greater than 10."
+
+WHAT IT IS. When the reflected-power alarm fires — the one that already exists and already fired correctly into an open ANT1 on 2026-08-22 — and forward power is above 10 watts, drop transmit. Below 10 watts, alarm but keep transmitting.
+
+SPLIT OUT OF #190 ON PURPOSE, and this is the substantive point rather than filing tidiness. The antenna checker is a deliberate, operator-invoked, low-power test that already stops itself early (TxTuneProbe.ShouldStopEarly, #222). This is different: it protects the operator during NORMAL OPERATION, at real power, when they are transmitting for real and did not ask for a test. Different trigger, different consequence, different risk of getting it wrong. Building it inside the checker would bury a live-operation safety behaviour inside a setup tool nobody runs twice.
+
+WHY 10 WATTS IS THE RIGHT SHAPE OF THRESHOLD. Below it there is little to protect against and cutting transmit costs the operator a contact for nothing — the bench dead key measured 0.22 W and minimum power gave 0.22 W, both harmless into an open port. Above it the radio is folding back to survive something, and the case that started this had 13.4 W of 17.5 W coming straight back. The threshold is the boundary between "worth telling you" and "worth stopping for."
+
+IT IS A SETTING, NOT A BEHAVIOUR. Noel said setting, and that is right for a reason beyond preference: an app that unilaterally unkeys a transmitter has taken the operator's station away from them mid-transmission. Some operators will want that; some emphatically will not, and an operator running a deliberately reactive load, a tuner mid-cycle, or a known-mismatched experimental antenna would find it intolerable. Default is a judgement call for Noel — the protective default is ON, the least-surprising default is OFF.
+
+MUST ANNOUNCE, LOUDLY AND IMMEDIATELY. A blind operator whose transmit is cut has no visual cue that it happened. They will keep talking. The announcement has to say what happened, why, and that they are no longer transmitting — and it is a WARNING earcon plus speech, not a status line. This is exactly the class #116 rules should duck PC audio for.
+
+DO NOT FIGHT THE ANTENNA TUNER. An ATU tune cycle transmits into a deliberately bad match and walks toward a good one, so high reflected power during one is the tuner working, not a fault. TxChainFacts already carries an "atu-tuning" fact that stands the power and standing-wave rules down for exactly this reason. This must consult it or it will kill every tune-up the operator starts.
+
+MEASURE ON COMPUTED SWR AND REFLECTED SHARE, NOT THE SWR METER. #189: the meter read 1.008 while 76 percent came back. A protection keyed to that meter would never fire in the case it exists for. Same rule as everywhere else in this arc — compute from forward and reflected, and treat a meter value at or below 1 as the no-reading sentinel it is.
+
+TWO SAMPLES, NOT ONE. Same reasoning as the checker's early stop: the PA ramps, and a single bad sample at key-down is a transient rather than a load. Reuse the rule rather than writing a second one.
+
+RELATED: #190 (the checker, which this is deliberately NOT part of), #222 (the stop-early rule to share), #189 (why the SWR meter cannot be trusted here), #116 (duck PC audio under warning earcons), #223 (an amplifier in line changes what the radio's reflected reading even means — if this fires with an amp present it may be protecting against the wrong thing), #194 (say out loud when something is acting on the operator's behalf).
+
+### #225 - The provisional-change receipt covers slices only — every other radio setting changes silently and is lost on disconnect
+
+RAISED BY NOEL 2026-08-25: "add a task in settings to select a profile, global, local, etc. to save changed settings, also add a load button, a create button. Save should be on all tabs and profile select... I remember changing tune power to 100 at some point and changing slice settings to help this test ... I've never been offered a save, I'd have to go to a profile menu to do this, not something in settings itself." Then, clarifying the warning he remembered: "when a setting was changed, you'd get a warning that you hadn't saved these settings, either that or warn on close. Closing without saving loses settings."
+
+=== THE DECISION HE REMEMBERED EXISTS, AND IT WAS RESOLVED ===
+
+#117 Gap 1, and it SHIPPED — as a receipt, not a prompt. FlexBase.cs around line 13030 carries the reasoning in full, and warn-on-close was considered and rejected on two grounds:
+
+1. DISCONNECT IS NOT POWER-OFF. A networked radio does not shut down when a client leaves, and under MultiFlex another operator may still be on it. An automatic save at disconnect can capture SOMEBODY ELSE'S layout and overwrite the global profile with a state this operator never chose.
+
+2. A PROMPT THAT FIRES REGARDLESS GETS DISMISSED REFLEXIVELY, and a prompt trained to be dismissed is worse than no prompt, because it creates the belief that the operator was asked.
+
+The rule it settled on: "Notify where there is context; prompt only where there is a real choice."
+
+That reasoning still holds and should NOT be relitigated. Do not add a warn-on-close.
+
+=== BUT THE RECEIPT HAS EXACTLY ONE CALL SITE ===
+
+Lexicon settings.slice.provisional_change_receipt: "This will not survive disconnect unless you save the profile."
+Fired from FlexBase.SpeakProvisionalSliceChangeReceipt, invoked once, at FlexBase.cs:13129, gated on operatorDid.
+
+SLICE CHANGES ONLY. Tune power, RF power, TX settings, filter settings, antenna selection — everything else the radio restores from its global profile — changes with no receipt whatsoever. The pattern is right, proven and already worded; its coverage is one setting class out of many.
+
+THIS IS THE ACTUAL WORK: inventory what the radio's global profile persists, and give every operator-reachable one of them the same receipt. The mechanism does not need designing, only extending. Where a surface changes several at once, the receipt should fire once for the batch rather than per field — the anti-reflex reasoning above applies to repetition as well as to prompts.
+
+=== NOEL MAY BE REMEMBERING SOMETHING THE APP DID TO HIM ===
+
+He recalls "changing tune power to 100 at some point." #205 records that setupFromScratch sets RFPower to 100 unconditionally AND drives TunePower to 100, announcing neither. Tune power is precisely the value an operator deliberately keeps low, because a tune carrier into a bad match is how a finals stage gets cooked.
+
+So the memory of having changed it himself may be the app's silent change misattributed. Confirm against #205 before assuming operator action. Note the interaction: the receipt at 13129 is gated on operatorDid, so a change the APP made would correctly not produce a receipt — which is right for slices and arguably wrong here, because an unannounced app-initiated change to transmit power is exactly what an operator most needs told.
+
+=== THE NAMING COLLISION, WHICH IS WHY HE LOOKED IN THE WRONG PLACE ===
+
+"Profile" means two unrelated things, and Settings offers the one that does not persist radio state:
+
+1. SettingsDialog.RadioProfile.cs — JJ FLEXIBLE'S OWN per-radio config: nickname, connection path, per-radio preferences, keyed by serial. Committed by OK and Apply like every other setting. Its header says so explicitly. Working as designed.
+
+2. THE RADIO'S GLOBAL PROFILE — tune power, slice layout, TX settings. Lives on the radio, saved only via Radio menu > Profiles, routing FlexBase.SaveProfile -> Radio.SaveGlobalProfile -> `profile global save "<name>"`.
+
+An operator opens Settings, sees a section called "Radio Profile", changes things, presses OK, and reasonably concludes their radio settings are saved. Renaming one of the two concepts is probably the real fix and should be considered BEFORE adding a third Save button, which would deepen the confusion rather than resolve it.
+
+=== WHAT TO BUILD IN SETTINGS ===
+
+- SELECT — which profile is active. List from the radio; use the scopes the radio actually exposes rather than inventing "local" before deciding what it would mean.
+- LOAD — apply a stored profile. Destructive to live state; say so before doing it.
+- CREATE / SAVE AS — #117 un-stubbed Add and Update (NativeMenuBar.cs OnAdd/OnUpdate are real, the "not yet available" announcements are gone), so this needs surfacing, not building.
+- SAVE — on every tab plus the selector, per Noel. A Profiles tab is fine IN ADDITION, not INSTEAD: the point is that an operator who changed something never has to go looking.
+- Every Save produces a spoken receipt naming the profile written. A silent success is indistinguishable from a silent no-op, which is the failure that started this.
+
+ACCESSIBILITY: no stub verbs that announce their own absence after the operator has navigated to them and pressed — the pattern called out in #117 and #121. Disable, hide, or label.
+
+RELATED: #117 (the receipt and its reasoning — read FlexBase.cs:13030 before touching this), #205 (silent tune power to 100, possibly the origin of Noel's memory), #59 and #58 (slice layout replayed from the profile on connect), #121 (stub-verb pattern), #134 (the Settings category list this fits into), project_per_radio_config_serial_keyed.
+
+### #226 - A normal radio comes back on the frequency you left it — this one comes back wherever the profile says
+
+RAISED BY NOEL 2026-08-25, and it is the expectation underneath #225 rather than another instance of it: "I've changed things often including frequency ... that simply doesn't get saved. As I said before, when you turn a normal radio off, it'll come back on the frequency that you left. Now, unless you save you're cooked."
+
+=== THE EXPECTATION THIS BREAKS ===
+
+Every conventional transceiver ever made remembers where you were. Turn it off mid-QSO, turn it back on, you are on that frequency in that mode. Nobody saves anything; it is simply how a radio behaves, and it is so universal that no operator thinks of it as a feature.
+
+A Flex driven through a client does not do this. The radio restores its slice layout, frequency and mode from its GLOBAL PROFILE on connect, so an operator returns to whatever was last written to that profile — not to where they actually were. Everything done since the last profile save is gone, silently, and the operator has to have known in advance to perform an explicit act that no other radio in their shack requires.
+
+Noel says this happens OFTEN. It is not an edge case, and it is not really a missing button. It is the app failing to behave like a radio.
+
+=== WHY THIS IS NOT #225, AND NOT SOLVED BY IT ===
+
+#225 makes the loss VISIBLE (extend the provisional-change receipt beyond slices) and makes saving REACHABLE (profile select/load/create/save in Settings). Both are right and both should happen.
+
+Neither makes the radio behave like a radio. An operator who is told clearly that their frequency will be lost, and given a convenient button to prevent it, is still being asked to do bookkeeping that no other rig demands. The receipt is honest; the expectation is still violated.
+
+=== TWO ROUTES. BOTH VIABLE. THE CHOICE IS NOEL'S ===
+
+--- ROUTE A: NOEL'S, 2026-08-25. Auto-save to a NOMINATED profile ---
+
+"You could have a setting in the profile tab that auto saves slice state without prompting and selects which profile to save it to, other stuff, you hit the save button and select the profile in settings."
+
+Three properties, and the third is what makes it work:
+- OPT-IN. A setting, off by default. No surprise writes.
+- SCOPED. Slice state auto-saves; everything else stays manual Save.
+- TARGETED AT A NOMINATED PROFILE. The operator names which profile receives it.
+
+THAT THIRD PROPERTY DEFUSES THE #117 OBJECTION. Auto-save was rejected because it "can capture somebody else's layout and overwrite a global profile with a state this operator never chose" — an objection that assumes writing to WHATEVER PROFILE YOU HAPPEN TO BE ON. With a nominated target, the profile the operator actually curates is never touched and the blast radius shrinks to one they have designated as volatile.
+
+AND THERE IS A CONSEQUENCE WORTH MAKING EXPLICIT: if the nominated auto-save target is ALSO the profile the radio loads on connect, this IS come-back-where-you-left-it, achieved entirely through the radio's own profile mechanism with no app-side state at all. It would then work from SmartSDR too, not only from JJ Flexible.
+
+--- ROUTE B: APP-SIDE. JJ Flexible remembers, JJ Flexible restores ---
+
+The app already keeps per-radio config keyed by serial (project_per_radio_config_serial_keyed, RadioConfig.LoadForRadio). Snapshot the operator's working state there on disconnect — frequency, mode, filter, per slice — and offer it back on connect. The radio's global profile is never written at all.
+
+PER-OPERATOR BY CONSTRUCTION, which a radio profile can never be: two people using one radio under MultiFlex each come back to their own place. The MultiFlex objection does not merely shrink, it does not apply.
+
+Cost: works only when connecting through JJ Flexible. An operator who used SmartSDR in between gets nothing.
+
+--- CHOOSING ---
+
+Route A is simpler, needs no new storage, and works from any client. Route B is per-operator and touches no shared state. They are not exclusive — A could ship first as the setting Noel described, with B layered later for the MultiFlex case. Noel decides.
+
+=== THREE FURTHER RULINGS BY NOEL, 2026-08-25 ===
+
+"You do need to not save this stuff if someone else is logged on, and you probably want to be able to disable it ... connect will make this easier."
+
+1. NEVER AUTO-SAVE WHILE ANOTHER OPERATOR IS ON. This closes the residual risk Route A leaves open. BUILDABLE TODAY, no new discovery needed: FlexLib exposes Radio.GuiClients as a List<GUIClient>, FlexBase.TheGuiClient identifies which one is ours, and FlexBase.GuiClientChanged (FlexBase.cs:6846) already fires when any MultiFlex GUI client is added, removed or updated. Suppress the auto-save whenever GuiClients holds anyone but us — and SAY SO rather than skipping silently, or the operator believes their state was captured when it was not. A silent skip here recreates the exact defect this task exists to fix.
+
+2. IT MUST BE DISABLEABLE OUTRIGHT, not merely opt-in. An operator who turned it on and then wants it gone should not have to reason about profile targets to make it stop.
+
+3. CONNECT MAKES THIS EASIER, and for a specific reason worth writing down. project_jjflexible_connect and project_operator_state_vs_station_state already name this pattern: Flex built everything on the assumption that STATION EQUALS OWNER, which is why global profiles live on the radio — it is YOUR radio, so there is no ownership question. Connect pushes past that, and the moment operator and owner can differ, everything the radio remembers becomes a question of whose it is.
+
+That memory explicitly lists mic profiles (#94), profile persistence (#117) and station messages (#151) as the same question asked about different nouns, discovered one bug at a time, and calls for a SYSTEMATIC AUDIT of station state rather than case-by-case fixes. #226 IS THE NEXT INSTANCE. It should FEED that audit rather than inventing a bespoke ownership rule of its own — otherwise this becomes the fourth one-off answer to a question that deserves one general answer.
+
+=== THE HARD PART, WHICHEVER ROUTE ===
+
+Restoring is not obviously safe:
+
+- Under MultiFlex, retuning "your" slice on connect may yank a slice ANOTHER operator is currently using. Restoring must not disturb a slice somebody else owns — which means knowing which slices are ours, and #117 established that the slices are not ours to begin with.
+- If another client moved things deliberately since we left, restoring silently fights them.
+- The radio may legitimately have been reconfigured between sessions.
+
+So the honest first version is probably NOT silent restoration. Candidates, cheapest first:
+1. TELL the operator where they were: "Last time on this radio you were on 14.243 USB." Zero risk, immediately useful, and for a blind operator it is a genuine orientation aid on connect.
+2. OFFER it: the same line plus a way to go back there.
+3. RESTORE it automatically, as a setting, default off until the MultiFlex interaction is understood.
+
+Option 1 alone would have covered Noel's complaint most of the times it bit him, and it is compatible with both routes.
+
+=== ACCESSIBILITY ANGLE, WHICH IS NOT SECONDARY ===
+
+A sighted operator glances at the display and instantly sees they are not where they left off. A blind operator hears the connect announcement, which currently recites slice count, which slice is theirs, frequency, mode and pan centre — all correct, none of it flagged as DIFFERENT from last time. Being told "you are on 14.100" is not the same as being told "you are not where you were," and only the second one prompts a correction.
+
+=== CORRECTION TO #225, MADE HERE SO IT IS NOT LOST ===
+
+#225 speculated that Noel's memory of setting tune power to 100 might have been #205's silent setupFromScratch change misattributed. It was not. Noel: "I changed it to 100 to test the dummy load with tune, I didn't want to save it." Operator action, deliberate, and he specifically did NOT want it persisted.
+
+That is a useful counterweight and shapes Route A's scoping: the answer is not to persist everything. Noel scoped the auto-save to SLICE STATE for exactly this reason — a tune power set for one experiment is precisely the thing that must not silently become permanent.
+
+RELATED: #225 (receipt coverage and the Settings profile surface — Route A's setting lives in the same Profiles tab), #117 (why blanket auto-save at disconnect was rejected, and what a nominated target changes — read FlexBase.cs:13030), #59 and #58 (the slice layout replay this rides on), #87 (what the connect dialog recites), #94 and #151 (the same ownership question about different nouns), project_per_radio_config_serial_keyed, project_operator_state_vs_station_state, project_jjflexible_connect.
+
+=== NOEL 2026-08-25, ON THE PART THAT IS ACTUALLY HARD ===
+
+"I'm not sure how we determine who is op, maybe only allow auto saving based on a per radio basis and if not set to remote all the time. but again we can make those decisions later."
+
+HE IS RIGHT THAT IDENTITY IS THE HARD BIT. Radio.GuiClients yields handles, IPs and hostnames — presence, not identity. It answers "is anyone else connected" and cannot answer "is this MY radio and am I the operator of record". The Connect notes are explicit that nothing in the Flex stack has a permissions model, because SmartLink never needed one: the only person connecting was the owner.
+
+HIS FALLBACK CONVERTS AN UNANSWERABLE QUESTION INTO AN ANSWERABLE ONE, which is why it is better than it first sounds:
+
+- PER-RADIO OPT-IN. Auto-save is enabled per radio, not globally. The operator turns it on for a radio they effectively own and leaves it off elsewhere. Fits the existing serial-keyed per-radio config exactly (project_per_radio_config_serial_keyed), so it needs no new storage concept.
+- NOT ON A PERMANENTLY-REMOTE OR SHARED RADIO. If a radio is configured as always-remote, treat that as a signal that this is not a single-owner station and keep auto-save off — or at least off by default there.
+
+The move is to stop asking "who is the operator" (which the stack cannot tell us) and ask "is this a radio I have exclusive use of" — which the OPERATOR can answer once, at setup, and which is stable. Identity becomes a property of the radio relationship rather than of the session.
+
+THE GuiClients GUARD IS STILL WORTH HAVING ON TOP. Per-radio opt-in expresses intent; the live check catches the case where the operator was wrong on a given day and somebody else happens to be on. Belt and braces, and the two answer different questions.
+
+DEFERRED BY NOEL: "we can make those decisions later." Do not design this further until the systematic ownership audit named above happens — that audit is where the general answer lives, and settling it here would produce the fourth bespoke rule.
+
+=== NOEL 2026-08-25, THE RESOLUTION: "Connect will be the ultimate answer" ===
+
+So the per-radio opt-in above is explicitly an INTERIM, not the design. Connect is where identity gets solved properly, because Connect is the first thing in this stack that has to know WHO is connecting rather than merely THAT someone is.
+
+That reframes everything in this task. Once operator identity exists:
+- "Do not auto-save while someone else is on" stops being a presence check and becomes an ownership check, which is the question actually being asked.
+- Route B's per-operator state (JJ Flexible remembers where YOU were) becomes exact rather than approximate — it can be keyed to a person instead of to an installation.
+- The per-radio "is this exclusively mine" flag becomes unnecessary, because the system knows.
+
+DO NOT BUILD THE INTERIM AS THOUGH IT WERE PERMANENT. Whatever ships before Connect should be shaped so it can be replaced by an identity answer rather than having to be unpicked from one — the per-radio flag is a setting that can be retired, not a data model that has to be migrated.
+
+And this is the same conclusion project_operator_state_vs_station_state reaches from the other direction: the systematic ownership audit belongs to the Connect protocol thinking, not to a series of per-feature patches. #226 is one more noun in that audit.
 
 ---
 
