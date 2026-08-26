@@ -24,26 +24,10 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class KnownRadioRosterTests : IDisposable
     {
-        private readonly string _dir;
-        private readonly string? _savedBase;
-        private readonly string? _savedCache;
+        private readonly RadioConfigStaticsScope _scope = new(nameof(KnownRadioRosterTests));
+        private string _dir => _scope.Directory;
 
-        public KnownRadioRosterTests()
-        {
-            _dir = Path.Combine(Path.GetTempPath(), "jjflex-roster-tests-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dir);
-            _savedBase = RadioConfig.BaseDirectory;
-            _savedCache = KnownRadioRoster.CacheDirectory;
-            RadioConfig.BaseDirectory = _dir;
-            KnownRadioRoster.CacheDirectory = _dir;
-        }
-
-        public void Dispose()
-        {
-            RadioConfig.BaseDirectory = _savedBase;
-            KnownRadioRoster.CacheDirectory = _savedCache;
-            try { Directory.Delete(_dir, recursive: true); } catch { /* temp dir */ }
-        }
+        public void Dispose() => _scope.Dispose();
 
         // ------------------------------------------------------------------
         // RadioConfig: the appended roster fields
