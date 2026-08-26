@@ -1089,7 +1089,7 @@ document.addEventListener('keydown', function (e) {
         {
             Tracing.TraceLine("FixerDialog: clipboard failed — " + ex.Message,
                               TraceLevel.Warning);
-            ToPage("status", "The report could not be copied. Windows refused the clipboard.");
+            ToPage("status", Lexicon.Get("audio.fixer.copy_refused"));
         }
     }
 

@@ -239,6 +239,27 @@ namespace Radios.Tests
                       || Mentions(c.Attr("href"), next.Id));
                 if (onward) continue;
 
+                // A stage that has not run yet offers its way past DELIBERATELY,
+                // and it is the skip fieldset: choose a reason, and the report
+                // can then say what it is unable to conclude and why. A bare
+                // "Next" beside it would be a way to walk the whole chain
+                // without ever recording that anything was missed — which is
+                // the one thing that quietly ruins the report.
+                //
+                // So a skip declaration counts as a way on. This narrows the
+                // rule to what its own remark above already says: the stage
+                // that MUST carry the next one is the stage you have FINISHED.
+                // #249's fix means a completed stage never renders skip, so a
+                // finished stage still has to produce a real forward control.
+                // A stage with NEITHER is a dead end and is still reported.
+                //
+                // Settled in the Sprint 35 merge, where this rule and
+                // FixerPageTests.An_unrun_stage_offers_run_not_next asserted
+                // opposite things. Neither track could see the other.
+                bool canDeclareSkip = ControlsIn(segment).Any(
+                    c => c.Attr("name").StartsWith("skipwhy-", StringComparison.Ordinal));
+                if (canDeclareSkip) continue;
+
                 yield return new Finding(Rules.ForwardAffordance, stateName + "/" + here.Id,
                     "Nothing within stage " + here.Number + " (" + here.Title + ") offers the "
                     + "move to stage " + next.Number + " (" + next.Title + "). The operator "
@@ -456,6 +477,26 @@ namespace Radios.Tests
 </body></html>";
 
             Assert.Empty(ForwardAffordanceFindings("sound", sound, stages));
+            // AND THE BOUNDARY OF THE NARROWING: a stage whose only forward
+            // motion is the skip fieldset PASSES, because declaring a reason
+            // for moving on is the honest way past an unmeasured stage. The
+            // "broken" page above is the other half of this control — it has
+            // neither a next control nor a skip, and is still reported. If
+            // this pair ever both pass or both fail, the rule has stopped
+            // discriminating and is no longer worth reading.
+            const string skipOnly = @"<!doctype html><html><body>
+<h1>Transmit checks</h1>
+<h2>Stage 0: Alpha</h2>
+<button type=""button"" data-action=""run"" data-arg=""alpha"">Run this check</button>
+<fieldset class=""skip""><legend>Why are you skipping this stage?</legend>
+<p><input type=""radio"" name=""skipwhy-alpha"" id=""s1"" value=""nogear"">
+ <label for=""s1"">I do not have the equipment</label></p>
+</fieldset>
+<h2>Stage 1: Bravo</h2>
+</body></html>";
+
+            Assert.Empty(ForwardAffordanceFindings("skip-only", skipOnly, stages));
+
             Assert.Empty(HeadingLevelFindings("sound", sound));
             Assert.Empty(UnnamedControlFindings("sound", sound));
             Assert.Empty(FocusableProseFindings("sound", sound));

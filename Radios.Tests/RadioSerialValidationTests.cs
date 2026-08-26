@@ -24,22 +24,21 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class RadioSerialValidationTests : IDisposable
     {
-        private readonly string _dir;
-        private readonly string? _savedBase;
+        // The scope owns the whole of this state: BaseDirectory, the
+        // roster cache directory, the lexicon overlay override, and the
+        // caches derived from all three. Hand-rolling it saved and
+        // restored BaseDirectory alone, so the other two leaked into
+        // whichever class ran next. See task #232.
+        private readonly RadioConfigStaticsScope _scope;
+
+        private string _dir => _scope.Directory;
 
         public RadioSerialValidationTests()
         {
-            _dir = Path.Combine(Path.GetTempPath(), "jjflex-serial-tests-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dir);
-            _savedBase = RadioConfig.BaseDirectory;
-            RadioConfig.BaseDirectory = _dir;
+            _scope = new RadioConfigStaticsScope(nameof(RadioSerialValidationTests));
         }
 
-        public void Dispose()
-        {
-            RadioConfig.BaseDirectory = _savedBase;
-            try { Directory.Delete(_dir, recursive: true); } catch { /* temp dir */ }
-        }
+        public void Dispose() => _scope.Dispose();
 
         // ------------------------------------------------------------------
         // The shape

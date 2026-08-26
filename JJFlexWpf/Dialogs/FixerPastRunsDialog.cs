@@ -251,7 +251,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
             // Never announce a copy that did not happen.
             Tracing.TraceLine("FixerPastRunsDialog: clipboard failed — " + ex.Message,
                               TraceLevel.Warning);
-            Say("The report could not be copied. Windows refused the clipboard.");
+            Say(Lexicon.Get("audio.fixer.copy_refused"));
         }
     }
 

@@ -51,26 +51,18 @@ namespace Radios.Tests
             //  The blind walk
             // ---------------------------------------------------------------
 
-            // #249. SkipControls() in FixerPage.cs takes the stage and never
+            // #249 — CLOSED in the Sprint 35 merge. SkipControls() is now reached
+// only from the result == null branch, so a stage that has produced a
+// measurement no longer renders the control that discards it. The six
+// entries that stood here are deleted rather than commented out: a
+// baseline is a list of what is STILL true.
+//
+// Was: SkipControls() in FixerPage.cs took the stage and never
             // the run, so a skip control renders under every stage regardless
             // of whether that stage has already produced a measurement.
             // Pressing it replaces the measurement with a skip record and says
             // nothing — and on a transmitting stage the measurement it discards
             // was paid for with RF. Track A owns the Fixer surface this sprint.
-            new Known(Rules.SkipAfterResult, "problems-found/audio-setup", "#249",
-                      "the stage ran and still offers a control that discards its result"),
-            new Known(Rules.SkipAfterResult, "problems-found/microphone-check", "#249",
-                      "the stage ran and still offers a control that discards its result"),
-            new Known(Rules.SkipAfterResult, "problems-found/transmitter-check", "#249",
-                      "the stage ran, keyed the radio, and still offers a control that "
-                      + "discards what the transmission measured"),
-            new Known(Rules.SkipAfterResult, "nothing-wrong/audio-setup", "#249",
-                      "the stage ran and still offers a control that discards its result"),
-            new Known(Rules.SkipAfterResult, "nothing-wrong/microphone-check", "#249",
-                      "the stage ran and still offers a control that discards its result"),
-            new Known(Rules.SkipAfterResult, "nothing-wrong/transmitter-check", "#249",
-                      "the stage ran, keyed the radio, and still offers a control that "
-                      + "discards what the transmission measured"),
 
             // ---------------------------------------------------------------
             //  Concept dedup
