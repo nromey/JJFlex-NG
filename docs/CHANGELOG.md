@@ -172,6 +172,14 @@ The meters panel — the one that turns your radio's readings into tones you can
 
 [Return to version headlines](#unreleased-headlines)
 
+### Ctrl+S answers you now {#smeter-answers-every-press}
+
+Ctrl+S reads the S-meter. Press it a few times in a row, though, and it used to go quiet — each fresh press told the app to hold off a little longer before speaking, so working the key while you rode a signal got you silence until you gave up, with your screen reader's own "control s" echo as the only proof anything was happening. And if the signal hadn't moved since your last press, a second press said nothing at all, on the theory that you'd already heard it. Wrong theory for a meter: you pressed the key because you want to know *now*, and "still S9" is an answer, not a repeat.
+
+Now the first press answers right away, same as ever, and if you keep pressing you get a fresh reading about once a second for as long as you keep asking — with the reading from your final press always landing. Thanks to Don for catching this one.
+
+[Return to version headlines](#unreleased-headlines)
+
 ### Slice changes can stick now {#slice-changes-stick}
 
 Here's a thing that made me feel like I was losing my mind. Release Slice D, close the radio, come back tomorrow — and there's Slice D, sitting right where it always was, four slices parked on 14.1 USB like nothing happened. Do it again. Same result. The release worked. The app said it worked. It *did* work. And every morning the radio handed me back exactly what I'd spent the previous evening getting rid of.
