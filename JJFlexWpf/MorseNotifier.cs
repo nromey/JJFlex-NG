@@ -274,6 +274,45 @@ namespace JJFlexWpf
         }
 
         /// <summary>
+        /// How long <see cref="PlayString"/> would take to send this text at
+        /// the current speed, in milliseconds. Nothing is played and nothing
+        /// is recorded.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The point is that this is the SAME element list the player
+        /// builds</b>, so a caller sizing a timeout and the code doing the
+        /// sending cannot disagree about how long a string is. #143 exists
+        /// because two places guessed independently: a flat 5000 ms ceiling on
+        /// one side, and a fixed 50 ms margin on the other.
+        /// </para>
+        /// <para>
+        /// <b>Why a flat ceiling could not work.</b> The exit farewell changes
+        /// length with speed AND changes STRING at 25 WPM, where "73" becomes
+        /// "73 de JJF" — roughly 63 PARIS units to roughly 129, more than
+        /// double, at one word per minute faster. A unit is 1200/WPM ms and
+        /// speed is clamped 10 to 60, so 5000 ms was comfortable in the middle
+        /// and expired at both ends: around 10 to 15 WPM on the short string,
+        /// and 25 to 31 on the long one. Testing one speed in the middle passes
+        /// cleanly, which is why it survived.
+        /// </para>
+        /// <para>
+        /// This is the sending duration only. It does NOT include output
+        /// latency or the drain the device needs afterwards — see
+        /// <c>EarconCwOutput.WaitForDrain</c>, which owns that and bounds it.
+        /// </para>
+        /// </remarks>
+        public int DurationMsOf(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+
+            int total = 0;
+            foreach (var el in BuildStringElements(text))
+                if (el.DurationMs > 0) total += el.DurationMs;
+            return total;
+        }
+
+        /// <summary>
         /// Single-utterance sign-off — equivalent to calling
         /// <see cref="PlayString"/> with <c>"&lt;text&gt; &lt;SK&gt;"</c> if
         /// <paramref name="text"/> doesn't already contain a bracket. Guarantees

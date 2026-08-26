@@ -177,6 +177,19 @@ namespace JJFlexWpf.Dialogs
         /// </summary>
         public bool DiscoverySettled { get; set; }
 
+        /// <summary>
+        /// True when another row in the list shows the same model, so this row
+        /// has to name its owning account to be told apart.
+        ///
+        /// <para>Noel read a DIFFERENT operator's FLEX-6300 as a stale copy of
+        /// Don's on 2026-08-25, because two 6300s from two accounts render
+        /// identically and neither carried a nickname he recognised. The row
+        /// has always known its owning account; it just never said so unless
+        /// <see cref="ForeignAccount"/> was set. Stamped by the list, not by
+        /// the row — only the list can see the collision.</para>
+        /// </summary>
+        public bool ModelIsAmbiguous { get; set; }
+
         /// <summary>Where this radio is, in words. Row text and the accessible
         /// name are the same string — what a sighted user reads and what a
         /// screen reader says must not diverge.</summary>
@@ -198,7 +211,23 @@ namespace JJFlexWpf.Dialogs
                 // called offline: "which isn't true."
                 if (!DiscoverySettled) return Lexicon.Get("connect.row.checking");
 
-                // Roster row: say it is offline first, then how it was last seen.
+                // A refresh WE started is not the radio going quiet. While one
+                // is in flight the row says so instead of reporting an absence
+                // it caused itself — the same provenance-over-verdict rule the
+                // cached rows already follow, applied to the rows a session
+                // teardown empties.
+                if (RefreshInFlight && !FromAccountCache)
+                {
+                    return Lexicon.Get("connect.row.rechecking");
+                }
+
+                // Roster row. It does NOT say "offline": that asserts something
+                // about the RADIO, and all we know is that we have not heard
+                // from it. Don's rig was almost certainly powered up and on the
+                // air while a row here called it offline; we had simply stopped
+                // asking (#254, #259). Same class as the Fixer reporting "not
+                // run" when it means "not measured" — the honest subject of
+                // these sentences is us, not the equipment.
                 var age = string.IsNullOrEmpty(LastSeenText)
                     ? ""
                     : Lexicon.Get("connect.row.age_suffix", ("lastSeenText", LastSeenText));
@@ -229,7 +258,15 @@ namespace JJFlexWpf.Dialogs
                 // the old path wording repeated it ("last seen on the local
                 // network, last seen 4 hours ago"). Fold path and age into one
                 // sentence; an unknown age is omitted rather than spoken.
-                var path = (LastSeenRemote ? Lexicon.Get("connect.row.remote") : Lexicon.Get("connect.row.last_seen_local"));
+                // BOTH tokens are the past-tense ones. The local half already
+                // had its own wording for this sentence ("on the local
+                // network") while the remote half borrowed the LIVE state's
+                // ("remote via SmartLink"), which reads perfectly on a live row
+                // and produced "last seen remote via SmartLink" here. Read the
+                // assembled sentence, not the source line.
+                var path = (LastSeenRemote
+                    ? Lexicon.Get("connect.row.last_seen_remote")
+                    : Lexicon.Get("connect.row.last_seen_local"));
                 var bareAge = LastSeenText.StartsWith("last seen ", StringComparison.OrdinalIgnoreCase)
                     ? LastSeenText.Substring("last seen ".Length)
                     : LastSeenText;
@@ -264,6 +301,22 @@ namespace JJFlexWpf.Dialogs
                 var namePart = NameIsMissing(shownName) ? Lexicon.Get("connect.row.unnamed") : shownName;
                 var modelPart = string.IsNullOrWhiteSpace(ModelName) || ModelName == "Unknown"
                     ? Lexicon.Get("connect.row.unknown_model") : ModelName;
+
+                // Two rows, one model: name the owner. Without this, two
+                // FLEX-6300s from two accounts are the same sentence twice, and
+                // the operator has no way to tell which is theirs — Noel read a
+                // stranger's as a stale copy of Don's on 2026-08-25.
+                //
+                // Only when the collision actually exists. Naming the account on
+                // every row would spend a second of speech per arrow key to
+                // answer a question nobody is asking on a one-radio list, which
+                // is the friction tax this app exists to refuse.
+                if (ModelIsAmbiguous && !string.IsNullOrWhiteSpace(BoundAccount))
+                {
+                    modelPart = Lexicon.Get("connect.row.model_with_account",
+                        ("modelPart", modelPart), ("account", BoundAccount));
+                }
+
                 // Source, not serial. Two radios that differ only by where they
                 // are were indistinguishable by ear — an unnamed local rig and a
                 // remote one read as near-identical rows of digits. The serial is
@@ -697,7 +750,12 @@ namespace JJFlexWpf.Dialogs
                 // rows keep saying "checking" for as long as the picker is open,
                 // because nothing else necessarily triggers a refresh once
                 // discovery goes quiet.
-                RefreshRadiosList();
+                //
+                // Reorder here: this is the END OF THE OPENING PASS, which is
+                // one of the operator-initiated moments Noel's 2026-08-05
+                // ordering rule was actually about. Every later background
+                // arrival appends instead (#254).
+                RefreshRadiosList(reorder: true);
 
                 // A radio landed inside the window — its own arrival speech and
                 // the auto-select line already told the user the interesting
@@ -870,7 +928,10 @@ namespace JJFlexWpf.Dialogs
                 }
             }
 
-            if (changed) RefreshRadiosList();
+            // Reorder: painting the roster is either the dialog opening or an
+            // account switch, and both are moments the operator asked for a
+            // fresh list (#254).
+            if (changed) RefreshRadiosList(reorder: true);
         }
 
         /// <summary>
@@ -1054,6 +1115,14 @@ namespace JJFlexWpf.Dialogs
 
             _anyLiveRadioSeen = true;
 
+            // Did this radio just BECOME reachable? That is the event worth a
+            // word — task #254's other half. A background arrival no longer
+            // rearranges the list under a keyboard user, so if it said nothing
+            // either the operator would have no way to learn a radio had turned
+            // up. The announcement was always the useful part of the event; the
+            // reordering never was.
+            bool arrived;
+
             lock (_radiosLock)
             {
                 // Update IN PLACE, never remove-then-append and never swap the
@@ -1069,6 +1138,7 @@ namespace JJFlexWpf.Dialogs
                 // event knows nothing about — the favorite flag, the operator's
                 // chosen connection path, the roster's last-seen wording.
                 int existing = _radiosList.FindIndex(r => r.Serial == radio.Serial);
+                arrived = existing < 0 || !_radiosList[existing].IsLive;
                 if (existing >= 0)
                 {
                     var row = _radiosList[existing];
@@ -1117,7 +1187,68 @@ namespace JJFlexWpf.Dialogs
 
                 RefreshRadiosList();
                 SyncPathAffordance();
+                AnnounceArrival(radio, arrived);
             });
+        }
+
+        /// <summary>Serials whose arrival has already been spoken, so a radio
+        /// that flaps does not narrate every packet. Cleared for a serial when
+        /// it goes quiet again, so a genuine return is announced.</summary>
+        private readonly HashSet<string> _arrivalsAnnounced =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Radios whose "selected, press Enter to connect" line has
+        /// already been spoken this session.</summary>
+        private readonly HashSet<string> _autoSelectAnnounced =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Say that a radio turned up — once, and only when nothing else is
+        /// already saying it.
+        /// </summary>
+        /// <remarks>
+        /// Three gates, and each closes a burst this dialog has actually
+        /// produced:
+        ///
+        /// <para>NOT DURING THE OPENING PASS. Every roster row flips to live
+        /// inside the first couple of seconds, so this would be one utterance
+        /// per radio at the exact moment the operator is trying to hear the
+        /// dialog announce itself. The opening has its own single summary line.</para>
+        ///
+        /// <para>NOT DURING A REMOTE PASS. The pass ends with one line naming
+        /// the count; per-row arrivals on top of it is the same fact N+1 times,
+        /// and it is half of how one keypress produced six announcements in
+        /// under 700 ms from two threads (2026-08-25 capture).</para>
+        ///
+        /// <para>ONCE PER RADIO. A radio at the edge of range can appear and
+        /// vanish repeatedly, and narrating each transition would be worse than
+        /// silence.</para>
+        ///
+        /// <para>Queued, never interrupting: this is background news, and the
+        /// operator may be mid-row-read. #85's rule — a pass the operator did
+        /// not initiate must not take the foreground.</para>
+        /// </remarks>
+        private void AnnounceArrival(RadioListItem radio, bool arrived)
+        {
+            if (!arrived) return;
+            if (!_localSettled) return;
+            if (_remoteDiscoveryInFlight) return;
+            if (string.IsNullOrWhiteSpace(radio.Serial)) return;
+            lock (_arrivalsAnnounced)
+            {
+                if (!_arrivalsAnnounced.Add(radio.Serial)) return;
+            }
+
+            RadioListItem? row;
+            lock (_radiosLock)
+            {
+                row = _radiosList.FirstOrDefault(r =>
+                    string.Equals(r.Serial, radio.Serial, StringComparison.OrdinalIgnoreCase));
+            }
+            if (row == null) return;
+
+            _callbacks.ScreenReaderSpeak?.Invoke(
+                Lexicon.Get("connect.selector.arrived", ("who", RowName(row))), false);
         }
 
         private void RecordSightingOnce(RadioListItem radio)
@@ -1167,12 +1298,33 @@ namespace JJFlexWpf.Dialogs
                     ? (string.IsNullOrWhiteSpace(row.Name) ? Lexicon.Get("connect.selector.a_radio") : row.Name)
                     : name;
 
+                // ***** A SESSION WE CLOSED OURSELVES IS NOT A RADIO LEAVING. *****
+                //
+                // From the 2026-08-25 capture: the SmartLink session was torn
+                // down for a refresh, and 670 ms later the app said
+                // "6300inshack went offline." It had not. It was sitting in
+                // Don's shack, powered up, exactly as reachable as it had been
+                // a second earlier — we had simply stopped asking, and then
+                // reported our own silence as news about his equipment.
+                //
+                // A refresh cycles the TLS session on purpose (the server sends
+                // its radio list once per session), so EVERY WAN radio drops
+                // every time. The removal event is real; the inference drawn
+                // from it was not. We know exactly why the list emptied,
+                // because we emptied it.
+                //
+                // Narrow on purpose: only a WAN home lost while a pass of ours
+                // is in flight. A LAN radio that genuinely powers down during a
+                // refresh still gets announced, because nothing we did caused
+                // that.
+                bool weCausedThis = _remoteDiscoveryInFlight && hadWan && !avail.wan;
+
                 if (row.IsLive)
                 {
                     // Still reachable the other way. Say which door closed —
                     // "went offline" would be a lie the user could act on.
                     RefreshRadiosList();
-                    if (wasDual)
+                    if (wasDual && !weCausedThis)
                     {
                         _callbacks.ScreenReaderSpeak?.Invoke(
                             (row.LanAvailable ? Lexicon.Get("connect.selector.left_smartlink",
@@ -1185,14 +1337,21 @@ namespace JJFlexWpf.Dialogs
 
                 // Fully gone. The row STAYS as a roster row — this install has
                 // met the radio, and dropping it would make the list forget
-                // something the user still cares about. It reads as offline and
-                // refuses to connect, which is what the ghost sweep was for.
-                // A radio that had a local home is remembered as local, even if
-                // SmartLink also listed it — "press Remote to look again" is
-                // useless advice for a rig that was sitting on the same LAN.
+                // something the user still cares about. It reads as not heard
+                // from and refuses to connect, which is what the ghost sweep
+                // was for. A radio that had a local home is remembered as
+                // local, even if SmartLink also listed it — "press Remote to
+                // look again" is useless advice for a rig that was sitting on
+                // the same LAN.
                 row.LastSeenRemote = hadWan && !hadLan;
                 row.LastSeenText = Lexicon.Get("connect.selector.last_seen_just_now");
                 row.FromAccountCache = false;
+
+                // Our own teardown, so the row says what is actually happening
+                // to it rather than reporting an absence we manufactured. The
+                // pass clears this on completion and the row settles into
+                // whatever the fresh list says.
+                if (weCausedThis) row.RefreshInFlight = true;
 
                 bool hadKeyboard = RadiosBox.IsKeyboardFocusWithin;
                 RefreshRadiosList();
@@ -1201,12 +1360,99 @@ namespace JJFlexWpf.Dialogs
                     RadiosBox.SelectedIndex = 0;
                     if (hadKeyboard) FocusRadioList();
                 }
+
+                // Let a genuine return be announced again.
+                lock (_arrivalsAnnounced) { _arrivalsAnnounced.Remove(serial); }
+
+                if (weCausedThis)
+                {
+                    Tracing.TraceLine(
+                        $"RigSelector: {serial} lost its SmartLink home during OUR session "
+                        + "cycle — not announcing it as gone (#254).",
+                        System.Diagnostics.TraceLevel.Info);
+                    return;
+                }
+
                 _callbacks.ScreenReaderSpeak?.Invoke(
                     Lexicon.Get("connect.selector.went_offline", ("who", who)), false);
             });
         }
 
-        private void RefreshRadiosList()
+        /// <summary>
+        /// Recompute the row order. Call ONLY from an operator-initiated
+        /// moment — see <see cref="RefreshRadiosList"/>. Caller holds
+        /// <see cref="_radiosLock"/>.
+        /// </summary>
+        /// <remarks>
+        /// Favorites first (that is what a favorites list means), then live
+        /// radios above roster rows, then remote-capable above local-only —
+        /// pressing Remote means "show me my remote radios", so they must not
+        /// sit below locally discovered ones the user did not ask about (Noel,
+        /// 2026-08-05). Stable within each group.
+        ///
+        /// <para><b>Task #254, and read this before moving the call sites.</b>
+        /// That 2026-08-05 rule is about THE ORDER OF THE LIST WHEN YOU PRESS
+        /// REMOTE. It used to be applied as a continuous re-sort, recomputed
+        /// inside every RefreshRadiosList — including the ones a background
+        /// discovery callback triggers. So a row could be inserted ABOVE the
+        /// selection while a keyboard user was standing in the list reading it.
+        /// For an operator navigating by arrow keys that is worse than untidy:
+        /// position is memory, and "second from the top" has to mean the same
+        /// thing from one press to the next.</para>
+        ///
+        /// <para>The sharp part is that the author already worried about this
+        /// class of bug and solved half of it — the SequenceEqual guard below
+        /// exists precisely so a once-a-second LAN announcement does not tear
+        /// the ListBox down. The list was stable against RE-ANNOUNCEMENT and
+        /// unstable against ARRIVAL, because arrival changes GROUP MEMBERSHIP,
+        /// which that guard does not cover. One case was anticipated, the
+        /// neighbouring one was not.</para>
+        /// </remarks>
+        private void ReorderLocked()
+        {
+            var ordered = _radiosList
+                .Select((r, i) => (radio: r, index: i))
+                .OrderByDescending(x => x.radio.IsFavorite)
+                .ThenByDescending(x => x.radio.IsLive)
+                .ThenByDescending(x => x.radio.WanAvailable)
+                .ThenBy(x => x.index)
+                .Select(x => x.radio)
+                .ToList();
+            if (!_radiosList.SequenceEqual(ordered))
+            {
+                _radiosList.Clear();
+                _radiosList.AddRange(ordered);
+            }
+        }
+
+        /// <summary>
+        /// Mark the rows that cannot be told apart by model alone, so they name
+        /// their owning account. Caller holds <see cref="_radiosLock"/>.
+        /// </summary>
+        private void StampModelAmbiguity()
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in _radiosList)
+            {
+                if (string.IsNullOrWhiteSpace(r.ModelName)) continue;
+                counts.TryGetValue(r.ModelName, out int n);
+                counts[r.ModelName] = n + 1;
+            }
+            foreach (var r in _radiosList)
+            {
+                r.ModelIsAmbiguous = !string.IsNullOrWhiteSpace(r.ModelName)
+                    && counts.TryGetValue(r.ModelName, out int n) && n > 1;
+            }
+        }
+
+        /// <summary>
+        /// Re-render the list from <see cref="_radiosList"/>.
+        /// </summary>
+        /// <param name="reorder">
+        /// Whether to RECOMPUTE the order. False by default, and that default
+        /// is the whole of task #254 — see the ordering block for why.
+        /// </param>
+        private void RefreshRadiosList(bool reorder = false)
         {
             // A LAN radio re-announces about once a second, and every
             // announcement used to tear the ListBox down and rebuild it —
@@ -1214,13 +1460,6 @@ namespace JJFlexWpf.Dialogs
             // events with a null selection, and generally moving the floor
             // under a keyboard user for no visible gain. Rebuild only when the
             // rendered list actually differs.
-            //
-            // Order: favorites first (that is what a favorites list means),
-            // then live radios above roster rows, then remote-capable above
-            // local-only — pressing Remote means "show me my remote radios", so
-            // they must not sit below locally discovered ones the user did not
-            // ask about (Noel, 2026-08-05). Stable within each group: a LAN
-            // radio re-announcing itself must never reorder anything.
             lock (_radiosLock)
             {
                 // Stamp every row with whether discovery has settled, so a row
@@ -1230,19 +1469,9 @@ namespace JJFlexWpf.Dialogs
                 // pass completes.
                 foreach (var r in _radiosList) r.DiscoverySettled = _localSettled;
 
-                var ordered = _radiosList
-                    .Select((r, i) => (radio: r, index: i))
-                    .OrderByDescending(x => x.radio.IsFavorite)
-                    .ThenByDescending(x => x.radio.IsLive)
-                    .ThenByDescending(x => x.radio.WanAvailable)
-                    .ThenBy(x => x.index)
-                    .Select(x => x.radio)
-                    .ToList();
-                if (!_radiosList.SequenceEqual(ordered))
-                {
-                    _radiosList.Clear();
-                    _radiosList.AddRange(ordered);
-                }
+                StampModelAmbiguity();
+
+                if (reorder) ReorderLocked();
             }
 
             lock (_radiosLock)
@@ -1316,11 +1545,22 @@ namespace JJFlexWpf.Dialogs
                 if (onlyLive != null)
                 {
                     RadiosBox.SelectedIndex = RadiosBox.Items.IndexOf(onlyLive);
-                    var name = string.IsNullOrWhiteSpace(onlyLive.Name)
-                        ? Lexicon.Get("connect.selector.default_radio_word")
-                        : onlyLive.Name;
-                    _callbacks.ScreenReaderSpeak?.Invoke(
-                        Lexicon.Get("connect.selector.only_live_selected", ("name", name)), false);
+
+                    // Once per radio. RefreshRadiosList runs on many paths and
+                    // any rebuild that loses the selection lands back here, so
+                    // without a guard the same "press Enter to connect" line can
+                    // be said several times for one radio — part of the same
+                    // burst as the pass-completion pair.
+                    bool first;
+                    lock (_autoSelectAnnounced) { first = _autoSelectAnnounced.Add(onlyLive.Serial ?? ""); }
+                    if (first)
+                    {
+                        var name = string.IsNullOrWhiteSpace(onlyLive.Name)
+                            ? Lexicon.Get("connect.selector.default_radio_word")
+                            : onlyLive.Name;
+                        _callbacks.ScreenReaderSpeak?.Invoke(
+                            Lexicon.Get("connect.selector.only_live_selected", ("name", name)), false);
+                    }
                 }
             }
 
@@ -1423,6 +1663,12 @@ namespace JJFlexWpf.Dialogs
         /// normal chain walk.</summary>
         private ConnectPathKind? _pendingConnectForced;
 
+        /// <summary>Radios this dialog has already switched accounts for. One
+        /// switch per radio per open — see the foreign-account branch of
+        /// <see cref="DoConnect(RadioListItem, ConnectPathKind?)"/>.</summary>
+        private readonly HashSet<string> _accountSwitchTried =
+            new(StringComparer.OrdinalIgnoreCase);
+
         private void DoConnect(RadioListItem radio) => DoConnect(radio, null);
 
         /// <summary>
@@ -1447,7 +1693,8 @@ namespace JJFlexWpf.Dialogs
             // to the row's account, announced before any session opens, and
             // runs the standard forced refresh under it. Session-only switch:
             // the saved default is untouched.
-            if (!radio.IsLive && radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.BoundAccount))
+            if (!radio.IsLive && radio.ForeignAccount && !string.IsNullOrWhiteSpace(radio.BoundAccount)
+                && !_accountSwitchTried.Contains(radio.Serial))
             {
                 var target = Radios.FlexBase.SharedAccountManager.GetAccountByEmail(radio.BoundAccount);
                 if (target == null)
@@ -1461,6 +1708,30 @@ namespace JJFlexWpf.Dialogs
                 _callbacks.ScreenReaderSpeak?.Invoke(
                     Lexicon.Get("connect.selector.switching_account",
                         ("radioName", radioName), ("email", target.Email)), true);
+
+                // ***** TASK #203: ONE ENTER DOES THE WHOLE JOB. *****
+                //
+                // This branch used to switch accounts and stop. The pass that
+                // the switch kicks off would land, the list would repopulate,
+                // and the connect the operator asked for was simply gone — so
+                // Enter refreshed, and a SECOND Enter connected. A sighted
+                // operator sees the list fill in and understands what the first
+                // press did; a blind operator hears nothing conclusive and
+                // cannot tell a refresh from a failed connect from a hang.
+                //
+                // The intention travels. StartRemoteFlow's completion already
+                // resumes a pending connect — that machinery exists for exactly
+                // this shape of problem on the SmartLink path and was never
+                // wired to the account-switch path beside it.
+                _pendingConnectSerial = radio.Serial;
+                _pendingConnectForced = forcedPath;
+
+                // ONE switch per radio per dialog. Without this, a radio bound
+                // to a third account could switch, resume, read as foreign
+                // again, and switch back — a ping-pong the operator cannot
+                // interrupt because each leg looks like progress.
+                _accountSwitchTried.Add(radio.Serial);
+
                 _callbacks.SetSessionAccount?.Invoke(target.Email);
                 UpdateAccountAffordances();
                 SwitchToAccount(CurrentAccountState());
@@ -2291,7 +2562,10 @@ namespace JJFlexWpf.Dialogs
                     ("rowName", RowName(radio))) : Lexicon.Get("connect.selector.favorite_removed",
                     ("rowName", RowName(radio)))),
                 true);
-            RefreshRadiosList();
+            // Reorder: favourites sort to the top, so marking one IS a request
+            // to move it. The row the operator was standing on is the row that
+            // moves, and ReselectBySerial below carries the selection with it.
+            RefreshRadiosList(reorder: true);
             ReselectBySerial(radio.Serial);
             if (RadiosBox.IsKeyboardFocusWithin) FocusRadioList();
         }
@@ -2556,20 +2830,25 @@ namespace JJFlexWpf.Dialogs
                 {
                     MarkCachedRowsRefreshing(false);
                     UpdateAccountAffordances();
-                    RefreshRadiosList();
+                    // Reorder only if the OPERATOR asked for this pass. Press
+                    // Remote and the remote radios come to the top, which is
+                    // the 2026-08-05 rule doing its job. The AutoStartRemote
+                    // pass runs from a standing preference and lands whenever
+                    // it lands — possibly while somebody is arrowing the list —
+                    // so it appends and says so instead (#254, #85).
+                    RefreshRadiosList(reorder: operatorInitiated);
                     UpdateListAutomationName();
                     SyncPathAffordance();
-                    // Remote is a discrete event (the server sends its list
-                    // once per TLS session), so "loaded" is true on every
-                    // successful pass. Before AnnounceListDelta so the state
-                    // line leads and the delta follows, both queued.
-                    if (success)
-                    {
-                        AnnounceLoadedState(
-                            Lexicon.Get("connect.selector.remote_loaded_terse"),
-                            Lexicon.Get("connect.selector.remote_loaded_chatty"));
-                    }
-                    AnnounceListDelta(liveBefore, success);
+                    // ONE utterance for the completion, not two.
+                    //
+                    // This used to speak the loaded-state line and then the
+                    // delta line — "Remote loaded", then "Radio list updated. 2
+                    // radios online." Both true, both queued, and together part
+                    // of how one keypress produced six announcements in under
+                    // 700 ms from two threads (2026-08-25 capture). The state
+                    // and the count are one fact from the operator's chair, so
+                    // they are now one sentence.
+                    AnnounceRemotePassResult(liveBefore, success);
 
                     // A connect intention that started this pass resumes
                     // here — the double-Enter fix: the walk continues into
@@ -2603,34 +2882,52 @@ namespace JJFlexWpf.Dialogs
             {
                 foreach (var r in _radiosList)
                 {
-                    if (r.FromAccountCache) r.RefreshInFlight = refreshing;
+                    // Setting is narrow, clearing is total. A row that lost its
+                    // SmartLink home to our own session cycle is marked
+                    // refreshing by OnRadioRemoved and is NOT a cached row, so a
+                    // clear that only touched cached rows would leave it saying
+                    // "rechecking" for the rest of the dialog's life.
+                    if (!refreshing) r.RefreshInFlight = false;
+                    else if (r.FromAccountCache) r.RefreshInFlight = true;
                 }
             }
         }
 
-        private void AnnounceListDelta(HashSet<string> liveBefore, bool success)
+        /// <summary>
+        /// The single line a finished SmartLink pass gets: that remote is
+        /// loaded, and how many radios are reachable.
+        /// </summary>
+        /// <remarks>
+        /// Queued at Terse — the same gate the loaded-state line used, so an
+        /// operator who has turned speech down still hears the answer to the
+        /// question they just asked. A failure says nothing here: the protocol
+        /// layer owns the failure wording (FlexBase.setupRemote speaks it at
+        /// Critical with interrupt), and papering a second sentence over it
+        /// would be the burst again in a worse place.
+        /// </remarks>
+        private void AnnounceRemotePassResult(HashSet<string> liveBefore, bool success)
         {
+            if (!success) return;
+
             var liveNow = LiveSerialSet();
-            if (!success)
+            string text;
+            if (liveNow.Count == 0)
             {
-                // The protocol layer owns the failure wording; do not paper over it.
-                return;
+                text = Lexicon.Get("connect.selector.remote_done_none");
+            }
+            else if (liveNow.SetEquals(liveBefore))
+            {
+                text = Lexicon.Get("connect.selector.remote_done_unchanged",
+                    ("count", liveNow.Count));
+            }
+            else
+            {
+                text = liveNow.Count == 1
+                    ? Lexicon.Get("connect.selector.remote_done_one")
+                    : Lexicon.Get("connect.selector.remote_done_many", ("count", liveNow.Count));
             }
 
-            if (liveNow.SetEquals(liveBefore))
-            {
-                _callbacks.ScreenReaderSpeak?.Invoke(
-                    liveNow.Count == 0
-                        ? Lexicon.Get("connect.selector.delta_none_online")
-                        : Lexicon.Get("connect.selector.delta_unchanged", ("count", liveNow.Count)),
-                    false);
-                return;
-            }
-
-            _callbacks.ScreenReaderSpeak?.Invoke(
-                (liveNow.Count == 1 ? Lexicon.Get("connect.selector.delta_updated_one",
-                    ("count", liveNow.Count)) : Lexicon.Get("connect.selector.delta_updated_many",
-                    ("count", liveNow.Count))), false);
+            Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Terse, false);
         }
 
         /// <summary>
@@ -2801,7 +3098,9 @@ namespace JJFlexWpf.Dialogs
         {
             ClearOfflineRows();
             PaintRoster(state.Email ?? "");
-            RefreshRadiosList();
+            // Reorder: the operator switched accounts, so this is a new list
+            // rather than a change to the one they were reading (#254).
+            RefreshRadiosList(reorder: true);
             SyncPathAffordance();
 
             int cached;
@@ -2959,7 +3258,24 @@ namespace JJFlexWpf.Dialogs
                 // Do NOT speak during the settle window — discovery lands within
                 // it more often than not, and the announcement would be
                 // contradicted a half-second later (C2 item 6).
-                if (!_anyLiveRadioSeen && !_remoteDiscoveryInFlight)
+                //
+                // ***** THE SETTLE WINDOW WAS NEVER ACTUALLY TESTED FOR. *****
+                // The comment above has said this since it was written and the
+                // condition did not check it: !_anyLiveRadioSeen is TRUE for the
+                // whole settle window, which is precisely when this must stay
+                // quiet. So focus landing on the list at Loaded — which the
+                // Loaded handler does deliberately — spoke this immediately, at
+                // Critical with interrupt, flushing whatever was being said.
+                //
+                // It is the first and loudest of the four separate voices an
+                // operator heard while one discovery ran (#212): ProgressVoice's
+                // "Looking for radios on your network", its "Still looking for
+                // radios" four seconds later, this, and then the dialog's own
+                // settled line. Four mouths, one fact. Gating on _localSettled
+                // makes the code do what its comment always claimed, and leaves
+                // this as what it is useful as — the answer when an operator
+                // Tabs back into a list that is still empty AFTER the pass.
+                if (_localSettled && !_anyLiveRadioSeen && !_remoteDiscoveryInFlight)
                     ScreenReaderOutput.Speak(Lexicon.Get("connect.selector.no_radios_yet"), VerbosityLevel.Critical, true);
                 return;
             }

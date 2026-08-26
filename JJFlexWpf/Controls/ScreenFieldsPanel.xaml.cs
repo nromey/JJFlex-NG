@@ -805,7 +805,10 @@ public partial class ScreenFieldsPanel : UserControl
 
         _agcThresholdControl = MakeValue(Lexicon.Get("audio.fields.agc_threshold"),
             FlexBase.AGCThresholdMin, FlexBase.AGCThresholdMax, FlexBase.AGCThresholdIncrement);
-        _agcThresholdControl.ValueChanged += (s, v) => { if (_rig != null) _rig.AGCThreshold = v; };
+        // !_polling matches the sibling handlers: a poll refresh rewriting the
+        // control's value must not echo back to the rig — since #225 that echo
+        // would also be misread as an operator settings change.
+        _agcThresholdControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.AGCThreshold = v; };
         ReceiverContent.Children.Add(_agcThresholdControl);
 
         _squelchCheck = MakeToggle(Lexicon.Get("audio.fields.squelch"));
@@ -829,7 +832,8 @@ public partial class ScreenFieldsPanel : UserControl
 
         // RF Gain bounds are instance fields (vary by radio), set defaults here, updated in Initialize()
         _rfGainControl = MakeValue(Lexicon.Get("audio.fields.rf_gain"), -10, 30, 10);
-        _rfGainControl.ValueChanged += (s, v) => { if (_rig != null) _rig.RFGain = v; };
+        // !_polling for the same reason as the AGC threshold handler above.
+        _rfGainControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.RFGain = v; };
         ReceiverContent.Children.Add(_rfGainControl);
 
         // Read-only RX filter width display. The accessible name tracks the

@@ -52,11 +52,38 @@ namespace Radios.SmartLink
         private Exception? _lastError;
         private int _reconnectAttemptCount;
         private IReadOnlyList<Radio> _availableRadios = Array.Empty<Radio>();
+        private DateTime? _lastRadioListUtc;
 
         private volatile bool _userWantsConnected;
         private volatile bool _shutdownRequested;
         private volatile bool _started;
         private volatile bool _hasBeenConnected; // true after any successful Connect; reset only on Reset() or Dispose
+
+        // --- Auto-registration (Sprint 35 Track K, #259 held-open sessions) ---
+        // A session that lives for hours owns its own registration: the server
+        // only pushes radio lists to a REGISTERED session, and a 2 AM TLS drop
+        // that the monitor thread quietly reconnects would otherwise come back
+        // connected-but-unregistered — presence stops arriving and nothing says
+        // why. When a JWT provider is wired, the monitor thread registers after
+        // every successful Connect and answers a registration-invalid push with
+        // ONE silent token-refresh + re-register before giving up.
+        private Func<bool, string?>? _registrationJwtProvider; // arg: forceRefresh
+        private string _registrationProgramName = "";
+        private string _registrationPlatform = "Win10";
+        private bool _registeredThisConnection;   // guarded by _stateGate; a registration has been sent on the current connection
+        private bool _registrationRecoveryTried;  // guarded by _stateGate; reset on drop and on any list receipt
+        private volatile bool _registrationInvalidPending;
+
+        // Retry cadence when auto-registration could not complete (no JWT
+        // available silently, send threw). Connected-but-unregistered receives
+        // no pushes, so the monitor retries rather than sleeping forever — but
+        // each retry can cost an Auth0 refresh round trip, so the interval
+        // escalates: 30s, 1m, 2m, … capped at 30m. An account whose refresh
+        // token is genuinely revoked must not poke the token endpoint 2,880
+        // times a day. Resets on success and on connection drop.
+        internal const int RegistrationRetryMs = 30_000;
+        internal const int RegistrationRetryMaxMs = 1_800_000;
+        private int _registrationRetryCount; // monitor thread only
 
         // Pending ConnectToRadio request. Only one may be in flight per session at a time.
         // Completes with the WAN connection handle (string) on success, or null on failure.
@@ -70,6 +97,7 @@ namespace Radios.SmartLink
         public event EventHandler<SessionStatus>? StatusChanged;
         public event EventHandler<SignalThresholdEventArgs>? SignalThresholdCrossed;
         public event EventHandler<NetworkDiagnosticReport>? NetworkReportReady;
+        public event EventHandler<WanRadioListReceivedEventArgs>? RadioListReceived;
 
         public WanSessionOwner(
             string sessionId,
@@ -133,12 +161,28 @@ namespace Radios.SmartLink
             get { lock (_stateGate) return _availableRadios; }
         }
 
+        public DateTime? LastRadioListUtc
+        {
+            get { lock (_stateGate) return _lastRadioListUtc; }
+        }
+
         // --- Public commands ---
 
         public void Connect()
         {
             Tracing.TraceLine($"{_tracePrefix} Connect requested", TraceLevel.Info);
             _userWantsConnected = true;
+
+            // AuthorizationExpired is sticky through teardown (it is the one
+            // fact the operator can act on), so a NEW connect must clear it
+            // SYNCHRONOUSLY: consumers poll `Status == AuthorizationExpired`
+            // as their auth-failed signal, and a stale read between this call
+            // and the monitor's first transition would report yesterday's
+            // failure as today's.
+            if (Status == SessionStatus.AuthorizationExpired)
+            {
+                TransitionStatus(SessionStatus.Connecting, resetAttempts: false);
+            }
 
             if (!_started)
             {
@@ -182,7 +226,46 @@ namespace Radios.SmartLink
                 return;
             }
             Tracing.TraceLine($"{_tracePrefix} ReRegister program={programName}", TraceLevel.Info);
+            // A deliberate caller registration counts as this connection's
+            // registration — the monitor's auto-register must not double it.
+            lock (_stateGate) _registeredThisConnection = true;
             _wan.SendRegisterApplicationMessageToServer(programName, platform, jwt);
+        }
+
+        /// <summary>
+        /// Wire the session to keep ITSELF registered (Sprint 35 Track K,
+        /// #259). <paramref name="jwtProvider"/> is called on the monitor
+        /// thread — it may block on a silent token refresh — with
+        /// <c>forceRefresh</c> true only on the registration-invalid recovery
+        /// path. Returning null means "no JWT available without UI"; the
+        /// monitor then retries on a timer rather than surprising the operator
+        /// with a sign-in form (#85: a background session never takes the
+        /// foreground). Idempotent; last wiring wins.
+        /// </summary>
+        public void EnableAutoRegistration(Func<bool, string?> jwtProvider, string programName, string platform = "Win10")
+        {
+            _registrationProgramName = programName ?? "";
+            _registrationPlatform = string.IsNullOrWhiteSpace(platform) ? "Win10" : platform;
+            _registrationJwtProvider = jwtProvider ?? throw new ArgumentNullException(nameof(jwtProvider));
+            Tracing.TraceLine($"{_tracePrefix} auto-registration enabled program={_registrationProgramName}", TraceLevel.Info);
+            _wakeEvent.Set();
+        }
+
+        /// <summary>
+        /// Atomically claim the one registration this connection needs.
+        /// True = the caller should send it; false = someone (the monitor's
+        /// auto-register or an earlier explicit <see cref="ReRegister"/>)
+        /// already has, and sending again would only poke the server. The
+        /// claim resets whenever the underlying connection drops.
+        /// </summary>
+        public bool TryClaimRegistration()
+        {
+            lock (_stateGate)
+            {
+                if (_registeredThisConnection) return false;
+                _registeredThisConnection = true;
+                return true;
+            }
         }
 
         public Task<NetworkDiagnosticReport> RunNetworkDiagnosticAsync(
@@ -285,7 +368,13 @@ namespace Radios.SmartLink
                     {
                         try { _wan.Disconnect(); } catch (Exception ex) { TraceWarn("Disconnect threw", ex); }
                     }
-                    TransitionStatus(SessionStatus.Disconnected, resetAttempts: true);
+                    // AuthorizationExpired stays visible through the teardown:
+                    // "disconnected" would hide the one thing the operator can
+                    // act on. A fresh Connect() clears it (see Connect).
+                    if (Status != SessionStatus.AuthorizationExpired)
+                    {
+                        TransitionStatus(SessionStatus.Disconnected, resetAttempts: true);
+                    }
                     _wakeEvent.WaitOne();
                     continue;
                 }
@@ -296,9 +385,27 @@ namespace Radios.SmartLink
                 }
                 else
                 {
-                    // Connected — sleep until IsConnected flips or user action signals.
+                    // Connected — make sure the session is registered (a held
+                    // session that reconnected at 2 AM must not sit connected-
+                    // but-unregistered, receiving no pushes), then sleep until
+                    // IsConnected flips or user action signals.
                     TransitionStatus(SessionStatus.Connected, resetAttempts: true);
-                    _wakeEvent.WaitOne();
+                    bool registrationHealthy = ServiceRegistration();
+                    if (_shutdownRequested || !_userWantsConnected) continue;
+                    if (registrationHealthy)
+                    {
+                        _registrationRetryCount = 0;
+                        _wakeEvent.WaitOne();
+                    }
+                    else
+                    {
+                        long waitMs = Math.Min(
+                            (long)RegistrationRetryMs << Math.Min(_registrationRetryCount, 10),
+                            RegistrationRetryMaxMs);
+                        _registrationRetryCount++;
+                        Tracing.TraceLine($"{_tracePrefix} auto-registration unhealthy — retrying in {waitMs / 1000}s", TraceLevel.Info);
+                        _wakeEvent.WaitOne((int)waitMs);
+                    }
                 }
             }
 
@@ -314,7 +421,13 @@ namespace Radios.SmartLink
             lock (_stateGate)
             {
                 attemptIndex = _reconnectAttemptCount;
+                // Any registration belonged to the connection that just
+                // dropped; the one we are about to dial needs its own.
+                _registeredThisConnection = false;
+                _registrationRecoveryTried = false;
             }
+            _registrationInvalidPending = false;
+            _registrationRetryCount = 0;
 
             var attemptStatus = (_hasBeenConnected || attemptIndex > 0)
                 ? SessionStatus.Reconnecting
@@ -355,6 +468,92 @@ namespace Radios.SmartLink
                 _reconnectAttemptCount = attemptIndex + 1;
             }
             _wakeEvent.WaitOne(waitMs);
+        }
+
+        /// <summary>
+        /// Monitor-thread registration keeper. Returns true when registration
+        /// is in a healthy state (sent, or not this owner's job); false means
+        /// the caller should retry on a timer instead of sleeping forever.
+        /// </summary>
+        private bool ServiceRegistration()
+        {
+            // Registration-invalid recovery first: the server just told us the
+            // registration we HAD is no good.
+            if (_registrationInvalidPending)
+            {
+                _registrationInvalidPending = false;
+                bool alreadyTried;
+                lock (_stateGate)
+                {
+                    alreadyTried = _registrationRecoveryTried;
+                    _registrationRecoveryTried = true;
+                }
+                if (alreadyTried || _registrationJwtProvider == null)
+                {
+                    Tracing.TraceLine($"{_tracePrefix} registration invalid and silent recovery exhausted — auth required", TraceLevel.Error);
+                    TransitionStatus(SessionStatus.AuthorizationExpired, resetAttempts: false);
+                    _userWantsConnected = false;
+                    return false;
+                }
+                Tracing.TraceLine($"{_tracePrefix} registration invalid — trying ONE silent token refresh + re-register", TraceLevel.Warning);
+                lock (_stateGate) _registeredThisConnection = true;
+                if (!TryRegister(forceRefresh: true))
+                {
+                    Tracing.TraceLine($"{_tracePrefix} silent recovery failed — auth required", TraceLevel.Error);
+                    TransitionStatus(SessionStatus.AuthorizationExpired, resetAttempts: false);
+                    _userWantsConnected = false;
+                    return false;
+                }
+                return true;
+            }
+
+            // No provider: registration stays the caller's business (the
+            // pre-#259 interactive flow drives ReRegister itself).
+            if (_registrationJwtProvider == null) return true;
+
+            if (!TryClaimRegistration()) return true; // already registered this connection
+
+            if (!TryRegister(forceRefresh: false))
+            {
+                // Release the claim so the timed retry — or an explicit
+                // ReRegister from the interactive flow — can try again.
+                lock (_stateGate) _registeredThisConnection = false;
+                return false;
+            }
+            return true;
+        }
+
+        private bool TryRegister(bool forceRefresh)
+        {
+            var provider = _registrationJwtProvider;
+            if (provider == null) return false;
+
+            string? jwt = null;
+            try
+            {
+                jwt = provider(forceRefresh);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"{_tracePrefix} registration JWT provider threw: {ex.Message}", TraceLevel.Error);
+            }
+            if (string.IsNullOrEmpty(jwt))
+            {
+                Tracing.TraceLine($"{_tracePrefix} auto-registration: no JWT available silently (forceRefresh={forceRefresh})", TraceLevel.Warning);
+                return false;
+            }
+
+            try
+            {
+                Tracing.TraceLine($"{_tracePrefix} auto-registration: registering program={_registrationProgramName}", TraceLevel.Info);
+                _wan.SendRegisterApplicationMessageToServer(_registrationProgramName, _registrationPlatform, jwt);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"{_tracePrefix} auto-registration: register send threw: {ex.Message}", TraceLevel.Error);
+                return false;
+            }
         }
 
         internal static int BackoffForIndex(int index) => BackoffForIndex(index, BackoffScheduleMs);
@@ -456,8 +655,16 @@ namespace Radios.SmartLink
             lock (_stateGate)
             {
                 _availableRadios = e.Radios;
+                _lastRadioListUtc = DateTime.UtcNow;
+                // A list arriving is proof the registration works, so a MUCH
+                // later registration-invalid gets its own recovery attempt.
+                _registrationRecoveryTried = false;
             }
             Tracing.TraceLine($"{_tracePrefix} radio list received count={e.Radios.Count}", TraceLevel.Info);
+            // Re-raise with THIS owner as sender: with one held session per
+            // account (#259), the sender's AccountId is what attributes the
+            // list. Fires on the SmartLink receive thread — consumers marshal.
+            RadioListReceived?.Invoke(this, e);
         }
 
         private void OnWanRadioConnectReady(object? sender, WanRadioConnectReadyEventArgs e)
@@ -484,6 +691,17 @@ namespace Radios.SmartLink
 
         private void OnWanApplicationRegistrationInvalid(object? sender, EventArgs e)
         {
+            if (_registrationJwtProvider != null)
+            {
+                // Held-open session (#259): don't declare auth dead from the
+                // receive thread — hand the monitor thread ONE chance to
+                // refresh the token silently and re-register. Only if that
+                // fails does the session settle into AuthorizationExpired.
+                Tracing.TraceLine($"{_tracePrefix} application registration invalid — deferring to monitor for silent recovery", TraceLevel.Warning);
+                _registrationInvalidPending = true;
+                _wakeEvent.Set();
+                return;
+            }
             Tracing.TraceLine($"{_tracePrefix} application registration invalid — auth required", TraceLevel.Error);
             TransitionStatus(SessionStatus.AuthorizationExpired, resetAttempts: false);
             _userWantsConnected = false;

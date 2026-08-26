@@ -853,11 +853,25 @@ public class KeyCommands
 
         // LATEST: an S-meter reading superseded by a newer one has no value -
         // the operator wants the signal now, not a recital of the last five.
+        //
+        // repeatWhileHeld, because this is a QUERY key, not a swept value
+        // (Sprint 35 Track M, from Don's "I hit ctrl+s and it just lags",
+        // 2026-08-26). Without it the coalescer classes a quick second press
+        // as a sweep: each press pushes the settle timer out, so hammering
+        // the key was SILENT until released - and a repeat of the same
+        // reading was then dropped as a duplicate, so on a steady signal the
+        // second press said nothing at all. The flag's name says "held", but
+        // its two effects are exactly what a deliberate re-press needs: new
+        // presses never defer the pending announcement, and "still S9" is
+        // spoken rather than swallowed - on a meter, the repetition IS the
+        // information. Presses spaced past the sweep window never coalesce
+        // at all and stay instant, same as before.
         Radios.ScreenReaderOutput.Speak(
             msg,
             Radios.Speech.SpeechIntent.Latest,
             Radios.VerbosityLevel.Terse,
-            coalesceKey: "smeter");
+            coalesceKey: "smeter",
+            repeatWhileHeld: true);
     }
 
     /// <summary>
@@ -1943,12 +1957,35 @@ public class KeyCommands
             // — it only acts when a default was REMOVED, and here every current
             // default is a real present key, so its branch never runs. See
             // Radios/KeyMapIntegrity.cs and task #209.
-            RepairSlippedKeyMap(kData.Items);
+            bool repairedCleanly = RepairSlippedKeyMap(kData.Items);
 
             // v5+: Load saved bindings, then smart-merge changed defaults.
             SetValues(kData.Items!, KeyTypes.AllKeys, false);
             SmartMergeDefaults(kData.Items!);
             MergeNewDefaults();
+
+            // Persist a CLEAN repair, so the file on disk is healed rather
+            // than re-repaired on every launch (#209, Sprint 35 Track E).
+            // Written HERE and not inside RepairSlippedKeyMap: at that point
+            // the key table still holds defaults (SetValues has not run), so
+            // a Write there would discard every customisation in the file.
+            // Only after the merges is the table the truth worth persisting.
+            //
+            // Only when NOTHING was customised. Write() stamps every entry's
+            // SavedDefaultKey with the current default, which would convert a
+            // left-alone customised-but-slipped entry into what reads as a
+            // deliberate customisation of the wrong command — destroying the
+            // one piece of evidence a support conversation about "my key does
+            // the wrong thing" would need. When customisations exist the file
+            // stays untouched, the Error-level trace re-fires each launch,
+            // and that is the record surviving on purpose.
+            if (repairedCleanly)
+            {
+                if (Write())
+                    Tracing.TraceLine("KeyCommands: repaired key map persisted — the file on disk"
+                        + " is healed and the repair will not need to run again (#209).",
+                        System.Diagnostics.TraceLevel.Error);
+            }
         }
         catch (Exception ex)
         {
@@ -2177,9 +2214,16 @@ public class KeyCommands
     /// detail a real session runs at — "just in case it falls over."
     /// </para>
     /// </remarks>
-    private void RepairSlippedKeyMap(KeyDefType[]? items)
+    /// <returns>
+    /// True when the repair fixed at least one binding AND touched nothing the
+    /// operator customised — the caller persists that state once the merges
+    /// finish, so the file heals instead of being re-repaired every launch.
+    /// False otherwise, including the customised case, where the unwritten
+    /// file IS the evidence and must stay as it is.
+    /// </returns>
+    private bool RepairSlippedKeyMap(KeyDefType[]? items)
     {
-        if (items == null) return;
+        if (items == null) return false;
 
         var saved = new List<KeyMapIntegrity.SavedBinding>(items.Length);
         foreach (var it in items)
@@ -2194,7 +2238,7 @@ public class KeyCommands
         if (!verdict.LooksShifted)
         {
             _context.Trace("KeyCommands: " + verdict.Describe());
-            return;
+            return false;
         }
 
         Tracing.TraceLine("KeyCommands: " + verdict.Describe(), System.Diagnostics.TraceLevel.Error);
@@ -2224,6 +2268,16 @@ public class KeyCommands
         Tracing.TraceLine("KeyCommands: repaired " + fixedCount + " slipped binding(s), left "
             + verdict.CustomisedIds.Count + " customised one(s) alone. Nothing was spoken;"
             + " the operator lost no binding they chose.", System.Diagnostics.TraceLevel.Error);
+
+        if (verdict.CustomisedIds.Count > 0)
+        {
+            Tracing.TraceLine("KeyCommands: file left unwritten so the slipped-but-customised"
+                + " evidence survives; this repair re-runs each launch until the operator"
+                + " resolves those bindings (Keys dialog) or any other save rewrites the file.",
+                System.Diagnostics.TraceLevel.Error);
+        }
+
+        return fixedCount > 0 && verdict.CustomisedIds.Count == 0;
     }
 
     public KeyDefType? GetDefaultKey(CommandValues cmdId)
@@ -3304,6 +3358,25 @@ public class KeyCommands
                 ShowRecordedProblemsFromChord();
                 break;
 
+            // O = what is On — the on-demand read of the running-cost register
+            // (#253). Third member of the diagnostics family that already holds
+            // Ctrl+D and Ctrl+R: that one starts recording evidence, that one
+            // reads what went wrong, and this one answers "what is running and
+            // costing me something right now".
+            //
+            // Plain O, not Ctrl+O: O is one of the very few letters still free
+            // in the layer in every form, so there is no taken letter to reach
+            // around — and the sighted equivalent of this question is a glance,
+            // which should not cost two modifiers.
+            //
+            // Works with no radio connected on purpose. Every registrant is a
+            // property of THIS APPLICATION, not of the radio, and instrumentation
+            // left running through a failed connect is exactly the case worth
+            // asking about.
+            case Keys.O:
+                SpeakRunningCostsFromChord();
+                break;
+
             // Log Stats (moved from Ctrl+Shift+T)
             case Keys.L:
                 _context.LogStats();
@@ -3385,7 +3458,28 @@ public class KeyCommands
             default:
                 _context.Trace("Leader:no command for " + k);
                 EarconPlayer.LeaderInvalidTone();
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.unknown_command"), true);
+                // #206: a near-miss gets named instead of a dead end. The
+                // layer mixes bare, Shift and Ctrl tiers on the same letters
+                // (A vs Ctrl+A, D vs Ctrl+D), so a slipped modifier is the
+                // layer's own most predictable mistake — and the recovery
+                // information is already in the inventory. "Ctrl+G is not a
+                // command. G: arm or disarm the TX test tone" turns a
+                // re-enter-and-hunt into a one-chord retry, and teaches the
+                // layer while the operator is standing in it. One alternative
+                // at most, bare form first. The layer still disarms — this
+                // changes what is SAID, not what happens.
+                if (KeyInventory.TryFindLeaderNearMiss(k, out string nearKey, out string nearWhat))
+                {
+                    Radios.ScreenReaderOutput.Speak(
+                        Radios.Lexicon.Get("settings.leader.near_miss",
+                            ("pressed", KeyManifest.FormatKey(k)),
+                            ("alt", nearKey),
+                            ("what", nearWhat)), true);
+                }
+                else
+                {
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.unknown_command"), true);
+                }
                 break;
         }
 
@@ -3943,6 +4037,44 @@ public class KeyCommands
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.diagnostics.problems_list_failed"),
+                Radios.VerbosityLevel.Critical);
+        }
+    }
+
+    /// <summary>
+    /// Ctrl+J, O — read out everything expensive that is currently running.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The on-demand read of the register (#253). A sighted operator answers
+    /// this question by looking at a recording indicator, a moving meter and a
+    /// panel that is obviously open. This is that glance.
+    /// </para>
+    /// <para>
+    /// <b>It does not poll for thresholds first.</b> Tempting — the operator is
+    /// right here — but a bound crossing would then be announced on top of the
+    /// answer they actually asked for, and the threshold read exists precisely
+    /// so that nobody has to ask.
+    /// </para>
+    /// <para>
+    /// Interrupts, because it is an answer to a keypress. Never silent: an
+    /// empty register still says so, since silence reads as the key not
+    /// working.
+    /// </para>
+    /// </remarks>
+    private void SpeakRunningCostsFromChord()
+    {
+        try
+        {
+            _context.Trace("Leader:running costs");
+            Radios.ScreenReaderOutput.Speak(
+                Radios.RunningCostRegister.DescribeForSpeech(),
+                Radios.VerbosityLevel.Critical, true);
+        }
+        catch
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.running.unavailable"),
                 Radios.VerbosityLevel.Critical);
         }
     }

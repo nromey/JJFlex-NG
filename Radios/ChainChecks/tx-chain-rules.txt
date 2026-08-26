@@ -419,22 +419,96 @@ evidence: mic-source, mic-profile, sc-mic-peak, sw-alc, codec-mic, pc-tx-loudnes
 # frighten an operator whose radio is fine or reassure one whose radio is not.
 # The temperature is collected as evidence; add a rule when a real figure exists.
 
+#
+# EVERY RULE IN THIS STAGE JUDGES AN ANTENNA PATH, AND THAT USED TO BE AN
+# ACCIDENT RATHER THAN A STATEMENT. An operator driving a transverter is not
+# in the same world: legal transverter drive is a ten-thousandth of a watt to
+# three hundredths of a watt, set in dBm, and the radio's own power meters read
+# its amplifier in tens of watts. The three rules below were all switched off
+# for that operator by side effects — no-power-out by its "rf-power-setting
+# above 0" guard, since a transverter operator lives at setting 0 permanently;
+# the other two by "forward-power at least 1", which that path never reaches.
+# Three checks silently off and the stage reporting healthy.
+#
+# The fix is NOT a lower number here. 0.1 watts sits inside the legal
+# transverter band and so does 0.01, so any single absolute figure is wrong for
+# one path or the other. It is done where the codebase says observability
+# belongs — on the FACT. On a transverter path, below the meters' useful floor,
+# forward-power, reflected-power, reflected-percent and swr come back ABSENT
+# with the reason, so these rules report as checks that COULD NOT BE MADE and
+# the stage comes back not-observable rather than healthy. See
+# TxChainFacts.TransverterDriveCeilingWatts.
+
 stage: 12 radio frequency out of the radio
 about: Whether power actually left the radio, and whether the antenna accepted it.
 nothing-to-check: power and standing wave ratio can only be judged while transmitting, so transmit and run the check again.
 
+# MEASURED, and the number is not chosen here — it is FlexLib's own clamp.
+# Xvtr.MaxPower is a double in dBm limited to +15.00, so the most drive the
+# radio will let a transverter be sent is 0.0316 watts. Anything above that is
+# more than any transverter in the path is rated to accept.
+#
+# What makes it MEASURED rather than a guess is the other end. The lowest
+# reading the forward power meter has ever produced is 17.4 dBm — 0.055 watts,
+# on 2026-08-20, at the radio's minimum power setting — which is nearly twice
+# this ceiling. So the whole legal drive band sits below anything that meter
+# has been seen to report, and the FIRST readable value on this path is already
+# out of spec. Gate and trip point are the same number because they are the
+# same statement seen from two sides, not because one was copied from the other.
+#
+# Below it this rule reports as a check that could not be made, because the fact
+# itself is absent there. That is deliberate: the meter cannot resolve legal
+# drive, and pretending otherwise would put a false all-clear on the one path
+# where being wrong destroys hardware.
+#
+# What this does NOT do is say how far over you are. What a given transverter
+# tolerates varies by transverter and nothing in the radio knows it, so the
+# verdict says stop rather than quantifying the danger.
+#
+# Listed FIRST in the stage, and for a sharper reason than power-coming-back's
+# ordering note. Above the ceiling the antenna rules can fire too, and every one
+# of them says the wrong thing here: two would discuss standing wave ratio while
+# the thing on the end of the cable is being destroyed, and no-power-out would
+# say almost no power is leaving. This one says stop.
+rule: transverter-overdrive
+in-stage: 12
+needs: transmitting is yes
+needs: transverter-path is yes
+broken-when: forward-power above 0.0316
+verdict: Your transmit antenna is the transverter port and the radio is putting out {forward-power}. That is more than the radio will even let you set as transverter drive, so it is more than the transverter is built to take. Stop transmitting.
+fix: Stop transmitting now, then check your transmit power setting and the drive set for this transverter before keying again.
+evidence: tx-antenna, transverter-name, transverter-drive, transverter-drive-ceiling, rf-power-setting, tx-slice, tx-mode
+
+
 # BENCH: 0.1 watts. Low enough that no real transmission sits under it, high
 # enough to clear meter noise around zero — but the floor a Flex reports on a
 # genuine dead-key has not been measured.
+#
+# "transverter-path is no" is APPLICABILITY, not observability, and it is here
+# rather than in the fact source because it is a different question. The three
+# facts go absent below the drive ceiling; ABOVE it they are perfectly readable,
+# and this rule then reads 0.055 watts on a transverter path and says "almost no
+# power is leaving your radio". That is not merely unhelpful, it is backwards:
+# 0.055 watts is nearly twice the most drive the radio will let a transverter be
+# sent, so the fault is too MUCH power and the operator is being sent to turn
+# their power UP. Caught by a test, not by reading — the rule ordering hid it
+# until transverter-overdrive was written and the wrong sentence came out first.
 rule: no-power-out
 in-stage: 12
 needs: transmitting is yes
 needs: dummy-load is no
+needs: transverter-path is no
 needs: rf-power-setting above 0
 broken-when: forward-power below 0.1
 verdict: Your radio is transmitting but almost no power is leaving it: forward power reads {forward-power}.
 fix: Check that your transmit power setting is not at the bottom, and that the transmit slice is on a band this radio can transmit on.
-evidence: rf-power-setting, tx-slice, tx-mode, ptt-source
+evidence: rf-power-setting, tx-slice, tx-mode, ptt-source, tx-antenna, transverter-path
+
+# The one thing that CAN be judged on a transverter path, and the one that
+# matters most: mixer overdrive is the classic transverter killer, and it is
+# expensive and instant.
+#
+
 
 # MEASURED: 40 percent, and this is the first threshold in this file taken from
 # a real radio into a real load rather than guessed. On 2026-08-22 the bench
@@ -449,6 +523,16 @@ evidence: rf-power-setting, tx-slice, tx-mode, ptt-source
 # first rule that fires in a stage, and when both apply this is the more useful
 # sentence: it names a cause the operator can act on rather than a ratio they
 # have to interpret.
+#
+# THE 40 BELOW IS TransmitSafety.ReflectedWarnPercent, and a test holds them
+# together: ReflectedThresholdAgreementTests parses this shipped file and fails
+# the build's test run if this figure and that constant disagree. This file is
+# data and cannot reference the constant, which is why the pairing was once
+# kept by comments alone — and a third consumer (the transmit-check tune
+# probe) was then written at 20 without reading them (#237). The probe's
+# fallback is now deliberately stricter and derives from the same constant; if
+# you move this figure, move ReflectedWarnPercent, and the test will tell you
+# what else is watching.
 rule: power-coming-back
 in-stage: 12
 needs: transmitting is yes
@@ -458,7 +542,7 @@ needs: forward-power at least 1
 broken-when: reflected-percent above 40
 verdict: {reflected-percent} percent of your transmit power is coming straight back into the radio instead of going out. That is far more than any working antenna sends back, and the usual cause is that the selected antenna port has nothing connected to it, or that the feedline is open.
 fix: Check that the antenna is connected to the port the radio is actually transmitting on, and that you have selected the port you think you have. Stop transmitting until you have.
-evidence: forward-power, reflected-power, swr, rf-power-setting, meter-patemp
+evidence: forward-power, reflected-power, swr, rf-power-setting, meter-patemp, tx-antenna
 
 # BENCH: 3 to 1. The figure hams generally treat as the point where a solid
 # state radio starts folding back, and where a Flex protects itself. The exact
@@ -479,4 +563,4 @@ needs: forward-power at least 1
 broken-when: swr above 3
 verdict: Your standing wave ratio is {swr}, which is high enough that the radio will reduce its own power to protect itself. You will be heard, but not at the power you set.
 fix: Check the antenna, the feedline and any tuner in the path before transmitting further.
-evidence: forward-power, reflected-power, reflected-percent, rf-power-setting, meter-revpwr, meter-patemp
+evidence: forward-power, reflected-power, reflected-percent, rf-power-setting, meter-revpwr, meter-patemp, tx-antenna

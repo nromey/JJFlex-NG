@@ -6,6 +6,25 @@ using System.Text;
 namespace Radios.Fixer
 {
     /// <summary>
+    /// What the operator said about hearing the radio (#243). The operator is
+    /// an instrument, and a very good one: over a remote link, "I can hear
+    /// it" proves PC audio is on, the transport is carrying audio, the output
+    /// device works and the decode path works — four facts no probe in this
+    /// stage can establish as reliably as the person listening.
+    /// </summary>
+    public enum HeardRadio
+    {
+        /// <summary>The question has not been answered this run.</summary>
+        NotAsked = 0,
+        /// <summary>"I can hear the radio."</summary>
+        Hears,
+        /// <summary>"I hear nothing from the radio."</summary>
+        HearsNothing,
+        /// <summary>"No radio is connected."</summary>
+        NoRadio,
+    }
+
+    /// <summary>
     /// What the audio setup is actually doing, as facts the host read from the
     /// audio subsystem itself — not from configuration. The two can differ, and
     /// where they do that IS the finding.
@@ -55,6 +74,11 @@ namespace Radios.Fixer
         public bool? WindowsInputMuted { get; set; }
         public bool? MicrophonePrivacyBlocked { get; set; }
         public bool? InputDeviceUnplugged { get; set; }
+
+        /// <summary>What the operator said about hearing the radio (#243) —
+        /// a reading taken from the best receive-path instrument in the room,
+        /// recorded by the host from the stage's own declaration.</summary>
+        public HeardRadio OperatorHearsRadio { get; set; } = HeardRadio.NotAsked;
     }
 
     /// <summary>
@@ -93,6 +117,7 @@ namespace Radios.Fixer
         public const string PrivacyBlocked = "privacy-blocked";
         public const string Unplugged = "unplugged";
         public const string ConfigOpenMismatch = "config-open-mismatch";
+        public const string HearsNothingFinding = "hears-nothing";
 
         // Fix action ids the transmit set binds host delegates to.
         public const string FixSwitchToWasapi = "switch-to-wasapi";
@@ -113,6 +138,24 @@ namespace Radios.Fixer
             // runs, so a microphone measurement through it measures Windows'
             // resampler. It is also PortAudio's default nomination, so it is
             // what an operator gets by doing nothing (#61).
+            //
+            // MME IN USE IS A CAVEAT ON THE NUMBERS, NOT A FAULT (#239). It
+            // records fine; nothing anywhere gates a stage on it, and an
+            // MME-only setup runs all five stages with the caveat attached.
+            // The finding stays FixOwner.Us only where WASAPI exists to move
+            // to, and the fix is atomic around the microphone — an operator
+            // whose only microphone is MME-only is never told to replace
+            // working hardware.
+            //
+            // DIRECTSOUND'S STATUS, decided rather than left implicit (#239):
+            // it is NOT offered as a target and is NOT treated as better than
+            // MME. Devices.cs groups the two together — "MME and DirectSound
+            // convert silently; WASAPI and WDM-KS do not" — so for the one
+            // thing this stage cares about, measurement honesty, DirectSound
+            // buys nothing: the same converter sits behind it wearing a
+            // different name. A microphone with DirectSound but no WASAPI
+            // gets the same answer as an MME-only one — keep using it, read
+            // the levels as approximate.
             if (IsMme(facts.OpenHostApi))
             {
                 if (facts.WasapiAvailable)
@@ -204,6 +247,33 @@ namespace Radios.Fixer
                 findings.Add(new FixerFinding(Unplugged, FixOwner.Operator,
                     "The microphone you have selected is reporting itself as unplugged.",
                     "Check the cable and the connector, then run this stage again."));
+
+            // The operator's own reading (#243). "I hear nothing" is a
+            // finding-grade fact: over a remote link with PC audio ON, it
+            // says the receive path is not delivering — and the transmit
+            // stages ride part of the same road, so it should be settled
+            // before their results are read. When PC audio is OFF on a
+            // remote radio, silence is the EXPECTED consequence and the
+            // pc-audio-off finding above already names the cause; a second
+            // finding for the same cause is how a report starts feeling
+            // long, so none is raised.
+            if (facts.OperatorHearsRadio == HeardRadio.HearsNothing
+                && !(facts.RemoteRadio && !facts.PcAudioOn))
+            {
+                findings.Add(facts.RemoteRadio
+                    ? new FixerFinding(HearsNothingFinding, FixOwner.Operator,
+                        "You hear nothing from the radio, even though PC audio is on — so "
+                        + "the receive path is not delivering sound to your ears.",
+                        "Check this computer's output device and its volume first. If the "
+                        + "radio's audio genuinely is not arriving, the transmit checks "
+                        + "will likely fail for the same reason, so settle this before "
+                        + "reading them.")
+                    : new FixerFinding(HearsNothingFinding, FixOwner.Operator,
+                        "You hear nothing from the radio.",
+                        "Check the volume on the radio and on this computer, and where "
+                        + "your receive audio normally comes out. A silent receiver is "
+                        + "worth settling before the transmit results are read."));
+            }
 
             // Configuration and reality disagreeing is a finding in itself —
             // it is the exact reason this stage reads what is OPEN.
@@ -343,7 +413,38 @@ namespace Radios.Fixer
             sb.Append('.');
             if (f.OpenOutputDevice.Length > 0)
                 sb.Append(" Playback is going to ").Append(f.OpenOutputDevice).Append('.');
+            sb.Append(Hearing(f));
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// The operator's own reading, folded into the stage's answer (#243).
+        /// Claims exactly as much as the answer proves: over a remote link,
+        /// hearing the radio proves the whole receive path in one stroke; in
+        /// the room, it may be the radio's own speaker and proves less about
+        /// this computer.
+        /// </summary>
+        private static string Hearing(AudioSetupFacts f)
+        {
+            switch (f.OperatorHearsRadio)
+            {
+                case HeardRadio.Hears when f.RemoteRadio:
+                    return " You can hear the radio, and over a remote connection that one "
+                         + "fact proves the whole receive path at a stroke — the link is "
+                         + "up, audio is flowing, and your output device is playing it. A "
+                         + "silent transmit now points at the microphone side rather than "
+                         + "at the connection.";
+                case HeardRadio.Hears:
+                    return " You can hear the radio. With the radio in the room that may "
+                         + "be its own speaker rather than this computer, so it says less "
+                         + "about the computer's audio path than it would over a remote "
+                         + "connection.";
+                case HeardRadio.NoRadio:
+                    return " You said no radio is connected, so the checks that need one "
+                         + "will wait until it is.";
+                default:
+                    return "";
+            }
         }
 
         private static string Evidence(AudioSetupFacts f)
@@ -368,6 +469,7 @@ namespace Radios.Fixer
             sb.AppendLine("Muted in Windows: " + Tristate(f.WindowsInputMuted));
             sb.AppendLine("Blocked by Windows privacy: " + Tristate(f.MicrophonePrivacyBlocked));
             sb.AppendLine("Device reports unplugged: " + Tristate(f.InputDeviceUnplugged));
+            sb.AppendLine("Operator hears the radio: " + HearingEvidence(f.OperatorHearsRadio));
             return sb.ToString();
         }
 
@@ -376,5 +478,16 @@ namespace Radios.Fixer
 
         private static string Tristate(bool? v)
             => v == null ? "could not be read" : (v.Value ? "yes" : "no");
+
+        private static string HearingEvidence(HeardRadio h)
+        {
+            switch (h)
+            {
+                case HeardRadio.Hears: return "yes, by their own account";
+                case HeardRadio.HearsNothing: return "no — they hear nothing";
+                case HeardRadio.NoRadio: return "no radio connected, by their own account";
+                default: return "not asked, or not answered";
+            }
+        }
     }
 }

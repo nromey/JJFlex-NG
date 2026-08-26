@@ -525,6 +525,89 @@ namespace Radios
         }
 
         // ---------------------------------------------------------------
+        // Where the operator left this radio (Sprint 35 Track I, #226).
+        //
+        // Every conventional transceiver comes back on the frequency it was
+        // switched off on. A Flex driven through a client does not: it
+        // replays its global profile on connect, so the operator lands
+        // wherever the profile was last SAVED, and everything since is gone
+        // silently. This block is the app-side memory of where the operator
+        // actually was — frequency, mode, slice letter — recorded per radio,
+        // per install.
+        //
+        // APP-SIDE AND PER-OPERATOR BY CONSTRUCTION. Nothing here is written
+        // to the radio, so the MultiFlex ownership question ("whose state
+        // wins") does not arise: two people sharing one radio each carry
+        // their own last place in their own install. That is also why this
+        // deliberately does NOT feed any automatic restore — the honest
+        // first version TELLS the operator where they were and stops there.
+        // Restoring is a separate decision with a real MultiFlex hazard
+        // (retuning a slice somebody else is using), deferred to the
+        // station-state ownership audit (project_operator_state_vs_
+        // station_state). Keep this block shaped so an identity-aware
+        // answer can replace it rather than migrate it: it is a cache of
+        // observation, never a data model anything else depends on.
+        //
+        // APPEND-ONLY like the blocks around it: absent elements deserialize
+        // to defaults, so a config.xml written before this shipped loads
+        // unchanged and reads as "no last place known".
+        // ---------------------------------------------------------------
+
+        /// <summary>True once a last place has ever been recorded for this
+        /// radio. While false, the other LastPlace fields mean nothing.</summary>
+        public bool LastPlaceKnown { get; set; }
+
+        /// <summary>Frequency the operator's active slice was on, in Hz.</summary>
+        public ulong LastPlaceFrequencyHz { get; set; }
+
+        /// <summary>Demodulation mode the active slice was in ("USB", "CW").</summary>
+        public string LastPlaceMode { get; set; } = "";
+
+        /// <summary>Letter of the slice that was active ("A").</summary>
+        public string LastPlaceSliceLetter { get; set; } = "";
+
+        /// <summary>When the place last CHANGED (UTC) — unchanged sessions skip
+        /// the write, so this is not "when last connected".</summary>
+        public DateTime LastPlaceRecordedUtc { get; set; }
+
+        /// <summary>
+        /// Record where the operator is on a radio. Skips the disk write when
+        /// the place has not changed — an evening parked on one frequency
+        /// costs one write, not one per debounce tick. No-ops on an unknown
+        /// radio id or an empty place, and never throws: losing one place
+        /// observation must not be able to hurt anything else.
+        /// </summary>
+        public static void RecordLastPlace(
+            string radioId, ulong frequencyHz, string mode, string sliceLetter)
+        {
+            if (string.IsNullOrEmpty(radioId)) return;
+            if (frequencyHz == 0 || string.IsNullOrEmpty(mode)) return;
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                if (cfg.LastPlaceKnown
+                    && cfg.LastPlaceFrequencyHz == frequencyHz
+                    && cfg.LastPlaceMode == mode
+                    && cfg.LastPlaceSliceLetter == (sliceLetter ?? ""))
+                {
+                    return;
+                }
+                cfg.LastPlaceKnown = true;
+                cfg.LastPlaceFrequencyHz = frequencyHz;
+                cfg.LastPlaceMode = mode;
+                cfg.LastPlaceSliceLetter = sliceLetter ?? "";
+                cfg.LastPlaceRecordedUtc = DateTime.UtcNow;
+                cfg.SaveForRadio(radioId);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.RecordLastPlace: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
+        // ---------------------------------------------------------------
         // Ownership (Sprint 31 Track S, 2026-08-19, task #94).
         //
         // The layer beneath the microphone-profile model: the app had no
@@ -923,12 +1006,36 @@ namespace Radios
         /// </summary>
         public bool SaveForRadio(string radioId)
         {
+            // Answer a malformed id here, BEFORE the retry. Save would refuse it
+            // twice, sleep 50ms in between, and then report "the change is in
+            // effect right now, but it will not be there the next time you start
+            // JJ Flex" — which describes a busy disk, not a rejected serial, and
+            // would be the second dishonest sentence in one defect (task #245).
+            if (!IsWellFormedRadioId(radioId))
+            {
+                Tracing.TraceLine(
+                    $"RadioConfig.SaveForRadio: refusing radio id \"{radioId}\" — a Flex "
+                    + "serial is four groups of four digits (task #245). Nothing was "
+                    + "written.",
+                    System.Diagnostics.TraceLevel.Error);
+                return false;
+            }
+
             var dir = ResolveBaseDirectory();
             if (string.IsNullOrEmpty(dir))
             {
                 Tracing.TraceLine(
                     "RadioConfig.SaveForRadio: no config directory available — nothing saved",
                     System.Diagnostics.TraceLevel.Error);
+                return false;
+            }
+
+            // Same reason as the shape check above, for the other half of the
+            // gate: a refusal is a verdict, and retrying a verdict just delays
+            // it by 50ms before describing it as a busy disk.
+            if (!RejectImplausibleRadioId(
+                    radioId, Model, Exists(dir, radioId), "RadioConfig.SaveForRadio"))
+            {
                 return false;
             }
 
@@ -1005,6 +1112,19 @@ namespace Radios
         /// </summary>
         public bool Save(string configDirectory, string radioId)
         {
+            // THE ONE GATE. Every per-radio profile in the app reaches disk
+            // through this method, so this is the only place a serial has to be
+            // checked for a phantom to become impossible — including the first
+            // rewrite of a profile that arrived inside an imported settings zip.
+            // Rejecting here rather than at each call site is deliberate: task
+            // #245 exists because several code paths each decided for themselves
+            // what a radio id was, and only some of them were right.
+            if (!RejectImplausibleRadioId(
+                    radioId, Model, Exists(configDirectory, radioId), "RadioConfig.Save"))
+            {
+                return false;
+            }
+
             var filePath = GetFilePath(configDirectory, radioId);
             try
             {
@@ -1044,13 +1164,38 @@ namespace Radios
                 return new List<string>();
             }
 
-            return Directory.EnumerateDirectories(root)
+            var ids = Directory.EnumerateDirectories(root)
                 .Where(d => File.Exists(Path.Combine(d, "config.xml")))
                 .Select(Path.GetFileName)
                 .Where(name => !string.IsNullOrEmpty(name))
                 .Select(name => name!)
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            // Name the phantoms ALREADY on disk, without hiding them.
+            //
+            // A write can be refused (see Save); a directory that predates the
+            // refusal cannot be un-created, and the operator may well want the
+            // row so they can delete it — Delete on the radio list is exactly
+            // the affordance for that. Filtering here would take that away and,
+            // worse, would silently erase a real radio the day our shape rule
+            // turned out to be too narrow. So: say it in the trace, change
+            // nothing about what is returned.
+            foreach (var id in ids)
+            {
+                if (!IsWellFormedRadioId(id))
+                {
+                    Tracing.TraceLine(
+                        $"RadioConfig.ListKnownRadioIds: \"{id}\" is not a Flex serial "
+                        + "(four groups of four digits) but has a config.xml, so it will "
+                        + "appear as a radio that can never connect. Written before the "
+                        + "write-side check, or by hand. Delete it from the radio list "
+                        + "(task #245).",
+                        System.Diagnostics.TraceLevel.Warning);
+                }
+            }
+
+            return ids;
         }
 
         /// <summary>
@@ -1082,6 +1227,160 @@ namespace Radios
         private static string GetFilePath(string configDirectory, string radioId)
         {
             return Path.Combine(configDirectory, "radios", SanitizeRadioId(radioId), "config.xml");
+        }
+
+        // ------------------------------------------------------------------
+        // What a radio id is allowed to be (task #245)
+        // ------------------------------------------------------------------
+        //
+        // The roster's data source is DIRECTORY NAMES under radios\ — see
+        // ListKnownRadioIds — so any folder that acquires a config.xml becomes
+        // a row in the radio picker, with a serial, a nickname, and settings of
+        // its own. On 2026-08-25 a row with the serial "2222" and a real
+        // radio's nickname sat in that list, took a preferred-account setting,
+        // and could never connect to anything. Its origin was never found, and
+        // that is precisely the argument for validating at the point of write:
+        // a shape rule closes every origin at once, including the ones nobody
+        // has thought of.
+        //
+        // THE SHAPE, grounded rather than guessed. Every per-radio profile on
+        // the operator's machine on 2026-08-26 — three real radios plus two
+        // deliberate test fixtures — is four groups of four digits:
+        //
+        //     1315-4176-6300-7236   2116-5319-6300-6334   4925-1213-8600-6245
+        //     0123-4567-8600-0002   0123-4567-8600-9001
+        //
+        // and the third group is the model in every one. FlexLib itself
+        // asserts nothing: Discovery and WanServer both take the serial as
+        // whatever text arrives on the wire (StringHelper.Sanitize and a
+        // dictionary lookup respectively), so the shape is the radios'
+        // convention, not the library's contract.
+        //
+        // WHICH IS WHY THE MODEL CROSS-CHECK IS CONDITIONAL, AND MUST STAY SO.
+        // It fires only when a Model string is present AND yields a four-digit
+        // number. Noel's own delete-test fixtures carry no Model, and an
+        // Aurora's model reads "AU-510" — three digits — so we have never seen
+        // what an Aurora puts in group three. Asserting a rule about a radio we
+        // have never held would refuse to save that operator's settings, which
+        // is a worse failure than the phantom this is here to prevent.
+
+        /// <summary>
+        /// Whether a string has the shape of a FlexRadio serial: four
+        /// dash-separated groups of four digits, e.g. <c>4925-1213-8600-6245</c>.
+        /// SHAPE ONLY — it says nothing about whether such a radio exists.
+        /// </summary>
+        public static bool IsWellFormedRadioId(string? radioId)
+        {
+            if (string.IsNullOrWhiteSpace(radioId)) return false;
+            var s = radioId.Trim();
+            if (s.Length != 19) return false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                bool wantDash = (i == 4 || i == 9 || i == 14);
+                if (wantDash)
+                {
+                    if (s[i] != '-') return false;
+                }
+                else if (s[i] < '0' || s[i] > '9')
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The four-digit model number carried inside a model string
+        /// ("FLEX-8600M" gives "8600"), or null when the string holds no
+        /// four-digit run. Null for an Aurora ("AU-510"), which is the point:
+        /// a model we cannot read is a cross-check we must not run.
+        /// </summary>
+        internal static string? ModelNumberOf(string? model)
+        {
+            if (string.IsNullOrWhiteSpace(model)) return null;
+            int run = 0;
+            for (int i = 0; i < model.Length; i++)
+            {
+                if (model[i] >= '0' && model[i] <= '9')
+                {
+                    run++;
+                    // A run LONGER than four is not a model number; bail rather
+                    // than take its first four digits.
+                    if (run > 4) return null;
+                }
+                else
+                {
+                    if (run == 4) return model.Substring(i - 4, 4);
+                    run = 0;
+                }
+            }
+            return run == 4 ? model.Substring(model.Length - 4, 4) : null;
+        }
+
+        /// <summary>
+        /// The third group of a well-formed serial — the model, by the
+        /// convention every Flex serial we hold follows.
+        /// </summary>
+        internal static string ModelGroupOf(string radioId) => radioId.Trim().Substring(10, 4);
+
+        /// <summary>
+        /// Gate a write. Returns true when <paramref name="radioId"/> may be
+        /// used as a radio id; traces at Error and returns false when it may
+        /// not.
+        /// </summary>
+        /// <param name="profileExists">
+        /// Whether a config.xml is already on disk for this id. It decides how
+        /// far the model cross-check is allowed to go — see below.
+        /// </param>
+        private static bool RejectImplausibleRadioId(
+            string radioId, string? model, bool profileExists, string who)
+        {
+            if (!IsWellFormedRadioId(radioId))
+            {
+                Tracing.TraceLine(
+                    $"{who}: refusing radio id \"{radioId}\" — a Flex serial is four "
+                    + "groups of four digits (task #245). Nothing was written; a row "
+                    + "with this id would have appeared in the radio list and could "
+                    + "never have connected.",
+                    System.Diagnostics.TraceLevel.Error);
+                return false;
+            }
+
+            var expected = ModelNumberOf(model);
+            if (expected == null || string.Equals(expected, ModelGroupOf(radioId), StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            // A mismatch on a profile that ALREADY EXISTS is not a phantom.
+            // This install has met this radio, its settings live under this id,
+            // and Model is a mutable observation refreshed on every sighting —
+            // so the observation is the likelier thing to be wrong. Refusing
+            // here would quietly stop that radio's settings persisting, which
+            // is the lying-receipt failure the whole file is careful about, and
+            // it would be triggered by a bug ELSEWHERE writing a bad Model.
+            // Say so loudly and let the write through.
+            if (profileExists)
+            {
+                Tracing.TraceLine(
+                    $"{who}: \"{radioId}\" has model group {ModelGroupOf(radioId)} but its "
+                    + $"profile says \"{model}\" ({expected}). The profile already exists, so "
+                    + "this is a stale or wrong model string rather than a bogus serial — "
+                    + "saving anyway. Worth chasing whatever wrote that model (task #245).",
+                    System.Diagnostics.TraceLevel.Warning);
+                return true;
+            }
+
+            // CREATING a profile is the phantom's only door. A serial whose own
+            // model group contradicts the model we are storing beside it has one
+            // of its two halves wrong, and guessing which would attach a radio's
+            // settings to a serial it does not own.
+            Tracing.TraceLine(
+                $"{who}: refusing to CREATE a profile for \"{radioId}\" — its model group "
+                + $"says {ModelGroupOf(radioId)} while the model being stored is \"{model}\" "
+                + $"({expected}) (task #245).",
+                System.Diagnostics.TraceLevel.Error);
+            return false;
         }
 
         /// <summary>

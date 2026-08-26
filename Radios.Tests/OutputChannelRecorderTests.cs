@@ -17,7 +17,14 @@ namespace Radios.Tests
     //  The recorder is process-global static state, so all tests live in
     //  this one class (xUnit runs tests within a class sequentially) and
     //  each test Configures its own transcript file.
+    //
+    //  Sprint 35 Track M: no longer one class — SpeechCoalescerTimingTests
+    //  also Configures the recorder, so the one-class rule became the
+    //  collection below (same evolution RadioConfigStaticsCollection went
+    //  through, and this time before the predicted parallel-trample failure
+    //  rather than after it).
     // ────────────────────────────────────────────────────────────────
+    [Collection(SpeechOutputStaticsCollection.Name)]
     public class OutputChannelRecorderTests : IDisposable
     {
         private readonly string _path;
@@ -27,6 +34,13 @@ namespace Radios.Tests
             string dir = Path.Combine(Path.GetTempPath(), "jjflex-recorder-tests");
             Directory.CreateDirectory(dir);
             _path = Path.Combine(dir, Guid.NewGuid().ToString("N") + ".jsonl");
+
+            // The speech arbiter is process-global and now protects queued
+            // utterances across interrupts (Sprint 35 Track L). Without this
+            // reset, a queued utterance from the previous test is still inside
+            // its believed-unspoken window and gets salvaged into THIS test's
+            // transcript the moment an interrupt=true Speak runs.
+            ScreenReaderOutput.ResetTransientSpeechStateForTest();
         }
 
         public void Dispose()

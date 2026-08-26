@@ -249,5 +249,75 @@ namespace Radios.Tests
             // Unreadable stays distinguishable from a reading of "no".
             Assert.Contains("could not be read", evidence);
         }
+
+        // ---- the operator as an instrument (#243) ----
+
+        [Fact]
+        public void Hearing_a_remote_radio_proves_the_receive_path_in_the_answer()
+        {
+            AudioSetupFacts facts = Healthy();
+            facts.OperatorHearsRadio = HeardRadio.Hears;
+
+            FixerOutcome outcome = AudioSetupCheck.Analyze(facts);
+            Assert.Contains("proves the whole receive path", outcome.Answer);
+            Assert.DoesNotContain(outcome.Findings,
+                                  f => f.Id == AudioSetupCheck.HearsNothingFinding);
+        }
+
+        [Fact]
+        public void Hearing_a_local_radio_claims_less()
+        {
+            // In the room, "I can hear it" may be the radio's own speaker —
+            // the answer must not over-claim about the computer's audio path.
+            AudioSetupFacts facts = Healthy();
+            facts.RemoteRadio = false;
+            facts.OperatorHearsRadio = HeardRadio.Hears;
+
+            string answer = AudioSetupCheck.Analyze(facts).Answer;
+            Assert.Contains("its own speaker", answer);
+            Assert.DoesNotContain("proves the whole receive path", answer);
+        }
+
+        [Fact]
+        public void Hearing_nothing_on_a_remote_radio_with_pc_audio_on_is_a_finding()
+        {
+            AudioSetupFacts facts = Healthy();
+            facts.OperatorHearsRadio = HeardRadio.HearsNothing;
+
+            FixerFinding f = AudioSetupCheck.Analyze(facts).Findings
+                .Single(x => x.Id == AudioSetupCheck.HearsNothingFinding);
+            Assert.Equal(FixOwner.Operator, f.Owner);
+            Assert.Contains("output device", f.WhatToDo);
+        }
+
+        [Fact]
+        public void Hearing_nothing_with_pc_audio_off_raises_no_second_finding_for_one_cause()
+        {
+            // Silence is the EXPECTED consequence of PC audio being off on a
+            // remote radio, and the pc-audio-off finding already names the
+            // cause. Two findings for one cause is how a report starts
+            // feeling long (#241's rule, applied here).
+            AudioSetupFacts facts = Healthy();
+            facts.PcAudioOn = false;
+            facts.OperatorHearsRadio = HeardRadio.HearsNothing;
+
+            FixerOutcome outcome = AudioSetupCheck.Analyze(facts);
+            Assert.Contains(outcome.Findings, f => f.Id == AudioSetupCheck.PcAudioOff);
+            Assert.DoesNotContain(outcome.Findings,
+                                  f => f.Id == AudioSetupCheck.HearsNothingFinding);
+        }
+
+        [Fact]
+        public void The_hearing_answer_reaches_the_evidence_and_not_asked_is_honest()
+        {
+            AudioSetupFacts facts = Healthy();
+            Assert.Contains("Operator hears the radio: not asked",
+                            AudioSetupCheck.Analyze(facts).Evidence);
+
+            facts.OperatorHearsRadio = HeardRadio.NoRadio;
+            FixerOutcome outcome = AudioSetupCheck.Analyze(facts);
+            Assert.Contains("no radio connected, by their own account", outcome.Evidence);
+            Assert.Contains("checks that need one will wait", outcome.Answer);
+        }
     }
 }

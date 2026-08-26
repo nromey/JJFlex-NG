@@ -62,6 +62,17 @@ public sealed class FixerDialog : JJFlexDialog
     private readonly System.Collections.Generic.Dictionary<string, string> _notices =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // Which explanation disclosures the operator has opened or closed, as the
+    // page reports them. Held here so a full re-render honours the choice
+    // instead of springing the prose back open — the page itself is stateless.
+    private readonly System.Collections.Generic.Dictionary<string, bool> _explainOpen =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    // The operator's hearing affirmation (#243), fed into stage 0's facts on
+    // its next run. Per-run like every declaration: a fresh dialog asks
+    // afresh, because the station may have changed since.
+    private HeardRadio _hearing = HeardRadio.NotAsked;
+
     private CancellationTokenSource? _stageCancel;
     private bool _ready;
     private bool _initFailed;
@@ -74,6 +85,31 @@ public sealed class FixerDialog : JJFlexDialog
     {
         _radio = radio;
         _gate = new FixerTransmitGate();
+
+        // #236's middle option: every gate-keyed transmit arms the PTT safety
+        // controller's LIVE reflected-power watch for its duration. The gate
+        // still owns whether a transmit may START; the controller watches what
+        // happens WHILE it is up — the half these checks never had. Resolved
+        // per call through the same live path the Audio Workshop uses (the
+        // controller is recreated on operator switch and must not be cached).
+        // Whether the checks' keying should ride the controller entirely is
+        // still Noel's open call; neither stack is weakened meanwhile.
+        _gate.OnKeyed = () =>
+        {
+            try { AudioWorkshopDialog.PttControllerSource?.Invoke()
+                      ?.BeginExternalTransmitWatch(); }
+            catch (Exception ex)
+            { Tracing.TraceLine("FixerDialog: could not arm the transmit watch — "
+                                + ex.Message, TraceLevel.Warning); }
+        };
+        _gate.OnUnkeyed = () =>
+        {
+            try { AudioWorkshopDialog.PttControllerSource?.Invoke()
+                      ?.EndExternalTransmitWatch(); }
+            catch (Exception ex)
+            { Tracing.TraceLine("FixerDialog: could not disarm the transmit watch — "
+                                + ex.Message, TraceLevel.Warning); }
+        };
 
         // The transmit-audio boundary — one instance, like the gate, because
         // stage 4 is read against stage 3's meter capture and somebody has to
@@ -101,7 +137,11 @@ public sealed class FixerDialog : JJFlexDialog
                 VerbosityLevel.Critical, interrupt: true),
             speakDone: () => ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.fixer.speak_done"),
-                VerbosityLevel.Critical, interrupt: true));
+                VerbosityLevel.Critical, interrupt: true),
+            // The transmit countdown (#261): tones, not speech, so the count
+            // cannot be flushed by the spoken cue's interrupt. The sound is
+            // Track G's; FixerCountdown is the seam.
+            countdown: FixerCountdown.TransmitTone);
 
         var hosts = new TransmitStageSet.Hosts
         {
@@ -114,8 +154,17 @@ public sealed class FixerDialog : JJFlexDialog
 
             // WIRED. What the operator said the antenna socket is connected to.
             // Read from the gate rather than from our own copy, so the value in
-            // the report and the value that opened the gate cannot differ.
-            ReadLoadDeclaration = () => _gate.LoadDeclaration,
+            // the report and the value that opened the gate cannot differ. The
+            // report form carries the remote provenance (#247), because a Flex
+            // support reader weights a declaration made over a remote session
+            // differently from one made in the room.
+            ReadLoadDeclaration = () => _gate.LoadDeclarationForReport,
+
+            // WIRED. The live facts for "what pressing Run will do" — tune
+            // power, RF power, TX antenna port, remoteness (#250). Read fresh
+            // at every render, because a re-render happens after every host
+            // action and these move under it.
+            ReadStation = ReadStationNow,
 
             // WIRED. What the audio system is ACTUALLY running, read live —
             // never from the configuration file, because the whole value of
@@ -126,11 +175,27 @@ public sealed class FixerDialog : JJFlexDialog
             // FixerHostWiring is structurally forbidden to touch. It leaves
             // them at their defaults and says so; the host, which does hold the
             // radio, fills them in here.
-            ReadAudioSetup = WithRadioFacts(FixerHostWiring.AudioSetup()),
+            ReadAudioSetup = WithHearing(WithRadioFacts(FixerHostWiring.AudioSetup())),
 
             // WIRED. Reuses the existing microphone probe rather than
-            // measuring again.
-            MeasureMicrophone = FixerHostWiring.Microphone(),
+            // measuring again — now with the count-in and the end signal
+            // (#255, #261): the record countdown from Track G's earcon, the
+            // spoken "listening" at the moment the speech window opens, and
+            // "finished" when it closes, so nobody talks into silence. The
+            // gate-derivation wrapper adds the one sentence #262 carves out:
+            // the transmit noise gate's threshold, and the floor it came
+            // from, stated as a fact.
+            MeasureMicrophone = WithGateDerivation(FixerHostWiring.Microphone(
+                new FixerHostWiring.MicCueHooks
+                {
+                    Countdown = FixerCountdown.RecordTone,
+                    SpeakListenNow = () => ScreenReaderOutput.Speak(
+                        Lexicon.Get("audio.fixer.listen_now"),
+                        VerbosityLevel.Critical, interrupt: true),
+                    SpeakListenDone = () => ScreenReaderOutput.Speak(
+                        Lexicon.Get("audio.fixer.listen_done"),
+                        VerbosityLevel.Critical, interrupt: true),
+                })),
 
             // WIRED. The five fixes stage 0 offers at the point of detection.
             // Each applies its change and then READS IT BACK, reporting what
@@ -239,6 +304,108 @@ public sealed class FixerDialog : JJFlexDialog
         static void Note(string what, Exception ex) =>
             Tracing.TraceLine("FixerDialog: could not read " + what + " — "
                               + ex.Message, TraceLevel.Warning);
+    }
+
+    /// <summary>
+    /// Fold the operator's hearing affirmation (#243) into stage 0's facts.
+    /// Separate from the radio facts because it needs no radio — "no radio is
+    /// connected" is one of its answers.
+    /// </summary>
+    private Func<AudioSetupFacts> WithHearing(Func<AudioSetupFacts> inner)
+    {
+        if (inner == null) return null;
+        return () =>
+        {
+            AudioSetupFacts f = inner();
+            if (f != null) f.OperatorHearsRadio = _hearing;
+            return f;
+        };
+    }
+
+    /// <summary>
+    /// Append the one sentence #262 carves out of Sprint 36: the transmit
+    /// noise gate's threshold is DERIVED — floor plus margin, from the same
+    /// loudness profile machinery the microphone check reports — and until
+    /// now the derivation was silent. Stated as a fact, not a verdict:
+    /// whether the threshold is RIGHT is exactly what #262 exists to test.
+    /// An operator who can see where the number came from can question it
+    /// and notice it going wrong; one who cannot, cannot.
+    /// </summary>
+    private Func<MicCheckFacts>? WithGateDerivation(Func<MicCheckFacts>? inner)
+    {
+        if (inner == null) return null;
+        return () =>
+        {
+            MicCheckFacts f = inner();
+            if (f == null) return f!;
+            string line = DescribeGateDerivation();
+            if (line.Length > 0)
+                f.Detail = (f.Detail.Length > 0 ? f.Detail + " " : "") + line;
+            return f;
+        };
+    }
+
+    private string DescribeGateDerivation()
+    {
+        try
+        {
+            FlexBase? rig = _radio();
+            if (rig == null) return "";
+
+            var gate = rig.TxConditioner.Gate;
+            if (!gate.Enabled)
+                return "The transmit noise gate is currently off, so no threshold applies.";
+
+            float threshold = gate.ThresholdDb;
+            var profile = rig.TxLoudnessProfile;
+            bool derived = profile.IsValid
+                           && profile.NoiseFloorLufs > JJPortaudio.LufsMeter.Floor;
+
+            if (!derived)
+                return "The transmit noise gate is holding its deliberately low default "
+                     + "threshold of "
+                     + threshold.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                     + " dB, because no transmitted speech has taught it your room's noise "
+                     + "floor yet.";
+
+            return "Your transmit noise gate's threshold is currently "
+                 + threshold.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                 + " dB, derived from the noise floor measured in your own transmitted "
+                 + "audio ("
+                 + profile.NoiseFloorLufs.ToString("0.#",
+                       System.Globalization.CultureInfo.InvariantCulture)
+                 + " LUFS, plus a "
+                 + TxAudioConditioning.ThresholdMarginDb.ToString("0.#",
+                       System.Globalization.CultureInfo.InvariantCulture)
+                 + " dB margin). Stated here so you can see where it came from; whether "
+                 + "it is right for your room is not judged by this check.";
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: gate derivation could not be described — "
+                              + ex.Message, TraceLevel.Warning);
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// The station as it stands right now, for the stage sentences that say
+    /// what pressing Run will do. Each fact is guarded on its own — one
+    /// unreadable value must not cost the sentence the others — and a fact
+    /// that cannot be read is simply omitted, never guessed.
+    /// </summary>
+    private TransmitStageSet.StationNow? ReadStationNow()
+    {
+        FlexBase? rig;
+        try { rig = _radio(); } catch { rig = null; }
+        if (rig == null) return null;
+
+        var s = new TransmitStageSet.StationNow();
+        try { s.TunePowerWatts = rig.TunePower; } catch { }
+        try { s.RfPowerWatts = rig.XmitPower; } catch { }
+        try { s.AntennaPort = rig.TXAntennaName ?? ""; } catch { }
+        try { s.RemoteRadio = rig.RemoteRig; } catch { }
+        return s;
     }
 
     /// <summary>
@@ -416,13 +583,16 @@ document.addEventListener('keydown', function (e) {
     }
 
     /// <summary>
-    /// Put the caret where the operator was, not back at the top.
+    /// Put the caret where the operator should be after a re-render.
     /// </summary>
     /// <remarks>
-    /// A full re-render after a stage finishes would otherwise dump them at the
-    /// document head and make them navigate back to the stage they just ran —
-    /// every time. Focus goes to the selected stage's panel when there is one,
-    /// and only falls back to the first heading on the very first render.
+    /// A full re-render would otherwise dump them at the document head and
+    /// make them navigate back — every time. Focus goes to the current
+    /// stage's HEADING, never a Run button: the heading announces name and
+    /// state ("Stage 2: Transmitter check — not yet run"), and the operator
+    /// then chooses to Tab one step. That step is the difference between
+    /// proceeding and being funnelled, and stages 2 through 4 key the
+    /// transmitter. Falls back to the h1 on the very first render.
     /// </remarks>
     private static string FocusScript(string? stageId)
     {
@@ -431,7 +601,7 @@ document.addEventListener('keydown', function (e) {
 (function () {
     var target = null;
     var want = " + id + @";
-    if (want) target = document.getElementById('panel-' + want);
+    if (want) target = document.getElementById('stage-h-' + want);
     if (!target) target = document.querySelector('h1') || document.body;
     if (!target) return;
     target.setAttribute('tabindex', '-1');
@@ -478,11 +648,30 @@ document.addEventListener('keydown', function (e) {
 
             case FixerPageMessage.Kind.DeclareLoad:
                 // Recorded ONCE, by the gate. Our copy is only for redrawing the
-                // page; the gate's copy is the one that decides anything.
-                _gate.DeclareLoad(m.Value);
+                // page; the gate's copy is the one that decides anything. The
+                // choice id maps to a load KIND — an unknown id fails closed —
+                // and remoteness is read from the radio at the moment of
+                // declaration, so the report can weight a declaration made a
+                // thousand miles from the socket (#244, #247).
+                _gate.DeclareLoad(m.Value,
+                                  TransmitStageSet.LoadKindFromChoice(m.Choice),
+                                  declaredRemotely: RigIsRemote());
                 _declarations[TransmitStageSet.LoadDeclaration] = m.Value;
-                Tracing.TraceLine("FixerDialog: load declared as \"" + m.Value + "\"",
+                Tracing.TraceLine("FixerDialog: load declared as \"" + m.Value + "\" ("
+                                  + _gate.LoadKind
+                                  + (_gate.LoadDeclaredRemotely ? ", remote" : "") + ")",
                                   TraceLevel.Info);
+                Render();
+                return;
+
+            case FixerPageMessage.Kind.DeclareHearing:
+                // The operator's own reading of the receive path (#243). The
+                // choice id decides the fact; the words go on the page and
+                // into the report. Fed into stage 0's facts on its next run.
+                _hearing = TransmitStageSet.HearingFromChoice(m.Choice);
+                _declarations[TransmitStageSet.HearingDeclaration] = m.Value;
+                Tracing.TraceLine("FixerDialog: hearing declared as \"" + m.Value + "\" ("
+                                  + _hearing + ")", TraceLevel.Info);
                 Render();
                 return;
 
@@ -499,9 +688,31 @@ document.addEventListener('keydown', function (e) {
                 return;
 
             case FixerPageMessage.Kind.SkipStage:
+                // The engine refuses a skip over a completed measurement
+                // (#249); this pre-check exists so the operator gets a plain
+                // sentence at the stage rather than a swallowed exception. A
+                // message can still arrive for a completed stage — a stale
+                // page, a double-fire — because the page stops OFFERING skip
+                // there, it cannot stop a caller SENDING it.
+                if (_run.ResultFor(m.StageId)?.Status == FixerStageStatus.Ran)
+                {
+                    Notice(m.StageId, "That check has already run, and its measurement is "
+                                    + "kept. To measure again, choose Run this check again.");
+                    return;
+                }
                 _run.SkipStage(m.StageId, m.Value);
-                _state.SelectedStageId = m.StageId;
+                // Skipping is a decision about this stage; the operator's next
+                // question is the following stage, so the current-stage marker
+                // moves forward with them.
+                _state.SelectedStageId = NextStageId(m.StageId) ?? m.StageId;
                 Render();
+                return;
+
+            case FixerPageMessage.Kind.ExplainToggled:
+                // Page-local fact, recorded so the NEXT render honours it. No
+                // re-render now — the page already shows the state it posted,
+                // and a render here would move the reader mid-gesture.
+                _explainOpen[m.StageId] = string.Equals(m.Value, "open", StringComparison.Ordinal);
                 return;
 
             case FixerPageMessage.Kind.ApplyFix:
@@ -545,33 +756,101 @@ document.addEventListener('keydown', function (e) {
         _state.SelectedStageId = stageId;
         _stageCancel = new CancellationTokenSource(StageTimeoutMs);
 
+        FixerStage? stage = _run.Set.Find(stageId);
+        if (stage?.OffUiThread == true)
+        {
+            // Off the UI thread — the Sprint 35 ruling, and ONLY for stages
+            // marked for it (today: the microphone check, which keys nothing).
+            // Blocking there bought no safety and cost a frozen page that
+            // read as a hang (#255). The transmitting stages stay synchronous
+            // on this thread deliberately: the blocked thread is currently
+            // the only thing preventing anything else starting while the
+            // radio is keyed, and that guard does not come off before #236
+            // gives them a real abort path. RunInProgress spans the whole
+            // async run, so a second stage cannot start underneath it.
+            CancellationToken token = _stageCancel.Token;
+            System.Threading.Tasks.Task
+                .Run(() => _run.RunStage(stageId, token))
+                .ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        Tracing.TraceLine("FixerDialog: stage " + stageId + " faulted — "
+                            + t.Exception?.GetBaseException().Message, TraceLevel.Error);
+                        Notice(stageId, "Something went wrong running that check. "
+                                      + "Nothing was transmitted.");
+                        FinishStage(stageId, again, null);
+                        return;
+                    }
+                    FinishStage(stageId, again, t.Result);
+                }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
+
+        // Synchronous on the UI thread, deliberately, for the stages that
+        // key: they are short and bounded, and an operator who cannot press
+        // Stop because we are busy is the one outcome that must not happen.
+        // If a keying stage ever grows long enough for that to bite, the fix
+        // is a real abort path (#236) — NOT a longer timeout.
+        FixerStageResult? result = null;
         try
         {
-            // Synchronous on the UI thread, deliberately, for now: the stages
-            // that key are short and bounded, and an operator who cannot press
-            // Stop because we are busy is the one outcome that must not happen.
-            // If a stage ever grows long enough for that to bite, the fix is to
-            // move it to a worker — NOT to lengthen the timeout.
-            FixerStageResult r = _run.RunStage(stageId, _stageCancel.Token);
+            result = _run.RunStage(stageId, _stageCancel.Token);
+        }
+        finally
+        {
+            FinishStage(stageId, again, result);
+        }
+    }
 
+    /// <summary>
+    /// Everything that happens after a stage finishes, however it ran:
+    /// cleanup, the critical announcements, the focus decision, the render.
+    /// One home, so the synchronous and off-thread paths cannot drift.
+    /// </summary>
+    private void FinishStage(string stageId, bool again, FixerStageResult? r)
+    {
+        _stageCancel?.Dispose();
+        _stageCancel = null;
+
+        // Belt and braces. The boundary already unkeys in a finally and the
+        // gate's NoteUnkeyed is safe unmatched, so this cannot double-count
+        // — and if a path ever escaped without unkeying, the accounting
+        // would otherwise stay wrong for the rest of the run.
+        _gate.NoteUnkeyed();
+
+        if (r != null)
+        {
             Tracing.TraceLine("FixerDialog: stage " + stageId + " -> " + r.Status
                               + (again ? " (re-run)" : ""), TraceLevel.Info);
 
             AnnounceCriticals(r);
-        }
-        finally
-        {
-            _stageCancel?.Dispose();
-            _stageCancel = null;
 
-            // Belt and braces. The boundary already unkeys in a finally and the
-            // gate's NoteUnkeyed is safe unmatched, so this cannot double-count
-            // — and if a path ever escaped without unkeying, the accounting
-            // would otherwise stay wrong for the rest of the run.
-            _gate.NoteUnkeyed();
+            // Where focus lands next is decided, not discovered (the design
+            // doc's phrase). A stage that PASSED moves the current-stage
+            // marker forward, so the re-render focuses the next stage's
+            // heading — name and state in one announcement, one Tab from its
+            // controls. A stage with findings, or one that could not run,
+            // keeps focus at ITS OWN heading (which now speaks the new
+            // status), because moving on would bury the findings the
+            // operator has not heard yet.
+            bool passed = r.Status == FixerStageStatus.Ran
+                          && (r.Findings == null || r.Findings.Count == 0);
+            _state.SelectedStageId = passed ? (NextStageId(stageId) ?? stageId) : stageId;
         }
 
         Render();
+    }
+
+    /// <summary>The stage after this one in the set's order, or null at the
+    /// end.</summary>
+    private string? NextStageId(string stageId)
+    {
+        var stages = _run.Set.Stages;
+        for (int i = 0; i < stages.Count - 1; i++)
+            if (string.Equals(stages[i].Id, stageId, StringComparison.OrdinalIgnoreCase))
+                return stages[i + 1].Id;
+        return null;
     }
 
     /// <summary>
@@ -662,6 +941,16 @@ document.addEventListener('keydown', function (e) {
         _gate.NoteUnkeyed();
     }
 
+    /// <summary>
+    /// Is this a remote session, at the moment of asking? False when nothing
+    /// can be read — claiming "remote" without evidence would be invention,
+    /// and the flag only ever ADDS a caveat to the report.
+    /// </summary>
+    private bool RigIsRemote()
+    {
+        try { return _radio()?.RemoteRig == true; } catch { return false; }
+    }
+
     private bool RigIsKeyed()
     {
         FlexBase? rig;
@@ -738,6 +1027,8 @@ document.addEventListener('keydown', function (e) {
 
         _state.DeclarationAnswers = _declarations;
         _state.StageNotices = _notices;
+        _state.ExplanationOpen = _explainOpen;
+        _state.TransmitCount = _gate.TransmitCount;
 
         try
         {
@@ -798,7 +1089,7 @@ document.addEventListener('keydown', function (e) {
         {
             Tracing.TraceLine("FixerDialog: clipboard failed — " + ex.Message,
                               TraceLevel.Warning);
-            ToPage("status", "The report could not be copied. Windows refused the clipboard.");
+            ToPage("status", Lexicon.Get("audio.fixer.copy_refused"));
         }
     }
 

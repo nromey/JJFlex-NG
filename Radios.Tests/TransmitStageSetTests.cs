@@ -119,19 +119,63 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_load_declaration_is_asked_per_run_and_has_no_not_sure_answer()
+        public void The_load_declaration_asks_all_four_answers_and_not_sure_fails_closed()
         {
+            // #244: four answers, because the earlier binary threw away two
+            // of the three facts the operator was stating. "Nothing, or I am
+            // not sure" EXISTS as a choice now — the operator who picks it
+            // has told us something and gets an explicit refusal — and it
+            // maps to the kind that keeps the gate shut. So does any choice
+            // id the mapper has never heard of: unknown fails closed.
             FixerStageSet set = TransmitStageSet.Build(new TransmitStageSet.Hosts());
             FixerRunDeclaration decl = Assert.Single(set.RunDeclarations);
 
             Assert.Equal(TransmitStageSet.LoadDeclaration, decl.Id);
             Assert.EndsWith("?", decl.Question);
+            Assert.Equal(4, decl.Choices.Count);
 
-            // Any declared answer OPENS the transmit gate, so "I'm not sure"
-            // must not exist as a declarable choice — not answering IS the
-            // not-sure answer, and it keeps the gate shut.
-            Assert.All(decl.Choices, c =>
-                Assert.DoesNotContain("not sure", c.Label, StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(FixerLoadKind.DummyLoad,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadDummy));
+            Assert.Equal(FixerLoadKind.Antenna,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadAntenna));
+            Assert.Equal(FixerLoadKind.Amplifier,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadAmplifier));
+            Assert.Equal(FixerLoadKind.NothingOrUnsure,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadNothingUnsure));
+            Assert.Equal(FixerLoadKind.NothingOrUnsure,
+                TransmitStageSet.LoadKindFromChoice("never-heard-of-it"));
+            Assert.Equal(FixerLoadKind.NothingOrUnsure,
+                TransmitStageSet.LoadKindFromChoice(null));
+        }
+
+        [Fact]
+        public void The_declaration_question_names_the_port_and_the_distance()
+        {
+            // #244: the radio already knows its TX antenna, so the question
+            // states it instead of asking the operator to know it. #247: for
+            // a remote radio the question says out loud that it is about a
+            // station the operator is not at.
+            var local = TransmitStageSet.Build(new TransmitStageSet.Hosts
+            {
+                ReadStation = () => new TransmitStageSet.StationNow { AntennaPort = "ANT1" },
+            }).RunDeclarations[0].QuestionNow();
+            Assert.Contains("The radio will transmit on ANT1", local);
+            Assert.Contains("What is connected to ANT1", local);
+
+            var remote = TransmitStageSet.Build(new TransmitStageSet.Hosts
+            {
+                ReadStation = () => new TransmitStageSet.StationNow
+                { AntennaPort = "ANT2", RemoteRadio = true },
+            }).RunDeclarations[0].QuestionNow();
+            Assert.Contains("You are connected remotely", remote);
+            Assert.Contains("at that station", remote);
+            Assert.Contains("ANT2", remote);
+
+            // No station to read: the live question stands down and the
+            // page falls back to the static one.
+            var unknown = TransmitStageSet.Build(new TransmitStageSet.Hosts())
+                .RunDeclarations[0].QuestionNow();
+            Assert.Equal("", unknown);
         }
 
         [Fact]
@@ -385,6 +429,133 @@ namespace Radios.Tests
             string evidence = TransmitStages.Injected(facts).Evidence;
             Assert.Contains("no voice installed", evidence);
             Assert.Contains("could not be read", evidence);
+        }
+
+        // ---- stage 1 is advised by stage 0 (#241) ----
+
+        private static MicCheckFacts SilentMic() => new MicCheckFacts
+        { Measured = true, AudioArrived = false, Device = "Desk Mic" };
+
+        [Fact]
+        public void Stage_1_points_at_stage_0s_finding_instead_of_repeating_it()
+        {
+            // Stage 0 measured the mute and reported it definitively; stage 1
+            // must not send the operator to go and check it again.
+            var setup = new AudioSetupFacts { WindowsInputMuted = true,
+                                              MicrophonePrivacyBlocked = false };
+            FixerFinding f = Assert.Single(
+                TransmitStages.Microphone(SilentMic(), setup).Findings);
+
+            Assert.Contains("Stage 0 has already named the cause", f.WhatToDo);
+            Assert.Contains("muted", f.WhatToDo);
+            Assert.DoesNotContain("Check the cable, the Windows mute", f.WhatToDo);
+        }
+
+        [Fact]
+        public void Stage_1_narrows_to_the_cable_when_stage_0_cleared_windows()
+        {
+            // When both Windows facts are measured CLEAR, the cable and the
+            // device are the whole remaining answer — given cleanly, not
+            // third in a list of three.
+            var setup = new AudioSetupFacts { WindowsInputMuted = false,
+                                              MicrophonePrivacyBlocked = false };
+            FixerFinding f = Assert.Single(
+                TransmitStages.Microphone(SilentMic(), setup).Findings);
+
+            Assert.Contains("stage 0 checked both", f.WhatToDo);
+            Assert.Contains("cable", f.WhatToDo);
+            Assert.DoesNotContain("Windows microphone privacy setting", f.WhatToDo);
+        }
+
+        [Fact]
+        public void Stage_1_keeps_the_full_checklist_only_when_stage_0_has_nothing_to_say()
+        {
+            // Not run, or the Windows facts could not be observed (null is
+            // "never observed", not "clear") — the one case where the full
+            // checklist is correct.
+            FixerFinding withoutStage0 = Assert.Single(
+                TransmitStages.Microphone(SilentMic()).Findings);
+            Assert.Contains("Check the cable, the Windows mute", withoutStage0.WhatToDo);
+
+            var unobserved = new AudioSetupFacts { WindowsInputMuted = null,
+                                                   MicrophonePrivacyBlocked = null };
+            FixerFinding withNulls = Assert.Single(
+                TransmitStages.Microphone(SilentMic(), unobserved).Findings);
+            Assert.Contains("Check the cable, the Windows mute", withNulls.WhatToDo);
+        }
+
+        [Fact]
+        public void Stage_1_reads_stage_0s_facts_through_the_engine()
+        {
+            // End to end through the run — the wiring, not just the analyzer.
+            var hosts = new TransmitStageSet.Hosts
+            {
+                ReadAudioSetup = () => new AudioSetupFacts
+                {
+                    OpenHostApi = "Windows WASAPI",
+                    OpenInputDevice = "Desk Mic",
+                    InputDeviceSelected = true,
+                    WindowsInputMuted = true,
+                },
+                MeasureMicrophone = SilentMic,
+            };
+            var run = new FixerRun(TransmitStageSet.Build(hosts));
+            run.RunStage(TransmitStageSet.AudioSetup);
+            FixerStageResult mic = run.RunStage(TransmitStageSet.MicrophoneCheck);
+
+            Assert.Contains("Stage 0 has already named the cause",
+                            mic.Findings.Single(f => f.Id == "mic-silent").WhatToDo);
+        }
+
+        // ---- what pressing Run will do (#250) ----
+
+        [Fact]
+        public void The_transmitting_stages_say_the_live_power_and_port_before_they_are_pressed()
+        {
+            var set = TransmitStageSet.Build(new TransmitStageSet.Hosts
+            {
+                ReadStation = () => new TransmitStageSet.StationNow
+                {
+                    TunePowerWatts = 25,
+                    RfPowerWatts = 40,
+                    AntennaPort = "ANT1",
+                },
+            });
+
+            string tune = set.Find(TransmitStageSet.TransmitterCheck).DescribeRunAction();
+            Assert.Contains("at 25 watts into ANT1", tune);
+            Assert.Contains("two seconds", tune);
+
+            string spoken = set.Find(TransmitStageSet.SpokenTransmit).DescribeRunAction();
+            Assert.Contains("at 40 watts into ANT1", spoken);
+            Assert.Contains("eight seconds", spoken);
+
+            string injected = set.Find(TransmitStageSet.InjectedTransmit).DescribeRunAction();
+            Assert.Contains("at 40 watts into ANT1", injected);
+            Assert.Contains("microphone stays out of the path", injected);
+        }
+
+        [Fact]
+        public void The_sentences_survive_a_station_that_cannot_be_read()
+        {
+            // No ReadStation delegate at all: the live half is omitted, never
+            // guessed, and the sentence still reads whole.
+            var set = TransmitStageSet.Build(new TransmitStageSet.Hosts());
+
+            string tune = set.Find(TransmitStageSet.TransmitterCheck).DescribeRunAction();
+            Assert.Contains("tune carrier for about two seconds.", tune);
+            Assert.DoesNotContain("watts", tune);
+            Assert.DoesNotContain("into", tune);
+        }
+
+        [Fact]
+        public void The_rf_silent_stages_say_nothing_transmits()
+        {
+            var set = TransmitStageSet.Build(new TransmitStageSet.Hosts());
+            Assert.Contains("Nothing transmits.",
+                set.Find(TransmitStageSet.AudioSetup).DescribeRunAction());
+            Assert.Contains("Nothing transmits.",
+                set.Find(TransmitStageSet.MicrophoneCheck).DescribeRunAction());
         }
     }
 }

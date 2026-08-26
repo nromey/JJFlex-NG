@@ -5,6 +5,36 @@ using System.Globalization;
 namespace Radios.Fixer
 {
     /// <summary>
+    /// What the operator said is on the antenna socket, CLASSIFIED (#244).
+    /// The words go into the report; this decides what the gate may do. The
+    /// mapping from a page choice to one of these belongs to the stage set —
+    /// the gate owns what each kind MEANS, never how a page spells it.
+    /// </summary>
+    public enum FixerLoadKind
+    {
+        /// <summary>Nothing declared yet. The gate stays shut.</summary>
+        None = 0,
+
+        /// <summary>A dummy load: normal test power, nothing radiates.</summary>
+        DummyLoad,
+
+        /// <summary>A real antenna: every transmit is an on-air emission, so
+        /// the checks run at LOW power only — enough for the meters to read,
+        /// no more (#180).</summary>
+        Antenna,
+
+        /// <summary>An amplifier is in the path. Low power only, like an
+        /// antenna — and every reading describes the amplifier's INPUT, which
+        /// the report must carry or the numbers cannot be read (#223).</summary>
+        Amplifier,
+
+        /// <summary>"Nothing, or I am not sure" — an EXPLICIT refusal, not a
+        /// silent wait. The operator has told us something and deserves an
+        /// answer; the gate stays shut and says exactly why (#244).</summary>
+        NothingOrUnsure,
+    }
+
+    /// <summary>
     /// The one place a request to key the transmitter is granted or refused.
     /// The page asks; this decides.
     /// </summary>
@@ -94,6 +124,14 @@ namespace Radios.Fixer
             BudgetSpent,
             /// <summary>The stage was not declared as one that transmits.</summary>
             StageDoesNotTransmit,
+            /// <summary>The operator declared nothing connected, or that they
+            /// are not sure — the one case where refusing is plainly correct
+            /// rather than timid (#180).</summary>
+            LoadForbidsTransmit,
+            /// <summary>A real antenna (or an amplifier) is declared and the
+            /// radio's power is above the low-power ceiling — or could not be
+            /// read at all (#180, #244).</summary>
+            PowerTooHighForLoad,
         }
 
         /// <summary>Granted, or refused with something worth saying out loud.</summary>
@@ -119,10 +157,21 @@ namespace Radios.Fixer
         private readonly HashSet<string> _transmitted =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Watts at or below which a transmit into a DECLARED ANTENNA (or an
+        /// amplifier) is allowed (#180). Ten: the same boundary #224 draws
+        /// between "worth telling you" and "worth stopping for", and the
+        /// AudioCheckLowPowerWatts default. Enough for every meter to read;
+        /// not enough to be a bad neighbour on a live band.
+        /// </summary>
+        public const int LowPowerCeilingWatts = 10;
+
         private string _runId = "";
         private bool _aborted;
         private bool _inFlight;
         private string _loadDeclaration = "";
+        private FixerLoadKind _loadKind = FixerLoadKind.None;
+        private bool _loadDeclaredRemotely;
         private double _keyDownSeconds;
         private int _transmitCount;
         private DateTime _keyedAt;
@@ -140,6 +189,31 @@ namespace Radios.Fixer
         /// </summary>
         public string LoadDeclaration => _loadDeclaration;
 
+        /// <summary>What kind of load that declaration described (#244).</summary>
+        public FixerLoadKind LoadKind => _loadKind;
+
+        /// <summary>
+        /// True when the declaration was made over a remote session (#247) —
+        /// by someone who cannot see the socket. Recorded so the report can
+        /// weight it, never used to refuse: a remote operator's declaration
+        /// is still a declaration.
+        /// </summary>
+        public bool LoadDeclaredRemotely => _loadDeclaredRemotely;
+
+        /// <summary>
+        /// The declaration as the REPORT should carry it: the operator's own
+        /// words, with the remote provenance appended when it applies. One
+        /// home for the phrasing, because a Flex support reader needs to
+        /// weight a declaration made a thousand miles from the socket
+        /// differently from one made in the room (#247).
+        /// </summary>
+        public string LoadDeclarationForReport
+            => _loadDeclaration.Length == 0
+                ? ""
+                : _loadDeclaration + (_loadDeclaredRemotely
+                    ? " (declared over a remote session, by an operator not at the station)"
+                    : "");
+
         /// <summary>Cumulative key-down this run, in seconds.</summary>
         public double KeyDownSeconds => _keyDownSeconds;
 
@@ -148,6 +222,20 @@ namespace Radios.Fixer
 
         /// <summary>True while a transmit granted by this gate is in flight.</summary>
         public bool InFlight => _inFlight;
+
+        /// <summary>
+        /// Told when a granted transmit has actually keyed (#236). The host
+        /// uses it to arm the PTT safety controller's live health monitoring
+        /// for the duration — the reflected-power watch the controller's own
+        /// key-down paths get, which a gate-keyed transmit otherwise never
+        /// had. Observed, never consulted: nothing about the grant decision
+        /// rides on it, and a hook that throws is swallowed.
+        /// </summary>
+        public Action OnKeyed { get; set; }
+
+        /// <summary>Told when the in-flight transmit really ended — once per
+        /// keying, not per NoteUnkeyed call, which is safe to repeat.</summary>
+        public Action OnUnkeyed { get; set; }
 
         /// <summary>True when the run was abandoned.</summary>
         public bool Aborted => _aborted;
@@ -166,6 +254,8 @@ namespace Radios.Fixer
             _aborted = false;
             _inFlight = false;
             _loadDeclaration = "";
+            _loadKind = FixerLoadKind.None;
+            _loadDeclaredRemotely = false;
             _keyDownSeconds = 0;
             _transmitCount = 0;
             _window.Clear();
@@ -178,8 +268,21 @@ namespace Radios.Fixer
         /// transmit request, because a fact re-asserted per request is a fact
         /// the caller controls.
         /// </summary>
-        public void DeclareLoad(string what)
-            => _loadDeclaration = string.IsNullOrWhiteSpace(what) ? "" : what.Trim();
+        /// <param name="what">The answer in the operator's own words. Blank
+        /// clears the declaration and shuts the gate.</param>
+        /// <param name="kind">What the answer MEANS to the gate (#244). The
+        /// caller maps the page's choice id; an unmappable choice must arrive
+        /// as <see cref="FixerLoadKind.NothingOrUnsure"/> so an unknown
+        /// answer fails closed, never open.</param>
+        /// <param name="declaredRemotely">True when the declaring operator is
+        /// on a remote session and cannot see the socket (#247). Recorded for
+        /// the report; never a refusal.</param>
+        public void DeclareLoad(string what, FixerLoadKind kind, bool declaredRemotely = false)
+        {
+            _loadDeclaration = string.IsNullOrWhiteSpace(what) ? "" : what.Trim();
+            _loadKind = _loadDeclaration.Length == 0 ? FixerLoadKind.None : kind;
+            _loadDeclaredRemotely = _loadDeclaration.Length > 0 && declaredRemotely;
+        }
 
         /// <summary>Abandon the run. No further transmit until a new one opens.</summary>
         public void AbortRun() => _aborted = true;
@@ -212,8 +315,18 @@ namespace Radios.Fixer
         /// pedal, another client on a MultiFlex station, a previous stage that
         /// did not come down — this gate does not stack a transmit on top of it.
         /// </param>
+        /// <param name="transmitPowerWatts">
+        /// The power THIS transmit would use, read from the radio by the
+        /// boundary — tune power for the tune probe, transmit power for the
+        /// audio stages. Only consulted when the declared load demands the
+        /// low-power ceiling (#180); -1 means it could not be read, which
+        /// REFUSES under those loads rather than hoping, because a transmit
+        /// into a live antenna at a power nobody could read is the exact
+        /// gamble this gate exists to prevent.
+        /// </param>
         public Decision Request(string runId, string stageId, bool stageTransmits,
-                                bool radioReachable, bool rigIsKeyed)
+                                bool radioReachable, bool rigIsKeyed,
+                                int transmitPowerWatts = -1)
         {
             if (!stageTransmits)
                 return Decision.Refuse(Refusal.StageDoesNotTransmit,
@@ -250,6 +363,45 @@ namespace Radios.Fixer
                 return Decision.Refuse(Refusal.LoadNotDeclared,
                     "Nothing was transmitted, because you have not said yet what the antenna "
                     + "socket is connected to. Say what is connected, and this step will run.");
+
+            // "Nothing, or I am not sure" is an EXPLICIT answer and gets an
+            // explicit refusal — an unattended transmit into an unknown load
+            // is the one case where refusing is plainly correct (#180, #244).
+            if (_loadKind == FixerLoadKind.NothingOrUnsure)
+                return Decision.Refuse(Refusal.LoadForbidsTransmit,
+                    "Nothing was transmitted. You said nothing is connected, or that you "
+                    + "are not sure — and this tool never transmits into an unknown load. "
+                    + "Connect a dummy load or an antenna, answer the antenna question "
+                    + "again, and this step will run.");
+
+            // A real antenna, or an amplifier, caps the power (#180): every
+            // transmit there is an on-air emission, or drive into a stage
+            // that multiplies it. The ceiling is ENFORCED, not recorded — a
+            // declaration the gate does not act on is a note, and notes do
+            // not stop transmitters.
+            if (_loadKind == FixerLoadKind.Antenna || _loadKind == FixerLoadKind.Amplifier)
+            {
+                string into = _loadKind == FixerLoadKind.Antenna
+                    ? "a real antenna" : "an amplifier";
+
+                if (transmitPowerWatts < 0)
+                    return Decision.Refuse(Refusal.PowerTooHighForLoad,
+                        "Nothing was transmitted. You declared " + into + ", and the "
+                        + "radio's power for this step could not be read — into " + into
+                        + " these checks only transmit when the power is known to be "
+                        + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
+                        + " watts or less.");
+
+                if (transmitPowerWatts > LowPowerCeilingWatts)
+                    return Decision.Refuse(Refusal.PowerTooHighForLoad,
+                        "Nothing was transmitted. The radio's power for this step is "
+                        + transmitPowerWatts.ToString(CultureInfo.InvariantCulture)
+                        + " watts, and you declared " + into + ". Into " + into
+                        + " these checks transmit at "
+                        + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
+                        + " watts or less — turn the power down, or declare a dummy "
+                        + "load, and this step will run.");
+            }
 
             if (_transmitted.Contains(stageId ?? ""))
                 return Decision.Refuse(Refusal.StageAlreadyTransmitted,
@@ -294,6 +446,7 @@ namespace Radios.Fixer
             _window.Add(_keyedAt);
             _transmitCount++;
             if (!string.IsNullOrWhiteSpace(stageId)) _transmitted.Add(stageId);
+            try { OnKeyed?.Invoke(); } catch { /* observation must not break keying */ }
         }
 
         /// <summary>
@@ -313,6 +466,8 @@ namespace Radios.Fixer
             double held = (_clock() - _keyedAt).TotalSeconds;
             if (held > 0 && !double.IsNaN(held) && !double.IsInfinity(held))
                 _keyDownSeconds += held;
+
+            try { OnUnkeyed?.Invoke(); } catch { /* observation must not break unkeying */ }
         }
 
         private void TrimWindow(DateTime now)

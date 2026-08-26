@@ -78,6 +78,17 @@ namespace JJFlexWpf.Dialogs
                 VoiceCombo.Items.Add(Describe(v, "earcon voice"));
             }
 
+            // The CW waveform spectra. They are listed because one of them —
+            // Hollow, the clarinet — is what the countdown below actually
+            // plays, and a bench that cannot select the shipping voice can
+            // only audition approximations of it.
+            foreach (var w in EarconVoices.CwWaveforms)
+            {
+                if (w.Voice == null) continue; // Sine carries no voice by design
+                _voices.Add(w.Voice);
+                VoiceCombo.Items.Add(Describe(w.Voice, "CW waveform"));
+            }
+
             foreach (var v in MeterVoiceLibrary.GetUserVoices())
             {
                 _voices.Add(v);
@@ -251,6 +262,111 @@ namespace JJFlexWpf.Dialogs
             EarconPlayer.PlayScratchpadHarmonics(SelectedVoice, startHz, count, durationMs, volume, pan, Decay);
             Say($"{VoiceName()}: harmonics of {startHz} hertz, {count} steps, "
               + "stopping at 5 kilohertz.");
+        }
+
+        // ------------------------------------------------------------------
+        // Countdown (#261)
+        //
+        // The rest of this bench plays one note. A countdown is a cadence, and
+        // its pass criterion is COUNTABILITY rather than audibility — the two
+        // come apart, because a decay long relative to the step smears three
+        // tones into one warble that is perfectly audible and impossible to
+        // count. That cannot be judged one note at a time, which is why this
+        // section exists.
+        // ------------------------------------------------------------------
+
+        /// <summary>Bench countdown timings, clamped to something playable.</summary>
+        private (int stepMs, int landingMs) CountdownParams()
+        {
+            int step = int.TryParse(CountdownStepBox.Text, out int s)
+                ? Math.Clamp(s, 20, 2000) : EarconPlayer.CountdownStepMs;
+            int landing = int.TryParse(CountdownLandingBox.Text, out int l)
+                ? Math.Clamp(l, 20, 4000) : EarconPlayer.CountdownLandingMs;
+            return (step, landing);
+        }
+
+        /// <summary>
+        /// The counting pitch. Taken from the start-frequency slider so the
+        /// whole figure transposes together — which is how the sidetone
+        /// collision gets auditioned rather than argued about. CW sidetone is
+        /// settable 400 to 1200, so an operator on 600 hears the record
+        /// landing in the same place as a dit.
+        /// </summary>
+        private int CountdownPitch()
+        {
+            var (startHz, _, _, _, _) = GetParams();
+            return startHz > 0 ? startHz : EarconPlayer.CountdownCountHz;
+        }
+
+        private int PlayCountdown(bool transmit)
+        {
+            var (step, landing) = CountdownParams();
+            var (_, _, _, volume, pan) = GetParams();
+            return EarconPlayer.PlayScratchpadCountdown(
+                SelectedVoice, transmit, CountdownPitch(), step, landing, volume, pan);
+        }
+
+        private void CountdownRecord_Click(object sender, RoutedEventArgs e)
+        {
+            var (step, landing) = CountdownParams();
+            int pitch = CountdownPitch();
+            PlayCountdown(transmit: false);
+            Say($"{VoiceName()}: three tones at {pitch} hertz, {step} milliseconds each, "
+              + $"then {pitch * 2} hertz for {landing}. Start talking on the last tone.");
+        }
+
+        private void CountdownTransmit_Click(object sender, RoutedEventArgs e)
+        {
+            var (step, landing) = CountdownParams();
+            int pitch = CountdownPitch();
+            PlayCountdown(transmit: true);
+            Say($"{VoiceName()}: three tones at {pitch} hertz, {step} milliseconds each, "
+              + $"then the transmit pair — {pitch * 4 / 3} up to {pitch * 8 / 3} hertz — "
+              + $"drawn out over {landing}.");
+        }
+
+        /// <summary>
+        /// Both countdowns in a row, separated by a real pause.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Telling the two apart IS the requirement</b>, and a difference
+        /// you have to hold in memory across a minute of fiddling is not a
+        /// difference an operator will hear mid-workflow. Back to back is the
+        /// only honest comparison.
+        /// </para>
+        /// <para>
+        /// The gap is derived from the first sequence's own length rather than
+        /// guessed, so retuning the timings above cannot silently start
+        /// overlapping the two — the alert mixer would happily play them on top
+        /// of each other and the result would sound like a third sound.
+        /// </para>
+        /// </remarks>
+        private void CountdownBoth_Click(object sender, RoutedEventArgs e)
+        {
+            int firstMs = PlayCountdown(transmit: false);
+            Say("Record countdown, then the transmit one.");
+
+            // A beat of silence between them: long enough that they read as
+            // two sounds rather than one long one, short enough to still be a
+            // comparison.
+            const int BetweenMs = 600;
+
+            var timer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(firstMs + BetweenMs),
+            };
+            timer.Tick += (s, args) =>
+            {
+                timer.Stop();
+                // The dialog may have been closed while the first countdown
+                // was still sounding. Playing into a torn-down bench is
+                // harmless but the status line write is not.
+                if (!IsLoaded) return;
+                PlayCountdown(transmit: true);
+                Say("Transmit countdown. The landing is the transmit start tone, drawn out.");
+            };
+            timer.Start();
         }
 
         // ------------------------------------------------------------------

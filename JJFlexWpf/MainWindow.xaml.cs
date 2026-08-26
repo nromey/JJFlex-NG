@@ -216,9 +216,31 @@ public partial class MainWindow : UserControl
         // re-introduced the BUG-061 inter-utterance gap on every connect) was
         // removed 2026-08-07 (QB Track A).
         Radios.ScreenReaderOutput.PlayCwSK = () =>
+            _morseNotifier.PlayString(FarewellText(_morseNotifier.SpeedWpm));
+
+        // #143 — how long the waiters should allow. Computed HERE, from the
+        // same string PlayCwSK is about to send and at the speed it will send
+        // it, because this is the only place that can see all three: the text,
+        // the speed, and the output's own latency.
+        //
+        // The waiters (FlexBase.Disconnect and ApplicationEvents' shutdown)
+        // both used a flat 5000 ms, chosen for the long farewell and short by
+        // about a second for it. Two speed bands were being cut: roughly 10-15
+        // WPM on the short string, and 25-31 on the long one, with everything
+        // between and above fitting comfortably. Noel runs 20, which is why he
+        // never saw it.
+        Radios.ScreenReaderOutput.CwFarewellBudgetMs = () =>
         {
-            string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
-            return _morseNotifier.PlayString($"{prefix} <SK> ee");
+            int sending = _morseNotifier.DurationMsOf(FarewellText(_morseNotifier.SpeedWpm));
+
+            // Past the sending duration the sound still has to get through the
+            // device. EarconCwOutput bounds its own drain at roughly the output
+            // latency twice over plus its grace; allow more than that, so the
+            // OUTER wait never expires first and tears the device down while
+            // the inner one is still legitimately waiting for the tail. That
+            // failure destroys the final dit, which is exactly the symptom
+            // Sprint 32 Track H fixed from the other end.
+            return sending + (EarconPlayer.AlertOutputLatencyMs * 3) + 750;
         };
         Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
         // Sprint 32 Track H (#58): the slice vocabulary sends text, not mode
@@ -263,14 +285,14 @@ public partial class MainWindow : UserControl
                     userConfig.OfferStationSaveOnDisconnect;
                 // #147, and here for the same reason the CW settings are:
                 // AudioOutputConfig.Apply() runs on CONNECT, so an operator who
-                // chose the Classic set would hear the Modern one on every
+                // chose the Simple set would hear the Rich one on every
                 // dialog ding and JJ-key tone between launch and their first
                 // connect — including the whole of a session that never
                 // connects at all.
                 EarconVoices.ActiveSet =
-                    userConfig.EarconVoiceSet == (int)EarconVoiceSet.Classic
-                        ? EarconVoiceSet.Classic
-                        : EarconVoiceSet.Modern;
+                    userConfig.EarconVoiceSet == (int)EarconVoiceSet.Simple
+                        ? EarconVoiceSet.Simple
+                        : EarconVoiceSet.Rich;
             }
         }
         catch (Exception ex)
@@ -340,6 +362,37 @@ public partial class MainWindow : UserControl
             }
         };
     }
+
+    /// <summary>
+    /// The exit farewell, at a given keying speed. ONE definition, because two
+    /// callers need it: the delegate that sends it, and the one that says how
+    /// long to wait for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Proper ham etiquette at any speed — "73" plus the SK prosign, never a
+    /// bare SK, which feels abrupt and is not how operators sign off. At 25 WPM
+    /// and above it extends with the "de JJF" app-callsign signature, which
+    /// there is time for once the code is moving. The trailing "ee" is the
+    /// friendly hand-wave close.
+    /// </para>
+    /// <para>
+    /// <b>The 25 WPM step is a cliff, and it is why #143 could not be fixed
+    /// with a bigger constant.</b> The string roughly DOUBLES in length at one
+    /// word per minute faster, so the farewell gets longer exactly where the
+    /// keying got quicker. Anything sizing a timeout has to ask this method
+    /// rather than assume; a duration derived from speed alone is wrong on one
+    /// side of the step whichever side it was measured on.
+    /// </para>
+    /// <para>
+    /// One utterance, not two calls — bracket syntax renders it as a single
+    /// continuous PARIS-spaced waveform. Sending "73" and then the prosign
+    /// separately puts a queue-boundary gap in the middle that does not match
+    /// standard word spacing (BUG-061).
+    /// </para>
+    /// </remarks>
+    private static string FarewellText(int speedWpm)
+        => (speedWpm >= 25 ? "73 de JJF" : "73") + " <SK> ee";
 
     // Sprint 26 Phase 3: tracks the session we're currently subscribed to so we can
     // unsubscribe cleanly when ActiveSession changes. Only one subscription at a time
@@ -440,10 +493,29 @@ public partial class MainWindow : UserControl
         // state behind an open advisory. While the advisory chain is active,
         // BOTH the speech and the focus grab wait their turn; the chain
         // replays them when the last advisory closes.
+        // #194, served by #253's register rather than by a second list of its
+        // own: if instrumentation the operator cannot see is switched on, this
+        // is the moment to say so. Null whenever nothing silent-and-costly is
+        // running, which is the ordinary case, so an ordinary launch is
+        // unchanged.
+        //
+        // HERE and not at launch proper, for the reason InitializeApplication
+        // already records: a screen reader flushes its queue on every window
+        // change, the whole connect flow is window changes, and an utterance
+        // made before Home arrives would never survive to be heard. This is
+        // the first announcement that does survive, so the notice rides
+        // directly behind it — and inherits the advisory-parking policy for
+        // free rather than inventing a second one.
+        string? runningNotice = null;
+        try { runningNotice = Radios.RunningCostRegister.DescribeNotableForSpeech(); }
+        catch { /* never let a diagnostics read cost somebody their arrival announcement */ }
+
         if (_advisorySequenceActive)
         {
             _welcomeFocusPending = true;
             _deferredStartupSpeech.Add((message, null));
+            if (runningNotice != null)
+                _deferredStartupSpeech.Add((runningNotice, Radios.VerbosityLevel.Critical));
             return;
         }
 
@@ -452,6 +524,14 @@ public partial class MainWindow : UserControl
         FocusHome();
         Radios.ScreenReaderOutput.Speak(
             message, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
+        if (runningNotice != null)
+        {
+            // Critical, and queued behind the arrival. Critical because the
+            // operator did not ask and cannot see it; queued because it is the
+            // second half of arriving, not an interruption of it.
+            Radios.ScreenReaderOutput.Speak(
+                runningNotice, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Critical);
+        }
     }
 
     /// <summary>
@@ -596,6 +676,24 @@ public partial class MainWindow : UserControl
     /// Set true on first Ctrl+Space down, cleared on key-up.
     /// </summary>
     private bool _pttKeyDown;
+
+    /// <summary>
+    /// Absorbs the synthetic key-release pairs a screen reader may substitute
+    /// for a held Ctrl+Space, so a held PTT stays keyed (#216). Inert until it
+    /// has seen the synthetic signature — under NVDA, which passes real holds
+    /// through, every release is immediate exactly as before. See
+    /// <see cref="Radios.PttHoldFilter"/> for the whole story.
+    /// </summary>
+    private readonly Radios.PttHoldFilter _pttHoldFilter = new();
+
+    /// <summary>
+    /// Runs a deferred PTT release to ground when no synthetic re-down
+    /// arrived to cancel it. One timer, restarted per deferral.
+    /// </summary>
+    private DispatcherTimer? _pttDeferTimer;
+
+    /// <summary>One Error-level trace line when the filter first arms.</summary>
+    private bool _pttFilterArmTraced;
 
     /// <summary>
     /// Current PTT configuration. Set during radio connect, used by Settings dialog.
@@ -1704,7 +1802,19 @@ public partial class MainWindow : UserControl
                 if (!e.IsRepeat && !_pttKeyDown) // ignore key-repeat and redundant down events
                 {
                     _pttKeyDown = true;
-                    _pttController.PttDown();
+                    if (_pttHoldFilter.NoteDown(Environment.TickCount64) ==
+                        Radios.PttHoldFilter.DownAction.ContinueHold)
+                    {
+                        // The synthetic re-down of a hold being absorbed
+                        // (#216): the transmitter never dropped, so there is
+                        // nothing to key — just stand down the pending
+                        // deferred release.
+                        _pttDeferTimer?.Stop();
+                    }
+                    else
+                    {
+                        _pttController.PttDown();
+                    }
                 }
                 e.Handled = true;
                 return;
@@ -1747,13 +1857,61 @@ public partial class MainWindow : UserControl
         if (rawKey == Key.Space && _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold)
         {
             _pttKeyDown = false;
-            _pttController.PttUp();
+            if (_pttHoldFilter.NoteUp(Environment.TickCount64) ==
+                Radios.PttHoldFilter.UpAction.DeferRelease)
+            {
+                // #216: this release may be a screen reader's synthetic pair
+                // rather than the operator letting go. Keep transmitting; if
+                // no re-down claims it within the learned window, the timer
+                // performs the real release. Costs a fraction of a second of
+                // carrier tail on a synthesising reader; costs nothing under
+                // one that delivers real holds, because the filter never
+                // arms there.
+                if (!_pttFilterArmTraced && _pttHoldFilter.SynthesisDetected)
+                {
+                    _pttFilterArmTraced = true;
+                    Tracing.TraceLine("PTT: screen reader is synthesising key-release pairs for a"
+                        + " held Ctrl+Space (release " + _pttHoldFilter.SyntheticReleaseCount
+                        + " arrived too fast to be human). Absorbing releases with a "
+                        + _pttHoldFilter.DeferMs + " ms hold so transmit stays keyed —"
+                        + " see task #216. The first hold of this session took one brief"
+                        + " unkey before detection; later holds are continuous.",
+                        TraceLevel.Error);
+                }
+                StartPttDeferTimer(_pttHoldFilter.DeferMs);
+            }
+            else
+            {
+                _pttController.PttUp();
+            }
             e.Handled = true;
         }
         else if (rawKey == Key.Space)
         {
             _pttKeyDown = false; // Clear flag even if PTT state changed (e.g., locked)
         }
+    }
+
+    /// <summary>
+    /// Arm (or re-arm) the deferred-release timer for the PTT hold filter.
+    /// When it fires and the filter still has a release pending — no synthetic
+    /// re-down arrived — the release really happens.
+    /// </summary>
+    private void StartPttDeferTimer(int ms)
+    {
+        if (_pttDeferTimer == null)
+        {
+            _pttDeferTimer = new DispatcherTimer();
+            _pttDeferTimer.Tick += (s, args) =>
+            {
+                _pttDeferTimer!.Stop();
+                if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))
+                    _pttController?.PttUp();
+            };
+        }
+        _pttDeferTimer.Stop();
+        _pttDeferTimer.Interval = TimeSpan.FromMilliseconds(ms);
+        _pttDeferTimer.Start();
     }
 
     #endregion
@@ -3701,6 +3859,12 @@ public partial class MainWindow : UserControl
         // Dispose PTT safety controller (Sprint 15) — stops TX if active
         _pttController?.Dispose();
         _pttController = null;
+
+        // A deferred PTT release (#216) has nothing left to release; the hold
+        // filter keeps its learned state — that describes the screen reader,
+        // which survives the radio.
+        _pttDeferTimer?.Stop();
+        _pttHoldFilter.Reset();
 
         // Stop the Audio Workshop's poll timer (and any Audio Check session) —
         // the workshop singleton outlives the radio, and its 2 Hz tick raced

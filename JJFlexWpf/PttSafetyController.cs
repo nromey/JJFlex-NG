@@ -142,6 +142,59 @@ namespace JJFlexWpf
         /// </summary>
         public bool IsTransmitting => State != PttState.Idle;
 
+        // -------------------------------------------------------------------
+        // External transmit watch (#236)
+        // -------------------------------------------------------------------
+        //
+        // The transmit checks key the radio through their own gate, outside
+        // this controller — which meant NO live reflected-power monitoring
+        // while their carrier was up: the health tick is started only by this
+        // controller's own key-down paths and stops itself at Idle. Verified
+        // by reading before acting, as the audit asked. This is the middle
+        // option from that audit: the checks keep their own gate for STARTING
+        // a transmit, and additionally arm this controller's health
+        // monitoring for the duration, so reflected power is watched live
+        // without the warning ladder — built for an operator holding PTT with
+        // intent — taking over a bounded probe. Whether their keying should
+        // ride this controller entirely remains Noel's call; neither stack is
+        // weakened in the meantime.
+
+        private int _externalWatchers;
+
+        /// <summary>True while an external transmit (a transmit-check probe)
+        /// has asked to be watched.</summary>
+        public bool ExternalTransmitWatch => _externalWatchers > 0;
+
+        /// <summary>
+        /// An external transmit has keyed: run the live reflected-power check
+        /// over it. Counted, so overlapping callers cannot strip each other's
+        /// watch; safe to call from any state.
+        /// </summary>
+        public void BeginExternalTransmitWatch()
+        {
+            _externalWatchers++;
+            if (State == PttState.Idle)
+            {
+                _healthReflectedWarned = false;
+                _healthTxSeconds = 0;
+                StartAlcTimer();
+            }
+            Tracing.TraceLine("PTT: external transmit watch on (" + _externalWatchers + ")",
+                              TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// The external transmit is down. Safe to call unmatched — an unkey
+        /// notice is the one thing that must never be conditional.
+        /// </summary>
+        public void EndExternalTransmitWatch()
+        {
+            if (_externalWatchers > 0) _externalWatchers--;
+            Tracing.TraceLine("PTT: external transmit watch off (" + _externalWatchers + ")",
+                              TraceLevel.Info);
+            // The tick stops itself on its next pass once Idle and unwatched.
+        }
+
         /// <summary>
         /// Returns a spoken PTT status string for the Speak Status hotkey.
         /// Includes mode (hold/locked) and time remaining when locked.
@@ -201,11 +254,18 @@ namespace JJFlexWpf
         // talking — has no way to know. That is the shape of fault this whole
         // arc has been about: a plausible-looking state rather than an error.
         //
-        // THIS DETECTS AND RECORDS. It deliberately does NOT change what PTT
-        // does. Whether JAWS synthesises for a CHORD it has no script for is
-        // unverified — it may only do it for the arrows it scripts — and
-        // guessing at a transmit path is how you get a stuck transmitter.
-        // Don is our only JAWS coverage; one trace from him settles it.
+        // DIVISION OF LABOUR, since Sprint 35 Track E: Radios.PttHoldFilter
+        // now sits UPSTREAM of this controller (MainWindow's key handlers) and
+        // absorbs synthetic pairs before PttUp is ever called — evidence-gated,
+        // so a reader that delivers real holds sees no change at all. That
+        // filter catches the implausible releases itself, which means THIS
+        // detector should now stay at zero forever: it has become the
+        // backstop. If it ever fires, a synthetic release got PAST the filter,
+        // and that is worth knowing loudly — so it stays, unchanged, as a
+        // positive control on the absorber. (Whether JAWS synthesises for the
+        // Ctrl+Space chord at all is still unverified; Noel runs JAWS himself
+        // when a bug is JAWS-specific, and the filter arms only on evidence,
+        // so an unverified machine keeps today's behaviour exactly.)
         private long _pttDownTicks;
         private int _implausibleReleases;
 
@@ -575,7 +635,7 @@ namespace JJFlexWpf
 
         private void AlcTimerTick(object? sender, EventArgs e)
         {
-            if (State == PttState.Idle)
+            if (State == PttState.Idle && !ExternalTransmitWatch)
             {
                 _alcTimer?.Stop();
                 return;
@@ -604,6 +664,12 @@ namespace JJFlexWpf
             // selected — so the original gate would have silenced this warning
             // in the exact scenario it was written for.
             CheckReflectedPower(rig);
+
+            // An EXTERNAL transmit stops here: the watch exists for the live
+            // reflected check alone. Everything below is the lock and hold
+            // machinery of transmissions this controller owns, and applying
+            // it to a transmit-check probe would fight the measurement.
+            if (State == PttState.Idle) return;
 
             // A held PTT stops here. The state machine has always treated hold
             // as the operator's own hand on the key, and this preserves that.
@@ -689,6 +755,34 @@ namespace JJFlexWpf
         {
             float forward = rig.ForwardPowerWatts;
             float reflected = rig.ReflectedPowerWatts;
+
+            // The CUT (#224): after the alarm has fired, a further bad sample
+            // at real power ends the transmission — when, and only when, the
+            // operator turned the setting on. Two distinct bad samples by
+            // construction: the warning latched on an earlier tick, this
+            // reads the current one, so a key-down transient can never cut.
+            // Only for transmissions THIS CONTROLLER owns: during an external
+            // watch (a transmit-check probe) the state is Idle and the probe
+            // has its own bounded abort — cutting under it would yank a
+            // measurement the gate already limits.
+            if (State != PttState.Idle
+                && TransmitSafety.ShouldCutReflected(
+                    _config.CutTransmitOnReflectedAlarm, _healthReflectedWarned,
+                    forward, reflected, rig.ATUTuneInProgress))
+            {
+                float cutBack = TransmitSafety.ReflectedFractionOf(forward, reflected);
+                Tracing.TraceLine(
+                    $"PTT: reflected-power CUT — {cutBack * 100f:F0}% back at "
+                    + $"{forward:F1} W forward, setting is on", TraceLevel.Warning);
+                // A blind operator has no visual cue their transmit ended and
+                // will keep talking: warning earcon first, then GoIdle's
+                // Urgent speech says what happened, why, and that they are no
+                // longer on the air.
+                EarconPlayer.WarningAlarmTone();
+                GoIdle(TransmitSafety.ReflectedCutText(cutBack, rig.TXAntennaName ?? ""),
+                       forceSpeech: true);
+                return;
+            }
 
             if (!TransmitSafety.ShouldWarnReflected(
                     forward, reflected, _healthTxSeconds,

@@ -42,14 +42,15 @@ namespace Radios.Tests
         {
             var g = new FixerTransmitGate(clock == null ? (Func<DateTime>)null : clock.Read);
             g.BeginRun(Run);
-            g.DeclareLoad("50 ohm dummy load on ANT1");
+            g.DeclareLoad("50 ohm dummy load on ANT1", FixerLoadKind.DummyLoad);
             return g;
         }
 
         private static Decision Ask(FixerTransmitGate g, string stageId = Stage,
                                     string runId = Run, bool transmits = true,
-                                    bool radio = true, bool keyed = false)
-            => g.Request(runId, stageId, transmits, radio, keyed);
+                                    bool radio = true, bool keyed = false,
+                                    int power = -1)
+            => g.Request(runId, stageId, transmits, radio, keyed, power);
 
         // ---- the happy path exists, so a refusal below means something ----
 
@@ -105,7 +106,7 @@ namespace Radios.Tests
         {
             var g = new FixerTransmitGate();
             g.BeginRun(Run);
-            g.DeclareLoad("   ");
+            g.DeclareLoad("   ", FixerLoadKind.DummyLoad);
             Assert.Equal(Refusal.LoadNotDeclared, Ask(g).Why);
         }
 
@@ -116,6 +117,136 @@ namespace Radios.Tests
             // measurement whose load is unrecorded cannot be read afterwards.
             var g = Ready();
             Assert.Equal("50 ohm dummy load on ANT1", g.LoadDeclaration);
+        }
+
+        // ---- what the load KIND permits (#244, #180) ----
+
+        [Fact]
+        public void Nothing_or_unsure_is_an_explicit_refusal_not_a_silent_wait()
+        {
+            var g = new FixerTransmitGate();
+            g.BeginRun(Run);
+            g.DeclareLoad("Nothing, or I am not sure", FixerLoadKind.NothingOrUnsure);
+
+            Decision d = Ask(g);
+            Assert.Equal(Refusal.LoadForbidsTransmit, d.Why);
+            Assert.Contains("not sure", d.Explanation);
+            Assert.Contains("unknown load", d.Explanation);
+        }
+
+        [Fact]
+        public void An_antenna_caps_the_power_and_the_ceiling_is_enforced_not_recorded()
+        {
+            var g = new FixerTransmitGate();
+            g.BeginRun(Run);
+            g.DeclareLoad("An antenna", FixerLoadKind.Antenna);
+
+            // At or under the ceiling: an on-air low-power test is fine.
+            Assert.True(Ask(g, power: FixerTransmitGate.LowPowerCeilingWatts).Allowed);
+
+            // Over it: refused, with the number and both ways out spoken.
+            Decision high = Ask(g, "another-stage", power: 100);
+            Assert.Equal(Refusal.PowerTooHighForLoad, high.Why);
+            Assert.Contains("100 watts", high.Explanation);
+            Assert.Contains("dummy load", high.Explanation);
+        }
+
+        [Fact]
+        public void Unreadable_power_into_an_antenna_refuses_rather_than_hopes()
+        {
+            // -1 is "could not be read". A transmit into a live antenna at a
+            // power nobody could read is the exact gamble the gate exists to
+            // prevent — this must fail CLOSED.
+            var g = new FixerTransmitGate();
+            g.BeginRun(Run);
+            g.DeclareLoad("An antenna", FixerLoadKind.Antenna);
+
+            Assert.Equal(Refusal.PowerTooHighForLoad, Ask(g, power: -1).Why);
+        }
+
+        [Fact]
+        public void An_amplifier_is_capped_like_an_antenna()
+        {
+            var g = new FixerTransmitGate();
+            g.BeginRun(Run);
+            g.DeclareLoad("An amplifier", FixerLoadKind.Amplifier);
+
+            Assert.True(Ask(g, power: 5).Allowed);
+            Assert.Equal(Refusal.PowerTooHighForLoad,
+                         Ask(g, "another-stage", power: 50).Why);
+        }
+
+        [Fact]
+        public void A_dummy_load_ignores_the_power_entirely()
+        {
+            // Nothing radiates, so full test power and unreadable power are
+            // both fine — the ceiling belongs to the loads where RF leaves
+            // the building.
+            var g = Ready();
+            Assert.True(Ask(g, power: 100).Allowed);
+        }
+
+        [Fact]
+        public void The_keyed_witnesses_fire_once_per_real_keying()
+        {
+            // #236: the host arms the PTT controller's live health watch on
+            // these. Once per keying — NoteUnkeyed is deliberately safe to
+            // repeat, and a repeat must not disarm someone else's watch.
+            var g = Ready();
+            int keyed = 0, unkeyed = 0;
+            g.OnKeyed = () => keyed++;
+            g.OnUnkeyed = () => unkeyed++;
+
+            g.NoteKeyed(Stage);
+            g.NoteUnkeyed();
+            g.NoteUnkeyed();   // the safe repeat
+            g.NoteUnkeyed();
+
+            Assert.Equal(1, keyed);
+            Assert.Equal(1, unkeyed);
+
+            // And an unmatched unkey before any keying tells nobody anything.
+            var fresh = Ready();
+            int phantom = 0;
+            fresh.OnUnkeyed = () => phantom++;
+            fresh.NoteUnkeyed();
+            Assert.Equal(0, phantom);
+        }
+
+        [Fact]
+        public void A_throwing_witness_never_breaks_the_keying_accounting()
+        {
+            var g = Ready();
+            g.OnKeyed = () => throw new InvalidOperationException("observer bug");
+            g.OnUnkeyed = () => throw new InvalidOperationException("observer bug");
+
+            g.NoteKeyed(Stage);
+            Assert.True(g.InFlight);
+            g.NoteUnkeyed();
+            Assert.False(g.InFlight);
+            Assert.Equal(1, g.TransmitCount);
+        }
+
+        [Fact]
+        public void A_remote_declaration_carries_its_provenance_for_the_report()
+        {
+            // #247: the load was once accepted from an operator a thousand
+            // miles from the socket with nothing recorded. The report form
+            // says so; the gate never refuses over it — a remote operator's
+            // declaration is still a declaration.
+            var g = new FixerTransmitGate();
+            g.BeginRun(Run);
+            g.DeclareLoad("A dummy load", FixerLoadKind.DummyLoad, declaredRemotely: true);
+
+            Assert.True(g.LoadDeclaredRemotely);
+            Assert.Contains("declared over a remote session", g.LoadDeclarationForReport);
+            Assert.StartsWith("A dummy load", g.LoadDeclarationForReport);
+            Assert.True(Ask(g, power: 100).Allowed);
+
+            // And it resets with the run, like every declared fact.
+            g.BeginRun("TX-NEW1");
+            Assert.False(g.LoadDeclaredRemotely);
+            Assert.Equal("", g.LoadDeclarationForReport);
         }
 
         // ---- the radio's own state beats anything the caller claims ----
@@ -150,7 +281,7 @@ namespace Radios.Tests
         public void With_no_run_open_nothing_transmits()
         {
             var g = new FixerTransmitGate();
-            g.DeclareLoad("dummy load");
+            g.DeclareLoad("dummy load", FixerLoadKind.DummyLoad);
             Assert.Equal(Refusal.NoRun, Ask(g).Why);
         }
 
@@ -252,7 +383,7 @@ namespace Radios.Tests
             var g = Ready();
             g.AbortRun();
             g.BeginRun("TX-NEW1");
-            g.DeclareLoad("dummy load");
+            g.DeclareLoad("dummy load", FixerLoadKind.DummyLoad);
             Assert.False(g.Aborted);
             Assert.True(Ask(g, runId: "TX-NEW1").Allowed);
         }
@@ -397,7 +528,7 @@ namespace Radios.Tests
             g.NoteUnkeyed();
 
             g.BeginRun("TX-NEW1");
-            g.DeclareLoad("dummy load");
+            g.DeclareLoad("dummy load", FixerLoadKind.DummyLoad);
             Assert.Equal(0, g.KeyDownSeconds);
             Assert.Equal(0, g.TransmitCount);
             Assert.True(Ask(g, runId: "TX-NEW1").Allowed);
@@ -519,6 +650,16 @@ namespace Radios.Tests
             var aborted = Ready();
             aborted.AbortRun();
             yield return Ask(aborted);                                   // RunAborted
+
+            var unsure = new FixerTransmitGate();
+            unsure.BeginRun(Run);
+            unsure.DeclareLoad("Nothing, or I am not sure", FixerLoadKind.NothingOrUnsure);
+            yield return Ask(unsure);                                    // LoadForbidsTransmit
+
+            var hot = new FixerTransmitGate();
+            hot.BeginRun(Run);
+            hot.DeclareLoad("An antenna", FixerLoadKind.Antenna);
+            yield return Ask(hot, power: 100);                           // PowerTooHighForLoad
 
             var once = Ready();
             Ask(once); once.NoteKeyed(Stage); once.NoteUnkeyed();

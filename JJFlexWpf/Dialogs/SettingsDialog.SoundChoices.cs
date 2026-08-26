@@ -13,7 +13,7 @@ namespace JJFlexWpf.Dialogs
     /// alert tone set) are literally the same question asked about two
     /// different sound families — how rich should a sound be — so they are
     /// worded to rhyme: one is a "tone set", the other a "tone shape", and
-    /// "Sine" in the CW picker means the same thing "Classic" means in the
+    /// "Sine" in the CW picker means the same thing "Simple" means in the
     /// alert picker. An operator who learns one has learned the other.
     ///
     /// <para>
@@ -57,8 +57,8 @@ namespace JJFlexWpf.Dialogs
             {
                 ArmAlertToneSetRestore();
                 EarconVoices.ActiveSet = AlertToneSetCombo.SelectedIndex == 1
-                    ? EarconVoiceSet.Classic
-                    : EarconVoiceSet.Modern;
+                    ? EarconVoiceSet.Simple
+                    : EarconVoiceSet.Rich;
                 EarconPlayer.VoiceSetSampler();
             }
             catch (Exception ex)
@@ -97,10 +97,10 @@ namespace JJFlexWpf.Dialogs
                 if (DialogResult == true) return;
                 try
                 {
-                    int committed = _audioConfig?.EarconVoiceSet ?? (int)EarconVoiceSet.Modern;
-                    EarconVoices.ActiveSet = committed == (int)EarconVoiceSet.Classic
-                        ? EarconVoiceSet.Classic
-                        : EarconVoiceSet.Modern;
+                    int committed = _audioConfig?.EarconVoiceSet ?? (int)EarconVoiceSet.Rich;
+                    EarconVoices.ActiveSet = committed == (int)EarconVoiceSet.Simple
+                        ? EarconVoiceSet.Simple
+                        : EarconVoiceSet.Rich;
                 }
                 catch (Exception ex)
                 {

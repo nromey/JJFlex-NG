@@ -75,8 +75,7 @@ namespace Radios.Tests
             var run = new FixerRun(KettleSet(Answering("wet"), Answering("hot")));
 
             run.RunStage("boil");
-            run.RunStage("fill");
-            run.SkipStage("boil", "later");
+            run.SkipStage("fill", "later");
 
             Assert.NotEmpty(run.RunId);
             foreach (FixerStageResult r in run.ResultsInRunOrder)
@@ -158,14 +157,36 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Skipping_after_running_also_replaces()
+        public void Skipping_over_a_completed_measurement_is_refused()
         {
+            // #249: recording replaces, so a skip over a Ran result would erase
+            // the measurement and put "Not run" in the report — false and
+            // unrecoverable, and on the transmit stages paid for with RF. The
+            // rule lives in the MODEL, not only in the page, so a stale or
+            // buggy caller cannot reintroduce it.
             var run = new FixerRun(KettleSet(Answering("wet"), Answering("hot")));
             run.RunStage("fill");
-            FixerStageResult skip = run.SkipStage("fill", "later");
 
-            Assert.True(skip.WasReRun);
-            Assert.Equal(FixerStageStatus.Skipped, run.ResultFor("fill")!.Status);
+            Assert.Throws<InvalidOperationException>(() => run.SkipStage("fill", "later"));
+            Assert.Equal(FixerStageStatus.Ran, run.ResultFor("fill")!.Status);
+        }
+
+        [Fact]
+        public void Skipping_over_a_skip_or_a_failure_is_still_legal()
+        {
+            // There is no measurement to lose in either state — only a reason
+            // to restate, or a stage that produced nothing.
+            var run = new FixerRun(KettleSet(Answering("wet"), Answering("hot")));
+            run.SkipStage("fill", "no-tap");
+            FixerStageResult again = run.SkipStage("fill", "later");
+            Assert.Equal(FixerStageStatus.Skipped, again.Status);
+
+            var broken = new FixerRun(KettleSet(_ => throw new InvalidOperationException("bang"),
+                                                Answering("hot")));
+            broken.RunStage("fill");
+            Assert.Equal(FixerStageStatus.CouldNotRun, broken.ResultFor("fill")!.Status);
+            Assert.Equal(FixerStageStatus.Skipped,
+                         broken.SkipStage("fill", "no-tap").Status);
         }
 
         // ---- the actual order is kept ----

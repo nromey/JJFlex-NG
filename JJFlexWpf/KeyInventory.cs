@@ -382,6 +382,18 @@ public static class KeyInventory
             new[] { "problem", "problems", "recorded", "failure", "failed", "error", "errors",
                     "wrong", "issue", "issues", "went", "missed", "notification", "diagnostic",
                     "diagnostics", "history", "leader" }, "Global", "General"),
+        // Sprint 35 Track D (#253). O for "what is On". Parked beside Ctrl+D and
+        // Ctrl+R so the three diagnostics chords live together: Ctrl+D starts
+        // recording evidence, Ctrl+R reads what has already gone wrong, and this
+        // one answers what is running and costing something right now. Plain O
+        // rather than a Ctrl form because O was free in every variant, so there
+        // was no taken letter to reach around.
+        new("Leader", "Leader key", "Ctrl+J, O",
+            "Say what is still running and what it is costing — recording, captures, meter tones",
+            new[] { "running", "on", "still", "what", "recording", "record", "instrumentation",
+                    "capture", "meter", "stream", "transcript", "tones", "cost", "costing",
+                    "size", "megabytes", "disk", "left", "forgot", "diagnostic", "diagnostics",
+                    "leader" }, "Global", "General"),
         new("Leader", "Leader key", "Ctrl+J, L", "Speak log statistics",
             new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
         new("Leader", "Leader key", "Ctrl+J, M", "Open the memories dialog",
@@ -405,6 +417,77 @@ public static class KeyInventory
         new("Leader", "Leader key", "Ctrl+J, Escape", "Cancel leader mode",
             new[] { "leader", "cancel", "escape" }, "Global", "help"),
     };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Leader near-miss lookup (#206, Sprint 35 Track E)
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Chord → (spoken key name, description) for every advertised leader
+    /// follow-on, built once from <see cref="LeaderCommands"/> via
+    /// <see cref="Radios.LeaderChordParser"/>.
+    /// </summary>
+    private static Dictionary<WinFormsKeys, (string KeyName, string Description)>? _leaderChords;
+
+    private static Dictionary<WinFormsKeys, (string KeyName, string Description)> LeaderChords()
+    {
+        var table = _leaderChords;
+        if (table != null) return table;
+
+        table = new Dictionary<WinFormsKeys, (string, string)>();
+        foreach (var e in LeaderCommands)
+        {
+            foreach (var chord in Radios.LeaderChordParser.ParseDisplay(e.KeyDisplay, e.ExcludedKeys))
+            {
+                if (!table.ContainsKey(chord))
+                    table[chord] = (KeyManifest.FormatKey(chord), e.Description);
+            }
+        }
+        _leaderChords = table;
+        return table;
+    }
+
+    /// <summary>
+    /// When an unbound leader chord is one modifier away from a bound one,
+    /// name the bound neighbour so "Unknown command" becomes a recovery.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// #206: the JJ layer mixes bare, Shift and Ctrl tiers on the same
+    /// letters, so the muscle memory built by Ctrl+A and Ctrl+D carries
+    /// straight into Ctrl+G, where nothing is bound. Noel pressed exactly
+    /// that on 2026-08-23 and got "Unknown command. Press H for help." — a
+    /// dead end that asks a blind operator standing inside a modal layer to
+    /// leave it and listen to thirty entries for the one letter they nearly
+    /// pressed, when the registry already knows the answer.
+    /// </para>
+    /// <para>
+    /// At most ONE alternative comes back, bare form first — that is the most
+    /// likely intent (see <see cref="Radios.LeaderChordParser.NearMissCandidates"/>).
+    /// Returns false when the pressed chord is actually bound (not this
+    /// method's business) or when no neighbouring tier is bound either.
+    /// </para>
+    /// </remarks>
+    public static bool TryFindLeaderNearMiss(WinFormsKeys pressed,
+        out string altKeyName, out string altDescription)
+    {
+        altKeyName = "";
+        altDescription = "";
+
+        var table = LeaderChords();
+        if (table.ContainsKey(pressed)) return false;
+
+        foreach (var candidate in Radios.LeaderChordParser.NearMissCandidates(pressed))
+        {
+            if (table.TryGetValue(candidate, out var hit))
+            {
+                altKeyName = hit.KeyName;
+                altDescription = hit.Description;
+                return true;
+            }
+        }
+        return false;
+    }
 
     // ────────────────────────────────────────────────────────────────
     //  Volume mode targets (Ctrl+J, V, then a target letter; arrows adjust;

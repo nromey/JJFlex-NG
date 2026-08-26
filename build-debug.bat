@@ -20,9 +20,25 @@ REM        version) plus the distributed zip + NOTES (timestamped, never
 REM        overwritten). Bisect uses the zips; symbolication uses exe+pdb.
 REM        Builds archived before the 4.2.x rename carry JJFlexRadio.exe/.pdb
 REM        under their own version folders — that history stays as it was.
-REM   Dropbox C:\Users\nrome\Dropbox\JJFlexRadio\debug\JJFlex_<ver>_x64_debug.zip
-REM           only written on --publish; purges prior debug files first so the
-REM           folder holds exactly one current zip + NOTES for testers.
+REM   Dropbox <DropboxRoot>\JJFlexRadio\debug\JJFlex_<ver>_x64_debug.zip
+REM           only written on --publish. The new zip + NOTES are copied and
+REM           read back at the right length FIRST; only then are the older
+REM           debug files removed, so a failed publish leaves testers holding
+REM           the previous build rather than nothing. LATEST.txt names the
+REM           current pair outright instead of leaving it implied by the
+REM           folder holding one file. (task #230)
+REM
+REM EXIT CODES
+REM   0  built, archived, and (if asked) published — all verified at rest
+REM   1  version could not be determined / not a git tree
+REM   2  working tree dirty (use --no-commit to override)
+REM   3  build failed
+REM   4  build output missing
+REM   5  zip failed
+REM   6  a JJ Flexible instance is running (would lock Radios.dll)
+REM   7  NOTES generation failed or produced no file
+REM   8  Dropbox publish failed — NOTHING was deleted, testers keep their build
+REM   9  NAS archive incomplete — this version has no bisectable copy
 REM
 REM NOTES FILE
 REM   If debug-notes.txt exists at the repo root, its contents are used as the
@@ -95,7 +111,7 @@ if "%NOCOMMIT%"=="0" (
     if not "!DIRTY!"=="0" (
         echo.
         echo ERROR: Working tree has !DIRTY! uncommitted change^(s^).
-        echo   Debug builds should be reproducible from HEAD — commit first, build second.
+        echo   Debug builds should be reproducible from HEAD - commit first, build second.
         echo   Run with --no-commit to build anyway (Y in the exe won't reproduce^).
         echo.
         exit /b 1
@@ -142,7 +158,7 @@ echo.
 echo [Help] Refreshing CHM from docs\help\md\*.md ...
 call "%~dp0docs\help\build-help.bat"
 if errorlevel 1 (
-    echo WARNING: CHM build failed or HTML Help Workshop missing — proceeding with stale/no CHM.
+    echo WARNING: CHM build failed or HTML Help Workshop missing - proceeding with stale/no CHM.
     echo          Testers will see whatever JJFlexRadio.chm currently exists in docs\help\.
 )
 echo.
@@ -159,7 +175,7 @@ REM run as JJFlexRadio.exe, current ones as jjflexible.exe.
 for /f "usebackq delims=" %%r in (`powershell -NoProfile -Command "@(Get-Process -Name 'jjflexible','JJFlexRadio' -ErrorAction SilentlyContinue).Count"`) do set "RUNNING=%%r"
 if not "%RUNNING%"=="0" (
     echo.
-    echo ERROR: JJ Flexible is running ^(%RUNNING% process^(es^)^). Close it and re-run —
+    echo ERROR: JJ Flexible is running ^(%RUNNING% process^(es^)^). Close it and re-run -
     echo   a running instance locks Radios.dll and the exe.
     echo.
     exit /b 6
@@ -206,7 +222,10 @@ REM subfolder of the main bin dir so the single zip below picks it up.
 REM Release installers DO NOT go through this path and therefore do not bundle
 REM the harness — build-installers.bat builds the vbproj only, not the sln.
 REM ---------------------------------------------------------------------------
-set "HARNESS_SRC=tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows"
+REM RID-specific since task #135, so the path carries win-x64 exactly as the
+REM main app's does. Without the RID the harness dragged sixteen Android,
+REM Linux and macOS natives into every tester zip.
+set "HARNESS_SRC=tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows\win-x64"
 set "HARNESS_DST=%BIN_DIR%\tools\harness"
 if exist "%HARNESS_SRC%\SmartLinkSessionHarness.exe" (
     echo Bundling harness  : %HARNESS_SRC%\ -> %HARNESS_DST%\
@@ -217,7 +236,7 @@ if exist "%HARNESS_SRC%\SmartLinkSessionHarness.exe" (
         copy /Y "tools\SmartLinkSessionHarness\README.md" "%HARNESS_DST%\README.md" >nul
     )
 ) else (
-    echo WARNING: harness exe not found at %HARNESS_SRC% — proceeding without it.
+    echo WARNING: harness exe not found at %HARNESS_SRC% - proceeding without it.
     echo   ^(sln build should produce it; check that SmartLinkSessionHarness.csproj
     echo   is still in JJFlexRadio.sln.^)
 )
@@ -264,6 +283,18 @@ if exist "%~dp0debug-notes.txt" (
     echo   auto-generating from recent git log
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-notes.ps1" -Version "%APPVER%" -GitSha "%GITSHA%" -OutPath "%NOTES_PATH%"
 )
+REM Checked, because everything downstream copies this file around and a
+REM missing NOTES would first be noticed by a tester with no notes (#230).
+if errorlevel 1 (
+    echo.
+    echo ERROR: generating the NOTES file failed. The reason is printed above.
+    exit /b 7
+)
+if not exist "%NOTES_PATH%" (
+    echo.
+    echo ERROR: the NOTES helper exited 0 and produced no file at %NOTES_PATH%.
+    exit /b 7
+)
 
 REM ---------------------------------------------------------------------------
 REM NAS archive (always) — everything lands in historical\<ver>\x64-debug\
@@ -271,57 +302,76 @@ REM   jjflexible.exe + .pdb  — overwritten per version (symbolication target)
 REM   JJFlex_<ver>_x64_debug_<stamp>.zip  — timestamped, never overwritten
 REM   NOTES-<ver>-debug_<stamp>.txt       — matches the zip
 REM ---------------------------------------------------------------------------
+REM Delegated to scripts\archive-debug-to-nas.ps1, which copies then READS EACH
+REM FILE BACK at the right length before naming it. Until 2026-08-26 this was
+REM four unchecked Copy-Item calls followed by three unconditional echoes, so a
+REM Tailscale drop mid-copy printed exactly what a good archive printed. See
+REM task #230 and the header of that helper.
 set "NAS_HIST_DIR=%NAS_HISTORICAL%\%APPVER%\x64-debug"
+set "NAS_STATUS=ok"
 echo.
 echo NAS archive: %NAS_HIST_DIR%
-powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '%NAS_HISTORICAL%')) { Write-Host '  WARNING: NAS not reachable, skipping NAS archive'; exit 10 }"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\archive-debug-to-nas.ps1" -ZipPath "%ZIP_PATH%" -NotesPath "%NOTES_PATH%" -ExePath "%CD%\%BIN_DIR%\jjflexible.exe" -PdbPath "%CD%\%BIN_DIR%\jjflexible.pdb" -DestDir "%NAS_HIST_DIR%" -Stamp "%STAMP%" -Version "%APPVER%"
 if errorlevel 10 (
-    echo   WARNING: skipped NAS archive ^(offline or no Tailscale^)
-) else (
-    powershell -NoProfile -Command "New-Item -Path '%NAS_HIST_DIR%' -ItemType Directory -Force | Out-Null"
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%ZIP_PATH%' -Destination '%NAS_HIST_DIR%\JJFlex_%APPVER%_x64_debug_%STAMP%.zip' -Force"
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%NOTES_PATH%' -Destination '%NAS_HIST_DIR%\NOTES-%APPVER%-debug_%STAMP%.txt' -Force"
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%CD%\%BIN_DIR%\jjflexible.exe' -Destination '%NAS_HIST_DIR%\jjflexible.exe' -Force"
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%CD%\%BIN_DIR%\jjflexible.pdb' -Destination '%NAS_HIST_DIR%\jjflexible.pdb' -Force"
-    echo   JJFlex_%APPVER%_x64_debug_%STAMP%.zip
-    echo   NOTES-%APPVER%-debug_%STAMP%.txt
-    echo   jjflexible.exe + .pdb ^(refreshed^)
+    echo   WARNING: skipped NAS archive ^(offline or no Tailscale^).
+    echo            This version has no bisectable copy on the NAS.
+    set "NAS_STATUS=skipped"
+) else if errorlevel 1 (
+    echo   The NAS archive FAILED. Detail is printed above.
+    set "NAS_STATUS=FAILED"
 )
 
 REM ---------------------------------------------------------------------------
 REM Dropbox publish (only with --publish)
 REM ---------------------------------------------------------------------------
+REM Delegated to scripts\publish-debug-to-dropbox.ps1. The old inline version
+REM PURGED THE TESTER FOLDER FIRST, checked neither the purge nor the copies,
+REM and echoed the filenames unconditionally — so a failed copy left testers
+REM with an empty folder while the console reported a successful publish. The
+REM helper copies, reads back at the right length, and only then removes the
+REM older files. See task #230 and the header of that helper.
+set "PUBLISH_STATUS=not published"
 if "%PUBLISH%"=="1" (
     echo.
     echo Dropbox publish: %DROPBOX_DEBUG%
-
-    if not exist "%DROPBOX_DEBUG%" (
-        powershell -NoProfile -Command "New-Item -Path '%DROPBOX_DEBUG%' -ItemType Directory -Force | Out-Null"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\publish-debug-to-dropbox.ps1" -ZipPath "%ZIP_PATH%" -NotesPath "%NOTES_PATH%" -DestDir "%DROPBOX_DEBUG%"
+    if errorlevel 1 (
+        set "PUBLISH_STATUS=FAILED"
+    ) else (
+        set "PUBLISH_STATUS=published"
     )
-
-    REM Purge prior debug files — "Dropbox = latest only" invariant
-    powershell -NoProfile -Command "Get-ChildItem -Path '%DROPBOX_DEBUG%' -Filter 'JJFlex_*_debug*.zip' -ErrorAction SilentlyContinue | Remove-Item -Force"
-    powershell -NoProfile -Command "Get-ChildItem -Path '%DROPBOX_DEBUG%' -Filter 'NOTES-*-debug*.txt' -ErrorAction SilentlyContinue | Remove-Item -Force"
-
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%ZIP_PATH%' -Destination '%DROPBOX_DEBUG%\%ZIP_NAME%' -Force"
-    powershell -NoProfile -Command "Copy-Item -LiteralPath '%NOTES_PATH%' -Destination '%DROPBOX_DEBUG%\%NOTES_NAME%' -Force"
-
-    echo   Purged prior debug zip^(s^) and NOTES.
-    echo   %ZIP_NAME%
-    echo   %NOTES_NAME%
 ) else (
     echo.
     echo Dropbox: NOT published ^(use --publish to broadcast to testers^).
 )
 
 REM ---------------------------------------------------------------------------
-REM Summary
+REM Summary — reports what happened, not what was attempted
 REM ---------------------------------------------------------------------------
 echo.
 echo ============================================
-echo Done. Version %APPVER%  (Debug x64^)
+echo Version %APPVER%  (Debug x64^)
 echo Zip at %ZIP_PATH%
 echo Notes at %NOTES_PATH%
+echo NAS archive: !NAS_STATUS!
+if "%PUBLISH%"=="1" echo Dropbox publish: !PUBLISH_STATUS!
 echo ============================================
+
+if "!PUBLISH_STATUS!"=="FAILED" (
+    echo.
+    echo THE TESTER PUBLISH DID NOT HAPPEN. Testers still have their previous
+    echo build - nothing was deleted. Fix the cause above and re-run --publish.
+    endlocal
+    exit /b 8
+)
+if "!NAS_STATUS!"=="FAILED" (
+    echo.
+    echo THE NAS ARCHIVE DID NOT COMPLETE. The zip is still at %ZIP_PATH%.
+    endlocal
+    exit /b 9
+)
+
+echo.
+echo Done.
 
 endlocal

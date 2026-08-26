@@ -521,6 +521,57 @@ namespace JJFlex.TxFactAudit
               fixedHere: true,
               concern: "WAS: cached in a field only written when a slice property-change is seen for a slice already flagged as the transmit slice. Empty until then, and empty is published as an observed value rather than as an absence.");
 
+            // ── Stage 12: which port, and what is on the end of it ────────
+            //
+            // Added 2026-08-26 with #188 and #163. Until then stage 12 judged
+            // power and standing wave ratio without recording which connector
+            // the RF left by, so every measurement ever captured is missing its
+            // first-order context — and without knowing whether a transverter
+            // was in the path, three of the stage's rules were switched off by
+            // side effect while it reported healthy.
+            F("tx-antenna", "Transmit antenna port",
+              "FlexBase.TXAntennaName", "Slice.TXAnt of the active slice",
+              Provenance.WireField, FactOwnership.ClientOwned, IdleHonesty.Gated,
+              "Read txant off the active slice on a second connection and compare. Both directions are now traced at the moment of change, so a capture also carries the transition rather than only the end state.",
+              RigField.Slice(0, "txant"),
+              idleReads: "not read — gated on there being an active slice",
+              concern: "The radio AGREEING is silent. FlexLib updates its cached value before sending the command and drops any status echo that matches the cache, so only a DISAGREEING report raises an event. Absence of the disagreement warning is weak evidence, not proof — same acked-but-not-applied hazard as #164.");
+
+            F("rx-antenna", "Receive antenna port",
+              "FlexBase.RXAntennaName", "Slice.RXAnt of the active slice",
+              Provenance.WireField, FactOwnership.ClientOwned, IdleHonesty.Gated,
+              "Read rxant off the active slice on a second connection and compare.",
+              RigField.Slice(0, "rxant"),
+              idleReads: "not read — gated on there being an active slice",
+              concern: "Present because switching the RECEIVE port and hearing no difference is a common first test, and it is uninterpretable without a record of which port was selected. That is not hypothetical: it happened on 2026-08-22 and the result could not be read either way.");
+
+            F("transverter-path", "Transmitting through a transverter",
+              "FlexBase.TXAntennaIsTransverter", "Slice.TXAnt compared with XVTR",
+              Provenance.WireField, FactOwnership.ClientOwned, IdleHonesty.Gated,
+              "Derived from tx-antenna by a string comparison, so it is exactly as sound as tx-antenna is.",
+              RigField.Slice(0, "txant"),
+              idleReads: "not read — gated on there being an active slice");
+
+            F("transverter-name", "Transverter in use",
+              "FlexBase.ActiveXvtrName", "Xvtr.Name, selected by RF start frequency",
+              Provenance.WireField, FactOwnership.StationGlobal, IdleHonesty.Gated,
+              "Compare with the xvtr list on the wire. The SELECTION is app-side: among valid transverters whose RF start frequency is at or below the slice frequency, the highest start wins, falling back to the only defined one.",
+              RigField.Xvtr(0, "name"),
+              concern: "An XVTR band has a start frequency but no reported width, so the selection is an inference rather than a reading. Empty is a real and separate answer — the transmit antenna is the XVTR port but no definition covers the slice frequency — and is deliberately kept distinct from not being on a transverter at all.");
+
+            F("transverter-drive", "Transverter drive",
+              "FlexBase.XvtrDrivePowerCentiDbm", "Xvtr.MaxPower, a double in dBm",
+              Provenance.WireField, FactOwnership.StationGlobal, IdleHonesty.Gated,
+              "Compare with max_power on the wire for the selected transverter. Reported in dBm because that is the unit the radio uses and the unit a transverter's drive spec is written in; converting to watts would hand the operator 0.003 and help nobody.",
+              RigField.Xvtr(0, "max_power"),
+              concern: "Carried through the app in hundredths of a dBm so integer UI controls can adjust it, while FlexLib holds a double. The round trip is lossless at the 0.01 dB step the UI uses, but it is a conversion and not a reading.");
+
+            F("transverter-drive-ceiling", "Highest drive this radio will accept",
+              "FlexBase.XvtrDriveMaxCentiDbm", "mirrors the clamp inside Xvtr.MaxPower's setter",
+              Provenance.AppLocal, FactOwnership.NotRadioState, IdleHonesty.Gated,
+              "Not on the wire at all: it is this app reproducing a clamp that lives in the vendor setter. Proving it means setting max_power above the limit and reading back what the radio kept.",
+              concern: "STILL OPEN. FlexLib's per-model cap list names only FLEX-6400, 6400M, 6600 and 6600M. The 8000 series and Aurora reach the 15.0 dBm else-branch BY OMISSION rather than by being recognised, so whether 15.0 is correct for an 8400, 8600, AU-510 or AU-520 is unknown. Relevant to #25 and #27.");
+
             // ── PC-side facts, collected by TxChainPcFacts ────────────────
             F("pc-input-device", "Microphone chosen on this computer",
               "JJPortaudio Devices.InputDevice.Name", "none",

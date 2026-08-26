@@ -18,12 +18,15 @@ namespace Radios.SmartLink
     /// thread; see Phase 0.1 audit). Traces every call before forwarding.
     ///
     /// <para>
-    /// <b>Static-event note:</b> FlexLib's <c>WanRadioRadioListRecieved</c>
-    /// (sic) event is declared <c>static</c>, so multiple adapter instances
-    /// would all fire on the same subscription. For Sprint 26 this is fine
-    /// (N=1 session at a time). For Sprint 28+ multi-session this will need
-    /// either a per-account filter OR an upstream FlexLib change to make the
-    /// event instance-scoped.
+    /// <b>Static-event note (resolved Sprint 35 Track K):</b> FlexLib's
+    /// <c>WanRadioRadioListRecieved</c> (sic) event is declared <c>static</c>,
+    /// so multiple adapter instances all fired on the same subscription and a
+    /// list could not be attributed to the session that received it. The
+    /// vendored FlexLib now carries an additive, comment-marked instance
+    /// event, <c>RadioListReceivedForThisConnection</c>, raised by the same
+    /// parse path (see MIGRATION.md). This adapter subscribes THAT, on its own
+    /// wrapped <see cref="WanServer"/>, so with one session held open per
+    /// SmartLink account each session hears only its own account's lists.
     /// </para>
     /// </summary>
     public sealed class WanServerAdapter : IWanServer
@@ -49,7 +52,7 @@ namespace Radios.SmartLink
             _wan.WanRadioConnectReady += OnWanRadioConnectReady;
             _wan.WanApplicationRegistrationInvalid += OnWanApplicationRegistrationInvalid;
             _wan.TestConnectionResultsReceived += OnTestConnectionResultsReceived;
-            WanServer.WanRadioRadioListRecieved += OnWanRadioRadioListReceived;
+            _wan.RadioListReceivedForThisConnection += OnWanRadioRadioListReceived;
         }
 
         // --- IWanServer surface ---
@@ -184,7 +187,7 @@ namespace Radios.SmartLink
             _wan.WanRadioConnectReady -= OnWanRadioConnectReady;
             _wan.WanApplicationRegistrationInvalid -= OnWanApplicationRegistrationInvalid;
             _wan.TestConnectionResultsReceived -= OnTestConnectionResultsReceived;
-            WanServer.WanRadioRadioListRecieved -= OnWanRadioRadioListReceived;
+            _wan.RadioListReceivedForThisConnection -= OnWanRadioRadioListReceived;
 
             try
             {

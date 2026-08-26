@@ -168,6 +168,58 @@
                     Click="ImportVoices_Click"/>
         </StackPanel>
 
+        <!-- Countdown (#261). The rest of this bench plays ONE note; a
+             countdown is a cadence, and its whole pass criterion is whether
+             three tones stay countable rather than smearing into a warble.
+             That cannot be judged one note at a time. -->
+        <TextBlock Text="Countdown" FontWeight="Bold" Margin="0,16,0,4"
+                   AutomationProperties.HeadingLevel="Level2" />
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
+                   Text="Three counting tones, then a landing that says what you are counting down to: the octave up means start talking, the slow rising pair means the radio is about to transmit. Pitch comes from the start frequency slider, so the whole figure transposes together."/>
+
+        <Grid Margin="0,0,0,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition/>
+                <RowDefinition/>
+            </Grid.RowDefinitions>
+
+            <Label Grid.Row="0" Grid.Column="0" Content="Count tone len_gth:" VerticalAlignment="Center" Margin="0,0,8,4"
+                   Target="{Binding ElementName=CountdownStepBox}"/>
+            <TextBox x:Name="CountdownStepBox" Grid.Row="0" Grid.Column="1" Text="300" Width="60"
+                     HorizontalAlignment="Left" Margin="0,0,0,4"
+                     AutomationProperties.Name="Count tone length in milliseconds"
+                     local:JJFlexHelp.Text="How long each of the three counting tones lasts, in milliseconds. Short is where countability breaks: below about a hundred the three run together into one warble that is perfectly audible and impossible to count."/>
+
+            <Label Grid.Row="1" Grid.Column="0" Content="Landing l_ength:" VerticalAlignment="Center" Margin="0,0,8,4"
+                   Target="{Binding ElementName=CountdownLandingBox}"/>
+            <TextBox x:Name="CountdownLandingBox" Grid.Row="1" Grid.Column="1" Text="700" Width="60"
+                     HorizontalAlignment="Left" Margin="0,0,0,4"
+                     AutomationProperties.Name="Landing length in milliseconds"
+                     local:JJFlexHelp.Text="How long the final tone rings, in milliseconds. The ring comes from this length and nothing else. On the microphone check a long ring can land inside the measurement, so longer is not automatically better."/>
+        </Grid>
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+            <Button Content="To re_cord" Width="110" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Countdown to record"
+                    AutomationProperties.AcceleratorKey="Alt+C"
+                    local:JJFlexHelp.Text="Three tones then the octave up. What you hear before a microphone check starts listening."
+                    Click="CountdownRecord_Click"/>
+            <Button Content="To tr_ansmit" Width="110" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Countdown to transmit"
+                    AutomationProperties.AcceleratorKey="Alt+A"
+                    local:JJFlexHelp.Text="Three tones then a slow rising pair — the transmit start tone drawn out. What you hear before the radio keys."
+                    Click="CountdownTransmit_Click"/>
+            <Button Content="_Both, back to back" Width="150" Height="28" Margin="0,0,8,0"
+                    AutomationProperties.Name="Both countdowns back to back"
+                    AutomationProperties.AcceleratorKey="Alt+B"
+                    local:JJFlexHelp.Text="Plays the record countdown, then the transmit one. Telling the two apart is the whole requirement, and they can only be judged against each other."
+                    Click="CountdownBoth_Click"/>
+        </StackPanel>
+
         <TextBlock Text="Filter Sounds" FontWeight="Bold" Margin="0,16,0,4"
                    AutomationProperties.HeadingLevel="Level2" />
         <StackPanel Orientation="Horizontal" Margin="0,0,0,0">

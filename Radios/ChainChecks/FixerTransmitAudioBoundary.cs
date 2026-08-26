@@ -78,6 +78,24 @@ namespace Radios.ChainChecks
         /// </summary>
         public delegate (string device, string hostApi) MicPathInfo();
 
+        /// <summary>
+        /// When the key-up is issued, measured from the start of the
+        /// countdown: at the START OF THE THIRD TONE (#261). The count runs
+        /// UNKEYED — a countdown after MOX would burn keyed dead air against
+        /// the gate's budget, and one that promised a transmit before the
+        /// radio confirmed would have the operator talking into a
+        /// transmitter that may never key. So: count unkeyed, issue the
+        /// key-up on the third tone, and speak "go" only on MOX
+        /// confirmation. The gap between the third tone and "go" is honest
+        /// MOX latency.
+        /// </summary>
+        /// <remarks>
+        /// COUPLED to the countdown Track G ships: 150 ms count steps, so
+        /// the third tone starts at 300 ms. If the bench retunes the step
+        /// length, retune this with it.
+        /// </remarks>
+        public const int CountdownKeyUpAtMs = 300;
+
         private readonly FixerTransmitGate _gate;
         private readonly FixerTransmitBoundary.RadioSource _radio;
         private readonly VoicePreparer _prepareVoice;
@@ -85,6 +103,7 @@ namespace Radios.ChainChecks
         private readonly Func<bool> _stopRequested;
         private readonly Action _speakNow;
         private readonly Action _speakDone;
+        private readonly Action _countdown;
 
         /// <summary>
         /// Stage 3's meter capture, kept for stage 4's comparison. Replaced on
@@ -98,7 +117,8 @@ namespace Radios.ChainChecks
                                            MicPathInfo pcMicrophone,
                                            Func<bool> stopRequested,
                                            Action speakNow,
-                                           Action speakDone)
+                                           Action speakDone,
+                                           Action countdown)
         {
             _gate = gate;
             _radio = radio;
@@ -107,6 +127,7 @@ namespace Radios.ChainChecks
             _stopRequested = stopRequested;
             _speakNow = speakNow;
             _speakDone = speakDone;
+            _countdown = countdown;
         }
 
         /// <summary>
@@ -137,17 +158,27 @@ namespace Radios.ChainChecks
         /// <paramref name="speakNow"/> was told, so nobody is told to stop
         /// speaking who was never asked to start.
         /// </param>
+        /// <param name="countdown">
+        /// Starts the transmit countdown tones (#261) — fire-and-forget, and
+        /// the count runs UNKEYED with the key-up issued at
+        /// <see cref="CountdownKeyUpAtMs"/>. Both keying stages use it: on
+        /// the spoken stage it counts the operator in, and on the injected
+        /// stage — where the operator does nothing — it is the warning that
+        /// RF is imminent, which this tool otherwise does not give (Noel,
+        /// 2026-08-26).
+        /// </param>
         public static FixerTransmitAudioBoundary Create(FixerTransmitGate gate,
                                                         FixerTransmitBoundary.RadioSource radio,
                                                         VoicePreparer prepareVoice = null,
                                                         MicPathInfo pcMicrophone = null,
                                                         Func<bool> stopRequested = null,
                                                         Action speakNow = null,
-                                                        Action speakDone = null)
+                                                        Action speakDone = null,
+                                                        Action countdown = null)
         {
             if (gate == null || radio == null) return null;
             return new FixerTransmitAudioBoundary(gate, radio, prepareVoice, pcMicrophone,
-                                                  stopRequested, speakNow, speakDone);
+                                                  stopRequested, speakNow, speakDone, countdown);
         }
 
         // ================================================================
@@ -197,11 +228,14 @@ namespace Radios.ChainChecks
             facts.ConditioningActive = TxDifferentialCapture.ConditioningActive(rig);
 
             // Facts the gate is not allowed to take on trust, read from the
-            // radio itself.
+            // radio itself. This stage keys MOX, so the transmit power — not
+            // tune power — is what the low-power ceiling judges (#180).
             FixerTransmitGate.Decision d = _gate.Request(
                 _gate.RunId, stageId, stageTransmits: true,
                 radioReachable: rig != null,
-                rigIsKeyed: FixerTransmitBoundary.ReadKeyed(rig));
+                rigIsKeyed: FixerTransmitBoundary.ReadKeyed(rig),
+                transmitPowerWatts: FixerTransmitBoundary.ReadTransmitPowerWatts(
+                    rig, tuneCarrier: false));
 
             if (!d.Allowed)
             {
@@ -256,6 +290,18 @@ namespace Radios.ChainChecks
                         rig.TxToneFrequency = TxAudioProbe.SingleToneHz;
                         rig.TxToneStart();
                     }, "arm tone");
+
+                    // The countdown, UNKEYED (#261). The operator does nothing
+                    // in this stage — the count is the warning that RF is
+                    // imminent, ruled in by Noel 2026-08-26, and currently the
+                    // only cue standing between an idle stage and a live
+                    // transmitter. Key-up is issued on the third tone.
+                    if (!CountdownThenReadyToKey())
+                    {
+                        facts.Detail = "The check was stopped during the countdown, before "
+                                     + "the radio was keyed. Nothing was transmitted.";
+                        return facts;
+                    }
 
                     Tracing.TraceLine("FixerTransmitAudioBoundary: keying for the injected "
                                       + "probes", TraceLevel.Info);
@@ -430,7 +476,9 @@ namespace Radios.ChainChecks
             FixerTransmitGate.Decision d = _gate.Request(
                 _gate.RunId, stageId, stageTransmits: true,
                 radioReachable: rig != null,
-                rigIsKeyed: FixerTransmitBoundary.ReadKeyed(rig));
+                rigIsKeyed: FixerTransmitBoundary.ReadKeyed(rig),
+                transmitPowerWatts: FixerTransmitBoundary.ReadTransmitPowerWatts(
+                    rig, tuneCarrier: false));
 
             if (!d.Allowed)
             {
@@ -475,6 +523,19 @@ namespace Radios.ChainChecks
 
             try
             {
+                // Count the operator in, UNKEYED (#261): three tones, key-up
+                // issued on the third, and the spoken "go" (speakNow, below)
+                // only on MOX confirmation — so a radio that never keys never
+                // gets a "go", no keyed dead air is burned against the gate's
+                // budget, and the gap between the third tone and "go" is
+                // honest MOX latency.
+                if (!CountdownThenReadyToKey())
+                {
+                    facts.Detail = "The check was stopped during the countdown, before the "
+                                 + "radio was keyed. Nothing was transmitted.";
+                    return facts;
+                }
+
                 Tracing.TraceLine("FixerTransmitAudioBoundary: keying for the spoken check",
                                   TraceLevel.Info);
                 rig.Transmit = true;
@@ -539,6 +600,20 @@ namespace Radios.ChainChecks
         // ================================================================
         // Keying plumbing
         // ================================================================
+
+        /// <summary>
+        /// Start the countdown tones and wait, unkeyed, until the moment the
+        /// key-up should be issued (<see cref="CountdownKeyUpAtMs"/>). False
+        /// when a stop arrived during the count — the caller must then not
+        /// key. A missing hook counts silently and still paces the key-up,
+        /// so the timing an operator learns does not change with the sound.
+        /// </summary>
+        private bool CountdownThenReadyToKey()
+        {
+            Witness(_countdown, "countdown");
+            SleepUnlessStopped(CountdownKeyUpAtMs);
+            return !StopRequested();
+        }
 
         /// <summary>
         /// Wait for the radio to confirm the transmit state. Mox is queued

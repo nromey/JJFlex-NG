@@ -163,8 +163,21 @@ namespace Radios
         /// the WAN session outlives it. Cleared whenever the session is cycled or
         /// discovery is force-restarted, so a stale handle can never be dialled.</para>
         /// </summary>
-        private static readonly Dictionary<string, Radio> _wanRadiosBySerial =
-            new Dictionary<string, Radio>(StringComparer.OrdinalIgnoreCase);
+        private struct WanRadioEntry
+        {
+            public Radio Radio;
+            /// <summary>
+            /// Email of the SmartLink account whose list delivered this radio,
+            /// or "" when unknown (a WAN radio that arrived outside an
+            /// attributed list). Sprint 35 Track K (#259): with one session
+            /// held per account, a fresh list from account A is the FULL truth
+            /// about A and says NOTHING about B — sweeps must scope to this.
+            /// </summary>
+            public string AccountId;
+        }
+
+        private static readonly Dictionary<string, WanRadioEntry> _wanRadiosBySerial =
+            new Dictionary<string, WanRadioEntry>(StringComparer.OrdinalIgnoreCase);
         private static readonly object _wanRadiosLock = new object();
 
         /// <summary>True when the SmartLink list has this radio right now.</summary>
@@ -174,10 +187,21 @@ namespace Radios
             lock (_wanRadiosLock) { return _wanRadiosBySerial.ContainsKey(serial); }
         }
 
-        private static void RememberWanRadio(Radio r)
+        private static void RememberWanRadio(Radio r, string accountId = null)
         {
             if (r == null || string.IsNullOrWhiteSpace(r.Serial)) return;
-            lock (_wanRadiosLock) { _wanRadiosBySerial[r.Serial] = r; }
+            lock (_wanRadiosLock)
+            {
+                // A caller without attribution (the API-added path) must not
+                // erase attribution an attributed list already established.
+                if (accountId == null
+                    && _wanRadiosBySerial.TryGetValue(r.Serial, out var existing)
+                    && !string.IsNullOrEmpty(existing.AccountId))
+                {
+                    accountId = existing.AccountId;
+                }
+                _wanRadiosBySerial[r.Serial] = new WanRadioEntry { Radio = r, AccountId = accountId ?? "" };
+            }
         }
 
         private static void ForgetWanRadios(string reason)
@@ -191,6 +215,54 @@ namespace Radios
         }
 
         /// <summary>
+        /// Drop only the WAN handles that belong to ONE account — cycling
+        /// account A's session must not throw away the live handles account
+        /// B's still-open session delivered. Unattributed handles ("" account)
+        /// are dropped too: with the cycled session gone they cannot be
+        /// re-verified, and a stale handle must never be dialled.
+        /// </summary>
+        private static void ForgetWanRadiosForAccount(string accountId, string reason)
+        {
+            lock (_wanRadiosLock)
+            {
+                var doomed = _wanRadiosBySerial
+                    .Where(kv => string.IsNullOrEmpty(kv.Value.AccountId)
+                        || string.Equals(kv.Value.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
+                    .Select(kv => kv.Key)
+                    .ToList();
+                if (doomed.Count == 0) return;
+                Tracing.TraceLine($"ForgetWanRadiosForAccount ({reason}): dropping {doomed.Count} WAN radio handle(s) for {accountId}", TraceLevel.Info);
+                foreach (var serial in doomed) _wanRadiosBySerial.Remove(serial);
+            }
+        }
+
+        /// <summary>
+        /// The account whose SmartLink list owns this serial, or "" when
+        /// unknown. Lets the connect path dial a radio through the session of
+        /// the account that can actually broker it.
+        /// </summary>
+        private static string GetWanAccountForSerial(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return "";
+            lock (_wanRadiosLock)
+            {
+                return _wanRadiosBySerial.TryGetValue(serial, out var entry) ? entry.AccountId ?? "" : "";
+            }
+        }
+
+        /// <summary>
+        /// True when this WAN serial is attributable to the given account —
+        /// including the unattributed ("") case, which can only exist in a
+        /// world where a single account is in play and so belongs to it.
+        /// </summary>
+        private static bool WanRadioBelongsToAccount(string serial, string accountId)
+        {
+            var owner = GetWanAccountForSerial(serial);
+            return string.IsNullOrEmpty(owner)
+                || string.Equals(owner, accountId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// The WAN-path <see cref="Radio"/> for this serial, or null when the
         /// SmartLink list does not currently carry it.
         /// </summary>
@@ -199,7 +271,8 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(serial)) return null;
             lock (_wanRadiosLock)
             {
-                return _wanRadiosBySerial.TryGetValue(serial, out var r) && r != null && r.IsWan ? r : null;
+                return _wanRadiosBySerial.TryGetValue(serial, out var entry)
+                    && entry.Radio != null && entry.Radio.IsWan ? entry.Radio : null;
             }
         }
 
@@ -439,13 +512,21 @@ namespace Radios
             Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
 
         /// <summary>
-        /// Refresh the remote radio list by cycling the SmartLink session
-        /// first. The server sends the radio list once per TLS session and
-        /// never resends on re-registration, so a live session can only ever
-        /// show the list it was born with — radios that came online since are
-        /// invisible until a fresh session dials in. The RigSelector's Remote
-        /// button morphs into "Refresh Remote List" after a successful remote
-        /// pass and calls this.
+        /// Refresh the remote radio list. History, because the reason changed
+        /// (#259): this used to be the ONLY way to see a current list — the
+        /// belief was "the server sends the radio list once per TLS session",
+        /// so refresh meant kill the session and dial a new one. The
+        /// 2026-08-25 capture disproved the belief: the server pushes updated
+        /// lists for as long as a registered session lives (four pushes in 145
+        /// seconds), and held-open per-account sessions now consume them, so
+        /// the roster is already current without anyone pressing anything.
+        /// The cycle is kept as the operator's honest escape hatch — an
+        /// explicit refresh still tears down the CURRENT account's session and
+        /// dials fresh, which recovers a session that is connected but wedged
+        /// (TLS up, server gone quiet) in a way no amount of waiting would.
+        /// Scoped to the current account: other accounts' held sessions and
+        /// their radios are not touched, which is what keeps a refresh from
+        /// re-ranking the whole list by whichever account was refreshed last.
         /// </summary>
         public void RefreshRemoteRadios()
         {
@@ -455,19 +536,22 @@ namespace Radios
         }
 
         /// <summary>
-        /// Disconnect the app-global WAN session so the next
-        /// ConnectToSmartLink dials a fresh one — the only way to make the
-        /// server send the radio list again. Also clears this instance's
+        /// Disconnect the CURRENT account's WAN session so the next
+        /// ConnectToSmartLink dials a fresh one. Also clears this instance's
         /// one-shot list latch so the fresh list is waited for rather than a
-        /// stale cache accepted.
+        /// stale cache accepted. Sprint 35 Track K: scoped — only the active
+        /// session's account forgets its WAN handles; every other held
+        /// session keeps delivering presence for its own account throughout.
         /// </summary>
         private void CycleWanSession(string reason)
         {
+            string cycledAccount = null;
             try
             {
                 var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
                 if (session != null)
                 {
+                    cycledAccount = session.AccountId;
                     Tracing.TraceLine($"CycleWanSession ({reason}): disconnecting session {session.SessionId} for a fresh radio list", TraceLevel.Info);
                     Radios.SmartLink.SmartLinkServices.Coordinator.DisconnectSession(session.SessionId);
                 }
@@ -484,8 +568,13 @@ namespace Radios
             wanListReceived = false;
             // The WAN Radio objects belong to the session being cycled; a fresh
             // list repopulates them. Keeping them would let a path-choice
-            // connect dial a handle the server has already forgotten.
-            ForgetWanRadios(reason);
+            // connect dial a handle the server has already forgotten. With no
+            // session to name an account, fall back to forgetting everything —
+            // a stale handle is worse than a briefly emptier list.
+            if (!string.IsNullOrEmpty(cycledAccount))
+                ForgetWanRadiosForAccount(cycledAccount, reason);
+            else
+                ForgetWanRadios(reason);
         }
 
         internal Radio theRadio;
@@ -2301,6 +2390,15 @@ namespace Radios
             _cancelRequested = true;
             Disconnecting = true;
 
+            // Final where-you-left-it flush (#226): the debounce may still be
+            // pending, and the whole point of the record is the next connect.
+            // Never allowed to slow or fail a disconnect.
+            try { FlushOperatorPlace(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Disconnect:place flush:" + ex.Message, TraceLevel.Warning);
+            }
+
             // 2026-04-28: announce disconnect via speech + CW (SK prosign) so the
             // user knows the radio is going away. Fires before the actual
             // disconnect work (which can take 3+ seconds) so feedback is
@@ -2440,11 +2538,14 @@ namespace Radios
             {
                 try
                 {
-                    if (!farewell.Wait(SkFarewellWaitMs))
+                    // Read once — the trace must report the bound that was
+                    // actually applied, not a second evaluation of it.
+                    int waitMs = SkFarewellWaitMs();
+                    if (!farewell.Wait(waitMs))
                     {
                         Tracing.TraceLine(
                             "Disconnect:SK farewell did not finish within "
-                            + SkFarewellWaitMs + "ms — continuing teardown",
+                            + waitMs + "ms — continuing teardown",
                             TraceLevel.Warning);
                     }
                 }
@@ -2456,12 +2557,81 @@ namespace Radios
         }
 
         /// <summary>
-        /// How long any path that plays the SK farewell may wait for it before
-        /// giving up and continuing. Matches the bound
-        /// <c>ApplicationEvents.MyApplication_Shutdown</c> already applies to its
-        /// own call, so the two SK paths cannot drift apart.
+        /// The wait used when nothing has reported a farewell duration — the
+        /// flat figure both SK paths used before #143.
         /// </summary>
-        internal const int SkFarewellWaitMs = 5000;
+        /// <remarks>
+        /// Also the FLOOR of the computed wait, so this change can only ever
+        /// lengthen the window, never shorten it. A speed that fits today must
+        /// keep fitting.
+        /// </remarks>
+        public const int SkFarewellFallbackMs = 5000;
+
+        /// <summary>
+        /// The hard ceiling. A farewell must never be able to hang a
+        /// disconnect or an exit, whatever the keying speed or the state of
+        /// the sound card.
+        /// </summary>
+        /// <remarks>
+        /// Comfortably clear of the worst honest case — the short string at
+        /// the slowest allowed speed, 10 WPM, is around 7.6 seconds — so this
+        /// bounds a wedged device rather than a slow operator. The real
+        /// governor is <c>EarconCwOutput.WaitForDrain</c>, which observes the
+        /// device and bounds itself; this is the backstop behind it.
+        /// </remarks>
+        public const int SkFarewellCeilingMs = 15000;
+
+        /// <summary>
+        /// How long any path that plays the SK farewell may wait for it before
+        /// giving up and continuing.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Derived, not chosen.</b> Until 2026-08-26 this was a flat 5000
+        /// ms, and the comment behind it named exactly the right case — "the
+        /// richer '73 de JJF SK' farewell at speed >= 25 WPM" — while the
+        /// arithmetic undershot it by about a second. Two bands were being
+        /// truncated: roughly 10-15 WPM on the short string, and 25-31 on the
+        /// long one. Between and above, it fitted. Testing one speed in the
+        /// middle showed a clean pass, which is how it survived.
+        /// </para>
+        /// <para>
+        /// The string's length is not a function of speed alone: at 25 WPM the
+        /// farewell also GROWS, from roughly 63 PARIS units to roughly 129. So
+        /// the number comes from the CW side, which knows both the text and
+        /// the speed, rather than from a second calculation here.
+        /// </para>
+        /// <para>
+        /// <b>This is a different defect from the drain race, with the same
+        /// symptom.</b> That one signalled completion on a computed duration,
+        /// so the wait was satisfied EARLY and teardown cut the tail; raising
+        /// a timeout does nothing for it, and it was fixed in Sprint 32 Track
+        /// H by observing the device instead of predicting it. This one
+        /// genuinely EXPIRES at the speed extremes. Do not let a fix for one
+        /// look like a fix for the other.
+        /// </para>
+        /// <para>
+        /// Both SK paths call this, so they cannot drift apart — which was the
+        /// point of the shared constant it replaces.
+        /// </para>
+        /// </remarks>
+        public static int SkFarewellWaitMs()
+        {
+            int budget;
+            try
+            {
+                budget = ScreenReaderOutput.CwFarewellBudgetMs?.Invoke() ?? 0;
+            }
+            catch
+            {
+                // A farewell must not be able to fail a disconnect, and that
+                // includes failing to work out how long to wait for one.
+                budget = 0;
+            }
+
+            if (budget <= 0) return SkFarewellFallbackMs;
+            return Math.Clamp(budget, SkFarewellFallbackMs, SkFarewellCeilingMs);
+        }
 
         private bool _IsConnected = false; // set in radioPropertyChangedHandler
         /// <summary>
@@ -4418,24 +4588,67 @@ namespace Radios
         #region WAN
         private List<Radio> radios;
         private bool wanListReceived = false;
-        private void wanRadioListReceivedHandler(List<Radio> lst)
+
+        /// <summary>
+        /// Serializes list intake across sessions: with one held session per
+        /// account (#259), pushes arrive concurrently on N SmartLink receive
+        /// threads, and the merge below mutates shared state (myRadioList,
+        /// the WAN handle map) that was only ever poked by one thread before.
+        /// </summary>
+        private static readonly object _wanIntakeLock = new object();
+
+        /// <summary>
+        /// The coordinator key for the account this instance's connect flow is
+        /// working with — must match what <c>ConnectToSmartLink</c> passes to
+        /// <c>EnsureSessionForAccount</c>, so the list-received latch is only
+        /// satisfied by the account actually being waited on.
+        /// </summary>
+        private string CurrentSessionKey => _currentAccount?.Email ?? "default-account";
+
+        /// <summary>
+        /// Adapter from the coordinator's attributed list event. Replaces the
+        /// old subscription to FlexLib's STATIC WanRadioRadioListRecieved,
+        /// which could not say whose list had arrived — fatal once more than
+        /// one account's session is open, because the ghost sweep treats a
+        /// list as the full truth about its account and account A's list says
+        /// nothing about account B's radios.
+        /// </summary>
+        private void sessionRadioListReceivedHandler(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
+        {
+            wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios);
+        }
+
+        private void wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst)
         {
             try
             {
-                Tracing.TraceLine("wanRadioListReceivedHandler:" + lst.Count, TraceLevel.Info);
-                radios = lst;
-                wanListReceived = true;
+              lock (_wanIntakeLock)
+              {
+                Tracing.TraceLine($"wanRadioListReceivedHandler: account={accountId} count={lst.Count}", TraceLevel.Info);
 
-                // Ghost sweep: this is the server's FULL current list, so any
-                // WAN radio we hold that isn't in it has gone offline (or left
-                // the account). Without this, a Refresh Remote List shows
-                // yesterday's radios forever — they only "leave" by failing to
-                // connect.
-                var freshSerials = new HashSet<string>(lst.Select(x => x.Serial));
-                var gone = myRadioList.Where(x => x.IsWan && !freshSerials.Contains(x.Serial)).ToList();
+                // The connect flow's one-shot latch belongs to the account it
+                // is waiting on; a push from another held session must not
+                // satisfy it with the wrong account's radios.
+                if (string.Equals(accountId, CurrentSessionKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    radios = lst.ToList();
+                    wanListReceived = true;
+                }
+
+                // Ghost sweep, scoped to THIS account: the list is the
+                // server's FULL current list for the account that sent it, so
+                // any WAN radio attributed to that account and absent from it
+                // has gone offline (or left the account). Radios attributed to
+                // OTHER accounts are untouched — their own sessions vouch for
+                // them. Unattributed WAN radios ("" — pre-attribution arrivals)
+                // are swept by every list, matching the old whole-map behavior.
+                var freshSerials = new HashSet<string>(lst.Select(x => x.Serial), StringComparer.OrdinalIgnoreCase);
+                var gone = myRadioList.Where(x =>
+                    x.IsWan && !freshSerials.Contains(x.Serial)
+                    && WanRadioBelongsToAccount(x.Serial, accountId)).ToList();
                 foreach (Radio g in gone)
                 {
-                    Tracing.TraceLine($"wanRadioListReceivedHandler: WAN radio {g.Serial} ({g.Nickname}) absent from fresh list — removing", TraceLevel.Info);
+                    Tracing.TraceLine($"wanRadioListReceivedHandler: WAN radio {g.Serial} ({g.Nickname}) absent from {accountId}'s fresh list — removing", TraceLevel.Info);
                     myRadioList.Remove(g);
                     RaiseRadioRemoved(this, g.Serial, g.Nickname ?? "");
                 }
@@ -4444,23 +4657,30 @@ namespace Radios
                 // loop below folds the server's fields into an already-known LAN
                 // object and discards the WAN one. Dual-homing's path choice
                 // connects through these. Also drop handles for radios that left
-                // the list — those serials are dual-homed no longer.
+                // the list — those serials are dual-homed no longer. Same scope
+                // rule as the ghost sweep: only this account's handles.
                 lock (_wanRadiosLock)
                 {
-                    foreach (var stale in _wanRadiosBySerial.Keys.Where(k => !freshSerials.Contains(k)).ToList())
+                    foreach (var stale in _wanRadiosBySerial
+                        .Where(kv => !freshSerials.Contains(kv.Key)
+                            && (string.IsNullOrEmpty(kv.Value.AccountId)
+                                || string.Equals(kv.Value.AccountId, accountId, StringComparison.OrdinalIgnoreCase)))
+                        .Select(kv => kv.Key).ToList())
                         _wanRadiosBySerial.Remove(stale);
                 }
-                foreach (Radio w in lst) RememberWanRadio(w);
+                foreach (Radio w in lst) RememberWanRadio(w, accountId);
 
                 // Fast paint for next time: this account's radio list, on disk,
                 // so the selector can speak the account's radios the instant it
                 // opens instead of after a TLS round trip. Display only — see
-                // RecordAccountRadioList, nothing connects from it.
+                // RecordAccountRadioList, nothing connects from it. Attributed
+                // to the account whose session DELIVERED the list — recording
+                // a push from account B under the current account's email was
+                // exactly the cross-account cache pollution #259 fights.
                 try
                 {
-                    var acctEmail = CurrentSmartLinkEmail;
-                    if (!string.IsNullOrWhiteSpace(acctEmail))
-                        GetRadioConnectionCache().RecordAccountRadioList(acctEmail, lst);
+                    if (!string.IsNullOrWhiteSpace(accountId) && accountId.Contains('@'))
+                        GetRadioConnectionCache().RecordAccountRadioList(accountId, lst.ToList());
                 }
                 catch (Exception cacheEx)
                 {
@@ -4492,6 +4712,7 @@ namespace Radios
                         RaiseRadioFound(null, BuildRigData(oldRadio));
                     }
                 }
+              } // _wanIntakeLock
             }
             catch (Exception ex)
             {
@@ -4863,9 +5084,44 @@ namespace Radios
             }
 
             setupRemoteDone:
+            // #259: the operator expressed remote intent this session, so from
+            // here on hold a presence session per saved account — whatever this
+            // particular pass's outcome. A failed pass on ONE account is no
+            // reason to keep every other account's radios a guess.
+            EngageSmartLinkPresence();
             sw.Stop();
             Tracing.TraceLine($"setupRemote: END result={rv} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             return rv;
+        }
+
+        /// <summary>
+        /// Sprint 35 Track K (#259) — wire the presence hooks (idempotent),
+        /// make sure THIS instance's intake hears attributed lists, and hold
+        /// one session per silently-signable saved account. Called at the end
+        /// of every remote pass; deliberately NOT called from purely local
+        /// flows or the background registration query, so a LAN-only operator
+        /// never grows N background TLS connections they did not ask for.
+        /// </summary>
+        private void EngageSmartLinkPresence()
+        {
+            try
+            {
+                Radios.SmartLink.SmartLinkPresenceService.AccountsHook ??= () => AccountManager.Accounts;
+                Radios.SmartLink.SmartLinkPresenceService.SilentJwtHook ??=
+                    (acct, force) => TryGetJwtSilently(acct, force);
+
+                // Presence pushes must update rows even when no connect flow is
+                // in flight — subscribe the intake here as well as in
+                // ConnectToSmartLink (defensively, so it is never doubled).
+                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived -= sessionRadioListReceivedHandler;
+                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived += sessionRadioListReceivedHandler;
+
+                Radios.SmartLink.SmartLinkPresenceService.EnsureHeldSessions(API.ProgramName);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"EngageSmartLinkPresence: {ex.Message}", TraceLevel.Error);
+            }
         }
 
         /// <summary>
@@ -5264,37 +5520,15 @@ namespace Radios
                 needsRefresh = true;
             }
 
-            bool isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
-            Tracing.TraceLine($"GetJwtFromSavedAccount: needsRefresh={needsRefresh}, isJwtExpired={isJwtExpired}, hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}", TraceLevel.Info);
+            // The whole silent machinery lives in TryGetJwtSilently — the ONE
+            // token recipe, shared with the presence sessions' auto-register
+            // (#259). This method only layers the interactive fallback and
+            // the deliberate-use bookkeeping on top.
+            string jwt = TryGetJwtSilently(account, forceRefresh: needsRefresh);
 
-            // The JWT exp claim expires 60 SECONDS after issue on this tenant, so a
-            // stored token is essentially always dead. Try the refresh-token grant
-            // FIRST — SmartSDR does exactly this before every registration and gets
-            // a fresh id_token back (the old belief that "frtest doesn't return
-            // id_token on refresh" is contradicted by the vendor's own shipping
-            // code). Silent, no UI: this is what lets background queries answer.
-            // Only when refresh genuinely fails does interactive login enter.
-            if (isJwtExpired && !string.IsNullOrEmpty(account.RefreshToken))
+            if (string.IsNullOrEmpty(jwt))
             {
-                bool jitRefreshed = false;
-                try
-                {
-                    jitRefreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
-                }
-                catch (Exception ex)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JIT refresh threw: {ex.Message}", TraceLevel.Warning);
-                }
-                if (jitRefreshed)
-                {
-                    isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JIT refresh ok, isJwtExpired now {isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                }
-            }
-
-            if (isJwtExpired)
-            {
-                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired, interactive={allowInteractiveLogin} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: no JWT available silently, interactive={allowInteractiveLogin} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 // Pass the account so the identity check applies, and force a
                 // fresh session when we're authenticating an account other than
                 // the one already signed in — WebView2 uses ONE shared cookie
@@ -5309,62 +5543,6 @@ namespace Radios
                     : null;
             }
 
-            // Check if account-level token is expired and needs refresh
-            if (needsRefresh)
-            {
-                Tracing.TraceLine($"GetJwtFromSavedAccount: account token expired, attempting refresh ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-
-                bool refreshed = false;
-                try
-                {
-                    refreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
-                }
-                catch (AggregateException ex)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh exception: {ex.InnerException?.Message ?? ex.Message}", TraceLevel.Error);
-                    refreshed = false;
-                }
-
-                Tracing.TraceLine($"GetJwtFromSavedAccount: RefreshTokenAsync returned {refreshed} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-
-                if (!refreshed)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    // Pass the account so the identity check applies, and force a
-                // fresh session when we're authenticating an account other than
-                // the one already signed in — WebView2 uses ONE shared cookie
-                // store (per-account profiles were reverted in 81b688fe over
-                // folder locks), so an existing Auth0 session would otherwise
-                // silently satisfy a request for a different account.
-                bool differentAccount =
-                    _currentAccount != null
-                    && !string.Equals(_currentAccount.Email, account.Email, StringComparison.OrdinalIgnoreCase);
-                return allowInteractiveLogin
-                    ? PerformNewLogin(account, forceNewLogin: differentAccount)
-                    : null;
-                }
-
-                // After refresh, check if JWT is still valid
-                isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
-                Tracing.TraceLine($"GetJwtFromSavedAccount: after refresh, isJwtExpired={isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                if (isJwtExpired)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    // Pass the account so the identity check applies, and force a
-                // fresh session when we're authenticating an account other than
-                // the one already signed in — WebView2 uses ONE shared cookie
-                // store (per-account profiles were reverted in 81b688fe over
-                // folder locks), so an existing Auth0 session would otherwise
-                // silently satisfy a request for a different account.
-                bool differentAccount =
-                    _currentAccount != null
-                    && !string.Equals(_currentAccount.Email, account.Email, StringComparison.OrdinalIgnoreCase);
-                return allowInteractiveLogin
-                    ? PerformNewLogin(account, forceNewLogin: differentAccount)
-                    : null;
-                }
-            }
-
             // LastUsed means "the operator deliberately used this account" —
             // connects and registration commands qualify; the silent
             // background registration query passes markUsed: false. Stamping
@@ -5375,7 +5553,81 @@ namespace Radios
             if (markUsed) AccountManager.MarkAccountUsed(account);
 
             sw.Stop();
-            Tracing.TraceLine($"GetJwtFromSavedAccount: END returning jwt={(!string.IsNullOrEmpty(account.IdToken) ? "yes" : "null/empty")} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            Tracing.TraceLine($"GetJwtFromSavedAccount: END returning jwt=yes (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            return jwt;
+        }
+
+        /// <summary>
+        /// The silent JWT recipe, and the only one: refresh-token grant first
+        /// when the stored id_token is dead (it lives 60 seconds on this
+        /// tenant, so it essentially always is — SmartSDR refreshes before
+        /// every registration and gets a fresh id_token back), an extra
+        /// forced refresh when the caller says the current token may already
+        /// be consumed, and null — NEVER a login form — when silence cannot
+        /// produce a valid token. Serving both the interactive flow
+        /// (<see cref="GetJwtFromSavedAccount"/> layers the login fallback on
+        /// top) and the held presence sessions' auto-registration (#259),
+        /// which wire it through
+        /// <see cref="Radios.SmartLink.SmartLinkPresenceService.SilentJwtHook"/>.
+        /// Safe on any thread; blocks on the token refresh HTTP round trip.
+        /// </summary>
+        internal static string TryGetJwtSilently(SmartLinkAccount account, bool forceRefresh)
+        {
+            if (account == null) return null;
+
+            bool isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+            Tracing.TraceLine($"TryGetJwtSilently: email={account.Email} forceRefresh={forceRefresh} isJwtExpired={isJwtExpired} hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}", TraceLevel.Info);
+
+            if (isJwtExpired && !string.IsNullOrEmpty(account.RefreshToken))
+            {
+                bool jitRefreshed = false;
+                try
+                {
+                    jitRefreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"TryGetJwtSilently: JIT refresh threw: {ex.Message}", TraceLevel.Warning);
+                }
+                if (jitRefreshed)
+                {
+                    isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+                    Tracing.TraceLine($"TryGetJwtSilently: JIT refresh ok, isJwtExpired now {isJwtExpired}", TraceLevel.Info);
+                }
+            }
+
+            if (isJwtExpired)
+            {
+                Tracing.TraceLine("TryGetJwtSilently: JWT still expired after JIT refresh — nothing silent left to try", TraceLevel.Info);
+                return null;
+            }
+
+            if (forceRefresh)
+            {
+                // The manager serializes refreshes per account and satisfies a
+                // second ask within seconds from the first one's result, so a
+                // forced refresh right after the JIT one above costs nothing.
+                bool refreshed = false;
+                try
+                {
+                    refreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"TryGetJwtSilently: forced refresh threw: {ex.InnerException?.Message ?? ex.Message}", TraceLevel.Error);
+                }
+                if (!refreshed)
+                {
+                    Tracing.TraceLine("TryGetJwtSilently: forced refresh failed", TraceLevel.Warning);
+                    return null;
+                }
+                if (SmartLinkAccountManager.IsJwtExpired(account.IdToken))
+                {
+                    Tracing.TraceLine("TryGetJwtSilently: JWT still expired after forced refresh", TraceLevel.Warning);
+                    return null;
+                }
+            }
+
             return account.IdToken;
         }
 
@@ -5453,13 +5705,14 @@ namespace Radios
         /// </para>
         ///
         /// <para>
-        /// Radio-list discovery still runs through the static
-        /// <c>WanServer.WanRadioRadioListRecieved</c> event, which the
-        /// <see cref="Radios.SmartLink.WanServerAdapter"/> also listens for —
-        /// both subscribers (our handler here + the adapter inside the session)
-        /// receive the list. Our handler populates <c>radios</c> +
-        /// <c>wanListReceived</c> as before; the adapter populates
-        /// <c>session.AvailableRadios</c>.
+        /// Sprint 35 Track K (#259): radio-list discovery now runs through the
+        /// coordinator's attributed <c>SessionRadioListReceived</c> event —
+        /// each held session hears only its own account's lists (instance
+        /// event in the vendored FlexLib, see MIGRATION.md item 13) and the
+        /// coordinator re-raises them stamped with the account. Our handler
+        /// populates <c>radios</c> + <c>wanListReceived</c> only for the
+        /// account this flow is waiting on; the owner populates
+        /// <c>session.AvailableRadios</c> for every account.
         /// </para>
         /// </summary>
         private SmartLinkConnectResult ConnectToSmartLink(string jwt)
@@ -5475,12 +5728,12 @@ namespace Radios
                 var accountEmail = _currentAccount?.Email ?? "default-account";
                 var session = Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail);
 
-                // Ensure the static radio-list subscription is active so `radios` and
-                // `wanListReceived` fields get populated alongside session.AvailableRadios.
+                // Ensure the attributed radio-list subscription is active so `radios`
+                // and `wanListReceived` get populated alongside session.AvailableRadios.
                 // Defensive unsubscribe-first to avoid duplicate registrations across
                 // sign-in / sign-out cycles.
-                WanServer.WanRadioRadioListRecieved -= wanRadioListReceivedHandler;
-                WanServer.WanRadioRadioListRecieved += wanRadioListReceivedHandler;
+                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived -= sessionRadioListReceivedHandler;
+                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived += sessionRadioListReceivedHandler;
 
                 // Whether this TLS session was live BEFORE this call. The server
                 // sends the radio list exactly once per TLS session, so on a
@@ -5509,27 +5762,61 @@ namespace Radios
                     return SmartLinkConnectResult.AuthFailed;
                 }
 
-                Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                session.ReRegister(API.ProgramName, "Win10", jwt);
+                // One registration per connection: the session's own
+                // auto-register (held-open presence, #259) may already have
+                // sent it, and a second registration is at best a pointless
+                // server poke. TryClaimRegistration is the atomic answer to
+                // who sends it; the claim resets when the connection drops.
+                if (session.TryClaimRegistration())
+                {
+                    Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    session.ReRegister(API.ProgramName, "Win10", jwt);
+                }
+                else
+                {
+                    Tracing.TraceLine($"ConnectToSmartLink: session already registered this connection — skipping duplicate registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+
+                // Sprint 35 Track K (#259): a held session KEEPS its account's
+                // last list (owner.AvailableRadios) across this instance's
+                // whole lifetime — but a NEW FlexBase's own bookkeeping starts
+                // empty and the next spontaneous push could be minutes away.
+                // Replay the owner's cached list through the intake so this
+                // instance — and the selector's rows — get the account's
+                // current truth immediately instead of a 10s timeout followed
+                // by a needless session cycle.
+                if (sessionWasAlreadyConnected
+                    && session.AvailableRadios.Count > 0
+                    && !myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)))
+                {
+                    Tracing.TraceLine(
+                        $"ConnectToSmartLink: replaying held session's cached list ({session.AvailableRadios.Count} radio(s)) through the intake ({sw.ElapsedMilliseconds}ms)",
+                        TraceLevel.Info);
+                    wanRadioListReceivedHandler(accountEmail, session.AvailableRadios);
+                }
 
                 // When we already hold a radio list from this session, don't make
                 // the user sit through the full 10s window on the off chance the
                 // server volunteers a new one — it does not resend per session.
                 // WAN entries only: myRadioList also accumulates LAN radios, and
                 // a LAN-only cache says nothing about this SmartLink session.
-                bool haveCachedList = session.IsConnected && myRadioList.Any(r => r.IsWan);
+                // Scoped to THIS account: with presence holding every account's
+                // sessions, another account's radios in myRadioList say nothing
+                // about the account this flow is connecting.
+                bool haveCachedList = session.IsConnected
+                    && myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail));
 
                 // Re-entry over a session that was ALREADY live when this call
                 // began: the one list this TLS session will ever send arrived
                 // long ago, so satisfy the wait from the cache IMMEDIATELY
                 // instead of burning even the short window (QB Track A). The
-                // static WanRadioRadioListRecieved subscription stays active,
-                // so if the server ever does volunteer a fresh list it lands
-                // as a refresh through wanRadioListReceivedHandler exactly as
-                // the 2026-08-06 refresh/morph flow expects.
+                // attributed SessionRadioListReceived subscription stays
+                // active, so pushes keep landing as refreshes through
+                // wanRadioListReceivedHandler exactly as the 2026-08-06
+                // refresh/morph flow expects.
                 if (sessionWasAlreadyConnected && haveCachedList)
                 {
-                    radios = myRadioList.Where(r => r.IsWan).ToList();
+                    radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
                     Tracing.TraceLine(
                         $"ConnectToSmartLink: session was already live — satisfied immediately from {radios.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
@@ -5561,10 +5848,12 @@ namespace Radios
                         // here: NRE, mapped to ConnectFailed, answered with a
                         // pointless interactive re-login on a healthy session
                         // (Noel, 2026-08-06, trace 203418). Rebuild it from the
-                        // cache being accepted. RadioFound for these entries
-                        // already fired via radioAddedHandler at apiInit, so no
-                        // re-announce is needed here.
-                        radios = myRadioList.Where(r => r.IsWan).ToList();
+                        // cache being accepted — scoped to this account, so
+                        // another account's presence radios cannot stand in
+                        // for a list this account never gave us. RadioFound for
+                        // these entries already fired via radioAddedHandler at
+                        // apiInit, so no re-announce is needed here.
+                        radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
                         Tracing.TraceLine(
                             $"ConnectToSmartLink: no new radio list, session live with {radios.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
                             TraceLevel.Info);
@@ -5637,6 +5926,30 @@ namespace Radios
             });
 
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+
+            // Sprint 35 Track K (#259): a SmartLink connect must go through the
+            // session of the account that OWNS the radio — the broker only
+            // knows serials on the session's own account, so dialling Don's
+            // radio through another account's session can only fail. With one
+            // held session per account, the attributed handle map knows the
+            // owner; prefer its live session over whatever happens to be
+            // active. (This is the root of #203's two-Enter behaviour: the
+            // first Enter used to have no session that could act on the row.)
+            string owningAccount = GetWanAccountForSerial(r.Serial);
+            if (!string.IsNullOrEmpty(owningAccount)
+                && (session == null
+                    || !string.Equals(session.AccountId, owningAccount, StringComparison.OrdinalIgnoreCase)))
+            {
+                var owningSession = Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(owningAccount);
+                if (owningSession != null && owningSession.IsConnected)
+                {
+                    Tracing.TraceLine(
+                        $"sendRemoteConnect: routing through owning account's session ({owningSession.SessionId}) instead of active",
+                        TraceLevel.Info);
+                    session = owningSession;
+                }
+            }
+
             if (session == null)
             {
                 Tracing.TraceLine("sendRemoteConnect: no active session", TraceLevel.Error);
@@ -6515,7 +6828,12 @@ namespace Radios
                             // of Noel's spec. The radio confirming a slice as
                             // Active is the honest moment the operator arrived
                             // on it. See AnnounceSliceIdentity.
-                            if (s.Active) AnnounceSliceIdentity(s);
+                            if (s.Active)
+                            {
+                                AnnounceSliceIdentity(s);
+                                // Arriving on a slice is a place change (#226).
+                                NoteOperatorPlace(s);
+                            }
                         }
                         break;
                     case "DemodMode":
@@ -6527,6 +6845,9 @@ namespace Radios
                             {
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
+                                // Where-you-are memory (#226): "14.243 USB" is
+                                // a place, and mode is half of it.
+                                NoteOperatorPlace(s);
 
                                 // The CW mode announcement (#58). Runs alongside speech, not
                                 // only when speech is off — CW is a parallel notification
@@ -6605,6 +6926,10 @@ namespace Radios
                             {
                                 _RXFrequency = LibFreqtoLong(s.Freq);
                                 FilterObj.RXFreqChange(s);
+                                // Where-you-are memory (#226) — debounced, so
+                                // a tuning sweep costs one write, not one per
+                                // click.
+                                NoteOperatorPlace(s);
                             }
                             if (s.IsTransmitSlice) _TXFrequency = LibFreqtoLong(s.Freq);
                         }
@@ -6677,12 +7002,25 @@ namespace Radios
                             }
                         }
                         break;
-#if zero
-                    case "TXAntenna":
-                        Tracing.TraceLine("TXAntenna:" + s.TXAnt, TraceLevel.Info);
-                        // We always set the TXAnt for both slices, so we'll come through twice.
+                    // #188 — the antenna report-back, RX and TX kept separate.
+                    //
+                    // What stood here was a `#if zero` block on case
+                    // "TXAntenna", and it had TWO faults, either of which alone
+                    // made it dead: it was compiled out, and FlexLib raises
+                    // "TXAnt", never "TXAntenna" (Slice._UpdateTXAnt). So even
+                    // enabling it would have matched nothing. Restored under
+                    // the names FlexLib actually raises, with RX added — the
+                    // receive port was never traced in any form.
+                    //
+                    // See the ReportAntennaChange remarks for what a silent
+                    // radio does and does not prove.
+                    case "RXAnt":
+                        ReportAntennaChange(s, "RX", s.RXAnt, _rxAntRequested);
                         break;
-#endif
+
+                    case "TXAnt":
+                        ReportAntennaChange(s, "TX", s.TXAnt, _txAntRequested);
+                        break;
                 }
             }
             else
@@ -8700,6 +9038,47 @@ namespace Radios
 
         #region Antenna Properties — Sprint 22
 
+        // ── Why these two setters trace, and the other Sprint 22 ones do not ──
+        //
+        // #188. Antenna selection was the one transmit-path choice this app
+        // could make that left no record anywhere. Nothing in the app logged a
+        // change, so EVERY power and standing-wave figure ever captured on the
+        // bench has no recorded port: a reader of that capture — including the
+        // person who took it, ten minutes later — cannot say which connector
+        // the RF left by. That is a first-order fact for a tool whose job
+        // includes walking the transmit chain, and it was simply absent.
+        //
+        // It also made a negative result uninterpretable. On 2026-08-22 the RX
+        // antenna was switched between ANT1 and ANT2, no difference was heard,
+        // and there was no way to tell whether that meant "both ports sound
+        // alike" or "the switch never took". A negative result needs a positive
+        // control and the instrument could not even be checked.
+        //
+        // The only ANT1 strings in a capture came from FlexLib's own
+        // ApplyEqualizerActiveStatus logging — vendor code, firing on its own
+        // schedule, reporting whatever IT considers current rather than
+        // announcing a change.
+        //
+        // WHAT THE REPORT-BACK CAN AND CANNOT TELL YOU. FlexLib's Slice.RXAnt /
+        // TXAnt setters update their own cached value BEFORE sending the
+        // command, and their status parser drops any echo that matches the
+        // cache (Slice.cs, case "rxant" / "txant": `if (_rxant == value)
+        // continue;`). So the radio AGREEING is silent — there is no
+        // confirmation event to trace. The only report-back that reaches us is
+        // one that DISAGREES with what we cached, which is exactly the
+        // acked-but-not-applied hazard of #164 and exactly what is worth a
+        // Warning. Absence of a warning is therefore weak evidence, not proof;
+        // say so rather than reading silence as confirmation.
+        //
+        // The last-requested value is remembered per direction so a disagreeing
+        // report can name what was asked for. It is deliberately NOT cleared on
+        // a match: the match we see is our own optimistic echo, not the radio's
+        // answer. And a later disagreement is reported as an OBSERVATION rather
+        // than a diagnosis, because another GUI client changing the port
+        // produces the same event as a change that never took.
+        private string _rxAntRequested;
+        private string _txAntRequested;
+
         /// <summary>Current RX antenna name for active slice (e.g. "ANT1", "ANT2", "RX_A").</summary>
         public string RXAntennaName
         {
@@ -8707,7 +9086,17 @@ namespace Radios
             set
             {
                 var s = theRadio?.ActiveSlice;
-                if (s != null) s.RXAnt = value;
+                if (s == null)
+                {
+                    Tracing.TraceLine($"Antenna:RX request '{value}' dropped — no active slice",
+                                      TraceLevel.Warning);
+                    return;
+                }
+                Tracing.TraceLine($"Antenna:RX request slice {s.Index}: '{s.RXAnt}' -> '{value}'",
+                                  TraceLevel.Info);
+                NoteOperatorChangedRadioSetting("RXAntennaName");
+                _rxAntRequested = value;
+                s.RXAnt = value;
             }
         }
 
@@ -8718,8 +9107,52 @@ namespace Radios
             set
             {
                 var s = theRadio?.ActiveSlice;
-                if (s != null) s.TXAnt = value;
+                if (s == null)
+                {
+                    Tracing.TraceLine($"Antenna:TX request '{value}' dropped — no active slice",
+                                      TraceLevel.Warning);
+                    return;
+                }
+                Tracing.TraceLine($"Antenna:TX request slice {s.Index}: '{s.TXAnt}' -> '{value}'",
+                                  TraceLevel.Info);
+                NoteOperatorChangedRadioSetting("TXAntennaName");
+                _txAntRequested = value;
+                s.TXAnt = value;
             }
+        }
+
+        /// <summary>
+        /// Trace what the radio now reports an antenna to be, against what this
+        /// app last asked for. Called from the slice property-changed handler
+        /// for RXAnt and TXAnt.
+        /// </summary>
+        /// <remarks>
+        /// Wording is deliberately observational. "Requested and reported
+        /// disagree" is a thing we watched happen; "the change did not take"
+        /// would be a conclusion, and another GUI client moving the port
+        /// produces the identical event.
+        /// </remarks>
+        private void ReportAntennaChange(Slice s, string direction, string reported, string requested)
+        {
+            string now = string.IsNullOrEmpty(reported) ? "(empty)" : reported;
+
+            if (string.IsNullOrEmpty(requested))
+            {
+                Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
+                    + " — not requested from here", TraceLevel.Info);
+                return;
+            }
+
+            if (string.Equals(requested, reported, StringComparison.OrdinalIgnoreCase))
+            {
+                Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
+                    + " — matches the last request from here", TraceLevel.Info);
+                return;
+            }
+
+            Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
+                + $" but '{requested}' was requested from here — requested and reported disagree",
+                TraceLevel.Warning);
         }
 
         /// <summary>Available RX antenna list from the active slice. Dynamic per radio model.</summary>
@@ -9432,7 +9865,11 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FilterLow = value; }), "FilterLow");
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("FilterLow");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FilterLow = value; }), "FilterLow");
+                }
             }
         }
 
@@ -9444,7 +9881,11 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FilterHigh = value; }), "FilterHigh");
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("FilterHigh");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FilterHigh = value; }), "FilterHigh");
+                }
             }
         }
 
@@ -9456,7 +9897,11 @@ namespace Radios
         /// </summary>
         public void SetFilter(int low, int high)
         {
-            if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.UpdateFilter(low, high); }), "Filter");
+            if (HasActiveSlice)
+            {
+                NoteOperatorChangedRadioSetting("SetFilter");
+                q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.UpdateFilter(low, high); }), "Filter");
+            }
         }
 
 #if zero
@@ -10353,6 +10798,7 @@ namespace Radios
                 bool val = (value == OffOnValues.on) ? true : false;
                 if (s != null)
                 {
+                    NoteOperatorChangedRadioSetting("Vox");
                     if (s.DemodMode == "CW")
                     {
                         q.Enqueue((FunctionDel)(() => { theRadio.CWBreakIn = val; }), "BreakIn");
@@ -10373,7 +10819,11 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBOn = (value == OffOnValues.on) ? true : false; }), "NBOn");
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("NoiseBlanker");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBOn = (value == OffOnValues.on) ? true : false; }), "NBOn");
+                }
             }
         }
 
@@ -10384,7 +10834,7 @@ namespace Radios
         public int NoiseBlankerLevel
         {
             get { return theRadio?.ActiveSlice?.NBLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBLevel = value; }), "NBLevel"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseBlankerLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBLevel = value; }), "NBLevel"); } }
         }
 
         public OffOnValues WidebandNoiseBlanker
@@ -10395,14 +10845,18 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBOn = (value == OffOnValues.on) ? true : false; }), "WNBOn");
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("WidebandNoiseBlanker");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBOn = (value == OffOnValues.on) ? true : false; }), "WNBOn");
+                }
             }
         }
 
         public int WidebandNoiseBlankerLevel
         {
             get { return theRadio?.ActiveSlice?.WNBLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBLevel = value; }), "WNBLevel"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("WidebandNoiseBlankerLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBLevel = value; }), "WNBLevel"); } }
         }
 
         public OffOnValues NoiseReduction
@@ -10413,7 +10867,11 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NROn = (value == OffOnValues.on) ? true : false; }));
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("NoiseReduction");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NROn = (value == OffOnValues.on) ? true : false; }));
+                }
             }
         }
 
@@ -10423,7 +10881,7 @@ namespace Radios
         internal int NoiseReductionLevel
         {
             get { return theRadio?.ActiveSlice?.NRLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLevel = value; })); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLevel = value; })); } }
         }
 
         // Advanced Noise Reduction algorithms (FlexLib v4.0.1)
@@ -10441,6 +10899,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("NoiseReductionLegacy");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLOn = (value == OffOnValues.on); }), "NRLOn");
                 }
             }
@@ -10448,7 +10907,7 @@ namespace Radios
         public int NoiseReductionLegacyLevel
         {
             get { return theRadio?.ActiveSlice?.NRL_Level ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRL_Level = value; }), "NRL_Level"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionLegacyLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRL_Level = value; }), "NRL_Level"); } }
         }
 
         // Spectral Subtraction Noise Reduction (NRS)
@@ -10465,6 +10924,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("SpectralNoiseReduction");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSOn = (value == OffOnValues.on); }), "NRSOn");
                 }
             }
@@ -10472,7 +10932,7 @@ namespace Radios
         internal int SpectralNoiseReductionLevel
         {
             get { return theRadio?.ActiveSlice?.NRSLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSLevel = value; }), "NRSLevel"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("SpectralNoiseReductionLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSLevel = value; }), "NRSLevel"); } }
         }
 
         // Noise Reduction with Filter (NRF)
@@ -10489,6 +10949,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("NoiseReductionFilter");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFOn = (value == OffOnValues.on); }), "NRFOn");
                 }
             }
@@ -10496,7 +10957,7 @@ namespace Radios
         internal int NoiseReductionFilterLevel
         {
             get { return theRadio?.ActiveSlice?.NRFLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFLevel = value; }), "NRFLevel"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionFilterLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFLevel = value; }), "NRFLevel"); } }
         }
 
         // Neural noise reduction (RNN) - toggle only
@@ -10510,6 +10971,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("NeuralNoiseReduction");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.RNNOn = (value == OffOnValues.on); }), "RNNOn");
                 }
             }
@@ -10526,6 +10988,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("AutoNotchFFT");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFTOn = (value == OffOnValues.on); }), "ANFTOn");
                 }
             }
@@ -10545,6 +11008,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("AutoNotchLegacy");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFLOn = (value == OffOnValues.on); }), "ANFLOn");
                 }
             }
@@ -10552,7 +11016,7 @@ namespace Radios
         internal int AutoNotchLegacyLevel
         {
             get { return theRadio?.ActiveSlice?.ANFL_Level ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFL_Level = value; }), "ANFL_Level"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("AutoNotchLegacyLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFL_Level = value; }), "ANFL_Level"); } }
         }
 
         /// <summary>
@@ -10567,6 +11031,7 @@ namespace Radios
             set {
                 if (HasActiveSlice)
                 {
+                    NoteOperatorChangedRadioSetting("AGCSpeed");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCMode = value; }), "AGCMode");
                 }
             }
@@ -10578,7 +11043,7 @@ namespace Radios
         public int AGCThreshold
         {
             get { return theRadio?.ActiveSlice?.AGCThreshold ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCThreshold = value; })); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("AGCThreshold"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCThreshold = value; })); } }
         }
 
         /// <summary>
@@ -10823,13 +11288,13 @@ namespace Radios
         public int MicGain
         {
             get { return theRadio?.MicLevel ?? 0; }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.MicLevel = value; })); }
+            set { NoteOperatorChangedRadioSetting("MicGain"); q.Enqueue((FunctionDel)(() => { theRadio.MicLevel = value; })); }
         }
 
         public OffOnValues ProcessorOn
         {
             get { return (theRadio?.SpeechProcessorEnable == true) ? OffOnValues.on : OffOnValues.off; }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
+            set { NoteOperatorChangedRadioSetting("ProcessorOn"); q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
         }
 
         public enum ProcessorSettings
@@ -10841,7 +11306,7 @@ namespace Radios
         public ProcessorSettings ProcessorSetting
         {
             get { return (ProcessorSettings)(theRadio?.SpeechProcessorLevel ?? 0); }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorLevel = (uint)value; })); }
+            set { NoteOperatorChangedRadioSetting("ProcessorSetting"); q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorLevel = (uint)value; })); }
         }
 
         public OffOnValues Compander
@@ -10850,6 +11315,7 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
+                NoteOperatorChangedRadioSetting("Compander");
                 q.Enqueue((FunctionDel)(() => { theRadio.CompanderOn = val; }));
             }
         }
@@ -10862,6 +11328,7 @@ namespace Radios
             get { return theRadio?.CompanderLevel ?? 0; }
             set
             {
+                NoteOperatorChangedRadioSetting("CompanderLevel");
                 q.Enqueue((FunctionDel)(() => { theRadio.CompanderLevel = value; }));
             }
         }
@@ -10874,6 +11341,7 @@ namespace Radios
             get { return (theRadio != null) ? theRadio.TXFilterLow : 0; }
             set
             {
+                NoteOperatorChangedRadioSetting("TXFilterLow");
                 q.Enqueue((FunctionDel)(() => { theRadio.TXFilterLow = value; }));
             }
         }
@@ -10886,6 +11354,7 @@ namespace Radios
             get { return (theRadio != null) ? theRadio.TXFilterHigh : 0; }
             set
             {
+                NoteOperatorChangedRadioSetting("TXFilterHigh");
                 q.Enqueue((FunctionDel)(() => { theRadio.TXFilterHigh = value; }));
             }
         }
@@ -10896,6 +11365,7 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
+                NoteOperatorChangedRadioSetting("MicBoost");
                 q.Enqueue((FunctionDel)(() => { theRadio.MicBoost = val; }));
             }
         }
@@ -10906,6 +11376,7 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
+                NoteOperatorChangedRadioSetting("MicBias");
                 q.Enqueue((FunctionDel)(() => { theRadio.MicBias = val; }));
             }
         }
@@ -11354,19 +11825,25 @@ namespace Radios
             {
                 if (value == _dummyLoadMode) return;
 
-                if (value)
+                // The zero-and-restore pair is mechanical, not an operator
+                // settings change — it must not arm the provisional-change
+                // receipt or the disconnect save offer (#225).
+                using (AppInitiatedSettingChanges())
                 {
-                    _savedRFPower = XmitPower;
-                    _savedTunePower = TunePower;
-                    XmitPower = 0;
-                    TunePower = 0;
-                    _dummyLoadMode = true;
-                }
-                else
-                {
-                    _dummyLoadMode = false;
-                    XmitPower = _savedRFPower;
-                    TunePower = _savedTunePower;
+                    if (value)
+                    {
+                        _savedRFPower = XmitPower;
+                        _savedTunePower = TunePower;
+                        XmitPower = 0;
+                        TunePower = 0;
+                        _dummyLoadMode = true;
+                    }
+                    else
+                    {
+                        _dummyLoadMode = false;
+                        XmitPower = _savedRFPower;
+                        TunePower = _savedTunePower;
+                    }
                 }
             }
         }
@@ -11384,6 +11861,7 @@ namespace Radios
             }
             set
             {
+                NoteOperatorChangedRadioSetting("XmitPower");
                 q.Enqueue((FunctionDel)(() => { theRadio.RFPower = value; }));
             }
         }
@@ -11401,6 +11879,7 @@ namespace Radios
             }
             set
             {
+                NoteOperatorChangedRadioSetting("TunePower");
                 q.Enqueue((FunctionDel)(() => { theRadio.TunePower = value; }));
             }
         }
@@ -11415,6 +11894,7 @@ namespace Radios
             get { return theRadio.SimpleVOXDelay * VoxDelayMS; }
             set
             {
+                NoteOperatorChangedRadioSetting("VoxDelay");
                 q.Enqueue((FunctionDel)(() => { theRadio.SimpleVOXDelay = value / VoxDelayMS; }));
             }
         }
@@ -11427,6 +11907,7 @@ namespace Radios
             get { return theRadio.SimpleVOXLevel; }
             set
             {
+                NoteOperatorChangedRadioSetting("VoxGain");
                 q.Enqueue((FunctionDel)(() => { theRadio.SimpleVOXLevel = value; }));
             }
         }
@@ -11439,6 +11920,7 @@ namespace Radios
                 if (HasActiveSlice)
                 {
                     bool val = (value == OffOnValues.on) ? true : false;
+                    NoteOperatorChangedRadioSetting("ANF");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFOn = val; }));
                 }
             }
@@ -11452,7 +11934,11 @@ namespace Radios
             get { return theRadio?.ActiveSlice?.ANFLevel ?? 0; }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFLevel = value; }));
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("AutoNotchLevel");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFLevel = value; }));
+                }
             }
         }
 
@@ -11463,7 +11949,11 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFOn = val; }));
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("APF");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFOn = val; }));
+                }
             }
         }
 
@@ -11475,7 +11965,11 @@ namespace Radios
             get { return theRadio?.ActiveSlice?.APFLevel ?? 0; }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFLevel = value; }));
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("AutoPeakLevel");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFLevel = value; }));
+                }
             }
         }
 
@@ -11494,6 +11988,7 @@ namespace Radios
             {
                 if (activePan != null)
                 {
+                    NoteOperatorChangedRadioSetting("RFGain");
                     q.Enqueue((FunctionDel)(() => { activePan.RFGain = value; }));
                 }
             }
@@ -11552,6 +12047,7 @@ namespace Radios
             get { return (theRadio?.ActiveSlice?.SquelchOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
+                NoteOperatorChangedRadioSetting("Squelch");
                 q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.SquelchOn = (value == OffOnValues.on) ? true : false; }));
             }
         }
@@ -11564,6 +12060,7 @@ namespace Radios
             get { return theRadio?.ActiveSlice?.SquelchLevel ?? 0; }
             set
             {
+                NoteOperatorChangedRadioSetting("SquelchLevel");
                 q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.SquelchLevel = value; }));
             }
         }
@@ -12486,12 +12983,15 @@ namespace Radios
         }
 
         /// <summary>
-        /// Set when this application changed the station's slice set during
-        /// this connection, and NOT cleared by the spoken receipt. Distinct
-        /// from the receipt's own flag on purpose: the receipt fires once per
-        /// settled change and clears itself, whereas this has to survive until
-        /// disconnect so the save offer can ask "did anything actually change?"
-        /// and stay silent when the answer is no.
+        /// Set when this application changed radio-persisted station state
+        /// during this connection — the slice set (Sprint 33 Track K), and
+        /// since Sprint 35 Track I (#225) any other profile-persisted setting
+        /// the operator changed through this class (power, TX settings, filter
+        /// cuts, DSP, antennas). NOT cleared by the spoken receipt. Distinct
+        /// from the receipt's own flags on purpose: receipts fire and clear on
+        /// their own cadence, whereas this has to survive until disconnect so
+        /// the save offer can ask "did anything actually change?" and stay
+        /// silent when the answer is no.
         /// </summary>
         public bool OperatorChangedStationThisSession { get; private set; }
 
@@ -12582,6 +13082,11 @@ namespace Radios
             // The layout on the radio now matches what the operator has, so the
             // offer has nothing left to ask about.
             OperatorChangedStationThisSession = false;
+
+            // A new unsaved-changes epoch begins (#225): whatever changes come
+            // AFTER this save are once again provisional, and the receipt owes
+            // the operator one fresh telling about them.
+            _settingsReceiptGivenThisEpoch = false;
             return null;
         }
 
@@ -12640,8 +13145,8 @@ namespace Radios
             if (!OfferStationSaveOnDisconnect) return false;
 
             // Something to ask ABOUT. An offer on a session where the operator
-            // never touched the slice set is the reflexive-dismissal trap, and
-            // this is the line that keeps it shut.
+            // never touched the slice set or a radio-persisted setting is the
+            // reflexive-dismissal trap, and this is the line that keeps it shut.
             if (!OperatorChangedStationThisSession) return false;
 
             // Saveable at all: connected, sole operator, a profile loaded to
@@ -13127,6 +13632,12 @@ namespace Radios
 
             AnnounceSliceCensus();
             if (operatorDid) SpeakProvisionalSliceChangeReceipt();
+
+            // Once the connect's replay has settled, say whether the radio
+            // put the operator back where they left off (#226). After the
+            // census on purpose: "here is where you are — and last time you
+            // were on …" reads as one thought.
+            AnnounceLastPlaceIfDifferent();
         }
 
         /// <summary>
@@ -13285,6 +13796,13 @@ namespace Radios
         /// </summary>
         private void SpeakProvisionalSliceChangeReceipt()
         {
+            // A slice receipt also satisfies the once-per-epoch settings
+            // receipt (#225): the sentence is identical, and hearing it twice
+            // in one epoch teaches the operator to stop hearing it at all.
+            // Set even when speech is suppressed — suppression is a caller
+            // choice about audio, not evidence the epoch went untold.
+            _settingsReceiptGivenThisEpoch = true;
+
             if (SuppressSpeech) return;
             ScreenReaderOutput.Speak(
                 ProvisionalSliceChangeReceipt,
@@ -13312,6 +13830,355 @@ namespace Radios
             // slices restored by the radio's own profile on connect are not a
             // change this operator made, and must never make the offer appear.
             OperatorChangedStationThisSession = true;
+        }
+
+        // ══ The receipt, widened past slices (Sprint 35 Track I, #225) ══
+        //
+        // Sprint 32 Track H built the receipt for slice changes and it is
+        // right: releasing a slice sounds successful and is silently discarded
+        // at the next connect, because the radio replays its global profile.
+        // But slices were ONE CLASS out of many. Tune power, RF power, TX
+        // settings, filter cuts, antenna selection — everything else the
+        // radio restores from that profile — changed with no receipt at all.
+        // Noel hit exactly this: he set tune power for a dummy-load test,
+        // was never told the change was provisional, and later could not
+        // reconstruct what had happened to it.
+        //
+        // The mechanism is the slice receipt's, extended, with two deliberate
+        // differences:
+        //
+        // 1. ONE RECEIPT PER UNSAVED-CHANGES EPOCH, not one per settled
+        //    change. Slice changes are rare acts; setting changes are the
+        //    fabric of operating. A sentence spoken after every settled
+        //    adjustment would become wallpaper within a session, and the
+        //    receipt's own design notes say why that is worse than silence: a
+        //    notification trained to be ignored creates the belief that the
+        //    operator was told. The fact it carries ("unsaved changes do not
+        //    survive disconnect") does not change between utterances, so it is
+        //    said once — and said again only after a profile save starts a new
+        //    epoch, because from then on there are new unsaved changes to be
+        //    honest about. The slice receipt keeps its approved per-change
+        //    behaviour; when it speaks, it also satisfies this epoch, so the
+        //    two can never say the same sentence twice in a row.
+        //
+        // 2. AN EXPLICIT APP-INITIATED SUPPRESSION SCOPE. The slice receipt
+        //    distinguishes operator from app by call site (the verbs note, the
+        //    arrival handlers do not). Setting changes have no such split —
+        //    the same public setter serves the operator's hotkey and the
+        //    dummy-load mode's mechanical zeroing. Callers that change
+        //    settings on the operator's behalf wrap the change in
+        //    <see cref="AppInitiatedSettingChanges"/> so the machinery's own
+        //    acts never produce a receipt claiming the operator did something.
+        //
+        // WHAT IS DELIBERATELY NOT INSTRUMENTED, so the next reader does not
+        // "complete" the sweep and break it:
+        //   - Frequency and mode. Tuning is the operating act a radio is FOR,
+        //     and the come-back-where-you-left-it work (#226) owns that story.
+        //   - Mutes, volumes, gains and pans (audio gain, headphone, lineout,
+        //     monitor levels). Ephemeral listening state; receipting volume
+        //     would fire on the first knob touch of every session.
+        //   - Momentary verbs: Transmit, TxTune, record and playback.
+        //   - CW keyer settings (KeyerSpeed, SidetonePitch, SidetoneGain,
+        //     BreakinDelay): these write cfgData as well as the radio — the
+        //     app itself persists and reapplies them, so "this will not
+        //     survive disconnect" would be FALSE for them.
+        //   - REM ON and network settings: radio NVRAM, genuinely persistent
+        //     across disconnect. The receipt would be a lie there too.
+
+        /// <summary>
+        /// True while a settings change is the application's own act rather
+        /// than the operator's. Depth-counted so nested scopes compose.
+        /// </summary>
+        private int _appInitiatedSettingDepth;
+
+        private sealed class AppInitiatedSettingScope : IDisposable
+        {
+            private FlexBase _owner;
+            public AppInitiatedSettingScope(FlexBase owner)
+            {
+                _owner = owner;
+                System.Threading.Interlocked.Increment(ref owner._appInitiatedSettingDepth);
+            }
+            public void Dispose()
+            {
+                var o = System.Threading.Interlocked.Exchange(ref _owner, null);
+                if (o != null)
+                    System.Threading.Interlocked.Decrement(ref o._appInitiatedSettingDepth);
+            }
+        }
+
+        /// <summary>
+        /// Declare that setting changes made until the returned scope is
+        /// disposed are the APPLICATION's doing, not the operator's, so they
+        /// must not produce the provisional-change receipt or arm the
+        /// disconnect save offer. Use around mechanical set-and-restore
+        /// pairs (dummy-load zeroing, the Audio Check's power cap). Never
+        /// wrap a change the operator individually asked for.
+        /// </summary>
+        public IDisposable AppInitiatedSettingChanges() => new AppInitiatedSettingScope(this);
+
+        /// <summary>
+        /// How long the settings surface must be quiet before a batch counts
+        /// as settled. A Settings-dialog Apply or a preset application lands
+        /// several values in quick succession; the timer restarts on each, so
+        /// the batch produces at most one receipt, after its last member.
+        /// </summary>
+        private const int SettingsReceiptSettleMs = 2500;
+
+        private System.Threading.Timer _settingsSettleTimer;
+        private readonly object _settingsSettleLock = new object();
+
+        /// <summary>
+        /// True once the provisional-change receipt (slice or settings) has
+        /// been given for the current unsaved-changes epoch. An epoch starts
+        /// at connect and again after each successful profile save.
+        /// </summary>
+        private volatile bool _settingsReceiptGivenThisEpoch;
+
+        /// <summary>
+        /// Record that the operator changed a radio-persisted setting through
+        /// one of this class's operator-facing setters. Arms the disconnect
+        /// save offer and (once per unsaved-changes epoch) the spoken receipt.
+        /// The <paramref name="what"/> string is for the trace only.
+        /// </summary>
+        internal void NoteOperatorChangedRadioSetting(string what)
+        {
+            if (_appInitiatedSettingDepth > 0) return;
+            if (!IsConnected || Disconnecting || theRadio == null) return;
+
+            Tracing.TraceLine("NoteOperatorChangedRadioSetting:" + what, TraceLevel.Verbose);
+
+            // Same widened meaning as the doc on the property: any
+            // radio-persisted change this operator made, not just slices.
+            OperatorChangedStationThisSession = true;
+
+            if (_settingsReceiptGivenThisEpoch) return;
+            lock (_settingsSettleLock)
+            {
+                if (_settingsSettleTimer == null)
+                {
+                    _settingsSettleTimer = new System.Threading.Timer(
+                        _ => OnRadioSettingChangesSettled(), null,
+                        SettingsReceiptSettleMs, System.Threading.Timeout.Infinite);
+                }
+                else
+                {
+                    try
+                    {
+                        _settingsSettleTimer.Change(
+                            SettingsReceiptSettleMs, System.Threading.Timeout.Infinite);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+
+        private void OnRadioSettingChangesSettled()
+        {
+            if (Disconnecting || theRadio == null) return;
+            if (_settingsReceiptGivenThisEpoch) return;
+            _settingsReceiptGivenThisEpoch = true;
+
+            if (SuppressSpeech) return;
+            // The same sentence, and the same lexicon line, as the slice
+            // receipt — one vocabulary for one fact. Queued for the same
+            // reason: the surface the operator used has already announced the
+            // value itself; this is the trailing clause.
+            ScreenReaderOutput.Speak(
+                ProvisionalSliceChangeReceipt,
+                Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse);
+        }
+
+        // ══ Where you left this radio (Sprint 35 Track I, #226) ══
+        //
+        // A normal transceiver comes back on the frequency it was switched
+        // off on. A Flex comes back wherever its global profile says, so an
+        // operator who tuned all evening and disconnected returns to a place
+        // they left hours before the end of the session — silently, and for a
+        // blind operator with nothing on screen to glance at, undetectably.
+        // The connect announcement recites where you ARE; nothing says that
+        // this is not where you WERE.
+        //
+        // This is the honest first version, and deliberately no more: JJ Flex
+        // REMEMBERS the operator's place (active slice frequency and mode,
+        // per radio, in the serial-keyed per-radio config) and TELLS them on
+        // connect when the radio has put them somewhere else. It does not
+        // retune. Restoring automatically is a real MultiFlex hazard — a
+        // reconnect must never yank a slice another operator is using, and
+        // #117 established the slices are not ours — so restore waits for the
+        // station-state ownership audit. Telling costs nothing, is right on
+        // every path, and covers the complaint most of the times it bites.
+        //
+        // WHEN TO SNAPSHOT, and why not only at disconnect: the sessions
+        // where the place matters most are the ones that END BADLY — a
+        // network drop at a remote site, a crash. So the place is recorded on
+        // a quiet-period debounce while operating (a tuning sweep costs one
+        // write after the hand stops, not one per click) and flushed once
+        // more on a clean disconnect. A hard drop loses at most the last few
+        // seconds of tuning.
+        //
+        // Per-operator by construction: the record lives in this install's
+        // per-radio config, so two operators sharing one radio under
+        // MultiFlex each come back to their own place, which no radio-side
+        // profile could ever give them. The cost, accepted: an operator who
+        // used SmartSDR in between gets told about their last JJ Flex
+        // session, not their SmartSDR one.
+
+        /// <summary>Quiet period after the last frequency or mode change
+        /// before the place is written to disk.</summary>
+        private const int PlaceWriteQuietMs = 10000;
+
+        private readonly object _placeLock = new object();
+        private System.Threading.Timer _placeWriteTimer;
+        private ulong _currentPlaceFreqHz;
+        private string _currentPlaceMode;
+        private string _currentPlaceLetter;
+
+        // The stored place from the LAST session, stashed on first use this
+        // session — BEFORE this session's own recording can overwrite it.
+        private bool _lastPlaceStashLoaded;
+        private bool _lastPlaceStashKnown;
+        private ulong _lastPlaceStashFreqHz;
+        private string _lastPlaceStashMode;
+        private string _lastPlaceStashLetter;
+        private volatile bool _lastPlaceAnnounced;
+
+        private string PlaceRadioId => theRadio?.Serial ?? _connectedSerial;
+
+        /// <summary>
+        /// Load the previous session's place once, before any recording this
+        /// session touches the stored value. Safe to call repeatedly.
+        /// </summary>
+        private void EnsureLastPlaceStashLoaded()
+        {
+            if (_lastPlaceStashLoaded) return;
+            lock (_placeLock)
+            {
+                if (_lastPlaceStashLoaded) return;
+                string id = PlaceRadioId;
+                if (string.IsNullOrEmpty(id)) return;
+                try
+                {
+                    var cfg = RadioConfig.LoadForRadio(id);
+                    _lastPlaceStashKnown = cfg.LastPlaceKnown;
+                    _lastPlaceStashFreqHz = cfg.LastPlaceFrequencyHz;
+                    _lastPlaceStashMode = cfg.LastPlaceMode;
+                    _lastPlaceStashLetter = cfg.LastPlaceSliceLetter;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("EnsureLastPlaceStashLoaded:" + ex.Message,
+                        TraceLevel.Warning);
+                    _lastPlaceStashKnown = false;
+                }
+                _lastPlaceStashLoaded = true;
+            }
+        }
+
+        /// <summary>
+        /// Note where the operator's active slice is. Called from the slice
+        /// property handlers on frequency, mode and active changes — which
+        /// also fire for the radio's own profile replay on connect, and that
+        /// is CORRECT here: unlike the receipt, this records where the
+        /// operator IS, however they got there. The stash of the previous
+        /// session is loaded first, so the replay cannot overwrite the one
+        /// thing the connect announcement needs.
+        /// </summary>
+        private void NoteOperatorPlace(Slice s)
+        {
+            if (s == null || Disconnecting) return;
+            string letter = s.Letter;
+            string mode = s.DemodMode;
+            ulong freqHz = LibFreqtoLong(s.Freq);
+            if (freqHz == 0 || string.IsNullOrEmpty(mode)) return;
+
+            EnsureLastPlaceStashLoaded();
+
+            lock (_placeLock)
+            {
+                _currentPlaceFreqHz = freqHz;
+                _currentPlaceMode = mode;
+                _currentPlaceLetter = letter ?? "";
+
+                if (_placeWriteTimer == null)
+                {
+                    _placeWriteTimer = new System.Threading.Timer(
+                        _ => FlushOperatorPlace(), null,
+                        PlaceWriteQuietMs, System.Threading.Timeout.Infinite);
+                }
+                else
+                {
+                    try
+                    {
+                        _placeWriteTimer.Change(
+                            PlaceWriteQuietMs, System.Threading.Timeout.Infinite);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Write the in-memory place to the per-radio config. Runs on the
+        /// debounce timer and once more from <see cref="Disconnect"/>.
+        /// RecordLastPlace skips unchanged values, so calling this freely
+        /// costs nothing.
+        /// </summary>
+        private void FlushOperatorPlace()
+        {
+            ulong freqHz;
+            string mode, letter, id;
+            lock (_placeLock)
+            {
+                freqHz = _currentPlaceFreqHz;
+                mode = _currentPlaceMode;
+                letter = _currentPlaceLetter;
+                id = PlaceRadioId;
+            }
+            if (freqHz == 0 || string.IsNullOrEmpty(mode) || string.IsNullOrEmpty(id)) return;
+            RadioConfig.RecordLastPlace(id, freqHz, mode, letter);
+        }
+
+        /// <summary>
+        /// Once per connection, after the first settled census: if the radio
+        /// has put the operator somewhere other than where they left it, say
+        /// where they were. Queued after the census, so the pair reads as
+        /// "here is where you are — and last time you were on …". Silence
+        /// when they ARE where they left off, and on a radio never seen
+        /// before: an announcement that fires every connect regardless
+        /// teaches the operator to stop hearing it.
+        /// </summary>
+        private void AnnounceLastPlaceIfDifferent()
+        {
+            if (_lastPlaceAnnounced) return;
+            _lastPlaceAnnounced = true;
+
+            EnsureLastPlaceStashLoaded();
+            if (!_lastPlaceStashKnown) return;
+            if (SuppressSpeech) return;
+
+            // Compare against the operator's active slice as it stands now.
+            Slice active = null;
+            lock (mySlices)
+                foreach (var s in mySlices) if (s != null && s.Active) { active = s; break; }
+            if (active == null) return;
+
+            ulong hereHz = LibFreqtoLong(active.Freq);
+            string hereMode = active.DemodMode ?? "";
+            if (hereHz == _lastPlaceStashFreqHz
+                && string.Equals(hereMode, _lastPlaceStashMode, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            double mhz = _lastPlaceStashFreqHz / 1_000_000.0;
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("connect.last_place",
+                    ("freq", mhz.ToString("0.000###")),
+                    ("mode", _lastPlaceStashMode)),
+                Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse);
         }
 
         /// <summary>

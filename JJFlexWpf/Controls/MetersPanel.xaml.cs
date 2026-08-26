@@ -928,12 +928,29 @@ public partial class MetersPanel : UserControl
     private MeterSlot? _meterTestToneSlot;
 
     /// <summary>
+    /// This preview's entry in the running-cost register (#253), held only
+    /// while it sounds.
+    /// </summary>
+    /// <remarks>
+    /// The transient half of the register, and this is the right first one to
+    /// build it on: the Test button is where a tone once ran until the
+    /// application closed (#131), and the only reason anybody found out was
+    /// that it was audible. The stop is unconditional now — but a register
+    /// whose whole job is naming what is still going ought to be able to name
+    /// this, and a stranded preview would now show up in the on-demand read
+    /// instead of waiting to be noticed.
+    /// </remarks>
+    private IDisposable? _meterTestToneRegistration;
+
+    /// <summary>
     /// Silence a preview immediately. Safe to call when nothing is playing, so
     /// every path that could strand a tone calls it unconditionally.
     /// </summary>
     private void StopMeterTestTone()
     {
         _meterTestToneTimer?.Stop();
+        _meterTestToneRegistration?.Dispose();
+        _meterTestToneRegistration = null;
         if (_meterTestToneSlot != null)
         {
             _meterTestToneSlot.ToneProvider.Active = false;
@@ -959,6 +976,25 @@ public partial class MetersPanel : UserControl
         slot.ToneProvider.Pan = def.Pan;
         slot.ToneProvider.Active = true;
         _meterTestToneSlot = slot;
+
+        // Registered for as long as it sounds. No IsRunning predicate: unlike
+        // every standing registrant there is no state anywhere to ask, so
+        // "registered" IS "running" here, and the registration is released by
+        // the same unconditional stop that silences the tone.
+        DateTime startedUtc = DateTime.UtcNow;
+        _meterTestToneRegistration = RunningCostRegister.Register(
+            new RunningCost("meter-test-tone", "Meter test tone")
+            {
+                DescribeCost = () => Lexicon.Get("logging.running.tone_seconds",
+                    ("count", Math.Max(0, (int)(DateTime.UtcNow - startedUtc).TotalSeconds)
+                        .ToString(CultureInfo.CurrentCulture))),
+                // Marshalled: the register can be asked to stop things from the
+                // exit prompt, and the timer and tone provider behind this one
+                // belong to the dispatcher.
+                Stop = () => Dispatcher.Invoke(StopMeterTestTone),
+                StopHow = "close the meters panel",
+                Weight = RunningCostWeight.Routine
+            });
 
         if (_meterTestToneTimer == null)
         {

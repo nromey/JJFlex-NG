@@ -18,6 +18,31 @@
          NU1903: DotNetZip vulnerability advisory (replacing with System.IO.Compression)
          MSB3277: System.Drawing.Common 6.0 vs 8.0 version conflict in FlexLib vendor code -->
     <NoWarn>$(NoWarn);NU1903;MSB3277</NoWarn>
+
+    <!--
+      Task #135: XML documentation files do not ship.
+
+      The default for this property is ".pdb; .xml; .pri; .dll.config;
+      .exe.config", which means every referenced assembly's IntelliSense
+      documentation is copied next to it into build and publish output. It has
+      zero runtime value and it is not small: WebView2's three .xml files are
+      797 KB, and because build-debug.bat bundles the harness inside the app's
+      output tree they were shipping TWICE — 1.6 MB of documentation in a
+      tester's zip, growth that bought nothing.
+
+      .pdb stays, deliberately and non-negotiably. These are Debug builds sent
+      to testers so that a crash produces a symbolicated stack; dropping .pdb
+      to save space would trade the one thing the channel exists for.
+
+      .pri, .dll.config and .exe.config stay because they are runtime inputs,
+      not documentation, and this is a size trim rather than a pruning
+      exercise.
+
+      JJTrace and JJLogIO still GENERATE their .xml (GenerateDocumentationFile
+      is on in both) — IntelliSense inside the solution is unaffected. This
+      only stops the copy into consumers' output.
+    -->
+    <AllowedReferenceRelatedFileExtensions>.pdb;.pri;.dll.config;.exe.config</AllowedReferenceRelatedFileExtensions>
   </PropertyGroup>
 
   <!-- SonarAnalyzer for VB.NET projects -->

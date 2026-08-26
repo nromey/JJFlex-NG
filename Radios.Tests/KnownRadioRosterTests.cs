@@ -24,26 +24,10 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class KnownRadioRosterTests : IDisposable
     {
-        private readonly string _dir;
-        private readonly string? _savedBase;
-        private readonly string? _savedCache;
+        private readonly RadioConfigStaticsScope _scope = new(nameof(KnownRadioRosterTests));
+        private string _dir => _scope.Directory;
 
-        public KnownRadioRosterTests()
-        {
-            _dir = Path.Combine(Path.GetTempPath(), "jjflex-roster-tests-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dir);
-            _savedBase = RadioConfig.BaseDirectory;
-            _savedCache = KnownRadioRoster.CacheDirectory;
-            RadioConfig.BaseDirectory = _dir;
-            KnownRadioRoster.CacheDirectory = _dir;
-        }
-
-        public void Dispose()
-        {
-            RadioConfig.BaseDirectory = _savedBase;
-            KnownRadioRoster.CacheDirectory = _savedCache;
-            try { Directory.Delete(_dir, recursive: true); } catch { /* temp dir */ }
-        }
+        public void Dispose() => _scope.Dispose();
 
         // ------------------------------------------------------------------
         // RadioConfig: the appended roster fields
@@ -65,9 +49,9 @@ namespace Radios.Tests
                 ConnectionPreference = RadioConnectionPreference.ForwardOnly,
                 FixedHolePunchPort = 40420,
             };
-            Assert.True(cfg.Save(_dir, "1234-5678"));
+            Assert.True(cfg.Save(_dir, "1234-5678-6300-0001"));
 
-            var back = RadioConfig.Load(_dir, "1234-5678");
+            var back = RadioConfig.Load(_dir, "1234-5678-6300-0001");
             Assert.Equal("6300inshack", back.Nickname);
             Assert.Equal("FLEX-6300", back.Model);
             Assert.True(back.IsFavorite);
@@ -118,9 +102,9 @@ namespace Radios.Tests
                 NoPhysicalAccessDecided = true,
                 RemOnOnConnect = RemOnOnConnectModes.TurnOn,
             };
-            Assert.True(cfg.Save(_dir, "9999-0001"));
+            Assert.True(cfg.Save(_dir, "9999-0001-6500-0002"));
 
-            var back = RadioConfig.Load(_dir, "9999-0001");
+            var back = RadioConfig.Load(_dir, "9999-0001-6500-0002");
             Assert.True(back.NoPhysicalAccess);
             Assert.True(back.NoPhysicalAccessDecided);
             Assert.Equal(RemOnOnConnectModes.TurnOn, back.RemOnOnConnect);
@@ -151,13 +135,13 @@ namespace Radios.Tests
         [Fact]
         public void RadioConfig_LoadAllKnown_ReturnsEverySavedProfile()
         {
-            new RadioConfig { Nickname = "a" }.Save(_dir, "1111");
-            new RadioConfig { Nickname = "b" }.Save(_dir, "2222");
+            new RadioConfig { Nickname = "a" }.Save(_dir, "1111-1111-6300-0001");
+            new RadioConfig { Nickname = "b" }.Save(_dir, "2222-2222-6300-0002");
 
             var all = RadioConfig.LoadAllKnown(_dir);
             Assert.Equal(2, all.Count);
-            Assert.Contains(all, c => c.RadioId == "1111" && c.Nickname == "a");
-            Assert.Contains(all, c => c.RadioId == "2222" && c.Nickname == "b");
+            Assert.Contains(all, c => c.RadioId == "1111-1111-6300-0001" && c.Nickname == "a");
+            Assert.Contains(all, c => c.RadioId == "2222-2222-6300-0002" && c.Nickname == "b");
         }
 
         // ------------------------------------------------------------------
@@ -254,7 +238,7 @@ namespace Radios.Tests
                 Nickname = "8600",
                 Model = "FLEX-8600",
                 LastSeenUtc = DateTime.UtcNow.AddHours(-1),
-            }.Save(_dir, "1111");
+            }.Save(_dir, "1111-1111-8600-0001");
 
             new RadioConfig
             {
@@ -263,7 +247,7 @@ namespace Radios.Tests
                 LastSeenRemote = true,
                 LastSeenViaAccount = "dbreda@example.com",
                 LastSeenUtc = DateTime.UtcNow.AddDays(-3),
-            }.Save(_dir, "2222");
+            }.Save(_dir, "2222-2222-6300-0002");
 
             // The cache supplies a model the profile never learned, plus a radio
             // that has no profile at all (connected before the roster shipped).
@@ -272,10 +256,10 @@ namespace Radios.Tests
                 "<RadioConnectionCache xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n" +
                 "  <Entries>\n" +
                 "    <RadioConnectionCacheEntry>\n" +
-                "      <Serial>2222</Serial><Nickname>6300inshack</Nickname><Model>FLEX-6300</Model>\n" +
+                "      <Serial>2222-2222-6300-0002</Serial><Nickname>6300inshack</Nickname><Model>FLEX-6300</Model>\n" +
                 "    </RadioConnectionCacheEntry>\n" +
                 "    <RadioConnectionCacheEntry>\n" +
-                "      <Serial>3333</Serial><Nickname>orphan</Nickname><Model>FLEX-6500</Model>\n" +
+                "      <Serial>3333-3333-6500-0003</Serial><Nickname>orphan</Nickname><Model>FLEX-6500</Model>\n" +
                 "    </RadioConnectionCacheEntry>\n" +
                 "  </Entries>\n" +
                 "</RadioConnectionCache>\n");
@@ -284,19 +268,19 @@ namespace Radios.Tests
 
             Assert.Equal(3, roster.Count);
             // Favorite sorts first, whatever its last-seen age.
-            Assert.Equal("2222", roster[0].Serial);
+            Assert.Equal("2222-2222-6300-0002", roster[0].Serial);
             Assert.True(roster[0].IsFavorite);
             // Model filled in from the cache where the profile had none.
             Assert.Equal("FLEX-6300", roster[0].Model);
             Assert.Equal("dbreda@example.com", roster[0].LastSeenViaAccount);
             // A cache-only radio still makes the roster.
-            Assert.Contains(roster, r => r.Serial == "3333" && r.Model == "FLEX-6500");
+            Assert.Contains(roster, r => r.Serial == "3333-3333-6500-0003" && r.Model == "FLEX-6500");
         }
 
         [Fact]
         public void Roster_MarksRowsFromTheRequestedAccountsCachedList()
         {
-            new RadioConfig { Nickname = "6300inshack" }.Save(_dir, "2222");
+            new RadioConfig { Nickname = "6300inshack" }.Save(_dir, "2222-2222-6300-0002");
             var fetched = DateTime.UtcNow.AddMinutes(-20);
             File.WriteAllText(Path.Combine(_dir, "radioConnectionCacheV1.xml"),
                 "<?xml version=\"1.0\"?>\n" +
@@ -306,7 +290,7 @@ namespace Radios.Tests
                 "    <AccountRadioListEntry>\n" +
                 "      <AccountEmail>dbreda@example.com</AccountEmail>\n" +
                 $"      <FetchedUtc>{fetched:yyyy-MM-ddTHH:mm:ss}Z</FetchedUtc>\n" +
-                "      <Radios><CachedRadioListItem><Serial>2222</Serial>" +
+                "      <Radios><CachedRadioListItem><Serial>2222-2222-6300-0002</Serial>" +
                 "<Nickname>6300inshack</Nickname><Model>FLEX-6300</Model></CachedRadioListItem></Radios>\n" +
                 "    </AccountRadioListEntry>\n" +
                 "  </AccountLists>\n" +
@@ -344,7 +328,7 @@ namespace Radios.Tests
                 "    <AccountRadioListEntry>\n" +
                 "      <AccountEmail>dbreda@example.com</AccountEmail>\n" +
                 $"      <FetchedUtc>{fetched:yyyy-MM-ddTHH:mm:ss}Z</FetchedUtc>\n" +
-                "      <Radios><CachedRadioListItem><Serial>2222</Serial>" +
+                "      <Radios><CachedRadioListItem><Serial>2222-2222-6300-0002</Serial>" +
                 "<Nickname>6300inshack</Nickname><Model>FLEX-6300</Model></CachedRadioListItem></Radios>\n" +
                 "    </AccountRadioListEntry>\n" +
                 "  </AccountLists>\n" +
@@ -373,12 +357,12 @@ namespace Radios.Tests
                 "    <AccountRadioListEntry>\n" +
                 "      <AccountEmail>later@example.com</AccountEmail>\n" +
                 $"      <FetchedUtc>{late:yyyy-MM-ddTHH:mm:ss}Z</FetchedUtc>\n" +
-                "      <Radios><CachedRadioListItem><Serial>2222</Serial></CachedRadioListItem></Radios>\n" +
+                "      <Radios><CachedRadioListItem><Serial>2222-2222-6600-0002</Serial></CachedRadioListItem></Radios>\n" +
                 "    </AccountRadioListEntry>\n" +
                 "    <AccountRadioListEntry>\n" +
                 "      <AccountEmail>earlier@example.com</AccountEmail>\n" +
                 $"      <FetchedUtc>{early:yyyy-MM-ddTHH:mm:ss}Z</FetchedUtc>\n" +
-                "      <Radios><CachedRadioListItem><Serial>2222</Serial></CachedRadioListItem></Radios>\n" +
+                "      <Radios><CachedRadioListItem><Serial>2222-2222-6600-0002</Serial></CachedRadioListItem></Radios>\n" +
                 "    </AccountRadioListEntry>\n" +
                 "  </AccountLists>\n" +
                 "</RadioConnectionCache>\n");
@@ -388,7 +372,7 @@ namespace Radios.Tests
 
             // A profile-written attribution (a real sighting) outranks the
             // cache: the cache fills blanks, it never overwrites.
-            KnownRadioRoster.RecordSighting("2222", "club", "FLEX-6600",
+            KnownRadioRoster.RecordSighting("2222-2222-6600-0002", "club", "FLEX-6600",
                 isRemote: true, accountEmail: "profile@example.com");
             Assert.Equal("profile@example.com",
                 KnownRadioRoster.Load().Single().LastSeenViaAccount);
@@ -397,16 +381,16 @@ namespace Radios.Tests
         [Fact]
         public void Roster_RecordSighting_DoesNotEraseTheKnownAccountOnALanSighting()
         {
-            KnownRadioRoster.RecordSighting("2222", "6300inshack", "FLEX-6300",
+            KnownRadioRoster.RecordSighting("2222-2222-6300-0002", "6300inshack", "FLEX-6300",
                 isRemote: true, accountEmail: "dbreda@example.com");
-            Assert.Equal("dbreda@example.com", RadioConfig.Load(_dir, "2222").LastSeenViaAccount);
+            Assert.Equal("dbreda@example.com", RadioConfig.Load(_dir, "2222-2222-6300-0002").LastSeenViaAccount);
 
             // Seen on the LAN a moment later. A local sighting says nothing about
             // which account can see the radio remotely, so the answer we already
             // have must survive.
-            KnownRadioRoster.RecordSighting("2222", "6300inshack", "FLEX-6300",
+            KnownRadioRoster.RecordSighting("2222-2222-6300-0002", "6300inshack", "FLEX-6300",
                 isRemote: false, accountEmail: "");
-            var cfg = RadioConfig.Load(_dir, "2222");
+            var cfg = RadioConfig.Load(_dir, "2222-2222-6300-0002");
             Assert.Equal("dbreda@example.com", cfg.LastSeenViaAccount);
             Assert.False(cfg.LastSeenRemote);
         }
@@ -418,11 +402,11 @@ namespace Radios.Tests
             // and sticky; sightings write LastSeenViaAccount and must never
             // touch it. Conflating them lets an incidental listing destroy a
             // deliberate decision with no event anyone could hear.
-            Assert.True(KnownRadioRoster.SetPreferredAccount("2222", "club@example.com"));
-            KnownRadioRoster.RecordSighting("2222", "club", "FLEX-6600",
+            Assert.True(KnownRadioRoster.SetPreferredAccount("2222-2222-6600-0002", "club@example.com"));
+            KnownRadioRoster.RecordSighting("2222-2222-6600-0002", "club", "FLEX-6600",
                 isRemote: true, accountEmail: "other@example.com");
 
-            var cfg = RadioConfig.Load(_dir, "2222");
+            var cfg = RadioConfig.Load(_dir, "2222-2222-6600-0002");
             Assert.Equal("club@example.com", cfg.PreferredAccount);
             Assert.Equal("other@example.com", cfg.LastSeenViaAccount);
 
@@ -430,20 +414,20 @@ namespace Radios.Tests
             Assert.Equal("club@example.com", KnownRadioRoster.Load().Single().ResolvedAccount);
 
             // Clearing the preference falls back to the observation.
-            Assert.True(KnownRadioRoster.SetPreferredAccount("2222", ""));
+            Assert.True(KnownRadioRoster.SetPreferredAccount("2222-2222-6600-0002", ""));
             Assert.Equal("other@example.com", KnownRadioRoster.Load().Single().ResolvedAccount);
         }
 
         [Fact]
         public void Roster_SetFavorite_PersistsAndReportsSuccess()
         {
-            new RadioConfig { Nickname = "6300inshack" }.Save(_dir, "2222");
+            new RadioConfig { Nickname = "6300inshack" }.Save(_dir, "2222-2222-6300-0002");
 
-            Assert.True(KnownRadioRoster.SetFavorite("2222", true));
-            Assert.True(KnownRadioRoster.IsFavorite("2222"));
+            Assert.True(KnownRadioRoster.SetFavorite("2222-2222-6300-0002", true));
+            Assert.True(KnownRadioRoster.IsFavorite("2222-2222-6300-0002"));
 
-            Assert.True(KnownRadioRoster.SetFavorite("2222", false));
-            Assert.False(KnownRadioRoster.IsFavorite("2222"));
+            Assert.True(KnownRadioRoster.SetFavorite("2222-2222-6300-0002", false));
+            Assert.False(KnownRadioRoster.IsFavorite("2222-2222-6300-0002"));
 
             // No serial, nothing to save, and the caller is told so — announcing
             // success here would promise something the next launch breaks.

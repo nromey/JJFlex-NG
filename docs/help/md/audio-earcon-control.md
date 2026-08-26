@@ -38,12 +38,12 @@ The alert sounds were rebuilt: they picked up a shaped attack, a fade-out on the
 
 If you preferred the plain tones they replaced, you can have them back. Under **Settings**, then **Audio**, under **Alerts and CW Notifications**, look for **Alert tone set**:
 
-- **Modern** — the rebuilt sounds. This is the default.
-- **Classic** — the plain tones as they sounded before. Same pitches, same rhythms, same loudness; just simpler sounds.
+- **Rich** — the rebuilt sounds, layered so they carry better through band noise. This is the default.
+- **Simple** — plain tones, closer to earlier versions. Same pitches, same rhythms, same loudness; just simpler sounds.
 
 Arrow between the two to hear a sample — a press, a ding and a warning nudge, back to back. Every other detail is untouched by this setting, so a sound you already recognise stays recognisable either way.
 
-One thing worth knowing before you pick Classic: the three transmit warnings become pure tones that differ only in pitch, which is exactly what they were before and exactly why they were changed. If you've never had trouble telling the first warning from the last one, Classic will suit you fine.
+One thing worth knowing before you pick Simple: the three transmit warnings become pure tones that differ only in pitch, which is exactly what they were before and exactly why they were changed. If you've never had trouble telling the first warning from the last one, Simple will suit you fine.
 
 ## What Earcons Are Not
 

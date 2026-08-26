@@ -25,8 +25,9 @@ namespace Radios
     public static class TransmitSafety
     {
         /// <summary>
-        /// Fraction of transmit power arriving back before the operator is told,
-        /// between 0 and 1.
+        /// THE reflected-power threshold, as a percentage of forward power.
+        /// This is the one home; everything that judges reflected share names
+        /// this constant or is tested against it.
         /// </summary>
         /// <remarks>
         /// MEASURED on 2026-08-22, not guessed. The bench 8600 transmitting into
@@ -36,12 +37,30 @@ namespace Radios
         /// sits in an enormous empty gap rather than on a judgement call. For
         /// scale it is a standing wave ratio near 5 to 1, past anything a
         /// working antenna presents.
-        /// <para>Deliberately the same figure as the power-coming-back rule in
-        /// tx-chain-rules.txt. An operator who hears this live and then runs the
-        /// transmit chain check must not be given two different answers about
-        /// the same station. If one moves, move the other.</para>
+        /// <para><b>Three consumers, kept in step by a test, not by this
+        /// comment.</b> (1) The live PTT warning, through
+        /// <see cref="ReflectedWarnFraction"/>. (2) The power-coming-back rule
+        /// in tx-chain-rules.txt — a data file that cannot reference this
+        /// constant, so ReflectedThresholdAgreementTests parses the shipped
+        /// file and fails if the two drift. (3) The transmit-check tune probe's
+        /// fallback, <c>TxTuneProbe.ReflectedSuspectPercent</c>, which is
+        /// DELIBERATELY STRICTER and derives from this constant so the
+        /// relationship is visible — see its own remarks. An operator who hears
+        /// the live warning and then runs a check must not be given two
+        /// different answers about the same station.</para>
+        /// <para>History: this invariant was documented for the first two
+        /// consumers, honoured for months, and then quietly broken when the
+        /// probe's fallback was written at 20 without reading the note (#237).
+        /// Hence the test — a comment asked future editors to keep the figures
+        /// in step, and a future editor did not.</para>
         /// </remarks>
-        public const float ReflectedWarnFraction = 0.40f;
+        public const double ReflectedWarnPercent = 40.0;
+
+        /// <summary>
+        /// <see cref="ReflectedWarnPercent"/> as a fraction between 0 and 1,
+        /// for the live warning path which works in fractions.
+        /// </summary>
+        public const float ReflectedWarnFraction = (float)(ReflectedWarnPercent / 100.0);
 
         /// <summary>
         /// Seconds of transmit before the reflected-power warning may speak.
@@ -147,6 +166,67 @@ namespace Radios
                 : (named ? "audio.ptt.power_coming_back_on"
                          : "audio.ptt.power_coming_back");
 
+            return named
+                ? Lexicon.Get(key, ("percent", percent), ("antenna", antennaName))
+                : Lexicon.Get(key, ("percent", percent));
+        }
+
+        /// <summary>
+        /// Forward watts above which the reflected-power CUT may act (#224).
+        /// Below it there is little to protect and cutting costs the operator
+        /// a contact for nothing — the bench dead key measured 0.22 W into an
+        /// open port, harmless. Above it the radio is folding back to survive
+        /// something: the case that started this had 13.4 of 17.5 W coming
+        /// straight back. The boundary between "worth telling you" and
+        /// "worth stopping for", ruled at ten by Noel 2026-08-25.
+        /// </summary>
+        public const float ReflectedCutMinForwardWatts = 10f;
+
+        /// <summary>
+        /// Whether the transmission should be CUT, not merely warned about
+        /// (#224). Only ever true when the operator turned the setting on: an
+        /// app that unilaterally unkeys a transmitter has taken the station
+        /// away mid-transmission, and some operators — a reactive load, a
+        /// tuner mid-cycle, an experimental antenna — would find that
+        /// intolerable.
+        /// </summary>
+        /// <param name="settingEnabled">The operator's own choice. Never
+        /// defaulted to true by a caller.</param>
+        /// <param name="alreadyWarned">
+        /// True once <see cref="ShouldWarnReflected"/> has fired this
+        /// transmission. The cut requires it, which is the two-samples rule
+        /// arriving by reuse rather than by a second counter: the warning
+        /// fired on an EARLIER sample, this decision reads the current one,
+        /// so a single transient at key-down can never cut — the same
+        /// reasoning as the antenna checker's early stop.
+        /// </param>
+        /// <param name="forwardWatts">Forward power in WATTS.</param>
+        /// <param name="reflectedWatts">Reflected power in WATTS.</param>
+        /// <param name="tuning">True while the antenna tuner runs a cycle —
+        /// high reflected power during one is the tuner working, and a cut
+        /// here would kill every tune-up the operator starts.</param>
+        public static bool ShouldCutReflected(bool settingEnabled, bool alreadyWarned,
+                                              float forwardWatts, float reflectedWatts,
+                                              bool tuning)
+        {
+            if (!settingEnabled || !alreadyWarned || tuning) return false;
+            if (float.IsNaN(forwardWatts) || forwardWatts <= ReflectedCutMinForwardWatts)
+                return false;
+
+            float back = ReflectedFractionOf(forwardWatts, reflectedWatts);
+            return !float.IsNaN(back) && back >= ReflectedWarnFraction;
+        }
+
+        /// <summary>
+        /// What is said when the cut fires. It must say what happened, why,
+        /// and above all that the operator is NO LONGER TRANSMITTING — they
+        /// have no visual cue that it happened and will keep talking.
+        /// </summary>
+        public static string ReflectedCutText(float fraction, string antennaName)
+        {
+            int percent = (int)Math.Round(fraction * 100f);
+            bool named = !string.IsNullOrWhiteSpace(antennaName);
+            string key = named ? "audio.ptt.reflected_cut_on" : "audio.ptt.reflected_cut";
             return named
                 ? Lexicon.Get(key, ("percent", percent), ("antenna", antennaName))
                 : Lexicon.Get(key, ("percent", percent));

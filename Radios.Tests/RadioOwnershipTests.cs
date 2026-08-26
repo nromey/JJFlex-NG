@@ -24,22 +24,10 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class RadioOwnershipTests : IDisposable
     {
-        private readonly string _dir;
-        private readonly string? _savedBase;
+        private readonly RadioConfigStaticsScope _scope = new(nameof(RadioOwnershipTests));
+        private string _dir => _scope.Directory;
 
-        public RadioOwnershipTests()
-        {
-            _dir = Path.Combine(Path.GetTempPath(), "jjflex-ownership-tests-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dir);
-            _savedBase = RadioConfig.BaseDirectory;
-            RadioConfig.BaseDirectory = _dir;
-        }
-
-        public void Dispose()
-        {
-            RadioConfig.BaseDirectory = _savedBase;
-            try { Directory.Delete(_dir, recursive: true); } catch { /* temp dir */ }
-        }
+        public void Dispose() => _scope.Dispose();
 
         // ------------------------------------------------------------------
         // The safe default

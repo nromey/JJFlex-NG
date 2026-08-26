@@ -189,12 +189,16 @@ namespace JJFlexWpf
         public string CwWaveform { get; set; } = EarconVoices.DefaultCwWaveformId;
 
         /// <summary>
-        /// Which set of alert-voice definitions is live (#147): 0 = Modern (the
-        /// rebuilt sounds, and the default), 1 = Classic (the plain sine-based
+        /// Which set of alert-voice definitions is live (#147): 0 = Rich (the
+        /// rebuilt sounds, and the default), 1 = Simple (the plain sine-based
         /// set they replaced). Stored as an int for XML serialization; see
         /// <see cref="EarconVoiceSet"/>.
+        ///
+        /// <b>The int is the persisted form, so the ordinals cannot move.</b>
+        /// The names changed from Modern/Classic in Sprint 35; the numbers
+        /// deliberately did not, or every saved config would flip sets.
         /// </summary>
-        public int EarconVoiceSet { get; set; } = (int)JJFlexWpf.EarconVoiceSet.Modern;
+        public int EarconVoiceSet { get; set; } = (int)JJFlexWpf.EarconVoiceSet.Rich;
 
         /// <summary>CW notification speed in WPM (10-30, default 20).</summary>
         public int CwSpeedWpm { get; set; } = 20;
@@ -313,6 +317,57 @@ namespace JJFlexWpf
         /// operator's own creations live here.
         /// </summary>
         public List<MeterVoice> UserVoices { get; set; } = new();
+
+        /// <summary>
+        /// One earcon's level trim, relative to the tier it already picked.
+        /// </summary>
+        /// <remarks>
+        /// A list of pairs rather than a dictionary because
+        /// <c>XmlSerializer</c> will not serialise a Dictionary, and a config
+        /// file that silently drops a section is worse than a slightly
+        /// wordier one.
+        /// </remarks>
+        public sealed class EarconLevelTrim
+        {
+            /// <summary>The earcon's method name — the same stable id the
+            /// catalog uses. Never translated, never renamed casually.</summary>
+            public string Id { get; set; } = "";
+
+            /// <summary>Trim in dB, bounded by
+            /// <see cref="EarconPlayer.MinLevelTrimDb"/> and
+            /// <see cref="EarconPlayer.MaxLevelTrimDb"/>.</summary>
+            public float Db { get; set; }
+        }
+
+        /// <summary>
+        /// Per-sound level trims (#115, #119). Only sounds that were actually
+        /// trimmed appear here, so an untouched install persists nothing and
+        /// every sound keeps whatever its tier says.
+        /// </summary>
+        /// <remarks>
+        /// <b>Distinct from the bench gain, which is deliberately NOT saved.</b>
+        /// The bench gain is a listening control — scoped to one Play call, for
+        /// comparing sounds against each other and against band noise. This is
+        /// a design control: it says how loud a sound should be from now on,
+        /// and a decision made by ear is worth nothing if it does not survive a
+        /// restart.
+        /// </remarks>
+        public List<EarconLevelTrim> EarconLevelTrims { get; set; } = new();
+
+        /// <summary>
+        /// Whether the radio's PC audio dips while a warning earcon sounds
+        /// (#116). On by default; fully defeatable, because this attenuates
+        /// received audio and an operator who wants their band untouched is
+        /// entitled to that.
+        /// </summary>
+        public bool RxDuckEnabled { get; set; } = true;
+
+        /// <summary>
+        /// How far the band audio dips under a warning, in dB. Modest by
+        /// default — an operator copying weak CW under a warning will not
+        /// thank us for a large hole in the band.
+        /// </summary>
+        public float RxDuckDepthDb { get; set; } = RxDuck.DefaultDepthDb;
 
         /// <summary>
         /// The one meter list (Track D2): each entry is a source plus a range
@@ -601,9 +656,24 @@ namespace JJFlexWpf
             // rather than cast blind: a hand-edited config saying 7 should get
             // the shipped sounds, not an exception on the audio path.
             EarconVoices.ActiveSet =
-                EarconVoiceSet == (int)JJFlexWpf.EarconVoiceSet.Classic
-                    ? JJFlexWpf.EarconVoiceSet.Classic
-                    : JJFlexWpf.EarconVoiceSet.Modern;
+                EarconVoiceSet == (int)JJFlexWpf.EarconVoiceSet.Simple
+                    ? JJFlexWpf.EarconVoiceSet.Simple
+                    : JJFlexWpf.EarconVoiceSet.Rich;
+
+            // Per-sound level trims. Restored wholesale; the player clamps and
+            // drops anything meaningless, so a hand-edited file cannot leave an
+            // earcon silenced or running at four times its tier.
+            var trims = new List<KeyValuePair<string, float>>();
+            if (EarconLevelTrims != null)
+                foreach (var t in EarconLevelTrims)
+                    if (t != null && !string.IsNullOrEmpty(t.Id))
+                        trims.Add(new KeyValuePair<string, float>(t.Id, t.Db));
+            EarconPlayer.SetAllLevelTrimsDb(trims);
+
+            // #116 — the warning duck. Both clamp in their setters, so a
+            // hand-edited file cannot leave the band permanently attenuated.
+            RxDuck.Enabled = RxDuckEnabled;
+            RxDuck.DepthDb = RxDuckDepthDb;
 
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
@@ -695,6 +765,18 @@ namespace JJFlexWpf
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
             Meters = MeterToneEngine.ExportDefinitions();
             UserVoices = MeterVoiceLibrary.GetUserVoices();
+
+            // Sorted by id so the file has a stable order — a config that
+            // reshuffles a section on every save makes every diff of it
+            // useless for working out what actually changed.
+            var trimList = new List<EarconLevelTrim>();
+            foreach (var kv in EarconPlayer.GetAllLevelTrimsDb())
+                trimList.Add(new EarconLevelTrim { Id = kv.Key, Db = kv.Value });
+            trimList.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
+            EarconLevelTrims = trimList;
+
+            RxDuckEnabled = RxDuck.Enabled;
+            RxDuckDepthDb = RxDuck.DepthDb;
 
             // What the engine hands back is always current-model, so say so.
             // The migration is a no-op on an already-current file even without

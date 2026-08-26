@@ -569,6 +569,292 @@ Module globals
         End Try
     End Sub
 
+#Region "The running-cost register (#253)"
+
+    ''' <summary>
+    ''' The sampler behind the threshold read. Thirty seconds, and it does
+    ''' nothing but LOOK — see WireRunningCostRegister for why that is not the
+    ''' timer Noel ruled out.
+    ''' </summary>
+    Private _runningCostSampler As System.Threading.Timer
+
+    ''' <summary>
+    ''' Declare everything expensive to <see cref="Radios.RunningCostRegister"/>
+    ''' — task #253, "one register, not scattered per-feature reminders".
+    ''' </summary>
+    ''' <remarks>
+    ''' <para><b>Why the standing registrations live here rather than inside
+    ''' each feature.</b> Every one of them is a PREDICATE over state that
+    ''' already exists — DetailedCaptureRunning, MeterTraceStream.Enabled,
+    ''' OutputChannelRecorder.RecordEnabled, MeterToneEngine.Enabled. Nothing
+    ''' has to be told when they start or stop, so nothing can forget to tell
+    ''' it, and the whole inventory of what this application does that costs
+    ''' something is one readable table instead of five call sites nobody can
+    ''' find. Transient things — the meter test tone — still register
+    ''' themselves at the point they start, because a two-second tone has no
+    ''' state anywhere to ask about.</para>
+    '''
+    ''' <para><b>Why the always-on log and the meter tones are Routine.</b> The
+    ''' register exists for things a reasonable operator could be UNAWARE of.
+    ''' The diagnostic log is on for everybody by default and the meter tones
+    ''' are audible by definition, so neither raises the exit prompt — but both
+    ''' answer the on-demand read, because "what is running" that leaves out
+    ''' things that are running is not an answer. Routine is a statement about
+    ''' noticeability, not about size.</para>
+    '''
+    ''' <para><b>Why the sampler is not the timer Noel ruled out.</b> The ruling
+    ''' was "on a threshold, never on a timer", and it is about ANNOUNCING:
+    ''' periodic nagging trains the operator to ignore the channel, which costs
+    ''' more than it saves. Poll only measures. A poll that finds nothing
+    ''' crossed says nothing, however often it runs, and each bound speaks at
+    ''' most once per run. Something has to sample a growing file for a bound to
+    ''' be noticed at all.</para>
+    ''' </remarks>
+    Friend Sub WireRunningCostRegister()
+        Try
+            ' ── The always-on diagnostic log ──────────────────────────────
+            ' Routine: on for every operator since install. #194's closing
+            ' point is that none of them were ever told, and this read is where
+            ' they can now find out.
+            Dim standingLog As New Radios.RunningCost("diagnostic-log", "The diagnostic log")
+            standingLog.IsRunning = Function() DiagnosticsSettings.KeepDiagnosticLog _
+                                                AndAlso Tracing.On _
+                                                AndAlso Not DetailedCaptureRunning
+            standingLog.DescribeCost = Function() DescribeBytes(LiveLogBytes())
+            standingLog.StopHow = "go to Settings, then Diagnostics"
+            standingLog.SurvivesRestart = True
+            standingLog.Weight = Radios.RunningCostWeight.Routine
+            Radios.RunningCostRegister.Register(standingLog)
+
+            ' ── A detailed capture ────────────────────────────────────────
+            ' Notable, and the one registrant that already had a stop the
+            ' operator can reach from anywhere.
+            Dim capture As New Radios.RunningCost("detailed-capture", "Detailed diagnostic capture")
+            capture.IsRunning = Function() DetailedCaptureRunning
+            capture.DescribeCost = Function() DescribeCaptureCost()
+            capture.Measure = Function() LiveLogBytes()
+            ' 10 MB is already larger than any session ever measured: the
+            ' biggest on record ran 08:41 to 09:56 and came to 3.65 MB, and the
+            ' 2026-08-25 capture that started all this was 4.7 MB. So the first
+            ' bound means "this is bigger than a normal day", not "this is big".
+            capture.Thresholds = New Long() {10L * 1024L * 1024L, 50L * 1024L * 1024L, 200L * 1024L * 1024L}
+            capture.DescribeThreshold = Function(b) DescribeBytes(b)
+            capture.Stop = Sub() StopDetailedCapture()
+            capture.StopHow = "press Control J, then Control D"
+            capture.Weight = Radios.RunningCostWeight.Notable
+            Radios.RunningCostRegister.Register(capture)
+
+            ' ── Meter stream recording ────────────────────────────────────
+            ' The registrant this whole feature was built for. Persisted, silent,
+            ' and the measured firehose: 418,004 lines in one 50-minute capture
+            ' on 2026-08-21, 25.7 MB of its 52.4 MB.
+            Dim meterStream As New Radios.RunningCost("meter-stream", "Meter stream recording")
+            meterStream.IsRunning = Function() Radios.MeterTraceStream.Enabled
+            meterStream.DescribeCost = Function() DescribeMeterLines(Radios.MeterTraceStream.LinesWritten)
+            meterStream.Measure = Function() Radios.MeterTraceStream.LinesWritten
+            meterStream.Thresholds = New Long() {100000L, 500000L, 2000000L}
+            meterStream.DescribeThreshold = Function(n) DescribeMeterLines(n)
+            meterStream.Stop = Sub() ApplyMeterStreamSetting(False)
+            meterStream.StopHow = "go to Settings, then Diagnostics"
+            meterStream.SurvivesRestart = True
+            meterStream.Weight = Radios.RunningCostWeight.Notable
+            Radios.RunningCostRegister.Register(meterStream)
+
+            ' ── The spoken transcript ─────────────────────────────────────
+            ' Cheap on disk and still Notable: it persists, it records
+            ' everything the operator heard, and nothing else in the app says
+            ' it is on.
+            Dim transcript As New Radios.RunningCost("spoken-transcript", "Spoken transcript recording")
+            transcript.IsRunning = Function() Radios.OutputChannelRecorder.RecordEnabled
+            transcript.DescribeCost = Function() DescribeFileBytes(Radios.OutputChannelRecorder.TranscriptPath)
+            transcript.Stop = Sub() ApplySpokenTranscriptSetting(False)
+            transcript.StopHow = "go to Settings, then Diagnostics"
+            transcript.SurvivesRestart = True
+            transcript.Weight = Radios.RunningCostWeight.Notable
+            Radios.RunningCostRegister.Register(transcript)
+
+            ' ── Meter tones ───────────────────────────────────────────────
+            ' Routine because it is audible. It is here so the on-demand read
+            ' is complete, and because the switch persists — which is worth
+            ' hearing when the radio is disconnected and the tones are
+            ' therefore silent while still switched on.
+            Dim meterTones As New Radios.RunningCost("meter-tones", "Meter tones")
+            meterTones.IsRunning = Function() JJFlexWpf.MeterToneEngine.Enabled
+            meterTones.DescribeCost = Function() DescribeSoundingMeters()
+            meterTones.Stop = Sub()
+                                  JJFlexWpf.MeterToneEngine.Enabled = False
+                              End Sub
+            meterTones.StopHow = "press Control J, then T"
+            meterTones.SurvivesRestart = True
+            meterTones.Weight = Radios.RunningCostWeight.Routine
+            Radios.RunningCostRegister.Register(meterTones)
+
+            AddHandler Radios.RunningCostRegister.ThresholdCrossed, AddressOf OnRunningCostThreshold
+
+            _runningCostSampler = New System.Threading.Timer(
+                Sub(state) SampleRunningCosts(),
+                Nothing,
+                TimeSpan.FromSeconds(30),
+                TimeSpan.FromSeconds(30))
+        Catch ex As Exception
+            ' A register that cannot be wired must not stop the app booting. The
+            ' cost of losing it is that nothing announces instrumentation, which
+            ' is exactly where we were before it existed.
+            Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    ''' <summary>Stop sampling. Called on the way out so a tick cannot land mid-teardown.</summary>
+    Friend Sub StopRunningCostSampler()
+        Try
+            _runningCostSampler?.Dispose()
+            _runningCostSampler = Nothing
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    Private Sub SampleRunningCosts()
+        If Ending Then Return
+        Try
+            ' Not mid-over. The bound is not going anywhere, and a spoken
+            ' warning while the operator is transmitting is one their own
+            ' microphone may well pick up. SKIPPING the poll rather than
+            ' swallowing its result is the load-bearing half: nothing gets
+            ' marked as announced, so the warning arrives on the first poll
+            ' after unkeying instead of being lost.
+            If RigControl IsNot Nothing AndAlso RigControl.Transmit Then Return
+            Radios.RunningCostRegister.Poll()
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' Say that something crossed a bound. Critical, because the operator
+    ''' cannot see it and by definition did not ask; NOT interrupting, because
+    ''' a size warning is never more urgent than the sentence already in
+    ''' flight.
+    ''' </summary>
+    Private Sub OnRunningCostThreshold(sender As Object, e As Radios.RunningCostThresholdEventArgs)
+        Try
+            Tracing.TraceLine("RunningCost: " & e.Reading.Id & " crossed " &
+                              e.Threshold.ToString(CultureInfo.InvariantCulture))
+            Radios.ScreenReaderOutput.Speak(e.Sentence, VerbosityLevel.Critical)
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' The exit read of the register — Noel's ruled priority boundary. Returns
+    ''' False to cancel the exit.
+    ''' </summary>
+    ''' <remarks>
+    ''' Only Notable registrations reach the prompt, so an ordinary exit is
+    ''' still a silent exit. Any failure here returns True: a prompt that breaks
+    ''' must never trap the operator inside the application.
+    ''' </remarks>
+    Friend Function ConfirmStillRunningAtExit() As Boolean
+        Try
+            Dim notable = Radios.RunningCostRegister.Snapshot().
+                Where(Function(r) r.Weight = Radios.RunningCostWeight.Notable).ToList()
+            If notable.Count = 0 Then Return True
+
+            Dim dlg As New JJFlexWpf.Dialogs.StillRunningDialog(notable)
+            dlg.ShowDialog()
+
+            Select Case dlg.Choice
+                Case JJFlexWpf.Dialogs.StillRunningChoice.StayOpen
+                    Tracing.TraceLine("ExitApplication: cancelled at the still-running prompt")
+                    Return False
+
+                Case JJFlexWpf.Dialogs.StillRunningChoice.StopThenClose
+                    Dim stopped = Radios.RunningCostRegister.StopAll(True)
+                    ' SpeakAndWait, not Speak: this is the app changing the
+                    ' operator's persisted settings on their behalf, and a
+                    ' queued utterance does not survive process exit. If it is
+                    ' worth doing it is worth being heard.
+                    Dim msg As String = If(stopped.Count > 0,
+                        Radios.Lexicon.Get("logging.running.stopped",
+                                           ("names", String.Join(", ", stopped))),
+                        Radios.Lexicon.Get("logging.running.stopped_none"))
+                    Radios.ScreenReaderOutput.SpeakAndWait(msg)
+                    Return True
+
+                Case Else
+                    Tracing.TraceLine("ExitApplication: closing with instrumentation left on")
+                    Return True
+            End Select
+        Catch ex As Exception
+            Tracing.ErrTraceOnly(ex)
+            Return True
+        End Try
+    End Function
+
+    ''' <summary>Size of the log file currently being written, or zero.</summary>
+    Private Function LiveLogBytes() As Long
+        Try
+            Dim path As String = If(Tracing.TraceFile, If(BootTrace, BootTraceFileName, String.Empty))
+            If String.IsNullOrEmpty(path) Then Return 0
+            Dim fi As New FileInfo(path)
+            Return If(fi.Exists, fi.Length, 0L)
+        Catch
+            Return 0
+        End Try
+    End Function
+
+    Private Function DescribeCaptureCost() As String
+        Dim size As String = DescribeBytes(LiveLogBytes())
+        If _captureStartedLocal.HasValue Then
+            Return size & ", " & Radios.Lexicon.Get("logging.running.since",
+                                                    ("clock", FormatClock(_captureStartedLocal.Value)))
+        End If
+        Return size
+    End Function
+
+    ''' <summary>
+    ''' The meter stream's cost, or Nothing before it has written anything.
+    ''' </summary>
+    ''' <remarks>
+    ''' Nothing rather than "0 meter lines into the log", which is what an
+    ''' operator hears when meter recording is left on and no radio ever
+    ''' connected — a number that adds nothing to the sentence it lengthens.
+    ''' The switch being on is the fact worth speaking; the count is only worth
+    ''' speaking once there is one.
+    ''' </remarks>
+    Private Function DescribeMeterLines(count As Long) As String
+        If count <= 0 Then Return Nothing
+        Return Radios.Lexicon.Get("logging.running.meter_lines",
+                                  ("count", count.ToString("N0", CultureInfo.CurrentCulture)))
+    End Function
+
+    Private Function DescribeSoundingMeters() As String
+        Try
+            ' Enumerable.Count explicitly: VB binds a bare .Count on List(Of T)
+            ' to the PROPERTY and then reports the lambda as an index, which is
+            ' a confusing error for a line that reads perfectly in C#.
+            Dim n As Integer = Enumerable.Count(JJFlexWpf.MeterToneEngine.Slots, Function(s) s.Enabled)
+            Return Radios.Lexicon.Get("logging.running.tone_slots",
+                                      ("count", n.ToString(CultureInfo.CurrentCulture)))
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    Private Function DescribeFileBytes(path As String) As String
+        Try
+            If String.IsNullOrEmpty(path) Then Return Nothing
+            Dim fi As New FileInfo(path)
+            If Not fi.Exists Then Return Nothing
+            Return DescribeBytes(fi.Length)
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+#End Region
+
     ' StartLogAtPath / StopLogSessionAware removed Sprint 31 (#103) along with
     ' the retired trace dialog they served. Nothing else called either one:
     ' redirecting the log to a file of the operator's choosing was that
@@ -1701,6 +1987,10 @@ Module globals
         ' operator chose. Off by default — see DiagnosticsConfig.RecordMeterStream.
         Radios.MeterTraceStream.Enabled = DiagnosticsSettings.RecordMeterStream
         WireDiagnosticsBridge()
+        ' Immediately after the bridge, and for the same reason: this is the
+        ' first moment the diagnostics settings are known, and every standing
+        ' registration is a predicate over them (#253).
+        WireRunningCostRegister()
 
         ' The debugger guard stays an AND-term: attach-time behaviour is
         ' unchanged, and the operator's KeepDiagnosticLog choice is the new
@@ -4285,8 +4575,24 @@ RadioConnected:
             Return False
         End If
 
-        ' The exit is now certain - the unsaved-QSO prompt above is the only
-        ' thing that can cancel it - so this is the first safe point to say so.
+        ' The register's exit read (#253) — Noel's ruled priority boundary.
+        ' Second, after the unsaved QSO: losing a contact is worse than leaving
+        ' instrumentation on, so the higher-stakes question is asked first and
+        ' this one is never reached if that one cancelled. Silent unless
+        ' something Notable is actually running.
+        If Not ConfirmStillRunningAtExit() Then
+            Ending = False
+            Return False
+        End If
+
+        ' Nothing may cancel the exit past this point, so stop sampling: a
+        ' threshold announcement landing during teardown would speak over the
+        ' farewell, and there is nothing useful left to say about a cost that
+        ' is about to stop existing.
+        StopRunningCostSampler()
+
+        ' The exit is now certain - the two prompts above are the only things
+        ' that can cancel it - so this is the first safe point to say so.
         Try
             ' Let any in-flight CW finish its character. Tearing the audio stack
             ' down mid-element truncated it audibly, and a half-sent character

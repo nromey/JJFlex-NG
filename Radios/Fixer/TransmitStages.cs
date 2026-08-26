@@ -67,7 +67,22 @@ namespace Radios.Fixer
     {
         // ---- stage 1: microphone ----
 
-        public static FixerOutcome Microphone(MicCheckFacts facts)
+        /// <summary>
+        /// Stage 1's outcome, advised BY stage 0's facts when they exist
+        /// (#241). Stage 0 measures the Windows mute and the privacy block
+        /// definitively; advice from this stage that tells the operator to go
+        /// and check them ignores an answer sitting one card up — it wastes
+        /// their time, undermines the tool's authority, and buries the real
+        /// remedy. Three cases: stage 0 named a cause (point at it, do not
+        /// repeat the remedy), stage 0 cleared both (the cable and the device
+        /// are the whole remaining answer), or stage 0 has nothing to say
+        /// (the full checklist is then correct, and only then).
+        /// </summary>
+        /// <param name="setup">Stage 0's payload, or null when stage 0 has
+        /// not run or could not observe. Both mute facts are tristate —
+        /// true, false, or never observed — and only an OBSERVED value
+        /// changes the advice.</param>
+        public static FixerOutcome Microphone(MicCheckFacts facts, AudioSetupFacts setup = null)
         {
             if (facts == null) throw new ArgumentNullException(nameof(facts));
 
@@ -110,8 +125,7 @@ namespace Radios.Fixer
                        + "from " + NameOr(facts.Device, "your microphone") + ".";
                 findings.Add(new FixerFinding("mic-silent", FixOwner.Operator,
                     "Your microphone was measured and nothing arrived.",
-                    "Check the cable, the Windows mute, and the Windows microphone privacy "
-                    + "setting, then run this stage again."));
+                    SilentMicAdvice(setup)));
             }
 
             return new FixerOutcome
@@ -122,6 +136,47 @@ namespace Radios.Fixer
                 // The whole point of keeping this: stage 4 is read against it.
                 Payload = facts,
             };
+        }
+
+        /// <summary>
+        /// What to do about a silent microphone, given what stage 0 already
+        /// knows. The sentences are written whole per case — read them
+        /// assembled, not as fragments.
+        /// </summary>
+        private static string SilentMicAdvice(AudioSetupFacts setup)
+        {
+            bool muted = setup?.WindowsInputMuted == true;
+            bool blocked = setup?.MicrophonePrivacyBlocked == true;
+
+            // Stage 0 found the cause. Two findings for one cause is how a
+            // report starts feeling long — point at the one that names it.
+            if (muted && blocked)
+                return "Stage 0 has already named the cause: Windows has this microphone "
+                     + "muted, and Windows privacy is blocking it as well. Its findings in "
+                     + "the stage 0 card carry the steps — clear both, then run this "
+                     + "stage again.";
+            if (muted)
+                return "Stage 0 has already named the cause: Windows itself has this "
+                     + "microphone muted. Its finding in the stage 0 card carries the "
+                     + "steps — clear the mute, then run this stage again.";
+            if (blocked)
+                return "Stage 0 has already named the cause: Windows privacy is blocking "
+                     + "desktop apps from the microphone. Its finding in the stage 0 card "
+                     + "carries the steps — allow it, then run this stage again.";
+
+            // Stage 0 checked both and cleared both, so the remaining answer
+            // is short and deserves to be given cleanly rather than third in
+            // a list of three.
+            if (setup?.WindowsInputMuted == false && setup?.MicrophonePrivacyBlocked == false)
+                return "Windows is not muting this microphone and is not blocking it — "
+                     + "stage 0 checked both — so what is left is the cable, the "
+                     + "connector, or the device itself. Check those, then run this "
+                     + "stage again.";
+
+            // Stage 0 has not run, or could not observe the Windows facts.
+            // This is the one case where the full checklist is correct.
+            return "Check the cable, the Windows mute, and the Windows microphone privacy "
+                 + "setting, then run this stage again.";
         }
 
         private static string MicEvidence(MicCheckFacts f)

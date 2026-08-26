@@ -35,26 +35,15 @@ namespace Radios.Tests
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class LexiconTests : IDisposable
     {
-        private readonly string _temp;
+        // Never read the real operator's overlay files. Without this the
+        // suite's result would depend on what is sitting in this machine's
+        // AppData, which is the opposite of a test. The scope points the
+        // overlay directory, the settings root and the roster cache at one
+        // throwaway tree and gives all three back together (task #232).
+        private readonly RadioConfigStaticsScope _scope = new(nameof(LexiconTests));
+        private string _temp => _scope.Directory;
 
-        public LexiconTests()
-        {
-            _temp = Path.Combine(Path.GetTempPath(), "jjflex-lexicon-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_temp);
-
-            // Never read the real operator's overlay files. Without this the
-            // suite's result would depend on what is sitting in this machine's
-            // AppData, which is the opposite of a test.
-            Lexicon.OverlayDirectoryOverride = _temp;
-            Lexicon.Forget();
-        }
-
-        public void Dispose()
-        {
-            Lexicon.OverlayDirectoryOverride = null;
-            Lexicon.Forget();
-            try { Directory.Delete(_temp, recursive: true); } catch (IOException) { }
-        }
+        public void Dispose() => _scope.Dispose();
 
         // ────────────────────────────────────────────────────────────────
         //  The fallback

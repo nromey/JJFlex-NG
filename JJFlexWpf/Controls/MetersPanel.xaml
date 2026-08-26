@@ -176,9 +176,9 @@
                 </StackPanel>
 
                 <CheckBox x:Name="PeakWatcherCheck"
-                          Content="Peak Watcher (ALC safety alerts)"
+                          Content="Transmit level alerts"
                           Margin="0,4,0,2"
-                          AutomationProperties.Name="Enable Peak Watcher ALC safety alerts during transmit" />
+                          AutomationProperties.Name="Enable transmit level alerts" />
             </StackPanel>
         </Expander>
     </ScrollViewer>

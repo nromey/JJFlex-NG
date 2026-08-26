@@ -61,6 +61,8 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | Ctrl+F | Enter a frequency |
 | D | Toggle tuning speech debounce |
 | Ctrl+D | Start or stop a detailed capture of what the app is doing — works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs |
+| Ctrl+R | Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement |
+| O | Say what is still running and what it is costing — recording, captures, meter tones (see "What is still running" below) |
 | L | Speak log statistics |
 | M | Open the memories dialog |
 | T | Toggle meter tones on/off |
@@ -108,6 +110,14 @@ Ctrl+F4 walks back through the last ten things the app *said*. This is the same 
 The two histories are kept apart on purpose. If you're running with speech off and CW notifications on, everything you've heard is in the CW list and nothing is in the speech list, so one key for both would spend most of its presses telling you about messages you never heard.
 
 Two things worth knowing. The prosigns — AS, BT, SK — stay out of the history. They're punctuation, not information, and re-sending "closing" out of the blue tells you nothing you can act on. And "press again to step back" gives you the same generous window the speech version does, but measured from the moment the CW *finishes* rather than from when you pressed. That matters if you run slow code: at 10 words per minute "SL A USB" takes nearly nine seconds to send, and a window that started ticking at the keypress would have expired before you'd finished listening to it.
+
+### What is still running — Ctrl+J, then O
+
+O for "what's on". Press `Ctrl+J` then `O` and JJ Flexible tells you every expensive thing it currently has switched on, and what each one has cost so far: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." If nothing is running, it says that too.
+
+This one exists because sighted operators get it for free. They have a recording light in the corner of the screen, a meter they can watch moving, a panel that's obviously open. We don't, and a switch that stays on across restarts, quietly changes what the app writes to disk, and never says a word about itself is exactly the kind of thing this program is supposed to fix.
+
+There's more to it than the key. If something you left on grows past a sensible size, JJ Flexible now says so on its own — once, when it actually crosses the line, not on a nagging timer. And if you close the app with recording still going, it tells you what's still on before it goes, and offers to turn it off for you on the way out.
 
 One more thing about the JJ layer: it works inside dialogs now. Press `Ctrl+J` in the Audio Workshop — or any other dialog — and the layer answers exactly as it does from Home. The mic check was built with that in mind, since the workshop is precisely where you sit while adjusting mic gain.
 

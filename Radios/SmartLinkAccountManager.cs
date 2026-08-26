@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using JJTrace;
 
@@ -342,15 +343,83 @@ namespace Radios
             }
         }
 
+        // Sprint 35 Track K (#259): one refresh in flight per account, ever.
+        // With a presence session held open per account, a token refresh can
+        // now be asked for from several threads at once (a session's monitor
+        // thread re-registering, the interactive connect flow, the background
+        // registration query). Auth0 MAY rotate the refresh token on use — the
+        // response handling below already saves a rotated one — and two
+        // concurrent refreshes racing a rotation means the loser presents an
+        // already-rotated token and gets invalid_grant: a self-inflicted
+        // sign-out. The gate serializes them; the recency check makes the
+        // loser reuse the winner's fresh result instead of spending a second
+        // HTTP round trip on a token minted milliseconds ago.
+        private static readonly object _refreshGatesLock = new();
+        private static readonly Dictionary<string, SemaphoreSlim> _refreshGates =
+            new(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, DateTime> _lastRefreshUtc =
+            new(StringComparer.OrdinalIgnoreCase);
+        private static readonly TimeSpan RecentRefreshWindow = TimeSpan.FromSeconds(15);
+
+        private static SemaphoreSlim RefreshGateFor(string email)
+        {
+            lock (_refreshGatesLock)
+            {
+                if (!_refreshGates.TryGetValue(email, out var gate))
+                {
+                    gate = new SemaphoreSlim(1, 1);
+                    _refreshGates[email] = gate;
+                }
+                return gate;
+            }
+        }
+
         /// <summary>
         /// Attempts to refresh tokens using the refresh token.
         /// Returns true if successful, false if user must re-authenticate.
+        /// Serialized per account; a refresh that completed within the last
+        /// few seconds (and left a still-valid id_token) satisfies a second
+        /// caller without another network round trip.
         /// </summary>
         public async Task<bool> RefreshTokenAsync(SmartLinkAccount account)
         {
             if (string.IsNullOrEmpty(account.RefreshToken))
                 return false;
 
+            var gate = RefreshGateFor(account.Email ?? "");
+            await gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                lock (_refreshGatesLock)
+                {
+                    if (_lastRefreshUtc.TryGetValue(account.Email ?? "", out var last)
+                        && DateTime.UtcNow - last < RecentRefreshWindow
+                        && !IsJwtExpired(account.IdToken))
+                    {
+                        Tracing.TraceLine(
+                            $"SmartLinkAccountManager: refresh for {account.Email} satisfied by one completed {(DateTime.UtcNow - last).TotalSeconds:F1}s ago",
+                            TraceLevel.Info);
+                        return true;
+                    }
+                }
+                bool ok = await RefreshTokenCoreAsync(account).ConfigureAwait(false);
+                if (ok)
+                {
+                    lock (_refreshGatesLock)
+                    {
+                        _lastRefreshUtc[account.Email ?? ""] = DateTime.UtcNow;
+                    }
+                }
+                return ok;
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        private async Task<bool> RefreshTokenCoreAsync(SmartLinkAccount account)
+        {
             try
             {
                 using var client = new HttpClient();

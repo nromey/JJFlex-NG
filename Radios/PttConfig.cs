@@ -59,6 +59,52 @@ namespace Radios
         public int AlcAutoReleaseSeconds { get; set; } = 60;
 
         /// <summary>
+        /// When true, the reflected-power alarm CUTS the transmission when it
+        /// fires with forward power above the cut floor (#224, ruled by Noel
+        /// 2026-08-25). When false — the default — the alarm only warns.
+        /// </summary>
+        /// <remarks>
+        /// A setting, not a behaviour, on purpose: an app that unilaterally
+        /// unkeys a transmitter has taken the operator's station away
+        /// mid-transmission, and an operator running a reactive load or an
+        /// experimental antenna must be able to switch it off.
+        ///
+        /// DEFAULT ON — ruled by Noel 2026-08-26, reversing the initial OFF.
+        /// Two reasons, and the second is the one that decides it.
+        ///
+        /// The errors are asymmetric. A wrong cut is startling and entirely
+        /// recoverable: the operator turns the setting off, annoyed. A cut
+        /// that never comes is damaged finals, which is neither. When one
+        /// error is recoverable and the other is not, the default belongs on
+        /// the recoverable side.
+        ///
+        /// And the asymmetry is sharper for the operators this app exists
+        /// for. A sighted operator glances at an SWR meter and reaches for
+        /// the power knob; a blind one cannot. This is not a convenience
+        /// layered over their own vigilance — it is the only version of that
+        /// protection they have. Defaulting OFF would have hidden it from
+        /// exactly the people least able to do without it.
+        ///
+        /// The decision itself lives in
+        /// <c>TransmitSafety.ShouldCutReflected</c>, pure and tested; the ATU
+        /// stand-down, the &gt;10 W floor, the NaN refusal and the two-sample
+        /// rule live there too.
+        ///
+        /// STILL OWED, and it is a release gate rather than a nicety: NOBODY
+        /// HAS WATCHED THIS FIRE. A guard nobody has seen work is a guess
+        /// wearing a safety label. The bench recipe is known and was run by
+        /// accident twice on 2026-08-22 (see #189): select an EMPTY antenna
+        /// port and key at roughly 20 W. Measured then, into that open port —
+        /// forward 17.5 W, reflected 13.4 W, seventy-six percent coming
+        /// straight back, comfortably over this guard's 10 W floor. Note the
+        /// SWR meter reported 1.008 throughout and was lying; REFLECTED POWER
+        /// told the truth, which is why this guard reads watts and not SWR.
+        /// A dummy load cannot be used for this test — it is a good match, so
+        /// there is nothing to reflect.
+        /// </remarks>
+        public bool CutTransmitOnReflectedAlarm { get; set; } = true;
+
+        /// <summary>
         /// When true, TX/RX transition speech is announced ("Transmitting", "Receiving").
         /// When false, speech is muted but tones and safety warnings always play.
         /// </summary>

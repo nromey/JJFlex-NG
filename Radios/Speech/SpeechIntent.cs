@@ -30,6 +30,18 @@ namespace Radios.Speech
         ///
         /// Test: if the previous utterance is cut off mid-word, has the
         /// operator lost anything? If no — Interrupt.
+        ///
+        /// **Interrupt jumps the queue; it does not burn it.** A screen
+        /// reader's cancel primitive flushes its ENTIRE queue, so before
+        /// Sprint 35 an interrupt silently destroyed every queued utterance
+        /// nobody had heard yet — proven live on 2026-08-25, when an
+        /// interrupt from a background thread arrived three milliseconds
+        /// after three queued connect messages and the operator heard none
+        /// of them. Which message survived depended on thread timing: a
+        /// race, not a policy. The arbiter now re-queues queued speech
+        /// believed unheard behind the interrupter, so Interrupt means
+        /// "mine now", not "nothing anyone else said mattered". Only
+        /// <see cref="Urgent"/> discards.
         /// </summary>
         Interrupt = 0,
 
@@ -41,6 +53,14 @@ namespace Radios.Speech
         /// Nearly free: screen readers already queue. Passing "do not
         /// interrupt" puts our text in the reader's own queue, which is the
         /// queue we were destroying 429 times.
+        ///
+        /// Queued text is protected: an interrupt arriving while it is
+        /// believed unspoken re-queues it rather than destroying it. Queue
+        /// therefore means "say this when you can, but SAY it" — only
+        /// <see cref="Urgent"/> and the operator's own silence discard it.
+        /// (A window change still flushes the reader outside our sight;
+        /// information that must cross a window boundary belongs in the
+        /// arriving window's title — see task #93.)
         /// </summary>
         Queue,
 
@@ -62,9 +82,10 @@ namespace Radios.Speech
         /// Transmit safety. Cuts current speech AND discards what is queued, so
         /// the warning is the last thing the operator hears.
         ///
-        /// Plain Interrupt is not sufficient here: it stops what is speaking
-        /// but leaves the queue intact, so stale readouts play out on top of a
-        /// warning that the radio is still transmitting. Reserved for the
+        /// Plain Interrupt is not sufficient here: the arbiter re-queues what
+        /// an interrupt cut ahead of, so stale readouts would play out on top
+        /// of a warning that the radio is still transmitting. Urgent is the
+        /// one intent for which discard is the point. Reserved for the
         /// handful of sites where that matters — see PttSafetyController.
         /// </summary>
         Urgent,

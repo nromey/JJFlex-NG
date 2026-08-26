@@ -60,10 +60,19 @@ namespace Radios.Fixer
         /// </summary>
         public IReadOnlyDictionary<string, FixerFixAction> FixActions { get; }
 
+        /// <summary>
+        /// The landmark name for the run-declarations section, spoken by a
+        /// screen reader on every landmark jump — so it must be SHORT. The
+        /// transmit set names it "Antenna"; a set that never says otherwise
+        /// gets "Declarations".
+        /// </summary>
+        public string DeclarationsRegionName { get; }
+
         public FixerStageSet(string id, string name, string intro,
                              IReadOnlyList<FixerStage> stages,
                              IReadOnlyDictionary<string, FixerFixAction> fixActions,
-                             IReadOnlyList<FixerRunDeclaration> runDeclarations = null)
+                             IReadOnlyList<FixerRunDeclaration> runDeclarations = null,
+                             string declarationsRegionName = null)
         {
             if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException("a stage set needs an id", nameof(id));
             if (stages == null || stages.Count == 0) throw new ArgumentException("a stage set needs stages", nameof(stages));
@@ -74,6 +83,8 @@ namespace Radios.Fixer
             Stages = stages;
             FixActions = fixActions ?? new Dictionary<string, FixerFixAction>();
             RunDeclarations = runDeclarations ?? Array.Empty<FixerRunDeclaration>();
+            DeclarationsRegionName = string.IsNullOrWhiteSpace(declarationsRegionName)
+                ? "Declarations" : declarationsRegionName.Trim();
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (FixerStage s in stages)
@@ -141,11 +152,50 @@ namespace Radios.Fixer
         /// </summary>
         public bool Transmits { get; set; }
 
+        /// <summary>
+        /// True when the host should run this stage off the UI thread.
+        /// Sprint 35's ruling: ONLY the microphone check — it keys nothing
+        /// and takes seconds, so blocking buys no safety and costs a frozen
+        /// page (#255). The transmitting stages stay ON the UI thread this
+        /// sprint, deliberately: the blocked thread is currently the only
+        /// thing preventing anything else starting while the radio is keyed,
+        /// and going async there without a real abort path first (#236)
+        /// would remove a guard, not a wart.
+        /// </summary>
+        public bool OffUiThread { get; set; }
+
         /// <summary>Help topic for the inline help link, e.g. "fixer/transmit/microphone-check".</summary>
         public string HelpTopic { get; set; } = "";
 
         /// <summary>Host-owned actions this stage's panel offers, if any.</summary>
         public IReadOnlyList<FixerHostAction> HostActions { get; set; } = Array.Empty<FixerHostAction>();
+
+        /// <summary>
+        /// What pressing Run will actually DO, in a sentence, evaluated at
+        /// render time so it can carry live facts — "This will key your radio
+        /// for two seconds at 25 watts into ANT1." Both halves of that example
+        /// were already read by the code and shown to nobody (#250). Null: the
+        /// page says nothing extra, which is only honest for a stage whose
+        /// question already says it all.
+        /// </summary>
+        /// <remarks>
+        /// A delegate rather than a string because the page re-renders on
+        /// every host action and the facts (tune power, antenna port) move
+        /// under it. The page guards the call; a throw becomes silence, never
+        /// a broken render.
+        /// </remarks>
+        public Func<string> DescribeRunAction { get; set; }
+
+        /// <summary>
+        /// Declarations asked INSIDE this stage's card rather than in the
+        /// run-declarations landmark. The founding case is stage 0's "can you
+        /// hear the radio?" (#243) — the operator is an instrument, and this
+        /// is where the reading is taken. Same wire shape as a run
+        /// declaration: the page posts each answer under the declaration's own
+        /// MessageKind and the host records it.
+        /// </summary>
+        public IReadOnlyList<FixerRunDeclaration> Declarations { get; set; }
+            = Array.Empty<FixerRunDeclaration>();
 
         /// <summary>The reasons an operator can give for skipping this stage.
         /// Distinct reasons stay distinct because they do different things to
@@ -263,6 +313,15 @@ namespace Radios.Fixer
         /// <summary>Asked like a person: "What is the antenna socket connected
         /// to right now?"</summary>
         public string Question { get; }
+
+        /// <summary>
+        /// Optional live override for <see cref="Question"/>, read at render
+        /// time. The transmit set uses it to name the actual TX antenna port
+        /// and to say, for a remote radio, that the question is about a
+        /// station the operator is not at (#244, #247). Null, or a null or
+        /// blank return, falls back to <see cref="Question"/>.
+        /// </summary>
+        public Func<string> QuestionNow { get; set; }
 
         /// <summary>Why the run wants to know, one sentence, shown with the
         /// question.</summary>

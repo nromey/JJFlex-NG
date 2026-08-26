@@ -169,7 +169,7 @@ namespace Radios.ChainChecks
                         break;
                     }
 
-                    consecutiveBad = LooksBad(lastComputedSwr, reflectedPercent)
+                    consecutiveBad = TxTuneProbe.LooksBad(lastComputedSwr, reflectedPercent)
                         ? consecutiveBad + 1 : 0;
 
                     cancel.WaitHandle.WaitOne(SampleEveryMs);
@@ -308,18 +308,26 @@ namespace Radios.ChainChecks
             return meters;
         }
 
+        /// <summary>
+        /// Reflected power as a percentage of forward, through the SAME
+        /// arithmetic as the live PTT warning — one home for the ratio (#237).
+        /// </summary>
+        /// <remarks>
+        /// This was a private <c>(rev / fwd) * 100</c> without the low-forward
+        /// guard, which meant the early-stop fallback could count "bad" samples
+        /// off a meter wandering around zero watts — the exact reading
+        /// <see cref="TransmitSafety.ReflectedFractionOf"/> refuses to turn
+        /// into a ratio. Now NaN below the guard's forward-power floor, so a
+        /// ramping PA's first meaningless samples cannot walk the probe toward
+        /// an abort; genuinely bad loads still read far above every threshold
+        /// once real power flows.
+        /// </remarks>
         private static double ReflectedPercent(IReadOnlyList<TxTuneProbe.Reading> meters)
         {
             double fwd = ValueOf(meters, "FWDPWR");
             double rev = ValueOf(meters, "REFPWR");
-            if (double.IsNaN(fwd) || double.IsNaN(rev) || fwd <= 0.0) return double.NaN;
-            return (rev / fwd) * 100.0;
+            return 100.0 * TransmitSafety.ReflectedFractionOf((float)fwd, (float)rev);
         }
-
-        private static bool LooksBad(double computedSwr, double reflectedPercent)
-            => (!double.IsNaN(computedSwr) && computedSwr >= TxTuneProbe.SwrAbort)
-            || (double.IsNaN(computedSwr) && !double.IsNaN(reflectedPercent)
-                && reflectedPercent >= TxTuneProbe.ReflectedAbortPercent);
 
         private static double ValueOf(IReadOnlyList<TxTuneProbe.Reading> meters, string name)
         {

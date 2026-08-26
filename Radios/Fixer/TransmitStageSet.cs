@@ -45,14 +45,58 @@ namespace Radios.Fixer
         // records it once; it is never carried on a stage request, and every
         // new run asks afresh because the station may have been re-cabled.
         //
-        // There is deliberately NO "I'm not sure" choice: any declared answer
-        // opens the transmit gate, and "not sure" is precisely the state in
-        // which it must stay shut. Not answering IS the not-sure answer, and
-        // the gate's refusal text tells the operator so at the point they try
-        // to run something that transmits.
+        // FOUR answers since Sprint 35 (#244) — the operator answering "what
+        // is on the socket" is stating what, which port, and what power is
+        // acceptable, and two of the three used to be thrown away. "Nothing,
+        // or I am not sure" REPLACED the earlier design's deliberate absence
+        // of a not-sure choice: picking it keeps the gate shut exactly as not
+        // answering did, but the operator who picks it has TOLD us something
+        // and now gets an explicit refusal instead of a silent wait. The
+        // gate, not this file, owns what each kind permits.
         public const string LoadDeclaration = "antenna-load";
         public const string LoadDummy = "dummy-load";
         public const string LoadAntenna = "antenna";
+        public const string LoadAmplifier = "amplifier";
+        public const string LoadNothingUnsure = "nothing-unsure";
+
+        /// <summary>
+        /// Map a load choice id from the wire to what it means to the gate.
+        /// An unknown or missing id maps to
+        /// <see cref="FixerLoadKind.NothingOrUnsure"/> — an answer the gate
+        /// cannot classify fails CLOSED, never open.
+        /// </summary>
+        public static FixerLoadKind LoadKindFromChoice(string choiceId)
+        {
+            switch ((choiceId ?? "").Trim().ToLowerInvariant())
+            {
+                case LoadDummy: return FixerLoadKind.DummyLoad;
+                case LoadAntenna: return FixerLoadKind.Antenna;
+                case LoadAmplifier: return FixerLoadKind.Amplifier;
+                default: return FixerLoadKind.NothingOrUnsure;
+            }
+        }
+
+        // The hearing affirmation (#243) — asked INSIDE stage 0, because the
+        // operator is an instrument and this is where the reading is taken.
+        // Travels as its own wire kind, recorded by the host, and fed back
+        // into stage 0's facts for the next run of the stage.
+        public const string HearingDeclaration = "radio-hearing";
+        public const string HearingYes = "hears";
+        public const string HearingNo = "hears-nothing";
+        public const string HearingNoRadio = "no-radio";
+
+        /// <summary>Map a hearing choice id from the wire to the fact it
+        /// asserts. An unknown id reads as not-asked, never as a guess.</summary>
+        public static HeardRadio HearingFromChoice(string choiceId)
+        {
+            switch ((choiceId ?? "").Trim().ToLowerInvariant())
+            {
+                case HearingYes: return HeardRadio.Hears;
+                case HearingNo: return HeardRadio.HearsNothing;
+                case HearingNoRadio: return HeardRadio.NoRadio;
+                default: return HeardRadio.NotAsked;
+            }
+        }
 
         /// <summary>
         /// What the host supplies. Every field may be null; a null measurement
@@ -76,6 +120,17 @@ namespace Radios.Fixer
             public Func<InjectedTransmitFacts> RunInjectedTransmit;
             public Func<SpokenTransmitFacts> RunSpokenTransmit;
 
+            /// <summary>
+            /// The live facts a stage's "what Run will do" sentence carries —
+            /// tune power, RF power, the TX antenna port, remoteness. Read at
+            /// RENDER time, because the page re-renders on every action and
+            /// these move under it. The tool already read every one of these
+            /// for its own record and showed none of them (#250); this is the
+            /// road they take to the operator. Null, or a null return, and
+            /// the sentences simply omit the live half.
+            /// </summary>
+            public Func<StationNow> ReadStation;
+
             /// <summary>What the operator declared the antenna socket is
             /// connected to — typically the gate's LoadDeclaration. It travels
             /// with the transmitter check's evidence, because a power reading
@@ -90,10 +145,52 @@ namespace Radios.Fixer
             public FixerFixAction ReopenConfiguredAudio;
         }
 
+        /// <summary>
+        /// The station as it stands right now, for the sentences that tell an
+        /// operator what pressing Run will actually do.
+        /// </summary>
+        public sealed class StationNow
+        {
+            /// <summary>Tune power in watts, or -1 when it could not be read.</summary>
+            public int TunePowerWatts { get; set; } = -1;
+
+            /// <summary>RF power in watts, or -1 when it could not be read.</summary>
+            public int RfPowerWatts { get; set; } = -1;
+
+            /// <summary>The TX antenna port ("ANT1"), or empty when not known.</summary>
+            public string AntennaPort { get; set; } = "";
+
+            /// <summary>True when this is a remote session — the operator is
+            /// not in the room with the antenna socket (#247).</summary>
+            public bool RemoteRadio { get; set; }
+        }
+
         /// <summary>Build the set around the host's delegates.</summary>
         public static FixerStageSet Build(Hosts hosts)
         {
             hosts = hosts ?? new Hosts();
+
+            // Live station facts, guarded once here: a throw or a missing
+            // delegate reads as "nothing known" and the sentences carry on
+            // without the live half.
+            StationNow Station()
+            {
+                try { return hosts.ReadStation?.Invoke(); }
+                catch { return null; }
+            }
+
+            // " at 25 watts into ANT1", or as much of it as is actually known.
+            // Assembled once so the transmitting stages cannot drift apart in
+            // how they say it.
+            static string AtInto(int watts, string port)
+            {
+                string s = "";
+                if (watts >= 0)
+                    s += " at " + watts.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                       + (watts == 1 ? " watt" : " watts");
+                if (!string.IsNullOrWhiteSpace(port)) s += " into " + port.Trim();
+                return s;
+            }
 
             var operatorSkip = new FixerSkipChoice(
                 SkipOperatorChoice,
@@ -138,6 +235,33 @@ namespace Radios.Fixer
                         + "Nothing here keys the radio.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/audio-setup",
+                    DescribeRunAction = () =>
+                        "Running this takes a quick reading of the audio path. "
+                        + "Nothing transmits.",
+                    // The operator as an instrument (#243). Over a remote
+                    // link, "I can hear the radio" settles in one press what
+                    // no probe in this stage can: PC audio is on, the
+                    // transport is carrying audio, the output device works,
+                    // and the decode path works.
+                    Declarations = new[]
+                    {
+                        new FixerRunDeclaration(
+                            HearingDeclaration,
+                            "Can you hear the radio right now?",
+                            "You are the best instrument in the room for this question. "
+                            + "Hearing the radio proves the whole receive path in one "
+                            + "stroke, which narrows where a transmit problem can be.",
+                            new[]
+                            {
+                                new FixerDeclarationChoice(HearingYes,
+                                    "I can hear the radio"),
+                                new FixerDeclarationChoice(HearingNo,
+                                    "I hear nothing from the radio"),
+                                new FixerDeclarationChoice(HearingNoRadio,
+                                    "No radio is connected"),
+                            },
+                            messageKind: "declare-hearing"),
+                    },
                     SkipChoices = new[] { operatorSkip },
                     // This stage offers only the specific fixes it detected.
                     // The full picker is AudioDevicesDialog's job, so the one
@@ -168,9 +292,22 @@ namespace Radios.Fixer
                         + "depending on whether your microphone measured well here.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/microphone-check",
+                    // Off the UI thread (Sprint 35 ruling): this stage keys
+                    // nothing, and it froze the page for its whole listen —
+                    // Noel's first live run read as a hang (#255).
+                    OffUiThread = true,
+                    DescribeRunAction = () =>
+                        "Running this measures your room's noise in a quiet moment, then "
+                        + "counts you in with three tones and listens while you talk. "
+                        + "Nothing transmits.",
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
+                    // Stage 0's facts ride along (#241): stage 1's advice must
+                    // not send the operator to check a Windows mute that stage
+                    // 0 has already measured and reported one card up.
                     Execute = hosts.MeasureMicrophone == null ? (Func<FixerStageContext, FixerOutcome>)null
-                        : ctx => TransmitStages.Microphone(hosts.MeasureMicrophone()),
+                        : ctx => TransmitStages.Microphone(
+                            hosts.MeasureMicrophone(),
+                            ctx.ResultFor(AudioSetup)?.Payload as AudioSetupFacts),
                 },
 
                 new FixerStage
@@ -191,6 +328,17 @@ namespace Radios.Fixer
                         + "the antenna port.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/transmitter-check",
+                    // "This will key your radio for two seconds at 25 watts
+                    // into ANT1" — both live facts were already read for the
+                    // record and shown to nobody (#250). The duration derives
+                    // from the probe's own constant so it cannot drift.
+                    DescribeRunAction = () =>
+                    {
+                        StationNow s = Station();
+                        return "Running this keys the radio's own tune carrier"
+                             + AtInto(s?.TunePowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + " for about " + SecondsPhrase(TxTuneProbe.TuneMs) + ".";
+                    },
                     SkipChoices = new[] { operatorSkip },
                     Execute = hosts.ProbeTransmitter == null ? (Func<FixerStageContext, FixerOutcome>)null
                         : ctx => TransmitStages.Transmitter(hosts.ProbeTransmitter(),
@@ -214,6 +362,14 @@ namespace Radios.Fixer
                         + "the radio.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/injected-transmit",
+                    DescribeRunAction = () =>
+                    {
+                        StationNow s = Station();
+                        return "Running this keys the transmitter"
+                             + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + " for several seconds and sends tones and a recorded voice "
+                             + "through it. Your microphone stays out of the path.";
+                    },
                     SkipChoices = new[] { operatorSkip },
                     Execute = hosts.RunInjectedTransmit == null ? (Func<FixerStageContext, FixerOutcome>)null
                         : ctx => TransmitStages.Injected(hosts.RunInjectedTransmit()),
@@ -235,6 +391,14 @@ namespace Radios.Fixer
                         + "points somewhere quite specific.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/spoken-transmit",
+                    DescribeRunAction = () =>
+                    {
+                        StationNow s = Station();
+                        return "Running this keys the transmitter"
+                             + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + " for about " + SecondsPhrase(TxAudioProbe.SpokenListenMs)
+                             + " while you speak into your microphone.";
+                    },
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
                     Execute = hosts.RunSpokenTransmit == null ? (Func<FixerStageContext, FixerOutcome>)null
                         : ctx => TransmitStages.Spoken(
@@ -265,15 +429,58 @@ namespace Radios.Fixer
                     new FixerRunDeclaration(
                         LoadDeclaration,
                         "What is the antenna socket connected to right now?",
-                        "Nothing transmits until you answer this question. If you are "
-                        + "not sure, leave it unanswered: the checks that transmit will "
-                        + "wait, and everything else still runs.",
+                        "Nothing transmits until you answer this question. Into a real "
+                        + "antenna, or through an amplifier, the checks that transmit "
+                        + "keep the power at "
+                        + FixerTransmitGate.LowPowerCeilingWatts
+                          .ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        + " watts or less. Answering that nothing is connected, or that "
+                        + "you are not sure, keeps them parked — everything else still "
+                        + "runs.",
                         new[]
                         {
                             new FixerDeclarationChoice(LoadDummy, "A dummy load"),
                             new FixerDeclarationChoice(LoadAntenna,
-                                "An antenna, and transmitting a short test into it is fine"),
-                        }),
+                                "An antenna, and transmitting a short low-power test "
+                                + "into it is fine"),
+                            // Not a nicety: an amplifier in the path means every
+                            // reading describes the amplifier's INPUT (#223), and
+                            // a measurement labelled "antenna" through one is
+                            // wrong in the report Flex eventually reads.
+                            new FixerDeclarationChoice(LoadAmplifier,
+                                "An amplifier — the radio feeds it before anything "
+                                + "reaches an antenna or a load"),
+                            new FixerDeclarationChoice(LoadNothingUnsure,
+                                "Nothing, or I am not sure"),
+                        })
+                    {
+                        // The question names the PORT from the radio rather
+                        // than asking the operator to know it (#244) — which
+                        // also surfaces a wrong TX antenna before it costs
+                        // anything (#205's failure mode). And for a remote
+                        // radio it says out loud that it is asking about a
+                        // station the operator is not at (#247): naming the
+                        // distance is what makes a person stop and think.
+                        QuestionNow = () =>
+                        {
+                            StationNow s = Station();
+                            string port = s?.AntennaPort ?? "";
+                            bool remote = s?.RemoteRadio == true;
+
+                            if (remote)
+                                return port.Length > 0
+                                    ? "You are connected remotely. The radio will transmit "
+                                      + "on " + port + " — what is connected to " + port
+                                      + " at that station right now?"
+                                    : "You are connected remotely. What is connected to "
+                                      + "the antenna port at that station right now?";
+
+                            return port.Length > 0
+                                ? "The radio will transmit on " + port
+                                  + ". What is connected to " + port + " right now?"
+                                : "";   // fall back to the static question
+                        },
+                    },
                 });
         }
 
@@ -281,6 +488,22 @@ namespace Radios.Fixer
                                    FixerFixAction action)
         {
             if (action != null) fixes[id] = action;
+        }
+
+        /// <summary>
+        /// "two seconds", derived from the probe constant it describes so the
+        /// sentence cannot drift from the behaviour. Words for the small
+        /// counts a person says as words; numerals past twelve.
+        /// </summary>
+        private static string SecondsPhrase(int ms)
+        {
+            string[] small = { "zero", "one", "two", "three", "four", "five", "six",
+                               "seven", "eight", "nine", "ten", "eleven", "twelve" };
+            int whole = ms / 1000;
+            string n = ms % 1000 == 0 && whole < small.Length
+                ? small[whole]
+                : (ms / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+            return n + (ms == 1000 ? " second" : " seconds");
         }
     }
 }

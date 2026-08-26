@@ -107,6 +107,24 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     FlexLib consumes either `IsCompressed`, and `FlexBase` force-sets the RX one
     to true, which is why that has never bitten.
 
+13. **Instance-scoped radio-list event on WanServer (applied 2026-08-26, Sprint
+    35 Track K)**: In `FlexLib_API/FlexLib/WanServer.cs`, keep the additive,
+    comment-marked instance event `RadioListReceivedForThisConnection` (plus its
+    private raiser), fired at the end of `ParseRadioListMessage` right after the
+    stock static `OnWanRadioListReceived` call. Stock FlexLib's
+    `WanRadioRadioListRecieved` (sic) event is `static`, so with more than one
+    live `WanServer` — one SmartLink session held open per saved account, the
+    #259 presence model — every subscriber hears every account's radio list
+    with no way to tell whose it is, and a ghost-sweep keyed to the wrong
+    account would delete another account's rows. The instance event is what
+    `Radios/SmartLink/WanServerAdapter.cs` subscribes (on its own wrapped
+    instance); nothing subscribes the static event anymore in our code, but it
+    still fires exactly as stock for any consumer that does. Purely additive —
+    no vendor line is modified, so a 3-way merge on the next upgrade cannot
+    conflict. **Reportable upstream to Flex:** a static event on a
+    per-connection class prevents any client from running more than one
+    SmartLink session; SmartSDR never does, which is presumably why it survives.
+
 ## Upgrade procedure that worked for 4.2.18 → 4.2.20 (2026-08-03)
 
 Rather than a fresh vendor copy + manual patch reapply, use git for a 3-way merge per changed file:

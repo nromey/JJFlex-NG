@@ -1859,6 +1859,14 @@ public class NativeMenuBar : IDisposable
             // it. It can legitimately come back null; JJFlexDialog owns itself
             // to the main window in that case.
             Dialogs.FixerDialog.Show(() => Rig, System.Windows.Window.GetWindow(_window)));
+        // Sprint 35 Track B — check runs persist as they happen (#251), so the
+        // Test ID on a report is quotable against a saved copy. This is the
+        // door to those copies: view, export, delete. It sits inside Fix
+        // because a saved run is a Fix artifact, and the submenu is already
+        // ruled to grow.
+        AddWired(fixSub, "Saved check runs...", () =>
+            Dialogs.FixerPastRunsDialog.Show(() => Rig,
+                System.Windows.Window.GetWindow(_window)));
 
         // RENAMED from "Diagnostics" 2026-08-25, and the rename is the point.
         // This item does not diagnose anything — it deep-links to the settings
@@ -1933,6 +1941,31 @@ public class NativeMenuBar : IDisposable
             var path = ProfileReporter.SaveReport(report);
             SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.report_saved", ("path", path)));
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        });
+        // #227: everything the radio holds, as plain text, BEFORE a factory
+        // reset takes it all. Read-only and safe any time — unlike Profile
+        // Report above, which loads each profile to compare them. The path is
+        // SPOKEN, not just shown: an export the operator cannot find is not
+        // an export.
+        AddWired(tools, "Export Settings as Text", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            try
+            {
+                var export = ProfileReporter.GenerateStationSettingsExport(Rig);
+                var path = ProfileReporter.SaveStationSettingsExport(
+                    export, Rig.ConnectedSerial);
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    "settings.station_export.saved", ("path", path)));
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"Export Settings as Text: {ex}", TraceLevel.Error);
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    "settings.station_export.failed", ("error", ex.Message)));
+            }
         });
         AddSep(tools);
         AddWired(tools, "Export Profiles", () =>
@@ -3031,9 +3064,11 @@ public class NativeMenuBar : IDisposable
     /// <remarks>
     /// <para>Silent and instant in every case but one: <see
     /// cref="Radios.FlexBase.ShouldOfferStationLayoutSave"/> is false unless
-    /// the setting is on, the operator changed the slice set this session, the
-    /// radio is theirs, and they are the only operator on it. A disconnect
-    /// where any of that fails looks exactly like it did before this shipped.
+    /// the setting is on, the operator changed the slice set or a
+    /// radio-persisted setting this session (#225 widened the trigger past
+    /// slices), the radio is theirs, and they are the only operator on it. A
+    /// disconnect where any of that fails looks exactly like it did before
+    /// this shipped.
     /// </para>
     ///
     /// <para>No is a real answer and is honoured without argument — no second

@@ -57,6 +57,12 @@ namespace Radios.Fixer
             Ready,
             /// <summary>The operator said what the antenna socket is connected to.</summary>
             DeclareLoad,
+            /// <summary>The operator said whether they can hear the radio (#243).</summary>
+            DeclareHearing,
+            /// <summary>The operator opened or closed a stage's explanation
+            /// disclosure. Recorded so a re-render honours their choice instead
+            /// of springing the prose back open.</summary>
+            ExplainToggled,
             /// <summary>Run a stage.</summary>
             RunStage,
             /// <summary>Run a stage again — deliberate, and distinct from RunStage.</summary>
@@ -108,17 +114,28 @@ namespace Radios.Fixer
         /// </summary>
         public string Value { get; }
 
+        /// <summary>
+        /// The declaration CHOICE id, for the declare kinds — alongside the
+        /// answer's own words in <see cref="Value"/>. The words go into the
+        /// report; the id is what the host maps to a load classification. It
+        /// is not a safety fact: the gate owns the id-to-meaning table, so a
+        /// page that lies here only picks a different declared answer, exactly
+        /// as the words alone always could.
+        /// </summary>
+        public string Choice { get; }
+
         /// <summary>True when this message can be acted on.</summary>
         public bool Usable => What != Kind.Unusable;
 
         private FixerPageMessage(Kind what, Fault problem, string runId,
-                                 string stageId, string value)
+                                 string stageId, string value, string choice = "")
         {
             What = what;
             Problem = problem;
             RunId = runId ?? "";
             StageId = stageId ?? "";
             Value = value ?? "";
+            Choice = choice ?? "";
         }
 
         private static FixerPageMessage Bad(Fault why)
@@ -160,7 +177,28 @@ namespace Radios.Fixer
                         if (what.Length == 0) return Bad(Fault.MissingField);
                         if (what.Length > MaxDeclarationChars)
                             what = what.Substring(0, MaxDeclarationChars);
-                        return new FixerPageMessage(Kind.DeclareLoad, Fault.None, run, "", what);
+                        return new FixerPageMessage(Kind.DeclareLoad, Fault.None, run, "", what,
+                                                    Text(root, "choice"));
+                    }
+
+                    case "declare-hearing":
+                    {
+                        string what = Text(root, "what");
+                        if (what.Length == 0) return Bad(Fault.MissingField);
+                        if (what.Length > MaxDeclarationChars)
+                            what = what.Substring(0, MaxDeclarationChars);
+                        return new FixerPageMessage(Kind.DeclareHearing, Fault.None, run, "", what,
+                                                    Text(root, "choice"));
+                    }
+
+                    case "explain":
+                    {
+                        // The disclosure toggle. "open" is a real JSON boolean;
+                        // the value records the state the operator chose so a
+                        // re-render can honour it.
+                        if (stage.Length == 0) return Bad(Fault.MissingField);
+                        return new FixerPageMessage(Kind.ExplainToggled, Fault.None, run, stage,
+                                                    Flag(root, "open") ? "open" : "closed");
                     }
 
                     case "run-stage":

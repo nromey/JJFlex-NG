@@ -17,7 +17,7 @@ Three workflows it's built for:
 ## Where it lives
 
 - **Source:** `tools/SmartLinkSessionHarness/` in the repo (permanent; never deleted).
-- **Debug build output:** `tools/SmartLinkSessionHarness/bin/x64/Debug/net10.0-windows/SmartLinkSessionHarness.exe`.
+- **Debug build output:** `tools/SmartLinkSessionHarness/bin/x64/Debug/net10.0-windows/win-x64/SmartLinkSessionHarness.exe`.
 - **Debug zip (for testers):** copied into `tools/harness/` inside the Debug zip that `build-debug.bat --publish` distributes. Testers get it automatically when they pull the debug build.
 - **Release installer:** intentionally NOT included. End users don't get a REPL.
 
@@ -45,10 +45,10 @@ Run (two forms):
 
 ```
 # Interactive — paste token at the prompt
-tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows\SmartLinkSessionHarness.exe
+tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows\win-x64\SmartLinkSessionHarness.exe
 
 # Token from command-line (saves shell history has the JWT — see security note)
-tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows\SmartLinkSessionHarness.exe --token eyJhbGc...
+tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows\win-x64\SmartLinkSessionHarness.exe --token eyJhbGc...
 ```
 
 ## Commands

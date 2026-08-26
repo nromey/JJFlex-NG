@@ -41,6 +41,17 @@ namespace Radios.SmartLink
         /// </summary>
         public event EventHandler<IWanSessionOwner?>? ActiveSessionChanged;
 
+        /// <summary>
+        /// Sprint 35 Track K (#259) — one subscription point for radio lists
+        /// from EVERY session this coordinator holds, each attributed to the
+        /// account whose session delivered it. This is what lets a consumer
+        /// (FlexBase's intake) scope its ghost sweep to one account: a list
+        /// from account A says nothing about account B's radios, and sweeping
+        /// across accounts would delete rows the server never disowned.
+        /// Fires on the SmartLink receive thread; consumers must marshal.
+        /// </summary>
+        public event EventHandler<SessionRadioListEventArgs>? SessionRadioListReceived;
+
         public SmartLinkSessionCoordinator(Func<string, IWanSessionOwner> sessionFactory)
         {
             _sessionFactory = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
@@ -90,23 +101,75 @@ namespace Radios.SmartLink
             lock (_gate)
             {
                 ThrowIfDisposed();
-                foreach (var existing in _sessions.Values)
-                {
-                    if (string.Equals(existing.AccountId, accountId, StringComparison.Ordinal))
-                    {
-                        Tracing.TraceLine($"Coordinator: activating existing session for account={accountId}", TraceLevel.Info);
-                        SetActive(existing.SessionId);
-                        return existing;
-                    }
-                }
-
-                var owner = _sessionFactory(accountId)
-                            ?? throw new InvalidOperationException("Session factory returned null");
-                _sessions[owner.SessionId] = owner;
-                Tracing.TraceLine($"Coordinator: created session id={owner.SessionId} account={accountId}", TraceLevel.Info);
+                var owner = GetOrCreateUnderGate(accountId);
                 SetActive(owner.SessionId);
                 return owner;
             }
+        }
+
+        /// <summary>
+        /// Sprint 35 Track K (#259) — get or create the session for an account
+        /// WITHOUT touching the active pointer. The presence layer holds a
+        /// session per saved account; making the last-ensured account "active"
+        /// as a side effect would point radio connects at an arbitrary
+        /// account. Activation stays what it always was: the deliberate act of
+        /// the connect flow (<see cref="EnsureSessionForAccount"/>).
+        /// </summary>
+        public IWanSessionOwner GetOrCreateSession(string accountId)
+        {
+            if (string.IsNullOrWhiteSpace(accountId)) throw new ArgumentException("accountId required", nameof(accountId));
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                return GetOrCreateUnderGate(accountId);
+            }
+        }
+
+        /// <summary>
+        /// The session for an account, or null when none exists. Lets the
+        /// connect path dial a radio through the session of the account that
+        /// actually OWNS it, rather than whatever happens to be active.
+        /// </summary>
+        public IWanSessionOwner? GetSessionForAccount(string accountId)
+        {
+            if (string.IsNullOrWhiteSpace(accountId)) return null;
+            lock (_gate)
+            {
+                foreach (var existing in _sessions.Values)
+                {
+                    if (string.Equals(existing.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
+                        return existing;
+                }
+                return null;
+            }
+        }
+
+        // Assumes _gate is held. Account ids are emails, matched the way the
+        // account manager matches them — case-insensitively — so "Don@x" and
+        // "don@x" can never hold two sessions to the same account.
+        private IWanSessionOwner GetOrCreateUnderGate(string accountId)
+        {
+            foreach (var existing in _sessions.Values)
+            {
+                if (string.Equals(existing.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return existing;
+                }
+            }
+
+            var owner = _sessionFactory(accountId)
+                        ?? throw new InvalidOperationException("Session factory returned null");
+            _sessions[owner.SessionId] = owner;
+            owner.RadioListReceived += OnSessionRadioListReceived;
+            Tracing.TraceLine($"Coordinator: created session id={owner.SessionId} account={accountId}", TraceLevel.Info);
+            return owner;
+        }
+
+        private void OnSessionRadioListReceived(object? sender, WanRadioListReceivedEventArgs e)
+        {
+            if (sender is not IWanSessionOwner owner) return;
+            SessionRadioListReceived?.Invoke(this,
+                new SessionRadioListEventArgs(owner.AccountId, owner.SessionId, e.Radios));
         }
 
         /// <summary>
@@ -135,6 +198,7 @@ namespace Radios.SmartLink
             if (removed != null)
             {
                 Tracing.TraceLine($"Coordinator: disconnecting + removing session id={sessionId}", TraceLevel.Info);
+                removed.RadioListReceived -= OnSessionRadioListReceived;
                 try { removed.Disconnect(); } catch (Exception ex) { TraceWarn("Disconnect threw", ex); }
                 try { removed.Dispose(); } catch (Exception ex) { TraceWarn("Dispose threw", ex); }
 
@@ -209,10 +273,37 @@ namespace Radios.SmartLink
 
             foreach (var owner in toDispose)
             {
+                owner.RadioListReceived -= OnSessionRadioListReceived;
                 try { owner.Dispose(); } catch (Exception ex) { TraceWarn("Session dispose threw", ex); }
             }
 
             Tracing.TraceLine("Coordinator: disposed", TraceLevel.Info);
+        }
+    }
+
+    /// <summary>
+    /// Payload for <see cref="SmartLinkSessionCoordinator.SessionRadioListReceived"/>:
+    /// a radio list plus the identity of the account whose session it arrived on.
+    /// </summary>
+    public sealed class SessionRadioListEventArgs : EventArgs
+    {
+        /// <summary>Account (email) whose session delivered this list.</summary>
+        public string AccountId { get; }
+
+        /// <summary>Session that delivered it, for trace correlation.</summary>
+        public string SessionId { get; }
+
+        /// <summary>The server's FULL current list for this account.</summary>
+        public System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> Radios { get; }
+
+        public SessionRadioListEventArgs(
+            string accountId,
+            string sessionId,
+            System.Collections.Generic.IReadOnlyList<Flex.Smoothlake.FlexLib.Radio> radios)
+        {
+            AccountId = accountId;
+            SessionId = sessionId;
+            Radios = radios;
         }
     }
 }

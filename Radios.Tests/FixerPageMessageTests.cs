@@ -318,6 +318,8 @@ namespace Radios.Tests
         {
             yield return "{\"kind\":\"ready\"}";
             yield return "{\"kind\":\"declare-load\",\"what\":\"dummy load\"}";
+            yield return "{\"kind\":\"declare-hearing\",\"what\":\"I can hear the radio\"}";
+            yield return "{\"kind\":\"explain\",\"stage\":\"s1\",\"open\":true}";
             yield return "{\"kind\":\"run-stage\",\"stage\":\"s1\"}";
             yield return "{\"kind\":\"run-stage\",\"stage\":\"s1\",\"again\":true}";
             yield return "{\"kind\":\"skip-stage\",\"stage\":\"s1\",\"choice\":\"c\"}";
