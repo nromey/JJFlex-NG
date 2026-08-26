@@ -1486,6 +1486,10 @@ namespace JJFlexWpf
         public static void ProblemRecordedTone()
         {
             if (!Gate(EarconCategory.Warnings)) return;
+            // 90 + 50 + 130. #116: warnings duck the band audio for their own
+            // length, and the duration is stated here rather than guessed at,
+            // because the request is a deadline and a wrong one is audible.
+            RxDuck.RequestFor(270);
             PlayVoicedSequence(EarconVoices.Plain,
                 new[] { (440, 90), (0, 50), (370, 130) }, VolumeNormal);
         }
@@ -1525,6 +1529,7 @@ namespace JJFlexWpf
         public static void WarningAlarmTone()
         {
             if (!Gate(EarconCategory.Warnings)) return;
+            RxDuck.RequestFor(750);
             PlayVoiced(EarconVoices.Alarm, 800, 750, VolumeStrong);
         }
 

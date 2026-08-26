@@ -25,6 +25,10 @@ namespace JJFlexWpf
         private readonly SpectralSubtractionProvider _spectralSub;
         private readonly int _channels;
 
+        /// <summary>Kept for the duck's ramp, which has to convert a time
+        /// constant into a per-frame increment.</summary>
+        private readonly int _sampleRate;
+
         /// <summary>
         /// Create the pipeline for the given audio format.
         /// Both providers are created in standalone mode (no ISampleProvider source).
@@ -32,6 +36,7 @@ namespace JJFlexWpf
         public RxAudioPipeline(int sampleRate = 48000, int channels = 2)
         {
             _channels = channels;
+            _sampleRate = sampleRate;
             _rnnoise = new NoiseReductionProvider(sampleRate, channels);
             _spectralSub = new SpectralSubtractionProvider(sampleRate, channels);
 
@@ -154,6 +159,70 @@ namespace JJFlexWpf
             int count = buffer.Length;
             _spectralSub.ProcessInPlace(buffer, 0, count, _channels);
             _rnnoise.ProcessInPlace(buffer, 0, count, _channels);
+            ApplyDuck(buffer, count);
+        }
+
+        // --- Warning duck (#116) ---
+        //
+        // Last in the chain on purpose. The noise reducers are level-sensitive
+        // — spectral subtraction works against a measured noise floor, and
+        // RNNoise was trained on speech at natural levels — so pulling the
+        // signal down in front of them would move the floor they are working
+        // against every time a warning sounded. The duck is a listening
+        // adjustment, not part of the cleanup, so it goes after both.
+
+        /// <summary>Where the duck gain is right now, glided per frame toward
+        /// <see cref="RxDuck.TargetGain"/>.</summary>
+        private float _duckGain = 1f;
+
+        /// <summary>
+        /// Ramp the buffer toward the duck's target gain.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Ramped, never stepped.</b> A hard gain change mid-buffer is a
+        /// discontinuity, and a discontinuity is a click — precisely the
+        /// artifact class this whole area of the app exists to remove. So the
+        /// gain moves by a fixed increment per FRAME (not per sample, or a
+        /// stereo stream would ramp twice as fast as a mono one).
+        /// </para>
+        /// <para>
+        /// The increment is sized so a full excursion takes
+        /// <see cref="RxDuck.AttackMs"/> going down and
+        /// <see cref="RxDuck.ReleaseMs"/> coming back, whatever the depth is
+        /// set to — so changing the depth changes how deep it goes and not how
+        /// abrupt it feels.
+        /// </para>
+        /// <para>
+        /// <b>It converges on 1.0 whenever nothing is asking for a duck</b>,
+        /// including after a request expires, after ducking is switched off
+        /// mid-duck, and after anything at all goes wrong upstream. There is
+        /// no state that has to be unwound; the only way to stay attenuated is
+        /// for something to keep asking.
+        /// </para>
+        /// </remarks>
+        private void ApplyDuck(float[] buffer, int count)
+        {
+            float target = RxDuck.TargetGain;
+
+            // Nothing to do: not ducking, and not still on the way home.
+            if (target >= 0.9999f && _duckGain >= 0.9999f) return;
+
+            int channels = Math.Max(_channels, 1);
+            float span = 1f - RxDuck.DuckedGain;
+            if (span < 0.0001f) span = 1f; // depth of zero: glide home promptly
+
+            float ms = target < _duckGain ? RxDuck.AttackMs : RxDuck.ReleaseMs;
+            float step = span / Math.Max(1f, _sampleRate * (ms / 1000f));
+
+            for (int i = 0; i < count; i += channels)
+            {
+                if (_duckGain > target) _duckGain = Math.Max(target, _duckGain - step);
+                else if (_duckGain < target) _duckGain = Math.Min(target, _duckGain + step);
+
+                for (int c = 0; c < channels && i + c < count; c++)
+                    buffer[i + c] *= _duckGain;
+            }
         }
 
         public void Dispose()

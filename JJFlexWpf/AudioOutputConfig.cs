@@ -355,6 +355,21 @@ namespace JJFlexWpf
         public List<EarconLevelTrim> EarconLevelTrims { get; set; } = new();
 
         /// <summary>
+        /// Whether the radio's PC audio dips while a warning earcon sounds
+        /// (#116). On by default; fully defeatable, because this attenuates
+        /// received audio and an operator who wants their band untouched is
+        /// entitled to that.
+        /// </summary>
+        public bool RxDuckEnabled { get; set; } = true;
+
+        /// <summary>
+        /// How far the band audio dips under a warning, in dB. Modest by
+        /// default — an operator copying weak CW under a warning will not
+        /// thank us for a large hole in the band.
+        /// </summary>
+        public float RxDuckDepthDb { get; set; } = RxDuck.DefaultDepthDb;
+
+        /// <summary>
         /// The one meter list (Track D2): each entry is a source plus a range
         /// plus a voice, with audibility and readability as properties of the
         /// same meter. Empty = never configured; the engine seeds from the
@@ -655,6 +670,11 @@ namespace JJFlexWpf
                         trims.Add(new KeyValuePair<string, float>(t.Id, t.Db));
             EarconPlayer.SetAllLevelTrimsDb(trims);
 
+            // #116 — the warning duck. Both clamp in their setters, so a
+            // hand-edited file cannot leave the band permanently attenuated.
+            RxDuck.Enabled = RxDuckEnabled;
+            RxDuck.DepthDb = RxDuckDepthDb;
+
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
@@ -754,6 +774,9 @@ namespace JJFlexWpf
                 trimList.Add(new EarconLevelTrim { Id = kv.Key, Db = kv.Value });
             trimList.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
             EarconLevelTrims = trimList;
+
+            RxDuckEnabled = RxDuck.Enabled;
+            RxDuckDepthDb = RxDuck.DepthDb;
 
             // What the engine hands back is always current-model, so say so.
             // The migration is a no-op on an already-current file even without
