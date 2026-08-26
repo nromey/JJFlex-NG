@@ -979,7 +979,10 @@ Audit checklist:
    and any Modern/Classic menu builders. Produce a list of affected keys + their
    new meanings.
 
-   **This said `RegisterScope` until 2026-08-26 and NO SUCH SYMBOL EXISTS** —
+   **This said "RegisterScope" until 2026-08-26 and NO SUCH SYMBOL EXISTS**
+   — deliberately unbackticked, because a backticked name reads as an
+   instruction to go and find it, and the symbol checker rightly treats it
+   as one —
    not in any `.cs` or `.vb` file, only in this sentence. Scope is a FIELD
    (`KeyScope`, `Radios/KeyCommandTypes.cs:216`, 252 uses in `KeyCommands.cs`),
    never a registration call. Exactly the `KeyCommands.vb` failure again: a

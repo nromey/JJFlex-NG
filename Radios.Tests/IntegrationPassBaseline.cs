@@ -201,18 +201,12 @@ namespace Radios.Tests
                       + "no delegate with which to say so. Stage 2 blocks the UI thread while "
                       + "transmitting, so nothing else can speak for it either"),
 
-            // The worked example. CLAUDE.md's keyboard audit names two grep
-            // targets that have never existed in this tree.
-            new Known(Rules.PhantomSymbol, "CLAUDE.md/RegisterScope", "#256",
-                      "the keyboard audit says to grep the diff for RegisterScope. No source "
-                      + "file has ever contained it — the scope enum is KeyScope. A grep for a "
-                      + "name that does not exist returns nothing, and nothing reads exactly "
-                      + "like \"no key bindings changed\", so the audit reports clean and stops"),
-            new Known(Rules.PhantomSymbol, "CLAUDE.md/KeyBinding", "#256",
-                      "the same sentence says to look for \"KeyBinding attributes\". This tree "
-                      + "has none — no XAML InputBinding is declared anywhere. A substring grep "
-                      + "does hit ValidateKeyBindings, so this one misleads rather than silently "
-                      + "passing; a person should decide what the sentence meant to say"),
+            // #256's two phantom grep targets are CLOSED. CLAUDE.md no longer
+            // backticks RegisterScope — a backticked name reads as an instruction
+            // to go and find it, which is what made a historical mention of a
+            // deleted symbol into a live one. KeyBinding is now real: it is in
+            // JJFlexWpf/KeyCommands.cs. Deleted rather than commented out; a
+            // baseline is a list of what is STILL true.
         };
 
         internal const string ClickOnly =

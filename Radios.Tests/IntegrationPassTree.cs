@@ -75,7 +75,7 @@ namespace Radios.Tests
             var corpus = new List<string>();
             var everyName = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (string file in Directory.EnumerateFiles(Root, "*.*", SearchOption.AllDirectories))
+            foreach (string file in TrackedFiles(Root))
             {
                 if (IsExcluded(file)) continue;
                 everyName.Add(Path.GetFileName(file));
@@ -102,6 +102,72 @@ namespace Radios.Tests
                     "Only " + AuthoredSource.Count + " authored source files were found under \""
                     + Root + "\". Either the vendor exclusions have swallowed the tree or the "
                     + "root-finder is wrong; either way the dedup sweep would prove nothing.");
+        }
+
+        /// <summary>
+        /// Every file git tracks under <paramref name="root"/>, absolute paths.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Deliberately not a filesystem walk.</b> A walk makes the pass's
+        /// verdict depend on which checkout you happen to run in. Found
+        /// 2026-08-26 merging Sprint 35: the same commit came back clean in a
+        /// worktree and reported 29 findings in the main clone, because that
+        /// clone carries a gitignored <c>flexlib4218/</c> reference copy of
+        /// FlexLib 4.2.18 in its root. Every finding was FlexLib's own code
+        /// compared against our vendored copy — none of them ours.
+        /// </para>
+        /// <para>
+        /// An instrument that answers differently in two checkouts of one
+        /// commit cannot be believed in either, and this one is read at
+        /// exactly the moment nobody has spare attention to doubt it. Scoping
+        /// to <c>git ls-files</c> fixes that by construction, rather than by
+        /// an exclusion list somebody has to extend for the next stray
+        /// directory after first working out why the gate went red.
+        /// </para>
+        /// <para>
+        /// If git cannot answer, this throws — same reason the corpus floor
+        /// throws. A wrong answer here reads as success.
+        /// </para>
+        /// </remarks>
+        private static List<string> TrackedFiles(string root)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("git", "ls-files -z")
+            {
+                WorkingDirectory = root,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            string listing;
+            try
+            {
+                using var git = System.Diagnostics.Process.Start(psi)
+                    ?? throw new InvalidOperationException("git did not start");
+                listing = git.StandardOutput.ReadToEnd();
+                git.WaitForExit();
+                if (git.ExitCode != 0)
+                    throw new InvalidOperationException("git ls-files exited " + git.ExitCode);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "The integration pass could not ask git which files are tracked under \""
+                    + root + "\", so it has no trustworthy corpus. It refuses to fall back to a "
+                    + "filesystem walk: that walk reads gitignored trees, and a sweep whose "
+                    + "answer depends on what is lying around the checkout is worse than no "
+                    + "sweep, because it is read as a verdict. Underlying: " + ex.Message, ex);
+            }
+
+            var files = new List<string>();
+            foreach (string rel in listing.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string full = Path.GetFullPath(Path.Combine(root, rel));
+                if (File.Exists(full)) files.Add(full);
+            }
+            return files;
         }
 
         /// <summary>The repo root — the directory holding JJFlexRadio.sln.</summary>
