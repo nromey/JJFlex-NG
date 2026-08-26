@@ -216,9 +216,31 @@ public partial class MainWindow : UserControl
         // re-introduced the BUG-061 inter-utterance gap on every connect) was
         // removed 2026-08-07 (QB Track A).
         Radios.ScreenReaderOutput.PlayCwSK = () =>
+            _morseNotifier.PlayString(FarewellText(_morseNotifier.SpeedWpm));
+
+        // #143 — how long the waiters should allow. Computed HERE, from the
+        // same string PlayCwSK is about to send and at the speed it will send
+        // it, because this is the only place that can see all three: the text,
+        // the speed, and the output's own latency.
+        //
+        // The waiters (FlexBase.Disconnect and ApplicationEvents' shutdown)
+        // both used a flat 5000 ms, chosen for the long farewell and short by
+        // about a second for it. Two speed bands were being cut: roughly 10-15
+        // WPM on the short string, and 25-31 on the long one, with everything
+        // between and above fitting comfortably. Noel runs 20, which is why he
+        // never saw it.
+        Radios.ScreenReaderOutput.CwFarewellBudgetMs = () =>
         {
-            string prefix = _morseNotifier.SpeedWpm >= 25 ? "73 de JJF" : "73";
-            return _morseNotifier.PlayString($"{prefix} <SK> ee");
+            int sending = _morseNotifier.DurationMsOf(FarewellText(_morseNotifier.SpeedWpm));
+
+            // Past the sending duration the sound still has to get through the
+            // device. EarconCwOutput bounds its own drain at roughly the output
+            // latency twice over plus its grace; allow more than that, so the
+            // OUTER wait never expires first and tears the device down while
+            // the inner one is still legitimately waiting for the tail. That
+            // failure destroys the final dit, which is exactly the symptom
+            // Sprint 32 Track H fixed from the other end.
+            return sending + (EarconPlayer.AlertOutputLatencyMs * 3) + 750;
         };
         Radios.ScreenReaderOutput.PlayCwMode = (mode) => _morseNotifier.PlayString(mode);
         // Sprint 32 Track H (#58): the slice vocabulary sends text, not mode
@@ -340,6 +362,37 @@ public partial class MainWindow : UserControl
             }
         };
     }
+
+    /// <summary>
+    /// The exit farewell, at a given keying speed. ONE definition, because two
+    /// callers need it: the delegate that sends it, and the one that says how
+    /// long to wait for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Proper ham etiquette at any speed — "73" plus the SK prosign, never a
+    /// bare SK, which feels abrupt and is not how operators sign off. At 25 WPM
+    /// and above it extends with the "de JJF" app-callsign signature, which
+    /// there is time for once the code is moving. The trailing "ee" is the
+    /// friendly hand-wave close.
+    /// </para>
+    /// <para>
+    /// <b>The 25 WPM step is a cliff, and it is why #143 could not be fixed
+    /// with a bigger constant.</b> The string roughly DOUBLES in length at one
+    /// word per minute faster, so the farewell gets longer exactly where the
+    /// keying got quicker. Anything sizing a timeout has to ask this method
+    /// rather than assume; a duration derived from speed alone is wrong on one
+    /// side of the step whichever side it was measured on.
+    /// </para>
+    /// <para>
+    /// One utterance, not two calls — bracket syntax renders it as a single
+    /// continuous PARIS-spaced waveform. Sending "73" and then the prosign
+    /// separately puts a queue-boundary gap in the middle that does not match
+    /// standard word spacing (BUG-061).
+    /// </para>
+    /// </remarks>
+    private static string FarewellText(int speedWpm)
+        => (speedWpm >= 25 ? "73 de JJF" : "73") + " <SK> ee";
 
     // Sprint 26 Phase 3: tracks the session we're currently subscribed to so we can
     // unsubscribe cleanly when ActiveSession changes. Only one subscription at a time

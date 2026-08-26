@@ -1134,6 +1134,34 @@ namespace Radios
         /// <summary>Play the SK prosign (end of contact / app closing).</summary>
         public static Func<Task>? PlayCwSK { get; set; }
 
+        /// <summary>
+        /// How many milliseconds to allow <see cref="PlayCwSK"/> before giving
+        /// up on it, for the current farewell at the current keying speed.
+        /// Null until the CW side is wired, and then the waiters fall back to
+        /// <see cref="FlexBase.SkFarewellFallbackMs"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// #143. Both waiters used a flat 5000 ms, and it cut the farewell at
+        /// two speed bands. The farewell's length depends on the keying speed
+        /// AND on a string that more than doubles at 25 WPM, so no single
+        /// constant can be right across the 10-to-60 range the speed setting
+        /// allows.
+        /// </para>
+        /// <para>
+        /// <b>It is a delegate for the same reason <see cref="PlayCwSK"/> is:
+        /// Radios sits below JJFlexWpf</b>, so this assembly cannot ask the
+        /// Morse notifier anything directly. The value is computed on the
+        /// other side, where the text, the speed and the audio device's
+        /// latency are all visible at once, and comes back as one number.
+        /// </para>
+        /// <para>
+        /// Callers must still bound it — see <see cref="FlexBase.SkFarewellWaitMs"/>.
+        /// A farewell must never be able to hang a disconnect.
+        /// </para>
+        /// </remarks>
+        public static Func<int>? CwFarewellBudgetMs { get; set; }
+
         /// <summary>Play a mode name in CW (e.g., "USB", "CW").</summary>
         /// <remarks>
         /// Sprint 32 Track H left this in place but stopped calling it. The

@@ -349,6 +349,8 @@ I've been rebuilding the app's sounds for a while and mostly telling you what th
 
 I called these two Rich and Simple on purpose, and it took me a couple of tries to get there. My first instinct was Modern and Classic — until I remembered the app already has a Classic and a Modern tuning mode, which have absolutely nothing to do with how anything sounds. Two different Classic/Modern switches meaning two unrelated things is the kind of thing that's obvious when you built it and baffling when you're just trying to find a setting. Rich and Simple say what you'll actually hear.
 
+**Your sign-off gets to finish now, whatever speed you key at.** When you close the app it sends you off properly — "73 SK ee", or "73 de JJF SK ee" if you're running 25 words per minute or better. The app gave that a flat five seconds to finish, and five seconds turns out to be the wrong answer at both ends of the dial. Slow down to 10 or 15 and the short version doesn't fit. Speed up to 25 and the message gets *longer*, because that's where the "de JJF" joins in, so it doesn't fit either. Between about 16 and 24, and again above 32, everything was fine — which is exactly why I never caught it, because I key at 20. The app now works out how long your farewell actually takes at your speed and waits for that instead of guessing. If your 73 has ever ended a syllable early, that's what it was.
+
 [Return to version headlines](#unreleased-headlines)
 
 ### You get to decide how quick quick really is {#quick}
