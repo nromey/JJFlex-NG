@@ -2110,13 +2110,13 @@ namespace JJFlexWpf
                     // Random musical note from C4-C8 (4 octaves, MIDI 60-108)
                     int midiNote = 60 + _keyRandom.Next(49); // 49 semitones = 4 octaves
                     int freq = (int)(440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0));
-                    PlayTone(freq, 30, 0.25f);
+                    PlayTypingTone(freq);
                     break;
                 case TypingSoundMode.SingleTone:
-                    PlayTone(800, 30, 0.25f);
+                    PlayTypingTone(TypingToneHz);
                     break;
                 case TypingSoundMode.RandomTones:
-                    PlayTone(_keyRandom.Next(300, 2001), 30, 0.25f);
+                    PlayTypingTone(_keyRandom.Next(300, 2001));
                     break;
                 case TypingSoundMode.Mechanical:
                     PlayMechanicalKey();
@@ -2129,32 +2129,172 @@ namespace JJFlexWpf
             }
         }
 
+        // ------------------------------------------------------------------
+        // The typing tone modes (#115) — camouflage, not loudness
+        //
+        // Beep, SingleTone and RandomTones were all PlayTone(freq, 30, 0.25f):
+        // a bare sine, thirty milliseconds, straight out of a SignalGenerator.
+        //
+        // The complaint was that they get buried, and the diagnosis is NOT
+        // that they are too quiet. They RESEMBLE THE MASKER. A short
+        // broadband transient in the voice band IS what a static crash is, and
+        // there is no amplitude at which it stops being one — turning these up
+        // makes them louder pieces of the noise. RandomTones is the clearest
+        // case: a random frequency between 300 and 2000 Hz for 30 ms is a
+        // synthetic static crash by construction, and you could not design
+        // better camouflage deliberately.
+        //
+        // Duration is the mechanism. Gating a tone into a very short window
+        // smears its spectrum, and below roughly 50 ms the ear resolves the
+        // onset transient rather than the pitch. "800 Hz for 15 ms" is not a
+        // tone, it is a click with an 800 Hz tint.
+        //
+        // DTMF IS THE POSITIVE CONTROL AND IS DELIBERATELY NOT TOUCHED. It
+        // sits in the same family, is heard as clearly present, and differs in
+        // exactly the two variables that decide masking: it puts energy at two
+        // frequencies at once instead of one, and it runs long enough to read
+        // as a pitch. Harmonicity is one of the strongest auditory grouping
+        // cues — partials at integer ratios fuse into one perceived object and
+        // segregate from aperiodic noise, which is what band noise is.
+        //
+        // So the tone modes copy those two variables and nothing else: a voice
+        // with harmonics instead of a bare sine, and DTMF's duration instead
+        // of 30 ms. Press is the right voice — struck, then out of the way —
+        // and because it is one of the seven named voices these follow the
+        // #147 set switch, so an operator on Simple gets the plain sines back.
+        //
+        // MUST BE JUDGED AGAINST A LIVE BAND. The original assessment was made
+        // in a quiet room with no radio connected, which is the FLOOR and not
+        // the worst case. Evening QRN on 40 or 80 is the benchmark. Judging in
+        // a quiet room is exactly how this shipped the first time.
+        // ------------------------------------------------------------------
+
+        /// <summary>The fixed pitch for SingleTone, and the fallback pitch
+        /// wherever a typing sound has nothing better to play.</summary>
+        private const int TypingToneHz = 800;
+
         /// <summary>
-        /// Play a random mechanical keyboard sound from the loaded pool.
+        /// How long a typing tone lasts. <see cref="PlayDtmfTone"/>'s duration,
+        /// deliberately and to the millisecond: DTMF is the one member of this
+        /// family that is not buried, and length is half of why.
         /// </summary>
+        /// <remarks>
+        /// Checked against the code rather than taken from the write-up, which
+        /// said 50 — as did DTMF's own summary line, which had drifted from
+        /// the constant beneath it. Both say 60 now.
+        /// </remarks>
+        private const int TypingToneMs = 60;
+
+        /// <summary>
+        /// The typing family's level. <see cref="VolumeSoft"/> by name rather
+        /// than by coincidence — its whole definition is "repeat sounds that
+        /// fire many times a minute", which is what a keystroke is.
+        /// </summary>
+        /// <remarks>
+        /// This is a rise from the 0.25 these used, and it is only defensible
+        /// for the TONE modes. The mechanical WAV modes are broadband
+        /// transients and gain does not rescue those — see
+        /// <see cref="PlayMechanicalKey"/>, which is fixed by levelling the
+        /// pool rather than by pushing it harder.
+        /// </remarks>
+        private const float VolumeTyping = VolumeSoft;
+
+        /// <summary>
+        /// One keystroke tone: harmonic, and long enough to read as a pitch.
+        /// Every tone-mode keystroke goes through here so the three modes
+        /// cannot drift apart in anything except the pitch they choose.
+        /// </summary>
+        private static void PlayTypingTone(int frequencyHz)
+        {
+            PlayVoicedDecay(EarconVoices.Press, frequencyHz, TypingToneMs, VolumeTyping);
+        }
+
+        /// <summary>
+        /// The peak every mechanical keyboard sample is levelled to.
+        /// </summary>
+        /// <remarks>
+        /// Comfortably below full scale, and it sits in the middle of the
+        /// range the old blanket 8x actually produced (0.35 to 1.30), so the
+        /// pool as a whole is about as loud as it was. What changes is that
+        /// the samples now agree with each other.
+        /// </remarks>
+        private const float MechanicalKeyTargetPeak = 0.8f;
+
+        /// <summary>
+        /// Play a random mechanical keyboard sound from the loaded pool,
+        /// levelled so every sample in it lands at the same peak.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This used to apply a blanket 8x to whichever sample came up.</b>
+        /// Someone had already reached for gain here, with a comment saying
+        /// why, and the sounds were still buried — which is #115's whole
+        /// point: these are broadband transients, they resemble band noise,
+        /// and no amount of gain makes a click stop being click-shaped. Do not
+        /// spend DSP trying to make one beat the noise.
+        /// </para>
+        /// <para>
+        /// <b>Measured 2026-08-26, because "the boost may be clipping" was a
+        /// hypothesis and not a fact.</b> All thirteen samples are 24-bit
+        /// stereo, 48 kHz, 200 ms. Peaks run 0.0435 to 0.1630. At 8x the
+        /// loudest reaches 1.304 — 2.3 dB past full scale — and
+        /// <see cref="CachedSound"/>'s gain constructor hard-clamps, so it
+        /// clips. Four of the thirteen clip at all, and across the pool it is
+        /// <b>42 samples out of 124,800, or 0.03%</b>.
+        /// </para>
+        /// <para>
+        /// <b>So the clipping is real, and it is not the problem.</b> 0.03% of
+        /// samples cannot flatten an envelope; the worry that the existing fix
+        /// was degrading what it meant to rescue does not survive the
+        /// measurement. It is confined to the attack transient of four
+        /// samples, which is at least the part that carries a click's
+        /// identity, so it is worth not doing.
+        /// </para>
+        /// <para>
+        /// <b>The measurement found something louder, which nobody was looking
+        /// for: the pool's peaks span 11.5 dB.</b> One blanket gain therefore
+        /// produced keystrokes whose loudness jumped by more than 11 dB at
+        /// random, keypress to keypress. That is far more audible than 0.03%
+        /// clipping and reads as the application being inconsistent rather
+        /// than as variety.
+        /// </para>
+        /// <para>
+        /// Per-sample levelling fixes both at once, and needs no DSP: every
+        /// sample lands at the same peak, nothing clips, and the randomness
+        /// that remains is the character of the samples rather than their
+        /// volume. Ear-gated, because the quietest sample is now noticeably
+        /// louder than it was.
+        /// </para>
+        /// </remarks>
         private static void PlayMechanicalKey()
         {
             if (_keyboardSounds == null || _keyboardSounds.Length == 0)
             {
-                // Fallback: short click
-                PlayTone(800, 15, 0.3f);
+                // No pool loaded. A 15 ms sine was the worst offender in the
+                // whole typing family — comfortably below the roughly 50 ms
+                // where the ear starts hearing pitch instead of onset — so the
+                // fallback is the same tone the other modes now play.
+                PlayTypingTone(TypingToneHz);
                 return;
             }
+            // The pool is levelled once, at load. Normalising per keystroke
+            // would allocate a fresh 200 ms buffer on every keypress for a
+            // result that never changes.
             int idx = _keyRandom.Next(_keyboardSounds.Length);
-            var sound = _keyboardSounds[idx];
-            // Keyboard sounds are low amplitude — boost 8x for audibility over radio audio
-            var boosted = new CachedSound(sound, 8.0f);
-            PlayCachedSound(boosted);
+            PlayCachedSound(_keyboardSounds[idx]);
         }
 
         /// <summary>
-        /// Play a DTMF dual-tone for the given digit (50ms burst).
+        /// Play a DTMF dual-tone for the given digit (60 ms burst).
         /// </summary>
         private static void PlayDtmfTone(char digit)
         {
             if (!DtmfFreqs.TryGetValue(digit, out var freqs))
             {
-                PlayTone(800, 30, 0.25f); // fallback for non-digit chars
+                // Not a DTMF key. Falls back to the tone the other modes play
+                // rather than to the bare 30 ms sine it used, which was one of
+                // the offenders #115 was written about.
+                PlayTypingTone(TypingToneHz);
                 return;
             }
 
@@ -2211,7 +2351,12 @@ namespace JJFlexWpf
                     try
                     {
                         using var stream = File.OpenRead(file);
-                        sounds.Add(new CachedSound(stream));
+                        // Levelled here, once, rather than boosted at every
+                        // keystroke. The pool's own peaks span 11.5 dB
+                        // (measured 2026-08-26), so a single blanket gain made
+                        // keystroke loudness jump at random — see
+                        // PlayMechanicalKey for the measurement.
+                        sounds.Add(new CachedSound(stream).Normalized(MechanicalKeyTargetPeak));
                     }
                     catch (Exception ex)
                     {
@@ -2916,12 +3061,39 @@ namespace JJFlexWpf
             public WaveFormat WaveFormat { get; }
 
             /// <summary>Create a gain-boosted copy of an existing CachedSound.</summary>
+            /// <remarks>
+            /// Hard-clamps, so a gain that overshoots destroys peaks rather
+            /// than wrapping. Prefer <see cref="Normalized"/> where the point
+            /// is to reach a level rather than to apply a specific gain — it
+            /// works out the gain from the audio instead of being told one.
+            /// </remarks>
             public CachedSound(CachedSound source, float gain)
             {
                 WaveFormat = source.WaveFormat;
                 AudioData = new float[source.AudioData.Length];
                 for (int i = 0; i < AudioData.Length; i++)
                     AudioData[i] = Math.Clamp(source.AudioData[i] * gain, -1f, 1f);
+            }
+
+            /// <summary>
+            /// A copy scaled so its loudest sample sits exactly at
+            /// <paramref name="targetPeak"/>. Nothing clips, by construction.
+            /// </summary>
+            /// <remarks>
+            /// Returns this instance unchanged when there is no peak to scale
+            /// — digital silence has no level to normalise TO, and dividing by
+            /// it would turn a silent file into full-scale noise.
+            /// </remarks>
+            public CachedSound Normalized(float targetPeak)
+            {
+                float peak = 0f;
+                foreach (float s in AudioData)
+                {
+                    float a = Math.Abs(s);
+                    if (a > peak) peak = a;
+                }
+                if (peak <= 0.0001f) return this;
+                return new CachedSound(this, targetPeak / peak);
             }
 
             public CachedSound(Stream wavStream)
