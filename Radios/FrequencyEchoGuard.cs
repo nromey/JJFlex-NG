@@ -111,7 +111,19 @@ namespace Radios
                 {
                     // Settled. The radio has our value; there is nothing left to
                     // protect.
+                    //
+                    // TRACED EVEN THOUGH NOTHING WENT WRONG, because the age is
+                    // the round trip, and the round trip is what decides whether
+                    // the race can happen at all. Without this line a log with no
+                    // rejections in it is ambiguous — it could mean the guard is
+                    // holding the line, or it could mean the path under test had
+                    // no latency to race against and proved nothing. Reading a
+                    // settle of 4 ms tells you the second; 180 ms tells you the
+                    // window was wide open and there was simply nothing to reject.
                     _armed = false;
+                    Tracing.TraceLine(
+                        "FrequencyEcho:" + _name + " settled at " + echoed + " after "
+                        + (_clock() - _armedAt) + " ms", TraceLevel.Verbose);
                     return true;
                 }
 
