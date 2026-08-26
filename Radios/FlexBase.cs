@@ -251,6 +251,18 @@ namespace Radios
         }
 
         /// <summary>
+        /// True when this WAN serial is attributable to the given account —
+        /// including the unattributed ("") case, which can only exist in a
+        /// world where a single account is in play and so belongs to it.
+        /// </summary>
+        private static bool WanRadioBelongsToAccount(string serial, string accountId)
+        {
+            var owner = GetWanAccountForSerial(serial);
+            return string.IsNullOrEmpty(owner)
+                || string.Equals(owner, accountId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// The WAN-path <see cref="Radio"/> for this serial, or null when the
         /// SmartLink list does not currently carry it.
         /// </summary>
@@ -4550,14 +4562,9 @@ namespace Radios
                 // them. Unattributed WAN radios ("" — pre-attribution arrivals)
                 // are swept by every list, matching the old whole-map behavior.
                 var freshSerials = new HashSet<string>(lst.Select(x => x.Serial), StringComparer.OrdinalIgnoreCase);
-                bool SweptByThisList(string serial)
-                {
-                    var owner = GetWanAccountForSerial(serial);
-                    return string.IsNullOrEmpty(owner)
-                        || string.Equals(owner, accountId, StringComparison.OrdinalIgnoreCase);
-                }
                 var gone = myRadioList.Where(x =>
-                    x.IsWan && !freshSerials.Contains(x.Serial) && SweptByThisList(x.Serial)).ToList();
+                    x.IsWan && !freshSerials.Contains(x.Serial)
+                    && WanRadioBelongsToAccount(x.Serial, accountId)).ToList();
                 foreach (Radio g in gone)
                 {
                     Tracing.TraceLine($"wanRadioListReceivedHandler: WAN radio {g.Serial} ({g.Nickname}) absent from {accountId}'s fresh list — removing", TraceLevel.Info);
@@ -5689,24 +5696,46 @@ namespace Radios
                     Tracing.TraceLine($"ConnectToSmartLink: session already registered this connection — skipping duplicate registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 }
 
+                // Sprint 35 Track K (#259): a held session KEEPS its account's
+                // last list (owner.AvailableRadios) across this instance's
+                // whole lifetime — but a NEW FlexBase's own bookkeeping starts
+                // empty and the next spontaneous push could be minutes away.
+                // Replay the owner's cached list through the intake so this
+                // instance — and the selector's rows — get the account's
+                // current truth immediately instead of a 10s timeout followed
+                // by a needless session cycle.
+                if (sessionWasAlreadyConnected
+                    && session.AvailableRadios.Count > 0
+                    && !myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)))
+                {
+                    Tracing.TraceLine(
+                        $"ConnectToSmartLink: replaying held session's cached list ({session.AvailableRadios.Count} radio(s)) through the intake ({sw.ElapsedMilliseconds}ms)",
+                        TraceLevel.Info);
+                    wanRadioListReceivedHandler(accountEmail, session.AvailableRadios);
+                }
+
                 // When we already hold a radio list from this session, don't make
                 // the user sit through the full 10s window on the off chance the
                 // server volunteers a new one — it does not resend per session.
                 // WAN entries only: myRadioList also accumulates LAN radios, and
                 // a LAN-only cache says nothing about this SmartLink session.
-                bool haveCachedList = session.IsConnected && myRadioList.Any(r => r.IsWan);
+                // Scoped to THIS account: with presence holding every account's
+                // sessions, another account's radios in myRadioList say nothing
+                // about the account this flow is connecting.
+                bool haveCachedList = session.IsConnected
+                    && myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail));
 
                 // Re-entry over a session that was ALREADY live when this call
                 // began: the one list this TLS session will ever send arrived
                 // long ago, so satisfy the wait from the cache IMMEDIATELY
                 // instead of burning even the short window (QB Track A). The
-                // static WanRadioRadioListRecieved subscription stays active,
-                // so if the server ever does volunteer a fresh list it lands
-                // as a refresh through wanRadioListReceivedHandler exactly as
-                // the 2026-08-06 refresh/morph flow expects.
+                // attributed SessionRadioListReceived subscription stays
+                // active, so pushes keep landing as refreshes through
+                // wanRadioListReceivedHandler exactly as the 2026-08-06
+                // refresh/morph flow expects.
                 if (sessionWasAlreadyConnected && haveCachedList)
                 {
-                    radios = myRadioList.Where(r => r.IsWan).ToList();
+                    radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
                     Tracing.TraceLine(
                         $"ConnectToSmartLink: session was already live — satisfied immediately from {radios.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
@@ -5738,10 +5767,12 @@ namespace Radios
                         // here: NRE, mapped to ConnectFailed, answered with a
                         // pointless interactive re-login on a healthy session
                         // (Noel, 2026-08-06, trace 203418). Rebuild it from the
-                        // cache being accepted. RadioFound for these entries
-                        // already fired via radioAddedHandler at apiInit, so no
-                        // re-announce is needed here.
-                        radios = myRadioList.Where(r => r.IsWan).ToList();
+                        // cache being accepted — scoped to this account, so
+                        // another account's presence radios cannot stand in
+                        // for a list this account never gave us. RadioFound for
+                        // these entries already fired via radioAddedHandler at
+                        // apiInit, so no re-announce is needed here.
+                        radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
                         Tracing.TraceLine(
                             $"ConnectToSmartLink: no new radio list, session live with {radios.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
                             TraceLevel.Info);
