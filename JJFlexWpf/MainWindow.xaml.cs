@@ -678,6 +678,24 @@ public partial class MainWindow : UserControl
     private bool _pttKeyDown;
 
     /// <summary>
+    /// Absorbs the synthetic key-release pairs a screen reader may substitute
+    /// for a held Ctrl+Space, so a held PTT stays keyed (#216). Inert until it
+    /// has seen the synthetic signature — under NVDA, which passes real holds
+    /// through, every release is immediate exactly as before. See
+    /// <see cref="Radios.PttHoldFilter"/> for the whole story.
+    /// </summary>
+    private readonly Radios.PttHoldFilter _pttHoldFilter = new();
+
+    /// <summary>
+    /// Runs a deferred PTT release to ground when no synthetic re-down
+    /// arrived to cancel it. One timer, restarted per deferral.
+    /// </summary>
+    private DispatcherTimer? _pttDeferTimer;
+
+    /// <summary>One Error-level trace line when the filter first arms.</summary>
+    private bool _pttFilterArmTraced;
+
+    /// <summary>
     /// Current PTT configuration. Set during radio connect, used by Settings dialog.
     /// </summary>
     internal PttConfig? CurrentPttConfig { get; private set; }
@@ -1784,7 +1802,19 @@ public partial class MainWindow : UserControl
                 if (!e.IsRepeat && !_pttKeyDown) // ignore key-repeat and redundant down events
                 {
                     _pttKeyDown = true;
-                    _pttController.PttDown();
+                    if (_pttHoldFilter.NoteDown(Environment.TickCount64) ==
+                        Radios.PttHoldFilter.DownAction.ContinueHold)
+                    {
+                        // The synthetic re-down of a hold being absorbed
+                        // (#216): the transmitter never dropped, so there is
+                        // nothing to key — just stand down the pending
+                        // deferred release.
+                        _pttDeferTimer?.Stop();
+                    }
+                    else
+                    {
+                        _pttController.PttDown();
+                    }
                 }
                 e.Handled = true;
                 return;
@@ -1827,13 +1857,61 @@ public partial class MainWindow : UserControl
         if (rawKey == Key.Space && _pttController != null && _pttController.State == PttSafetyController.PttState.PttHold)
         {
             _pttKeyDown = false;
-            _pttController.PttUp();
+            if (_pttHoldFilter.NoteUp(Environment.TickCount64) ==
+                Radios.PttHoldFilter.UpAction.DeferRelease)
+            {
+                // #216: this release may be a screen reader's synthetic pair
+                // rather than the operator letting go. Keep transmitting; if
+                // no re-down claims it within the learned window, the timer
+                // performs the real release. Costs a fraction of a second of
+                // carrier tail on a synthesising reader; costs nothing under
+                // one that delivers real holds, because the filter never
+                // arms there.
+                if (!_pttFilterArmTraced && _pttHoldFilter.SynthesisDetected)
+                {
+                    _pttFilterArmTraced = true;
+                    Tracing.TraceLine("PTT: screen reader is synthesising key-release pairs for a"
+                        + " held Ctrl+Space (release " + _pttHoldFilter.SyntheticReleaseCount
+                        + " arrived too fast to be human). Absorbing releases with a "
+                        + _pttHoldFilter.DeferMs + " ms hold so transmit stays keyed —"
+                        + " see task #216. The first hold of this session took one brief"
+                        + " unkey before detection; later holds are continuous.",
+                        TraceLevel.Error);
+                }
+                StartPttDeferTimer(_pttHoldFilter.DeferMs);
+            }
+            else
+            {
+                _pttController.PttUp();
+            }
             e.Handled = true;
         }
         else if (rawKey == Key.Space)
         {
             _pttKeyDown = false; // Clear flag even if PTT state changed (e.g., locked)
         }
+    }
+
+    /// <summary>
+    /// Arm (or re-arm) the deferred-release timer for the PTT hold filter.
+    /// When it fires and the filter still has a release pending — no synthetic
+    /// re-down arrived — the release really happens.
+    /// </summary>
+    private void StartPttDeferTimer(int ms)
+    {
+        if (_pttDeferTimer == null)
+        {
+            _pttDeferTimer = new DispatcherTimer();
+            _pttDeferTimer.Tick += (s, args) =>
+            {
+                _pttDeferTimer!.Stop();
+                if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))
+                    _pttController?.PttUp();
+            };
+        }
+        _pttDeferTimer.Stop();
+        _pttDeferTimer.Interval = TimeSpan.FromMilliseconds(ms);
+        _pttDeferTimer.Start();
     }
 
     #endregion
@@ -3781,6 +3859,12 @@ public partial class MainWindow : UserControl
         // Dispose PTT safety controller (Sprint 15) — stops TX if active
         _pttController?.Dispose();
         _pttController = null;
+
+        // A deferred PTT release (#216) has nothing left to release; the hold
+        // filter keeps its learned state — that describes the screen reader,
+        // which survives the radio.
+        _pttDeferTimer?.Stop();
+        _pttHoldFilter.Reset();
 
         // Stop the Audio Workshop's poll timer (and any Audio Check session) —
         // the workshop singleton outlives the radio, and its 2 Hz tick raced
