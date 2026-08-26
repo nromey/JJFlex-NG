@@ -24,26 +24,10 @@ namespace Radios.Tests
     {
         private const string Serial = "0123-4567-8600-7001";
 
-        private readonly string _dir;
-        private readonly string? _savedBase;
-        private readonly string? _savedCache;
+        private readonly RadioConfigStaticsScope _scope = new(nameof(RadioRemovalTests));
+        private string _dir => _scope.Directory;
 
-        public RadioRemovalTests()
-        {
-            _dir = Path.Combine(Path.GetTempPath(), "jjflex-removal-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dir);
-            _savedBase = RadioConfig.BaseDirectory;
-            _savedCache = KnownRadioRoster.CacheDirectory;
-            RadioConfig.BaseDirectory = _dir;
-            KnownRadioRoster.CacheDirectory = _dir;
-        }
-
-        public void Dispose()
-        {
-            RadioConfig.BaseDirectory = _savedBase;
-            KnownRadioRoster.CacheDirectory = _savedCache;
-            try { Directory.Delete(_dir, recursive: true); } catch { /* temp dir */ }
-        }
+        public void Dispose() => _scope.Dispose();
 
         /// <summary>
         /// Put a radio in an account's cached list. RecordAccountRadioList

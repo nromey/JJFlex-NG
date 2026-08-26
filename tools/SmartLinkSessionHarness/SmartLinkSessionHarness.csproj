@@ -11,6 +11,33 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseWpf>true</UseWpf>
     <IsPackable>false</IsPackable>
+
+    <!--
+      Task #135: RID-specific, so NuGet's whole cross-platform runtimes tree
+      stops coming along.
+
+      Without a RuntimeIdentifier the build cannot know which platform it is
+      for, so it copies every native it might ever need. That put SIXTEEN
+      System.IO.Ports natives in a tester's zip that can never execute on
+      Windows — android-arm/arm64/x64/x86, four flavours of linux .so,
+      maccatalyst, and osx .dylib.
+
+      This is about CREDIBILITY, not bytes; it is only about 430 KB. Shipping
+      Android libraries to a Windows ham radio tester invites "what else is in
+      here that should not be?", and that is a fair question to be asked once
+      and a bad one to keep earning.
+
+      Framework-dependent, stated rather than inferred: the harness is a
+      diagnostic tool that rides along inside the app's own self-contained
+      publish tree, and a second copy of the runtime would add ~180 MB to
+      every nightly.
+
+      The RID appends to the output path, matching the main app's shape
+      (bin\x64\Debug\net10.0-windows\win-x64\). build-debug.bat and this
+      tool's README name that path.
+    -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>

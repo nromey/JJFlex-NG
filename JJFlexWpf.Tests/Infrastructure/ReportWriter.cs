@@ -36,6 +36,8 @@ public static class ReportWriter
         sb.AppendLine($"- Focusable controls seen: {inspected.Sum(r => r.FocusableCount)}");
         sb.AppendLine();
 
+        AppendIsolation(sb);
+
         if (probes is { Count: > 0 })
         {
             sb.AppendLine("## Focus-avoidance strategies, measured");
@@ -142,6 +144,45 @@ public static class ReportWriter
     }
 
     private static string YesNo(bool value) => value ? "yes" : "no";
+
+    /// <summary>
+    /// On what grounds this run was allowed to build windows, and whether it
+    /// could be heard.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Task #233.</b> <c>UiThread.Isolation</c> and <c>UiThread.Guard</c>
+    /// were surfaced in no run report at all — <c>Isolation</c> appeared only
+    /// inside a comment in <c>Sweep.cs</c>. So an allowed run never stated on
+    /// what grounds it was allowed, and afterwards "properly isolated" looked
+    /// identical to "somebody waived the check". That absence is how a failing
+    /// isolation went unnoticed in the first place, and it is why the audio
+    /// state is stated here from the beginning rather than added later.
+    /// </para>
+    /// <para>
+    /// It is written even when everything is fine. A line that only appears on
+    /// failure teaches the reader to skip it, and the question this answers —
+    /// "should I have heard anything?" — is one an operator asks after a
+    /// perfectly ordinary run.
+    /// </para>
+    /// </remarks>
+    private static void AppendIsolation(StringBuilder sb)
+    {
+        sb.AppendLine("## How this run was allowed");
+        sb.AppendLine();
+        sb.AppendLine($"- Windows: {DeskGuard.Describe(UiThread.Guard)}");
+        sb.AppendLine($"- Desktop isolation: {UiThread.Isolation}" +
+                      (UiThread.Isolation is DesktopIsolation.CreateFailed or DesktopIsolation.SwitchFailed
+                          ? $" (Windows error {PrivateDesktop.LastError})"
+                          : string.Empty));
+        sb.AppendLine($"- Sound: {QuietRun.Describe()}");
+        sb.AppendLine();
+        sb.AppendLine("Visual isolation and audio suppression are separate facts and both are stated. " +
+                      "A run can be invisible and still be heard, which for this project's users is the " +
+                      "worse of the two failures: a sound that arrives from something that cannot be " +
+                      "found, focused or dismissed.");
+        sb.AppendLine();
+    }
 
     private static string Describe(Invariant invariant) => invariant switch
     {

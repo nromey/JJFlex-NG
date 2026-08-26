@@ -15,28 +15,23 @@ namespace Radios.Tests
     /// it. What these tests add is that the OFF state is genuinely off, that
     /// the offered thresholds are the ones the store can actually honour, and
     /// that a reset really does remove the thing the learning reads.</para>
+    ///
+    /// <para><b>Task #232.</b> The off-switch test below failed once in a
+    /// full-suite run and passed five times either side of it, on the same
+    /// commit. Its state — the settings directory and the cache derived from it
+    /// — is process-wide, and the isolation was a hand-rolled save-and-restore
+    /// repeated in six classes. It is now one object,
+    /// <see cref="RadioConfigStaticsScope"/>, which takes every piece of that
+    /// state together and says so out loud if anything else touches it while
+    /// this class is running.</para>
     /// </summary>
     [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class ConnectPathLearningConfigTests : IDisposable
     {
-        private readonly string _dir;
-        private readonly string? _savedBase;
+        private readonly RadioConfigStaticsScope _scope = new(nameof(ConnectPathLearningConfigTests));
+        private string _dir => _scope.Directory;
 
-        public ConnectPathLearningConfigTests()
-        {
-            _dir = Path.Combine(Path.GetTempPath(), "jjflex-pathlearn-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dir);
-            _savedBase = RadioConfig.BaseDirectory;
-            RadioConfig.BaseDirectory = _dir;
-            ConnectPathLearningConfig.Invalidate();
-        }
-
-        public void Dispose()
-        {
-            RadioConfig.BaseDirectory = _savedBase;
-            ConnectPathLearningConfig.Invalidate();
-            try { Directory.Delete(_dir, recursive: true); } catch { /* temp dir */ }
-        }
+        public void Dispose() => _scope.Dispose();
 
         private static void RecordSuccesses(string serial, ConnectPathKind path, int count)
         {
