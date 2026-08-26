@@ -77,6 +77,15 @@ namespace Radios.SmartLink
         /// </summary>
         IReadOnlyList<Radio> AvailableRadios { get; }
 
+        /// <summary>
+        /// Sprint 35 Track K (#259) — UTC time the server last delivered a
+        /// radio list on this session, or null if it never has. The honest
+        /// datum behind any "last heard from SmartLink at …" wording: it says
+        /// when WE last heard, which is all we actually know — never a claim
+        /// about the radio itself.
+        /// </summary>
+        DateTime? LastRadioListUtc { get; }
+
         /// <summary>Audio output primitive for this session (D2 discipline).</summary>
         ISessionAudioSink AudioSink { get; }
 
@@ -104,10 +113,39 @@ namespace Radios.SmartLink
         void Disconnect();
 
         /// <summary>
+        /// Fired whenever the server delivers a radio list on THIS session —
+        /// the first list after registration and every push after it. Sender
+        /// is the owner, so <see cref="AccountId"/> attributes the list to an
+        /// account (#259 presence model). Fires on the SmartLink receive
+        /// thread; consumers must marshal before touching UI.
+        /// </summary>
+        event EventHandler<WanRadioListReceivedEventArgs>? RadioListReceived;
+
+        /// <summary>
         /// Re-register the application with the SmartLink backend (e.g. after
-        /// a JWT refresh). Requires the session to be connected.
+        /// a JWT refresh). Requires the session to be connected. Counts as the
+        /// current connection's registration for <see cref="TryClaimRegistration"/>.
         /// </summary>
         void ReRegister(string programName, string platform, string jwt);
+
+        /// <summary>
+        /// Sprint 35 Track K (#259) — wire the session to keep itself
+        /// registered across reconnects. <paramref name="jwtProvider"/> runs
+        /// on the monitor thread (may block on a silent token refresh); its
+        /// bool argument is true only on the registration-invalid recovery
+        /// path, where a forced refresh is the point. Returning null means
+        /// "not without UI" — the session retries on a timer and NEVER raises
+        /// a sign-in form.
+        /// </summary>
+        void EnableAutoRegistration(Func<bool, string?> jwtProvider, string programName, string platform = "Win10");
+
+        /// <summary>
+        /// Atomically claim the single registration the current connection
+        /// needs. True = caller should send it; false = it is already sent
+        /// (by the monitor's auto-register or an earlier explicit
+        /// <see cref="ReRegister"/>). Resets when the connection drops.
+        /// </summary>
+        bool TryClaimRegistration();
 
         /// <summary>
         /// Broker a connection to a specific radio via SmartLink. Awaits the

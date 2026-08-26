@@ -163,8 +163,21 @@ namespace Radios
         /// the WAN session outlives it. Cleared whenever the session is cycled or
         /// discovery is force-restarted, so a stale handle can never be dialled.</para>
         /// </summary>
-        private static readonly Dictionary<string, Radio> _wanRadiosBySerial =
-            new Dictionary<string, Radio>(StringComparer.OrdinalIgnoreCase);
+        private struct WanRadioEntry
+        {
+            public Radio Radio;
+            /// <summary>
+            /// Email of the SmartLink account whose list delivered this radio,
+            /// or "" when unknown (a WAN radio that arrived outside an
+            /// attributed list). Sprint 35 Track K (#259): with one session
+            /// held per account, a fresh list from account A is the FULL truth
+            /// about A and says NOTHING about B — sweeps must scope to this.
+            /// </summary>
+            public string AccountId;
+        }
+
+        private static readonly Dictionary<string, WanRadioEntry> _wanRadiosBySerial =
+            new Dictionary<string, WanRadioEntry>(StringComparer.OrdinalIgnoreCase);
         private static readonly object _wanRadiosLock = new object();
 
         /// <summary>True when the SmartLink list has this radio right now.</summary>
@@ -174,10 +187,21 @@ namespace Radios
             lock (_wanRadiosLock) { return _wanRadiosBySerial.ContainsKey(serial); }
         }
 
-        private static void RememberWanRadio(Radio r)
+        private static void RememberWanRadio(Radio r, string accountId = null)
         {
             if (r == null || string.IsNullOrWhiteSpace(r.Serial)) return;
-            lock (_wanRadiosLock) { _wanRadiosBySerial[r.Serial] = r; }
+            lock (_wanRadiosLock)
+            {
+                // A caller without attribution (the API-added path) must not
+                // erase attribution an attributed list already established.
+                if (accountId == null
+                    && _wanRadiosBySerial.TryGetValue(r.Serial, out var existing)
+                    && !string.IsNullOrEmpty(existing.AccountId))
+                {
+                    accountId = existing.AccountId;
+                }
+                _wanRadiosBySerial[r.Serial] = new WanRadioEntry { Radio = r, AccountId = accountId ?? "" };
+            }
         }
 
         private static void ForgetWanRadios(string reason)
@@ -191,6 +215,54 @@ namespace Radios
         }
 
         /// <summary>
+        /// Drop only the WAN handles that belong to ONE account — cycling
+        /// account A's session must not throw away the live handles account
+        /// B's still-open session delivered. Unattributed handles ("" account)
+        /// are dropped too: with the cycled session gone they cannot be
+        /// re-verified, and a stale handle must never be dialled.
+        /// </summary>
+        private static void ForgetWanRadiosForAccount(string accountId, string reason)
+        {
+            lock (_wanRadiosLock)
+            {
+                var doomed = _wanRadiosBySerial
+                    .Where(kv => string.IsNullOrEmpty(kv.Value.AccountId)
+                        || string.Equals(kv.Value.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
+                    .Select(kv => kv.Key)
+                    .ToList();
+                if (doomed.Count == 0) return;
+                Tracing.TraceLine($"ForgetWanRadiosForAccount ({reason}): dropping {doomed.Count} WAN radio handle(s) for {accountId}", TraceLevel.Info);
+                foreach (var serial in doomed) _wanRadiosBySerial.Remove(serial);
+            }
+        }
+
+        /// <summary>
+        /// The account whose SmartLink list owns this serial, or "" when
+        /// unknown. Lets the connect path dial a radio through the session of
+        /// the account that can actually broker it.
+        /// </summary>
+        private static string GetWanAccountForSerial(string serial)
+        {
+            if (string.IsNullOrWhiteSpace(serial)) return "";
+            lock (_wanRadiosLock)
+            {
+                return _wanRadiosBySerial.TryGetValue(serial, out var entry) ? entry.AccountId ?? "" : "";
+            }
+        }
+
+        /// <summary>
+        /// True when this WAN serial is attributable to the given account —
+        /// including the unattributed ("") case, which can only exist in a
+        /// world where a single account is in play and so belongs to it.
+        /// </summary>
+        private static bool WanRadioBelongsToAccount(string serial, string accountId)
+        {
+            var owner = GetWanAccountForSerial(serial);
+            return string.IsNullOrEmpty(owner)
+                || string.Equals(owner, accountId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// The WAN-path <see cref="Radio"/> for this serial, or null when the
         /// SmartLink list does not currently carry it.
         /// </summary>
@@ -199,7 +271,8 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(serial)) return null;
             lock (_wanRadiosLock)
             {
-                return _wanRadiosBySerial.TryGetValue(serial, out var r) && r != null && r.IsWan ? r : null;
+                return _wanRadiosBySerial.TryGetValue(serial, out var entry)
+                    && entry.Radio != null && entry.Radio.IsWan ? entry.Radio : null;
             }
         }
 
@@ -439,13 +512,21 @@ namespace Radios
             Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession?.IsConnected == true;
 
         /// <summary>
-        /// Refresh the remote radio list by cycling the SmartLink session
-        /// first. The server sends the radio list once per TLS session and
-        /// never resends on re-registration, so a live session can only ever
-        /// show the list it was born with — radios that came online since are
-        /// invisible until a fresh session dials in. The RigSelector's Remote
-        /// button morphs into "Refresh Remote List" after a successful remote
-        /// pass and calls this.
+        /// Refresh the remote radio list. History, because the reason changed
+        /// (#259): this used to be the ONLY way to see a current list — the
+        /// belief was "the server sends the radio list once per TLS session",
+        /// so refresh meant kill the session and dial a new one. The
+        /// 2026-08-25 capture disproved the belief: the server pushes updated
+        /// lists for as long as a registered session lives (four pushes in 145
+        /// seconds), and held-open per-account sessions now consume them, so
+        /// the roster is already current without anyone pressing anything.
+        /// The cycle is kept as the operator's honest escape hatch — an
+        /// explicit refresh still tears down the CURRENT account's session and
+        /// dials fresh, which recovers a session that is connected but wedged
+        /// (TLS up, server gone quiet) in a way no amount of waiting would.
+        /// Scoped to the current account: other accounts' held sessions and
+        /// their radios are not touched, which is what keeps a refresh from
+        /// re-ranking the whole list by whichever account was refreshed last.
         /// </summary>
         public void RefreshRemoteRadios()
         {
@@ -455,19 +536,22 @@ namespace Radios
         }
 
         /// <summary>
-        /// Disconnect the app-global WAN session so the next
-        /// ConnectToSmartLink dials a fresh one — the only way to make the
-        /// server send the radio list again. Also clears this instance's
+        /// Disconnect the CURRENT account's WAN session so the next
+        /// ConnectToSmartLink dials a fresh one. Also clears this instance's
         /// one-shot list latch so the fresh list is waited for rather than a
-        /// stale cache accepted.
+        /// stale cache accepted. Sprint 35 Track K: scoped — only the active
+        /// session's account forgets its WAN handles; every other held
+        /// session keeps delivering presence for its own account throughout.
         /// </summary>
         private void CycleWanSession(string reason)
         {
+            string cycledAccount = null;
             try
             {
                 var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
                 if (session != null)
                 {
+                    cycledAccount = session.AccountId;
                     Tracing.TraceLine($"CycleWanSession ({reason}): disconnecting session {session.SessionId} for a fresh radio list", TraceLevel.Info);
                     Radios.SmartLink.SmartLinkServices.Coordinator.DisconnectSession(session.SessionId);
                 }
@@ -484,8 +568,13 @@ namespace Radios
             wanListReceived = false;
             // The WAN Radio objects belong to the session being cycled; a fresh
             // list repopulates them. Keeping them would let a path-choice
-            // connect dial a handle the server has already forgotten.
-            ForgetWanRadios(reason);
+            // connect dial a handle the server has already forgotten. With no
+            // session to name an account, fall back to forgetting everything —
+            // a stale handle is worse than a briefly emptier list.
+            if (!string.IsNullOrEmpty(cycledAccount))
+                ForgetWanRadiosForAccount(cycledAccount, reason);
+            else
+                ForgetWanRadios(reason);
         }
 
         internal Radio theRadio;
@@ -4490,24 +4579,67 @@ namespace Radios
         #region WAN
         private List<Radio> radios;
         private bool wanListReceived = false;
-        private void wanRadioListReceivedHandler(List<Radio> lst)
+
+        /// <summary>
+        /// Serializes list intake across sessions: with one held session per
+        /// account (#259), pushes arrive concurrently on N SmartLink receive
+        /// threads, and the merge below mutates shared state (myRadioList,
+        /// the WAN handle map) that was only ever poked by one thread before.
+        /// </summary>
+        private static readonly object _wanIntakeLock = new object();
+
+        /// <summary>
+        /// The coordinator key for the account this instance's connect flow is
+        /// working with — must match what <c>ConnectToSmartLink</c> passes to
+        /// <c>EnsureSessionForAccount</c>, so the list-received latch is only
+        /// satisfied by the account actually being waited on.
+        /// </summary>
+        private string CurrentSessionKey => _currentAccount?.Email ?? "default-account";
+
+        /// <summary>
+        /// Adapter from the coordinator's attributed list event. Replaces the
+        /// old subscription to FlexLib's STATIC WanRadioRadioListRecieved,
+        /// which could not say whose list had arrived — fatal once more than
+        /// one account's session is open, because the ghost sweep treats a
+        /// list as the full truth about its account and account A's list says
+        /// nothing about account B's radios.
+        /// </summary>
+        private void sessionRadioListReceivedHandler(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
+        {
+            wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios);
+        }
+
+        private void wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst)
         {
             try
             {
-                Tracing.TraceLine("wanRadioListReceivedHandler:" + lst.Count, TraceLevel.Info);
-                radios = lst;
-                wanListReceived = true;
+              lock (_wanIntakeLock)
+              {
+                Tracing.TraceLine($"wanRadioListReceivedHandler: account={accountId} count={lst.Count}", TraceLevel.Info);
 
-                // Ghost sweep: this is the server's FULL current list, so any
-                // WAN radio we hold that isn't in it has gone offline (or left
-                // the account). Without this, a Refresh Remote List shows
-                // yesterday's radios forever — they only "leave" by failing to
-                // connect.
-                var freshSerials = new HashSet<string>(lst.Select(x => x.Serial));
-                var gone = myRadioList.Where(x => x.IsWan && !freshSerials.Contains(x.Serial)).ToList();
+                // The connect flow's one-shot latch belongs to the account it
+                // is waiting on; a push from another held session must not
+                // satisfy it with the wrong account's radios.
+                if (string.Equals(accountId, CurrentSessionKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    radios = lst.ToList();
+                    wanListReceived = true;
+                }
+
+                // Ghost sweep, scoped to THIS account: the list is the
+                // server's FULL current list for the account that sent it, so
+                // any WAN radio attributed to that account and absent from it
+                // has gone offline (or left the account). Radios attributed to
+                // OTHER accounts are untouched — their own sessions vouch for
+                // them. Unattributed WAN radios ("" — pre-attribution arrivals)
+                // are swept by every list, matching the old whole-map behavior.
+                var freshSerials = new HashSet<string>(lst.Select(x => x.Serial), StringComparer.OrdinalIgnoreCase);
+                var gone = myRadioList.Where(x =>
+                    x.IsWan && !freshSerials.Contains(x.Serial)
+                    && WanRadioBelongsToAccount(x.Serial, accountId)).ToList();
                 foreach (Radio g in gone)
                 {
-                    Tracing.TraceLine($"wanRadioListReceivedHandler: WAN radio {g.Serial} ({g.Nickname}) absent from fresh list — removing", TraceLevel.Info);
+                    Tracing.TraceLine($"wanRadioListReceivedHandler: WAN radio {g.Serial} ({g.Nickname}) absent from {accountId}'s fresh list — removing", TraceLevel.Info);
                     myRadioList.Remove(g);
                     RaiseRadioRemoved(this, g.Serial, g.Nickname ?? "");
                 }
@@ -4516,23 +4648,30 @@ namespace Radios
                 // loop below folds the server's fields into an already-known LAN
                 // object and discards the WAN one. Dual-homing's path choice
                 // connects through these. Also drop handles for radios that left
-                // the list — those serials are dual-homed no longer.
+                // the list — those serials are dual-homed no longer. Same scope
+                // rule as the ghost sweep: only this account's handles.
                 lock (_wanRadiosLock)
                 {
-                    foreach (var stale in _wanRadiosBySerial.Keys.Where(k => !freshSerials.Contains(k)).ToList())
+                    foreach (var stale in _wanRadiosBySerial
+                        .Where(kv => !freshSerials.Contains(kv.Key)
+                            && (string.IsNullOrEmpty(kv.Value.AccountId)
+                                || string.Equals(kv.Value.AccountId, accountId, StringComparison.OrdinalIgnoreCase)))
+                        .Select(kv => kv.Key).ToList())
                         _wanRadiosBySerial.Remove(stale);
                 }
-                foreach (Radio w in lst) RememberWanRadio(w);
+                foreach (Radio w in lst) RememberWanRadio(w, accountId);
 
                 // Fast paint for next time: this account's radio list, on disk,
                 // so the selector can speak the account's radios the instant it
                 // opens instead of after a TLS round trip. Display only — see
-                // RecordAccountRadioList, nothing connects from it.
+                // RecordAccountRadioList, nothing connects from it. Attributed
+                // to the account whose session DELIVERED the list — recording
+                // a push from account B under the current account's email was
+                // exactly the cross-account cache pollution #259 fights.
                 try
                 {
-                    var acctEmail = CurrentSmartLinkEmail;
-                    if (!string.IsNullOrWhiteSpace(acctEmail))
-                        GetRadioConnectionCache().RecordAccountRadioList(acctEmail, lst);
+                    if (!string.IsNullOrWhiteSpace(accountId) && accountId.Contains('@'))
+                        GetRadioConnectionCache().RecordAccountRadioList(accountId, lst.ToList());
                 }
                 catch (Exception cacheEx)
                 {
@@ -4564,6 +4703,7 @@ namespace Radios
                         RaiseRadioFound(null, BuildRigData(oldRadio));
                     }
                 }
+              } // _wanIntakeLock
             }
             catch (Exception ex)
             {
@@ -4935,9 +5075,44 @@ namespace Radios
             }
 
             setupRemoteDone:
+            // #259: the operator expressed remote intent this session, so from
+            // here on hold a presence session per saved account — whatever this
+            // particular pass's outcome. A failed pass on ONE account is no
+            // reason to keep every other account's radios a guess.
+            EngageSmartLinkPresence();
             sw.Stop();
             Tracing.TraceLine($"setupRemote: END result={rv} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
             return rv;
+        }
+
+        /// <summary>
+        /// Sprint 35 Track K (#259) — wire the presence hooks (idempotent),
+        /// make sure THIS instance's intake hears attributed lists, and hold
+        /// one session per silently-signable saved account. Called at the end
+        /// of every remote pass; deliberately NOT called from purely local
+        /// flows or the background registration query, so a LAN-only operator
+        /// never grows N background TLS connections they did not ask for.
+        /// </summary>
+        private void EngageSmartLinkPresence()
+        {
+            try
+            {
+                Radios.SmartLink.SmartLinkPresenceService.AccountsHook ??= () => AccountManager.Accounts;
+                Radios.SmartLink.SmartLinkPresenceService.SilentJwtHook ??=
+                    (acct, force) => TryGetJwtSilently(acct, force);
+
+                // Presence pushes must update rows even when no connect flow is
+                // in flight — subscribe the intake here as well as in
+                // ConnectToSmartLink (defensively, so it is never doubled).
+                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived -= sessionRadioListReceivedHandler;
+                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived += sessionRadioListReceivedHandler;
+
+                Radios.SmartLink.SmartLinkPresenceService.EnsureHeldSessions(API.ProgramName);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"EngageSmartLinkPresence: {ex.Message}", TraceLevel.Error);
+            }
         }
 
         /// <summary>
@@ -5336,37 +5511,15 @@ namespace Radios
                 needsRefresh = true;
             }
 
-            bool isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
-            Tracing.TraceLine($"GetJwtFromSavedAccount: needsRefresh={needsRefresh}, isJwtExpired={isJwtExpired}, hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}", TraceLevel.Info);
+            // The whole silent machinery lives in TryGetJwtSilently — the ONE
+            // token recipe, shared with the presence sessions' auto-register
+            // (#259). This method only layers the interactive fallback and
+            // the deliberate-use bookkeeping on top.
+            string jwt = TryGetJwtSilently(account, forceRefresh: needsRefresh);
 
-            // The JWT exp claim expires 60 SECONDS after issue on this tenant, so a
-            // stored token is essentially always dead. Try the refresh-token grant
-            // FIRST — SmartSDR does exactly this before every registration and gets
-            // a fresh id_token back (the old belief that "frtest doesn't return
-            // id_token on refresh" is contradicted by the vendor's own shipping
-            // code). Silent, no UI: this is what lets background queries answer.
-            // Only when refresh genuinely fails does interactive login enter.
-            if (isJwtExpired && !string.IsNullOrEmpty(account.RefreshToken))
+            if (string.IsNullOrEmpty(jwt))
             {
-                bool jitRefreshed = false;
-                try
-                {
-                    jitRefreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
-                }
-                catch (Exception ex)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JIT refresh threw: {ex.Message}", TraceLevel.Warning);
-                }
-                if (jitRefreshed)
-                {
-                    isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JIT refresh ok, isJwtExpired now {isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                }
-            }
-
-            if (isJwtExpired)
-            {
-                Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired, interactive={allowInteractiveLogin} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                Tracing.TraceLine($"GetJwtFromSavedAccount: no JWT available silently, interactive={allowInteractiveLogin} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
                 // Pass the account so the identity check applies, and force a
                 // fresh session when we're authenticating an account other than
                 // the one already signed in — WebView2 uses ONE shared cookie
@@ -5381,62 +5534,6 @@ namespace Radios
                     : null;
             }
 
-            // Check if account-level token is expired and needs refresh
-            if (needsRefresh)
-            {
-                Tracing.TraceLine($"GetJwtFromSavedAccount: account token expired, attempting refresh ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-
-                bool refreshed = false;
-                try
-                {
-                    refreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
-                }
-                catch (AggregateException ex)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh exception: {ex.InnerException?.Message ?? ex.Message}", TraceLevel.Error);
-                    refreshed = false;
-                }
-
-                Tracing.TraceLine($"GetJwtFromSavedAccount: RefreshTokenAsync returned {refreshed} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-
-                if (!refreshed)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: refresh failed, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Warning);
-                    // Pass the account so the identity check applies, and force a
-                // fresh session when we're authenticating an account other than
-                // the one already signed in — WebView2 uses ONE shared cookie
-                // store (per-account profiles were reverted in 81b688fe over
-                // folder locks), so an existing Auth0 session would otherwise
-                // silently satisfy a request for a different account.
-                bool differentAccount =
-                    _currentAccount != null
-                    && !string.Equals(_currentAccount.Email, account.Email, StringComparison.OrdinalIgnoreCase);
-                return allowInteractiveLogin
-                    ? PerformNewLogin(account, forceNewLogin: differentAccount)
-                    : null;
-                }
-
-                // After refresh, check if JWT is still valid
-                isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
-                Tracing.TraceLine($"GetJwtFromSavedAccount: after refresh, isJwtExpired={isJwtExpired} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                if (isJwtExpired)
-                {
-                    Tracing.TraceLine($"GetJwtFromSavedAccount: JWT still expired after refresh, PerformNewLogin for {account.Email} ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                    // Pass the account so the identity check applies, and force a
-                // fresh session when we're authenticating an account other than
-                // the one already signed in — WebView2 uses ONE shared cookie
-                // store (per-account profiles were reverted in 81b688fe over
-                // folder locks), so an existing Auth0 session would otherwise
-                // silently satisfy a request for a different account.
-                bool differentAccount =
-                    _currentAccount != null
-                    && !string.Equals(_currentAccount.Email, account.Email, StringComparison.OrdinalIgnoreCase);
-                return allowInteractiveLogin
-                    ? PerformNewLogin(account, forceNewLogin: differentAccount)
-                    : null;
-                }
-            }
-
             // LastUsed means "the operator deliberately used this account" —
             // connects and registration commands qualify; the silent
             // background registration query passes markUsed: false. Stamping
@@ -5447,7 +5544,81 @@ namespace Radios
             if (markUsed) AccountManager.MarkAccountUsed(account);
 
             sw.Stop();
-            Tracing.TraceLine($"GetJwtFromSavedAccount: END returning jwt={(!string.IsNullOrEmpty(account.IdToken) ? "yes" : "null/empty")} (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            Tracing.TraceLine($"GetJwtFromSavedAccount: END returning jwt=yes (total {sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+            return jwt;
+        }
+
+        /// <summary>
+        /// The silent JWT recipe, and the only one: refresh-token grant first
+        /// when the stored id_token is dead (it lives 60 seconds on this
+        /// tenant, so it essentially always is — SmartSDR refreshes before
+        /// every registration and gets a fresh id_token back), an extra
+        /// forced refresh when the caller says the current token may already
+        /// be consumed, and null — NEVER a login form — when silence cannot
+        /// produce a valid token. Serving both the interactive flow
+        /// (<see cref="GetJwtFromSavedAccount"/> layers the login fallback on
+        /// top) and the held presence sessions' auto-registration (#259),
+        /// which wire it through
+        /// <see cref="Radios.SmartLink.SmartLinkPresenceService.SilentJwtHook"/>.
+        /// Safe on any thread; blocks on the token refresh HTTP round trip.
+        /// </summary>
+        internal static string TryGetJwtSilently(SmartLinkAccount account, bool forceRefresh)
+        {
+            if (account == null) return null;
+
+            bool isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+            Tracing.TraceLine($"TryGetJwtSilently: email={account.Email} forceRefresh={forceRefresh} isJwtExpired={isJwtExpired} hasRefreshToken={!string.IsNullOrEmpty(account.RefreshToken)}", TraceLevel.Info);
+
+            if (isJwtExpired && !string.IsNullOrEmpty(account.RefreshToken))
+            {
+                bool jitRefreshed = false;
+                try
+                {
+                    jitRefreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"TryGetJwtSilently: JIT refresh threw: {ex.Message}", TraceLevel.Warning);
+                }
+                if (jitRefreshed)
+                {
+                    isJwtExpired = SmartLinkAccountManager.IsJwtExpired(account.IdToken);
+                    Tracing.TraceLine($"TryGetJwtSilently: JIT refresh ok, isJwtExpired now {isJwtExpired}", TraceLevel.Info);
+                }
+            }
+
+            if (isJwtExpired)
+            {
+                Tracing.TraceLine("TryGetJwtSilently: JWT still expired after JIT refresh — nothing silent left to try", TraceLevel.Info);
+                return null;
+            }
+
+            if (forceRefresh)
+            {
+                // The manager serializes refreshes per account and satisfies a
+                // second ask within seconds from the first one's result, so a
+                // forced refresh right after the JIT one above costs nothing.
+                bool refreshed = false;
+                try
+                {
+                    refreshed = Task.Run(() => AccountManager.RefreshTokenAsync(account)).Result;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"TryGetJwtSilently: forced refresh threw: {ex.InnerException?.Message ?? ex.Message}", TraceLevel.Error);
+                }
+                if (!refreshed)
+                {
+                    Tracing.TraceLine("TryGetJwtSilently: forced refresh failed", TraceLevel.Warning);
+                    return null;
+                }
+                if (SmartLinkAccountManager.IsJwtExpired(account.IdToken))
+                {
+                    Tracing.TraceLine("TryGetJwtSilently: JWT still expired after forced refresh", TraceLevel.Warning);
+                    return null;
+                }
+            }
+
             return account.IdToken;
         }
 
@@ -5525,13 +5696,14 @@ namespace Radios
         /// </para>
         ///
         /// <para>
-        /// Radio-list discovery still runs through the static
-        /// <c>WanServer.WanRadioRadioListRecieved</c> event, which the
-        /// <see cref="Radios.SmartLink.WanServerAdapter"/> also listens for —
-        /// both subscribers (our handler here + the adapter inside the session)
-        /// receive the list. Our handler populates <c>radios</c> +
-        /// <c>wanListReceived</c> as before; the adapter populates
-        /// <c>session.AvailableRadios</c>.
+        /// Sprint 35 Track K (#259): radio-list discovery now runs through the
+        /// coordinator's attributed <c>SessionRadioListReceived</c> event —
+        /// each held session hears only its own account's lists (instance
+        /// event in the vendored FlexLib, see MIGRATION.md item 13) and the
+        /// coordinator re-raises them stamped with the account. Our handler
+        /// populates <c>radios</c> + <c>wanListReceived</c> only for the
+        /// account this flow is waiting on; the owner populates
+        /// <c>session.AvailableRadios</c> for every account.
         /// </para>
         /// </summary>
         private SmartLinkConnectResult ConnectToSmartLink(string jwt)
@@ -5547,12 +5719,12 @@ namespace Radios
                 var accountEmail = _currentAccount?.Email ?? "default-account";
                 var session = Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail);
 
-                // Ensure the static radio-list subscription is active so `radios` and
-                // `wanListReceived` fields get populated alongside session.AvailableRadios.
+                // Ensure the attributed radio-list subscription is active so `radios`
+                // and `wanListReceived` get populated alongside session.AvailableRadios.
                 // Defensive unsubscribe-first to avoid duplicate registrations across
                 // sign-in / sign-out cycles.
-                WanServer.WanRadioRadioListRecieved -= wanRadioListReceivedHandler;
-                WanServer.WanRadioRadioListRecieved += wanRadioListReceivedHandler;
+                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived -= sessionRadioListReceivedHandler;
+                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived += sessionRadioListReceivedHandler;
 
                 // Whether this TLS session was live BEFORE this call. The server
                 // sends the radio list exactly once per TLS session, so on a
@@ -5581,27 +5753,61 @@ namespace Radios
                     return SmartLinkConnectResult.AuthFailed;
                 }
 
-                Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
-                session.ReRegister(API.ProgramName, "Win10", jwt);
+                // One registration per connection: the session's own
+                // auto-register (held-open presence, #259) may already have
+                // sent it, and a second registration is at best a pointless
+                // server poke. TryClaimRegistration is the atomic answer to
+                // who sends it; the claim resets when the connection drops.
+                if (session.TryClaimRegistration())
+                {
+                    Tracing.TraceLine($"ConnectToSmartLink: session connected; ReRegister {API.ProgramName} Win10 jwt={jwt.Substring(0, Math.Min(20, jwt.Length))}... ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                    session.ReRegister(API.ProgramName, "Win10", jwt);
+                }
+                else
+                {
+                    Tracing.TraceLine($"ConnectToSmartLink: session already registered this connection — skipping duplicate registration ({sw.ElapsedMilliseconds}ms)", TraceLevel.Info);
+                }
+
+                // Sprint 35 Track K (#259): a held session KEEPS its account's
+                // last list (owner.AvailableRadios) across this instance's
+                // whole lifetime — but a NEW FlexBase's own bookkeeping starts
+                // empty and the next spontaneous push could be minutes away.
+                // Replay the owner's cached list through the intake so this
+                // instance — and the selector's rows — get the account's
+                // current truth immediately instead of a 10s timeout followed
+                // by a needless session cycle.
+                if (sessionWasAlreadyConnected
+                    && session.AvailableRadios.Count > 0
+                    && !myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)))
+                {
+                    Tracing.TraceLine(
+                        $"ConnectToSmartLink: replaying held session's cached list ({session.AvailableRadios.Count} radio(s)) through the intake ({sw.ElapsedMilliseconds}ms)",
+                        TraceLevel.Info);
+                    wanRadioListReceivedHandler(accountEmail, session.AvailableRadios);
+                }
 
                 // When we already hold a radio list from this session, don't make
                 // the user sit through the full 10s window on the off chance the
                 // server volunteers a new one — it does not resend per session.
                 // WAN entries only: myRadioList also accumulates LAN radios, and
                 // a LAN-only cache says nothing about this SmartLink session.
-                bool haveCachedList = session.IsConnected && myRadioList.Any(r => r.IsWan);
+                // Scoped to THIS account: with presence holding every account's
+                // sessions, another account's radios in myRadioList say nothing
+                // about the account this flow is connecting.
+                bool haveCachedList = session.IsConnected
+                    && myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail));
 
                 // Re-entry over a session that was ALREADY live when this call
                 // began: the one list this TLS session will ever send arrived
                 // long ago, so satisfy the wait from the cache IMMEDIATELY
                 // instead of burning even the short window (QB Track A). The
-                // static WanRadioRadioListRecieved subscription stays active,
-                // so if the server ever does volunteer a fresh list it lands
-                // as a refresh through wanRadioListReceivedHandler exactly as
-                // the 2026-08-06 refresh/morph flow expects.
+                // attributed SessionRadioListReceived subscription stays
+                // active, so pushes keep landing as refreshes through
+                // wanRadioListReceivedHandler exactly as the 2026-08-06
+                // refresh/morph flow expects.
                 if (sessionWasAlreadyConnected && haveCachedList)
                 {
-                    radios = myRadioList.Where(r => r.IsWan).ToList();
+                    radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
                     Tracing.TraceLine(
                         $"ConnectToSmartLink: session was already live — satisfied immediately from {radios.Count} cached WAN radio(s), no list wait ({sw.ElapsedMilliseconds}ms)",
                         TraceLevel.Info);
@@ -5633,10 +5839,12 @@ namespace Radios
                         // here: NRE, mapped to ConnectFailed, answered with a
                         // pointless interactive re-login on a healthy session
                         // (Noel, 2026-08-06, trace 203418). Rebuild it from the
-                        // cache being accepted. RadioFound for these entries
-                        // already fired via radioAddedHandler at apiInit, so no
-                        // re-announce is needed here.
-                        radios = myRadioList.Where(r => r.IsWan).ToList();
+                        // cache being accepted — scoped to this account, so
+                        // another account's presence radios cannot stand in
+                        // for a list this account never gave us. RadioFound for
+                        // these entries already fired via radioAddedHandler at
+                        // apiInit, so no re-announce is needed here.
+                        radios = myRadioList.Where(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)).ToList();
                         Tracing.TraceLine(
                             $"ConnectToSmartLink: no new radio list, session live with {radios.Count} cached WAN radio(s) — using those ({sw.ElapsedMilliseconds}ms)",
                             TraceLevel.Info);
@@ -5709,6 +5917,30 @@ namespace Radios
             });
 
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+
+            // Sprint 35 Track K (#259): a SmartLink connect must go through the
+            // session of the account that OWNS the radio — the broker only
+            // knows serials on the session's own account, so dialling Don's
+            // radio through another account's session can only fail. With one
+            // held session per account, the attributed handle map knows the
+            // owner; prefer its live session over whatever happens to be
+            // active. (This is the root of #203's two-Enter behaviour: the
+            // first Enter used to have no session that could act on the row.)
+            string owningAccount = GetWanAccountForSerial(r.Serial);
+            if (!string.IsNullOrEmpty(owningAccount)
+                && (session == null
+                    || !string.Equals(session.AccountId, owningAccount, StringComparison.OrdinalIgnoreCase)))
+            {
+                var owningSession = Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(owningAccount);
+                if (owningSession != null && owningSession.IsConnected)
+                {
+                    Tracing.TraceLine(
+                        $"sendRemoteConnect: routing through owning account's session ({owningSession.SessionId}) instead of active",
+                        TraceLevel.Info);
+                    session = owningSession;
+                }
+            }
+
             if (session == null)
             {
                 Tracing.TraceLine("sendRemoteConnect: no active session", TraceLevel.Error);
