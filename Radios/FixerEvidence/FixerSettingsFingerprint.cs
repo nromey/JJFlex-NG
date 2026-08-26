@@ -124,6 +124,34 @@ namespace Radios.Fixer.Evidence
     }
 
     /// <summary>
+    /// What the host supplies for the transmit fingerprint: one guarded read
+    /// per radio-side value, plus the same audio reader the audio-setup stage
+    /// uses. Null (the delegate or its answer) means "cannot be read", which
+    /// the staleness check names honestly.
+    /// </summary>
+    /// <remarks>
+    /// A delegate bag, exactly like <c>TransmitStageSet.Hosts</c>, and for the
+    /// same structural reason: nothing in Radios.Fixer may mention the radio
+    /// type in any signature — the transmit boundary is enforced by
+    /// reflection over this namespace (<c>FixerFrameworkTests</c>), not by
+    /// discipline. The host holds the radio; this side holds the keys, the
+    /// names and the formatting, so two surfaces can never phrase one setting
+    /// two ways.
+    /// </remarks>
+    public sealed class TransmitSettingReaders
+    {
+        public Func<AudioSetupFacts> AudioSetup;
+        public Func<bool?> PcAudioOn;
+        public Func<bool?> MicProfileEmpty;
+        public Func<int?> TunePowerWatts;
+        public Func<int?> RfPowerWatts;
+        public Func<string> TxAntennaName;
+        public Func<ulong?> TxFrequencyHz;
+        public Func<string> ModeName;
+        public Func<int?> MicGain;
+    }
+
+    /// <summary>
     /// The transmit stage set's declared dependencies and the probes that read
     /// them.
     /// </summary>
@@ -160,26 +188,32 @@ namespace Radios.Fixer.Evidence
         public const string MicGain = "mic-gain";
 
         /// <summary>
-        /// Build the transmit set's probe set. <paramref name="radio"/> may
-        /// return null (no radio connected — radio-side values read as
-        /// unreadable); <paramref name="audioSetup"/> is the same reader the
-        /// audio-setup stage uses, so the fingerprint and the stage cannot
-        /// disagree about what the configuration says.
+        /// Build the transmit set's probe set around the host's readers.
+        /// <paramref name="readers"/> may be null or sparse — every missing or
+        /// failing read is an unreadable value, never a throw. The AudioSetup
+        /// reader should be the same one the audio-setup stage uses, so the
+        /// fingerprint and the stage cannot disagree about what the
+        /// configuration says.
         /// </summary>
-        public static FixerSettingProbeSet Build(Func<FlexBase> radio,
-                                                 Func<AudioSetupFacts> audioSetup)
+        public static FixerSettingProbeSet Build(TransmitSettingReaders readers)
         {
-            string FromRig(Func<FlexBase, string> read)
+            readers = readers ?? new TransmitSettingReaders();
+
+            string Watts(Func<int?> read)
             {
-                FlexBase rig;
-                try { rig = radio?.Invoke(); } catch { rig = null; }
-                if (rig == null) return "";
-                try { return read(rig) ?? ""; } catch { return ""; }
+                int? v = SafeRead(read);
+                return v == null ? "" : v.Value.ToString(CultureInfo.InvariantCulture) + " watts";
+            }
+
+            string OnOff(Func<bool?> read)
+            {
+                bool? v = SafeRead(read);
+                return v == null ? "" : v.Value ? "on" : "off";
             }
 
             AudioSetupFacts Audio()
             {
-                try { return audioSetup?.Invoke(); } catch { return null; }
+                try { return readers.AudioSetup?.Invoke(); } catch { return null; }
             }
 
             var probes = new[]
@@ -198,22 +232,32 @@ namespace Radios.Fixer.Evidence
                     return a.ConfiguredHostApi.Length > 0
                         ? a.ConfiguredHostApi : a.OpenHostApi;
                 }),
-                new FixerSettingProbe(PcAudio, "PC audio", () =>
-                    FromRig(r => r.PCAudio ? "on" : "off")),
+                new FixerSettingProbe(PcAudio, "PC audio", () => OnOff(readers.PcAudioOn)),
                 new FixerSettingProbe(MicProfile, "Microphone profile", () =>
-                    FromRig(r => r.MicProfileSelectionEmpty ? "empty" : "has settings")),
-                new FixerSettingProbe(TunePower, "Tune power", () =>
-                    FromRig(r => r.TunePower.ToString(CultureInfo.InvariantCulture) + " watts")),
-                new FixerSettingProbe(RfPower, "RF power", () =>
-                    FromRig(r => r.XmitPower.ToString(CultureInfo.InvariantCulture) + " watts")),
+                {
+                    bool? empty = SafeRead(readers.MicProfileEmpty);
+                    return empty == null ? "" : empty.Value ? "empty" : "has settings";
+                }),
+                new FixerSettingProbe(TunePower, "Tune power", () => Watts(readers.TunePowerWatts)),
+                new FixerSettingProbe(RfPower, "RF power", () => Watts(readers.RfPowerWatts)),
                 new FixerSettingProbe(TxAntenna, "Transmit antenna", () =>
-                    FromRig(r => r.TXAntennaName)),
+                {
+                    try { return readers.TxAntennaName?.Invoke() ?? ""; } catch { return ""; }
+                }),
                 new FixerSettingProbe(Frequency, "Frequency", () =>
-                    FromRig(r => FormatMHz(r.TXFrequency))),
+                {
+                    ulong? hz = SafeRead(readers.TxFrequencyHz);
+                    return hz == null ? "" : FormatMHz(hz.Value);
+                }),
                 new FixerSettingProbe(Mode, "Mode", () =>
-                    FromRig(r => r.Mode)),
+                {
+                    try { return readers.ModeName?.Invoke() ?? ""; } catch { return ""; }
+                }),
                 new FixerSettingProbe(MicGain, "Microphone gain", () =>
-                    FromRig(r => r.MicGain.ToString(CultureInfo.InvariantCulture))),
+                {
+                    int? v = SafeRead(readers.MicGain);
+                    return v == null ? "" : v.Value.ToString(CultureInfo.InvariantCulture);
+                }),
             };
 
             var declared = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
@@ -231,6 +275,11 @@ namespace Radios.Fixer.Evidence
             };
 
             return new FixerSettingProbeSet(probes, declared);
+        }
+
+        private static T? SafeRead<T>(Func<T?> read) where T : struct
+        {
+            try { return read?.Invoke(); } catch { return null; }
         }
 
         /// <summary>Hz to "14.203 MHz". Zero — a frequency nothing has set —
