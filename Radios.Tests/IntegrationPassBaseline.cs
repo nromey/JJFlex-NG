@@ -32,6 +32,13 @@ namespace Radios.Tests
     /// reproduced here, because this repository is public and the register
     /// names testers.
     /// </para>
+    /// <para>
+    /// Carries INTEGRATION_PASS_CORPUS_EXEMPT: entries here QUOTE the symbols
+    /// they report as missing, so without the exemption the phantom-symbol
+    /// sweep reads them back out of this file and concludes they exist. Every
+    /// such finding would erase itself by being recorded, quietly, with a green
+    /// test.
+    /// </para>
     /// </remarks>
     internal static class IntegrationPassBaseline
     {

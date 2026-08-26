@@ -48,6 +48,31 @@ namespace Radios.Tests
     /// gate is currently tolerating. A green test that silently holds twelve
     /// known defects would be its own kind of dishonest instrument.
     /// </para>
+    /// <para>
+    /// <b>Running the pass, after the merge train and before the sprint is
+    /// called done.</b> Four steps, in order:
+    /// </para>
+    /// <list type="number">
+    /// <item>Run the filter above on the MERGED tree. Everything green means
+    /// nothing moved; anything red names what moved and in which direction.</item>
+    /// <item>Read <c>C:\temp\integration-pass</c> even when it is all green.
+    /// The reports list what the baseline is tolerating, and a sprint that
+    /// fixed something adjacent is the moment to strike an entry out.</item>
+    /// <item>Ask the questions the tooling structurally cannot answer — they
+    /// are written out in <c>IntegrationPassDedupTests</c>'s remarks, with the
+    /// real 2026-08-25 example behind each. This is the half that needs an
+    /// agent with the whole tree in front of it.</item>
+    /// <item>Walk the rendered states in a browser, as a person. The files
+    /// <c>FixerPageForReview</c> writes to <c>C:\temp\fixer</c> are the same
+    /// states the automated walk checks, on purpose.</item>
+    /// </list>
+    /// <para>
+    /// <b>Do not delegate any of this to the tracks.</b> Each track's brief is
+    /// correct and local; the defect is precisely that none of them can see the
+    /// others. It is a separate job with the whole merged tree in front of it,
+    /// and an orchestrator watching file assignments is not a substitute —
+    /// every one of the five duplications sat in files no two tracks shared.
+    /// </para>
     /// </remarks>
     internal static class IntegrationPass
     {
