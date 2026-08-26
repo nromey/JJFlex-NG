@@ -233,6 +233,56 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Resuming_adopts_the_saved_record_appends_after_its_history_and_clears_the_end()
+        {
+            using var dir = new TempFolder();
+            var store = new FixerRunStore(dir.Path);
+
+            // The first sitting: one stage, then the run is abandoned.
+            var first = new FixerRun(FixerTestKit.Kettle(fill: FixerTestKit.Answering("Yes.")),
+                                     FixerTestKit.Clock(TimeSpan.FromMinutes(1)));
+            var firstJournal = new FixerRunJournal(first, store, null);
+            firstJournal.StageRecorded(first.RunStage("fill"));
+            firstJournal.RunEnded("abandoned");
+
+            FixerRunRecord saved = store.FindById(first.RunId)!;
+            Assert.NotNull(saved.EndedUtc);
+
+            // The second sitting resumes it. (The engine-side Rehydrate seam —
+            // an engine that opens holding the saved run's ID and history — is
+            // another track's; a fresh engine stands in for it here, so the
+            // record's ID is aligned to it by hand. The journal only needs the
+            // ids to agree.)
+            var resumed = new FixerRun(FixerTestKit.Kettle(
+                    boil: FixerTestKit.Answering("Yes — it boils.")),
+                FixerTestKit.Clock(EvidenceRecords.T0.AddHours(1), TimeSpan.FromMinutes(1)));
+            FixerRunRecord adopted = saved;
+            adopted.RunId = resumed.RunId;
+
+            var secondJournal = FixerRunJournal.Resume(resumed, store, null, adopted);
+            Assert.Null(adopted.EndedUtc);    // live again
+            Assert.Equal("", adopted.EndReason);
+
+            secondJournal.StageRecorded(resumed.RunStage("boil"));
+
+            FixerRunRecord back = store.FindById(resumed.RunId)!;
+            Assert.Equal(2, back.Results.Count);          // history plus the new stage
+            Assert.Equal("fill", back.Results[0].StageId);
+            Assert.Equal("boil", back.Results[1].StageId);
+        }
+
+        [Fact]
+        public void Resuming_a_record_that_belongs_to_a_different_run_is_refused_loudly()
+        {
+            using var dir = new TempFolder();
+            var run = new FixerRun(FixerTestKit.Kettle(), FixerTestKit.Clock(TimeSpan.Zero));
+            FixerRunRecord other = EvidenceRecords.TwoStages("777-777");
+
+            Assert.Throws<ArgumentException>(() =>
+                FixerRunJournal.Resume(run, new FixerRunStore(dir.Path), null, other));
+        }
+
+        [Fact]
         public void A_malformed_entry_costs_that_entry_never_the_run()
         {
             FixerRunRecord record = EvidenceRecords.TwoStages();

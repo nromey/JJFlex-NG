@@ -55,6 +55,43 @@ namespace Radios.Fixer.Evidence
             _record = FixerRunRecord.NewFor(run);
         }
 
+        /// <summary>
+        /// Continue an existing record — the resume path. The saved history
+        /// stays; new recordings append after it; the end stamp of the
+        /// interrupted sitting is cleared, because the run is live again.
+        /// The run must be the record's run: a journal quietly writing one
+        /// run's results under another's ID would be the exact drift the
+        /// Test ID exists to prevent, so that is refused loudly.
+        /// </summary>
+        public static FixerRunJournal Resume(FixerRun run, FixerRunStore store,
+                                             FixerSettingProbeSet probes,
+                                             FixerRunRecord record)
+        {
+            if (record == null) throw new ArgumentNullException(nameof(record));
+            if (run == null) throw new ArgumentNullException(nameof(run));
+            if (!string.Equals(run.RunId, record.RunId, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("run " + run.RunId + " cannot continue record "
+                    + record.RunId + " — they are different runs", nameof(record));
+
+            var journal = new FixerRunJournal(run, store, probes, record);
+            record.EndedUtc = null;
+            record.EndReason = "";
+            return journal;
+        }
+
+        private FixerRunJournal(FixerRun run, FixerRunStore store, FixerSettingProbeSet probes,
+                                FixerRunRecord adopt)
+        {
+            _run = run;
+            _store = store;
+            _probes = probes;
+            _record = adopt;
+            // The adopted record already holds evidence, so from the first
+            // new recording onward every persist keeps the whole history.
+            _anythingRecorded = adopt.Results.Count > 0 || adopt.Fixes.Count > 0
+                             || adopt.Declarations.Count > 0;
+        }
+
         /// <summary>A stage result was recorded. Fingerprints it and persists.</summary>
         public void StageRecorded(FixerStageResult result)
         {
