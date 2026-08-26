@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Reflection;
 using Xunit;
@@ -124,34 +124,33 @@ namespace Radios.Tests
                       + "be taught to guess"),
 
             // Operator-facing sentences assembled independently in two files.
-            new Known(Rules.DuplicateProse, "no radio is connected, so nothing can be said about an", "#256",
-                      "JJFlexWpf/Dialogs/AudioWorkshopDialog.Amplifier.cs and "
-                      + "Radios/AmplifierInventory.cs"),
+            // Keys are the sentence, trimmed and cut to 56 characters, exactly as
+            // the detector reports them.
+
+            new Known(Rules.DuplicateProse, "No radio is connected, so nothing can be said about an", "#256",
+                      "JJFlexWpf/Dialogs/AudioWorkshopDialog.Amplifier.cs and Radios/AmplifierInventory.cs"),
             new Known(Rules.DuplicateProse, "the reference recording could not be prepared:", "#256",
-                      "JJFlexWpf/Dialogs/FixerDialog.cs and "
-                      + "Radios/ChainChecks/FixerTransmitAudioBoundary.cs"),
+                      "JJFlexWpf/Dialogs/FixerDialog.cs and Radios/ChainChecks/FixerTransmitAudioBoundary.cs"),
             new Known(Rules.DuplicateProse, "no radio is connected, so the radio could not be asked", "#256",
                       "Radios/ChainChecks/RxChainFacts.cs and TxChainFacts.cs"),
-            new Known(Rules.DuplicateProse, "This device follows your Windows default microphone. Right", "#256",
-                      "JJFlexWpf/Dialogs/AudioDevicesDialog.xaml.cs and "
-                      + "AudioWorkshopDialog.TxAudio.cs"),
-            new Known(Rules.DuplicateProse, "Re-send recent CW notifications, pressing again for earlie", "#256",
-                      "the command's description in JJFlexWpf/KeyCommands.cs and again in "
-                      + "KeyInventory.cs — two homes for one command's own words"),
-            new Known(Rules.DuplicateProse, "Mic Bias (low-voltage electret mic power", "#256",
+            new Known(Rules.DuplicateProse, "This device follows your Windows default microphone. Rig", "#256",
+                      "JJFlexWpf/Dialogs/AudioDevicesDialog.xaml.cs and AudioWorkshopDialog.TxAudio.cs"),
+            new Known(Rules.DuplicateProse, "Re-send recent CW notifications, pressing again for earl", "#256",
+                      "the command's own words live in JJFlexWpf/KeyCommands.cs and again in KeyInventory.cs"),
+            new Known(Rules.DuplicateProse, "Mic Bias (low-voltage electret mic power — not 48-volt p", "#256",
                       "JJFlexWpf/Dialogs/AudioWorkshopDialog.TxAudio.cs and NativeMenuBar.cs"),
             new Known(Rules.DuplicateProse, "Could not reach QRZ.com. Check your internet connection.", "#256",
                       "QrzLookup/QrzCallbookLookup.cs and QrzLogbookClient.cs"),
-            new Known(Rules.DuplicateProse, "does the same thing. This is here for when that is not to", "#256",
-                      "JJFlexWpf/Dialogs/AudioWorkshopDialog.Diagnostics.cs and "
-                      + "AudioWorkshopDialog.MeterInventory.cs"),
+            new Known(Rules.DuplicateProse, "does the same thing. This is here for when that is not t", "#256",
+                      "JJFlexWpf/Dialogs/AudioWorkshopDialog.Diagnostics.cs and AudioWorkshopDialog.MeterInventory.cs"),
+            new Known(Rules.DuplicateProse, "JJ Flexible Radio Access — install verification", "#256",
+                      "DebugInfo.vb and InstallManifest.vb"),
             new Known(Rules.DuplicateProse, "Text files (*.txt)|*.txt|All files (*.*)|*.*", "#256",
                       "JJFlexWpf/Dialogs/AboutDialog.xaml.cs and ProblemsDialog.xaml.cs"),
             new Known(Rules.DuplicateProse, "ADIF file (*.ADI)|*.ADI|Text file (*.TXT)|*.TXT", "#256",
                       "ExportForm.vb and ImportForm.vb"),
             new Known(Rules.DuplicateProse, ", out var typeEl) && typeEl.GetString() ==", "#256",
-                      "JJFlexWpf/Dialogs/AuthDialog.xaml.cs and Radios/AuthFormWebView2.cs — "
-                      + "part of the duplicated Auth0 implementation above"),
+                      "JJFlexWpf/Dialogs/AuthDialog.xaml.cs and Radios/AuthFormWebView2.cs, part of the duplicated Auth0 implementation above"),
 
             // Two words for one thing, both reaching the operator. Named in
             // AudioSetupCheck's own remarks on 2026-08-25 and still open.
