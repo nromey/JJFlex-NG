@@ -167,6 +167,17 @@ namespace Radios.SmartLink
             Tracing.TraceLine($"{_tracePrefix} Connect requested", TraceLevel.Info);
             _userWantsConnected = true;
 
+            // AuthorizationExpired is sticky through teardown (it is the one
+            // fact the operator can act on), so a NEW connect must clear it
+            // SYNCHRONOUSLY: consumers poll `Status == AuthorizationExpired`
+            // as their auth-failed signal, and a stale read between this call
+            // and the monitor's first transition would report yesterday's
+            // failure as today's.
+            if (Status == SessionStatus.AuthorizationExpired)
+            {
+                TransitionStatus(SessionStatus.Connecting, resetAttempts: false);
+            }
+
             if (!_started)
             {
                 _started = true;
@@ -351,7 +362,13 @@ namespace Radios.SmartLink
                     {
                         try { _wan.Disconnect(); } catch (Exception ex) { TraceWarn("Disconnect threw", ex); }
                     }
-                    TransitionStatus(SessionStatus.Disconnected, resetAttempts: true);
+                    // AuthorizationExpired stays visible through the teardown:
+                    // "disconnected" would hide the one thing the operator can
+                    // act on. A fresh Connect() clears it (see Connect).
+                    if (Status != SessionStatus.AuthorizationExpired)
+                    {
+                        TransitionStatus(SessionStatus.Disconnected, resetAttempts: true);
+                    }
                     _wakeEvent.WaitOne();
                     continue;
                 }
