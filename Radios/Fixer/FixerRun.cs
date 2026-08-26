@@ -248,9 +248,27 @@ namespace Radios.Fixer
         /// blank: "not run, and why" is evidence, and the two reasons a
         /// microphone stage offers do very different things to the report.
         /// </summary>
+        /// <remarks>
+        /// <b>Refuses to skip over a completed measurement (#249).</b> Recording
+        /// replaces, so a skip over a Ran result would erase the measurement —
+        /// device, peak, loudness, timestamp — and put "Not run" in the report,
+        /// which is false and unrecoverable. On the transmitting stages that
+        /// measurement was paid for with RF. The page no longer offers skip on
+        /// a completed stage, but the rule lives HERE, where the state lives,
+        /// so a future caller cannot reintroduce it. Skipping over a Skipped or
+        /// CouldNotRun record stays legal: there is no measurement to lose,
+        /// only a reason to restate. Deliberate re-measurement remains the
+        /// re-run path, which announces the replacement.
+        /// </remarks>
         public FixerStageResult SkipStage(string stageId, string skipChoiceId)
         {
             FixerStage stage = RequireStage(stageId);
+
+            FixerStageResult prior = ResultFor(stage.Id);
+            if (prior != null && prior.Status == FixerStageStatus.Ran)
+                throw new InvalidOperationException("stage '" + stage.Id + "' has already run "
+                    + "and produced a measurement; skipping it now would destroy that result. "
+                    + "Use the re-run path to replace a measurement deliberately.");
 
             FixerSkipChoice choice = stage.FindSkip(skipChoiceId);
             if (choice == null)

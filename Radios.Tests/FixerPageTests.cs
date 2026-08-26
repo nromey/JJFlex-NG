@@ -9,14 +9,26 @@ using static Radios.Tests.FixerTestKit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// The rendered markup, inspected statically — heading hierarchy, tablist
-    /// semantics, tab-stop accounting, and the wire the buttons speak.
+    /// The rendered markup, inspected statically — heading hierarchy, the
+    /// one-document structure, tab-stop accounting, and the wire the buttons
+    /// speak.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The page exists FOR browse mode: H between stages, B between buttons,
     /// prose that costs nothing. Every test here guards a way that promise
     /// quietly breaks — a skipped heading level, a clickable div, a tabindex
     /// on a paragraph, a result rendered away from its stage.
+    /// </para>
+    /// <para>
+    /// <b>Sprint 35: the tablist is gone.</b> The page is one document —
+    /// every stage always present as a section whose h2 carries its status,
+    /// three named landmarks, forward motion on completed stages, and no
+    /// skip control once a measurement exists. The tests that used to pin
+    /// tab semantics now pin the document's promises instead, each of which
+    /// answers a finding from the first real operator session (#242, #248,
+    /// #249, #250).
+    /// </para>
     /// </remarks>
     public class FixerPageTests
     {
@@ -29,13 +41,13 @@ namespace Radios.Tests
             => Regex.Matches(html, @"<h([1-6])[\s>]").Select(m => int.Parse(m.Groups[1].Value))
                     .ToList();
 
-        /// <summary>The panel section for one stage, by id.</summary>
-        private static string PanelOf(string html, string stageId)
+        /// <summary>The card section for one stage, by id.</summary>
+        private static string CardOf(string html, string stageId)
         {
             var m = Regex.Match(html,
-                "<section role=\"tabpanel\" id=\"panel-" + Regex.Escape(stageId)
+                "<section class=\"stage\" id=\"stage-" + Regex.Escape(stageId)
                 + "\".*?</section>", RegexOptions.Singleline);
-            Assert.True(m.Success, "no panel for stage " + stageId);
+            Assert.True(m.Success, "no card for stage " + stageId);
             return m.Value;
         }
 
@@ -64,61 +76,108 @@ namespace Radios.Tests
         [Fact]
         public void The_report_gives_every_stage_a_heading_for_H_navigation()
         {
-            // H between stages is the whole argument for the web surface, and
-            // the report is the continuous document it happens in.
+            // The report's per-stage entries sit at h3, one level under the
+            // Report h2 — which is what disambiguates them from the REAL
+            // stages at h2. Level is a second navigation axis (#242).
             string report = ReportRegion(FixerPage.Render(SimpleRun()));
             Assert.Contains("<h3>Stage 0: Fill</h3>", report);
             Assert.Contains("<h3>Stage 1: Boil</h3>", report);
         }
 
-        // -------- tablist semantics --------
+        // -------- one document, no tablist --------
 
         [Fact]
-        public void The_tablist_is_real_aria()
+        public void Every_stage_is_always_present_and_nothing_is_hidden()
         {
-            var run = SimpleRun();
-            string html = FixerPage.Render(run);
-
-            Assert.Contains("role=\"tablist\" aria-label=", html);
-
-            var tabs = Regex.Matches(html, "<button[^>]*role=\"tab\"[^>]*>")
-                            .Select(m => m.Value).ToList();
-            Assert.Equal(run.Set.Stages.Count, tabs.Count);
-
-            // Roving tabindex: exactly one tab reachable by Tab, the rest by
-            // arrows. And exactly one is selected.
-            Assert.Equal(1, tabs.Count(t => t.Contains("tabindex=\"0\"")));
-            Assert.Equal(1, tabs.Count(t => t.Contains("aria-selected=\"true\"")));
-            Assert.All(tabs, t => Assert.Matches("tabindex=\"(0|-1)\"", t));
-
-            // Every tab controls a real panel that points back at it.
-            foreach (Match m in Regex.Matches(html, "aria-controls=\"(panel-[^\"]+)\""))
-            {
-                string panelId = m.Groups[1].Value;
-                Assert.Contains("<section role=\"tabpanel\" id=\"" + panelId + "\"", html);
-            }
-            foreach (Match m in Regex.Matches(html,
-                "<section role=\"tabpanel\" id=\"panel-([^\"]+)\"[^>]*aria-labelledby=\"(tab-[^\"]+)\""))
-            {
-                Assert.Equal("tab-" + m.Groups[1].Value, m.Groups[2].Value);
-            }
-        }
-
-        [Fact]
-        public void Unselected_panels_are_hidden_and_the_selected_one_is_not()
-        {
+            // The old tab container carried hidden on four of five panels, so
+            // the tool could not be READ before it was used. One document now:
+            // every stage rendered, none hidden, whatever the current stage.
             string html = FixerPage.Render(SimpleRun(), "boil");
 
-            Assert.Matches("<section role=\"tabpanel\" id=\"panel-fill\"[^>]*hidden", html);
-            Assert.DoesNotMatch("<section role=\"tabpanel\" id=\"panel-boil\"[^>]*hidden", html);
+            Assert.Contains("<section class=\"stage\" id=\"stage-fill\"", html);
+            Assert.Contains("<section class=\"stage\" id=\"stage-boil\"", html);
+            Assert.DoesNotContain(" hidden", html);
+            Assert.DoesNotContain("role=\"tablist\"", html);
+            Assert.DoesNotContain("role=\"tab\"", html);
+            Assert.DoesNotContain("role=\"tabpanel\"", html);
         }
 
         [Fact]
-        public void An_unknown_selection_falls_back_to_the_first_stage()
+        public void The_stage_heading_carries_its_status()
         {
-            // The default path starts at the beginning on purpose.
-            string html = FixerPage.Render(SimpleRun(), "no-such-stage");
-            Assert.DoesNotMatch("<section role=\"tabpanel\" id=\"panel-fill\"[^>]*hidden", html);
+            // Walking the stages with H is also the progress readout — name
+            // and state in one stop.
+            var run = SimpleRun();
+            string html = FixerPage.Render(run);
+            Assert.Contains("Stage 0: Fill — not yet run", html);
+
+            run.RunStage("fill");
+            html = FixerPage.Render(run);
+            Assert.Contains("Stage 0: Fill — passed", html);
+
+            run.SkipStage("boil", "later");
+            html = FixerPage.Render(run);
+            Assert.Contains("Stage 1: Boil — skipped", html);
+        }
+
+        [Fact]
+        public void A_stage_with_findings_reads_problems_found_in_its_heading()
+        {
+            FixerStageSet set = KettleWithDryFinding(out _);
+            var run = new FixerRun(set);
+            run.RunStage("fill");
+
+            Assert.Contains("Stage 0: Fill — problems found", FixerPage.Render(run));
+        }
+
+        [Fact]
+        public void The_page_has_exactly_three_landmarks_with_short_names()
+        {
+            // main ("Stages"), the declarations region, the report region.
+            // NVDA speaks a landmark's name on every jump, so the names stay
+            // short — never a sentence.
+            string html = FixerPage.Render(SimpleRun());
+
+            Assert.Single(Regex.Matches(html, "<main[\\s>]"));
+            Assert.Contains("<main aria-label=\"Stages\">", html);
+            Assert.Contains("<section class=\"decl\" aria-labelledby=\"decl-heading\">", html);
+            Assert.Contains("<h2 id=\"decl-heading\" tabindex=\"-1\">Declarations</h2>", html);
+            Assert.Contains("aria-labelledby=\"report-heading\"", html);
+            Assert.Contains("<h2 id=\"report-heading\" tabindex=\"-1\">Report</h2>", html);
+        }
+
+        [Fact]
+        public void The_current_stage_is_marked_and_an_unknown_selection_falls_back_to_the_first()
+        {
+            string html = FixerPage.Render(SimpleRun(), "boil");
+            Assert.Contains("id=\"stage-boil\" data-status=\"notrun\" data-current=\"true\"", html);
+
+            html = FixerPage.Render(SimpleRun(), "no-such-stage");
+            Assert.Contains("id=\"stage-fill\" data-status=\"notrun\" data-current=\"true\"", html);
+        }
+
+        [Fact]
+        public void The_summary_line_reports_the_state_of_play()
+        {
+            // The job the tablist did badly, done as a sentence at the top —
+            // including the transmit fact a blind operator cannot glance at.
+            var run = SimpleRun();
+            string html = FixerPage.Render(run);
+            Assert.Contains("Two checks. Two not yet run. Nothing has keyed the radio.", html);
+
+            run.RunStage("fill");
+            html = FixerPage.Render(run, new FixerPageState { TransmitCount = 1 });
+            Assert.Contains("Two checks. One passed, one not yet run. "
+                          + "The radio has been keyed once this run.", html);
+        }
+
+        [Fact]
+        public void The_page_says_how_to_drive_it()
+        {
+            // WCAG 3.3.2 — the one criterion the old page actually failed.
+            string html = FixerPage.Render(SimpleRun());
+            Assert.Contains("heading keys move between them", html);
+            Assert.Contains("F6", html);
         }
 
         // -------- controls are real controls --------
@@ -154,13 +213,21 @@ namespace Radios.Tests
         // -------- tab-stop accounting --------
 
         [Fact]
-        public void No_tabindex_appears_outside_the_tablist()
+        public void Tabindex_appears_only_as_minus_one_on_section_headings()
         {
-            // Prose must never be a tab stop, and nothing but the roving
-            // tablist has any business setting tabindex at all.
+            // tabindex="-1" makes a heading focusable BY SCRIPT — the focus
+            // target after a stage completes, and F6's landing spots — without
+            // ever entering the Tab order. A positive or zero tabindex
+            // anywhere would put prose in the Tab ring; the only elements
+            // allowed to carry the attribute at all are the h2 focus targets.
             string html = FixerPage.Render(SimpleRun());
+
+            Assert.DoesNotContain("tabindex=\"0\"", html);
             foreach (Match m in Regex.Matches(html, "<([a-z0-9]+)[^>]*tabindex[^>]*>"))
-                Assert.Contains("role=\"tab\"", m.Value);
+            {
+                Assert.Equal("h2", m.Groups[1].Value);
+                Assert.Contains("tabindex=\"-1\"", m.Value);
+            }
         }
 
         [Fact]
@@ -182,51 +249,60 @@ namespace Radios.Tests
         public void Read_only_prose_carries_no_tabindex_anywhere()
         {
             string html = FixerPage.Render(SimpleRun());
-            Assert.DoesNotMatch(new Regex("<(p|li|ul|h[1-6]|pre|span|details|summary)[^>]*tabindex"),
+            Assert.DoesNotMatch(new Regex("<(p|li|ul|h1|h3|pre|span|details|summary)[^>]*tabindex"),
                                 html);
         }
 
         // -------- results live where their stage is --------
 
         [Fact]
-        public void A_stage_result_renders_inside_that_stages_panel()
+        public void A_stage_result_renders_inside_that_stages_card()
         {
             var run = SimpleRun();
             run.RunStage("fill");
 
             string html = FixerPage.Render(run);
-            Assert.Contains("Yes — wet.", PanelOf(html, "fill"));
-            Assert.DoesNotContain("Yes — wet.", PanelOf(html, "boil"));
+            Assert.Contains("Yes — wet.", CardOf(html, "fill"));
+            Assert.DoesNotContain("Yes — wet.", CardOf(html, "boil"));
         }
 
         [Fact]
-        public void A_skipped_stage_reads_as_not_run_in_its_panel()
+        public void A_skipped_stage_reads_as_not_run_in_its_card()
         {
             var run = SimpleRun();
             run.SkipStage("fill", "no-tap");
 
-            string panel = PanelOf(FixerPage.Render(run), "fill");
-            Assert.Contains("Not run", panel);
-            Assert.Contains("There is no tap here.", panel);
+            string card = CardOf(FixerPage.Render(run), "fill");
+            Assert.Contains("Not run", card);
+            Assert.Contains("There is no tap here.", card);
         }
 
         [Fact]
-        public void Findings_render_at_the_point_of_detection_with_the_fix_as_a_button()
+        public void Findings_render_under_their_own_heading_with_the_fix_as_a_button()
         {
             FixerStageSet set = KettleWithDryFinding(out _);
             var run = new FixerRun(set);
             run.RunStage("fill");
 
-            string panel = PanelOf(FixerPage.Render(run), "fill");
-            Assert.Contains("The kettle is dry.", panel);
+            string card = CardOf(FixerPage.Render(run), "fill");
+            Assert.Contains("<h3>Findings</h3>", card);
+            Assert.Contains("The kettle is dry.", card);
 
             // The button carries the fix, is described by the finding, and
             // sends the FINDING id on the wire.
-            var button = Regex.Match(panel, "<button[^>]*data-action=\"fix\"[^>]*>");
-            Assert.True(button.Success, "no fix button in the panel");
+            var button = Regex.Match(card, "<button[^>]*data-action=\"fix\"[^>]*>");
+            Assert.True(button.Success, "no fix button in the card");
             Assert.Contains("data-fix=\"dry\"", button.Value);
             Assert.Contains("data-stage=\"fill\"", button.Value);
             Assert.Contains("aria-describedby=\"find-fill-dry\"", button.Value);
+        }
+
+        [Fact]
+        public void A_stage_without_findings_has_no_findings_heading()
+        {
+            var run = SimpleRun();
+            run.RunStage("fill");
+            Assert.DoesNotContain("<h3>Findings</h3>", CardOf(FixerPage.Render(run), "fill"));
         }
 
         [Fact]
@@ -245,10 +321,10 @@ namespace Radios.Tests
             var run = new FixerRun(set);
             run.RunStage("fill");
 
-            string panel = PanelOf(FixerPage.Render(run), "fill");
-            Assert.Contains("What to do: Do the B thing.", panel);
-            Assert.Contains("Nothing here can change C.", panel);
-            Assert.DoesNotContain("data-action=\"fix\"", panel);
+            string card = CardOf(FixerPage.Render(run), "fill");
+            Assert.Contains("What to do: Do the B thing.", card);
+            Assert.Contains("Nothing here can change C.", card);
+            Assert.DoesNotContain("data-action=\"fix\"", card);
         }
 
         // -------- stop, status, critical --------
@@ -258,8 +334,8 @@ namespace Radios.Tests
         {
             string html = FixerPage.Render(SimpleRun());
             int stop = html.IndexOf("data-action=\"stop\"", StringComparison.Ordinal);
-            int tablist = html.IndexOf("role=\"tablist\"", StringComparison.Ordinal);
-            Assert.True(stop >= 0 && tablist > stop, "Stop is not ahead of the stages");
+            int firstStage = html.IndexOf("<section class=\"stage\"", StringComparison.Ordinal);
+            Assert.True(stop >= 0 && firstStage > stop, "Stop is not ahead of the stages");
         }
 
         [Fact]
@@ -294,25 +370,52 @@ namespace Radios.Tests
         [Fact]
         public void Long_explanations_sit_behind_a_disclosure()
         {
-            string panel = PanelOf(FixerPage.Render(SimpleRun()), "fill");
-            Assert.Contains("<details>", panel);
-            Assert.Contains("<summary>", panel);
-            Assert.Contains("Boiling an empty kettle proves nothing about the tea.", panel);
+            string card = CardOf(FixerPage.Render(SimpleRun()), "fill");
+            Assert.Contains("<details", card);
+            Assert.Contains("<summary>", card);
+            Assert.Contains("Boiling an empty kettle proves nothing about the tea.", card);
+        }
+
+        [Fact]
+        public void The_current_unrun_stages_explanation_opens_and_the_operators_toggle_wins()
+        {
+            // A first-time operator gets the explanation without hunting; a
+            // returning one collapses it and the choice survives re-renders,
+            // because the page posts the toggle and the host hands it back.
+            var run = SimpleRun();
+
+            string current = CardOf(FixerPage.Render(run, "fill"), "fill");
+            Assert.Contains(" open>", current);
+
+            string other = CardOf(FixerPage.Render(run, "fill"), "boil");
+            Assert.DoesNotContain(" open>", other);
+
+            var closedByOperator = new FixerPageState
+            {
+                SelectedStageId = "fill",
+                ExplanationOpen = new Dictionary<string, bool> { ["fill"] = false },
+            };
+            Assert.DoesNotContain(" open>",
+                CardOf(FixerPage.Render(run, closedByOperator), "fill"));
+
+            // And once the stage has run, the default is closed.
+            run.RunStage("fill");
+            Assert.DoesNotContain(" open>", CardOf(FixerPage.Render(run, "fill"), "fill"));
         }
 
         [Fact]
         public void Help_is_a_link_at_the_stage_with_its_topic_on_the_wire()
         {
-            string panel = PanelOf(FixerPage.Render(SimpleRun()), "boil");
-            Assert.Contains("href=\"jjflex-help:kettle/boil\"", panel);
-            Assert.Contains("data-topic=\"kettle/boil\"", panel);
+            string card = CardOf(FixerPage.Render(SimpleRun()), "boil");
+            Assert.Contains("href=\"jjflex-help:kettle/boil\"", card);
+            Assert.Contains("data-topic=\"kettle/boil\"", card);
         }
 
         [Fact]
         public void A_transmitting_stage_says_so_next_to_its_run_control()
         {
-            string boil = PanelOf(FixerPage.Render(SimpleRun()), "boil");
-            string fill = PanelOf(FixerPage.Render(SimpleRun()), "fill");
+            string boil = CardOf(FixerPage.Render(SimpleRun()), "boil");
+            string fill = CardOf(FixerPage.Render(SimpleRun()), "fill");
 
             Assert.Contains("This check transmits.", boil);
             Assert.DoesNotContain("This check transmits.", fill);
@@ -325,13 +428,85 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void First_and_last_stages_have_no_dangling_prev_next()
+        public void What_run_will_do_is_stated_beside_the_control_and_describes_it()
         {
-            string html = FixerPage.Render(SimpleRun());
-            Assert.DoesNotContain("Back to", PanelOf(html, "fill"));
-            Assert.Contains("On to Stage 1: Boil", PanelOf(html, "fill"));
-            Assert.Contains("Back to Stage 0: Fill", PanelOf(html, "boil"));
-            Assert.DoesNotContain("On to", PanelOf(html, "boil"));
+            // #250: the tool read tune power and the antenna port and showed
+            // neither. The stage set supplies the sentence, evaluated at
+            // render time so it carries live facts.
+            var set = Kettle(Answering("wet"), Answering("hot"));
+            set.Stages[1].DescribeRunAction =
+                () => "This will heat one litre for two minutes.";
+
+            string card = CardOf(FixerPage.Render(new FixerRun(set)), "boil");
+            Assert.Contains("This will heat one litre for two minutes.", card);
+
+            var runButton = Regex.Match(card, "<button[^>]*data-action=\"run\"[^>]*>");
+            Assert.True(runButton.Success);
+            Assert.Contains("runwill-boil", runButton.Value);
+        }
+
+        // -------- forward motion (#248) --------
+
+        [Fact]
+        public void A_completed_stage_offers_forward_motion_to_the_next_stages_heading()
+        {
+            var run = SimpleRun();
+            run.RunStage("fill");
+
+            string card = CardOf(FixerPage.Render(run), "fill");
+            var next = Regex.Match(card, "<button[^>]*data-action=\"next\"[^>]*>([^<]*)</button>");
+            Assert.True(next.Success, "no forward control on a completed stage");
+            Assert.Contains("data-arg=\"stage-h-boil\"", next.Value);
+            Assert.Equal("Next: Stage 1: Boil", next.Groups[1].Value);
+        }
+
+        [Fact]
+        public void The_last_completed_stage_forwards_to_the_report()
+        {
+            var run = SimpleRun();
+            run.RunStage("boil");
+
+            string card = CardOf(FixerPage.Render(run), "boil");
+            var next = Regex.Match(card, "<button[^>]*data-action=\"next\"[^>]*>([^<]*)</button>");
+            Assert.True(next.Success, "the page dead-ends at the last stage");
+            Assert.Contains("data-arg=\"report-heading\"", next.Value);
+            Assert.Equal("Go to the report", next.Groups[1].Value);
+        }
+
+        [Fact]
+        public void An_unrun_stage_offers_run_not_next()
+        {
+            string card = CardOf(FixerPage.Render(SimpleRun()), "fill");
+            Assert.Contains("data-action=\"run\"", card);
+            Assert.DoesNotContain("data-action=\"next\"", card);
+        }
+
+        // -------- skip is never offered over a measurement (#249) --------
+
+        [Fact]
+        public void Skip_is_offered_only_while_a_stage_has_no_result()
+        {
+            var run = SimpleRun();
+            string before = CardOf(FixerPage.Render(run), "fill");
+            Assert.Contains("data-action=\"skip\"", before);
+            Assert.Contains("Why are you skipping this stage?", before);
+
+            run.RunStage("fill");
+            string after = CardOf(FixerPage.Render(run), "fill");
+            Assert.DoesNotContain("data-action=\"skip\"", after);
+            Assert.DoesNotContain("Why are you skipping", after);
+        }
+
+        [Fact]
+        public void Skip_sits_after_the_run_control_never_before_it()
+        {
+            // The loudest affordance after a result used to be "why are you
+            // giving up" — on a stage that had just PASSED. Skip is a rare,
+            // legitimate choice and renders below the primary action.
+            string card = CardOf(FixerPage.Render(SimpleRun()), "fill");
+            int runAt = card.IndexOf("data-action=\"run\"", StringComparison.Ordinal);
+            int skipAt = card.IndexOf("data-action=\"skip\"", StringComparison.Ordinal);
+            Assert.True(runAt >= 0 && skipAt > runAt, "skip renders ahead of the run control");
         }
 
         // -------- run declarations --------
@@ -377,10 +552,25 @@ namespace Radios.Tests
             Assert.Contains("data-what=\"A generator\"", html);
         }
 
+        [Fact]
+        public void A_live_question_overrides_the_static_one_when_supplied()
+        {
+            // The transmit set names the actual TX port and, for a remote
+            // radio, says the question is about a station the operator is not
+            // at (#244, #247). The delegate is read at render time.
+            var set = Kettle(Answering("wet"), Answering("hot"));
+            set.RunDeclarations[0].QuestionNow =
+                () => "What is the kettle at THAT house plugged into?";
+
+            string html = FixerPage.Render(new FixerRun(set));
+            Assert.Contains("What is the kettle at THAT house plugged into?", html);
+            Assert.DoesNotContain("What is the kettle plugged into right now?", html);
+        }
+
         // -------- host notices and run-versus-run-again --------
 
         [Fact]
-        public void A_host_notice_renders_in_its_stages_panel_without_being_a_result()
+        public void A_host_notice_renders_in_its_stages_card_without_being_a_result()
         {
             var state = new FixerPageState
             {
@@ -391,17 +581,17 @@ namespace Radios.Tests
                 },
             };
             var run = SimpleRun();
-            string panel = PanelOf(FixerPage.Render(run, state), "boil");
+            string card = CardOf(FixerPage.Render(run, state), "boil");
 
-            Assert.Contains("Nothing was transmitted", panel);
+            Assert.Contains("Nothing was transmitted", card);
             // Nothing ran: the stage still reads as unchecked, and the engine
             // holds no record.
-            Assert.Contains("Not checked yet.", panel);
+            Assert.Contains("Not checked yet.", card);
             Assert.Null(run.ResultFor("boil"));
         }
 
         [Fact]
-        public void Every_panel_has_a_notice_slot_for_the_receive_channel()
+        public void Every_card_has_a_notice_slot_for_the_receive_channel()
         {
             string html = FixerPage.Render(SimpleRun());
             Assert.Contains("id=\"notice-fill\"", html);
@@ -412,12 +602,12 @@ namespace Radios.Tests
         public void Running_again_is_a_distinct_deliberate_control()
         {
             var run = SimpleRun();
-            string before = PanelOf(FixerPage.Render(run), "boil");
+            string before = CardOf(FixerPage.Render(run), "boil");
             Assert.Contains("data-action=\"run\"", before);
             Assert.DoesNotContain("data-action=\"rerun\"", before);
 
             run.RunStage("boil");
-            string after = PanelOf(FixerPage.Render(run), "boil");
+            string after = CardOf(FixerPage.Render(run), "boil");
             Assert.Contains("data-action=\"rerun\"", after);
             Assert.Contains("Run this check again", after);
             Assert.DoesNotContain("data-action=\"run\"", after);
@@ -428,16 +618,16 @@ namespace Radios.Tests
         {
             var run = SimpleRun();
             run.SkipStage("boil", "later");
-            string panel = PanelOf(FixerPage.Render(run), "boil");
-            Assert.Contains("data-action=\"run\"", panel);
-            Assert.DoesNotContain("data-action=\"rerun\"", panel);
+            string card = CardOf(FixerPage.Render(run), "boil");
+            Assert.Contains("data-action=\"run\"", card);
+            Assert.DoesNotContain("data-action=\"rerun\"", card);
         }
 
         [Fact]
         public void A_host_action_is_a_hand_off_button_not_a_picker()
         {
-            string panel = PanelOf(FixerPage.Render(SimpleRun()), "fill");
-            var button = Regex.Match(panel, "<button[^>]*data-action=\"host\"[^>]*>");
+            string card = CardOf(FixerPage.Render(SimpleRun()), "fill");
+            var button = Regex.Match(card, "<button[^>]*data-action=\"host\"[^>]*>");
             Assert.True(button.Success);
             Assert.Contains("data-kind=\"open-device-picker\"", button.Value);
         }
@@ -453,7 +643,7 @@ namespace Radios.Tests
             string html = FixerPage.Render(SimpleRun());
             foreach (string kind in new[]
                      { "'ready'", "'run-stage'", "'skip-stage'", "'apply-fix'",
-                       "'stop'", "'copy-report'", "'open-help'" })
+                       "'stop'", "'copy-report'", "'open-help'", "'explain'" })
                 Assert.Contains("kind: " + kind, html);
 
             // The deliberate repeat is a real JSON true, not a string.
@@ -477,7 +667,7 @@ namespace Radios.Tests
         {
             var run = SimpleRun();
             string html = FixerPage.Render(run);
-            Assert.Contains("<main data-run=\"" + run.RunId + "\">", html);
+            Assert.Contains("<body data-run=\"" + run.RunId + "\">", html);
             Assert.Contains("<strong>" + run.RunId + "</strong>", html);
         }
 

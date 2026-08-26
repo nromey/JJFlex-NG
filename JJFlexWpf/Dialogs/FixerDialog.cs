@@ -62,6 +62,12 @@ public sealed class FixerDialog : JJFlexDialog
     private readonly System.Collections.Generic.Dictionary<string, string> _notices =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // Which explanation disclosures the operator has opened or closed, as the
+    // page reports them. Held here so a full re-render honours the choice
+    // instead of springing the prose back open — the page itself is stateless.
+    private readonly System.Collections.Generic.Dictionary<string, bool> _explainOpen =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private CancellationTokenSource? _stageCancel;
     private bool _ready;
     private bool _initFailed;
@@ -416,13 +422,16 @@ document.addEventListener('keydown', function (e) {
     }
 
     /// <summary>
-    /// Put the caret where the operator was, not back at the top.
+    /// Put the caret where the operator should be after a re-render.
     /// </summary>
     /// <remarks>
-    /// A full re-render after a stage finishes would otherwise dump them at the
-    /// document head and make them navigate back to the stage they just ran —
-    /// every time. Focus goes to the selected stage's panel when there is one,
-    /// and only falls back to the first heading on the very first render.
+    /// A full re-render would otherwise dump them at the document head and
+    /// make them navigate back — every time. Focus goes to the current
+    /// stage's HEADING, never a Run button: the heading announces name and
+    /// state ("Stage 2: Transmitter check — not yet run"), and the operator
+    /// then chooses to Tab one step. That step is the difference between
+    /// proceeding and being funnelled, and stages 2 through 4 key the
+    /// transmitter. Falls back to the h1 on the very first render.
     /// </remarks>
     private static string FocusScript(string? stageId)
     {
@@ -431,7 +440,7 @@ document.addEventListener('keydown', function (e) {
 (function () {
     var target = null;
     var want = " + id + @";
-    if (want) target = document.getElementById('panel-' + want);
+    if (want) target = document.getElementById('stage-h-' + want);
     if (!target) target = document.querySelector('h1') || document.body;
     if (!target) return;
     target.setAttribute('tabindex', '-1');
@@ -499,9 +508,31 @@ document.addEventListener('keydown', function (e) {
                 return;
 
             case FixerPageMessage.Kind.SkipStage:
+                // The engine refuses a skip over a completed measurement
+                // (#249); this pre-check exists so the operator gets a plain
+                // sentence at the stage rather than a swallowed exception. A
+                // message can still arrive for a completed stage — a stale
+                // page, a double-fire — because the page stops OFFERING skip
+                // there, it cannot stop a caller SENDING it.
+                if (_run.ResultFor(m.StageId)?.Status == FixerStageStatus.Ran)
+                {
+                    Notice(m.StageId, "That check has already run, and its measurement is "
+                                    + "kept. To measure again, choose Run this check again.");
+                    return;
+                }
                 _run.SkipStage(m.StageId, m.Value);
-                _state.SelectedStageId = m.StageId;
+                // Skipping is a decision about this stage; the operator's next
+                // question is the following stage, so the current-stage marker
+                // moves forward with them.
+                _state.SelectedStageId = NextStageId(m.StageId) ?? m.StageId;
                 Render();
+                return;
+
+            case FixerPageMessage.Kind.ExplainToggled:
+                // Page-local fact, recorded so the NEXT render honours it. No
+                // re-render now — the page already shows the state it posted,
+                // and a render here would move the reader mid-gesture.
+                _explainOpen[m.StageId] = string.Equals(m.Value, "open", StringComparison.Ordinal);
                 return;
 
             case FixerPageMessage.Kind.ApplyFix:
@@ -558,6 +589,18 @@ document.addEventListener('keydown', function (e) {
                               + (again ? " (re-run)" : ""), TraceLevel.Info);
 
             AnnounceCriticals(r);
+
+            // Where focus lands next is decided, not discovered (the design
+            // doc's phrase). A stage that PASSED moves the current-stage
+            // marker forward, so the re-render focuses the next stage's
+            // heading — name and state in one announcement, one Tab from its
+            // controls. A stage with findings, or one that could not run,
+            // keeps focus at ITS OWN heading (which now speaks the new
+            // status), because moving on would bury the findings the
+            // operator has not heard yet.
+            bool passed = r.Status == FixerStageStatus.Ran
+                          && (r.Findings == null || r.Findings.Count == 0);
+            _state.SelectedStageId = passed ? (NextStageId(stageId) ?? stageId) : stageId;
         }
         finally
         {
@@ -572,6 +615,17 @@ document.addEventListener('keydown', function (e) {
         }
 
         Render();
+    }
+
+    /// <summary>The stage after this one in the set's order, or null at the
+    /// end.</summary>
+    private string? NextStageId(string stageId)
+    {
+        var stages = _run.Set.Stages;
+        for (int i = 0; i < stages.Count - 1; i++)
+            if (string.Equals(stages[i].Id, stageId, StringComparison.OrdinalIgnoreCase))
+                return stages[i + 1].Id;
+        return null;
     }
 
     /// <summary>
@@ -738,6 +792,8 @@ document.addEventListener('keydown', function (e) {
 
         _state.DeclarationAnswers = _declarations;
         _state.StageNotices = _notices;
+        _state.ExplanationOpen = _explainOpen;
+        _state.TransmitCount = _gate.TransmitCount;
 
         try
         {
