@@ -12720,8 +12720,8 @@ namespace Radios
             if (!OfferStationSaveOnDisconnect) return false;
 
             // Something to ask ABOUT. An offer on a session where the operator
-            // never touched the slice set is the reflexive-dismissal trap, and
-            // this is the line that keeps it shut.
+            // never touched the slice set or a radio-persisted setting is the
+            // reflexive-dismissal trap, and this is the line that keeps it shut.
             if (!OperatorChangedStationThisSession) return false;
 
             // Saveable at all: connected, sole operator, a profile loaded to

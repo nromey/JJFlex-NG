@@ -3031,9 +3031,11 @@ public class NativeMenuBar : IDisposable
     /// <remarks>
     /// <para>Silent and instant in every case but one: <see
     /// cref="Radios.FlexBase.ShouldOfferStationLayoutSave"/> is false unless
-    /// the setting is on, the operator changed the slice set this session, the
-    /// radio is theirs, and they are the only operator on it. A disconnect
-    /// where any of that fails looks exactly like it did before this shipped.
+    /// the setting is on, the operator changed the slice set or a
+    /// radio-persisted setting this session (#225 widened the trigger past
+    /// slices), the radio is theirs, and they are the only operator on it. A
+    /// disconnect where any of that fails looks exactly like it did before
+    /// this shipped.
     /// </para>
     ///
     /// <para>No is a real answer and is honoured without argument — no second
