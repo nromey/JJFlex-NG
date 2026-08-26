@@ -717,6 +717,13 @@ Module globals
     Private Sub SampleRunningCosts()
         If Ending Then Return
         Try
+            ' Not mid-over. The bound is not going anywhere, and a spoken
+            ' warning while the operator is transmitting is one their own
+            ' microphone may well pick up. SKIPPING the poll rather than
+            ' swallowing its result is the load-bearing half: nothing gets
+            ' marked as announced, so the warning arrives on the first poll
+            ' after unkeying instead of being lost.
+            If RigControl IsNot Nothing AndAlso RigControl.Transmit Then Return
             Radios.RunningCostRegister.Poll()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)

@@ -38,6 +38,13 @@ namespace JJFlexWpf.Dialogs
     /// exists to refuse. Everything else about it follows the same house
     /// pattern: one caret-readable body, no default button, Escape cancels.</para>
     ///
+    /// <para><b>No "don't show this again".</b> ConfirmActionDialog offers one
+    /// and it is right there for the taking, but a suppression key on THIS
+    /// prompt would switch off the only thing that tells an operator their
+    /// instrumentation is still on — which is the entire defect. Suppression is
+    /// for teaching text whose outcome is reported some other re-readable way.
+    /// This prompt IS the report.</para>
+    ///
     /// <para><b>It only ever appears when something Notable is running.</b> The
     /// always-on diagnostic log and the audible meter tones are Routine and
     /// never raise it, so a normal exit is still a silent exit. A prompt every
