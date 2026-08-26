@@ -957,6 +957,30 @@ The same window's General tab is useful in its own right: your radio's model, fi
 
 [Return to version headlines](#unreleased-headlines)
 
+### Push-to-Talk Holds Under JAWS {#ptt-holds-under-jaws}
+
+Here's an ugly one we went looking for before anybody had to report it. JAWS handles a held-down key differently than NVDA does: instead of passing the hold through, it can feed the application a rapid stream of press-and-release taps. If that happens on Ctrl+Space, the radio would key and unkey about four times a second while you're holding the key and talking — you'd have no idea, and the station on the other end would hear your voice chopped to bits.
+
+Push to talk now recognizes that tap stream for what it physically is — one finger, holding one key — and keeps the transmitter keyed until you actually let go. The detection is automatic and cautious: if your screen reader delivers held keys normally (NVDA does), absolutely nothing changes, not even a millisecond. If it doesn't, the very first transmission of a session may still hiccup once while the app figures out what's going on; every hold after that is solid. The one cost on an affected setup is that unkeying trails your finger by about a third of a second — a far better deal than transmitting your QSO through a picket fence.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The JJ Layer Helps You Recover from a Near Miss {#jj-near-miss}
+
+The JJ layer (Ctrl+J, then a key) puts different commands on the same letter depending on the modifier — A is Auto Notch while Ctrl+A is PC audio, D is tuning speech debounce while Ctrl+D starts a diagnostic capture. Which means sooner or later your fingers press Ctrl+G when you meant plain G, and until now the answer was "Unknown command. Press H for help." — a dead end that sends you off to listen to the whole command list for the letter you nearly pressed.
+
+Now, when the chord you pressed is empty but the same letter does something at another modifier level, you're told exactly that: "Ctrl+G is not a command. G: Arm or disarm the TX test tone." One press of Ctrl+J and the right letter, and you're back on track. The layer teaches you its own map at the exact moment you need it.
+
+[Return to version headlines](#unreleased-headlines)
+
+### Your Key Map Heals Itself After an Old Build {#key-map-heals}
+
+If you've been running a build from before mid-August, your saved key map was written in an older internal numbering, and loading it into a current build could silently attach some of your keys to the wrong commands — everything looks fine, the file loads, and then a key you've trusted for months quietly does something else. That's about as nasty as a bug gets for an operator who lives on the keyboard.
+
+The app now spots that damaged numbering by evidence, per key, the moment the file loads — and repairs it. Any binding you personally customized is never touched by the automatic repair: those are left exactly as you set them, because only you know what you meant by them. If your map was all stock bindings, the whole thing heals silently on first launch and you'll never know anything happened. Which is the point.
+
+[Return to version headlines](#unreleased-headlines)
+
 ### Under the kitchen sink: stuff that might interest you but probably not {#under-the-kitchen-sink}
 
 - The new sound cues are tuned to cut through real radio noise. Background audio processing favors the earcon frequencies during a chirp, so you can still hear the cue when the band is crashing.
