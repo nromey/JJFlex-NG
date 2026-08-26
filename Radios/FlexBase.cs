@@ -6677,12 +6677,25 @@ namespace Radios
                             }
                         }
                         break;
-#if zero
-                    case "TXAntenna":
-                        Tracing.TraceLine("TXAntenna:" + s.TXAnt, TraceLevel.Info);
-                        // We always set the TXAnt for both slices, so we'll come through twice.
+                    // #188 — the antenna report-back, RX and TX kept separate.
+                    //
+                    // What stood here was a `#if zero` block on case
+                    // "TXAntenna", and it had TWO faults, either of which alone
+                    // made it dead: it was compiled out, and FlexLib raises
+                    // "TXAnt", never "TXAntenna" (Slice._UpdateTXAnt). So even
+                    // enabling it would have matched nothing. Restored under
+                    // the names FlexLib actually raises, with RX added — the
+                    // receive port was never traced in any form.
+                    //
+                    // See the ReportAntennaChange remarks for what a silent
+                    // radio does and does not prove.
+                    case "RXAnt":
+                        ReportAntennaChange(s, "RX", s.RXAnt, _rxAntRequested);
                         break;
-#endif
+
+                    case "TXAnt":
+                        ReportAntennaChange(s, "TX", s.TXAnt, _txAntRequested);
+                        break;
                 }
             }
             else
@@ -8700,6 +8713,47 @@ namespace Radios
 
         #region Antenna Properties — Sprint 22
 
+        // ── Why these two setters trace, and the other Sprint 22 ones do not ──
+        //
+        // #188. Antenna selection was the one transmit-path choice this app
+        // could make that left no record anywhere. Nothing in the app logged a
+        // change, so EVERY power and standing-wave figure ever captured on the
+        // bench has no recorded port: a reader of that capture — including the
+        // person who took it, ten minutes later — cannot say which connector
+        // the RF left by. That is a first-order fact for a tool whose job
+        // includes walking the transmit chain, and it was simply absent.
+        //
+        // It also made a negative result uninterpretable. On 2026-08-22 the RX
+        // antenna was switched between ANT1 and ANT2, no difference was heard,
+        // and there was no way to tell whether that meant "both ports sound
+        // alike" or "the switch never took". A negative result needs a positive
+        // control and the instrument could not even be checked.
+        //
+        // The only ANT1 strings in a capture came from FlexLib's own
+        // ApplyEqualizerActiveStatus logging — vendor code, firing on its own
+        // schedule, reporting whatever IT considers current rather than
+        // announcing a change.
+        //
+        // WHAT THE REPORT-BACK CAN AND CANNOT TELL YOU. FlexLib's Slice.RXAnt /
+        // TXAnt setters update their own cached value BEFORE sending the
+        // command, and their status parser drops any echo that matches the
+        // cache (Slice.cs, case "rxant" / "txant": `if (_rxant == value)
+        // continue;`). So the radio AGREEING is silent — there is no
+        // confirmation event to trace. The only report-back that reaches us is
+        // one that DISAGREES with what we cached, which is exactly the
+        // acked-but-not-applied hazard of #164 and exactly what is worth a
+        // Warning. Absence of a warning is therefore weak evidence, not proof;
+        // say so rather than reading silence as confirmation.
+        //
+        // The last-requested value is remembered per direction so a disagreeing
+        // report can name what was asked for. It is deliberately NOT cleared on
+        // a match: the match we see is our own optimistic echo, not the radio's
+        // answer. And a later disagreement is reported as an OBSERVATION rather
+        // than a diagnosis, because another GUI client changing the port
+        // produces the same event as a change that never took.
+        private string _rxAntRequested;
+        private string _txAntRequested;
+
         /// <summary>Current RX antenna name for active slice (e.g. "ANT1", "ANT2", "RX_A").</summary>
         public string RXAntennaName
         {
@@ -8707,7 +8761,16 @@ namespace Radios
             set
             {
                 var s = theRadio?.ActiveSlice;
-                if (s != null) s.RXAnt = value;
+                if (s == null)
+                {
+                    Tracing.TraceLine($"Antenna:RX request '{value}' dropped — no active slice",
+                                      TraceLevel.Warning);
+                    return;
+                }
+                Tracing.TraceLine($"Antenna:RX request slice {s.Index}: '{s.RXAnt}' -> '{value}'",
+                                  TraceLevel.Info);
+                _rxAntRequested = value;
+                s.RXAnt = value;
             }
         }
 
@@ -8718,8 +8781,51 @@ namespace Radios
             set
             {
                 var s = theRadio?.ActiveSlice;
-                if (s != null) s.TXAnt = value;
+                if (s == null)
+                {
+                    Tracing.TraceLine($"Antenna:TX request '{value}' dropped — no active slice",
+                                      TraceLevel.Warning);
+                    return;
+                }
+                Tracing.TraceLine($"Antenna:TX request slice {s.Index}: '{s.TXAnt}' -> '{value}'",
+                                  TraceLevel.Info);
+                _txAntRequested = value;
+                s.TXAnt = value;
             }
+        }
+
+        /// <summary>
+        /// Trace what the radio now reports an antenna to be, against what this
+        /// app last asked for. Called from the slice property-changed handler
+        /// for RXAnt and TXAnt.
+        /// </summary>
+        /// <remarks>
+        /// Wording is deliberately observational. "Requested and reported
+        /// disagree" is a thing we watched happen; "the change did not take"
+        /// would be a conclusion, and another GUI client moving the port
+        /// produces the identical event.
+        /// </remarks>
+        private void ReportAntennaChange(Slice s, string direction, string reported, string requested)
+        {
+            string now = string.IsNullOrEmpty(reported) ? "(empty)" : reported;
+
+            if (string.IsNullOrEmpty(requested))
+            {
+                Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
+                    + " — not requested from here", TraceLevel.Info);
+                return;
+            }
+
+            if (string.Equals(requested, reported, StringComparison.OrdinalIgnoreCase))
+            {
+                Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
+                    + " — matches the last request from here", TraceLevel.Info);
+                return;
+            }
+
+            Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
+                + $" but '{requested}' was requested from here — requested and reported disagree",
+                TraceLevel.Warning);
         }
 
         /// <summary>Available RX antenna list from the active slice. Dynamic per radio model.</summary>

@@ -51,6 +51,41 @@ namespace Radios.ChainChecks
         public const double HeardNothingDbfs = -100.0;
 
         /// <summary>
+        /// Watts at or below which the radio's own power meters say NOTHING
+        /// about a transverter path. An instrument-resolution figure, not a
+        /// fault threshold — see the remarks.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>#163.</b> FlexLib's <c>Xvtr.MaxPower</c> is a double in dBm
+        /// clamped -10.00 to +15.00, so legal transverter drive is 0.0001 W to
+        /// 0.032 W. The FWDPWR and REFPWR meters read the radio's own power
+        /// amplifier into the antenna ports and work in tens of watts: on
+        /// 2026-08-22 the bench 8600 read 101.2 W into a dummy load. A reading
+        /// anywhere at or below one watt therefore cannot tell legal
+        /// transverter drive from a dead key. It is a non-answer, and a
+        /// non-answer must never score as the best possible value — which is
+        /// exactly what happened while the rules simply never applied.
+        /// </para>
+        /// <para>
+        /// One watt is thirty-one times the maximum legal drive, so nothing
+        /// this path can legitimately produce reaches it. ABOVE it the reading
+        /// is far outside anything the XVTR port should ever see and is worth
+        /// acting on, which is what the <c>transverter-overdrive</c> rule
+        /// tests. So the same number does two honest jobs from opposite sides:
+        /// below it we have no reading, above it we have an alarming one.
+        /// </para>
+        /// <para>
+        /// <b>BENCH.</b> The floor a Flex reports on a genuine dead key has
+        /// never been measured, and whether the forward-power coupler reads the
+        /// XVTR port at all is open — task #27, transverter bench Session One.
+        /// Either measurement would sharpen this; neither is needed for it to
+        /// be better than the silence it replaces.
+        /// </para>
+        /// </remarks>
+        public const double TransverterMeterFloorWatts = 1.0;
+
+        /// <summary>
         /// Collect everything the radio can tell us about its transmit chain.
         /// </summary>
         /// <param name="rig">The radio. Null is a legitimate argument — it
@@ -511,9 +546,129 @@ namespace Radios.ChainChecks
             // meter read as a perfect match and let stage 12 be declared healthy
             // while nobody had looked. The false alarm and the false all-clear
             // are the same defect from opposite ends.
+            // ── What is in the path, stated before anything judges it ──────
+            //
+            // #188 and #163, and they are the same omission seen from two
+            // sides. Until now stage 12 judged power and standing wave ratio
+            // without ever saying which connector the RF left by, and without
+            // knowing whether it left through a transverter at all.
+            //
+            // The port comes first because every number below it is meaningless
+            // without it. A capture that says "17.5 watts forward, 13.4 back"
+            // and does not say ANT1 cannot be read by anyone, including the
+            // person who took it.
+            Probe(f, "tx-antenna", "Transmit antenna port",
+                  () => DiagnosticFact.Text("tx-antenna", "Transmit antenna port",
+                                            rig.TXAntennaName ?? "", "the radio"));
+            Probe(f, "rx-antenna", "Receive antenna port",
+                  () => DiagnosticFact.Text("rx-antenna", "Receive antenna port",
+                                            rig.RXAntennaName ?? "", "the radio"));
+
+            bool xvtrPath = false;
+            try { xvtrPath = rig.TXAntennaIsTransverter; } catch { xvtrPath = false; }
+
+            Probe(f, "transverter-path", "Transmitting through a transverter",
+                  () => DiagnosticFact.Flag("transverter-path", "Transmitting through a transverter",
+                                            rig.TXAntennaIsTransverter, "the radio"));
+
+            // Empty is a real and separate answer: the transmit antenna is the
+            // XVTR port but no transverter definition covers the slice
+            // frequency, so the radio will send drive somewhere we cannot
+            // describe. That is not the same as not being on a transverter.
+            Probe(f, "transverter-name", "Transverter in use", () =>
+            {
+                if (!xvtrPath)
+                    return DiagnosticFact.Absent("transverter-name", "Transverter in use",
+                        "your transmit antenna is not the transverter port", "the radio");
+                return DiagnosticFact.Text("transverter-name", "Transverter in use",
+                        rig.ActiveXvtrName ?? "", "the radio");
+            });
+
+            // dBm, because that is the unit the radio itself uses for this and
+            // the unit a transverter's drive spec is written in. Converting it
+            // to watts here would hand the operator 0.003 and help nobody.
+            Probe(f, "transverter-drive", "Transverter drive", () =>
+            {
+                if (!xvtrPath)
+                    return DiagnosticFact.Absent("transverter-drive", "Transverter drive",
+                        "your transmit antenna is not the transverter port", "the radio");
+                if (string.IsNullOrEmpty(rig.ActiveXvtrName))
+                    return DiagnosticFact.Absent("transverter-drive", "Transverter drive",
+                        "the transmit antenna is the transverter port, but no transverter definition "
+                        + "on this radio covers the frequency the transmit slice is on, so what drive "
+                        + "it is set to cannot be read", "the radio");
+                return DiagnosticFact.Measure("transverter-drive", "Transverter drive",
+                        rig.XvtrDrivePowerCentiDbm / 100.0, "dBm", "the radio");
+            });
+
+            // The ceiling FlexLib will clamp a drive setting to. Worth stating
+            // because it is model-dependent and the model list behind it is
+            // incomplete: Xvtr.MaxPower names only FLEX-6400/6400M/6600/6600M,
+            // so the 8000 series and Aurora reach the 15.0 dBm else-branch by
+            // OMISSION rather than by being recognised. Whether 15.0 is right
+            // for an 8400, 8600, AU-510 or AU-520 is unknown (task #163).
+            Probe(f, "transverter-drive-ceiling", "Highest drive this radio will accept", () =>
+            {
+                if (!xvtrPath || string.IsNullOrEmpty(rig.ActiveXvtrName))
+                    return DiagnosticFact.Absent("transverter-drive-ceiling",
+                        "Highest drive this radio will accept",
+                        "there is no transverter in the transmit path to have a drive limit",
+                        "the radio");
+                return DiagnosticFact.Measure("transverter-drive-ceiling",
+                        "Highest drive this radio will accept",
+                        rig.XvtrDriveMaxCentiDbm / 100.0, "dBm", "this app, from the radio's model");
+            });
+
             MeterReading fwdMeter = inv?.Find("FWDPWR");
             MeterReading swrMeter = inv?.Find("SWR");
             MeterReading refMeter = inv?.Find("REFPWR");
+
+            // ── The transverter blind spot, closed at the FACT rather than in
+            // the rules ───────────────────────────────────────────────────────
+            //
+            // #163. Stage 12's power and standing-wave rules were written for
+            // an antenna and are wrong for a transverter, and the way they were
+            // wrong was the worst available: they simply never applied. The
+            // no-power-out rule is guarded on "rf-power-setting above 0", and
+            // the transverter operator lives at setting 0 permanently — Noel's
+            // 8600 reads rfpower=0 today — so that rule is switched off for
+            // exactly the operator it would matter most to. high-swr and
+            // power-coming-back are guarded on "forward-power at least 1",
+            // which that operator never reaches. Three checks, silently off,
+            // and the stage reporting healthy.
+            //
+            // This is fixed HERE and not in the rule file on the codebase's own
+            // instruction, written at the top of DiagnosticFact: observability
+            // is a property of the FACT, not of the rule that reads it. Put it
+            // here and "could not check" propagates on its own; put it in the
+            // rules and every rule has to carry its own honesty, which means one
+            // day one of them will not. Gating the rules with "needs:
+            // transverter-path is no" would have produced NOT APPLICABLE, which
+            // costs nothing and is counted nowhere — the same silence in a
+            // different coat.
+            //
+            // So on a transverter path, below the meters' useful floor, these
+            // four facts are ABSENT with the reason. Every rule that touches
+            // them then reports as a check that COULD NOT BE MADE, and stage 12
+            // comes back "not observable from here" instead of healthy. That is
+            // the third tier the finding asked for: below the meter's declared
+            // floor means "I have no reading", and it must not score as the best
+            // possible value.
+            //
+            // NOT lowering the threshold, deliberately. Any single absolute watt
+            // figure is wrong for both paths at once: 0.1 W and even 0.01 W sit
+            // INSIDE the legal transverter drive band. Today's guard fails
+            // silent; a lowered number would fail WRONG and hand the transverter
+            // case a false all-clear. (Decision, 2026-08-20.)
+            double fwdWatts = double.NaN;
+            try { fwdWatts = rig.ForwardPowerWatts; } catch { fwdWatts = double.NaN; }
+            bool xvtrBelowMeterFloor =
+                xvtrPath && (double.IsNaN(fwdWatts) || fwdWatts <= TransverterMeterFloorWatts);
+
+            const string XvtrFloorReason =
+                "your transmit antenna is the transverter port. Legal transverter drive is hundredths "
+                + "of a watt, and the radio's power meters read its own amplifier in tens of watts, so "
+                + "a reading this low cannot tell transverter drive from a dead key";
 
             Probe(f, "forward-power", "Forward power", () =>
             {
@@ -526,6 +681,9 @@ namespace Radios.ChainChecks
                         "the radio's forward power meter has not reported yet; it reports while "
                         + "transmitting, so transmit to measure",
                         "the radio's FWDPWR meter");
+                if (xvtrBelowMeterFloor)
+                    return DiagnosticFact.Absent("forward-power", "Forward power",
+                        XvtrFloorReason, "the radio's FWDPWR meter");
                 return DiagnosticFact.Measure("forward-power", "Forward power",
                         rig.ForwardPowerWatts, "watts", "the radio's FWDPWR meter");
             });
@@ -541,6 +699,9 @@ namespace Radios.ChainChecks
                         "the radio's reflected power meter has not reported yet; it reports while "
                         + "transmitting, so transmit to measure",
                         "the radio's REFPWR meter");
+                if (xvtrBelowMeterFloor)
+                    return DiagnosticFact.Absent("reflected-power", "Reflected power",
+                        XvtrFloorReason, "the radio's REFPWR meter");
                 return DiagnosticFact.Measure("reflected-power", "Reflected power",
                         rig.ReflectedPowerWatts, "watts", "the radio's REFPWR meter");
             });
@@ -563,6 +724,9 @@ namespace Radios.ChainChecks
                         "the forward and reflected power meters report while transmitting, so "
                         + "transmit to measure",
                         "the radio's FWDPWR and REFPWR meters");
+                if (xvtrBelowMeterFloor)
+                    return DiagnosticFact.Absent("reflected-percent", "Power coming back",
+                        XvtrFloorReason, "the radio's FWDPWR and REFPWR meters");
                 float fraction = rig.ReflectedFraction;
                 if (float.IsNaN(fraction))
                     return DiagnosticFact.Silent("reflected-percent", "Power coming back",
@@ -599,6 +763,16 @@ namespace Radios.ChainChecks
             // catches the sentinel without hard-coding its exact value.
             Probe(f, "swr", "Standing wave ratio", () =>
             {
+                // The transverter gate goes ABOVE the computed value on
+                // purpose. ComputedSWR is worked out from the same two meters,
+                // so on a transverter path it would produce a confident ratio
+                // out of two non-readings — which is the 1.008-into-an-open-
+                // connector failure again, arrived at by arithmetic instead of
+                // by a bad meter.
+                if (xvtrBelowMeterFloor)
+                    return DiagnosticFact.Absent("swr", "Standing wave ratio",
+                        XvtrFloorReason, "the radio's FWDPWR and REFPWR meters");
+
                 float computed = rig.ComputedSWR;
                 if (!float.IsNaN(computed))
                     return DiagnosticFact.Measure("swr", "Standing wave ratio",
@@ -716,6 +890,12 @@ namespace Radios.ChainChecks
             yield return "meter-swr";
             yield return "meter-patemp";
             yield return "transmitting";
+            yield return "tx-antenna";
+            yield return "rx-antenna";
+            yield return "transverter-path";
+            yield return "transverter-name";
+            yield return "transverter-drive";
+            yield return "transverter-drive-ceiling";
             yield return "forward-power";
             yield return "reflected-power";
             yield return "reflected-percent";
@@ -747,6 +927,12 @@ namespace Radios.ChainChecks
                 case "tx-stream-is-opus": return "The radio opened our transmit stream as Opus";
                 case "tx-stream-status-line": return "The radio's transmit stream status line";
                 case "sc-mic-peak": return "Loudest transmit audio the radio has heard";
+                case "tx-antenna": return "Transmit antenna port";
+                case "rx-antenna": return "Receive antenna port";
+                case "transverter-path": return "Transmitting through a transverter";
+                case "transverter-name": return "Transverter in use";
+                case "transverter-drive": return "Transverter drive";
+                case "transverter-drive-ceiling": return "Highest drive this radio will accept";
                 case "forward-power": return "Forward power";
                 case "reflected-power": return "Reflected power";
                 case "reflected-percent": return "Power coming back";
@@ -832,6 +1018,14 @@ namespace Radios.ChainChecks
             Line("Nickname", () => rig.RadioNickname);
             Line("Callsign", () => rig.RadioCallsign);
             Line("Connected", () => rig.IsConnected ? "yes" : "no");
+            // #188. The port belongs with the radio's identity, not buried in
+            // the readings, because a power or standing-wave figure quoted
+            // without it cannot be interpreted by anybody — including a
+            // FlexRadio engineer reading the pasted block. Both directions:
+            // switching the receive port and hearing no change is a common
+            // first test, and it is uninterpretable unless the port is recorded.
+            Line("Transmit antenna", () => rig.TXAntennaName);
+            Line("Receive antenna", () => rig.RXAntennaName);
             Line("Connection", () => rig.RemoteRig ? "SmartLink (over the internet)" : "local network");
             Line("Meters published", () => (rig.MeterInventory?.Count ?? 0)
                                            .ToString(CultureInfo.CurrentCulture));
