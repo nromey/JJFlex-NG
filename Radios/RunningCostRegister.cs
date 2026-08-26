@@ -187,7 +187,7 @@ namespace Radios
         {
             var sb = new StringBuilder(Name);
             if (Cost != null) sb.Append(", ").Append(Cost);
-            if (SurvivesRestart) sb.Append(", and it will still be on the next time you start");
+            if (SurvivesRestart) sb.Append(", ").Append(Lexicon.Get("logging.running.persists"));
             sb.Append('.');
             return sb.ToString();
         }

@@ -195,6 +195,7 @@
   "logging.running.exit_title": "Still Running",
   "logging.running.meter_lines": "{count} meter lines into the log",
   "logging.running.nothing": "Nothing that costs anything is running.",
+  "logging.running.persists": "and it will still be on the next time you start",
   "logging.running.since": "started {clock}",
   "logging.running.stay_open": "_Stay open",
   "logging.running.stop_and_close": "_Turn these off and close",
