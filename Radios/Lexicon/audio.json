@@ -248,6 +248,8 @@
   "audio.fields.vox": "VOX",
   "audio.fields.wideband_nb": "Wideband NB",
   "audio.fields.wnb_level": "WNB Level",
+  "audio.fixer.capture_started": "A diagnostic recording has started for this check run. It stops and is saved when the run ends.",
+  "audio.fixer.capture_stopped": "The diagnostic recording for this run has stopped and been saved.",
   "audio.fixer.speak_done": "Finished. The transmitter is off.",
   "audio.fixer.speak_now": "Transmitting. Speak into your microphone normally, and keep talking until you hear finished.",
   "audio.filter.at_beginning": "Beginning",
