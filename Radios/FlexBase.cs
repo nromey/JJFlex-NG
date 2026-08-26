@@ -2390,6 +2390,15 @@ namespace Radios
             _cancelRequested = true;
             Disconnecting = true;
 
+            // Final where-you-left-it flush (#226): the debounce may still be
+            // pending, and the whole point of the record is the next connect.
+            // Never allowed to slow or fail a disconnect.
+            try { FlushOperatorPlace(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Disconnect:place flush:" + ex.Message, TraceLevel.Warning);
+            }
+
             // 2026-04-28: announce disconnect via speech + CW (SK prosign) so the
             // user knows the radio is going away. Fires before the actual
             // disconnect work (which can take 3+ seconds) so feedback is
@@ -6819,7 +6828,12 @@ namespace Radios
                             // of Noel's spec. The radio confirming a slice as
                             // Active is the honest moment the operator arrived
                             // on it. See AnnounceSliceIdentity.
-                            if (s.Active) AnnounceSliceIdentity(s);
+                            if (s.Active)
+                            {
+                                AnnounceSliceIdentity(s);
+                                // Arriving on a slice is a place change (#226).
+                                NoteOperatorPlace(s);
+                            }
                         }
                         break;
                     case "DemodMode":
@@ -6831,6 +6845,9 @@ namespace Radios
                             {
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
+                                // Where-you-are memory (#226): "14.243 USB" is
+                                // a place, and mode is half of it.
+                                NoteOperatorPlace(s);
 
                                 // The CW mode announcement (#58). Runs alongside speech, not
                                 // only when speech is off — CW is a parallel notification
@@ -6909,6 +6926,10 @@ namespace Radios
                             {
                                 _RXFrequency = LibFreqtoLong(s.Freq);
                                 FilterObj.RXFreqChange(s);
+                                // Where-you-are memory (#226) — debounced, so
+                                // a tuning sweep costs one write, not one per
+                                // click.
+                                NoteOperatorPlace(s);
                             }
                             if (s.IsTransmitSlice) _TXFrequency = LibFreqtoLong(s.Freq);
                         }
@@ -9073,6 +9094,7 @@ namespace Radios
                 }
                 Tracing.TraceLine($"Antenna:RX request slice {s.Index}: '{s.RXAnt}' -> '{value}'",
                                   TraceLevel.Info);
+                NoteOperatorChangedRadioSetting("RXAntennaName");
                 _rxAntRequested = value;
                 s.RXAnt = value;
             }
@@ -9093,6 +9115,7 @@ namespace Radios
                 }
                 Tracing.TraceLine($"Antenna:TX request slice {s.Index}: '{s.TXAnt}' -> '{value}'",
                                   TraceLevel.Info);
+                NoteOperatorChangedRadioSetting("TXAntennaName");
                 _txAntRequested = value;
                 s.TXAnt = value;
             }
@@ -9842,7 +9865,11 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FilterLow = value; }), "FilterLow");
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("FilterLow");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FilterLow = value; }), "FilterLow");
+                }
             }
         }
 
@@ -9854,7 +9881,11 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FilterHigh = value; }), "FilterHigh");
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("FilterHigh");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.FilterHigh = value; }), "FilterHigh");
+                }
             }
         }
 
@@ -9866,7 +9897,11 @@ namespace Radios
         /// </summary>
         public void SetFilter(int low, int high)
         {
-            if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.UpdateFilter(low, high); }), "Filter");
+            if (HasActiveSlice)
+            {
+                NoteOperatorChangedRadioSetting("SetFilter");
+                q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.UpdateFilter(low, high); }), "Filter");
+            }
         }
 
 #if zero
@@ -10763,6 +10798,7 @@ namespace Radios
                 bool val = (value == OffOnValues.on) ? true : false;
                 if (s != null)
                 {
+                    NoteOperatorChangedRadioSetting("Vox");
                     if (s.DemodMode == "CW")
                     {
                         q.Enqueue((FunctionDel)(() => { theRadio.CWBreakIn = val; }), "BreakIn");
@@ -10783,7 +10819,11 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBOn = (value == OffOnValues.on) ? true : false; }), "NBOn");
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("NoiseBlanker");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBOn = (value == OffOnValues.on) ? true : false; }), "NBOn");
+                }
             }
         }
 
@@ -10794,7 +10834,7 @@ namespace Radios
         public int NoiseBlankerLevel
         {
             get { return theRadio?.ActiveSlice?.NBLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBLevel = value; }), "NBLevel"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseBlankerLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NBLevel = value; }), "NBLevel"); } }
         }
 
         public OffOnValues WidebandNoiseBlanker
@@ -10805,14 +10845,18 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBOn = (value == OffOnValues.on) ? true : false; }), "WNBOn");
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("WidebandNoiseBlanker");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBOn = (value == OffOnValues.on) ? true : false; }), "WNBOn");
+                }
             }
         }
 
         public int WidebandNoiseBlankerLevel
         {
             get { return theRadio?.ActiveSlice?.WNBLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBLevel = value; }), "WNBLevel"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("WidebandNoiseBlankerLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.WNBLevel = value; }), "WNBLevel"); } }
         }
 
         public OffOnValues NoiseReduction
@@ -10823,7 +10867,11 @@ namespace Radios
             }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NROn = (value == OffOnValues.on) ? true : false; }));
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("NoiseReduction");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NROn = (value == OffOnValues.on) ? true : false; }));
+                }
             }
         }
 
@@ -10833,7 +10881,7 @@ namespace Radios
         internal int NoiseReductionLevel
         {
             get { return theRadio?.ActiveSlice?.NRLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLevel = value; })); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLevel = value; })); } }
         }
 
         // Advanced Noise Reduction algorithms (FlexLib v4.0.1)
@@ -10851,6 +10899,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("NoiseReductionLegacy");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRLOn = (value == OffOnValues.on); }), "NRLOn");
                 }
             }
@@ -10858,7 +10907,7 @@ namespace Radios
         public int NoiseReductionLegacyLevel
         {
             get { return theRadio?.ActiveSlice?.NRL_Level ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRL_Level = value; }), "NRL_Level"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionLegacyLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRL_Level = value; }), "NRL_Level"); } }
         }
 
         // Spectral Subtraction Noise Reduction (NRS)
@@ -10875,6 +10924,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("SpectralNoiseReduction");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSOn = (value == OffOnValues.on); }), "NRSOn");
                 }
             }
@@ -10882,7 +10932,7 @@ namespace Radios
         internal int SpectralNoiseReductionLevel
         {
             get { return theRadio?.ActiveSlice?.NRSLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSLevel = value; }), "NRSLevel"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("SpectralNoiseReductionLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRSLevel = value; }), "NRSLevel"); } }
         }
 
         // Noise Reduction with Filter (NRF)
@@ -10899,6 +10949,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("NoiseReductionFilter");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFOn = (value == OffOnValues.on); }), "NRFOn");
                 }
             }
@@ -10906,7 +10957,7 @@ namespace Radios
         internal int NoiseReductionFilterLevel
         {
             get { return theRadio?.ActiveSlice?.NRFLevel ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFLevel = value; }), "NRFLevel"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("NoiseReductionFilterLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.NRFLevel = value; }), "NRFLevel"); } }
         }
 
         // Neural noise reduction (RNN) - toggle only
@@ -10920,6 +10971,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("NeuralNoiseReduction");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.RNNOn = (value == OffOnValues.on); }), "RNNOn");
                 }
             }
@@ -10936,6 +10988,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("AutoNotchFFT");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFTOn = (value == OffOnValues.on); }), "ANFTOn");
                 }
             }
@@ -10955,6 +11008,7 @@ namespace Radios
             {
                 if (HasActiveSlice && theRadio?.ActiveSlice != null)
                 {
+                    NoteOperatorChangedRadioSetting("AutoNotchLegacy");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFLOn = (value == OffOnValues.on); }), "ANFLOn");
                 }
             }
@@ -10962,7 +11016,7 @@ namespace Radios
         internal int AutoNotchLegacyLevel
         {
             get { return theRadio?.ActiveSlice?.ANFL_Level ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFL_Level = value; }), "ANFL_Level"); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("AutoNotchLegacyLevel"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFL_Level = value; }), "ANFL_Level"); } }
         }
 
         /// <summary>
@@ -10977,6 +11031,7 @@ namespace Radios
             set {
                 if (HasActiveSlice)
                 {
+                    NoteOperatorChangedRadioSetting("AGCSpeed");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCMode = value; }), "AGCMode");
                 }
             }
@@ -10988,7 +11043,7 @@ namespace Radios
         public int AGCThreshold
         {
             get { return theRadio?.ActiveSlice?.AGCThreshold ?? 0; }
-            set { if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCThreshold = value; })); }
+            set { if (HasActiveSlice) { NoteOperatorChangedRadioSetting("AGCThreshold"); q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.AGCThreshold = value; })); } }
         }
 
         /// <summary>
@@ -11233,13 +11288,13 @@ namespace Radios
         public int MicGain
         {
             get { return theRadio?.MicLevel ?? 0; }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.MicLevel = value; })); }
+            set { NoteOperatorChangedRadioSetting("MicGain"); q.Enqueue((FunctionDel)(() => { theRadio.MicLevel = value; })); }
         }
 
         public OffOnValues ProcessorOn
         {
             get { return (theRadio?.SpeechProcessorEnable == true) ? OffOnValues.on : OffOnValues.off; }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
+            set { NoteOperatorChangedRadioSetting("ProcessorOn"); q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorEnable = (value == OffOnValues.on) ? true : false; })); }
         }
 
         public enum ProcessorSettings
@@ -11251,7 +11306,7 @@ namespace Radios
         public ProcessorSettings ProcessorSetting
         {
             get { return (ProcessorSettings)(theRadio?.SpeechProcessorLevel ?? 0); }
-            set { q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorLevel = (uint)value; })); }
+            set { NoteOperatorChangedRadioSetting("ProcessorSetting"); q.Enqueue((FunctionDel)(() => { theRadio.SpeechProcessorLevel = (uint)value; })); }
         }
 
         public OffOnValues Compander
@@ -11260,6 +11315,7 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
+                NoteOperatorChangedRadioSetting("Compander");
                 q.Enqueue((FunctionDel)(() => { theRadio.CompanderOn = val; }));
             }
         }
@@ -11272,6 +11328,7 @@ namespace Radios
             get { return theRadio?.CompanderLevel ?? 0; }
             set
             {
+                NoteOperatorChangedRadioSetting("CompanderLevel");
                 q.Enqueue((FunctionDel)(() => { theRadio.CompanderLevel = value; }));
             }
         }
@@ -11284,6 +11341,7 @@ namespace Radios
             get { return (theRadio != null) ? theRadio.TXFilterLow : 0; }
             set
             {
+                NoteOperatorChangedRadioSetting("TXFilterLow");
                 q.Enqueue((FunctionDel)(() => { theRadio.TXFilterLow = value; }));
             }
         }
@@ -11296,6 +11354,7 @@ namespace Radios
             get { return (theRadio != null) ? theRadio.TXFilterHigh : 0; }
             set
             {
+                NoteOperatorChangedRadioSetting("TXFilterHigh");
                 q.Enqueue((FunctionDel)(() => { theRadio.TXFilterHigh = value; }));
             }
         }
@@ -11306,6 +11365,7 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
+                NoteOperatorChangedRadioSetting("MicBoost");
                 q.Enqueue((FunctionDel)(() => { theRadio.MicBoost = val; }));
             }
         }
@@ -11316,6 +11376,7 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
+                NoteOperatorChangedRadioSetting("MicBias");
                 q.Enqueue((FunctionDel)(() => { theRadio.MicBias = val; }));
             }
         }
@@ -11764,19 +11825,25 @@ namespace Radios
             {
                 if (value == _dummyLoadMode) return;
 
-                if (value)
+                // The zero-and-restore pair is mechanical, not an operator
+                // settings change — it must not arm the provisional-change
+                // receipt or the disconnect save offer (#225).
+                using (AppInitiatedSettingChanges())
                 {
-                    _savedRFPower = XmitPower;
-                    _savedTunePower = TunePower;
-                    XmitPower = 0;
-                    TunePower = 0;
-                    _dummyLoadMode = true;
-                }
-                else
-                {
-                    _dummyLoadMode = false;
-                    XmitPower = _savedRFPower;
-                    TunePower = _savedTunePower;
+                    if (value)
+                    {
+                        _savedRFPower = XmitPower;
+                        _savedTunePower = TunePower;
+                        XmitPower = 0;
+                        TunePower = 0;
+                        _dummyLoadMode = true;
+                    }
+                    else
+                    {
+                        _dummyLoadMode = false;
+                        XmitPower = _savedRFPower;
+                        TunePower = _savedTunePower;
+                    }
                 }
             }
         }
@@ -11794,6 +11861,7 @@ namespace Radios
             }
             set
             {
+                NoteOperatorChangedRadioSetting("XmitPower");
                 q.Enqueue((FunctionDel)(() => { theRadio.RFPower = value; }));
             }
         }
@@ -11811,6 +11879,7 @@ namespace Radios
             }
             set
             {
+                NoteOperatorChangedRadioSetting("TunePower");
                 q.Enqueue((FunctionDel)(() => { theRadio.TunePower = value; }));
             }
         }
@@ -11825,6 +11894,7 @@ namespace Radios
             get { return theRadio.SimpleVOXDelay * VoxDelayMS; }
             set
             {
+                NoteOperatorChangedRadioSetting("VoxDelay");
                 q.Enqueue((FunctionDel)(() => { theRadio.SimpleVOXDelay = value / VoxDelayMS; }));
             }
         }
@@ -11837,6 +11907,7 @@ namespace Radios
             get { return theRadio.SimpleVOXLevel; }
             set
             {
+                NoteOperatorChangedRadioSetting("VoxGain");
                 q.Enqueue((FunctionDel)(() => { theRadio.SimpleVOXLevel = value; }));
             }
         }
@@ -11849,6 +11920,7 @@ namespace Radios
                 if (HasActiveSlice)
                 {
                     bool val = (value == OffOnValues.on) ? true : false;
+                    NoteOperatorChangedRadioSetting("ANF");
                     q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFOn = val; }));
                 }
             }
@@ -11862,7 +11934,11 @@ namespace Radios
             get { return theRadio?.ActiveSlice?.ANFLevel ?? 0; }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFLevel = value; }));
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("AutoNotchLevel");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.ANFLevel = value; }));
+                }
             }
         }
 
@@ -11873,7 +11949,11 @@ namespace Radios
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFOn = val; }));
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("APF");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFOn = val; }));
+                }
             }
         }
 
@@ -11885,7 +11965,11 @@ namespace Radios
             get { return theRadio?.ActiveSlice?.APFLevel ?? 0; }
             set
             {
-                if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFLevel = value; }));
+                if (HasActiveSlice)
+                {
+                    NoteOperatorChangedRadioSetting("AutoPeakLevel");
+                    q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.APFLevel = value; }));
+                }
             }
         }
 
@@ -11904,6 +11988,7 @@ namespace Radios
             {
                 if (activePan != null)
                 {
+                    NoteOperatorChangedRadioSetting("RFGain");
                     q.Enqueue((FunctionDel)(() => { activePan.RFGain = value; }));
                 }
             }
@@ -11962,6 +12047,7 @@ namespace Radios
             get { return (theRadio?.ActiveSlice?.SquelchOn == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
+                NoteOperatorChangedRadioSetting("Squelch");
                 q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.SquelchOn = (value == OffOnValues.on) ? true : false; }));
             }
         }
@@ -11974,6 +12060,7 @@ namespace Radios
             get { return theRadio?.ActiveSlice?.SquelchLevel ?? 0; }
             set
             {
+                NoteOperatorChangedRadioSetting("SquelchLevel");
                 q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.SquelchLevel = value; }));
             }
         }
@@ -12896,12 +12983,15 @@ namespace Radios
         }
 
         /// <summary>
-        /// Set when this application changed the station's slice set during
-        /// this connection, and NOT cleared by the spoken receipt. Distinct
-        /// from the receipt's own flag on purpose: the receipt fires once per
-        /// settled change and clears itself, whereas this has to survive until
-        /// disconnect so the save offer can ask "did anything actually change?"
-        /// and stay silent when the answer is no.
+        /// Set when this application changed radio-persisted station state
+        /// during this connection — the slice set (Sprint 33 Track K), and
+        /// since Sprint 35 Track I (#225) any other profile-persisted setting
+        /// the operator changed through this class (power, TX settings, filter
+        /// cuts, DSP, antennas). NOT cleared by the spoken receipt. Distinct
+        /// from the receipt's own flags on purpose: receipts fire and clear on
+        /// their own cadence, whereas this has to survive until disconnect so
+        /// the save offer can ask "did anything actually change?" and stay
+        /// silent when the answer is no.
         /// </summary>
         public bool OperatorChangedStationThisSession { get; private set; }
 
@@ -12992,6 +13082,11 @@ namespace Radios
             // The layout on the radio now matches what the operator has, so the
             // offer has nothing left to ask about.
             OperatorChangedStationThisSession = false;
+
+            // A new unsaved-changes epoch begins (#225): whatever changes come
+            // AFTER this save are once again provisional, and the receipt owes
+            // the operator one fresh telling about them.
+            _settingsReceiptGivenThisEpoch = false;
             return null;
         }
 
@@ -13050,8 +13145,8 @@ namespace Radios
             if (!OfferStationSaveOnDisconnect) return false;
 
             // Something to ask ABOUT. An offer on a session where the operator
-            // never touched the slice set is the reflexive-dismissal trap, and
-            // this is the line that keeps it shut.
+            // never touched the slice set or a radio-persisted setting is the
+            // reflexive-dismissal trap, and this is the line that keeps it shut.
             if (!OperatorChangedStationThisSession) return false;
 
             // Saveable at all: connected, sole operator, a profile loaded to
@@ -13537,6 +13632,12 @@ namespace Radios
 
             AnnounceSliceCensus();
             if (operatorDid) SpeakProvisionalSliceChangeReceipt();
+
+            // Once the connect's replay has settled, say whether the radio
+            // put the operator back where they left off (#226). After the
+            // census on purpose: "here is where you are — and last time you
+            // were on …" reads as one thought.
+            AnnounceLastPlaceIfDifferent();
         }
 
         /// <summary>
@@ -13695,6 +13796,13 @@ namespace Radios
         /// </summary>
         private void SpeakProvisionalSliceChangeReceipt()
         {
+            // A slice receipt also satisfies the once-per-epoch settings
+            // receipt (#225): the sentence is identical, and hearing it twice
+            // in one epoch teaches the operator to stop hearing it at all.
+            // Set even when speech is suppressed — suppression is a caller
+            // choice about audio, not evidence the epoch went untold.
+            _settingsReceiptGivenThisEpoch = true;
+
             if (SuppressSpeech) return;
             ScreenReaderOutput.Speak(
                 ProvisionalSliceChangeReceipt,
@@ -13722,6 +13830,355 @@ namespace Radios
             // slices restored by the radio's own profile on connect are not a
             // change this operator made, and must never make the offer appear.
             OperatorChangedStationThisSession = true;
+        }
+
+        // ══ The receipt, widened past slices (Sprint 35 Track I, #225) ══
+        //
+        // Sprint 32 Track H built the receipt for slice changes and it is
+        // right: releasing a slice sounds successful and is silently discarded
+        // at the next connect, because the radio replays its global profile.
+        // But slices were ONE CLASS out of many. Tune power, RF power, TX
+        // settings, filter cuts, antenna selection — everything else the
+        // radio restores from that profile — changed with no receipt at all.
+        // Noel hit exactly this: he set tune power for a dummy-load test,
+        // was never told the change was provisional, and later could not
+        // reconstruct what had happened to it.
+        //
+        // The mechanism is the slice receipt's, extended, with two deliberate
+        // differences:
+        //
+        // 1. ONE RECEIPT PER UNSAVED-CHANGES EPOCH, not one per settled
+        //    change. Slice changes are rare acts; setting changes are the
+        //    fabric of operating. A sentence spoken after every settled
+        //    adjustment would become wallpaper within a session, and the
+        //    receipt's own design notes say why that is worse than silence: a
+        //    notification trained to be ignored creates the belief that the
+        //    operator was told. The fact it carries ("unsaved changes do not
+        //    survive disconnect") does not change between utterances, so it is
+        //    said once — and said again only after a profile save starts a new
+        //    epoch, because from then on there are new unsaved changes to be
+        //    honest about. The slice receipt keeps its approved per-change
+        //    behaviour; when it speaks, it also satisfies this epoch, so the
+        //    two can never say the same sentence twice in a row.
+        //
+        // 2. AN EXPLICIT APP-INITIATED SUPPRESSION SCOPE. The slice receipt
+        //    distinguishes operator from app by call site (the verbs note, the
+        //    arrival handlers do not). Setting changes have no such split —
+        //    the same public setter serves the operator's hotkey and the
+        //    dummy-load mode's mechanical zeroing. Callers that change
+        //    settings on the operator's behalf wrap the change in
+        //    <see cref="AppInitiatedSettingChanges"/> so the machinery's own
+        //    acts never produce a receipt claiming the operator did something.
+        //
+        // WHAT IS DELIBERATELY NOT INSTRUMENTED, so the next reader does not
+        // "complete" the sweep and break it:
+        //   - Frequency and mode. Tuning is the operating act a radio is FOR,
+        //     and the come-back-where-you-left-it work (#226) owns that story.
+        //   - Mutes, volumes, gains and pans (audio gain, headphone, lineout,
+        //     monitor levels). Ephemeral listening state; receipting volume
+        //     would fire on the first knob touch of every session.
+        //   - Momentary verbs: Transmit, TxTune, record and playback.
+        //   - CW keyer settings (KeyerSpeed, SidetonePitch, SidetoneGain,
+        //     BreakinDelay): these write cfgData as well as the radio — the
+        //     app itself persists and reapplies them, so "this will not
+        //     survive disconnect" would be FALSE for them.
+        //   - REM ON and network settings: radio NVRAM, genuinely persistent
+        //     across disconnect. The receipt would be a lie there too.
+
+        /// <summary>
+        /// True while a settings change is the application's own act rather
+        /// than the operator's. Depth-counted so nested scopes compose.
+        /// </summary>
+        private int _appInitiatedSettingDepth;
+
+        private sealed class AppInitiatedSettingScope : IDisposable
+        {
+            private FlexBase _owner;
+            public AppInitiatedSettingScope(FlexBase owner)
+            {
+                _owner = owner;
+                System.Threading.Interlocked.Increment(ref owner._appInitiatedSettingDepth);
+            }
+            public void Dispose()
+            {
+                var o = System.Threading.Interlocked.Exchange(ref _owner, null);
+                if (o != null)
+                    System.Threading.Interlocked.Decrement(ref o._appInitiatedSettingDepth);
+            }
+        }
+
+        /// <summary>
+        /// Declare that setting changes made until the returned scope is
+        /// disposed are the APPLICATION's doing, not the operator's, so they
+        /// must not produce the provisional-change receipt or arm the
+        /// disconnect save offer. Use around mechanical set-and-restore
+        /// pairs (dummy-load zeroing, the Audio Check's power cap). Never
+        /// wrap a change the operator individually asked for.
+        /// </summary>
+        public IDisposable AppInitiatedSettingChanges() => new AppInitiatedSettingScope(this);
+
+        /// <summary>
+        /// How long the settings surface must be quiet before a batch counts
+        /// as settled. A Settings-dialog Apply or a preset application lands
+        /// several values in quick succession; the timer restarts on each, so
+        /// the batch produces at most one receipt, after its last member.
+        /// </summary>
+        private const int SettingsReceiptSettleMs = 2500;
+
+        private System.Threading.Timer _settingsSettleTimer;
+        private readonly object _settingsSettleLock = new object();
+
+        /// <summary>
+        /// True once the provisional-change receipt (slice or settings) has
+        /// been given for the current unsaved-changes epoch. An epoch starts
+        /// at connect and again after each successful profile save.
+        /// </summary>
+        private volatile bool _settingsReceiptGivenThisEpoch;
+
+        /// <summary>
+        /// Record that the operator changed a radio-persisted setting through
+        /// one of this class's operator-facing setters. Arms the disconnect
+        /// save offer and (once per unsaved-changes epoch) the spoken receipt.
+        /// The <paramref name="what"/> string is for the trace only.
+        /// </summary>
+        internal void NoteOperatorChangedRadioSetting(string what)
+        {
+            if (_appInitiatedSettingDepth > 0) return;
+            if (!IsConnected || Disconnecting || theRadio == null) return;
+
+            Tracing.TraceLine("NoteOperatorChangedRadioSetting:" + what, TraceLevel.Verbose);
+
+            // Same widened meaning as the doc on the property: any
+            // radio-persisted change this operator made, not just slices.
+            OperatorChangedStationThisSession = true;
+
+            if (_settingsReceiptGivenThisEpoch) return;
+            lock (_settingsSettleLock)
+            {
+                if (_settingsSettleTimer == null)
+                {
+                    _settingsSettleTimer = new System.Threading.Timer(
+                        _ => OnRadioSettingChangesSettled(), null,
+                        SettingsReceiptSettleMs, System.Threading.Timeout.Infinite);
+                }
+                else
+                {
+                    try
+                    {
+                        _settingsSettleTimer.Change(
+                            SettingsReceiptSettleMs, System.Threading.Timeout.Infinite);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+
+        private void OnRadioSettingChangesSettled()
+        {
+            if (Disconnecting || theRadio == null) return;
+            if (_settingsReceiptGivenThisEpoch) return;
+            _settingsReceiptGivenThisEpoch = true;
+
+            if (SuppressSpeech) return;
+            // The same sentence, and the same lexicon line, as the slice
+            // receipt — one vocabulary for one fact. Queued for the same
+            // reason: the surface the operator used has already announced the
+            // value itself; this is the trailing clause.
+            ScreenReaderOutput.Speak(
+                ProvisionalSliceChangeReceipt,
+                Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse);
+        }
+
+        // ══ Where you left this radio (Sprint 35 Track I, #226) ══
+        //
+        // A normal transceiver comes back on the frequency it was switched
+        // off on. A Flex comes back wherever its global profile says, so an
+        // operator who tuned all evening and disconnected returns to a place
+        // they left hours before the end of the session — silently, and for a
+        // blind operator with nothing on screen to glance at, undetectably.
+        // The connect announcement recites where you ARE; nothing says that
+        // this is not where you WERE.
+        //
+        // This is the honest first version, and deliberately no more: JJ Flex
+        // REMEMBERS the operator's place (active slice frequency and mode,
+        // per radio, in the serial-keyed per-radio config) and TELLS them on
+        // connect when the radio has put them somewhere else. It does not
+        // retune. Restoring automatically is a real MultiFlex hazard — a
+        // reconnect must never yank a slice another operator is using, and
+        // #117 established the slices are not ours — so restore waits for the
+        // station-state ownership audit. Telling costs nothing, is right on
+        // every path, and covers the complaint most of the times it bites.
+        //
+        // WHEN TO SNAPSHOT, and why not only at disconnect: the sessions
+        // where the place matters most are the ones that END BADLY — a
+        // network drop at a remote site, a crash. So the place is recorded on
+        // a quiet-period debounce while operating (a tuning sweep costs one
+        // write after the hand stops, not one per click) and flushed once
+        // more on a clean disconnect. A hard drop loses at most the last few
+        // seconds of tuning.
+        //
+        // Per-operator by construction: the record lives in this install's
+        // per-radio config, so two operators sharing one radio under
+        // MultiFlex each come back to their own place, which no radio-side
+        // profile could ever give them. The cost, accepted: an operator who
+        // used SmartSDR in between gets told about their last JJ Flex
+        // session, not their SmartSDR one.
+
+        /// <summary>Quiet period after the last frequency or mode change
+        /// before the place is written to disk.</summary>
+        private const int PlaceWriteQuietMs = 10000;
+
+        private readonly object _placeLock = new object();
+        private System.Threading.Timer _placeWriteTimer;
+        private ulong _currentPlaceFreqHz;
+        private string _currentPlaceMode;
+        private string _currentPlaceLetter;
+
+        // The stored place from the LAST session, stashed on first use this
+        // session — BEFORE this session's own recording can overwrite it.
+        private bool _lastPlaceStashLoaded;
+        private bool _lastPlaceStashKnown;
+        private ulong _lastPlaceStashFreqHz;
+        private string _lastPlaceStashMode;
+        private string _lastPlaceStashLetter;
+        private volatile bool _lastPlaceAnnounced;
+
+        private string PlaceRadioId => theRadio?.Serial ?? _connectedSerial;
+
+        /// <summary>
+        /// Load the previous session's place once, before any recording this
+        /// session touches the stored value. Safe to call repeatedly.
+        /// </summary>
+        private void EnsureLastPlaceStashLoaded()
+        {
+            if (_lastPlaceStashLoaded) return;
+            lock (_placeLock)
+            {
+                if (_lastPlaceStashLoaded) return;
+                string id = PlaceRadioId;
+                if (string.IsNullOrEmpty(id)) return;
+                try
+                {
+                    var cfg = RadioConfig.LoadForRadio(id);
+                    _lastPlaceStashKnown = cfg.LastPlaceKnown;
+                    _lastPlaceStashFreqHz = cfg.LastPlaceFrequencyHz;
+                    _lastPlaceStashMode = cfg.LastPlaceMode;
+                    _lastPlaceStashLetter = cfg.LastPlaceSliceLetter;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("EnsureLastPlaceStashLoaded:" + ex.Message,
+                        TraceLevel.Warning);
+                    _lastPlaceStashKnown = false;
+                }
+                _lastPlaceStashLoaded = true;
+            }
+        }
+
+        /// <summary>
+        /// Note where the operator's active slice is. Called from the slice
+        /// property handlers on frequency, mode and active changes — which
+        /// also fire for the radio's own profile replay on connect, and that
+        /// is CORRECT here: unlike the receipt, this records where the
+        /// operator IS, however they got there. The stash of the previous
+        /// session is loaded first, so the replay cannot overwrite the one
+        /// thing the connect announcement needs.
+        /// </summary>
+        private void NoteOperatorPlace(Slice s)
+        {
+            if (s == null || Disconnecting) return;
+            string letter = s.Letter;
+            string mode = s.DemodMode;
+            ulong freqHz = LibFreqtoLong(s.Freq);
+            if (freqHz == 0 || string.IsNullOrEmpty(mode)) return;
+
+            EnsureLastPlaceStashLoaded();
+
+            lock (_placeLock)
+            {
+                _currentPlaceFreqHz = freqHz;
+                _currentPlaceMode = mode;
+                _currentPlaceLetter = letter ?? "";
+
+                if (_placeWriteTimer == null)
+                {
+                    _placeWriteTimer = new System.Threading.Timer(
+                        _ => FlushOperatorPlace(), null,
+                        PlaceWriteQuietMs, System.Threading.Timeout.Infinite);
+                }
+                else
+                {
+                    try
+                    {
+                        _placeWriteTimer.Change(
+                            PlaceWriteQuietMs, System.Threading.Timeout.Infinite);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Write the in-memory place to the per-radio config. Runs on the
+        /// debounce timer and once more from <see cref="Disconnect"/>.
+        /// RecordLastPlace skips unchanged values, so calling this freely
+        /// costs nothing.
+        /// </summary>
+        private void FlushOperatorPlace()
+        {
+            ulong freqHz;
+            string mode, letter, id;
+            lock (_placeLock)
+            {
+                freqHz = _currentPlaceFreqHz;
+                mode = _currentPlaceMode;
+                letter = _currentPlaceLetter;
+                id = PlaceRadioId;
+            }
+            if (freqHz == 0 || string.IsNullOrEmpty(mode) || string.IsNullOrEmpty(id)) return;
+            RadioConfig.RecordLastPlace(id, freqHz, mode, letter);
+        }
+
+        /// <summary>
+        /// Once per connection, after the first settled census: if the radio
+        /// has put the operator somewhere other than where they left it, say
+        /// where they were. Queued after the census, so the pair reads as
+        /// "here is where you are — and last time you were on …". Silence
+        /// when they ARE where they left off, and on a radio never seen
+        /// before: an announcement that fires every connect regardless
+        /// teaches the operator to stop hearing it.
+        /// </summary>
+        private void AnnounceLastPlaceIfDifferent()
+        {
+            if (_lastPlaceAnnounced) return;
+            _lastPlaceAnnounced = true;
+
+            EnsureLastPlaceStashLoaded();
+            if (!_lastPlaceStashKnown) return;
+            if (SuppressSpeech) return;
+
+            // Compare against the operator's active slice as it stands now.
+            Slice active = null;
+            lock (mySlices)
+                foreach (var s in mySlices) if (s != null && s.Active) { active = s; break; }
+            if (active == null) return;
+
+            ulong hereHz = LibFreqtoLong(active.Freq);
+            string hereMode = active.DemodMode ?? "";
+            if (hereHz == _lastPlaceStashFreqHz
+                && string.Equals(hereMode, _lastPlaceStashMode, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            double mhz = _lastPlaceStashFreqHz / 1_000_000.0;
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("connect.last_place",
+                    ("freq", mhz.ToString("0.000###")),
+                    ("mode", _lastPlaceStashMode)),
+                Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse);
         }
 
         /// <summary>

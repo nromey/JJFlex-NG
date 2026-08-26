@@ -525,6 +525,89 @@ namespace Radios
         }
 
         // ---------------------------------------------------------------
+        // Where the operator left this radio (Sprint 35 Track I, #226).
+        //
+        // Every conventional transceiver comes back on the frequency it was
+        // switched off on. A Flex driven through a client does not: it
+        // replays its global profile on connect, so the operator lands
+        // wherever the profile was last SAVED, and everything since is gone
+        // silently. This block is the app-side memory of where the operator
+        // actually was — frequency, mode, slice letter — recorded per radio,
+        // per install.
+        //
+        // APP-SIDE AND PER-OPERATOR BY CONSTRUCTION. Nothing here is written
+        // to the radio, so the MultiFlex ownership question ("whose state
+        // wins") does not arise: two people sharing one radio each carry
+        // their own last place in their own install. That is also why this
+        // deliberately does NOT feed any automatic restore — the honest
+        // first version TELLS the operator where they were and stops there.
+        // Restoring is a separate decision with a real MultiFlex hazard
+        // (retuning a slice somebody else is using), deferred to the
+        // station-state ownership audit (project_operator_state_vs_
+        // station_state). Keep this block shaped so an identity-aware
+        // answer can replace it rather than migrate it: it is a cache of
+        // observation, never a data model anything else depends on.
+        //
+        // APPEND-ONLY like the blocks around it: absent elements deserialize
+        // to defaults, so a config.xml written before this shipped loads
+        // unchanged and reads as "no last place known".
+        // ---------------------------------------------------------------
+
+        /// <summary>True once a last place has ever been recorded for this
+        /// radio. While false, the other LastPlace fields mean nothing.</summary>
+        public bool LastPlaceKnown { get; set; }
+
+        /// <summary>Frequency the operator's active slice was on, in Hz.</summary>
+        public ulong LastPlaceFrequencyHz { get; set; }
+
+        /// <summary>Demodulation mode the active slice was in ("USB", "CW").</summary>
+        public string LastPlaceMode { get; set; } = "";
+
+        /// <summary>Letter of the slice that was active ("A").</summary>
+        public string LastPlaceSliceLetter { get; set; } = "";
+
+        /// <summary>When the place last CHANGED (UTC) — unchanged sessions skip
+        /// the write, so this is not "when last connected".</summary>
+        public DateTime LastPlaceRecordedUtc { get; set; }
+
+        /// <summary>
+        /// Record where the operator is on a radio. Skips the disk write when
+        /// the place has not changed — an evening parked on one frequency
+        /// costs one write, not one per debounce tick. No-ops on an unknown
+        /// radio id or an empty place, and never throws: losing one place
+        /// observation must not be able to hurt anything else.
+        /// </summary>
+        public static void RecordLastPlace(
+            string radioId, ulong frequencyHz, string mode, string sliceLetter)
+        {
+            if (string.IsNullOrEmpty(radioId)) return;
+            if (frequencyHz == 0 || string.IsNullOrEmpty(mode)) return;
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                if (cfg.LastPlaceKnown
+                    && cfg.LastPlaceFrequencyHz == frequencyHz
+                    && cfg.LastPlaceMode == mode
+                    && cfg.LastPlaceSliceLetter == (sliceLetter ?? ""))
+                {
+                    return;
+                }
+                cfg.LastPlaceKnown = true;
+                cfg.LastPlaceFrequencyHz = frequencyHz;
+                cfg.LastPlaceMode = mode;
+                cfg.LastPlaceSliceLetter = sliceLetter ?? "";
+                cfg.LastPlaceRecordedUtc = DateTime.UtcNow;
+                cfg.SaveForRadio(radioId);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.RecordLastPlace: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
+        // ---------------------------------------------------------------
         // Ownership (Sprint 31 Track S, 2026-08-19, task #94).
         //
         // The layer beneath the microphone-profile model: the app had no

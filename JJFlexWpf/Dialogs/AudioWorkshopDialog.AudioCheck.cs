@@ -540,7 +540,12 @@ public partial class AudioWorkshopDialog
                     // corrupt its saved-power restore).
                     _savedPower = currentPower;
                     _powerTouched = true;
-                    rig.XmitPower = _lowPowerWatts;
+                    // The cap is the check's own mechanical act, not an
+                    // operator settings change - it must not arm the
+                    // provisional-change receipt or the disconnect save
+                    // offer (#225). Same for the restores below.
+                    using (rig.AppInitiatedSettingChanges())
+                        rig.XmitPower = _lowPowerWatts;
                     effectivePower = _lowPowerWatts;
                 }
 
@@ -737,7 +742,8 @@ public partial class AudioWorkshopDialog
                 }
                 if (_powerTouched)
                 {
-                    rig.XmitPower = _savedPower;
+                    using (rig.AppInitiatedSettingChanges())
+                        rig.XmitPower = _savedPower;
                     msg.Append(' ').Append(Lexicon.Get("audio.check.power_restored",
                         ("watts", _savedPower)));
                     _powerTouched = false;
@@ -918,7 +924,8 @@ public partial class AudioWorkshopDialog
             }
             if (_powerTouched)
             {
-                rig.XmitPower = _savedPower;
+                using (rig.AppInitiatedSettingChanges())
+                    rig.XmitPower = _savedPower;
                 _powerTouched = false;
                 if (speak)
                     ScreenReaderOutput.Speak(
