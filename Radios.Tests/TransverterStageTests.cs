@@ -169,6 +169,27 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_smallest_reading_this_meter_has_ever_produced_is_already_overdrive()
+        {
+            // 0.055 W is not hypothetical: it is the LOWEST forward-power
+            // reading ever recorded from the bench 8600, taken on 2026-08-20 at
+            // the radio's minimum power setting. It is also nearly twice the
+            // most drive FlexLib will let a transverter be sent.
+            //
+            // This is the test that would have failed against a coarser
+            // threshold. A rule that only fired in the tens of watts would call
+            // this healthy, and it is eleven decibels over spec — the ordinary
+            // way somebody destroys a transverter is leaving the power setting
+            // where it was, not by keying a hundred watts at it.
+            ChainReport r = ChainAnalyzer.Run(Rules(),
+                Transmitting(transverter: true, forwardWatts: 0.055, reflectedWatts: 0.0005,
+                             swr: 1.05));
+
+            Assert.Equal(StageVerdict.Broken, Stage(r).Verdict);
+            Assert.Equal("transverter-overdrive", Stage(r).Rule.Id);
+        }
+
+        [Fact]
         public void The_overdrive_verdict_says_stop_rather_than_quoting_a_ratio()
         {
             // Order is the whole point. At a hundred watts into a transverter
@@ -184,6 +205,24 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void No_power_out_never_speaks_on_a_transverter_path()
+        {
+            // The hazard a test found and reading did not. no-power-out fires
+            // below a TENTH of a watt, and the whole legal transverter band is
+            // below a THIRTIETH. So on this path its verdict is not merely
+            // unhelpful, it is backwards: it reads 0.055 watts -- nearly twice
+            // the most drive the radio will let a transverter be sent -- and
+            // tells the operator almost no power is leaving, sending them to
+            // turn their power UP.
+            ChainReport r = ChainAnalyzer.Run(Rules(),
+                Transmitting(transverter: true, forwardWatts: 0.055, reflectedWatts: 0.0005,
+                             swr: 1.05));
+
+            Assert.NotEqual("no-power-out", Stage(r).Rule?.Id);
+            Assert.DoesNotContain("almost no power", Stage(r).Message ?? "");
+        }
+
+        [Fact]
         public void The_overdrive_rule_is_listed_before_the_antenna_rules_it_can_outrank()
         {
             // The analyzer reports the first rule that fires in FILE order, so
@@ -196,6 +235,7 @@ namespace Radios.Tests
 
             int overdrive = System.Array.IndexOf(ids, "transverter-overdrive");
             Assert.True(overdrive >= 0, "the transverter-overdrive rule is missing from stage 12");
+            Assert.True(overdrive < System.Array.IndexOf(ids, "no-power-out"));
             Assert.True(overdrive < System.Array.IndexOf(ids, "power-coming-back"));
             Assert.True(overdrive < System.Array.IndexOf(ids, "high-swr"));
         }

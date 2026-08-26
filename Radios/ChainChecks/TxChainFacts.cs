@@ -51,39 +51,53 @@ namespace Radios.ChainChecks
         public const double HeardNothingDbfs = -100.0;
 
         /// <summary>
-        /// Watts at or below which the radio's own power meters say NOTHING
-        /// about a transverter path. An instrument-resolution figure, not a
-        /// fault threshold — see the remarks.
+        /// The most power a transverter can legally be sent, in watts: +15.00
+        /// dBm, which is FlexLib's own upper clamp on <c>Xvtr.MaxPower</c>.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>#163.</b> FlexLib's <c>Xvtr.MaxPower</c> is a double in dBm
-        /// clamped -10.00 to +15.00, so legal transverter drive is 0.0001 W to
-        /// 0.032 W. The FWDPWR and REFPWR meters read the radio's own power
-        /// amplifier into the antenna ports and work in tens of watts: on
-        /// 2026-08-22 the bench 8600 read 101.2 W into a dummy load. A reading
-        /// anywhere at or below one watt therefore cannot tell legal
-        /// transverter drive from a dead key. It is a non-answer, and a
-        /// non-answer must never score as the best possible value — which is
-        /// exactly what happened while the rules simply never applied.
+        /// <b>#163, and this figure is not chosen — it is read off FlexLib.</b>
+        /// <c>Xvtr.MaxPower</c> is a double in dBm clamped -10.00 to +15.00
+        /// (lower still on some models: +10.00 on 6400 and 6600, +8.00 when the
+        /// IF is above 80 MHz). So the whole legal drive band is 0.0001 W to
+        /// 0.0316 W, and this is its ceiling. Taking the absolute maximum
+        /// across models rather than the current radio's is the conservative
+        /// direction: it can under-report on a 6400, never over-report.
         /// </para>
         /// <para>
-        /// One watt is thirty-one times the maximum legal drive, so nothing
-        /// this path can legitimately produce reaches it. ABOVE it the reading
-        /// is far outside anything the XVTR port should ever see and is worth
-        /// acting on, which is what the <c>transverter-overdrive</c> rule
-        /// tests. So the same number does two honest jobs from opposite sides:
-        /// below it we have no reading, above it we have an alarming one.
+        /// <b>It does two jobs, and they are the same statement from opposite
+        /// sides.</b> At or below it, a forward-power reading cannot tell legal
+        /// transverter drive from a dead key, so there is no reading — and a
+        /// non-answer must never score as the best possible value, which is
+        /// exactly what happened while stage 12's rules simply never applied.
+        /// Above it, more power is leaving than any transverter is rated to
+        /// accept, which is what <c>transverter-overdrive</c> tests. The first
+        /// readable value on this path is therefore already out of spec, and
+        /// that is a property of the instrument rather than a coincidence of
+        /// two numbers.
         /// </para>
         /// <para>
-        /// <b>BENCH.</b> The floor a Flex reports on a genuine dead key has
-        /// never been measured, and whether the forward-power coupler reads the
-        /// XVTR port at all is open — task #27, transverter bench Session One.
-        /// Either measurement would sharpen this; neither is needed for it to
-        /// be better than the silence it replaces.
+        /// <b>MEASURED support for the gate.</b> The lowest FWDPWR reading ever
+        /// recorded from the bench 8600 is 17.4 dBm — 0.055 W, across a normal
+        /// transmission on 2026-08-20, at the radio's minimum power setting.
+        /// That is 2.4 dB ABOVE this ceiling. So the entire legal transverter
+        /// band sits below anything this meter has been seen to report, and
+        /// expecting it to resolve a hundredth of a watt is expecting something
+        /// no capture supports.
+        /// </para>
+        /// <para>
+        /// <b>The gap this leaves, stated rather than papered over.</b> A path
+        /// running at, say, three times rated drive is caught — it is above the
+        /// ceiling, so it is readable and the rule fires. What is NOT
+        /// distinguished is HOW far over, because what a given transverter
+        /// tolerates varies by transverter and nothing in the radio knows it.
+        /// The verdict therefore says stop rather than quantifying the danger.
+        /// Sharpening this needs task #27, transverter bench Session One, which
+        /// also settles whether the forward-power coupler reads the XVTR port
+        /// at all.
         /// </para>
         /// </remarks>
-        public const double TransverterMeterFloorWatts = 1.0;
+        public const double TransverterDriveCeilingWatts = 0.0316;
 
         /// <summary>
         /// Collect everything the radio can tell us about its transmit chain.
@@ -686,12 +700,13 @@ namespace Radios.ChainChecks
             double fwdWatts = double.NaN;
             try { fwdWatts = rig.ForwardPowerWatts; } catch { fwdWatts = double.NaN; }
             bool xvtrBelowMeterFloor =
-                xvtrPath && (double.IsNaN(fwdWatts) || fwdWatts <= TransverterMeterFloorWatts);
+                xvtrPath && (double.IsNaN(fwdWatts) || fwdWatts <= TransverterDriveCeilingWatts);
 
             const string XvtrFloorReason =
-                "your transmit antenna is the transverter port. Legal transverter drive is hundredths "
-                + "of a watt, and the radio's power meters read its own amplifier in tens of watts, so "
-                + "a reading this low cannot tell transverter drive from a dead key";
+                "your transmit antenna is the transverter port, where the most drive the radio will "
+                + "let you set is about three hundredths of a watt. The lowest reading its forward "
+                + "power meter has ever produced is nearly twice that, so a reading this low cannot "
+                + "tell legal transverter drive from a dead key";
 
             Probe(f, "forward-power", "Forward power", () =>
             {

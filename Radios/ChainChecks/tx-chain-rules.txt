@@ -437,19 +437,67 @@ evidence: mic-source, mic-profile, sc-mic-peak, sw-alc, codec-mic, pc-tx-loudnes
 # forward-power, reflected-power, reflected-percent and swr come back ABSENT
 # with the reason, so these rules report as checks that COULD NOT BE MADE and
 # the stage comes back not-observable rather than healthy. See
-# TxChainFacts.TransverterMeterFloorWatts.
+# TxChainFacts.TransverterDriveCeilingWatts.
 
 stage: 12 radio frequency out of the radio
 about: Whether power actually left the radio, and whether the antenna accepted it.
 nothing-to-check: power and standing wave ratio can only be judged while transmitting, so transmit and run the check again.
 
+# MEASURED, and the number is not chosen here — it is FlexLib's own clamp.
+# Xvtr.MaxPower is a double in dBm limited to +15.00, so the most drive the
+# radio will let a transverter be sent is 0.0316 watts. Anything above that is
+# more than any transverter in the path is rated to accept.
+#
+# What makes it MEASURED rather than a guess is the other end. The lowest
+# reading the forward power meter has ever produced is 17.4 dBm — 0.055 watts,
+# on 2026-08-20, at the radio's minimum power setting — which is nearly twice
+# this ceiling. So the whole legal drive band sits below anything that meter
+# has been seen to report, and the FIRST readable value on this path is already
+# out of spec. Gate and trip point are the same number because they are the
+# same statement seen from two sides, not because one was copied from the other.
+#
+# Below it this rule reports as a check that could not be made, because the fact
+# itself is absent there. That is deliberate: the meter cannot resolve legal
+# drive, and pretending otherwise would put a false all-clear on the one path
+# where being wrong destroys hardware.
+#
+# What this does NOT do is say how far over you are. What a given transverter
+# tolerates varies by transverter and nothing in the radio knows it, so the
+# verdict says stop rather than quantifying the danger.
+#
+# Listed FIRST in the stage, and for a sharper reason than power-coming-back's
+# ordering note. Above the ceiling the antenna rules can fire too, and every one
+# of them says the wrong thing here: two would discuss standing wave ratio while
+# the thing on the end of the cable is being destroyed, and no-power-out would
+# say almost no power is leaving. This one says stop.
+rule: transverter-overdrive
+in-stage: 12
+needs: transmitting is yes
+needs: transverter-path is yes
+broken-when: forward-power above 0.0316
+verdict: Your transmit antenna is the transverter port and the radio is putting out {forward-power}. That is more than the radio will even let you set as transverter drive, so it is more than the transverter is built to take. Stop transmitting.
+fix: Stop transmitting now, then check your transmit power setting and the drive set for this transverter before keying again.
+evidence: tx-antenna, transverter-name, transverter-drive, transverter-drive-ceiling, rf-power-setting, tx-slice, tx-mode
+
+
 # BENCH: 0.1 watts. Low enough that no real transmission sits under it, high
 # enough to clear meter noise around zero — but the floor a Flex reports on a
 # genuine dead-key has not been measured.
+#
+# "transverter-path is no" is APPLICABILITY, not observability, and it is here
+# rather than in the fact source because it is a different question. The three
+# facts go absent below the drive ceiling; ABOVE it they are perfectly readable,
+# and this rule then reads 0.055 watts on a transverter path and says "almost no
+# power is leaving your radio". That is not merely unhelpful, it is backwards:
+# 0.055 watts is nearly twice the most drive the radio will let a transverter be
+# sent, so the fault is too MUCH power and the operator is being sent to turn
+# their power UP. Caught by a test, not by reading — the rule ordering hid it
+# until transverter-overdrive was written and the wrong sentence came out first.
 rule: no-power-out
 in-stage: 12
 needs: transmitting is yes
 needs: dummy-load is no
+needs: transverter-path is no
 needs: rf-power-setting above 0
 broken-when: forward-power below 0.1
 verdict: Your radio is transmitting but almost no power is leaving it: forward power reads {forward-power}.
@@ -460,31 +508,6 @@ evidence: rf-power-setting, tx-slice, tx-mode, ptt-source, tx-antenna, transvert
 # matters most: mixer overdrive is the classic transverter killer, and it is
 # expensive and instant.
 #
-# BENCH: 1 watt, and it is the same figure the fact source uses as the meters'
-# useful floor for this path, working from the other side. FlexLib's
-# Xvtr.MaxPower is clamped to +15.00 dBm, so the most drive a transverter can
-# legally be sent is 0.032 watts. One watt is thirty-one times that. Nothing
-# this path can legitimately produce reaches it, so a reading above it is not a
-# marginal call — it says the radio is running as a barefoot transmitter into a
-# device built for milliwatts.
-#
-# Below one watt this rule reports as a check that could not be made, because
-# the fact itself is absent there. That is correct and deliberate: the meters
-# cannot resolve legal drive, and pretending otherwise would put a false
-# all-clear on the one path where being wrong destroys hardware.
-#
-# Listed BEFORE power-coming-back and high-swr, and for a sharper reason than
-# theirs. At a hundred watts into a transverter port all three can fire, and the
-# other two would tell an operator about their standing wave ratio while the
-# thing on the end of the cable is being destroyed. This one says stop.
-rule: transverter-overdrive
-in-stage: 12
-needs: transmitting is yes
-needs: transverter-path is yes
-broken-when: forward-power above 1
-verdict: Your transmit antenna is the transverter port and the radio is putting out {forward-power}. A transverter is driven with thousandths of a watt, so this is far more than one can take. Stop transmitting.
-fix: Stop transmitting now, then check your transmit power setting and the drive set for this transverter before keying again.
-evidence: tx-antenna, transverter-name, transverter-drive, transverter-drive-ceiling, rf-power-setting, tx-slice, tx-mode
 
 
 # MEASURED: 40 percent, and this is the first threshold in this file taken from
