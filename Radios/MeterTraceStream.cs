@@ -134,7 +134,29 @@ namespace Radios
                 }
             }
 
-            if (line != null) Tracing.TraceLine(line);
+            if (line != null)
+            {
+                Tracing.TraceLine(line);
+                System.Threading.Interlocked.Increment(ref _linesWritten);
+            }
         }
+
+        /// <summary>
+        /// How many summary lines this stream has put into the log since the
+        /// application started. Interlocked because several MeterTraceStream
+        /// instances can be feeding the same log from FlexLib's packet threads.
+        /// </summary>
+        /// <remarks>
+        /// Exists so the running-cost register (#253) can state this stream's
+        /// cost as the thing it actually costs. "Meter stream recording is on"
+        /// is a fact; "meter stream recording is on, 218,000 lines into the log"
+        /// is the same fact with the reason to care attached — and the number
+        /// the register puts a bound on. Never reset: the count is for the
+        /// session, and a counter that resets while the operator is watching it
+        /// grow would be worse than no counter.
+        /// </remarks>
+        public static long LinesWritten => System.Threading.Interlocked.Read(ref _linesWritten);
+
+        private static long _linesWritten;
     }
 }

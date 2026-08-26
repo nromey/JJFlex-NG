@@ -3304,6 +3304,25 @@ public class KeyCommands
                 ShowRecordedProblemsFromChord();
                 break;
 
+            // O = what is On — the on-demand read of the running-cost register
+            // (#253). Third member of the diagnostics family that already holds
+            // Ctrl+D and Ctrl+R: that one starts recording evidence, that one
+            // reads what went wrong, and this one answers "what is running and
+            // costing me something right now".
+            //
+            // Plain O, not Ctrl+O: O is one of the very few letters still free
+            // in the layer in every form, so there is no taken letter to reach
+            // around — and the sighted equivalent of this question is a glance,
+            // which should not cost two modifiers.
+            //
+            // Works with no radio connected on purpose. Every registrant is a
+            // property of THIS APPLICATION, not of the radio, and instrumentation
+            // left running through a failed connect is exactly the case worth
+            // asking about.
+            case Keys.O:
+                SpeakRunningCostsFromChord();
+                break;
+
             // Log Stats (moved from Ctrl+Shift+T)
             case Keys.L:
                 _context.LogStats();
@@ -3943,6 +3962,44 @@ public class KeyCommands
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.diagnostics.problems_list_failed"),
+                Radios.VerbosityLevel.Critical);
+        }
+    }
+
+    /// <summary>
+    /// Ctrl+J, O — read out everything expensive that is currently running.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The on-demand read of the register (#253). A sighted operator answers
+    /// this question by looking at a recording indicator, a moving meter and a
+    /// panel that is obviously open. This is that glance.
+    /// </para>
+    /// <para>
+    /// <b>It does not poll for thresholds first.</b> Tempting — the operator is
+    /// right here — but a bound crossing would then be announced on top of the
+    /// answer they actually asked for, and the threshold read exists precisely
+    /// so that nobody has to ask.
+    /// </para>
+    /// <para>
+    /// Interrupts, because it is an answer to a keypress. Never silent: an
+    /// empty register still says so, since silence reads as the key not
+    /// working.
+    /// </para>
+    /// </remarks>
+    private void SpeakRunningCostsFromChord()
+    {
+        try
+        {
+            _context.Trace("Leader:running costs");
+            Radios.ScreenReaderOutput.Speak(
+                Radios.RunningCostRegister.DescribeForSpeech(),
+                Radios.VerbosityLevel.Critical, true);
+        }
+        catch
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.running.unavailable"),
                 Radios.VerbosityLevel.Critical);
         }
     }

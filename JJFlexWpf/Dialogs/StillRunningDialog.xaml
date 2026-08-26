@@ -1,0 +1,59 @@
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.StillRunningDialog"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:JJFlexWpf"
+                    Title="Still Running"
+                    Width="500"
+                    SizeToContent="Height"
+                    WindowStartupLocation="CenterScreen"
+                    ShowInTaskbar="False"
+                    ResizeMode="NoResize">
+    <StackPanel Margin="16">
+        <!-- One read-only text box holding the whole list, same reasoning as
+             ConfirmActionDialog: a caret can walk it line by line and re-read
+             it at the reader's own pace, where a TextBlock or an ItemsControl
+             is invisible to the caret. This list is the entire content of the
+             dialog - if it cannot be read carefully, the dialog has no reason
+             to exist. Focus lands here on open. -->
+        <TextBox x:Name="BodyText"
+                 IsReadOnly="True"
+                 IsReadOnlyCaretVisible="True"
+                 TextWrapping="Wrap"
+                 AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 MaxHeight="300"
+                 Margin="0,0,0,12"
+                 AutomationProperties.Name="What is still running"/>
+
+        <!-- Three answers, because the question genuinely has three. Turning
+             the instrumentation off is the whole point of the prompt, so it is
+             an answer available HERE rather than a trip back into Settings the
+             operator was already leaving.
+
+             None of the three is IsDefault. A prompt that appears at the moment
+             somebody is closing the application is the worst possible place for
+             Enter to mean anything, and "close anyway" is not a safe default
+             when the persisted switches are exactly what the prompt exists to
+             catch. Escape means Stay open, via IsCancel and the base class. -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="StopButton"
+                    Content="_Turn these off and close"
+                    Padding="12,0" Height="26" Margin="0,0,8,0"
+                    IsDefault="False"
+                    AutomationProperties.Name="Turn these off and close"
+                    Click="StopButton_Click"/>
+            <Button x:Name="CloseButton"
+                    Content="_Close anyway"
+                    Padding="12,0" Height="26" Margin="0,0,8,0"
+                    IsDefault="False"
+                    AutomationProperties.Name="Close anyway, leaving them on"
+                    Click="CloseButton_Click"/>
+            <Button x:Name="StayButton"
+                    Content="_Stay open"
+                    Padding="12,0" Height="26"
+                    IsCancel="True"
+                    AutomationProperties.Name="Stay open, do not close"
+                    Click="StayButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>
