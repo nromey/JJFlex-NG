@@ -281,9 +281,9 @@ namespace Radios.Tests
         public void SmartLinkIntentRoundTrips()
         {
             var cfg = new RadioConfig { SmartLinkIntent = SmartLinkIntents.LocalOnly };
-            Assert.True(cfg.Save(_dir, "8888-0001"));
+            Assert.True(cfg.Save(_dir, "8888-0001-6600-0001"));
             Assert.Equal(SmartLinkIntents.LocalOnly,
-                RadioConfig.Load(_dir, "8888-0001").SmartLinkIntent);
+                RadioConfig.Load(_dir, "8888-0001-6600-0001").SmartLinkIntent);
         }
 
         [Fact]
