@@ -258,7 +258,15 @@ namespace JJFlexWpf.Dialogs
                 // the old path wording repeated it ("last seen on the local
                 // network, last seen 4 hours ago"). Fold path and age into one
                 // sentence; an unknown age is omitted rather than spoken.
-                var path = (LastSeenRemote ? Lexicon.Get("connect.row.remote") : Lexicon.Get("connect.row.last_seen_local"));
+                // BOTH tokens are the past-tense ones. The local half already
+                // had its own wording for this sentence ("on the local
+                // network") while the remote half borrowed the LIVE state's
+                // ("remote via SmartLink"), which reads perfectly on a live row
+                // and produced "last seen remote via SmartLink" here. Read the
+                // assembled sentence, not the source line.
+                var path = (LastSeenRemote
+                    ? Lexicon.Get("connect.row.last_seen_remote")
+                    : Lexicon.Get("connect.row.last_seen_local"));
                 var bareAge = LastSeenText.StartsWith("last seen ", StringComparison.OrdinalIgnoreCase)
                     ? LastSeenText.Substring("last seen ".Length)
                     : LastSeenText;

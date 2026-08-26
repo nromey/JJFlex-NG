@@ -237,6 +237,7 @@
   "connect.row.dual_using_smartlink": "local network and SmartLink, using SmartLink",
   "connect.row.favorite_prefix": "Favorite, ",
   "connect.row.last_seen_local": "on the local network",
+  "connect.row.last_seen_remote": "over SmartLink",
   "connect.row.local": "local network",
   "connect.row.lowbw_marker": "[LowBW] ",
   "connect.row.offline_last_known_for": "not heard from, last known for {lastSeenViaAccount}{age}{refreshing}",
