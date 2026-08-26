@@ -764,6 +764,8 @@
   "settings.squelch.level": "Squelch level {level}",
   "settings.squelch.off": "Squelch off",
   "settings.squelch.on": "Squelch on",
+  "settings.station_export.failed": "The settings export failed: {error}",
+  "settings.station_export.saved": "Radio settings written to {path}. Keep that file — it is how the radio's setup gets put back after a reset.",
   "settings.station_layout.disconnect_body": "You changed settings, slices or frequencies on this radio without saving them to a profile. Those changes live only in this session — the radio goes back to its stored setup the next time you connect. Save them to {profileName} to keep them.",
   "settings.station_layout.disconnect_no_label": "_Disconnect without saving",
   "settings.station_layout.disconnect_question": "Save your station setup into {profileName} before disconnecting?",

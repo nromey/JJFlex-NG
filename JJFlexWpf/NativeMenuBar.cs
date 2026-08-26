@@ -1934,6 +1934,31 @@ public class NativeMenuBar : IDisposable
             SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.report_saved", ("path", path)));
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
         });
+        // #227: everything the radio holds, as plain text, BEFORE a factory
+        // reset takes it all. Read-only and safe any time — unlike Profile
+        // Report above, which loads each profile to compare them. The path is
+        // SPOKEN, not just shown: an export the operator cannot find is not
+        // an export.
+        AddWired(tools, "Export Settings as Text", () =>
+        {
+            if (Rig == null) { SpeakNoRadio(); return; }
+            try
+            {
+                var export = ProfileReporter.GenerateStationSettingsExport(Rig);
+                var path = ProfileReporter.SaveStationSettingsExport(
+                    export, Rig.ConnectedSerial);
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    "settings.station_export.saved", ("path", path)));
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"Export Settings as Text: {ex}", TraceLevel.Error);
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    "settings.station_export.failed", ("error", ex.Message)));
+            }
+        });
         AddSep(tools);
         AddWired(tools, "Export Profiles", () =>
         {

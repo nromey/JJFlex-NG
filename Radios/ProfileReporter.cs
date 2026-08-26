@@ -492,5 +492,293 @@ namespace Radios
             File.WriteAllText(path, report);
             return path;
         }
+
+        // ══ The station settings export (Sprint 35 Track I, #227) ══
+        //
+        // Before a factory reset, write everything the radio holds out as
+        // PLAIN TEXT — because the reset takes it all, and a blind operator
+        // has none of the sighted workarounds ("photograph the settings
+        // screens", "write it down off the front panel"). The requirements,
+        // from the task and in order of importance:
+        //
+        //   - Readable WITHOUT this app. If the reset goes badly, a file only
+        //     our software can open is worthless at the exact moment it is
+        //     needed. Hence text, in Documents, not a blob in AppData.
+        //   - Readable by a screen reader straight through, in order. No
+        //     tables, no ASCII art — labelled lines, grouped under headings.
+        //   - Readable by SOMEBODY ELSE: a sighted helper at the radio site
+        //     can have this read to them down a phone.
+        //   - Copyable by hand. Restoration is assumed manual; an automated
+        //     restore is a later, separate task and its absence must not
+        //     block this.
+        //
+        // READ-ONLY, deliberately, which makes it different from
+        // GenerateReport above: that one LOADS each profile to compare them,
+        // changing live radio state while it runs. This one touches nothing,
+        // so it is safe to run any time — and worth running routinely, since
+        // an export taken while everything works is the baseline for later.
+        //
+        // WHERE A THING CANNOT BE CAPTURED, THE FILE SAYS SO. An export that
+        // silently omits what it could not take is worse than one that lists
+        // the gaps, because the operator finds out after the reset, when it
+        // is unrecoverable. The gaps section at the end is load-bearing.
+        //
+        // Note on scope: FlexLib exposes NO factory reset command (checked
+        // 2026-08-25 — the nearest thing, `client start_persistence off`, is
+        // a different mechanism entirely). So this app's whole role is to
+        // PREPARE for a reset somebody performs by other means, and this
+        // export is that preparation.
+
+        /// <summary>
+        /// Build the plain-text station settings export. Read-only: no
+        /// profile is loaded, nothing is written to the radio. Each section
+        /// that fails to read reports its failure IN the text rather than
+        /// vanishing.
+        /// </summary>
+        public static string GenerateStationSettingsExport(FlexBase rig)
+        {
+            var sb = new StringBuilder();
+            var radio = rig.theRadio;
+
+            sb.AppendLine("JJ Flexible Radio Settings Export");
+            sb.AppendLine("=================================");
+            sb.AppendLine();
+            sb.AppendLine("What this file is: a plain-text record of everything JJ Flexible");
+            sb.AppendLine("can read from this radio, taken so the radio's setup can be put");
+            sb.AppendLine("back by hand — after a factory reset, a failed update, or on a");
+            sb.AppendLine("replacement radio. Keep it somewhere safe. It is written to be");
+            sb.AppendLine("read straight through with a screen reader, or aloud over the");
+            sb.AppendLine("phone to someone at the radio.");
+            sb.AppendLine();
+            sb.AppendLine($"Taken: {DateTime.Now:yyyy-MM-dd HH:mm} (local time)");
+            sb.AppendLine();
+
+            Section(sb, "The radio", () =>
+            {
+                sb.AppendLine($"Model: {radio?.Model ?? rig.RadioModel ?? "unknown"}");
+                sb.AppendLine($"Name: {radio?.Nickname ?? rig.RadioNickname ?? "unknown"}");
+                sb.AppendLine($"Serial: {radio?.Serial ?? "unknown"}");
+                string callsign = radio?.Callsign;
+                if (!string.IsNullOrEmpty(callsign)) sb.AppendLine($"Callsign: {callsign}");
+                string versions = radio?.Versions;
+                if (!string.IsNullOrEmpty(versions))
+                    sb.AppendLine($"Firmware and component versions: {versions}");
+                var ip = radio?.IP;
+                if (ip != null) sb.AppendLine($"Network address: {ip}");
+                var staticIp = rig.CurrentStaticIP;
+                sb.AppendLine(staticIp != null
+                    ? $"Addressing: static IP {staticIp}"
+                    : "Addressing: automatic (DHCP)");
+                if (radio != null)
+                    sb.AppendLine("Remote power on (REM ON): "
+                        + (radio.RemoteOnEnabled ? "enabled" : "disabled"));
+            });
+
+            Section(sb, "Profiles stored on the radio", () =>
+            {
+                sb.AppendLine("A factory reset erases these. Only their NAMES can be exported —");
+                sb.AppendLine("the radio offers no way to read a profile's contents without");
+                sb.AppendLine("loading it — so the settings later in this file are the ones live");
+                sb.AppendLine("right now, under the profiles currently loaded.");
+                sb.AppendLine();
+
+                AppendProfileNames(sb, rig, ProfileTypes.global, "Global profiles",
+                    radio?.ProfileGlobalSelection);
+                AppendProfileNames(sb, rig, ProfileTypes.tx, "TX profiles",
+                    radio?.ProfileTXSelection);
+                AppendProfileNames(sb, rig, ProfileTypes.mic, "Mic profiles",
+                    radio?.ProfileMICSelection);
+
+                sb.AppendLine();
+                sb.AppendLine("For a machine-restorable copy of every profile's contents, also");
+                sb.AppendLine("run Tools, then Export Profiles: that produces the radio's own");
+                sb.AppendLine("archive, which can be imported back after the reset — but only");
+                sb.AppendLine("through SmartSDR or JJ Flexible, and only if the radio comes back");
+                sb.AppendLine("healthy. This text file is the copy a person can always read.");
+            });
+
+            Section(sb, "Slices", () =>
+            {
+                var slices = radio?.SliceList?.Where(s => s != null)
+                    .OrderBy(s => s.Letter, StringComparer.Ordinal).ToList();
+                if (slices == null || slices.Count == 0)
+                {
+                    sb.AppendLine("No slices are open.");
+                    return;
+                }
+                foreach (var s in slices)
+                {
+                    var flags = new List<string>();
+                    if (s.Active) flags.Add("active");
+                    if (s.IsTransmitSlice) flags.Add("transmit");
+                    string station = null;
+                    try { station = radio.FindGUIClientByClientHandle(s.ClientHandle)?.Station; }
+                    catch { }
+                    if (!string.IsNullOrEmpty(station)) flags.Add("station " + station);
+                    string flagText = flags.Count > 0 ? " (" + string.Join(", ", flags) + ")" : "";
+
+                    ulong hz = (ulong)(s.Freq * 1_000_000d);
+                    sb.AppendLine($"Slice {s.Letter}{flagText}: "
+                        + $"{RadioStatusBuilder.FormatFreqDisplay(hz)} {s.DemodMode}, "
+                        + $"filter {s.FilterLow} to {s.FilterHigh} hertz, "
+                        + $"RX antenna {s.RXAnt}, TX antenna {s.TXAnt}, "
+                        + $"AGC {s.AGCMode} at threshold {s.AGCThreshold}, "
+                        + (s.Mute ? "muted" : "not muted") + ".");
+                }
+            });
+
+            Section(sb, "Transmit settings", () =>
+            {
+                if (radio == null) { sb.AppendLine("Not readable: no radio."); return; }
+                sb.AppendLine($"RF power: {radio.RFPower} watts");
+                sb.AppendLine($"Tune power: {radio.TunePower} watts");
+                sb.AppendLine($"Mic gain: {radio.MicLevel}");
+                sb.AppendLine($"Mic boost: {OnOff(radio.MicBoost)}");
+                sb.AppendLine($"Mic bias: {OnOff(radio.MicBias)}");
+                sb.AppendLine($"Speech processor: {OnOff(radio.SpeechProcessorEnable)}"
+                    + $", level setting {(FlexBase.ProcessorSettings)radio.SpeechProcessorLevel}");
+                sb.AppendLine($"Compander: {OnOff(radio.CompanderOn)} at level {radio.CompanderLevel}");
+                sb.AppendLine($"TX filter: {radio.TXFilterLow} to {radio.TXFilterHigh} hertz");
+                sb.AppendLine($"Transmit monitor: {OnOff(radio.TXMonitor)}"
+                    + $", sideband level {radio.TXSBMonitorGain}, CW level {radio.TXCWMonitorGain}");
+                sb.AppendLine($"VOX: {OnOff(radio.SimpleVOXEnable)}"
+                    + $", gain {radio.SimpleVOXLevel}, delay {radio.SimpleVOXDelay * 50} milliseconds");
+            });
+
+            Section(sb, "CW settings", () =>
+            {
+                if (radio == null) { sb.AppendLine("Not readable: no radio."); return; }
+                sb.AppendLine($"Keyer speed: {radio.CWSpeed} words per minute");
+                sb.AppendLine($"Sidetone pitch: {radio.CWPitch} hertz");
+                sb.AppendLine($"Sidetone: {OnOff(radio.CWSidetone)}");
+                sb.AppendLine($"Break-in: {OnOff(radio.CWBreakIn)}"
+                    + $", delay {radio.CWDelay} milliseconds");
+                sb.AppendLine("Iambic keyer: " + OnOff(radio.CWIambic)
+                    + (radio.CWIambic
+                        ? (radio.CWIambicModeB ? ", mode B" : ", mode A")
+                        : ""));
+            });
+
+            Section(sb, "Memories", () =>
+            {
+                var mems = radio?.MemoryList?.Where(m => m != null).ToList();
+                if (mems == null || mems.Count == 0)
+                {
+                    sb.AppendLine("No memories are stored on the radio.");
+                    return;
+                }
+                sb.AppendLine(mems.Count == 1
+                    ? "1 memory is stored on the radio. A factory reset erases it."
+                    : $"{mems.Count} memories are stored on the radio. A factory reset erases them.");
+                foreach (var m in mems.OrderBy(m => m.Freq))
+                {
+                    ulong hz = (ulong)(m.Freq * 1_000_000d);
+                    string name = string.IsNullOrEmpty(m.Name) ? "unnamed" : "\"" + m.Name + "\"";
+                    string group = string.IsNullOrEmpty(m.Group) ? "" : $", group \"{m.Group}\"";
+                    sb.AppendLine($"Memory {name}: {RadioStatusBuilder.FormatFreqDisplay(hz)} {m.Mode}{group}.");
+                }
+            });
+
+            Section(sb, "Antennas and tuner", () =>
+            {
+                var rxList = rig.RXAntennaList;
+                var txList = rig.TXAntennaList;
+                sb.AppendLine("RX antenna ports on this radio: "
+                    + (rxList.Count > 0 ? string.Join(", ", rxList) : "none reported"));
+                sb.AppendLine("TX antenna ports on this radio: "
+                    + (txList.Count > 0 ? string.Join(", ", txList) : "none reported"));
+                if (radio != null)
+                    sb.AppendLine("Antenna tuner fitted: " + (radio.ATUPresent ? "yes" : "no"));
+            });
+
+            Section(sb, "What this file cannot carry", () =>
+            {
+                sb.AppendLine("Listed so nothing is discovered missing AFTER a reset:");
+                sb.AppendLine();
+                sb.AppendLine("- The contents of profiles other than the ones loaded right now.");
+                sb.AppendLine("  The radio only reveals a profile's settings by loading it, and");
+                sb.AppendLine("  this export deliberately changes nothing. To capture another");
+                sb.AppendLine("  profile in text: load it from the Radio menu, then export again.");
+                sb.AppendLine("- DVK voice recordings. Audio cannot be text; if the radio holds");
+                sb.AppendLine("  recorded voice messages, they do not survive a reset and are not");
+                sb.AppendLine("  in this file.");
+                sb.AppendLine("- The radio's SmartLink registration and account binding. After a");
+                sb.AppendLine("  reset the radio may need to be registered again from SmartSDR.");
+                sb.AppendLine("- TNF (tracking notch filter) placements and ATU tuner memories.");
+                sb.AppendLine("- Anything set from SmartSDR that JJ Flexible does not read.");
+            });
+
+            sb.AppendLine();
+            sb.AppendLine("End of export.");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Write one section: heading, underline, body from
+        /// <paramref name="body"/> — and when the body throws, the failure is
+        /// recorded IN the file, because a section silently missing is the
+        /// exact defect the gaps section exists to prevent.
+        /// </summary>
+        private static void Section(StringBuilder sb, string title, Action body)
+        {
+            sb.AppendLine(title);
+            sb.AppendLine(new string('-', title.Length));
+            try
+            {
+                body();
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"StationSettingsExport: section \"{title}\" failed: {ex.Message}",
+                    TraceLevel.Warning);
+                sb.AppendLine($"This section could not be read: {ex.Message}");
+            }
+            sb.AppendLine();
+        }
+
+        private static void AppendProfileNames(
+            StringBuilder sb, FlexBase rig, ProfileTypes type, string label, string loadedNow)
+        {
+            var profiles = rig.GetProfilesByType(type);
+            string loaded = string.IsNullOrEmpty(loadedNow) ? "none" : loadedNow;
+            if (profiles == null || profiles.Count == 0)
+            {
+                sb.AppendLine($"{label} (loaded now: {loaded}): none stored.");
+                return;
+            }
+            sb.AppendLine($"{label} (loaded now: {loaded}):");
+            foreach (var p in profiles)
+            {
+                sb.AppendLine($"  - {p.Name}");
+            }
+        }
+
+        private static string OnOff(bool value) => value ? "on" : "off";
+
+        /// <summary>
+        /// Save the station settings export where a person can find it
+        /// WITHOUT this app: Documents\JJFlexRadio. AppData would survive the
+        /// radio's reset but fail the person — it is hidden, and the moment
+        /// this file matters is the moment nothing else is working. The
+        /// filename carries the radio's serial and the date, because Noel has
+        /// more than one radio and so will others.
+        /// </summary>
+        public static string SaveStationSettingsExport(string report, string radioSerial)
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "JJFlexRadio");
+            Directory.CreateDirectory(dir);
+
+            string serialPart = string.IsNullOrWhiteSpace(radioSerial)
+                ? "radio"
+                : RadioConfig.SanitizeRadioId(radioSerial);
+            var filename = $"radio-settings-{serialPart}-{DateTime.Now:yyyy-MM-dd-HHmm}.txt";
+            var path = Path.Combine(dir, filename);
+            File.WriteAllText(path, report);
+            Tracing.TraceLine("StationSettingsExport: wrote " + path, TraceLevel.Info);
+            return path;
+        }
     }
 }
