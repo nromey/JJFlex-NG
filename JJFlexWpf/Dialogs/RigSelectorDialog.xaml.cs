@@ -1189,6 +1189,11 @@ namespace JJFlexWpf.Dialogs
         private readonly HashSet<string> _arrivalsAnnounced =
             new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Radios whose "selected, press Enter to connect" line has
+        /// already been spoken this session.</summary>
+        private readonly HashSet<string> _autoSelectAnnounced =
+            new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>
         /// Say that a radio turned up — once, and only when nothing else is
         /// already saying it.
@@ -1532,11 +1537,22 @@ namespace JJFlexWpf.Dialogs
                 if (onlyLive != null)
                 {
                     RadiosBox.SelectedIndex = RadiosBox.Items.IndexOf(onlyLive);
-                    var name = string.IsNullOrWhiteSpace(onlyLive.Name)
-                        ? Lexicon.Get("connect.selector.default_radio_word")
-                        : onlyLive.Name;
-                    _callbacks.ScreenReaderSpeak?.Invoke(
-                        Lexicon.Get("connect.selector.only_live_selected", ("name", name)), false);
+
+                    // Once per radio. RefreshRadiosList runs on many paths and
+                    // any rebuild that loses the selection lands back here, so
+                    // without a guard the same "press Enter to connect" line can
+                    // be said several times for one radio — part of the same
+                    // burst as the pass-completion pair.
+                    bool first;
+                    lock (_autoSelectAnnounced) { first = _autoSelectAnnounced.Add(onlyLive.Serial ?? ""); }
+                    if (first)
+                    {
+                        var name = string.IsNullOrWhiteSpace(onlyLive.Name)
+                            ? Lexicon.Get("connect.selector.default_radio_word")
+                            : onlyLive.Name;
+                        _callbacks.ScreenReaderSpeak?.Invoke(
+                            Lexicon.Get("connect.selector.only_live_selected", ("name", name)), false);
+                    }
                 }
             }
 
@@ -3234,7 +3250,24 @@ namespace JJFlexWpf.Dialogs
                 // Do NOT speak during the settle window — discovery lands within
                 // it more often than not, and the announcement would be
                 // contradicted a half-second later (C2 item 6).
-                if (!_anyLiveRadioSeen && !_remoteDiscoveryInFlight)
+                //
+                // ***** THE SETTLE WINDOW WAS NEVER ACTUALLY TESTED FOR. *****
+                // The comment above has said this since it was written and the
+                // condition did not check it: !_anyLiveRadioSeen is TRUE for the
+                // whole settle window, which is precisely when this must stay
+                // quiet. So focus landing on the list at Loaded — which the
+                // Loaded handler does deliberately — spoke this immediately, at
+                // Critical with interrupt, flushing whatever was being said.
+                //
+                // It is the first and loudest of the four separate voices an
+                // operator heard while one discovery ran (#212): ProgressVoice's
+                // "Looking for radios on your network", its "Still looking for
+                // radios" four seconds later, this, and then the dialog's own
+                // settled line. Four mouths, one fact. Gating on _localSettled
+                // makes the code do what its comment always claimed, and leaves
+                // this as what it is useful as — the answer when an operator
+                // Tabs back into a list that is still empty AFTER the pass.
+                if (_localSettled && !_anyLiveRadioSeen && !_remoteDiscoveryInFlight)
                     ScreenReaderOutput.Speak(Lexicon.Get("connect.selector.no_radios_yet"), VerbosityLevel.Critical, true);
                 return;
             }
