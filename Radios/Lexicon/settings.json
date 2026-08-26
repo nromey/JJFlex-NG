@@ -300,6 +300,7 @@
   "settings.keys.tab_summary": "{scope} hotkeys tab, {count} commands",
   "settings.leader.armed": "JJ",
   "settings.leader.cancelled": "Cancelled",
+  "settings.leader.near_miss": "{pressed} is not a command. {alt}: {what}",
   "settings.leader.unknown_command": "Unknown command. Press H for help.",
   "settings.license.class_advanced": "Advanced",
   "settings.license.class_extra": "Extra",

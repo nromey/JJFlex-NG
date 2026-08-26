@@ -201,11 +201,18 @@ namespace JJFlexWpf
         // talking — has no way to know. That is the shape of fault this whole
         // arc has been about: a plausible-looking state rather than an error.
         //
-        // THIS DETECTS AND RECORDS. It deliberately does NOT change what PTT
-        // does. Whether JAWS synthesises for a CHORD it has no script for is
-        // unverified — it may only do it for the arrows it scripts — and
-        // guessing at a transmit path is how you get a stuck transmitter.
-        // Don is our only JAWS coverage; one trace from him settles it.
+        // DIVISION OF LABOUR, since Sprint 35 Track E: Radios.PttHoldFilter
+        // now sits UPSTREAM of this controller (MainWindow's key handlers) and
+        // absorbs synthetic pairs before PttUp is ever called — evidence-gated,
+        // so a reader that delivers real holds sees no change at all. That
+        // filter catches the implausible releases itself, which means THIS
+        // detector should now stay at zero forever: it has become the
+        // backstop. If it ever fires, a synthetic release got PAST the filter,
+        // and that is worth knowing loudly — so it stays, unchanged, as a
+        // positive control on the absorber. (Whether JAWS synthesises for the
+        // Ctrl+Space chord at all is still unverified; Noel runs JAWS himself
+        // when a bug is JAWS-specific, and the filter arms only on evidence,
+        // so an unverified machine keeps today's behaviour exactly.)
         private long _pttDownTicks;
         private int _implausibleReleases;
 

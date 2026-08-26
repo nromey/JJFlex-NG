@@ -1943,12 +1943,35 @@ public class KeyCommands
             // — it only acts when a default was REMOVED, and here every current
             // default is a real present key, so its branch never runs. See
             // Radios/KeyMapIntegrity.cs and task #209.
-            RepairSlippedKeyMap(kData.Items);
+            bool repairedCleanly = RepairSlippedKeyMap(kData.Items);
 
             // v5+: Load saved bindings, then smart-merge changed defaults.
             SetValues(kData.Items!, KeyTypes.AllKeys, false);
             SmartMergeDefaults(kData.Items!);
             MergeNewDefaults();
+
+            // Persist a CLEAN repair, so the file on disk is healed rather
+            // than re-repaired on every launch (#209, Sprint 35 Track E).
+            // Written HERE and not inside RepairSlippedKeyMap: at that point
+            // the key table still holds defaults (SetValues has not run), so
+            // a Write there would discard every customisation in the file.
+            // Only after the merges is the table the truth worth persisting.
+            //
+            // Only when NOTHING was customised. Write() stamps every entry's
+            // SavedDefaultKey with the current default, which would convert a
+            // left-alone customised-but-slipped entry into what reads as a
+            // deliberate customisation of the wrong command — destroying the
+            // one piece of evidence a support conversation about "my key does
+            // the wrong thing" would need. When customisations exist the file
+            // stays untouched, the Error-level trace re-fires each launch,
+            // and that is the record surviving on purpose.
+            if (repairedCleanly)
+            {
+                if (Write())
+                    Tracing.TraceLine("KeyCommands: repaired key map persisted — the file on disk"
+                        + " is healed and the repair will not need to run again (#209).",
+                        System.Diagnostics.TraceLevel.Error);
+            }
         }
         catch (Exception ex)
         {
@@ -2177,9 +2200,16 @@ public class KeyCommands
     /// detail a real session runs at — "just in case it falls over."
     /// </para>
     /// </remarks>
-    private void RepairSlippedKeyMap(KeyDefType[]? items)
+    /// <returns>
+    /// True when the repair fixed at least one binding AND touched nothing the
+    /// operator customised — the caller persists that state once the merges
+    /// finish, so the file heals instead of being re-repaired every launch.
+    /// False otherwise, including the customised case, where the unwritten
+    /// file IS the evidence and must stay as it is.
+    /// </returns>
+    private bool RepairSlippedKeyMap(KeyDefType[]? items)
     {
-        if (items == null) return;
+        if (items == null) return false;
 
         var saved = new List<KeyMapIntegrity.SavedBinding>(items.Length);
         foreach (var it in items)
@@ -2194,7 +2224,7 @@ public class KeyCommands
         if (!verdict.LooksShifted)
         {
             _context.Trace("KeyCommands: " + verdict.Describe());
-            return;
+            return false;
         }
 
         Tracing.TraceLine("KeyCommands: " + verdict.Describe(), System.Diagnostics.TraceLevel.Error);
@@ -2224,6 +2254,16 @@ public class KeyCommands
         Tracing.TraceLine("KeyCommands: repaired " + fixedCount + " slipped binding(s), left "
             + verdict.CustomisedIds.Count + " customised one(s) alone. Nothing was spoken;"
             + " the operator lost no binding they chose.", System.Diagnostics.TraceLevel.Error);
+
+        if (verdict.CustomisedIds.Count > 0)
+        {
+            Tracing.TraceLine("KeyCommands: file left unwritten so the slipped-but-customised"
+                + " evidence survives; this repair re-runs each launch until the operator"
+                + " resolves those bindings (Keys dialog) or any other save rewrites the file.",
+                System.Diagnostics.TraceLevel.Error);
+        }
+
+        return fixedCount > 0 && verdict.CustomisedIds.Count == 0;
     }
 
     public KeyDefType? GetDefaultKey(CommandValues cmdId)
@@ -3385,7 +3425,28 @@ public class KeyCommands
             default:
                 _context.Trace("Leader:no command for " + k);
                 EarconPlayer.LeaderInvalidTone();
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.unknown_command"), true);
+                // #206: a near-miss gets named instead of a dead end. The
+                // layer mixes bare, Shift and Ctrl tiers on the same letters
+                // (A vs Ctrl+A, D vs Ctrl+D), so a slipped modifier is the
+                // layer's own most predictable mistake — and the recovery
+                // information is already in the inventory. "Ctrl+G is not a
+                // command. G: arm or disarm the TX test tone" turns a
+                // re-enter-and-hunt into a one-chord retry, and teaches the
+                // layer while the operator is standing in it. One alternative
+                // at most, bare form first. The layer still disarms — this
+                // changes what is SAID, not what happens.
+                if (KeyInventory.TryFindLeaderNearMiss(k, out string nearKey, out string nearWhat))
+                {
+                    Radios.ScreenReaderOutput.Speak(
+                        Radios.Lexicon.Get("settings.leader.near_miss",
+                            ("pressed", KeyManifest.FormatKey(k)),
+                            ("alt", nearKey),
+                            ("what", nearWhat)), true);
+                }
+                else
+                {
+                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.unknown_command"), true);
+                }
                 break;
         }
 
