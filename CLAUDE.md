@@ -379,7 +379,20 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
    - Filename pattern: `JJFlex_<version>_<arch>_debug.zip` (e.g. `JJFlex_4.1.16.1_x64_debug.zip`), mirroring the Release installer naming.
    - Version comes from the exe's `FileVersion`. `build-debug.bat` computes it automatically from `<Version>` in `JJFlexRadio.vbproj` + `git rev-list --count HEAD` + `BUILDNUM_OFFSET`, and passes it to `dotnet build -p:Version=...`. (For manual builds, use the same formula — see `build-installers.bat`.)
    - **NAS (always, every build — history layer):** `build-debug.bat` copies the zip, NOTES, exe, and pdb to `\\nas.macaw-jazz.ts.net\jjflex\historical\<version>\x64-debug\`. Zip + NOTES are timestamped and never overwrite; exe + pdb refresh per version. Full bisectable build history lives here.
-   - **Dropbox (only on `--publish` / tester-broadcast — current layer):** first delete any existing `JJFlex_*_debug*.zip` and `NOTES-*-debug*.txt` from Dropbox `debug\`, then copy the new zip + NOTES. Keeps Dropbox holding only the latest debug — testers never have to guess which is current. Rollback comes from NAS history, not from Dropbox.
+   - **Dropbox (only on `--publish` / tester-broadcast — current layer):** copy
+     the new zip + NOTES, **verify they landed by reading them back at the
+     destination, and only then delete** any older `JJFlex_*_debug*.zip` and
+     `NOTES-*-debug*.txt`. Keeps Dropbox holding only the latest debug — testers
+     never have to guess which is current. Rollback comes from NAS history, not
+     from Dropbox. `LATEST.txt` names the current pair outright.
+
+     **The order was the reverse of this until 2026-08-26, and the reversal is
+     the fix (#230).** Deleting first meant a failed or partial copy left the
+     testers with NOTHING, and the script printed "Done." either way — it checked
+     neither the copy nor the purge. Copy-verify-purge cannot strand a tester: a
+     failed copy leaves yesterday's build in place, which is a worse build but a
+     working one. Exit codes 8 and 9 now report a publish that did not happen;
+     do not "restore" the old order.
    - All private testers (Don, Justin, etc.) read from the shared Dropbox `debug\` folder.
 
 3. Write a brief `NOTES-YYYYMMDD.txt` next to the zip — plain text, screen-reader friendly:
