@@ -6922,16 +6922,22 @@ namespace Radios
                     case "Freq":
                         {
                             Tracing.TraceLine("Freq:slice " + s.Index.ToString() + " " + s.Freq.ToString(), TraceLevel.Verbose);
-                            if (s.Active)
+                            ulong echoed = LibFreqtoLong(s.Freq);
+                            if (s.Active && _rxFreqEcho.Accept(echoed))
                             {
-                                _RXFrequency = LibFreqtoLong(s.Freq);
+                                _RXFrequency = echoed;
+                                // The filter edges and the where-you-are memory
+                                // are both derived from this number, so a
+                                // rejected echo must not move them either — a
+                                // stale place recorded here is a wrong answer
+                                // hours later, when nobody can connect it back.
                                 FilterObj.RXFreqChange(s);
                                 // Where-you-are memory (#226) — debounced, so
                                 // a tuning sweep costs one write, not one per
                                 // click.
                                 NoteOperatorPlace(s);
                             }
-                            if (s.IsTransmitSlice) _TXFrequency = LibFreqtoLong(s.Freq);
+                            if (s.IsTransmitSlice && _txFreqEcho.Accept(echoed)) _TXFrequency = echoed;
                         }
                         break;
                     case "IsTransmitSlice":
@@ -9683,6 +9689,12 @@ namespace Radios
             return (ulong)(f * 1000000d);
         }
 
+        // #266. Both setters below write the cache before the radio has seen
+        // the value, so both need a guard against the radio's own in-flight
+        // report of what the frequency WAS. See FrequencyEchoGuard.
+        private readonly FrequencyEchoGuard _rxFreqEcho = new FrequencyEchoGuard("RX");
+        private readonly FrequencyEchoGuard _txFreqEcho = new FrequencyEchoGuard("TX");
+
         private ulong _RXFrequency;
         public ulong RXFrequency
         {
@@ -9692,6 +9704,7 @@ namespace Radios
             }
             set
             {
+                ulong replaced = _RXFrequency;
                 _RXFrequency = value;
                 if (!ValidVFO(RXVFO))
                 {
@@ -9705,6 +9718,11 @@ namespace Radios
                     return;
                 }
                 double freq = LongFreqToLibFreq(value);
+                // Arm HERE, not at the top of the setter: the early returns
+                // above leave without writing anything to the radio, and a
+                // guard armed for a write that never went out would reject the
+                // radio's perfectly truthful report of where it still is.
+                _rxFreqEcho.Requested(replaced, value);
                 q.Enqueue((FunctionDel)(() =>
                 {
                     var s = VFOToSlice(RXVFO);
@@ -9722,6 +9740,7 @@ namespace Radios
             }
             set
             {
+                ulong replaced = _TXFrequency;
                 _TXFrequency = value;
                 if (!ValidVFO(TXVFO))
                 {
@@ -9735,6 +9754,7 @@ namespace Radios
                     return;
                 }
                 double freq = LongFreqToLibFreq(value);
+                _txFreqEcho.Requested(replaced, value);
                 q.Enqueue((FunctionDel)(() =>
                 {
                     var s = VFOToSlice(TXVFO);
