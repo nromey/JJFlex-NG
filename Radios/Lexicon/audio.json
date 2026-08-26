@@ -295,6 +295,8 @@
   "audio.meters.alc_high": "ALC high",
   "audio.meters.alc_warning": "ALC warning",
   "audio.meters.copied": "Copied.",
+  "audio.meters.drive_high": "Transmit drive high",
+  "audio.meters.drive_over_scale": "Transmit drive over full scale",
   "audio.meters.copy_failed": "Copy failed.",
   "audio.meters.count": "{count} meters.",
   "audio.meters.forward_power": "Forward power {power}.",
