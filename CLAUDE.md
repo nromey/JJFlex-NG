@@ -554,7 +554,57 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    conversation actually reads.
 
 4. **Agent.md update:** Record what happened today and what's next, so the resume path for the next session is clear.
-4a. **Rigmeter snapshot in the seal entry.** Rigmeter moved to its own repository at `C:\dev\rigmeter` in Sprint 30 Track G (2026-08-18); it still targets this repo by default. Run `python C:\dev\rigmeter\rigmeter.py all` and `python C:\dev\rigmeter\rigmeter.py today`, paste a condensed version of both outputs into a "Rigmeter snapshot — end of YYYY-MM-DD" subsection at the bottom of today's Agent.md entry. Format: grand totals (authored vs vendor split), per-project breakdown, per-category totals, fun comparisons, and today's git activity. ALSO run `python C:\dev\rigmeter\rigmeter.py snapshot` to write the structured JSON to NAS at `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json` — this is the durable time-series and the source for `rigmeter growth --use-snapshots <date-a> <date-b>` queries. (Falls back to `%LOCALAPPDATA%\rigmeter\snapshots\` if NAS is unreachable; reconcile later with `rigmeter snapshot --sync`.) The Agent.md text snapshots are human-readable history; the NAS JSON snapshots are machine-queryable. Both accumulate. Skip on docs-only days where rigmeter values would be unchanged from yesterday.
+4a. **Rigmeter snapshot in the seal entry.** Rigmeter lives at
+   `C:\dev\rigmeter` (extracted Sprint 30 Track G, 2026-08-18) and still
+   targets this repo by default. **It has NO GIT REMOTE** — its only copies are
+   this machine and the `backup-dev-to-nas.ps1` mirror, so do not treat its
+   commits as pushed.
+
+   Two commands, not three:
+
+   ```
+   python C:\dev\rigmeter\rigmeter.py today --fun --languages
+   python C:\dev\rigmeter\rigmeter.py snapshot
+   ```
+
+   `today --fun --languages` replaced a `today` + `all` pair on 2026-08-25.
+   Both flags are new that day and both matter here:
+
+   - **`--languages`** breaks the day down by file type, which is what turns a
+     net figure into a readable sentence. The 2026-08-25 seal reported net
+     **-57,129** — meaningless until the breakdown showed 67,501 lines of
+     markdown leaving for private against 18,467 lines of C# arriving. Costs one
+     `--numstat` call; available on every span.
+   - **`--fun`** now scopes its comparisons to THE SPAN rather than the whole
+     codebase, which is the number a daily entry actually wants. Whole-codebase
+     fun stats barely move day to day and were noise in a daily seal.
+     **Only on `today`, `week` and `month`** — it reads the span's patch text,
+     so a year is punishing and project start absurd.
+
+   Run **`all`** only when the grand totals are wanted (authored vs vendor,
+   per-project breakdown). It scans the whole tree and is much slower; the daily
+   entry rarely needs it.
+
+   **Report BOTH figures the span commands now print, and label which is
+   which.** "Work done, summed across every commit" and "Repository size change"
+   are different measurements. Until 2026-08-25 every span command printed only
+   the snapshot delta under the word "activity", and `start` therefore reported
+   **zero deletions across 1,933 commits**; the real figure is over five
+   million. Noel found it by playing with the tool. Do not collapse the two back
+   into one number.
+
+   `snapshot` writes structured JSON to
+   `\\nas.macaw-jazz.ts.net\jjflex\historical\stats\<commit-date>-<short-sha>.json`
+   — the durable time-series behind `rigmeter growth --use-snapshots <a> <b>`.
+   Falls back to `%LOCALAPPDATA%\rigmeter\snapshots\` if NAS is unreachable;
+   reconcile later with `rigmeter snapshot --sync`. Agent.md text is
+   human-readable history, the NAS JSON is machine-queryable, and both
+   accumulate.
+
+   Paste a condensed version into a "Rigmeter snapshot — end of YYYY-MM-DD"
+   subsection at the bottom of today's Agent.md entry. Skip on docs-only days
+   where the values would be unchanged from yesterday.
+
 4b. **After-Action Report (AAR).** Write `C:\Users\nrome\JJFlex-private\after-action-reports\YYYY\MM\YYYY-MM-DD.md` capturing the day's cross-surface activity (main repo + each worktree + external infrastructure). **Lives in JJFlex-private, NOT in the public `docs/` tree** — the file routinely names testers by personal/medical context, references internal sequencing, and would leak through `nromey/JJFlex-NG`. JJFlex-private is already backed up to NAS via `backup-private-to-nas.ps1`. Sections: Snapshot, Theme, Per-surface activity, Decisions and scope changes, Rigmeter today (with branch-scope caveat), Setup for tomorrow. Use bulleted lists / prose only — NEVER tables (screen-reader hostile). Closes the gap rigmeter and Agent.md leave on heavy research days where parallel worktrees accumulate thousands of lines of docs while main sees one commit. Skip rule: if every surface was idle AND no external work AND rigmeter today is empty, no file that day. See `memory/project_after_action_reports.md` for the full convention.
 5. **Commit the day's changes and push the feature branch to origin.** Stage specific files (never `-A` / `.`), commit with the end-of-day seal message format (`End-of-day seal YYYY-MM-DD: <summary>`), then `git push origin <current-branch>`. Pushing is durability insurance — without it, an unbacked-up local repo loses every un-pushed commit if the machine fails. Push to `origin` (nromey's fork), NEVER `upstream` (KevinSShaffer). Feature-branch pushes are backup moves, not release moves — no merge to main implied.
 
