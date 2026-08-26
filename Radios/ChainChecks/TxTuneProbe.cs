@@ -354,14 +354,26 @@ namespace Radios.ChainChecks
         /// </remarks>
         public static bool ShouldStopEarly(double computedSwr, double reflectedPercent,
                                            int consecutiveBad)
-        {
-            bool badNow =
-                (!double.IsNaN(computedSwr) && computedSwr >= SwrAbort) ||
-                (double.IsNaN(computedSwr) && !double.IsNaN(reflectedPercent)
-                 && reflectedPercent >= ReflectedAbortPercent);
+            => LooksBad(computedSwr, reflectedPercent)
+            && (consecutiveBad + 1) >= BadSamplesBeforeAbort;
 
-            return badNow && (consecutiveBad + 1) >= BadSamplesBeforeAbort;
-        }
+        /// <summary>
+        /// Does THIS one sample look bad? The single definition of the abort
+        /// threshold, used both by <see cref="ShouldStopEarly"/> and by the
+        /// runner counting how many bad samples have gone by.
+        /// </summary>
+        /// <remarks>
+        /// The runner carried a byte-identical private copy of this expression
+        /// until the Sprint 35 merge. Two copies of one rule is not a
+        /// cross-check — they can only ever agree, and when one is edited the
+        /// disagreement is silent. A real cross-check needs INDEPENDENT
+        /// sources, which here means forward and reflected watts, not two
+        /// spellings of the same comparison.
+        /// </remarks>
+        public static bool LooksBad(double computedSwr, double reflectedPercent)
+            => (!double.IsNaN(computedSwr) && computedSwr >= SwrAbort)
+            || (double.IsNaN(computedSwr) && !double.IsNaN(reflectedPercent)
+                && reflectedPercent >= ReflectedAbortPercent);
 
         /// <summary>
         /// Decide what a set of readings means. Pure; call it from tests with

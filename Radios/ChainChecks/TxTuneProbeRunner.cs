@@ -169,7 +169,7 @@ namespace Radios.ChainChecks
                         break;
                     }
 
-                    consecutiveBad = LooksBad(lastComputedSwr, reflectedPercent)
+                    consecutiveBad = TxTuneProbe.LooksBad(lastComputedSwr, reflectedPercent)
                         ? consecutiveBad + 1 : 0;
 
                     cancel.WaitHandle.WaitOne(SampleEveryMs);
@@ -328,11 +328,6 @@ namespace Radios.ChainChecks
             double rev = ValueOf(meters, "REFPWR");
             return 100.0 * TransmitSafety.ReflectedFractionOf((float)fwd, (float)rev);
         }
-
-        private static bool LooksBad(double computedSwr, double reflectedPercent)
-            => (!double.IsNaN(computedSwr) && computedSwr >= TxTuneProbe.SwrAbort)
-            || (double.IsNaN(computedSwr) && !double.IsNaN(reflectedPercent)
-                && reflectedPercent >= TxTuneProbe.ReflectedAbortPercent);
 
         private static double ValueOf(IReadOnlyList<TxTuneProbe.Reading> meters, string name)
         {
