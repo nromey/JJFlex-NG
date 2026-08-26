@@ -2301,6 +2301,15 @@ namespace Radios
             _cancelRequested = true;
             Disconnecting = true;
 
+            // Final where-you-left-it flush (#226): the debounce may still be
+            // pending, and the whole point of the record is the next connect.
+            // Never allowed to slow or fail a disconnect.
+            try { FlushOperatorPlace(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("Disconnect:place flush:" + ex.Message, TraceLevel.Warning);
+            }
+
             // 2026-04-28: announce disconnect via speech + CW (SK prosign) so the
             // user knows the radio is going away. Fires before the actual
             // disconnect work (which can take 3+ seconds) so feedback is
@@ -6515,7 +6524,12 @@ namespace Radios
                             // of Noel's spec. The radio confirming a slice as
                             // Active is the honest moment the operator arrived
                             // on it. See AnnounceSliceIdentity.
-                            if (s.Active) AnnounceSliceIdentity(s);
+                            if (s.Active)
+                            {
+                                AnnounceSliceIdentity(s);
+                                // Arriving on a slice is a place change (#226).
+                                NoteOperatorPlace(s);
+                            }
                         }
                         break;
                     case "DemodMode":
@@ -6527,6 +6541,9 @@ namespace Radios
                             {
                                 FilterObj.RXFreqChange(s);
                                 ModeChanged?.Invoke(s.DemodMode);
+                                // Where-you-are memory (#226): "14.243 USB" is
+                                // a place, and mode is half of it.
+                                NoteOperatorPlace(s);
 
                                 // The CW mode announcement (#58). Runs alongside speech, not
                                 // only when speech is off — CW is a parallel notification
@@ -6605,6 +6622,10 @@ namespace Radios
                             {
                                 _RXFrequency = LibFreqtoLong(s.Freq);
                                 FilterObj.RXFreqChange(s);
+                                // Where-you-are memory (#226) — debounced, so
+                                // a tuning sweep costs one write, not one per
+                                // click.
+                                NoteOperatorPlace(s);
                             }
                             if (s.IsTransmitSlice) _TXFrequency = LibFreqtoLong(s.Freq);
                         }
@@ -13207,6 +13228,12 @@ namespace Radios
 
             AnnounceSliceCensus();
             if (operatorDid) SpeakProvisionalSliceChangeReceipt();
+
+            // Once the connect's replay has settled, say whether the radio
+            // put the operator back where they left off (#226). After the
+            // census on purpose: "here is where you are — and last time you
+            // were on …" reads as one thought.
+            AnnounceLastPlaceIfDifferent();
         }
 
         /// <summary>
@@ -13555,6 +13582,197 @@ namespace Radios
             // value itself; this is the trailing clause.
             ScreenReaderOutput.Speak(
                 ProvisionalSliceChangeReceipt,
+                Speech.SpeechIntent.Queue,
+                VerbosityLevel.Terse);
+        }
+
+        // ══ Where you left this radio (Sprint 35 Track I, #226) ══
+        //
+        // A normal transceiver comes back on the frequency it was switched
+        // off on. A Flex comes back wherever its global profile says, so an
+        // operator who tuned all evening and disconnected returns to a place
+        // they left hours before the end of the session — silently, and for a
+        // blind operator with nothing on screen to glance at, undetectably.
+        // The connect announcement recites where you ARE; nothing says that
+        // this is not where you WERE.
+        //
+        // This is the honest first version, and deliberately no more: JJ Flex
+        // REMEMBERS the operator's place (active slice frequency and mode,
+        // per radio, in the serial-keyed per-radio config) and TELLS them on
+        // connect when the radio has put them somewhere else. It does not
+        // retune. Restoring automatically is a real MultiFlex hazard — a
+        // reconnect must never yank a slice another operator is using, and
+        // #117 established the slices are not ours — so restore waits for the
+        // station-state ownership audit. Telling costs nothing, is right on
+        // every path, and covers the complaint most of the times it bites.
+        //
+        // WHEN TO SNAPSHOT, and why not only at disconnect: the sessions
+        // where the place matters most are the ones that END BADLY — a
+        // network drop at a remote site, a crash. So the place is recorded on
+        // a quiet-period debounce while operating (a tuning sweep costs one
+        // write after the hand stops, not one per click) and flushed once
+        // more on a clean disconnect. A hard drop loses at most the last few
+        // seconds of tuning.
+        //
+        // Per-operator by construction: the record lives in this install's
+        // per-radio config, so two operators sharing one radio under
+        // MultiFlex each come back to their own place, which no radio-side
+        // profile could ever give them. The cost, accepted: an operator who
+        // used SmartSDR in between gets told about their last JJ Flex
+        // session, not their SmartSDR one.
+
+        /// <summary>Quiet period after the last frequency or mode change
+        /// before the place is written to disk.</summary>
+        private const int PlaceWriteQuietMs = 10000;
+
+        private readonly object _placeLock = new object();
+        private System.Threading.Timer _placeWriteTimer;
+        private ulong _currentPlaceFreqHz;
+        private string _currentPlaceMode;
+        private string _currentPlaceLetter;
+
+        // The stored place from the LAST session, stashed on first use this
+        // session — BEFORE this session's own recording can overwrite it.
+        private bool _lastPlaceStashLoaded;
+        private bool _lastPlaceStashKnown;
+        private ulong _lastPlaceStashFreqHz;
+        private string _lastPlaceStashMode;
+        private string _lastPlaceStashLetter;
+        private volatile bool _lastPlaceAnnounced;
+
+        private string PlaceRadioId => theRadio?.Serial ?? _connectedSerial;
+
+        /// <summary>
+        /// Load the previous session's place once, before any recording this
+        /// session touches the stored value. Safe to call repeatedly.
+        /// </summary>
+        private void EnsureLastPlaceStashLoaded()
+        {
+            if (_lastPlaceStashLoaded) return;
+            lock (_placeLock)
+            {
+                if (_lastPlaceStashLoaded) return;
+                string id = PlaceRadioId;
+                if (string.IsNullOrEmpty(id)) return;
+                try
+                {
+                    var cfg = RadioConfig.LoadForRadio(id);
+                    _lastPlaceStashKnown = cfg.LastPlaceKnown;
+                    _lastPlaceStashFreqHz = cfg.LastPlaceFrequencyHz;
+                    _lastPlaceStashMode = cfg.LastPlaceMode;
+                    _lastPlaceStashLetter = cfg.LastPlaceSliceLetter;
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("EnsureLastPlaceStashLoaded:" + ex.Message,
+                        TraceLevel.Warning);
+                    _lastPlaceStashKnown = false;
+                }
+                _lastPlaceStashLoaded = true;
+            }
+        }
+
+        /// <summary>
+        /// Note where the operator's active slice is. Called from the slice
+        /// property handlers on frequency, mode and active changes — which
+        /// also fire for the radio's own profile replay on connect, and that
+        /// is CORRECT here: unlike the receipt, this records where the
+        /// operator IS, however they got there. The stash of the previous
+        /// session is loaded first, so the replay cannot overwrite the one
+        /// thing the connect announcement needs.
+        /// </summary>
+        private void NoteOperatorPlace(Slice s)
+        {
+            if (s == null || Disconnecting) return;
+            string letter = s.Letter;
+            string mode = s.DemodMode;
+            ulong freqHz = LibFreqtoLong(s.Freq);
+            if (freqHz == 0 || string.IsNullOrEmpty(mode)) return;
+
+            EnsureLastPlaceStashLoaded();
+
+            lock (_placeLock)
+            {
+                _currentPlaceFreqHz = freqHz;
+                _currentPlaceMode = mode;
+                _currentPlaceLetter = letter ?? "";
+
+                if (_placeWriteTimer == null)
+                {
+                    _placeWriteTimer = new System.Threading.Timer(
+                        _ => FlushOperatorPlace(), null,
+                        PlaceWriteQuietMs, System.Threading.Timeout.Infinite);
+                }
+                else
+                {
+                    try
+                    {
+                        _placeWriteTimer.Change(
+                            PlaceWriteQuietMs, System.Threading.Timeout.Infinite);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Write the in-memory place to the per-radio config. Runs on the
+        /// debounce timer and once more from <see cref="Disconnect"/>.
+        /// RecordLastPlace skips unchanged values, so calling this freely
+        /// costs nothing.
+        /// </summary>
+        private void FlushOperatorPlace()
+        {
+            ulong freqHz;
+            string mode, letter, id;
+            lock (_placeLock)
+            {
+                freqHz = _currentPlaceFreqHz;
+                mode = _currentPlaceMode;
+                letter = _currentPlaceLetter;
+                id = PlaceRadioId;
+            }
+            if (freqHz == 0 || string.IsNullOrEmpty(mode) || string.IsNullOrEmpty(id)) return;
+            RadioConfig.RecordLastPlace(id, freqHz, mode, letter);
+        }
+
+        /// <summary>
+        /// Once per connection, after the first settled census: if the radio
+        /// has put the operator somewhere other than where they left it, say
+        /// where they were. Queued after the census, so the pair reads as
+        /// "here is where you are — and last time you were on …". Silence
+        /// when they ARE where they left off, and on a radio never seen
+        /// before: an announcement that fires every connect regardless
+        /// teaches the operator to stop hearing it.
+        /// </summary>
+        private void AnnounceLastPlaceIfDifferent()
+        {
+            if (_lastPlaceAnnounced) return;
+            _lastPlaceAnnounced = true;
+
+            EnsureLastPlaceStashLoaded();
+            if (!_lastPlaceStashKnown) return;
+            if (SuppressSpeech) return;
+
+            // Compare against the operator's active slice as it stands now.
+            Slice active = null;
+            lock (mySlices)
+                foreach (var s in mySlices) if (s != null && s.Active) { active = s; break; }
+            if (active == null) return;
+
+            ulong hereHz = LibFreqtoLong(active.Freq);
+            string hereMode = active.DemodMode ?? "";
+            if (hereHz == _lastPlaceStashFreqHz
+                && string.Equals(hereMode, _lastPlaceStashMode, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            double mhz = _lastPlaceStashFreqHz / 1_000_000.0;
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("connect.last_place",
+                    ("freq", mhz.ToString("0.000###")),
+                    ("mode", _lastPlaceStashMode)),
                 Speech.SpeechIntent.Queue,
                 VerbosityLevel.Terse);
         }
