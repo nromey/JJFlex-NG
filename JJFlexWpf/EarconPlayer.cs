@@ -1274,24 +1274,103 @@ namespace JJFlexWpf
             PlayChirp(400, 600, 80, VolumeNormal);
         }
 
-        /// <summary>Double ascending beep — feature toggled ON.</summary>
+        // ------------------------------------------------------------------
+        // The confirmation pair (#114) — and why it felt unresolved
+        //
+        // These were 500 Hz then 700 Hz. 700/500 is 1.4, which is 583 cents; a
+        // TRITONE is 600. So the confirmation tone was already a tritone,
+        // seventeen cents flat of one — close enough that the ear hears one.
+        //
+        // That is very likely the real diagnosis of "bland", and it is not a
+        // lack of richness. The tritone is the most unstable interval in
+        // Western music: it does not resolve, it hangs. Psychoacoustically
+        // that is exactly wrong for "this succeeded", where the operator wants
+        // a settled arrival and instead got a suspension. It would make an
+        // excellent WARNING interval, which is plausibly why the alarm has
+        // character and this did not.
+        //
+        // 500 -> 750 is a perfect fifth (702 cents) and lands. It is a
+        // one-number change: same length, same cadence, same loudness tier, on
+        // the sound the application plays more than any other — after the #128
+        // sweep these fire from roughly two dozen more places than they used
+        // to. An extra hundred milliseconds on THIS sound is not free, and a
+        // sound with more character can tire faster than a plain one.
+        //
+        // NOEL'S THREE-NOTE PROPOSAL IS BUILT AND NOT SHIPPING, pending ears —
+        // see FeatureOnToneThreeNoteCandidate below. Three notes give the
+        // tension somewhere to resolve TO, which is a real argument. Two
+        // arguments run the other way and both were found while building it:
+        // the duration cost above, and the count collision below.
+        //
+        // THE COUNT COLLISION, which is the finding worth Noel's attention.
+        // MuteAllOnTone is ALREADY a three-note triad, and counting is the
+        // whole of what separates "this slice" from "all my slices" — 625/785/
+        // 940 against 500/700. Count survives masking in a way timbre does
+        // not: "how many beeps was that" stays readable through band noise,
+        // cheap speakers and poor signal-to-noise, because counting is a
+        // temporal judgement rather than a spectral one. Making the
+        // single-slice confirmation three notes spends the most robust axis in
+        // the vocabulary to fix an interval, and the interval can be fixed for
+        // free instead. Distinguishing by NUMBER and CONTOUR rather than by
+        // TIMBRE deserves to be a principle for the whole set.
+        //
+        // Both candidates are auditionable side by side in the Earcon
+        // Explorer. Judge against real band noise, not a quiet room. When it
+        // is decided, delete the loser.
+        // ------------------------------------------------------------------
+
+        /// <summary>Rising pair, a perfect fifth — feature toggled ON.</summary>
         [Earcon("Feature on", EarconCategory.CommandsAndConfirmations, Order = 11,
             Description = "Rising pair. A toggle just turned on.")]
         public static void FeatureOnTone()
         {
             if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
-                new[] { (500, 60), (0, 40), (700, 60) }, VolumeNormal);
+                new[] { (500, 60), (0, 40), (750, 60) }, VolumeNormal);
         }
 
-        /// <summary>Double descending beep — feature toggled OFF.</summary>
+        /// <summary>Falling pair, the mirror — feature toggled OFF.</summary>
         [Earcon("Feature off", EarconCategory.CommandsAndConfirmations, Order = 12,
             Description = "Falling pair. A toggle just turned off.")]
         public static void FeatureOffTone()
         {
             if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
-                new[] { (700, 60), (0, 40), (500, 60) }, VolumeNormal);
+                new[] { (750, 60), (0, 40), (500, 60) }, VolumeNormal);
+        }
+
+        /// <summary>
+        /// CANDIDATE, not shipping: Noel's three-note confirmation. States the
+        /// tension and then settles it — 500 up to the tritone at 700, then a
+        /// semitone up to 750 to land.
+        /// </summary>
+        /// <remarks>
+        /// Outside the family switches, along with the other bench sounds, so
+        /// auditioning it cannot be silenced by a category an operator turned
+        /// off. Roughly 260 ms against the shipping pair's 160. <b>Delete this
+        /// and its mirror once the comparison is made</b> — a candidate that
+        /// outlives its decision is just clutter in the Explorer.
+        /// </remarks>
+        [Earcon("Feature on, three-note candidate",
+            Description = "Candidate for the confirmation tone (#114): three notes that state "
+                        + "a tension and resolve it. Compare against Feature on.")]
+        public static void FeatureOnToneThreeNoteCandidate()
+        {
+            if (!EarconsEnabled) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (500, 60), (0, 40), (700, 60), (0, 40), (750, 80) }, VolumeNormal);
+        }
+
+        /// <summary>CANDIDATE, not shipping: the mirror of the three-note
+        /// confirmation. Delete with it.</summary>
+        [Earcon("Feature off, three-note candidate",
+            Description = "Candidate mirror for the confirmation tone (#114). Compare against "
+                        + "Feature off.")]
+        public static void FeatureOffToneThreeNoteCandidate()
+        {
+            if (!EarconsEnabled) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (750, 60), (0, 40), (700, 60), (0, 40), (500, 80) }, VolumeNormal);
         }
 
         /// <summary>
