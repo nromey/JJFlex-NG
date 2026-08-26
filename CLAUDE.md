@@ -958,7 +958,21 @@ Any sprint that adds, removes, or remaps a keyboard binding MUST pass this audit
 
 Audit checklist:
 
-1. **Grep the sprint's diff for key-binding changes.** Search for new or modified entries in `JJFlexWpf/KeyCommands.cs`, `RegisterScope`, `KeyBinding` attributes, and any Modern/Classic menu builders. Produce a list of affected keys + their new meanings.
+1. **Grep the sprint's diff for key-binding changes.** Search for new or modified
+   entries in `JJFlexWpf/KeyCommands.cs` — specifically `BuildKeyTable()`, the
+   `_defaultKeys` array, `_unboundNotes`, and `DoLeaderCommand` (where every
+   Ctrl+J chord lives; leader chords are a `switch`, NOT registry rows) — plus
+   `JJFlexWpf/KeyInventory.cs`'s `LeaderCommands[]`, `KeyScope` on any entry,
+   and any Modern/Classic menu builders. Produce a list of affected keys + their
+   new meanings.
+
+   **This said `RegisterScope` until 2026-08-26 and NO SUCH SYMBOL EXISTS** —
+   not in any `.cs` or `.vb` file, only in this sentence. Scope is a FIELD
+   (`KeyScope`, `Radios/KeyCommandTypes.cs:216`, 252 uses in `KeyCommands.cs`),
+   never a registration call. Exactly the `KeyCommands.vb` failure again: a
+   literal grep returns nothing, which reads as "no key bindings changed" and
+   silently skips the audit. Found by a research agent surveying the leader
+   layer, and verified before this correction.
 
    **This said `KeyCommands.vb` until 2026-08-21 and no such file exists** — it
    is C#, and it lives in `JJFlexWpf/`. A literal grep for the old name returns
