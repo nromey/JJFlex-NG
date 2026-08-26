@@ -557,19 +557,42 @@ namespace Radios.ChainChecks
             // without it. A capture that says "17.5 watts forward, 13.4 back"
             // and does not say ANT1 cannot be read by anyone, including the
             // person who took it.
+            //
+            // Both are read off the ACTIVE SLICE, and with no active slice both
+            // properties answer "ANT1" — a default, not an observation. That is
+            // the same shape as the forward-power fact that used to publish its
+            // own initialiser and produce a confident wrong verdict, so it gets
+            // the same treatment: no slice means no reading.
+            bool haveSlice = false;
+            try { haveSlice = rig.HasActiveSlice; } catch { haveSlice = false; }
+
+            const string NoSliceReason =
+                "the antenna port is a property of the active slice, and this computer does not "
+                + "currently have one, so the port would be a default rather than a reading";
+
             Probe(f, "tx-antenna", "Transmit antenna port",
-                  () => DiagnosticFact.Text("tx-antenna", "Transmit antenna port",
-                                            rig.TXAntennaName ?? "", "the radio"));
+                  () => haveSlice
+                      ? DiagnosticFact.Text("tx-antenna", "Transmit antenna port",
+                                            rig.TXAntennaName ?? "", "the radio")
+                      : DiagnosticFact.Absent("tx-antenna", "Transmit antenna port",
+                                              NoSliceReason, "the radio"));
             Probe(f, "rx-antenna", "Receive antenna port",
-                  () => DiagnosticFact.Text("rx-antenna", "Receive antenna port",
-                                            rig.RXAntennaName ?? "", "the radio"));
+                  () => haveSlice
+                      ? DiagnosticFact.Text("rx-antenna", "Receive antenna port",
+                                            rig.RXAntennaName ?? "", "the radio")
+                      : DiagnosticFact.Absent("rx-antenna", "Receive antenna port",
+                                              NoSliceReason, "the radio"));
 
             bool xvtrPath = false;
-            try { xvtrPath = rig.TXAntennaIsTransverter; } catch { xvtrPath = false; }
+            try { xvtrPath = haveSlice && rig.TXAntennaIsTransverter; } catch { xvtrPath = false; }
 
             Probe(f, "transverter-path", "Transmitting through a transverter",
-                  () => DiagnosticFact.Flag("transverter-path", "Transmitting through a transverter",
-                                            rig.TXAntennaIsTransverter, "the radio"));
+                  () => haveSlice
+                      ? DiagnosticFact.Flag("transverter-path", "Transmitting through a transverter",
+                                            rig.TXAntennaIsTransverter, "the radio")
+                      : DiagnosticFact.Absent("transverter-path",
+                                              "Transmitting through a transverter",
+                                              NoSliceReason, "the radio"));
 
             // Empty is a real and separate answer: the transmit antenna is the
             // XVTR port but no transverter definition covers the slice
@@ -1024,8 +1047,12 @@ namespace Radios.ChainChecks
             // FlexRadio engineer reading the pasted block. Both directions:
             // switching the receive port and hearing no change is a common
             // first test, and it is uninterpretable unless the port is recorded.
-            Line("Transmit antenna", () => rig.TXAntennaName);
-            Line("Receive antenna", () => rig.RXAntennaName);
+            // Empty reads as "not reported", which is what an operator with no
+            // active slice should see: both properties answer "ANT1" in that
+            // state, and printing a default beside real measurements is how a
+            // capture acquires a port it never had.
+            Line("Transmit antenna", () => rig.HasActiveSlice ? rig.TXAntennaName : "");
+            Line("Receive antenna", () => rig.HasActiveSlice ? rig.RXAntennaName : "");
             Line("Connection", () => rig.RemoteRig ? "SmartLink (over the internet)" : "local network");
             Line("Meters published", () => (rig.MeterInventory?.Count ?? 0)
                                            .ToString(CultureInfo.CurrentCulture));
