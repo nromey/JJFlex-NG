@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-    Generate docs/planning/active/task-register.md from the Claude task store.
+    Generate JJFlex-privateplanningctive	ask-register.md from the Claude task store.
 
 .DESCRIPTION
     The task store is one JSON file per task under
@@ -153,7 +153,7 @@ foreach ($t in $closed) { Add-Line "- **#$($t.Id)** - $($t.Subject)" }
 Add-Line ''
 
 $content  = $sb.ToString()
-$outPath  = Join-Path $RepoRoot 'docs\planning\active\task-register.md'
+$outPath  = 'C:\Users\nrome\JJFlex-private\planning\active\task-register.md'
 
 if ($Check) {
     if (-not (Test-Path $outPath)) {

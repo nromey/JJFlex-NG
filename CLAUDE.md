@@ -275,7 +275,7 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 |------|-------------|
 | `MIGRATION.md` | FlexLib upgrade guide, TLS wrapper notes |
 | `docs/CHANGELOG.md` | Version history |
-| `docs/planning/` | Product vision, design proposals, sprint plans |
+| `JJFlex-privateplanning` | Product vision, design proposals, sprint plans — **PRIVATE, not in this repo** (2026-08-25) |
 | `Agent.md` | Recent work summary (session context) |
 
 ## Releases
@@ -414,7 +414,7 @@ When Noel says "done developing" or equivalent, that's the seal-the-day trigger.
 - **Other local repos beyond JJFlex-NG.** `ls C:\dev\` and check git log on any sibling repos with today-mtime activity (e.g. `jjf-data`, `jjflexible-connect` (scaffolded 2026-08-03), future `bh-data`, others). These are separate clones, not worktrees of JJFlex-NG, so they don't show up in `git worktree list`. **The 2026-05-08 gap that exposed this sub-rule:** the entire Phase 0 B-E work landed in `nromey/jjf-data` (cloned to `C:\dev\jjf-data`), which never appears under JJFlex-NG; sealing only against JJFlex-NG missed the GitHub Action + R2 sync entirely.
 - **The other major projects — Freight Fate and Civ VI Access.** These are full parallel projects, not side repos, and they routinely out-produce JJFlex on a given day. Check **main project roots only, not their worktrees** (`C:\dev\Freight-Fate`, `C:\dev\Civ-vi-access`); Freight Fate alone spawns a dozen `ff-*` worktrees whose work lands in the main repo anyway. For each, report branch, dirty count, and **unpushed commit count** (`git log --branches --not --remotes --oneline`). **The 2026-08-01 gap that exposed this sub-rule:** Freight Fate was sitting on 16 unpushed commits and Civ VI on 45 — months of work existing on exactly one machine — while the seal SOP looked only at JJFlex. The NAS dev mirror preserves `.git`, so mirroring covers the durability; **pushing those repos is Noel's call, not the sealing session's**, because they have outside contributors and pushing is outward-facing.
 - **External infrastructure activity.** Look for today-dated changes on rarbox/roarbox/Cloudflare/R2/NAS. Memory entries are the primary record of on-box-Claude work; NAS folder mtimes also reveal activity beyond just the seal backup itself; Dropbox top level + debug/ may have publishes from earlier in the day. Cloudflare dashboard activity (R2 bucket creates, custom-domain hookups, cache rules) is captured indirectly via memory entries authored by the session that did the work — see the all-memory-read rule above.
-- **Active planning docs modified today.** `find docs/planning/active/ -newermt today` — walkthroughs, runbooks, briefings, agendas. The session that authored these may not be the session sealing the day; their mtimes reveal what work happened. Specifically the 2026-05-08 `phase-0-bcde-walkthrough.md` was sitting in active/ with a same-day mtime explicitly stating what got done; not opening it was part of why the second-pass also missed B-E.
+- **Active planning docs modified today.** `find JJFlex-private/planning/active/ -newermt today` — walkthroughs, runbooks, briefings, agendas. The session that authored these may not be the session sealing the day; their mtimes reveal what work happened. Specifically the 2026-05-08 `phase-0-bcde-walkthrough.md` was sitting in active/ with a same-day mtime explicitly stating what got done; not opening it was part of why the second-pass also missed B-E.
 - **For-claude / for-noel deltas.** New pull-docs landed today? Existing ones processed today? Each round-trip reflects decisions that need durable absorption.
 
 **The anchoring failure mode that motivated the "read all" rule:** the reflexive search-for-topic-relevant-artifact pattern finds ONE file and treats it as the answer. The right starting prompt is "show me everything modified today, then synthesize," not "find the artifact about X." See `feedback_anchoring_on_first_relevant_artifact.md` for the lesson + corrective.
@@ -514,7 +514,7 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
 
 3c-bis. **Task register check:** run
    `& "C:\dev\JJFlex-NG\export-task-register.ps1"` to regenerate
-   `docs/planning/active/task-register.md`, or `-Check` to verify it without
+   `JJFlex-privateplanningctive	ask-register.md`, or `-Check` to verify it without
    writing. Seconds, and it is the only thing keeping the backlog readable by a
    session that did not create it — the task store lives under the user profile,
    is not in git, and vanishes with the terminal.
@@ -682,7 +682,34 @@ Every sprint follows this lifecycle. Claude (in the Desktop/orchestrator session
 
 #### Phase 1: Planning (Claude Desktop + User)
 1. **Scope discussion** — User and Claude discuss what the sprint should accomplish
-2. **Plan file creation** — Claude writes a detailed sprint plan to `docs/planning/` (named with ham-radio words, e.g. `barefoot-qrm-trap.md`)
+2. **Plan file creation** — Claude writes a detailed sprint plan to
+   **`C:\Users\nrome\JJFlex-private\planning\agile\`** (named with ham-radio
+   words, e.g. `barefoot-qrm-trap.md`)
+
+   > **PLANNING DOCUMENTS GO IN JJFlex-private, NOT IN THE REPO. RULED BY NOEL
+   > 2026-08-25.** `nromey/JJFlex-NG` is a **PUBLIC** repository — verified with
+   > `gh repo view`, `"visibility":"PUBLIC"`. Planning documents name testers
+   > (Don, Justin, Doug, Patrick, Mark), say where Don's radio physically
+   > lives, carry personal and medical context, and record internal sequencing
+   > and release strategy. **None of that belongs in a public repo.**
+   >
+   > This is the SAME reasoning step 4b already applies to the After-Action
+   > Report — and that is the lesson: the rule was written down correctly,
+   > applied to one file, and never generalised, while 232 other files with
+   > identical properties stayed public.
+   >
+   > Noel's ruling: *"we need to stop all this junk, we can keep a billion
+   > lines in private on the nas / hard drive for all I care."* So there is no
+   > size discipline to observe in private — only a location one.
+   >
+   > **History is not retractable and that is accepted.** Noel: *"course
+   > someone could rewind and get older copies."* The rule stops FUTURE
+   > additions; it does not un-publish what is already pushed. Do not claim
+   > otherwise.
+   >
+   > **STAYS in the repo:** `docs/help/` (a build input — `build-help.bat`
+   > converts it to the CHM), `docs/CHANGELOG.md` (the user record),
+   > `MIGRATION.md`, `Agent.md`. Moving the existing 70,124 lines out is #260.
 3. **Track decomposition** — Claude analyzes the work and splits it into parallel tracks:
    - Identify independent work units (dialogs, features, files that don't overlap)
    - Group into tracks (max 6 concurrent tracks)
@@ -744,6 +771,29 @@ differs. Full pattern and load-bearing practices:
 `memory/project_background_agent_fleet_model.md`. Thirteen agents in one
 evening is proven scale.
 
+**Model tier order, highest first: Fable, then Opus, then Sonnet, then
+Haiku.** Corrected by Noel 2026-08-25, after a track plan assigned Opus
+as the ceiling and Sonnet as the floor — both were off by one and every
+track had to shift up.
+
+- **Fable** — design, architecture, user-facing prose, anything
+  safety-critical, anything shipping to a real user.
+- **Opus** — specified work in known files: real code needing care,
+  where the judgement is already extracted into a plan or design doc.
+- **Sonnet** — genuinely mechanical work.
+
+**The orchestrator window runs Opus on purpose, and that says nothing
+about Opus being the top.** Noel: *"We're running this window on Opus,
+but that's because we haven't had to run main stuff here on Fable, we
+delegate when we need fable."* Conversation, planning and orchestration
+happen here; heavy lifting goes out to spawned agents, and that is where
+Fable belongs.
+
+Never under-provision to save cost — see
+`memory/user_usage_headroom_is_not_the_constraint.md`. The constraints
+are the operator's attention, the single desktop, and build collisions.
+Detail: `memory/project_model_tiers_and_delegation.md`.
+
 **Model A — user-spawned CLI sessions (the original).** Use when tracks
 need live user interaction mid-flight (radio-seat work, testing
 conversations) or the user wants to drive a session directly.
@@ -797,6 +847,39 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    smaller and greener** — a falling test count reads as success. The gap lives
    between "track finished" and "track landed" and nobody owned that edge.
    See `memory/feedback_verify_merge_containment.md`.
+4-bis. **INTEGRATION PASS — duplication, not collision.** The containment sweep
+   proves every branch landed. It says nothing about whether two tracks built
+   the same thing twice.
+
+   **A clean merge is evidence about CONFLICTS, and duplication does not
+   conflict.** Two agents implementing one idea in two files produce no merge
+   conflict, no build error, and two working implementations. Nothing fails.
+
+   So once the merge builds, run a pass that reads the RESULT, not the diff:
+
+   - **Concept dedup.** One idea implemented twice; a helper with exactly one
+     caller that ought to have several; two vocabularies for one thing.
+   - **A blind end-to-end walk of anything an operator touches.** NOT a code
+     review — an absence is invisible in a diff. Render the surface, move
+     through it in order, and ask at every state: *what can a person do next
+     from here, and how would they know?*
+
+   **Added 2026-08-25, after the Fixer Tool's first session with a real
+   operator produced fourteen findings in one evening.** Every component was
+   individually correct and every automated test passed — the buttons worked,
+   the wire contract held, the analyzers were right. Five separate times a
+   helper existed and the next author built beside it (`HostApiPhrase`, the
+   `speakNow`/`speakDone` pair, the `Sequence`/`RunId` resume semantics, tune
+   power read but never displayed, `JJTrace/SessionArchive`). **Every one of
+   those pairs sat in DISJOINT files**, so no orchestrator watching file
+   assignments could have caught them. The real damage was all in the seams:
+   no stage offered a way to the next one, and the skip control was rendered
+   on a stage that had already passed — where pressing it silently destroys
+   the measurement, which on a transmit stage was paid for with RF.
+
+   **Do not delegate this to the tracks.** Each track's brief is correct and
+   local; the defect is precisely that none of them can see the others. This
+   is a separate job with the whole merged tree in front of it.
 5. **Status updates** — Claude tells the user after each merge completes (e.g., "Track B merged into A, build clean. Waiting for Track C.")
 6. **Final merge to main:**
    ```batch
@@ -815,8 +898,8 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
 4. **Final cleanup phase** (sprint-specific: delete dead code, update docs, etc.)
 5. **Clean build** both x64 and x86, verify installers
 6. **Update Agent.md** with sprint completion status
-7. **Archive sprint plan** to `docs/planning/agile/archive/`
-8. **Create test matrix** at `docs/planning/agile/sprintN-test-matrix.md`
+7. **Archive sprint plan** to `JJFlex-privateplanninggilerchive`
+8. **Create test matrix** at `JJFlex-privateplanninggilesprintN-test-matrix.md`
 9. **Keyboard audit** (required if the sprint touched any key bindings — see below)
 
 #### Keyboard Audit — Definition of Done for key-map changes
@@ -925,7 +1008,7 @@ clean `git merge` is not evidence that the result compiles.
 Plan files are named with three random ham-radio-flavored words, e.g. `barefoot-qrm-trap`. Use ham radio terms (QRM, QSO, ragchew, barefoot, rig, shack, pileup, splatter, etc.) mixed with random fun words. Keep it lighthearted — this is a ham radio project!
 
 ### Test Matrices
-Create a separate test matrix file for each sprint: `docs/planning/agile/sprintN-test-matrix.md`. This keeps the test checklist accessible during testing without having to dig through the full sprint plan. Include per-track functional tests, integration tests, and a screen reader matrix (JAWS + NVDA). Archive alongside the sprint plan when done.
+Create a separate test matrix file for each sprint: `JJFlex-privateplanninggilesprintN-test-matrix.md`. This keeps the test checklist accessible during testing without having to dig through the full sprint plan. Include per-track functional tests, integration tests, and a screen reader matrix (JAWS + NVDA). Archive alongside the sprint plan when done.
 
 ### Resuming Work
 If a session ends mid-task, tell Claude: "Resume [phase/task name] from `docs/barefoot-qrm-trap.md`"

@@ -1,4 +1,4 @@
-# check-memory-drift.ps1
+﻿# check-memory-drift.ps1
 #
 # Memory entries assert things about the code. Code moves. Nothing notices.
 #
@@ -35,7 +35,7 @@ param(
         "C:\dev\jjflexible-connect",      # Connect
         "C:\dev\rigmeter",                # extracted Sprint 30
         "C:\dev\prism",                   # speech backend, vendored as a dll
-        "C:\Users\nrome\JJFlex-private"   # AARs, easter eggs, unlock codes
+        "C:\Users\nrome\JJFlex-private"   # planning (moved 2026-08-25), AARs, easter eggs
     ),
     [switch]   $Detailed
 )
