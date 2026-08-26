@@ -184,5 +184,21 @@ namespace Radios.Tests
             Assert.Contains("cannot be said either way", o.Answer);
             Assert.Contains("nothing was transmitted", o.Evidence);
         }
+
+        [Fact]
+        public void The_countdown_never_sounds_for_a_refused_transmit()
+        {
+            // The countdown is a promise that RF is imminent (#261). A
+            // refused request must not make that promise: the gate speaks
+            // first, and only a granted transmit is counted in.
+            bool counted = false;
+            var b = FixerTransmitAudioBoundary.Create(ReadyGate(), () => null,
+                                                      countdown: () => counted = true);
+
+            b.InjectedTransmit(TransmitStageSet.InjectedTransmit)();
+            b.SpokenTransmit(TransmitStageSet.SpokenTransmit)();
+
+            Assert.False(counted, "the countdown sounded for a transmit the gate refused");
+        }
     }
 }

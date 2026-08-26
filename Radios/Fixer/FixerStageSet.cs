@@ -152,6 +152,18 @@ namespace Radios.Fixer
         /// </summary>
         public bool Transmits { get; set; }
 
+        /// <summary>
+        /// True when the host should run this stage off the UI thread.
+        /// Sprint 35's ruling: ONLY the microphone check — it keys nothing
+        /// and takes seconds, so blocking buys no safety and costs a frozen
+        /// page (#255). The transmitting stages stay ON the UI thread this
+        /// sprint, deliberately: the blocked thread is currently the only
+        /// thing preventing anything else starting while the radio is keyed,
+        /// and going async there without a real abort path first (#236)
+        /// would remove a guard, not a wart.
+        /// </summary>
+        public bool OffUiThread { get; set; }
+
         /// <summary>Help topic for the inline help link, e.g. "fixer/transmit/microphone-check".</summary>
         public string HelpTopic { get; set; } = "";
 

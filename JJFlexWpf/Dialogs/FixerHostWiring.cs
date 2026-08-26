@@ -348,18 +348,59 @@ internal static class FixerHostWiring
     private const float MicHeardFloorDb = -75f;
 
     /// <summary>
-    /// How long the check listens. The loudness meter's short-term window is
-    /// three seconds and a slow interface may hand over its first buffers up
-    /// to a second late (the devices dialog grants exactly that grace before
-    /// judging silence), so four covers both — and it stays bounded because
-    /// the stage runner deliberately blocks the UI thread while a stage runs.
+    /// How long the SPEECH window listens. The loudness meter's short-term
+    /// window is three seconds and a slow interface may hand over its first
+    /// buffers up to a second late (the devices dialog grants exactly that
+    /// grace before judging silence), so four covers both. Bounded, because
+    /// the stage runs to its own end — Stop cannot reach into it.
     /// </summary>
     private const int MicListenMs = 4000;
 
     /// <summary>
+    /// The QUIET window, before the countdown: the noise floor is measured
+    /// here, in genuine silence (#261). The floor wants quiet by definition,
+    /// which is exactly why the old single window — taken while the operator
+    /// might already be talking — was the wrong place to take it from. Long
+    /// enough for a slow interface's first buffers; short enough that the
+    /// operator is not left wondering.
+    /// </summary>
+    private const int MicQuietWindowMs = 1200;
+
+    /// <summary>
+    /// How long the countdown sound lasts before the speech window may open:
+    /// three count tones and the ringing "go" note. A ringing tone inside
+    /// the speech sample makes a quiet shack read as noisy, so the capture
+    /// waits it out (#261).
+    /// </summary>
+    /// <remarks>
+    /// COUPLED to the countdown Track G ships (three 150 ms steps and a
+    /// 500 ms ring — 950 ms, padded to a round second). If the bench retunes
+    /// the sound longer than this, the ring's tail lands in the speech
+    /// sample; retune this with it.
+    /// </remarks>
+    private const int MicCountdownSoundMs = 1000;
+
+    /// <summary>The cues the microphone check speaks and sounds around its
+    /// measurement (#255, #261). Any may be null; a missing cue cues nothing
+    /// and the measurement still runs.</summary>
+    public sealed class MicCueHooks
+    {
+        /// <summary>Starts the record countdown tones. Fire-and-forget.</summary>
+        public Action? Countdown { get; set; }
+
+        /// <summary>Spoken when the speech window opens: the moment to talk
+        /// has arrived, and a blind operator has no other way to know it.</summary>
+        public Action? SpeakListenNow { get; set; }
+
+        /// <summary>Spoken after the measurement ends — the reciprocal end
+        /// signal, so nobody is left talking into silence (#261).</summary>
+        public Action? SpeakListenDone { get; set; }
+    }
+
+    /// <summary>
     /// Build the host's microphone measurement: resolve the configured
-    /// microphone, listen to it for a bounded moment through the one probe
-    /// this app has, and report what it heard.
+    /// microphone, measure the noise floor in a quiet window, count the
+    /// operator in, listen to their speech, and report what it heard.
     /// </summary>
     /// <remarks>
     /// Built on <see cref="MicProbe"/> and
@@ -370,14 +411,14 @@ internal static class FixerHostWiring
     /// handing over digital zeroes. A measurement written fresh here would
     /// have to learn all of that again, and would learn it worse.
     /// </remarks>
-    public static Func<MicCheckFacts> Microphone()
+    public static Func<MicCheckFacts> Microphone(MicCueHooks? cues = null)
     {
         return () =>
         {
             var facts = new MicCheckFacts();
             try
             {
-                MeasureMicrophone(facts);
+                MeasureMicrophone(facts, cues ?? new MicCueHooks());
             }
             catch (Exception ex)
             {
@@ -392,7 +433,21 @@ internal static class FixerHostWiring
         };
     }
 
-    private static void MeasureMicrophone(MicCheckFacts facts)
+    /// <summary>Tell a cue something happened, and never let it break the
+    /// measurement — a screen reader or an audio device that throws must not
+    /// cost the operator the reading.</summary>
+    private static void Cue(Action? cue, string which)
+    {
+        if (cue == null) return;
+        try { cue(); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerHostWiring: " + which + " cue threw and was ignored — "
+                              + ex.Message, TraceLevel.Warning);
+        }
+    }
+
+    private static void MeasureMicrophone(MicCheckFacts facts, MicCueHooks cues)
     {
         // The same resolver the voice-note recorder uses: it distinguishes,
         // in reviewed words, "never chosen" from "your saved microphone is
@@ -434,19 +489,44 @@ internal static class FixerHostWiring
             return;
         }
 
-        // A bounded listen, polled only for an early fault. The intermediate
-        // reads reset the probe's recent-peak window, which is fine: the
-        // whole-check hold and the integrated loudness — the two figures
-        // reported — accumulate regardless.
-        var clock = Stopwatch.StartNew();
-        bool faulted = false;
-        while (clock.ElapsedMilliseconds < MicListenMs)
+        // TWO WINDOWS, TWO PURPOSES (#261). First the QUIET window: the noise
+        // floor is measured before anything has told the operator to speak,
+        // in genuine silence — the floor wants quiet by definition, so the
+        // old single window, shared with the speech, was always the wrong
+        // place to take it from.
+        bool faulted = QuietListen(probe, MicQuietWindowMs);
+        MicProbe.Reading floor = probe.Read();
+
+        // Count the operator in: three tones, then the ringing "go". Tones,
+        // not speech, so the count cannot be flushed by the spoken cue's
+        // interrupt. The capture waits out the ring — a ringing tone in the
+        // sample makes a quiet shack read as noisy.
+        if (!faulted)
         {
-            Thread.Sleep(250);
-            if (probe.Read().Faulted) { faulted = true; break; }
+            Cue(cues.Countdown, "countdown");
+            faulted = QuietListen(probe, MicCountdownSoundMs);
         }
+
+        // The moment to talk, spoken — a blind operator has no recording
+        // light (#194, #255). Then the levels reset, so the speech figures
+        // describe the speech and not the silence or the countdown's bleed.
+        bool cued = false;
+        if (!faulted)
+        {
+            Cue(cues.SpeakListenNow, "listen-now");
+            cued = true;
+            probe.ResetLevels();
+            faulted = QuietListen(probe, MicListenMs);
+        }
+
         MicProbe.Reading final = probe.Read();
         probe.Stop();
+
+        // The end signal is the countdown's reciprocal: told only if the
+        // start cue went out, so nobody is told a check finished that they
+        // were never asked to speak for — and always before any early
+        // return, or a fault would leave the operator talking into silence.
+        if (cued) Cue(cues.SpeakListenDone, "listen-done");
 
         if (faulted || final.Faulted)
         {
@@ -470,11 +550,12 @@ internal static class FixerHostWiring
         // The API the check ACTUALLY opened through — not always the one the
         // chosen row named, and the honest one to report when they differ.
         if (!string.IsNullOrEmpty(final.HostApiName)) facts.HostApi = final.HostApiName;
-        // NoiseFloorDb stays NaN on purpose: the probe measures peak and
-        // loudness, not a floor, and deriving one from the quiet gaps of a
-        // four-second listen would be an invention wearing a measurement's
-        // clothes. "Not measured" is the better answer.
-        facts.Detail = BuildMicDetail(final, privacyBlocked, privacyWhy);
+        // The floor is a REAL measurement now, from a window that was silent
+        // by design — the earlier refusal to derive one from the quiet gaps
+        // of the speech window ("an invention wearing a measurement's
+        // clothes") applied to that window, not to this one.
+        if (!floor.Faulted && floor.Frames > 0) facts.NoiseFloorDb = floor.HoldPeakDb;
+        facts.Detail = BuildMicDetail(final, floor, privacyBlocked, privacyWhy);
 
         Tracing.TraceLine("FixerHostWiring: mic check on \"" + facts.Device + "\" ("
                           + facts.HostApi + ") — peak "
@@ -483,12 +564,25 @@ internal static class FixerHostWiring
                           + ", arrived=" + facts.AudioArrived, TraceLevel.Info);
     }
 
+    /// <summary>A bounded wait on the running probe, polled only for an
+    /// early fault. True when the probe faulted mid-window.</summary>
+    private static bool QuietListen(MicProbe probe, int windowMs)
+    {
+        var clock = Stopwatch.StartNew();
+        while (clock.ElapsedMilliseconds < windowMs)
+        {
+            Thread.Sleep(250);
+            if (probe.Read().Faulted) return true;
+        }
+        return false;
+    }
+
     /// <summary>
     /// Whatever else the measurement reported, verbatim — the probe's own
     /// figures, in sentences a screen reader can carry.
     /// </summary>
-    private static string BuildMicDetail(MicProbe.Reading final, bool privacyBlocked,
-                                         string privacyWhy)
+    private static string BuildMicDetail(MicProbe.Reading final, MicProbe.Reading floor,
+                                         bool privacyBlocked, string privacyWhy)
     {
         var sb = new StringBuilder();
         sb.Append("Listened for ")
@@ -501,9 +595,25 @@ internal static class FixerHostWiring
             sb.Append(final.Channels == 1 ? ", mono" : ", " + final.Channels + " channels");
         sb.Append('.');
 
+        // The quiet window's own figures — measured before the countdown, in
+        // silence by design, which is what makes them a floor rather than a
+        // guess (#261).
+        if (!floor.Faulted && floor.Frames > 0)
+        {
+            sb.Append(" Noise floor, measured in the quiet moment before the countdown: "
+                    + "peak ")
+              .Append(floor.HoldPeakDb.ToString("0.#", CultureInfo.InvariantCulture))
+              .Append(" dBFS");
+            if (floor.IntegratedLufs > LufsMeter.Floor)
+                sb.Append(", ")
+                  .Append(floor.IntegratedLufs.ToString("0.#", CultureInfo.InvariantCulture))
+                  .Append(" LUFS");
+            sb.Append('.');
+        }
+
         if (final.IntegratedLufs > LufsMeter.Floor)
         {
-            sb.Append(" Loudness over the whole listen: ")
+            sb.Append(" Loudness over the speech window: ")
               .Append(final.IntegratedLufs.ToString("0.#", CultureInfo.InvariantCulture))
               .Append(" LUFS.");
         }

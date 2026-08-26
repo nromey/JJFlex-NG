@@ -112,7 +112,11 @@ public sealed class FixerDialog : JJFlexDialog
                 VerbosityLevel.Critical, interrupt: true),
             speakDone: () => ScreenReaderOutput.Speak(
                 Lexicon.Get("audio.fixer.speak_done"),
-                VerbosityLevel.Critical, interrupt: true));
+                VerbosityLevel.Critical, interrupt: true),
+            // The transmit countdown (#261): tones, not speech, so the count
+            // cannot be flushed by the spoken cue's interrupt. The sound is
+            // Track G's; FixerCountdown is the seam.
+            countdown: FixerCountdown.TransmitTone);
 
         var hosts = new TransmitStageSet.Hosts
         {
@@ -149,8 +153,24 @@ public sealed class FixerDialog : JJFlexDialog
             ReadAudioSetup = WithHearing(WithRadioFacts(FixerHostWiring.AudioSetup())),
 
             // WIRED. Reuses the existing microphone probe rather than
-            // measuring again.
-            MeasureMicrophone = FixerHostWiring.Microphone(),
+            // measuring again — now with the count-in and the end signal
+            // (#255, #261): the record countdown from Track G's earcon, the
+            // spoken "listening" at the moment the speech window opens, and
+            // "finished" when it closes, so nobody talks into silence. The
+            // gate-derivation wrapper adds the one sentence #262 carves out:
+            // the transmit noise gate's threshold, and the floor it came
+            // from, stated as a fact.
+            MeasureMicrophone = WithGateDerivation(FixerHostWiring.Microphone(
+                new FixerHostWiring.MicCueHooks
+                {
+                    Countdown = FixerCountdown.RecordTone,
+                    SpeakListenNow = () => ScreenReaderOutput.Speak(
+                        Lexicon.Get("audio.fixer.listen_now"),
+                        VerbosityLevel.Critical, interrupt: true),
+                    SpeakListenDone = () => ScreenReaderOutput.Speak(
+                        Lexicon.Get("audio.fixer.listen_done"),
+                        VerbosityLevel.Critical, interrupt: true),
+                })),
 
             // WIRED. The five fixes stage 0 offers at the point of detection.
             // Each applies its change and then READS IT BACK, reporting what
@@ -275,6 +295,72 @@ public sealed class FixerDialog : JJFlexDialog
             if (f != null) f.OperatorHearsRadio = _hearing;
             return f;
         };
+    }
+
+    /// <summary>
+    /// Append the one sentence #262 carves out of Sprint 36: the transmit
+    /// noise gate's threshold is DERIVED — floor plus margin, from the same
+    /// loudness profile machinery the microphone check reports — and until
+    /// now the derivation was silent. Stated as a fact, not a verdict:
+    /// whether the threshold is RIGHT is exactly what #262 exists to test.
+    /// An operator who can see where the number came from can question it
+    /// and notice it going wrong; one who cannot, cannot.
+    /// </summary>
+    private Func<MicCheckFacts>? WithGateDerivation(Func<MicCheckFacts>? inner)
+    {
+        if (inner == null) return null;
+        return () =>
+        {
+            MicCheckFacts f = inner();
+            if (f == null) return f!;
+            string line = DescribeGateDerivation();
+            if (line.Length > 0)
+                f.Detail = (f.Detail.Length > 0 ? f.Detail + " " : "") + line;
+            return f;
+        };
+    }
+
+    private string DescribeGateDerivation()
+    {
+        try
+        {
+            FlexBase? rig = _radio();
+            if (rig == null) return "";
+
+            var gate = rig.TxConditioner.Gate;
+            if (!gate.Enabled)
+                return "The transmit noise gate is currently off, so no threshold applies.";
+
+            float threshold = gate.ThresholdDb;
+            var profile = rig.TxLoudnessProfile;
+            bool derived = profile.IsValid
+                           && profile.NoiseFloorLufs > JJPortaudio.LufsMeter.Floor;
+
+            if (!derived)
+                return "The transmit noise gate is holding its deliberately low default "
+                     + "threshold of "
+                     + threshold.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                     + " dB, because no transmitted speech has taught it your room's noise "
+                     + "floor yet.";
+
+            return "Your transmit noise gate's threshold is currently "
+                 + threshold.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                 + " dB, derived from the noise floor measured in your own transmitted "
+                 + "audio ("
+                 + profile.NoiseFloorLufs.ToString("0.#",
+                       System.Globalization.CultureInfo.InvariantCulture)
+                 + " LUFS, plus a "
+                 + TxAudioConditioning.ThresholdMarginDb.ToString("0.#",
+                       System.Globalization.CultureInfo.InvariantCulture)
+                 + " dB margin). Stated here so you can see where it came from; whether "
+                 + "it is right for your room is not judged by this check.";
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: gate derivation could not be described — "
+                              + ex.Message, TraceLevel.Warning);
+            return "";
+        }
     }
 
     /// <summary>
@@ -645,15 +731,71 @@ document.addEventListener('keydown', function (e) {
         _state.SelectedStageId = stageId;
         _stageCancel = new CancellationTokenSource(StageTimeoutMs);
 
+        FixerStage? stage = _run.Set.Find(stageId);
+        if (stage?.OffUiThread == true)
+        {
+            // Off the UI thread — the Sprint 35 ruling, and ONLY for stages
+            // marked for it (today: the microphone check, which keys nothing).
+            // Blocking there bought no safety and cost a frozen page that
+            // read as a hang (#255). The transmitting stages stay synchronous
+            // on this thread deliberately: the blocked thread is currently
+            // the only thing preventing anything else starting while the
+            // radio is keyed, and that guard does not come off before #236
+            // gives them a real abort path. RunInProgress spans the whole
+            // async run, so a second stage cannot start underneath it.
+            CancellationToken token = _stageCancel.Token;
+            System.Threading.Tasks.Task
+                .Run(() => _run.RunStage(stageId, token))
+                .ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        Tracing.TraceLine("FixerDialog: stage " + stageId + " faulted — "
+                            + t.Exception?.GetBaseException().Message, TraceLevel.Error);
+                        Notice(stageId, "Something went wrong running that check. "
+                                      + "Nothing was transmitted.");
+                        FinishStage(stageId, again, null);
+                        return;
+                    }
+                    FinishStage(stageId, again, t.Result);
+                }, System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
+
+        // Synchronous on the UI thread, deliberately, for the stages that
+        // key: they are short and bounded, and an operator who cannot press
+        // Stop because we are busy is the one outcome that must not happen.
+        // If a keying stage ever grows long enough for that to bite, the fix
+        // is a real abort path (#236) — NOT a longer timeout.
+        FixerStageResult? result = null;
         try
         {
-            // Synchronous on the UI thread, deliberately, for now: the stages
-            // that key are short and bounded, and an operator who cannot press
-            // Stop because we are busy is the one outcome that must not happen.
-            // If a stage ever grows long enough for that to bite, the fix is to
-            // move it to a worker — NOT to lengthen the timeout.
-            FixerStageResult r = _run.RunStage(stageId, _stageCancel.Token);
+            result = _run.RunStage(stageId, _stageCancel.Token);
+        }
+        finally
+        {
+            FinishStage(stageId, again, result);
+        }
+    }
 
+    /// <summary>
+    /// Everything that happens after a stage finishes, however it ran:
+    /// cleanup, the critical announcements, the focus decision, the render.
+    /// One home, so the synchronous and off-thread paths cannot drift.
+    /// </summary>
+    private void FinishStage(string stageId, bool again, FixerStageResult? r)
+    {
+        _stageCancel?.Dispose();
+        _stageCancel = null;
+
+        // Belt and braces. The boundary already unkeys in a finally and the
+        // gate's NoteUnkeyed is safe unmatched, so this cannot double-count
+        // — and if a path ever escaped without unkeying, the accounting
+        // would otherwise stay wrong for the rest of the run.
+        _gate.NoteUnkeyed();
+
+        if (r != null)
+        {
             Tracing.TraceLine("FixerDialog: stage " + stageId + " -> " + r.Status
                               + (again ? " (re-run)" : ""), TraceLevel.Info);
 
@@ -670,17 +812,6 @@ document.addEventListener('keydown', function (e) {
             bool passed = r.Status == FixerStageStatus.Ran
                           && (r.Findings == null || r.Findings.Count == 0);
             _state.SelectedStageId = passed ? (NextStageId(stageId) ?? stageId) : stageId;
-        }
-        finally
-        {
-            _stageCancel?.Dispose();
-            _stageCancel = null;
-
-            // Belt and braces. The boundary already unkeys in a finally and the
-            // gate's NoteUnkeyed is safe unmatched, so this cannot double-count
-            // — and if a path ever escaped without unkeying, the accounting
-            // would otherwise stay wrong for the rest of the run.
-            _gate.NoteUnkeyed();
         }
 
         Render();

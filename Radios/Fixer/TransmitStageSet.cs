@@ -292,8 +292,13 @@ namespace Radios.Fixer
                         + "depending on whether your microphone measured well here.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/microphone-check",
+                    // Off the UI thread (Sprint 35 ruling): this stage keys
+                    // nothing, and it froze the page for its whole listen —
+                    // Noel's first live run read as a hang (#255).
+                    OffUiThread = true,
                     DescribeRunAction = () =>
-                        "Running this listens to your microphone for a few seconds. "
+                        "Running this measures your room's noise in a quiet moment, then "
+                        + "counts you in with three tones and listens while you talk. "
                         + "Nothing transmits.",
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
                     // Stage 0's facts ride along (#241): stage 1's advice must
