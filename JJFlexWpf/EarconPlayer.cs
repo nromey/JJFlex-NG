@@ -611,6 +611,211 @@ namespace JJFlexWpf
                 new[] { (1000, 100), (0, 30), (600, 200) }, VolumeStrong);
         }
 
+        // ------------------------------------------------------------------
+        // Countdown — one clarinet figure, two destinations (#261)
+        //
+        // Stages of the transmit chain check where the operator has to DO
+        // something get counted in. Three identical 300 Hz dits, then a
+        // landing that names what is being counted down TO. A blind operator
+        // otherwise has to guess when a stage has started listening, and
+        // guessing wrong costs a retake — or, on stage 3, RF.
+        //
+        // THREE IDENTICAL TONES RATHER THAN A DESCENDING COUNT. Descending
+        // needs relative-pitch tracking: miss the first tone and two is
+        // indistinguishable from three. Three identical tones are
+        // self-correcting, and a landing that is not 300 Hz can never be
+        // mistaken for a fourth count.
+        //
+        // COUNTABILITY IS THE PASS CRITERION, NOT AUDIBILITY, and the two come
+        // apart. A decay long relative to the step smears three tones into one
+        // warble that is perfectly audible and completely uncountable — which
+        // is why the steps are 300 ms rather than the 150 the first sketch
+        // used, and why the ring lives in the LANDING's own length rather than
+        // in a tail.
+        //
+        // WHY THE CLARINET. Hollow zeroes the even harmonics — energy at 300,
+        // 900, 1500, nothing at 600 — so the record landing's octave arrives
+        // as a genuinely NEW pitch rather than as the count's own second
+        // partial stepping forward, which is what a Chime would have given.
+        // Sharper arrival. Its odd harmonics also sit in the
+        // speech-intelligibility band, which is #115's argument for anything
+        // that has to cut through a shack.
+        //
+        // NEVER voice these with Plain or ClassicSine. Those are #115's
+        // bare-sine masking problem wearing a voice name.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The countdown's voice: the same clarinet spectrum the CW waveform
+        /// set calls "Hollow", resolved rather than re-declared so there is
+        /// still one definition of it in the assembly.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A property, not a cached field, so it cannot capture a stale voice
+        /// at static-initialisation time — and so the fallback below stays
+        /// honest whichever order the two classes initialise in.
+        /// </para>
+        /// <para>
+        /// Falls back to <see cref="EarconVoices.Chime"/> if the id is ever
+        /// retired, because a countdown that makes no sound is worse than one
+        /// with the wrong timbre: silence here reads as "the stage has not
+        /// started yet" and the operator waits forever.
+        /// </para>
+        /// <para>
+        /// <b>This deliberately does not follow the #147 voice-set switch.</b>
+        /// The seven named voices have a plain counterpart each; this one does
+        /// not, because its spectrum is the design. A bare sine is exactly
+        /// #115's masking problem, and the transmit countdown is — until #236
+        /// is settled — the only thing standing between an idle stage and a
+        /// live transmitter. Worth revisiting by ear, but the safe default is
+        /// that a safety cue does not get quieter or plainer on a preference.
+        /// </para>
+        /// </remarks>
+        private static MeterVoice CountdownVoice =>
+            EarconVoices.ResolveCwWaveform("Hollow").Voice ?? EarconVoices.Chime;
+
+        /// <summary>The counting pitch. Three dits at this, then a landing
+        /// derived from it.</summary>
+        internal const int CountdownCountHz = 300;
+
+        /// <summary>How long each counting dit lasts.</summary>
+        internal const int CountdownStepMs = 300;
+
+        /// <summary>
+        /// The landing's length. The record landing is exactly this; the
+        /// transmit landing splits it 2:6 across its rising pair, so both
+        /// destinations are the same weight of arrival.
+        /// </summary>
+        internal const int CountdownLandingMs = 700;
+
+        /// <summary>The silent gap inside the transmit landing's rising pair,
+        /// carried over from <see cref="TxStartTone"/> unchanged.</summary>
+        private const int CountdownTransmitGapMs = 40;
+
+        /// <summary>
+        /// Build a countdown: three counting dits, then a landing that names
+        /// what is being counted down to.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The shipping earcons and the audio bench both come through
+        /// here</b>, so a set of timings auditioned on the bench is the set
+        /// that ships — retuning by ear cannot land on numbers the real sound
+        /// does not use.
+        /// </para>
+        /// <para>
+        /// <b>Every pitch is derived from <paramref name="countHz"/> so the
+        /// intervals survive transposition.</b> The record landing is the
+        /// octave (2x). The transmit landing is the same rising pair
+        /// <see cref="TxStartTone"/> uses, which at the default count sits at
+        /// 400 and 800 — a fourth up, then the octave above that. Moving the
+        /// count moves the whole figure and keeps it recognisable; hard-coding
+        /// the landings would break the relationship the moment anyone
+        /// transposed to dodge a sidetone collision.
+        /// </para>
+        /// </remarks>
+        /// <param name="transmit">true for the transmit landing, false for the
+        /// record landing.</param>
+        internal static (int freq, int ms)[] CountdownSteps(
+            bool transmit,
+            int countHz = CountdownCountHz,
+            int stepMs = CountdownStepMs,
+            int landingMs = CountdownLandingMs)
+        {
+            countHz = Math.Max(countHz, 1);
+            stepMs = Math.Max(stepMs, 1);
+            landingMs = Math.Max(landingMs, 1);
+
+            var count = new[] { (countHz, stepMs), (countHz, stepMs), (countHz, stepMs) };
+
+            if (!transmit)
+                return new[] { count[0], count[1], count[2], (countHz * 2, landingMs) };
+
+            return new[]
+            {
+                count[0], count[1], count[2],
+                (countHz * 4 / 3, landingMs * 2 / 7),
+                (0, CountdownTransmitGapMs),
+                (countHz * 8 / 3, landingMs * 6 / 7),
+            };
+        }
+
+        /// <summary>
+        /// Countdown into a stage that RECORDS you — the microphone check.
+        /// Three dits, then the octave up: start talking.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The landing is 600 Hz held for 700 ms. It rings because the step is
+        /// long, NOT because of a fade tail — <c>VoicedTailMs</c> is 15 ms of
+        /// click suppression and was never a ring.
+        /// </para>
+        /// <para>
+        /// <b>Measure the noise floor BEFORE this fires, in genuine silence,
+        /// and open the speech capture AFTER it.</b> A 700 ms ring landing
+        /// inside a noise-floor sample makes a quiet shack read as a noisy
+        /// one; a capture opened too early clips the first half-second of the
+        /// operator instead. Two windows, two purposes.
+        /// </para>
+        /// <para>
+        /// <b>Minor pitch collision, known and accepted.</b> CW sidetone
+        /// defaults to 700 Hz and is settable 400–1200, so an operator running
+        /// 600 hears a landing in the same place as a dit. It is a different
+        /// timbre and ten times the length, and it only fires inside a check
+        /// the operator started.
+        /// </para>
+        /// </remarks>
+        [Earcon("Countdown to record", EarconCategory.Transmit, Order = 4,
+            Description = "Three tones then a higher one. Start talking on the last tone.")]
+        public static void CountdownRecordTone()
+        {
+            if (!Gate(EarconCategory.Transmit)) return;
+            PlayVoicedDecaySequence(CountdownVoice, CountdownSteps(transmit: false), VolumeStrong);
+        }
+
+        /// <summary>
+        /// Countdown into a stage that TRANSMITS. Three dits, then the transmit
+        /// start figure drawn out slow: RF is about to happen.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The landing is <see cref="TxStartTone"/> stretched</b> — the same
+        /// 400-then-800 rising pair, at 200 and 600 ms instead of 50 and 50.
+        /// Same figure at two speeds: slow means "now beginning", and the
+        /// familiar quick one means "you are on". An operator learns one shape
+        /// and reads both.
+        /// </para>
+        /// <para>
+        /// <b>Do not play this AND <see cref="TxStartTone"/>.</b> The stretched
+        /// version fires on MOX confirmation and IS the confirmation. Nothing
+        /// sounds twice.
+        /// </para>
+        /// <para>
+        /// <b>It deliberately does NOT land on the PTT warning family.</b>
+        /// <see cref="Warning1Beep"/>, <see cref="Warning2Beep"/> and
+        /// <see cref="OhCrapBeep"/> mean "you have been keyed too long" — a
+        /// STOP message. Landing there would say "stop" at the instant
+        /// transmit begins.
+        /// </para>
+        /// <para>
+        /// <b>Count UNKEYED, key on the third tone, and let the landing fall
+        /// on MOX confirmation.</b> Prepending the count to an already-keyed
+        /// transmit burns about a second of dead air against the thermal
+        /// budget; firing the landing before confirmation would have the
+        /// operator talking into a transmitter that may never key. A radio
+        /// that never keys never gets a landing, and the gap between the third
+        /// dit and the landing is honest MOX latency.
+        /// </para>
+        /// </remarks>
+        [Earcon("Countdown to transmit", EarconCategory.Transmit, Order = 5,
+            Description = "Three tones then a slow rising pair. The radio is about to transmit.")]
+        public static void CountdownTransmitTone()
+        {
+            if (!Gate(EarconCategory.Transmit)) return;
+            PlayVoicedDecaySequence(CountdownVoice, CountdownSteps(transmit: true), VolumeStrong);
+        }
+
         // Connect-phase counting tones for the state-aware connecting modal.
         // Same pitch repeated 1 / 2 / 3 times so the user hears progress as a
         // count, not as a melody. Pitch chosen mid-band (750 Hz) and softer
@@ -1754,6 +1959,38 @@ namespace JJFlexWpf
         public static void PlayScratchpadChirp(int startHz, int endHz, int durationMs, float volume, float pan)
         {
             PlayChirpPanned(startHz, endHz, durationMs, volume, pan);
+        }
+
+        /// <summary>
+        /// Play a countdown at bench timings and report how long it lasts, so
+        /// the caller can schedule what follows it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Goes through <see cref="CountdownSteps"/> — the same builder the
+        /// shipping earcons use — so a set of timings settled here is a set
+        /// that can ship without being re-derived. That is the whole reason
+        /// this exists rather than the dialog assembling its own step list.
+        /// </para>
+        /// <para>
+        /// The returned duration is the sum of the steps and does NOT include
+        /// the 15 ms fade tail, which overlaps the following silence rather
+        /// than extending the sound.
+        /// </para>
+        /// </remarks>
+        /// <returns>Total length in milliseconds.</returns>
+        public static int PlayScratchpadCountdown(MeterVoice? voice, bool transmit,
+            int countHz, int stepMs, int landingMs, float volume, float pan)
+        {
+            var v = voice ?? CountdownVoice;
+            var steps = CountdownSteps(transmit, countHz,
+                Math.Clamp(stepMs, 20, 2000), Math.Clamp(landingMs, 20, 4000));
+
+            PlayVoicedDecaySequence(v, steps, volume, pan);
+
+            int total = 0;
+            foreach (var (_, ms) in steps) total += ms;
+            return total;
         }
 
         #endregion
