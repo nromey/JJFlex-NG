@@ -92,8 +92,12 @@ namespace Radios.Fixer
             sb.AppendLine("<head>");
             sb.AppendLine("<meta charset=\"utf-8\">");
             sb.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-            sb.Append("<title>JJ Flexible Fixer — ").Append(Esc(set.Name))
-              .Append(" — Test ").Append(Esc(run.RunId)).AppendLine("</title>");
+            // Named by the CHECK, not by a product noun (Noel, 2026-08-25).
+            // "Fixer" remains the internal name; the operator reads
+            // "Transmit checks", and a future receive set reads "Receive
+            // checks" with nothing to rename.
+            sb.Append("<title>").Append(Esc(set.Name))
+              .Append(" checks — Test ").Append(Esc(run.RunId)).AppendLine("</title>");
             sb.AppendLine("<style>").AppendLine(Css).AppendLine("</style>");
             sb.AppendLine("</head>");
             sb.AppendLine("<body>");
@@ -117,7 +121,7 @@ namespace Radios.Fixer
 
         private static void Header(StringBuilder sb, FixerRun run)
         {
-            sb.Append("<h1>JJ Flexible Fixer — ").Append(Esc(run.Set.Name)).AppendLine("</h1>");
+            sb.Append("<h1>").Append(Esc(run.Set.Name)).AppendLine(" checks</h1>");
 
             sb.Append("<p>Your test ID is <strong>").Append(Esc(run.RunId))
               .AppendLine("</strong>. Everything this run records carries it, so keep it with "

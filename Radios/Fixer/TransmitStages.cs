@@ -81,10 +81,28 @@ namespace Radios.Fixer
             }
             else if (facts.AudioArrived)
             {
-                answer = "Yes — sound from " + NameOr(facts.Device, "your microphone")
-                       + (facts.HostApi.Length > 0 ? ", on " + facts.HostApi : "")
-                       + ", is arriving in this computer. No radio was involved in this "
-                       + "check, so this stands on its own whatever happens later.";
+                // Sentence rebuilt whole rather than patched, and the host API
+                // goes through AudioSetupCheck.HostApiPhrase.
+                //
+                // Noel read this live on 2026-08-25 and it said "on Windows
+                // WASAPI" — the bare-acronym form he had already corrected
+                // TWICE that same day, in stage 0. HostApiPhrase exists
+                // precisely so the correction has one home; this site simply
+                // never called it. That is the S-meter shape again: the fault
+                // is never one wrong line, it is N independent copies that
+                // happen to be right.
+                //
+                // Note the subject changed. Stage 0 says "You are recording
+                // from X using the Y audio subsystem" — there the operator is
+                // doing the using. Here the subject is the sound, and sound
+                // does not USE a subsystem, it comes THROUGH one.
+                answer = "Yes — sound is arriving in this computer from "
+                       + NameOr(facts.Device, "your microphone")
+                       + (facts.HostApi.Length > 0
+                            ? ", through " + AudioSetupCheck.HostApiPhrase(facts.HostApi)
+                            : "")
+                       + ". No radio was involved in this check, so this stands "
+                       + "on its own whatever happens later.";
             }
             else
             {

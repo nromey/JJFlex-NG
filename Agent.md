@@ -9,6 +9,153 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-25 — SECOND SEAL — THE NIGHT THE OPERATOR USED IT
+
+**This is the SECOND seal on 2026-08-25.** The first (below, "the day the tone
+stopped galloping") covered the overnight session and sealed at 02:38. This one
+covers **02:38 to 21:40**, and the delta is measured from **`e59191d0`**, not
+from midnight.
+
+**52 commits, `e59191d0..HEAD` (f64006d7). 85 files, +16,343 / -501.**
+Rigmeter since midnight, spanning BOTH seals: 63 commits, 100 files,
++19,225 / -525, net **+18,700** — about 5.6% of the authored codebase in a day.
+
+### The headline: the Fixer Tool met an operator, and lost
+
+Noel used the Fixer as an *operator* rather than an author — blind, at speed,
+with a real question, against Don's remote 6300 and then his own 8600.
+**Fifteen findings in one evening. Don's radio was never keyed.**
+
+**Almost none of it was broken code.** Every button worked; the wire contract
+written that morning held; the analyzers returned correct verdicts; the gate
+refused to transmit without a declaration. What failed was **composition and
+absence** — a heading that was not there, a next step that did not exist, a
+helper that existed and was not called, a sentence already written and never
+spoken.
+
+The sharpest: **skipping a stage that already passed destroys the measurement**
+(#249), and on the transmit stages that measurement was paid for with RF.
+`SkipControls` takes the stage, not the result, so it renders in every state;
+`SkipStage` never checks status; `Record` is a dictionary assignment.
+
+**Five times a piece of machinery existed and the next author built beside it**
+— `HostApiPhrase`, the `speakNow`/`speakDone` pair, the `Sequence`/`RunId`
+resume semantics, tune power read but never displayed, `JJTrace/SessionArchive`.
+Every pair in **disjoint files**, so no orchestrator watching file assignments
+could have caught them. Noel: *"All these were made by various Phil's."*
+**That is now CLAUDE.md Phase 4 step 4-bis, the integration pass.**
+
+### The capture: four radio-list bugs became two causes
+
+A deliberate capture later in the evening turned Track C inside out.
+
+- **The app fabricates offline events.** We tore down a SmartLink session and
+  670 ms later it said *"6300inshack went offline."* It had not.
+- **Noel heard none of it.** Six utterances fired in under 700 ms from two
+  threads for one keypress; an `interrupt=True` from `[T36:SmartLink]` flushed
+  three queued `[T2]` messages three milliseconds after they were queued. **#197
+  caught live: the transcript proves emission, not hearing.**
+- **One SmartLink session at a time.** `CycleWanSession: disconnecting session
+  533bbff20b92 for a fresh radio list` — so with three saved accounts, two
+  thirds of the roster is always guessing, and touching any row from another
+  account invalidates what you just learned. That is why Don's radio read
+  "offline, last seen six days ago" on the first connect of the day.
+- **But presence IS available and we discard it** — one session, four
+  `radio list received` pushes over 145 seconds. → **#259, Track K.**
+- **#203 confirmed real** on a clean roster, and it is a *consequence* of stale
+  presence rather than an independent bug.
+- **The phantom row:** serial `2222` with Don's nickname, which is what the
+  duplicate actually was. Not a merge failure — **nothing validates that a
+  serial is a serial.** Origin predates every trace we hold; narrowed to the
+  `RadioConfig` path, since it never appeared in the connection cache.
+
+### A public repository, and 70,124 lines of internal planning in it
+
+**`nromey/JJFlex-NG` is PUBLIC** — verified, `"visibility":"PUBLIC"`.
+`docs/planning` is 70,124 lines across 232 files naming testers, saying where
+Don's radio physically lives, carrying personal and medical context.
+
+CLAUDE.md step 4b **already** put the AAR in JJFlex-private for exactly this
+reason. The rule was written correctly, applied to one file, and never
+generalised.
+
+**Ruled by Noel and codified tonight in CLAUDE.md Phase 1 step 2: planning
+documents go to JJFlex-private, not the repo.** History is not retractable and
+that is accepted. **Three documents written today were still untracked and were
+moved before the seal commit — they never entered public history.** #260 moves
+the remaining 70K.
+
+### Sprint 35 planned — twelve tracks, nothing spawned
+
+`JJFlex-private/planning/agile/sprint35-elmer-splatter-cobbler.md`. Two opposite
+rulings, and the discriminator is where the CAUSE lives: **do not split the
+Fixer surface** (its bugs are seams between correct components), **do split the
+radio list** (its bugs are symptoms whose causes live in other people's files).
+Tracks K (SmartLink presence) and L (speech queue) are new.
+
+**Model tiers corrected by Noel: Fable above Opus above Sonnet.** This
+orchestrator window runs Opus deliberately and delegates to Fable. Now in
+CLAUDE.md Phase 3 and `memory/project_model_tiers_and_delegation.md`.
+
+### Shipped tonight
+
+- **The tool is renamed by what it checks, not by a product noun.** Eight
+  user-facing sites; five derive from `run.Set.Name`, so a future receive set
+  reads "Receive checks" with nothing to rename. Internals stay `Fixer`. Both
+  projects build clean, 867 tests pass.
+- **Stage 1's host-API prose** routed through `HostApiPhrase` — the helper built
+  that morning to give the correction one home, which stage 1 never called.
+
+### Ten tasks closed as already shipped
+
+#228, #113, #142, #120, #127, #145, #119, #202, #205, #229, #109 — every one
+still marked pending while the code had shipped, some weeks earlier. Found by
+three Fable backlog sweeps. **#109 and #229 need a press and an export on a real
+build before they are truly proven** (PRESS THE KEY) — both go in the test
+matrix.
+
+### Don
+
+**Don reports no key-map problem.** His build is `4.1.16.1467`, published today
+13:06, which contains `RepairSlippedKeyMap` *and* the 2026-08-24 fix for the
+shift direction being backwards. The repair runs before `SetValues`, so his file
+was corrected before anything was applied. **That is the only real-user
+confirmation #209's repair works** — and it means Track E's #209 is
+implementation-complete, needing verification rather than build work.
+
+### Cross-surface activity
+
+- **JJFlex-NG:** 63 commits today, 51 unpushed before this seal.
+- **rigmeter:** 2 commits today — tokei is dead upstream (no release binaries
+  since 2023-03-27), so comment counting went native. Historical snapshots read
+  0 comment lines because the scanner landed *today*; that is absence of
+  measurement, not absence of comments.
+- **Freight Fate:** idle, 16 unpushed. **Civ VI Access:** idle, 45 unpushed.
+  Both unchanged; pushing is Noel's call.
+- **Worktrees:** no activity. **All 11 Sprint 33 and 6 Sprint 34 worktrees are
+  still mounted** — Phase 5 cleanup never ran on either sprint. Two stale agent
+  worktrees removed; **eight refused because they hold uncommitted SOURCE**
+  (7, 17 and 6 modified files in the three sampled) and were NOT forced.
+- **Memory:** 22 entries touched today, 15 after the first seal. New tonight:
+  `project_model_tiers_and_delegation.md`. Updated:
+  `project_8600_unbox_firmware_trigger.md` (a dummy load is ALWAYS on the bench
+  8600's port — asked twice, now recorded).
+- **task-register.md regenerated:** 252 tasks, 117 open, 135 closed. It had been
+  30+ behind despite a same-day stamp.
+
+### Rigmeter snapshot — end of 2026-08-25
+
+Authored **1,304 files, 334,157 lines**, 2.01M words. Vendor 189 files, 55,743
+lines. Combined 389,900. Docs-to-code 0.40. Largest: docs 84,453 · JJFlexWpf
+82,373 · Radios 55,952 · main_app 40,362 · tools 18,948.
+NAS: `historical/stats/2026-08-25-f64006d7.json`.
+
+### Setup for tomorrow
+
+Finish nothing — the plan is read and concurred. **Spawn twelve tracks, merge,
+then run Track F's integration pass against that merge.** Then #260, the
+planning move. Eight worktrees still need the ancestor check before forcing.
+
 ## END-OF-DAY SEAL — 2026-08-25 — THE DAY THE TONE STOPPED GALLOPING
 
 Session ran 2026-08-24 evening through 2026-08-25 02:40, sealed under the new

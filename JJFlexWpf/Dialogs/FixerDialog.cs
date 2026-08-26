@@ -163,12 +163,18 @@ public sealed class FixerDialog : JJFlexDialog
         _run = new FixerRun(TransmitStageSet.Build(hosts));
         _gate.BeginRun(_run.RunId);
 
-        Title = "JJ Flexible Fixer Tool";
+        // NAMED BY THE CHECK, NOT BY THE TOOL. Noel, 2026-08-25: the operator
+        // came for a transmit check, not for a product noun, and the menu
+        // already says it that way (Tools > Fix > Transmit problems). Derived
+        // from the stage set so a future receive set reads "Receive checks"
+        // with nothing to rename. "Fixer" stays as the internal name — same
+        // split as jjflexible.exe over the JJFlexRadio internals.
+        Title = _run.Set.Name + " checks — JJ Flexible";
         Width = 780;
         Height = 640;
         ResizeMode = ResizeMode.CanResize;
 
-        AutomationProperties.SetName(_web, "Fixer Tool");
+        AutomationProperties.SetName(_web, _run.Set.Name + " checks");
         Content = _web;
 
         Loaded += OnLoaded;
@@ -303,10 +309,10 @@ public sealed class FixerDialog : JJFlexDialog
     {
         if (!HtmlInfoDialog.IsAvailable)
         {
-            AdvisoryDialog.Show("JJ Flexible Fixer Tool",
-                "The Fixer Tool needs the Microsoft Edge WebView2 runtime, which is not "
-                + "installed on this computer. Everything it would have checked can still "
-                + "be reached from the Audio Workshop and from Diagnostics.");
+            AdvisoryDialog.Show("Transmit checks — JJ Flexible",
+                "The transmit checks need the Microsoft Edge WebView2 runtime, which is "
+                + "not installed on this computer. Everything they would have checked can "
+                + "still be reached from the Audio Workshop and from Diagnostics.");
             return;
         }
 
@@ -670,7 +676,7 @@ document.addEventListener('keydown', function (e) {
     private bool AskAbandon(string question)
     {
         string q = question.Length > 0 ? question : "Do you want to stop the test?";
-        return MessageBox.Show(this, q, "JJ Flexible Fixer Tool",
+        return MessageBox.Show(this, q, _run.Set.Name + " checks — JJ Flexible",
                                MessageBoxButton.YesNo, MessageBoxImage.Question)
                == MessageBoxResult.Yes;
     }
