@@ -275,7 +275,7 @@ Detection: Use `theRadio.Model`, `theRadio.DiversityIsAllowed`, `theRadio.MaxSli
 |------|-------------|
 | `MIGRATION.md` | FlexLib upgrade guide, TLS wrapper notes |
 | `docs/CHANGELOG.md` | Version history |
-| `JJFlex-privateplanning` | Product vision, design proposals, sprint plans — **PRIVATE, not in this repo** (2026-08-25) |
+| `C:/dev/jjf-private/planning/` | Product vision, design proposals, sprint plans — **PRIVATE, not in this repo** (2026-08-25) |
 | `Agent.md` | Recent work summary (session context) |
 
 ## Releases
@@ -514,7 +514,7 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
 
 3c-bis. **Task register check:** run
    `& "C:\dev\JJFlex-NG\export-task-register.ps1"` to regenerate
-   `JJFlex-privateplanningctive	ask-register.md`, or `-Check` to verify it without
+   `C:/dev/jjf-private/planning/active/task-register.md`, or `-Check` to verify it without
    writing. Seconds, and it is the only thing keeping the backlog readable by a
    session that did not create it — the task store lives under the user profile,
    is not in git, and vanishes with the terminal.
@@ -948,8 +948,8 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
 4. **Final cleanup phase** (sprint-specific: delete dead code, update docs, etc.)
 5. **Clean build** both x64 and x86, verify installers
 6. **Update Agent.md** with sprint completion status
-7. **Archive sprint plan** to `JJFlex-privateplanninggilerchive`
-8. **Create test matrix** at `JJFlex-privateplanninggilesprintN-test-matrix.md`
+7. **Archive sprint plan** to `C:/dev/jjf-private/planning/agile/archive/`
+8. **Create test matrix** at `C:/dev/jjf-private/planning/agile/sprintN-test-matrix.md`
 9. **Keyboard audit** (required if the sprint touched any key bindings — see below)
 
 #### Keyboard Audit — Definition of Done for key-map changes
@@ -1058,7 +1058,7 @@ clean `git merge` is not evidence that the result compiles.
 Plan files are named with three random ham-radio-flavored words, e.g. `barefoot-qrm-trap`. Use ham radio terms (QRM, QSO, ragchew, barefoot, rig, shack, pileup, splatter, etc.) mixed with random fun words. Keep it lighthearted — this is a ham radio project!
 
 ### Test Matrices
-Create a separate test matrix file for each sprint: `JJFlex-privateplanninggilesprintN-test-matrix.md`. This keeps the test checklist accessible during testing without having to dig through the full sprint plan. Include per-track functional tests, integration tests, and a screen reader matrix (JAWS + NVDA). Archive alongside the sprint plan when done.
+Create a separate test matrix file for each sprint: `C:/dev/jjf-private/planning/agile/sprintN-test-matrix.md`. This keeps the test checklist accessible during testing without having to dig through the full sprint plan. Include per-track functional tests, integration tests, and a screen reader matrix (JAWS + NVDA). Archive alongside the sprint plan when done.
 
 ### Resuming Work
 If a session ends mid-task, tell Claude: "Resume [phase/task name] from `docs/barefoot-qrm-trap.md`"
