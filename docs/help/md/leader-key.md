@@ -59,6 +59,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 
 | Key | Action |
 |-----|--------|
+| O | Say what is still running and what it is costing — recording, captures, meter tones. O for "what's on" |
 | L | Speak log statistics |
 | M | Display Flex memory list |
 | Shift+A through Shift+H | Jump straight to that slice from anywhere (Shift+F is reserved for the RX filter readout) |
