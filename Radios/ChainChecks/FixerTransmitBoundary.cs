@@ -85,7 +85,11 @@ namespace Radios.ChainChecks
                 // here the only open questions are about the station.
                 FixerTransmitGate.Decision d = gate.Request(
                     gate.RunId, stageId, stageTransmits: true,
-                    radioReachable: reachable, rigIsKeyed: keyed);
+                    radioReachable: reachable, rigIsKeyed: keyed,
+                    // The power THIS transmit would use: the tune probe keys
+                    // the radio's tune carrier, so tune power is the number
+                    // the low-power ceiling judges (#180).
+                    transmitPowerWatts: ReadTransmitPowerWatts(rig, tuneCarrier: true));
 
                 if (!d.Allowed)
                 {
@@ -160,6 +164,21 @@ namespace Radios.ChainChecks
             // would have been fine costs a retry, and stacking one on top of a
             // transmit already running does not.
             try { return rig.Transmit || rig.TxTune; } catch { return true; }
+        }
+
+        /// <summary>
+        /// The power the next transmit would use, for the gate's low-power
+        /// ceiling (#180): tune power for a tune carrier, transmit power for
+        /// everything else. Returns -1 when it cannot be read — NEVER 0,
+        /// because a failure that reads as "zero watts" would sail under the
+        /// ceiling, and fail-open is the one direction this reader must not
+        /// fail in.
+        /// </summary>
+        internal static int ReadTransmitPowerWatts(FlexBase rig, bool tuneCarrier)
+        {
+            if (rig == null) return -1;
+            try { return tuneCarrier ? rig.TunePower : rig.XmitPower; }
+            catch { return -1; }
         }
     }
 }

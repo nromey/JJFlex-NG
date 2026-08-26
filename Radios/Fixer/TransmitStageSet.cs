@@ -45,14 +45,36 @@ namespace Radios.Fixer
         // records it once; it is never carried on a stage request, and every
         // new run asks afresh because the station may have been re-cabled.
         //
-        // There is deliberately NO "I'm not sure" choice: any declared answer
-        // opens the transmit gate, and "not sure" is precisely the state in
-        // which it must stay shut. Not answering IS the not-sure answer, and
-        // the gate's refusal text tells the operator so at the point they try
-        // to run something that transmits.
+        // FOUR answers since Sprint 35 (#244) — the operator answering "what
+        // is on the socket" is stating what, which port, and what power is
+        // acceptable, and two of the three used to be thrown away. "Nothing,
+        // or I am not sure" REPLACED the earlier design's deliberate absence
+        // of a not-sure choice: picking it keeps the gate shut exactly as not
+        // answering did, but the operator who picks it has TOLD us something
+        // and now gets an explicit refusal instead of a silent wait. The
+        // gate, not this file, owns what each kind permits.
         public const string LoadDeclaration = "antenna-load";
         public const string LoadDummy = "dummy-load";
         public const string LoadAntenna = "antenna";
+        public const string LoadAmplifier = "amplifier";
+        public const string LoadNothingUnsure = "nothing-unsure";
+
+        /// <summary>
+        /// Map a load choice id from the wire to what it means to the gate.
+        /// An unknown or missing id maps to
+        /// <see cref="FixerLoadKind.NothingOrUnsure"/> — an answer the gate
+        /// cannot classify fails CLOSED, never open.
+        /// </summary>
+        public static FixerLoadKind LoadKindFromChoice(string choiceId)
+        {
+            switch ((choiceId ?? "").Trim().ToLowerInvariant())
+            {
+                case LoadDummy: return FixerLoadKind.DummyLoad;
+                case LoadAntenna: return FixerLoadKind.Antenna;
+                case LoadAmplifier: return FixerLoadKind.Amplifier;
+                default: return FixerLoadKind.NothingOrUnsure;
+            }
+        }
 
         // The hearing affirmation (#243) — asked INSIDE stage 0, because the
         // operator is an instrument and this is where the reading is taken.
@@ -402,15 +424,58 @@ namespace Radios.Fixer
                     new FixerRunDeclaration(
                         LoadDeclaration,
                         "What is the antenna socket connected to right now?",
-                        "Nothing transmits until you answer this question. If you are "
-                        + "not sure, leave it unanswered: the checks that transmit will "
-                        + "wait, and everything else still runs.",
+                        "Nothing transmits until you answer this question. Into a real "
+                        + "antenna, or through an amplifier, the checks that transmit "
+                        + "keep the power at "
+                        + FixerTransmitGate.LowPowerCeilingWatts
+                          .ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        + " watts or less. Answering that nothing is connected, or that "
+                        + "you are not sure, keeps them parked — everything else still "
+                        + "runs.",
                         new[]
                         {
                             new FixerDeclarationChoice(LoadDummy, "A dummy load"),
                             new FixerDeclarationChoice(LoadAntenna,
-                                "An antenna, and transmitting a short test into it is fine"),
-                        }),
+                                "An antenna, and transmitting a short low-power test "
+                                + "into it is fine"),
+                            // Not a nicety: an amplifier in the path means every
+                            // reading describes the amplifier's INPUT (#223), and
+                            // a measurement labelled "antenna" through one is
+                            // wrong in the report Flex eventually reads.
+                            new FixerDeclarationChoice(LoadAmplifier,
+                                "An amplifier — the radio feeds it before anything "
+                                + "reaches an antenna or a load"),
+                            new FixerDeclarationChoice(LoadNothingUnsure,
+                                "Nothing, or I am not sure"),
+                        })
+                    {
+                        // The question names the PORT from the radio rather
+                        // than asking the operator to know it (#244) — which
+                        // also surfaces a wrong TX antenna before it costs
+                        // anything (#205's failure mode). And for a remote
+                        // radio it says out loud that it is asking about a
+                        // station the operator is not at (#247): naming the
+                        // distance is what makes a person stop and think.
+                        QuestionNow = () =>
+                        {
+                            StationNow s = Station();
+                            string port = s?.AntennaPort ?? "";
+                            bool remote = s?.RemoteRadio == true;
+
+                            if (remote)
+                                return port.Length > 0
+                                    ? "You are connected remotely. The radio will transmit "
+                                      + "on " + port + " — what is connected to " + port
+                                      + " at that station right now?"
+                                    : "You are connected remotely. What is connected to "
+                                      + "the antenna port at that station right now?";
+
+                            return port.Length > 0
+                                ? "The radio will transmit on " + port
+                                  + ". What is connected to " + port + " right now?"
+                                : "";   // fall back to the static question
+                        },
+                    },
                 });
         }
 

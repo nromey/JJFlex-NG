@@ -125,8 +125,11 @@ public sealed class FixerDialog : JJFlexDialog
 
             // WIRED. What the operator said the antenna socket is connected to.
             // Read from the gate rather than from our own copy, so the value in
-            // the report and the value that opened the gate cannot differ.
-            ReadLoadDeclaration = () => _gate.LoadDeclaration,
+            // the report and the value that opened the gate cannot differ. The
+            // report form carries the remote provenance (#247), because a Flex
+            // support reader weights a declaration made over a remote session
+            // differently from one made in the room.
+            ReadLoadDeclaration = () => _gate.LoadDeclarationForReport,
 
             // WIRED. The live facts for "what pressing Run will do" — tune
             // power, RF power, TX antenna port, remoteness (#250). Read fresh
@@ -534,10 +537,18 @@ document.addEventListener('keydown', function (e) {
 
             case FixerPageMessage.Kind.DeclareLoad:
                 // Recorded ONCE, by the gate. Our copy is only for redrawing the
-                // page; the gate's copy is the one that decides anything.
-                _gate.DeclareLoad(m.Value);
+                // page; the gate's copy is the one that decides anything. The
+                // choice id maps to a load KIND — an unknown id fails closed —
+                // and remoteness is read from the radio at the moment of
+                // declaration, so the report can weight a declaration made a
+                // thousand miles from the socket (#244, #247).
+                _gate.DeclareLoad(m.Value,
+                                  TransmitStageSet.LoadKindFromChoice(m.Choice),
+                                  declaredRemotely: RigIsRemote());
                 _declarations[TransmitStageSet.LoadDeclaration] = m.Value;
-                Tracing.TraceLine("FixerDialog: load declared as \"" + m.Value + "\"",
+                Tracing.TraceLine("FixerDialog: load declared as \"" + m.Value + "\" ("
+                                  + _gate.LoadKind
+                                  + (_gate.LoadDeclaredRemotely ? ", remote" : "") + ")",
                                   TraceLevel.Info);
                 Render();
                 return;
@@ -772,6 +783,16 @@ document.addEventListener('keydown', function (e) {
         }
 
         _gate.NoteUnkeyed();
+    }
+
+    /// <summary>
+    /// Is this a remote session, at the moment of asking? False when nothing
+    /// can be read — claiming "remote" without evidence would be invention,
+    /// and the flag only ever ADDS a caveat to the report.
+    /// </summary>
+    private bool RigIsRemote()
+    {
+        try { return _radio()?.RemoteRig == true; } catch { return false; }
     }
 
     private bool RigIsKeyed()

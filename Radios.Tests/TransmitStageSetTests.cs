@@ -119,19 +119,63 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_load_declaration_is_asked_per_run_and_has_no_not_sure_answer()
+        public void The_load_declaration_asks_all_four_answers_and_not_sure_fails_closed()
         {
+            // #244: four answers, because the earlier binary threw away two
+            // of the three facts the operator was stating. "Nothing, or I am
+            // not sure" EXISTS as a choice now — the operator who picks it
+            // has told us something and gets an explicit refusal — and it
+            // maps to the kind that keeps the gate shut. So does any choice
+            // id the mapper has never heard of: unknown fails closed.
             FixerStageSet set = TransmitStageSet.Build(new TransmitStageSet.Hosts());
             FixerRunDeclaration decl = Assert.Single(set.RunDeclarations);
 
             Assert.Equal(TransmitStageSet.LoadDeclaration, decl.Id);
             Assert.EndsWith("?", decl.Question);
+            Assert.Equal(4, decl.Choices.Count);
 
-            // Any declared answer OPENS the transmit gate, so "I'm not sure"
-            // must not exist as a declarable choice — not answering IS the
-            // not-sure answer, and it keeps the gate shut.
-            Assert.All(decl.Choices, c =>
-                Assert.DoesNotContain("not sure", c.Label, StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(FixerLoadKind.DummyLoad,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadDummy));
+            Assert.Equal(FixerLoadKind.Antenna,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadAntenna));
+            Assert.Equal(FixerLoadKind.Amplifier,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadAmplifier));
+            Assert.Equal(FixerLoadKind.NothingOrUnsure,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadNothingUnsure));
+            Assert.Equal(FixerLoadKind.NothingOrUnsure,
+                TransmitStageSet.LoadKindFromChoice("never-heard-of-it"));
+            Assert.Equal(FixerLoadKind.NothingOrUnsure,
+                TransmitStageSet.LoadKindFromChoice(null));
+        }
+
+        [Fact]
+        public void The_declaration_question_names_the_port_and_the_distance()
+        {
+            // #244: the radio already knows its TX antenna, so the question
+            // states it instead of asking the operator to know it. #247: for
+            // a remote radio the question says out loud that it is about a
+            // station the operator is not at.
+            var local = TransmitStageSet.Build(new TransmitStageSet.Hosts
+            {
+                ReadStation = () => new TransmitStageSet.StationNow { AntennaPort = "ANT1" },
+            }).RunDeclarations[0].QuestionNow();
+            Assert.Contains("The radio will transmit on ANT1", local);
+            Assert.Contains("What is connected to ANT1", local);
+
+            var remote = TransmitStageSet.Build(new TransmitStageSet.Hosts
+            {
+                ReadStation = () => new TransmitStageSet.StationNow
+                { AntennaPort = "ANT2", RemoteRadio = true },
+            }).RunDeclarations[0].QuestionNow();
+            Assert.Contains("You are connected remotely", remote);
+            Assert.Contains("at that station", remote);
+            Assert.Contains("ANT2", remote);
+
+            // No station to read: the live question stands down and the
+            // page falls back to the static one.
+            var unknown = TransmitStageSet.Build(new TransmitStageSet.Hosts())
+                .RunDeclarations[0].QuestionNow();
+            Assert.Equal("", unknown);
         }
 
         [Fact]

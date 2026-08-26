@@ -27,7 +27,7 @@ namespace Radios.Tests
         {
             var g = new FixerTransmitGate();
             g.BeginRun(Run);
-            g.DeclareLoad("50 ohm dummy load on ANT1");
+            g.DeclareLoad("50 ohm dummy load on ANT1", FixerLoadKind.DummyLoad);
             return g;
         }
 

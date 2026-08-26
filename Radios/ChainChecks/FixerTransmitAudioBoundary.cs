@@ -197,11 +197,14 @@ namespace Radios.ChainChecks
             facts.ConditioningActive = TxDifferentialCapture.ConditioningActive(rig);
 
             // Facts the gate is not allowed to take on trust, read from the
-            // radio itself.
+            // radio itself. This stage keys MOX, so the transmit power — not
+            // tune power — is what the low-power ceiling judges (#180).
             FixerTransmitGate.Decision d = _gate.Request(
                 _gate.RunId, stageId, stageTransmits: true,
                 radioReachable: rig != null,
-                rigIsKeyed: FixerTransmitBoundary.ReadKeyed(rig));
+                rigIsKeyed: FixerTransmitBoundary.ReadKeyed(rig),
+                transmitPowerWatts: FixerTransmitBoundary.ReadTransmitPowerWatts(
+                    rig, tuneCarrier: false));
 
             if (!d.Allowed)
             {
@@ -430,7 +433,9 @@ namespace Radios.ChainChecks
             FixerTransmitGate.Decision d = _gate.Request(
                 _gate.RunId, stageId, stageTransmits: true,
                 radioReachable: rig != null,
-                rigIsKeyed: FixerTransmitBoundary.ReadKeyed(rig));
+                rigIsKeyed: FixerTransmitBoundary.ReadKeyed(rig),
+                transmitPowerWatts: FixerTransmitBoundary.ReadTransmitPowerWatts(
+                    rig, tuneCarrier: false));
 
             if (!d.Allowed)
             {
