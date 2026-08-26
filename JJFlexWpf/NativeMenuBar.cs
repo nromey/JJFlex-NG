@@ -1859,6 +1859,14 @@ public class NativeMenuBar : IDisposable
             // it. It can legitimately come back null; JJFlexDialog owns itself
             // to the main window in that case.
             Dialogs.FixerDialog.Show(() => Rig, System.Windows.Window.GetWindow(_window)));
+        // Sprint 35 Track B — check runs persist as they happen (#251), so the
+        // Test ID on a report is quotable against a saved copy. This is the
+        // door to those copies: view, export, delete. It sits inside Fix
+        // because a saved run is a Fix artifact, and the submenu is already
+        // ruled to grow.
+        AddWired(fixSub, "Saved check runs...", () =>
+            Dialogs.FixerPastRunsDialog.Show(() => Rig,
+                System.Windows.Window.GetWindow(_window)));
 
         // RENAMED from "Diagnostics" 2026-08-25, and the rename is the point.
         // This item does not diagnose anything — it deep-links to the settings
