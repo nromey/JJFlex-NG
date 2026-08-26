@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using Flex.Smoothlake.FlexLib;
+using JJTrace;
 using NAudio.Wave.SampleProviders;
 using Radios;
 
@@ -234,6 +235,45 @@ namespace JJFlexWpf
         private const long AlcSustainedThresholdTicks = TimeSpan.TicksPerSecond * 3;
         private const float AlcWarningThreshold = 0.5f;
         private const float AlcCriticalThreshold = 0.8f;
+
+        // Transmit-drive watcher state, kept separate from the amplifier-ALC
+        // state above on purpose. They watch different meters for different
+        // faults, and one masking the other with a shared cooldown is how a
+        // safety alert goes quiet without anybody noticing. See the remarks on
+        // DriveWatcherMeterName.
+        private static long _lastDriveWarningTicks;
+        private static long _driveHighStartTicks;
+        private static bool _driveSustainedWarning;
+        private static long _driveCriticalStartTicks;
+        private static bool _driveSeenThisTransmit;
+        private static bool _driveMissingReported;
+
+        // Sustained for a full second before a critical alert. A syllable does
+        // not last a second, so this separates real overdrive from the peaks
+        // SSB is supposed to produce.
+        private const long DriveCriticalSustainedTicks = TimeSpan.TicksPerSecond * 1;
+
+        /// <summary>
+        /// dBFS above which transmit drive is high enough to warn about, after
+        /// three seconds sustained.
+        /// </summary>
+        /// <remarks>
+        /// <b>Zero is not a chosen number.</b> The SW ALC meter is dBFS with a
+        /// declared range of -150 to +20, so 0 is the meter's own full scale —
+        /// the point it exists to define. Properly set transmit audio has its
+        /// peaks approach full scale; three seconds of sitting above it is not
+        /// a peak. That makes the trip point a property of the instrument
+        /// rather than a guess, which matters because every OTHER number in
+        /// this area was a guess and one of them was in the wrong units.
+        /// </remarks>
+        private const float DriveWarningThresholdDbfs = 0.0f;
+
+        /// <summary>
+        /// dBFS above which transmit drive is bad enough to interrupt for.
+        /// Three decibels over full scale is twice the power the meter says is
+        /// the maximum, which no correctly set transmitter reaches.
+        /// </summary>
+        private const float DriveCriticalThresholdDbfs = 3.0f;
 
         /// <summary>
         /// Initialize the engine and create the default tone slots.
@@ -542,11 +582,21 @@ namespace JJFlexWpf
         /// </para>
         /// <para>
         /// So for an operator with no amplifier connected — the default, and
-        /// Noel's bench — HWALC sits dead and this watcher can never fire. The
+        /// Noel's bench — HWALC sits dead and this watcher can never fire. That
+        /// is correct behaviour for an amplifier watcher with no amplifier
+        /// attached; what was wrong was that it was the ONLY watcher, while the
         /// control is labelled "Peak Watcher (ALC safety alerts)" and the
-        /// warnings speak as "ALC high" and "ALC warning", so an operator would
-        /// reasonably believe they are being guarded against overdriving their
-        /// transmitter. They are not being guarded against anything.
+        /// warnings speak as "ALC high" and "ALC warning" — so an operator
+        /// would reasonably believe they were being guarded against overdriving
+        /// their transmitter, and they were not being guarded against anything.
+        /// </para>
+        /// <para>
+        /// <b>That gap is now closed by a second watcher rather than by moving
+        /// this one</b> — see <see cref="DriveWatcherMeterName"/>. This constant
+        /// stays on HWALC. The two labels above still say only "ALC", which is
+        /// now the LESS specific of the two things the control governs; whether
+        /// they should say "amplifier ALC" is user-facing wording and belongs
+        /// to whoever owns that copy, not here.
         /// </para>
         /// <para>
         /// <b>The thresholds are in the wrong units as well.</b>
@@ -555,6 +605,13 @@ namespace JJFlexWpf
         /// zero-to-one fraction — and they are compared straight against a
         /// reading in decibels relative to full scale. Half a dB ABOVE full
         /// scale is not the trip point anybody chose.
+        /// <b>Still true, and deliberately not corrected here.</b> What voltage
+        /// on the amplifier's ALC line means "back off" has never been
+        /// measured, and this is a safety alert on a path that only exists once
+        /// an amplifier is attached — which is exactly the bench sitting where
+        /// it can be measured (#125). Moving the number from one guess to
+        /// another would trade a guard that fails silent for one that fails
+        /// wrong, and the wrong one is louder.
         /// </para>
         /// <para>
         /// <b>What must NOT happen is repointing this constant at ALC.</b>
@@ -565,6 +622,11 @@ namespace JJFlexWpf
         /// and it needs its own wording so an operator can tell which of the
         /// two just spoke. That is a design change with user-facing speech in
         /// it, so Track D reported it rather than making it.
+        /// <b>Built on 2026-08-26, exactly that way.</b> The sprint plan that
+        /// commissioned the work described the fix as flipping this constant;
+        /// this paragraph said not to, and this paragraph carried the operator's
+        /// own ruling and a date, so it won. Two watchers, one control, two
+        /// sentences.
         /// </para>
         /// <para>
         /// The same conflation HAD a second surface, and that one is fixed:
@@ -578,6 +640,52 @@ namespace JJFlexWpf
         /// </remarks>
         private const string PeakWatcherMeterName = "HWALC";
 
+        /// <summary>
+        /// The transmit-drive watcher's meter: the radio's own software ALC,
+        /// published plainly as <c>ALC</c>, source <c>TX-</c> index 0, dBFS,
+        /// range -150 to +20. This is the level of the audio actually being
+        /// transmitted.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>#139, and read the paragraph above before changing either
+        /// constant.</b> The finding was that the safety alert watched the
+        /// external amplifier's ALC jack, so an operator with no amplifier had
+        /// a warning that could never fire while being labelled and spoken as
+        /// though it guarded their transmit audio. A warning that cannot fire
+        /// is worse than no warning, because it is trusted, and nothing
+        /// distinguishes "watching and quiet" from "watching the wrong thing".
+        /// </para>
+        /// <para>
+        /// <b>The fix is NOT to repoint HWALC, and that is a ruling rather than
+        /// a preference.</b> Noel decided on 2026-08-11 that HWALC stays
+        /// surfaced as AMPLIFIER ALC, because older amplifiers without network
+        /// control genuinely use the RCA line for overdrive protection and
+        /// those operators need it. The transmit-drive guardrail is a SECOND
+        /// thing, not a replacement. So there are now two watchers, sharing one
+        /// operator control, speaking different sentences — which is what lets
+        /// an operator tell which of the two just spoke.
+        /// </para>
+        /// <para>
+        /// <b>What is proven and what is not.</b> Proven on the bench 8600,
+        /// 2026-08-11: the two are distinct meters, both present together in
+        /// the thirty-five-meter state that appears once a station client is
+        /// connected. NOT proven, and it is bench work: that this watcher
+        /// actually fires. That needs a keyed transmit into a dummy load with
+        /// the drive pushed up, and it is the one thing no amount of reading
+        /// settles. Until somebody has watched it speak, treat it as wired
+        /// rather than working.
+        /// </para>
+        /// <para>
+        /// <b>If the radio does not publish it, that is traced rather than
+        /// silent.</b> A transmit that ends without this meter having reported
+        /// once puts a warning in the log, because a guardrail whose meter
+        /// never arrives fails in exactly the same invisible way as the one
+        /// this replaces.
+        /// </para>
+        /// </remarks>
+        private const string DriveWatcherMeterName = "ALC";
+
         private static void OnMeterData(object sender, Meter meter, float value)
         {
             if (meter == null) return;
@@ -589,6 +697,16 @@ namespace JJFlexWpf
                 && string.Equals(meter.Name, PeakWatcherMeterName, StringComparison.OrdinalIgnoreCase))
             {
                 CheckPeakWatcher(value, now);
+            }
+
+            // The second watcher, on the meter that carries transmit drive.
+            // Same gate, same cooldown discipline, different meter and
+            // different sentence. See DriveWatcherMeterName.
+            if (_enabled && PeakWatcherEnabled && _rig != null && _rig.Transmit
+                && string.Equals(meter.Name, DriveWatcherMeterName, StringComparison.OrdinalIgnoreCase))
+            {
+                _driveSeenThisTransmit = true;
+                CheckDriveWatcher(value, now);
             }
 
             if (!_enabled || _rig == null) return;
@@ -637,6 +755,25 @@ namespace JJFlexWpf
             {
                 _alcHighStartTicks = 0;
                 _alcSustainedWarning = false;
+
+                _driveHighStartTicks = 0;
+                _driveCriticalStartTicks = 0;
+                _driveSustainedWarning = false;
+
+                // A guardrail whose meter never arrives is indistinguishable
+                // from one that is watching and content, which is the whole
+                // shape of #139. Say so once per session rather than per
+                // transmit — repeated every over it would be noise, and never
+                // saying it is how the first one hid for months.
+                if (PeakWatcherEnabled && !_driveSeenThisTransmit && !_driveMissingReported)
+                {
+                    _driveMissingReported = true;
+                    Tracing.TraceLine(
+                        "DriveWatcher: a transmit ended with no " + DriveWatcherMeterName
+                        + " meter reading, so the transmit-drive guard did not watch anything."
+                        + " The radio may not be publishing it.", TraceLevel.Warning);
+                }
+                _driveSeenThisTransmit = false;
             }
         }
 
@@ -738,6 +875,82 @@ namespace JJFlexWpf
                 // Below threshold — reset
                 _alcHighStartTicks = 0;
                 _alcSustainedWarning = false;
+            }
+        }
+
+        /// <summary>
+        /// The transmit-drive half of the Peak Watcher: the guard against
+        /// overdriving your own transmitter, as opposed to your amplifier
+        /// asking you to back off.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Both tiers require sustained time, and the amplifier watcher's
+        /// critical tier does not.</b> That difference is deliberate. HWALC
+        /// moving at all means an amplifier is actively pulling the radio back,
+        /// which is an event. Transmit drive touching full scale is what
+        /// correctly set SSB audio DOES on peaks, so an immediate critical
+        /// alert here would speak over the operator on every strong syllable
+        /// and be switched off within a day — which is the same outcome as a
+        /// warning that cannot fire, arrived at from the other side.
+        /// </para>
+        /// <para>
+        /// Every fire is traced. The bench session that confirms these
+        /// thresholds needs a record of what the meter was doing when the alert
+        /// spoke, and the trace is the only place that can come from.
+        /// </para>
+        /// </remarks>
+        private static void CheckDriveWatcher(float driveDbfs, long nowTicks)
+        {
+            if (nowTicks - _lastDriveWarningTicks < PeakCooldownTicks) return;
+
+            if (driveDbfs > DriveCriticalThresholdDbfs)
+            {
+                if (_driveCriticalStartTicks == 0)
+                {
+                    _driveCriticalStartTicks = nowTicks;
+                }
+                else if (nowTicks - _driveCriticalStartTicks > DriveCriticalSustainedTicks)
+                {
+                    _driveCriticalStartTicks = 0;
+                    _lastDriveWarningTicks = nowTicks;
+                    Tracing.TraceLine(
+                        "DriveWatcher: critical, " + DriveWatcherMeterName + " = "
+                        + driveDbfs.ToString("F1") + " dBFS", TraceLevel.Warning);
+                    try { EarconPlayer.Warning2Beep(); } catch { }
+                    if (SpeechEnabled)
+                        ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.drive_over_scale"),
+                                                 VerbosityLevel.Critical);
+                }
+                return;
+            }
+
+            _driveCriticalStartTicks = 0;
+
+            if (driveDbfs > DriveWarningThresholdDbfs)
+            {
+                if (_driveHighStartTicks == 0)
+                {
+                    _driveHighStartTicks = nowTicks;
+                }
+                else if (!_driveSustainedWarning &&
+                         nowTicks - _driveHighStartTicks > AlcSustainedThresholdTicks)
+                {
+                    _driveSustainedWarning = true;
+                    _lastDriveWarningTicks = nowTicks;
+                    Tracing.TraceLine(
+                        "DriveWatcher: warning, " + DriveWatcherMeterName + " = "
+                        + driveDbfs.ToString("F1") + " dBFS", TraceLevel.Info);
+                    try { EarconPlayer.Warning1Beep(); } catch { }
+                    if (SpeechEnabled)
+                        ScreenReaderOutput.Speak(Lexicon.Get("audio.meters.drive_high"),
+                                                 VerbosityLevel.Critical);
+                }
+            }
+            else
+            {
+                _driveHighStartTicks = 0;
+                _driveSustainedWarning = false;
             }
         }
 

@@ -61,9 +61,13 @@ Press `Ctrl+Shift+S` to hear the full radio status report, which includes the S-
 
 When you start a tune carrier (`Ctrl+Shift+T`), the meter tones automatically activate so you can hear your SWR and power levels while you are tuning. When you stop tuning, meter tones return to whatever state they were in before.
 
-## Peak Watcher
+## Transmit level alerts
 
-The Meters Panel includes a Peak Watcher that alerts you when ALC runs high. If ALC spikes above the safe zone, you will hear a warning earcon — a signal to back off the microphone gain or adjust your levels before you distort your signal.
+The Meters Panel can warn you while you are transmitting, so you hear a problem rather than having to watch for it.
+
+It watches your transmit drive. If the drive runs high, or past full scale, you hear a warning earcon — a signal to back off the microphone gain or your drive level before the signal distorts.
+
+If you have an amplifier wired to the radio's ALC jack, it also watches that line. That half only means anything with a cable actually connected to the jack, so it is of no use to a station without one.
 
 ## Where Meter Tones Really Shine
 

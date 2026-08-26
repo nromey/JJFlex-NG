@@ -66,6 +66,13 @@ namespace Radios.Tests
             f.Add(DiagnosticFact.Measure("rf-power-setting", "Transmit power setting", 100, "percent"));
             f.Add(DiagnosticFact.Flag("atu-tuning", "The antenna tuner is running a tune cycle", tuning));
             f.Add(DiagnosticFact.Flag("dummy-load", "Dummy load mode", false));
+            // The readings in this file came off ANT1 and ANT2 on 2026-08-22,
+            // and until #188 nothing recorded which. Stage 12 now asks, and a
+            // fixture that does not answer describes a radio whose transmit
+            // path could not be identified — see TransverterStageTests.
+            f.Add(DiagnosticFact.Text("tx-antenna", "Transmit antenna port", "ANT1"));
+            f.Add(DiagnosticFact.Text("rx-antenna", "Receive antenna port", "ANT1"));
+            f.Add(DiagnosticFact.Flag("transverter-path", "Transmitting through a transverter", false));
             return f;
         }
 

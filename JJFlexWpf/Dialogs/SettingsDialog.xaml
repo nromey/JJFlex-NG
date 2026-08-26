@@ -503,9 +503,9 @@
                                   AutomationProperties.Name="Meter tone preset"/>
                     </StackPanel>
                     <CheckBox x:Name="PeakWatcherCheck"
-                              Content="Peak Watcher ALC alerts"
+                              Content="Transmit level alerts"
                               Margin="0,0,0,8"
-                              AutomationProperties.Name="Enable Peak Watcher ALC alerts"/>
+                              AutomationProperties.Name="Enable transmit level alerts"/>
                     <CheckBox x:Name="MeterSpeechCheck"
                               Content="Meter speech readout"
                               Margin="0,0,0,8"
