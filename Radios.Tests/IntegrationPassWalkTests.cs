@@ -218,33 +218,32 @@ namespace Radios.Tests
         [Fact]
         public void Every_stage_offers_a_way_on_to_the_next_one()
         {
-            var findings = new List<Finding>();
-
-            foreach (FixerReviewState state in FixerStates.All())
-            {
-                IReadOnlyList<FixerStage> stages = state.Run.Set.Stages;
-                for (int i = 0; i < stages.Count - 1; i++)
-                {
-                    FixerStage here = stages[i], next = stages[i + 1];
-                    string segment = SegmentFor(state.Html, here);
-
-                    bool onward = ControlsIn(segment).Any(
-                        c => Mentions(c.Attr("data-arg"), next.Id)
-                          || Mentions(c.Attr("data-stage"), next.Id)
-                          || Mentions(c.Attr("href"), next.Id));
-                    if (onward) continue;
-
-                    findings.Add(new Finding(Rules.ForwardAffordance, state.Name + "/" + here.Id,
-                        "Nothing within stage " + here.Number + " (" + here.Title + ") offers the "
-                        + "move to stage " + next.Number + " (" + next.Title + "). The operator "
-                        + "has to work out for themselves that there is more, and where it is."));
-                }
-            }
-
             Gate(Rules.ForwardAffordance,
                  "Every step should carry the next one with it. A page where the way on exists "
                  + "somewhere else is a page an operator stops halfway down.",
-                 findings);
+                 FixerStates.All().SelectMany(
+                     s => ForwardAffordanceFindings(s.Name, s.Html, s.Run.Set.Stages)));
+        }
+
+        private static IEnumerable<Finding> ForwardAffordanceFindings(
+            string stateName, string html, IReadOnlyList<FixerStage> stages)
+        {
+            for (int i = 0; i < stages.Count - 1; i++)
+            {
+                FixerStage here = stages[i], next = stages[i + 1];
+                string segment = SegmentFor(html, here);
+
+                bool onward = ControlsIn(segment).Any(
+                    c => Mentions(c.Attr("data-arg"), next.Id)
+                      || Mentions(c.Attr("data-stage"), next.Id)
+                      || Mentions(c.Attr("href"), next.Id));
+                if (onward) continue;
+
+                yield return new Finding(Rules.ForwardAffordance, stateName + "/" + here.Id,
+                    "Nothing within stage " + here.Number + " (" + here.Title + ") offers the "
+                    + "move to stage " + next.Number + " (" + next.Title + "). The operator "
+                    + "has to work out for themselves that there is more, and where it is.");
+            }
         }
 
         private static bool Mentions(string attribute, string stageId)
@@ -263,31 +262,29 @@ namespace Radios.Tests
         [Fact]
         public void Heading_levels_never_skip()
         {
-            var findings = new List<Finding>();
-
-            foreach (FixerReviewState state in FixerStates.All())
-            {
-                int previous = 0;
-                foreach (Match m in HeadingRx.Matches(state.Html))
-                {
-                    int level = int.Parse(m.Groups[1].Value);
-                    string text = Strip(m.Groups[2].Value);
-
-                    if (previous > 0 && level > previous + 1)
-                        findings.Add(new Finding(Rules.HeadingLevels,
-                            state.Name + "/h" + level + ":" + text,
-                            "an h" + level + " (\"" + text + "\") follows an h" + previous
-                            + ", so a level is missing. A screen reader user hears a container "
-                            + "they cannot get to."));
-
-                    previous = level;
-                }
-            }
-
             Gate(Rules.HeadingLevels,
                  "Heading levels are the page's structure spoken aloud; a skipped level is a "
                  + "container the reader is told about and cannot reach.",
-                 findings);
+                 FixerStates.All().SelectMany(s => HeadingLevelFindings(s.Name, s.Html)));
+        }
+
+        private static IEnumerable<Finding> HeadingLevelFindings(string stateName, string html)
+        {
+            int previous = 0;
+            foreach (Match m in HeadingRx.Matches(html))
+            {
+                int level = int.Parse(m.Groups[1].Value);
+                string text = Strip(m.Groups[2].Value);
+
+                if (previous > 0 && level > previous + 1)
+                    yield return new Finding(Rules.HeadingLevels,
+                        stateName + "/h" + level + ":" + text,
+                        "an h" + level + " (\"" + text + "\") follows an h" + previous
+                        + ", so a level is missing. A screen reader user hears a container "
+                        + "they cannot get to.");
+
+                previous = level;
+            }
         }
 
         /// <summary>
@@ -303,46 +300,43 @@ namespace Radios.Tests
         [Fact]
         public void Every_operable_control_has_a_name()
         {
-            var findings = new List<Finding>();
-
-            foreach (FixerReviewState state in FixerStates.All())
-            {
-                string html = state.Html;
-                var labelled = new HashSet<string>(
-                    Regex.Matches(html, @"<label\b[^>]*\bfor=""([^""]+)""")
-                         .Select(m => m.Groups[1].Value), StringComparer.Ordinal);
-
-                foreach (Control c in ControlsIn(html))
-                {
-                    if (c.Tag == "a") continue;               // links carry their own text
-                    string named = c.Text.Length > 0 ? c.Text : c.Attr("aria-label");
-
-                    if (c.Tag == "input" || c.Tag == "select" || c.Tag == "textarea")
-                    {
-                        string id = c.Attr("id");
-                        if (id.Length > 0 && labelled.Contains(id)) continue;
-                        if (named.Length > 0) continue;
-                        findings.Add(new Finding(Rules.UnnamedControl,
-                            state.Name + "/" + c.Tag + ":" + (id.Length > 0 ? id : "at " + c.At),
-                            "an " + c.Tag + " with no label associated to it and no aria-label; "
-                            + "a screen reader announces its type and nothing else."));
-                        continue;
-                    }
-
-                    if (named.Length > 0) continue;
-                    findings.Add(new Finding(Rules.UnnamedControl,
-                        state.Name + "/button:" + (c.Attr("data-action").Length > 0
-                                                   ? c.Attr("data-action") + ":" + c.Attr("data-arg")
-                                                   : "at " + c.At),
-                        "a button with no text and no aria-label. It is announced as \"button\", "
-                        + "which is what a broken button sounds like too."));
-                }
-            }
-
             Gate(Rules.UnnamedControl,
                  "Anything the operator can act on has to say what it is, because for a blind "
                  + "operator an unnamed control and a dead one sound identical.",
-                 findings);
+                 FixerStates.All().SelectMany(s => UnnamedControlFindings(s.Name, s.Html)));
+        }
+
+        private static IEnumerable<Finding> UnnamedControlFindings(string stateName, string html)
+        {
+            var labelled = new HashSet<string>(
+                Regex.Matches(html, @"<label\b[^>]*\bfor=""([^""]+)""")
+                     .Select(m => m.Groups[1].Value), StringComparer.Ordinal);
+
+            foreach (Control c in ControlsIn(html))
+            {
+                if (c.Tag == "a") continue;               // links carry their own text
+                string named = c.Text.Length > 0 ? c.Text : c.Attr("aria-label");
+
+                if (c.Tag == "input" || c.Tag == "select" || c.Tag == "textarea")
+                {
+                    string id = c.Attr("id");
+                    if (id.Length > 0 && labelled.Contains(id)) continue;
+                    if (named.Length > 0) continue;
+                    yield return new Finding(Rules.UnnamedControl,
+                        stateName + "/" + c.Tag + ":" + (id.Length > 0 ? id : "at " + c.At),
+                        "an " + c.Tag + " with no label associated to it and no aria-label; "
+                        + "a screen reader announces its type and nothing else.");
+                    continue;
+                }
+
+                if (named.Length > 0) continue;
+                yield return new Finding(Rules.UnnamedControl,
+                    stateName + "/button:" + (c.Attr("data-action").Length > 0
+                                              ? c.Attr("data-action") + ":" + c.Attr("data-arg")
+                                              : "at " + c.At),
+                    "a button with no text and no aria-label. It is announced as \"button\", "
+                    + "which is what a broken button sounds like too.");
+            }
         }
 
         /// <summary>
@@ -356,29 +350,115 @@ namespace Radios.Tests
         [Fact]
         public void Nothing_focusable_is_only_prose()
         {
-            string[] operable = { "button", "a", "input", "select", "textarea", "details", "summary" };
-            var findings = new List<Finding>();
-
-            foreach (FixerReviewState state in FixerStates.All())
-            {
-                foreach (Match m in Regex.Matches(state.Html, @"<([a-zA-Z][-a-zA-Z0-9]*)\b([^>]*)>"))
-                {
-                    string tag = m.Groups[1].Value.ToLowerInvariant();
-                    string attrs = m.Groups[2].Value;
-                    if (!Regex.IsMatch(attrs, @"\btabindex\s*=\s*""0""")) continue;
-                    if (operable.Contains(tag)) continue;
-                    if (Regex.IsMatch(attrs, @"\brole\s*=\s*""(tab|button|link|checkbox|radio)""")) continue;
-
-                    findings.Add(new Finding(Rules.FocusableProse,
-                        state.Name + "/" + tag + " at " + m.Index,
-                        "<" + tag + "> takes a tab stop without being operable. Explanatory text "
-                        + "on this page is meant to cost nothing to tab past."));
-                }
-            }
-
             Gate(Rules.FocusableProse,
                  "A tab stop is a promise that something happens there.",
-                 findings);
+                 FixerStates.All().SelectMany(s => FocusableProseFindings(s.Name, s.Html)));
+        }
+
+        private static IEnumerable<Finding> FocusableProseFindings(string stateName, string html)
+        {
+            string[] operable = { "button", "a", "input", "select", "textarea", "details", "summary" };
+
+            foreach (Match m in Regex.Matches(html, @"<([a-zA-Z][-a-zA-Z0-9]*)\b([^>]*)>"))
+            {
+                string tag = m.Groups[1].Value.ToLowerInvariant();
+                string attrs = m.Groups[2].Value;
+                if (!Regex.IsMatch(attrs, @"\btabindex\s*=\s*""0""")) continue;
+                if (operable.Contains(tag)) continue;
+                if (Regex.IsMatch(attrs, @"\brole\s*=\s*""(tab|button|link|checkbox|radio)""")) continue;
+
+                yield return new Finding(Rules.FocusableProse,
+                    stateName + "/" + tag + " at " + m.Index,
+                    "<" + tag + "> takes a tab stop without being operable. Explanatory text "
+                    + "on this page is meant to cost nothing to tab past.");
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  Proof that the quiet rules can speak
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Four of the rules above found nothing on the real page. This is what
+        /// makes that silence worth anything.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>A detector that never fires and a clean page produce identical
+        /// output.</b> The skip rule needs no control of this kind — it reports
+        /// six real findings every run, which is the strongest control there
+        /// is. The other four are pure negative results, and a negative result
+        /// also claims the instrument WOULD have seen it.
+        /// </para>
+        /// <para>
+        /// So they are handed a page built to be wrong in exactly four ways:
+        /// an h2 followed by an h4, a paragraph holding a tab stop, a button
+        /// with no text, an input with no label, and no route from the first
+        /// stage to the second. Each rule must report its own fault and, just
+        /// as importantly, must not report anybody else's.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void Each_quiet_rule_reports_a_page_built_to_break_it()
+        {
+            const string broken = @"<!doctype html><html><body>
+<h1>Transmit checks</h1>
+<h2>Stage 0: Alpha</h2>
+<p tabindex=""0"">Prose that has taken a tab stop it cannot use.</p>
+<button type=""button"" data-action=""run"" data-arg=""alpha""></button>
+<h4>Stage 1: Bravo</h4>
+<input type=""radio"" id=""orphan"">
+</body></html>";
+
+            var stages = new List<FixerStage>
+            {
+                new FixerStage { Id = "alpha", Number = 0, Title = "Alpha" },
+                new FixerStage { Id = "bravo", Number = 1, Title = "Bravo" },
+            };
+
+            Finding[] onward = ForwardAffordanceFindings("broken", broken, stages).ToArray();
+            Assert.True(onward.Length == 1,
+                "the forward-affordance rule reported " + onward.Length + " finding(s) on a page "
+                + "with no route from Alpha to Bravo. Its silence on the real page means nothing "
+                + "until it can say this.");
+            Assert.Equal("broken/alpha", onward[0].Where);
+
+            Finding[] headings = HeadingLevelFindings("broken", broken).ToArray();
+            Assert.True(headings.Length == 1,
+                "the heading rule reported " + headings.Length + " finding(s) on a page whose h2 "
+                + "is followed by an h4.");
+            Assert.Contains("h4", headings[0].Where);
+
+            Finding[] unnamed = UnnamedControlFindings("broken", broken).ToArray();
+            Assert.True(unnamed.Length == 2,
+                "the naming rule reported " + unnamed.Length + " finding(s) on a page with one "
+                + "empty button and one unlabelled input: "
+                + string.Join("; ", unnamed.Select(f => f.Where)));
+            Assert.Contains(unnamed, f => f.Where.Contains("button"));
+            Assert.Contains(unnamed, f => f.Where.Contains("orphan"));
+
+            Finding[] prose = FocusableProseFindings("broken", broken).ToArray();
+            Assert.True(prose.Length == 1,
+                "the focusable-prose rule reported " + prose.Length + " finding(s) on a page with "
+                + "a tabindex on a paragraph.");
+            Assert.StartsWith("broken/p", prose[0].Where);
+
+            // AND THE OTHER HALF OF THE CONTROL: a page that is right must come
+            // back clean from all four, or "reports something" would be all any
+            // of them can do.
+            const string sound = @"<!doctype html><html><body>
+<h1>Transmit checks</h1>
+<h2>Stage 0: Alpha</h2>
+<p>Prose that costs nothing to tab past.</p>
+<button type=""button"" data-action=""select"" data-arg=""bravo"">On to Stage 1: Bravo</button>
+<h2>Stage 1: Bravo</h2>
+<p><input type=""radio"" id=""why""> <label for=""why"">A reason</label></p>
+</body></html>";
+
+            Assert.Empty(ForwardAffordanceFindings("sound", sound, stages));
+            Assert.Empty(HeadingLevelFindings("sound", sound));
+            Assert.Empty(UnnamedControlFindings("sound", sound));
+            Assert.Empty(FocusableProseFindings("sound", sound));
         }
     }
 }
