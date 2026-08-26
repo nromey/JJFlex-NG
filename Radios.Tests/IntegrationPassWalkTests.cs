@@ -1,0 +1,384 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using Radios.Fixer;
+using Xunit;
+using static Radios.Tests.IntegrationPass;
+
+namespace Radios.Tests
+{
+    /// <summary>
+    /// Pass 2 of the integration pass: the blind end-to-end walk.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is not a code review, and the difference is the whole point.</b>
+    /// An absence is invisible in a diff. "No stage offers a way to the next
+    /// one" appears in no file, because it is a gap across a whole page — every
+    /// individual file is correct and the composition is not. A reviewer
+    /// reading the diff passes all of it, which is what happened on 2026-08-25:
+    /// every component was individually right, every automated test passed, and
+    /// a real operator found fourteen things in one evening.
+    /// </para>
+    /// <para>
+    /// The question at every state is: <b>what can a person do next from here,
+    /// and how would they know?</b>
+    /// </para>
+    /// <para>
+    /// <b>It reads the RENDERED page, never the source.</b> Same reason
+    /// <c>FixerWireContractTests</c> does: a source grep for
+    /// <c>data-action</c> missed two values that are built by concatenation and
+    /// reported a break that did not exist. Rendering is the honest instrument
+    /// because it is what actually reaches the operator, with nothing added by
+    /// an extractor and nothing missed by one.
+    /// </para>
+    /// <para>
+    /// <b>Stages are found by their HEADING, not by a container id.</b> Track A
+    /// is turning this page from a tablist into one document, so
+    /// <c>panel-&lt;id&gt;</c> may not survive the sprint; an h2 per stage will,
+    /// because heading navigation is how a screen reader user moves through it.
+    /// Segmenting on the thing the operator navigates by is both more honest
+    /// and more durable than segmenting on markup that happens to be there
+    /// today.
+    /// </para>
+    /// </remarks>
+    public class IntegrationPassWalkTests
+    {
+        // ═══════════════════════════════════════════════════════════════
+        //  Reading the page
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>One rendered control: its attributes and its visible text.</summary>
+        private sealed record Control(string Tag, IReadOnlyDictionary<string, string> Attributes,
+                                      string Text, int At)
+        {
+            internal string Attr(string name)
+                => Attributes.TryGetValue(name, out string? v) ? v : "";
+        }
+
+        private static readonly Regex ElementRx = new(
+            @"<(button|a|input|select|textarea)\b([^>]*?)(/?)>(?:(.*?)</\1>)?",
+            RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+        private static readonly Regex AttrRx = new(@"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*""([^""]*)""");
+
+        private static readonly Regex HeadingRx = new(
+            @"<h([1-6])\b[^>]*>(.*?)</h\1>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
+
+        private static IReadOnlyList<Control> ControlsIn(string html)
+            => ElementRx.Matches(html).Select(m => new Control(
+                    m.Groups[1].Value.ToLowerInvariant(),
+                    AttrRx.Matches(m.Groups[2].Value)
+                          .ToDictionary(a => a.Groups[1].Value.ToLowerInvariant(),
+                                        a => a.Groups[2].Value),
+                    Strip(m.Groups[4].Value),
+                    m.Index))
+                .ToList();
+
+        private static string Strip(string html)
+            => Regex.Replace(html ?? "", "<[^>]*>", " ")
+                    .Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">")
+                    .Replace("&quot;", "\"")
+                    .Trim();
+
+        /// <summary>
+        /// The slice of the document belonging to one stage: from that stage's
+        /// heading to the next heading at the same level or higher. This is
+        /// exactly the span a screen reader user moves through after pressing H
+        /// once, which is why it is the right unit for "what can I do from
+        /// here".
+        /// </summary>
+        private static string SegmentFor(string html, FixerStage stage)
+        {
+            MatchCollection headings = HeadingRx.Matches(html);
+            for (int i = 0; i < headings.Count; i++)
+            {
+                string text = Strip(headings[i].Groups[2].Value);
+                if (text.IndexOf(stage.Title, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (text.IndexOf("report", StringComparison.OrdinalIgnoreCase) >= 0
+                    && text.IndexOf(stage.Title, StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+                int level = int.Parse(headings[i].Groups[1].Value);
+                int start = headings[i].Index;
+                for (int j = i + 1; j < headings.Count; j++)
+                    if (int.Parse(headings[j].Groups[1].Value) <= level)
+                        return html.Substring(start, headings[j].Index - start);
+                return html.Substring(start);
+            }
+            return "";
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  The instrument has to work before its silence means anything
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Positive control for the whole walk. Every rule below reports by
+        /// staying quiet, so a parser that reads nothing would report a perfect
+        /// page. This is the one test that fails when the reader breaks.
+        /// </summary>
+        [Fact]
+        public void The_walk_can_actually_read_the_page()
+        {
+            foreach (FixerReviewState state in FixerStates.All())
+            {
+                string html = state.Html;
+
+                IReadOnlyList<Control> controls = ControlsIn(html);
+                Assert.True(controls.Count > 10,
+                    state.Name + ": only " + controls.Count + " controls were parsed out of "
+                    + html.Length + " characters of markup, so every rule in this file is "
+                    + "looking at an empty page.");
+
+                Assert.True(controls.Any(c => c.Tag == "button" && c.Attr("data-action").Length > 0),
+                    state.Name + ": no button carrying a data-action was found, so the walk "
+                    + "cannot see what the operator can do.");
+
+                Assert.True(HeadingRx.Matches(html).Count >= 3,
+                    state.Name + ": fewer than three headings were parsed, so stage segmentation "
+                    + "has stopped working.");
+
+                foreach (FixerStage stage in state.Run.Set.Stages)
+                    Assert.True(SegmentFor(html, stage).Length > 0,
+                        state.Name + ": no heading was found for stage \"" + stage.Title
+                        + "\". Either the page has stopped giving each stage a heading — which "
+                        + "would break heading navigation for the operator — or this walk has "
+                        + "stopped being able to find them, and would then report every "
+                        + "per-stage rule as clean.");
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        //  The rules the evening of 2026-08-25 wrote for us
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// No stage offers a way to discard its own measurement once it has one.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The skip control was rendered on a stage that had already passed.
+        /// Pressing it there does not "skip" anything — the stage already ran —
+        /// it replaces a measurement with a skip record, silently. On stages 2
+        /// to 4 the measurement it discards was paid for with RF.
+        /// </para>
+        /// <para>
+        /// <b>Scoped to stages that RAN, deliberately.</b> A stage already
+        /// skipped has a result too, and offering skip again there merely lets
+        /// the operator change their stated reason, which is not destructive.
+        /// Widening this rule to every result would make it flag a control that
+        /// is doing something useful.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void No_stage_offers_to_discard_a_measurement_it_has_already_taken()
+        {
+            var findings = new List<Finding>();
+
+            foreach (FixerReviewState state in FixerStates.All())
+            {
+                IReadOnlyList<Control> controls = ControlsIn(state.Html);
+
+                foreach (FixerStage stage in state.Run.Set.Stages)
+                {
+                    FixerStageResult? result = state.Run.ResultFor(stage.Id);
+                    if (result?.Status != FixerStageStatus.Ran) continue;
+
+                    bool offered = controls.Any(
+                        c => c.Attr("data-action") == "skip"
+                          && string.Equals(c.Attr("data-arg"), stage.Id, StringComparison.OrdinalIgnoreCase));
+                    if (!offered) continue;
+
+                    findings.Add(new Finding(Rules.SkipAfterResult, state.Name + "/" + stage.Id,
+                        "Stage " + stage.Number + " (" + stage.Title + ") has a result and still "
+                        + "renders a skip control. Pressing it replaces the measurement with a "
+                        + "skip record and says nothing"
+                        + (stage.Transmits ? ", and this stage keys the radio, so what it "
+                                           + "discards cost a transmission." : ".")));
+                }
+            }
+
+            Gate(Rules.SkipAfterResult,
+                 "A finished step must not still offer the control that throws its result away.",
+                 findings);
+        }
+
+        /// <summary>
+        /// Every stage says where to go next.
+        /// </summary>
+        /// <remarks>
+        /// An operator who has just finished a stage needs the next move to be
+        /// present where they are standing, not inferable from a tablist they
+        /// would have to leave the stage to reach. The check is deliberately
+        /// generous about HOW — a button, a link, an anchor — because Track A
+        /// is changing the mechanism this sprint and the requirement is that
+        /// something offers the move, not that it is a particular element.
+        /// </remarks>
+        [Fact]
+        public void Every_stage_offers_a_way_on_to_the_next_one()
+        {
+            var findings = new List<Finding>();
+
+            foreach (FixerReviewState state in FixerStates.All())
+            {
+                IReadOnlyList<FixerStage> stages = state.Run.Set.Stages;
+                for (int i = 0; i < stages.Count - 1; i++)
+                {
+                    FixerStage here = stages[i], next = stages[i + 1];
+                    string segment = SegmentFor(state.Html, here);
+
+                    bool onward = ControlsIn(segment).Any(
+                        c => Mentions(c.Attr("data-arg"), next.Id)
+                          || Mentions(c.Attr("data-stage"), next.Id)
+                          || Mentions(c.Attr("href"), next.Id));
+                    if (onward) continue;
+
+                    findings.Add(new Finding(Rules.ForwardAffordance, state.Name + "/" + here.Id,
+                        "Nothing within stage " + here.Number + " (" + here.Title + ") offers the "
+                        + "move to stage " + next.Number + " (" + next.Title + "). The operator "
+                        + "has to work out for themselves that there is more, and where it is."));
+                }
+            }
+
+            Gate(Rules.ForwardAffordance,
+                 "Every step should carry the next one with it. A page where the way on exists "
+                 + "somewhere else is a page an operator stops halfway down.",
+                 findings);
+        }
+
+        private static bool Mentions(string attribute, string stageId)
+            => attribute.IndexOf(stageId, StringComparison.OrdinalIgnoreCase) >= 0;
+
+        /// <summary>
+        /// Heading levels step by one.
+        /// </summary>
+        /// <remarks>
+        /// A skipped level tells a screen reader user there is a container they
+        /// missed. It is the cheapest structural lie a page can tell, and the
+        /// page is being restructured this sprint by a track whose whole design
+        /// is "h2 per stage, h3 only for Findings" — so this is the assertion
+        /// that keeps that promise honest after the fact.
+        /// </remarks>
+        [Fact]
+        public void Heading_levels_never_skip()
+        {
+            var findings = new List<Finding>();
+
+            foreach (FixerReviewState state in FixerStates.All())
+            {
+                int previous = 0;
+                foreach (Match m in HeadingRx.Matches(state.Html))
+                {
+                    int level = int.Parse(m.Groups[1].Value);
+                    string text = Strip(m.Groups[2].Value);
+
+                    if (previous > 0 && level > previous + 1)
+                        findings.Add(new Finding(Rules.HeadingLevels,
+                            state.Name + "/h" + level + ":" + text,
+                            "an h" + level + " (\"" + text + "\") follows an h" + previous
+                            + ", so a level is missing. A screen reader user hears a container "
+                            + "they cannot get to."));
+
+                    previous = level;
+                }
+            }
+
+            Gate(Rules.HeadingLevels,
+                 "Heading levels are the page's structure spoken aloud; a skipped level is a "
+                 + "container the reader is told about and cannot reach.",
+                 findings);
+        }
+
+        /// <summary>
+        /// Everything operable says what it is.
+        /// </summary>
+        /// <remarks>
+        /// A button whose accessible name is empty is announced as "button",
+        /// which for a blind operator is indistinguishable from a button that
+        /// does nothing. Inputs are held to the stricter rule — a real
+        /// <c>label for=</c>, because that is what also makes the label a click
+        /// target and what the page's own structural tests already assume.
+        /// </remarks>
+        [Fact]
+        public void Every_operable_control_has_a_name()
+        {
+            var findings = new List<Finding>();
+
+            foreach (FixerReviewState state in FixerStates.All())
+            {
+                string html = state.Html;
+                var labelled = new HashSet<string>(
+                    Regex.Matches(html, @"<label\b[^>]*\bfor=""([^""]+)""")
+                         .Select(m => m.Groups[1].Value), StringComparer.Ordinal);
+
+                foreach (Control c in ControlsIn(html))
+                {
+                    if (c.Tag == "a") continue;               // links carry their own text
+                    string named = c.Text.Length > 0 ? c.Text : c.Attr("aria-label");
+
+                    if (c.Tag == "input" || c.Tag == "select" || c.Tag == "textarea")
+                    {
+                        string id = c.Attr("id");
+                        if (id.Length > 0 && labelled.Contains(id)) continue;
+                        if (named.Length > 0) continue;
+                        findings.Add(new Finding(Rules.UnnamedControl,
+                            state.Name + "/" + c.Tag + ":" + (id.Length > 0 ? id : "at " + c.At),
+                            "an " + c.Tag + " with no label associated to it and no aria-label; "
+                            + "a screen reader announces its type and nothing else."));
+                        continue;
+                    }
+
+                    if (named.Length > 0) continue;
+                    findings.Add(new Finding(Rules.UnnamedControl,
+                        state.Name + "/button:" + (c.Attr("data-action").Length > 0
+                                                   ? c.Attr("data-action") + ":" + c.Attr("data-arg")
+                                                   : "at " + c.At),
+                        "a button with no text and no aria-label. It is announced as \"button\", "
+                        + "which is what a broken button sounds like too."));
+                }
+            }
+
+            Gate(Rules.UnnamedControl,
+                 "Anything the operator can act on has to say what it is, because for a blind "
+                 + "operator an unnamed control and a dead one sound identical.",
+                 findings);
+        }
+
+        /// <summary>
+        /// Nothing that is only prose takes a tab stop.
+        /// </summary>
+        /// <remarks>
+        /// The web surface exists so that explanation costs zero tab stops — a
+        /// paragraph made focusable throws that away and puts a stop in the
+        /// operator's path that does nothing when they arrive at it.
+        /// </remarks>
+        [Fact]
+        public void Nothing_focusable_is_only_prose()
+        {
+            string[] operable = { "button", "a", "input", "select", "textarea", "details", "summary" };
+            var findings = new List<Finding>();
+
+            foreach (FixerReviewState state in FixerStates.All())
+            {
+                foreach (Match m in Regex.Matches(state.Html, @"<([a-zA-Z][-a-zA-Z0-9]*)\b([^>]*)>"))
+                {
+                    string tag = m.Groups[1].Value.ToLowerInvariant();
+                    string attrs = m.Groups[2].Value;
+                    if (!Regex.IsMatch(attrs, @"\btabindex\s*=\s*""0""")) continue;
+                    if (operable.Contains(tag)) continue;
+                    if (Regex.IsMatch(attrs, @"\brole\s*=\s*""(tab|button|link|checkbox|radio)""")) continue;
+
+                    findings.Add(new Finding(Rules.FocusableProse,
+                        state.Name + "/" + tag + " at " + m.Index,
+                        "<" + tag + "> takes a tab stop without being operable. Explanatory text "
+                        + "on this page is meant to cost nothing to tab past."));
+                }
+            }
+
+            Gate(Rules.FocusableProse,
+                 "A tab stop is a promise that something happens there.",
+                 findings);
+        }
+    }
+}
