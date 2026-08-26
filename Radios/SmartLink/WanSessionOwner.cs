@@ -74,10 +74,16 @@ namespace Radios.SmartLink
         private bool _registrationRecoveryTried;  // guarded by _stateGate; reset on drop and on any list receipt
         private volatile bool _registrationInvalidPending;
 
-        // Retry interval when auto-registration could not complete (no JWT
+        // Retry cadence when auto-registration could not complete (no JWT
         // available silently, send threw). Connected-but-unregistered receives
-        // no pushes, so the monitor retries rather than sleeping forever.
+        // no pushes, so the monitor retries rather than sleeping forever — but
+        // each retry can cost an Auth0 refresh round trip, so the interval
+        // escalates: 30s, 1m, 2m, … capped at 30m. An account whose refresh
+        // token is genuinely revoked must not poke the token endpoint 2,880
+        // times a day. Resets on success and on connection drop.
         internal const int RegistrationRetryMs = 30_000;
+        internal const int RegistrationRetryMaxMs = 1_800_000;
+        private int _registrationRetryCount; // monitor thread only
 
         // Pending ConnectToRadio request. Only one may be in flight per session at a time.
         // Completes with the WAN connection handle (string) on success, or null on failure.
@@ -386,8 +392,20 @@ namespace Radios.SmartLink
                     TransitionStatus(SessionStatus.Connected, resetAttempts: true);
                     bool registrationHealthy = ServiceRegistration();
                     if (_shutdownRequested || !_userWantsConnected) continue;
-                    if (registrationHealthy) _wakeEvent.WaitOne();
-                    else _wakeEvent.WaitOne(RegistrationRetryMs);
+                    if (registrationHealthy)
+                    {
+                        _registrationRetryCount = 0;
+                        _wakeEvent.WaitOne();
+                    }
+                    else
+                    {
+                        long waitMs = Math.Min(
+                            (long)RegistrationRetryMs << Math.Min(_registrationRetryCount, 10),
+                            RegistrationRetryMaxMs);
+                        _registrationRetryCount++;
+                        Tracing.TraceLine($"{_tracePrefix} auto-registration unhealthy — retrying in {waitMs / 1000}s", TraceLevel.Info);
+                        _wakeEvent.WaitOne((int)waitMs);
+                    }
                 }
             }
 
@@ -409,6 +427,7 @@ namespace Radios.SmartLink
                 _registrationRecoveryTried = false;
             }
             _registrationInvalidPending = false;
+            _registrationRetryCount = 0;
 
             var attemptStatus = (_hasBeenConnected || attemptIndex > 0)
                 ? SessionStatus.Reconnecting
