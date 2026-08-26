@@ -70,6 +70,14 @@ namespace Radios.Tests
             f.Add(DiagnosticFact.Measure("rf-power-setting", "Transmit power setting", 50, "percent"));
             f.Add(DiagnosticFact.Flag("atu-tuning", "The antenna tuner is running a tune cycle", false));
             f.Add(DiagnosticFact.Flag("dummy-load", "Dummy load mode", false));
+            // A healthy transmitting radio is on an antenna, and stage 12 now
+            // asks. Omitting it is not neutral: a rule naming a fact nobody
+            // supplies reads as a check that could not be made, which is the
+            // engine working correctly and would make this fixture describe a
+            // radio whose transmit path nobody could identify.
+            f.Add(DiagnosticFact.Text("tx-antenna", "Transmit antenna port", "ANT1"));
+            f.Add(DiagnosticFact.Text("rx-antenna", "Receive antenna port", "ANT1"));
+            f.Add(DiagnosticFact.Flag("transverter-path", "Transmitting through a transverter", false));
             return f;
         }
 
