@@ -76,6 +76,17 @@ namespace Radios.Fixer
             public Func<InjectedTransmitFacts> RunInjectedTransmit;
             public Func<SpokenTransmitFacts> RunSpokenTransmit;
 
+            /// <summary>
+            /// The live facts a stage's "what Run will do" sentence carries —
+            /// tune power, RF power, the TX antenna port, remoteness. Read at
+            /// RENDER time, because the page re-renders on every action and
+            /// these move under it. The tool already read every one of these
+            /// for its own record and showed none of them (#250); this is the
+            /// road they take to the operator. Null, or a null return, and
+            /// the sentences simply omit the live half.
+            /// </summary>
+            public Func<StationNow> ReadStation;
+
             /// <summary>What the operator declared the antenna socket is
             /// connected to — typically the gate's LoadDeclaration. It travels
             /// with the transmitter check's evidence, because a power reading
@@ -90,10 +101,52 @@ namespace Radios.Fixer
             public FixerFixAction ReopenConfiguredAudio;
         }
 
+        /// <summary>
+        /// The station as it stands right now, for the sentences that tell an
+        /// operator what pressing Run will actually do.
+        /// </summary>
+        public sealed class StationNow
+        {
+            /// <summary>Tune power in watts, or -1 when it could not be read.</summary>
+            public int TunePowerWatts { get; set; } = -1;
+
+            /// <summary>RF power in watts, or -1 when it could not be read.</summary>
+            public int RfPowerWatts { get; set; } = -1;
+
+            /// <summary>The TX antenna port ("ANT1"), or empty when not known.</summary>
+            public string AntennaPort { get; set; } = "";
+
+            /// <summary>True when this is a remote session — the operator is
+            /// not in the room with the antenna socket (#247).</summary>
+            public bool RemoteRadio { get; set; }
+        }
+
         /// <summary>Build the set around the host's delegates.</summary>
         public static FixerStageSet Build(Hosts hosts)
         {
             hosts = hosts ?? new Hosts();
+
+            // Live station facts, guarded once here: a throw or a missing
+            // delegate reads as "nothing known" and the sentences carry on
+            // without the live half.
+            StationNow Station()
+            {
+                try { return hosts.ReadStation?.Invoke(); }
+                catch { return null; }
+            }
+
+            // " at 25 watts into ANT1", or as much of it as is actually known.
+            // Assembled once so the transmitting stages cannot drift apart in
+            // how they say it.
+            static string AtInto(int watts, string port)
+            {
+                string s = "";
+                if (watts >= 0)
+                    s += " at " + watts.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                       + (watts == 1 ? " watt" : " watts");
+                if (!string.IsNullOrWhiteSpace(port)) s += " into " + port.Trim();
+                return s;
+            }
 
             var operatorSkip = new FixerSkipChoice(
                 SkipOperatorChoice,
@@ -138,6 +191,9 @@ namespace Radios.Fixer
                         + "Nothing here keys the radio.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/audio-setup",
+                    DescribeRunAction = () =>
+                        "Running this takes a quick reading of the audio path. "
+                        + "Nothing transmits.",
                     SkipChoices = new[] { operatorSkip },
                     // This stage offers only the specific fixes it detected.
                     // The full picker is AudioDevicesDialog's job, so the one
@@ -168,9 +224,17 @@ namespace Radios.Fixer
                         + "depending on whether your microphone measured well here.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/microphone-check",
+                    DescribeRunAction = () =>
+                        "Running this listens to your microphone for a few seconds. "
+                        + "Nothing transmits.",
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
+                    // Stage 0's facts ride along (#241): stage 1's advice must
+                    // not send the operator to check a Windows mute that stage
+                    // 0 has already measured and reported one card up.
                     Execute = hosts.MeasureMicrophone == null ? (Func<FixerStageContext, FixerOutcome>)null
-                        : ctx => TransmitStages.Microphone(hosts.MeasureMicrophone()),
+                        : ctx => TransmitStages.Microphone(
+                            hosts.MeasureMicrophone(),
+                            ctx.ResultFor(AudioSetup)?.Payload as AudioSetupFacts),
                 },
 
                 new FixerStage
@@ -191,6 +255,17 @@ namespace Radios.Fixer
                         + "the antenna port.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/transmitter-check",
+                    // "This will key your radio for two seconds at 25 watts
+                    // into ANT1" — both live facts were already read for the
+                    // record and shown to nobody (#250). The duration derives
+                    // from the probe's own constant so it cannot drift.
+                    DescribeRunAction = () =>
+                    {
+                        StationNow s = Station();
+                        return "Running this keys the radio's own tune carrier"
+                             + AtInto(s?.TunePowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + " for about " + SecondsPhrase(TxTuneProbe.TuneMs) + ".";
+                    },
                     SkipChoices = new[] { operatorSkip },
                     Execute = hosts.ProbeTransmitter == null ? (Func<FixerStageContext, FixerOutcome>)null
                         : ctx => TransmitStages.Transmitter(hosts.ProbeTransmitter(),
@@ -214,6 +289,14 @@ namespace Radios.Fixer
                         + "the radio.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/injected-transmit",
+                    DescribeRunAction = () =>
+                    {
+                        StationNow s = Station();
+                        return "Running this keys the transmitter"
+                             + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + " for several seconds and sends tones and a recorded voice "
+                             + "through it. Your microphone stays out of the path.";
+                    },
                     SkipChoices = new[] { operatorSkip },
                     Execute = hosts.RunInjectedTransmit == null ? (Func<FixerStageContext, FixerOutcome>)null
                         : ctx => TransmitStages.Injected(hosts.RunInjectedTransmit()),
@@ -235,6 +318,14 @@ namespace Radios.Fixer
                         + "points somewhere quite specific.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/spoken-transmit",
+                    DescribeRunAction = () =>
+                    {
+                        StationNow s = Station();
+                        return "Running this keys the transmitter"
+                             + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + " for about " + SecondsPhrase(TxAudioProbe.SpokenListenMs)
+                             + " while you speak into your microphone.";
+                    },
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
                     Execute = hosts.RunSpokenTransmit == null ? (Func<FixerStageContext, FixerOutcome>)null
                         : ctx => TransmitStages.Spoken(
@@ -281,6 +372,22 @@ namespace Radios.Fixer
                                    FixerFixAction action)
         {
             if (action != null) fixes[id] = action;
+        }
+
+        /// <summary>
+        /// "two seconds", derived from the probe constant it describes so the
+        /// sentence cannot drift from the behaviour. Words for the small
+        /// counts a person says as words; numerals past twelve.
+        /// </summary>
+        private static string SecondsPhrase(int ms)
+        {
+            string[] small = { "zero", "one", "two", "three", "four", "five", "six",
+                               "seven", "eight", "nine", "ten", "eleven", "twelve" };
+            int whole = ms / 1000;
+            string n = ms % 1000 == 0 && whole < small.Length
+                ? small[whole]
+                : (ms / 1000.0).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+            return n + (ms == 1000 ? " second" : " seconds");
         }
     }
 }

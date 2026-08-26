@@ -123,6 +123,12 @@ public sealed class FixerDialog : JJFlexDialog
             // the report and the value that opened the gate cannot differ.
             ReadLoadDeclaration = () => _gate.LoadDeclaration,
 
+            // WIRED. The live facts for "what pressing Run will do" — tune
+            // power, RF power, TX antenna port, remoteness (#250). Read fresh
+            // at every render, because a re-render happens after every host
+            // action and these move under it.
+            ReadStation = ReadStationNow,
+
             // WIRED. What the audio system is ACTUALLY running, read live —
             // never from the configuration file, because the whole value of
             // this stage is catching the case where the two differ.
@@ -245,6 +251,26 @@ public sealed class FixerDialog : JJFlexDialog
         static void Note(string what, Exception ex) =>
             Tracing.TraceLine("FixerDialog: could not read " + what + " — "
                               + ex.Message, TraceLevel.Warning);
+    }
+
+    /// <summary>
+    /// The station as it stands right now, for the stage sentences that say
+    /// what pressing Run will do. Each fact is guarded on its own — one
+    /// unreadable value must not cost the sentence the others — and a fact
+    /// that cannot be read is simply omitted, never guessed.
+    /// </summary>
+    private TransmitStageSet.StationNow? ReadStationNow()
+    {
+        FlexBase? rig;
+        try { rig = _radio(); } catch { rig = null; }
+        if (rig == null) return null;
+
+        var s = new TransmitStageSet.StationNow();
+        try { s.TunePowerWatts = rig.TunePower; } catch { }
+        try { s.RfPowerWatts = rig.XmitPower; } catch { }
+        try { s.AntennaPort = rig.TXAntennaName ?? ""; } catch { }
+        try { s.RemoteRadio = rig.RemoteRig; } catch { }
+        return s;
     }
 
     /// <summary>
