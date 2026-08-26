@@ -992,7 +992,7 @@ public partial class MetersPanel : UserControl
                 // exit prompt, and the timer and tone provider behind this one
                 // belong to the dispatcher.
                 Stop = () => Dispatcher.Invoke(StopMeterTestTone),
-                StopHow = "closing the meters panel",
+                StopHow = "close the meters panel",
                 Weight = RunningCostWeight.Routine
             });
 

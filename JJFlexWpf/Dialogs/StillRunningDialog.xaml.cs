@@ -57,12 +57,6 @@ namespace JJFlexWpf.Dialogs
         /// <summary>What the operator chose. Defaults to the safe answer.</summary>
         public StillRunningChoice Choice { get; private set; } = StillRunningChoice.StayOpen;
 
-        /// <summary>
-        /// True when at least one of the listed things survives a restart, so
-        /// the caller knows whether the persistence note was worth printing.
-        /// </summary>
-        public bool AnySurvivesRestart { get; }
-
         public StillRunningDialog(IReadOnlyList<RunningCostReading> readings)
         {
             if (readings == null) throw new ArgumentNullException(nameof(readings));
@@ -76,30 +70,25 @@ namespace JJFlexWpf.Dialogs
             StayButton.Content = Lexicon.Get("logging.running.stay_open");
 
             var body = new StringBuilder(Lexicon.Get("logging.running.exit_intro"));
-            bool anyPersist = false;
             bool anyStoppable = false;
             foreach (RunningCostReading r in readings)
             {
-                if (r.SurvivesRestart) anyPersist = true;
                 if (r.CanStop) anyStoppable = true;
 
                 // One line each, and each line is a whole sentence. A reader
                 // arrowing down this box gets one complete fact per press —
                 // which is the only reading mode that works when the list is
                 // the reason the dialog opened.
+                //
+                // No separate "some of these will still be on next time"
+                // paragraph: every line that persists says so itself, and a
+                // summary of a two-item list is a second thing to read that
+                // adds nothing to the first.
                 body.AppendLine();
                 body.AppendLine();
                 body.Append(r.Sentence());
                 if (!string.IsNullOrWhiteSpace(r.StopHow))
                     body.Append(' ').Append(Lexicon.Get("logging.running.threshold_stop", ("how", r.StopHow!)));
-            }
-
-            AnySurvivesRestart = anyPersist;
-            if (anyPersist)
-            {
-                body.AppendLine();
-                body.AppendLine();
-                body.Append(Lexicon.Get("logging.running.exit_persist"));
             }
 
             body.AppendLine();

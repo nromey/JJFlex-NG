@@ -133,11 +133,22 @@ namespace Radios
         public Action? Stop { get; set; }
 
         /// <summary>
-        /// Where the operator turns it off themselves, spoken: "Control J, then
-        /// Control D", "Settings, Diagnostics". Present even when
-        /// <see cref="Stop"/> is, because an operator who declines the offer at
-        /// a boundary still needs to know the route.
+        /// How the operator turns it off themselves, as a VERB PHRASE that
+        /// completes "To turn it off, ...": <c>"press Control J, then Control
+        /// D"</c>, <c>"go to Settings, then Diagnostics"</c>.
         /// </summary>
+        /// <remarks>
+        /// A verb phrase and not a bare location, because both kinds of route
+        /// have to come out of one template. "Turn it off with Control J, then
+        /// Control D" reads; "Turn it off with Settings, Diagnostics" does not,
+        /// and no single preposition covers both a keystroke and a place. The
+        /// verb belongs to the registrant, which is the only thing that knows
+        /// which kind of route it has.
+        ///
+        /// <para>Present even when <see cref="Stop"/> is, because an operator
+        /// who declines the offer at a boundary still needs to know the
+        /// route.</para>
+        /// </remarks>
         public string? StopHow { get; set; }
 
         /// <summary>
@@ -179,15 +190,27 @@ namespace Radios
         public bool CanStop { get; }
 
         /// <summary>
-        /// One sentence: name, cost, and whether it outlives this session.
-        /// Shared by the spoken read and the boundary dialog so the two cannot
-        /// describe the same thing differently.
+        /// One sentence: name, cost, and — where it is news — that it outlives
+        /// this session. Shared by the launch notice, the spoken read and the
+        /// boundary dialog so the three cannot describe the same thing
+        /// differently.
         /// </summary>
+        /// <remarks>
+        /// The persistence clause is spoken only for <see cref="RunningCostWeight.Notable"/>
+        /// things, though <see cref="SurvivesRestart"/> is true of Routine ones
+        /// too and stays honestly true. Read the assembled sentence and the
+        /// reason is obvious: an on-demand read that lists the always-on log
+        /// AND the meter tones repeats "and it will still be on the next time
+        /// you start" twice in one breath, about two things the operator either
+        /// already knows or can hear. The clause exists to flag persistence
+        /// that is a SURPRISE. Where it is not a surprise it is just length.
+        /// </remarks>
         public string Sentence()
         {
             var sb = new StringBuilder(Name);
             if (Cost != null) sb.Append(", ").Append(Cost);
-            if (SurvivesRestart) sb.Append(", ").Append(Lexicon.Get("logging.running.persists"));
+            if (SurvivesRestart && Weight == RunningCostWeight.Notable)
+                sb.Append(", ").Append(Lexicon.Get("logging.running.persists"));
             sb.Append('.');
             return sb.ToString();
         }

@@ -140,6 +140,27 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void RoutineThingsDoNotRepeatThePersistenceClause()
+        {
+            // Read the ASSEMBLED sentence, not the source line: the on-demand
+            // read lists the always-on log and the meter tones together, and
+            // with the clause on both it says "and it will still be on the next
+            // time you start" twice in one breath about two things the operator
+            // already knows. The clause is for persistence that SURPRISES.
+            RunningCostRegister.Register(new RunningCost("log", "The diagnostic log")
+            {
+                IsRunning = () => true,
+                SurvivesRestart = true,
+                Weight = RunningCostWeight.Routine
+            });
+
+            RunningCostReading r = RunningCostRegister.Snapshot()[0];
+            Assert.True(r.SurvivesRestart);  // the fact stays honestly true
+            Assert.DoesNotContain(Lexicon.Get("logging.running.persists"), r.Sentence(),
+                StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void SomethingWithNoMeasurableCostIsStillNamed()
         {
             RunningCostRegister.Register(Cost("tone", "Meter test tone", () => true));

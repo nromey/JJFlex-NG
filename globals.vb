@@ -621,7 +621,7 @@ Module globals
                                                 AndAlso Tracing.On _
                                                 AndAlso Not DetailedCaptureRunning
             standingLog.DescribeCost = Function() DescribeBytes(LiveLogBytes())
-            standingLog.StopHow = "Settings, Diagnostics"
+            standingLog.StopHow = "go to Settings, then Diagnostics"
             standingLog.SurvivesRestart = True
             standingLog.Weight = Radios.RunningCostWeight.Routine
             Radios.RunningCostRegister.Register(standingLog)
@@ -640,7 +640,7 @@ Module globals
             capture.Thresholds = New Long() {10L * 1024L * 1024L, 50L * 1024L * 1024L, 200L * 1024L * 1024L}
             capture.DescribeThreshold = Function(b) DescribeBytes(b)
             capture.Stop = Sub() StopDetailedCapture()
-            capture.StopHow = "Control J, then Control D"
+            capture.StopHow = "press Control J, then Control D"
             capture.Weight = Radios.RunningCostWeight.Notable
             Radios.RunningCostRegister.Register(capture)
 
@@ -655,7 +655,7 @@ Module globals
             meterStream.Thresholds = New Long() {100000L, 500000L, 2000000L}
             meterStream.DescribeThreshold = Function(n) DescribeMeterLines(n)
             meterStream.Stop = Sub() ApplyMeterStreamSetting(False)
-            meterStream.StopHow = "Settings, Diagnostics"
+            meterStream.StopHow = "go to Settings, then Diagnostics"
             meterStream.SurvivesRestart = True
             meterStream.Weight = Radios.RunningCostWeight.Notable
             Radios.RunningCostRegister.Register(meterStream)
@@ -668,7 +668,7 @@ Module globals
             transcript.IsRunning = Function() Radios.OutputChannelRecorder.RecordEnabled
             transcript.DescribeCost = Function() DescribeFileBytes(Radios.OutputChannelRecorder.TranscriptPath)
             transcript.Stop = Sub() ApplySpokenTranscriptSetting(False)
-            transcript.StopHow = "Settings, Diagnostics"
+            transcript.StopHow = "go to Settings, then Diagnostics"
             transcript.SurvivesRestart = True
             transcript.Weight = Radios.RunningCostWeight.Notable
             Radios.RunningCostRegister.Register(transcript)
@@ -684,7 +684,7 @@ Module globals
             meterTones.Stop = Sub()
                                   JJFlexWpf.MeterToneEngine.Enabled = False
                               End Sub
-            meterTones.StopHow = "Control J, then T"
+            meterTones.StopHow = "press Control J, then T"
             meterTones.SurvivesRestart = True
             meterTones.Weight = Radios.RunningCostWeight.Routine
             Radios.RunningCostRegister.Register(meterTones)
@@ -813,7 +813,18 @@ Module globals
         Return size
     End Function
 
+    ''' <summary>
+    ''' The meter stream's cost, or Nothing before it has written anything.
+    ''' </summary>
+    ''' <remarks>
+    ''' Nothing rather than "0 meter lines into the log", which is what an
+    ''' operator hears when meter recording is left on and no radio ever
+    ''' connected — a number that adds nothing to the sentence it lengthens.
+    ''' The switch being on is the fact worth speaking; the count is only worth
+    ''' speaking once there is one.
+    ''' </remarks>
     Private Function DescribeMeterLines(count As Long) As String
+        If count <= 0 Then Return Nothing
         Return Radios.Lexicon.Get("logging.running.meter_lines",
                                   ("count", count.ToString("N0", CultureInfo.CurrentCulture)))
     End Function
