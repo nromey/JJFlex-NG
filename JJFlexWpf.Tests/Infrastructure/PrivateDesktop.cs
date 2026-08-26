@@ -33,7 +33,55 @@ internal static class PrivateDesktop
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetThreadDesktop(IntPtr hDesktop);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseDesktop(IntPtr hDesktop);
+
     private static IntPtr _desktop;
+
+    /// <summary>
+    /// Give the desktop object back when the process ends.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Task #233.</b> <see cref="_desktop"/> is a static handle and
+    /// <c>CloseDesktop</c> was never called, so every run that reached
+    /// <see cref="CreateDesktop"/> leaked one desktop object for the life of the
+    /// session. A desktop lives exactly as long as a handle to it is open and
+    /// each one carries its own desktop heap, so the leak is real rather than
+    /// bookkeeping — and the leading theory for the ERROR_BUSY that has dogged
+    /// this code is heap exhaustion from precisely this.
+    /// </para>
+    /// <para>
+    /// <b>This does not close that question and must not be reported as having
+    /// closed it.</b> It stops a NORMALLY EXITING run from leaving one behind.
+    /// A test host that is KILLED still leaks, which is inherent — the process
+    /// is gone before any managed handler runs — and it is why the desktop name
+    /// already carries a Guid rather than the process id: a corpse can hold the
+    /// object, but it can no longer own the NAME the next run wants.
+    /// </para>
+    /// <para>
+    /// Registered at type load rather than after a successful create, so it
+    /// cannot be skipped by an early return on the failure paths.
+    /// </para>
+    /// </remarks>
+    static PrivateDesktop()
+    {
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => Release();
+    }
+
+    /// <summary>
+    /// Close the desktop object if one was created. Safe to call more than once
+    /// and safe to call when none was created.
+    /// </summary>
+    public static void Release()
+    {
+        var handle = Interlocked.Exchange(ref _desktop, IntPtr.Zero);
+        if (handle == IntPtr.Zero) return;
+        try { CloseDesktop(handle); }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+    }
 
     /// <summary>Win32 error from the last failed attempt, for the report.</summary>
     public static int LastError { get; private set; }
@@ -55,6 +103,24 @@ internal static class PrivateDesktop
                 var name = "JJFlexTier1_"
                     + Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     + "_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                // MEASURED 2026-08-26 on this machine, task #233: CreateDesktop
+                // SUCCEEDS. Three consecutive calls with GENERIC_ALL and unique
+                // names all returned handles, and CloseDesktop returned true for
+                // each. The probe was a bare P/Invoke — no WPF, no dispatcher, no
+                // dialog, no audio — so it could be run without a desk-free
+                // window.
+                //
+                // That matters because the standing description of this bug says
+                // "CreateDesktop returns ERROR_BUSY (170) on this machine, every
+                // time", and it does not. The 170 comes from SetThreadDesktop
+                // below, for the reason documented there, and the two are
+                // different failures with different fixes. Anyone reading the
+                // old description would tune this call and change nothing.
+                //
+                // It also means desktop-heap exhaustion is NOT the explanation:
+                // creation works fine even though every prior run leaked its
+                // handle. The leak was real and is closed in Release(); it was
+                // just not the cause.
                 _desktop = CreateDesktop(name, IntPtr.Zero, IntPtr.Zero, 0, GenericAll, IntPtr.Zero);
                 if (_desktop == IntPtr.Zero) LastError = Marshal.GetLastWin32Error();
             }
