@@ -179,6 +179,12 @@ namespace JJFlexWpf
         /// </summary>
         private static bool Gate(EarconCategory category, [CallerMemberName] string earconName = "")
         {
+            // Arm this sound's per-tier trim for the providers it is about to
+            // build. Set here because Gate is the one thing every gated earcon
+            // does first, and the same CallerMemberName the recorder already
+            // relies on is the earcon's stable id.
+            _currentTrimDb = GetLevelTrimDb(earconName);
+
             bool on = On(category);
             if (Radios.OutputChannelRecorder.RecordEnabled)
             {
@@ -611,6 +617,211 @@ namespace JJFlexWpf
                 new[] { (1000, 100), (0, 30), (600, 200) }, VolumeStrong);
         }
 
+        // ------------------------------------------------------------------
+        // Countdown — one clarinet figure, two destinations (#261)
+        //
+        // Stages of the transmit chain check where the operator has to DO
+        // something get counted in. Three identical 300 Hz dits, then a
+        // landing that names what is being counted down TO. A blind operator
+        // otherwise has to guess when a stage has started listening, and
+        // guessing wrong costs a retake — or, on stage 3, RF.
+        //
+        // THREE IDENTICAL TONES RATHER THAN A DESCENDING COUNT. Descending
+        // needs relative-pitch tracking: miss the first tone and two is
+        // indistinguishable from three. Three identical tones are
+        // self-correcting, and a landing that is not 300 Hz can never be
+        // mistaken for a fourth count.
+        //
+        // COUNTABILITY IS THE PASS CRITERION, NOT AUDIBILITY, and the two come
+        // apart. A decay long relative to the step smears three tones into one
+        // warble that is perfectly audible and completely uncountable — which
+        // is why the steps are 300 ms rather than the 150 the first sketch
+        // used, and why the ring lives in the LANDING's own length rather than
+        // in a tail.
+        //
+        // WHY THE CLARINET. Hollow zeroes the even harmonics — energy at 300,
+        // 900, 1500, nothing at 600 — so the record landing's octave arrives
+        // as a genuinely NEW pitch rather than as the count's own second
+        // partial stepping forward, which is what a Chime would have given.
+        // Sharper arrival. Its odd harmonics also sit in the
+        // speech-intelligibility band, which is #115's argument for anything
+        // that has to cut through a shack.
+        //
+        // NEVER voice these with Plain or ClassicSine. Those are #115's
+        // bare-sine masking problem wearing a voice name.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The countdown's voice: the same clarinet spectrum the CW waveform
+        /// set calls "Hollow", resolved rather than re-declared so there is
+        /// still one definition of it in the assembly.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A property, not a cached field, so it cannot capture a stale voice
+        /// at static-initialisation time — and so the fallback below stays
+        /// honest whichever order the two classes initialise in.
+        /// </para>
+        /// <para>
+        /// Falls back to <see cref="EarconVoices.Chime"/> if the id is ever
+        /// retired, because a countdown that makes no sound is worse than one
+        /// with the wrong timbre: silence here reads as "the stage has not
+        /// started yet" and the operator waits forever.
+        /// </para>
+        /// <para>
+        /// <b>This deliberately does not follow the #147 voice-set switch.</b>
+        /// The seven named voices have a plain counterpart each; this one does
+        /// not, because its spectrum is the design. A bare sine is exactly
+        /// #115's masking problem, and the transmit countdown is — until #236
+        /// is settled — the only thing standing between an idle stage and a
+        /// live transmitter. Worth revisiting by ear, but the safe default is
+        /// that a safety cue does not get quieter or plainer on a preference.
+        /// </para>
+        /// </remarks>
+        private static MeterVoice CountdownVoice =>
+            EarconVoices.ResolveCwWaveform("Hollow").Voice ?? EarconVoices.Chime;
+
+        /// <summary>The counting pitch. Three dits at this, then a landing
+        /// derived from it.</summary>
+        internal const int CountdownCountHz = 300;
+
+        /// <summary>How long each counting dit lasts.</summary>
+        internal const int CountdownStepMs = 300;
+
+        /// <summary>
+        /// The landing's length. The record landing is exactly this; the
+        /// transmit landing splits it 2:6 across its rising pair, so both
+        /// destinations are the same weight of arrival.
+        /// </summary>
+        internal const int CountdownLandingMs = 700;
+
+        /// <summary>The silent gap inside the transmit landing's rising pair,
+        /// carried over from <see cref="TxStartTone"/> unchanged.</summary>
+        private const int CountdownTransmitGapMs = 40;
+
+        /// <summary>
+        /// Build a countdown: three counting dits, then a landing that names
+        /// what is being counted down to.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The shipping earcons and the audio bench both come through
+        /// here</b>, so a set of timings auditioned on the bench is the set
+        /// that ships — retuning by ear cannot land on numbers the real sound
+        /// does not use.
+        /// </para>
+        /// <para>
+        /// <b>Every pitch is derived from <paramref name="countHz"/> so the
+        /// intervals survive transposition.</b> The record landing is the
+        /// octave (2x). The transmit landing is the same rising pair
+        /// <see cref="TxStartTone"/> uses, which at the default count sits at
+        /// 400 and 800 — a fourth up, then the octave above that. Moving the
+        /// count moves the whole figure and keeps it recognisable; hard-coding
+        /// the landings would break the relationship the moment anyone
+        /// transposed to dodge a sidetone collision.
+        /// </para>
+        /// </remarks>
+        /// <param name="transmit">true for the transmit landing, false for the
+        /// record landing.</param>
+        internal static (int freq, int ms)[] CountdownSteps(
+            bool transmit,
+            int countHz = CountdownCountHz,
+            int stepMs = CountdownStepMs,
+            int landingMs = CountdownLandingMs)
+        {
+            countHz = Math.Max(countHz, 1);
+            stepMs = Math.Max(stepMs, 1);
+            landingMs = Math.Max(landingMs, 1);
+
+            var count = new[] { (countHz, stepMs), (countHz, stepMs), (countHz, stepMs) };
+
+            if (!transmit)
+                return new[] { count[0], count[1], count[2], (countHz * 2, landingMs) };
+
+            return new[]
+            {
+                count[0], count[1], count[2],
+                (countHz * 4 / 3, landingMs * 2 / 7),
+                (0, CountdownTransmitGapMs),
+                (countHz * 8 / 3, landingMs * 6 / 7),
+            };
+        }
+
+        /// <summary>
+        /// Countdown into a stage that RECORDS you — the microphone check.
+        /// Three dits, then the octave up: start talking.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The landing is 600 Hz held for 700 ms. It rings because the step is
+        /// long, NOT because of a fade tail — <c>VoicedTailMs</c> is 15 ms of
+        /// click suppression and was never a ring.
+        /// </para>
+        /// <para>
+        /// <b>Measure the noise floor BEFORE this fires, in genuine silence,
+        /// and open the speech capture AFTER it.</b> A 700 ms ring landing
+        /// inside a noise-floor sample makes a quiet shack read as a noisy
+        /// one; a capture opened too early clips the first half-second of the
+        /// operator instead. Two windows, two purposes.
+        /// </para>
+        /// <para>
+        /// <b>Minor pitch collision, known and accepted.</b> CW sidetone
+        /// defaults to 700 Hz and is settable 400–1200, so an operator running
+        /// 600 hears a landing in the same place as a dit. It is a different
+        /// timbre and ten times the length, and it only fires inside a check
+        /// the operator started.
+        /// </para>
+        /// </remarks>
+        [Earcon("Countdown to record", EarconCategory.Transmit, Order = 4,
+            Description = "Three tones then a higher one. Start talking on the last tone.")]
+        public static void CountdownRecordTone()
+        {
+            if (!Gate(EarconCategory.Transmit)) return;
+            PlayVoicedDecaySequence(CountdownVoice, CountdownSteps(transmit: false), VolumeStrong);
+        }
+
+        /// <summary>
+        /// Countdown into a stage that TRANSMITS. Three dits, then the transmit
+        /// start figure drawn out slow: RF is about to happen.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The landing is <see cref="TxStartTone"/> stretched</b> — the same
+        /// 400-then-800 rising pair, at 200 and 600 ms instead of 50 and 50.
+        /// Same figure at two speeds: slow means "now beginning", and the
+        /// familiar quick one means "you are on". An operator learns one shape
+        /// and reads both.
+        /// </para>
+        /// <para>
+        /// <b>Do not play this AND <see cref="TxStartTone"/>.</b> The stretched
+        /// version fires on MOX confirmation and IS the confirmation. Nothing
+        /// sounds twice.
+        /// </para>
+        /// <para>
+        /// <b>It deliberately does NOT land on the PTT warning family.</b>
+        /// <see cref="Warning1Beep"/>, <see cref="Warning2Beep"/> and
+        /// <see cref="OhCrapBeep"/> mean "you have been keyed too long" — a
+        /// STOP message. Landing there would say "stop" at the instant
+        /// transmit begins.
+        /// </para>
+        /// <para>
+        /// <b>Count UNKEYED, key on the third tone, and let the landing fall
+        /// on MOX confirmation.</b> Prepending the count to an already-keyed
+        /// transmit burns about a second of dead air against the thermal
+        /// budget; firing the landing before confirmation would have the
+        /// operator talking into a transmitter that may never key. A radio
+        /// that never keys never gets a landing, and the gap between the third
+        /// dit and the landing is honest MOX latency.
+        /// </para>
+        /// </remarks>
+        [Earcon("Countdown to transmit", EarconCategory.Transmit, Order = 5,
+            Description = "Three tones then a slow rising pair. The radio is about to transmit.")]
+        public static void CountdownTransmitTone()
+        {
+            if (!Gate(EarconCategory.Transmit)) return;
+            PlayVoicedDecaySequence(CountdownVoice, CountdownSteps(transmit: true), VolumeStrong);
+        }
+
         // Connect-phase counting tones for the state-aware connecting modal.
         // Same pitch repeated 1 / 2 / 3 times so the user hears progress as a
         // count, not as a melody. Pitch chosen mid-band (750 Hz) and softer
@@ -732,6 +943,10 @@ namespace JJFlexWpf
         /// <param name="candidate">'A' through 'D'; anything else is ignored.</param>
         public static void ConnectSeriesCandidate(char candidate)
         {
+            // A parameterised audition, not a named earcon, so there is no id
+            // to look a trim up by — and it must not inherit the trim of
+            // whatever played before it on this thread.
+            NoTrim();
             if (!EarconsEnabled) return;
 
             int p = ConnectPhaseTonePitchHz;
@@ -849,7 +1064,7 @@ namespace JJFlexWpf
                         + "alert tone set is currently selected.")]
         public static void VoiceSetSampler()
         {
-            if (!EarconsEnabled) return;
+            if (!BenchGate()) return;
             PlayVoicedDecay(EarconVoices.Press, 800, 60, VolumeNormal);
             PlayLaterVoiced(EarconVoices.Chime, new[] { (1000, 160) }, VolumeNormal, 220);
             PlayLaterVoiced(EarconVoices.WarningCalm, new[] { (800, 150) }, VolumeSoft, 560);
@@ -1032,7 +1247,7 @@ namespace JJFlexWpf
                         + "the other calibration and bench sounds.")]
         public static void ReverseBoomTone()
         {
-            if (!EarconsEnabled || AlertMixer == null) return;
+            if (!BenchGate() || AlertMixer == null) return;
             try
             {
                 // Low sweep: 80Hz → 800Hz over 400ms (the "whoosh")
@@ -1069,24 +1284,103 @@ namespace JJFlexWpf
             PlayChirp(400, 600, 80, VolumeNormal);
         }
 
-        /// <summary>Double ascending beep — feature toggled ON.</summary>
+        // ------------------------------------------------------------------
+        // The confirmation pair (#114) — and why it felt unresolved
+        //
+        // These were 500 Hz then 700 Hz. 700/500 is 1.4, which is 583 cents; a
+        // TRITONE is 600. So the confirmation tone was already a tritone,
+        // seventeen cents flat of one — close enough that the ear hears one.
+        //
+        // That is very likely the real diagnosis of "bland", and it is not a
+        // lack of richness. The tritone is the most unstable interval in
+        // Western music: it does not resolve, it hangs. Psychoacoustically
+        // that is exactly wrong for "this succeeded", where the operator wants
+        // a settled arrival and instead got a suspension. It would make an
+        // excellent WARNING interval, which is plausibly why the alarm has
+        // character and this did not.
+        //
+        // 500 -> 750 is a perfect fifth (702 cents) and lands. It is a
+        // one-number change: same length, same cadence, same loudness tier, on
+        // the sound the application plays more than any other — after the #128
+        // sweep these fire from roughly two dozen more places than they used
+        // to. An extra hundred milliseconds on THIS sound is not free, and a
+        // sound with more character can tire faster than a plain one.
+        //
+        // NOEL'S THREE-NOTE PROPOSAL IS BUILT AND NOT SHIPPING, pending ears —
+        // see FeatureOnToneThreeNoteCandidate below. Three notes give the
+        // tension somewhere to resolve TO, which is a real argument. Two
+        // arguments run the other way and both were found while building it:
+        // the duration cost above, and the count collision below.
+        //
+        // THE COUNT COLLISION, which is the finding worth Noel's attention.
+        // MuteAllOnTone is ALREADY a three-note triad, and counting is the
+        // whole of what separates "this slice" from "all my slices" — 625/785/
+        // 940 against 500/700. Count survives masking in a way timbre does
+        // not: "how many beeps was that" stays readable through band noise,
+        // cheap speakers and poor signal-to-noise, because counting is a
+        // temporal judgement rather than a spectral one. Making the
+        // single-slice confirmation three notes spends the most robust axis in
+        // the vocabulary to fix an interval, and the interval can be fixed for
+        // free instead. Distinguishing by NUMBER and CONTOUR rather than by
+        // TIMBRE deserves to be a principle for the whole set.
+        //
+        // Both candidates are auditionable side by side in the Earcon
+        // Explorer. Judge against real band noise, not a quiet room. When it
+        // is decided, delete the loser.
+        // ------------------------------------------------------------------
+
+        /// <summary>Rising pair, a perfect fifth — feature toggled ON.</summary>
         [Earcon("Feature on", EarconCategory.CommandsAndConfirmations, Order = 11,
             Description = "Rising pair. A toggle just turned on.")]
         public static void FeatureOnTone()
         {
             if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
-                new[] { (500, 60), (0, 40), (700, 60) }, VolumeNormal);
+                new[] { (500, 60), (0, 40), (750, 60) }, VolumeNormal);
         }
 
-        /// <summary>Double descending beep — feature toggled OFF.</summary>
+        /// <summary>Falling pair, the mirror — feature toggled OFF.</summary>
         [Earcon("Feature off", EarconCategory.CommandsAndConfirmations, Order = 12,
             Description = "Falling pair. A toggle just turned off.")]
         public static void FeatureOffTone()
         {
             if (!Gate(EarconCategory.CommandsAndConfirmations)) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
-                new[] { (700, 60), (0, 40), (500, 60) }, VolumeNormal);
+                new[] { (750, 60), (0, 40), (500, 60) }, VolumeNormal);
+        }
+
+        /// <summary>
+        /// CANDIDATE, not shipping: Noel's three-note confirmation. States the
+        /// tension and then settles it — 500 up to the tritone at 700, then a
+        /// semitone up to 750 to land.
+        /// </summary>
+        /// <remarks>
+        /// Outside the family switches, along with the other bench sounds, so
+        /// auditioning it cannot be silenced by a category an operator turned
+        /// off. Roughly 260 ms against the shipping pair's 160. <b>Delete this
+        /// and its mirror once the comparison is made</b> — a candidate that
+        /// outlives its decision is just clutter in the Explorer.
+        /// </remarks>
+        [Earcon("Feature on, three-note candidate",
+            Description = "Candidate for the confirmation tone (#114): three notes that state "
+                        + "a tension and resolve it. Compare against Feature on.")]
+        public static void FeatureOnToneThreeNoteCandidate()
+        {
+            if (!BenchGate()) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (500, 60), (0, 40), (700, 60), (0, 40), (750, 80) }, VolumeNormal);
+        }
+
+        /// <summary>CANDIDATE, not shipping: the mirror of the three-note
+        /// confirmation. Delete with it.</summary>
+        [Earcon("Feature off, three-note candidate",
+            Description = "Candidate mirror for the confirmation tone (#114). Compare against "
+                        + "Feature off.")]
+        public static void FeatureOffToneThreeNoteCandidate()
+        {
+            if (!BenchGate()) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (750, 60), (0, 40), (700, 60), (0, 40), (500, 80) }, VolumeNormal);
         }
 
         /// <summary>
@@ -1192,6 +1486,10 @@ namespace JJFlexWpf
         public static void ProblemRecordedTone()
         {
             if (!Gate(EarconCategory.Warnings)) return;
+            // 90 + 50 + 130. #116: warnings duck the band audio for their own
+            // length, and the duration is stated here rather than guessed at,
+            // because the request is a deadline and a wrong one is audible.
+            RxDuck.RequestFor(270);
             PlayVoicedSequence(EarconVoices.Plain,
                 new[] { (440, 90), (0, 50), (370, 130) }, VolumeNormal);
         }
@@ -1231,6 +1529,7 @@ namespace JJFlexWpf
         public static void WarningAlarmTone()
         {
             if (!Gate(EarconCategory.Warnings)) return;
+            RxDuck.RequestFor(750);
             PlayVoiced(EarconVoices.Alarm, 800, 750, VolumeStrong);
         }
 
@@ -1681,6 +1980,7 @@ namespace JJFlexWpf
         public static void PlayScratchpadVoiced(MeterVoice? voice, int freqHz, int durationMs,
             float volume, float pan, bool decay)
         {
+            NoTrim();
             var v = voice ?? MeterVoiceLibrary.Resolve(null);
             if (decay) PlayVoicedDecay(v, freqHz, durationMs, volume, pan);
             else PlayVoiced(v, freqHz, durationMs, volume, pan);
@@ -1698,6 +1998,7 @@ namespace JJFlexWpf
         public static void PlayScratchpadScale(MeterVoice? voice, int startHz, int endHz,
             int noteMs, float volume, float pan, bool decay)
         {
+            NoTrim();
             if (startHz <= 0 || endHz <= 0) return;
             var v = voice ?? MeterVoiceLibrary.Resolve(null);
             int perNote = Math.Clamp(noteMs, 40, 1000);
@@ -1730,6 +2031,7 @@ namespace JJFlexWpf
         public static void PlayScratchpadHarmonics(MeterVoice? voice, int fundamentalHz,
             int count, int noteMs, float volume, float pan, bool decay)
         {
+            NoTrim();
             if (fundamentalHz <= 0) return;
             var v = voice ?? MeterVoiceLibrary.Resolve(null);
             int perNote = Math.Clamp(noteMs, 40, 1000);
@@ -1753,7 +2055,41 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayScratchpadChirp(int startHz, int endHz, int durationMs, float volume, float pan)
         {
+            NoTrim();
             PlayChirpPanned(startHz, endHz, durationMs, volume, pan);
+        }
+
+        /// <summary>
+        /// Play a countdown at bench timings and report how long it lasts, so
+        /// the caller can schedule what follows it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Goes through <see cref="CountdownSteps"/> — the same builder the
+        /// shipping earcons use — so a set of timings settled here is a set
+        /// that can ship without being re-derived. That is the whole reason
+        /// this exists rather than the dialog assembling its own step list.
+        /// </para>
+        /// <para>
+        /// The returned duration is the sum of the steps and does NOT include
+        /// the 15 ms fade tail, which overlaps the following silence rather
+        /// than extending the sound.
+        /// </para>
+        /// </remarks>
+        /// <returns>Total length in milliseconds.</returns>
+        public static int PlayScratchpadCountdown(MeterVoice? voice, bool transmit,
+            int countHz, int stepMs, int landingMs, float volume, float pan)
+        {
+            NoTrim();
+            var v = voice ?? CountdownVoice;
+            var steps = CountdownSteps(transmit, countHz,
+                Math.Clamp(stepMs, 20, 2000), Math.Clamp(landingMs, 20, 4000));
+
+            PlayVoicedDecaySequence(v, steps, volume, pan);
+
+            int total = 0;
+            foreach (var (_, ms) in steps) total += ms;
+            return total;
         }
 
         #endregion
@@ -1777,6 +2113,13 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayTypingSound(char digit, TypingSoundMode mode)
         {
+            // Typing sounds are not catalog entries — they have their own mode
+            // setting rather than an earcon id — so there is nothing to look a
+            // per-sound trim up by, and they must not inherit one from the
+            // sound that played before them. If they ever want their own
+            // trim, they need an id first.
+            NoTrim();
+
             // Outside the EarconCategory gates on purpose (typing sounds have
             // their own mode setting), so recorded here: mode Off is this
             // family's gate. One event per keystroke sound - human-paced.
@@ -1794,13 +2137,13 @@ namespace JJFlexWpf
                     // Random musical note from C4-C8 (4 octaves, MIDI 60-108)
                     int midiNote = 60 + _keyRandom.Next(49); // 49 semitones = 4 octaves
                     int freq = (int)(440.0 * Math.Pow(2.0, (midiNote - 69) / 12.0));
-                    PlayTone(freq, 30, 0.25f);
+                    PlayTypingTone(freq);
                     break;
                 case TypingSoundMode.SingleTone:
-                    PlayTone(800, 30, 0.25f);
+                    PlayTypingTone(TypingToneHz);
                     break;
                 case TypingSoundMode.RandomTones:
-                    PlayTone(_keyRandom.Next(300, 2001), 30, 0.25f);
+                    PlayTypingTone(_keyRandom.Next(300, 2001));
                     break;
                 case TypingSoundMode.Mechanical:
                     PlayMechanicalKey();
@@ -1813,32 +2156,172 @@ namespace JJFlexWpf
             }
         }
 
+        // ------------------------------------------------------------------
+        // The typing tone modes (#115) — camouflage, not loudness
+        //
+        // Beep, SingleTone and RandomTones were all PlayTone(freq, 30, 0.25f):
+        // a bare sine, thirty milliseconds, straight out of a SignalGenerator.
+        //
+        // The complaint was that they get buried, and the diagnosis is NOT
+        // that they are too quiet. They RESEMBLE THE MASKER. A short
+        // broadband transient in the voice band IS what a static crash is, and
+        // there is no amplitude at which it stops being one — turning these up
+        // makes them louder pieces of the noise. RandomTones is the clearest
+        // case: a random frequency between 300 and 2000 Hz for 30 ms is a
+        // synthetic static crash by construction, and you could not design
+        // better camouflage deliberately.
+        //
+        // Duration is the mechanism. Gating a tone into a very short window
+        // smears its spectrum, and below roughly 50 ms the ear resolves the
+        // onset transient rather than the pitch. "800 Hz for 15 ms" is not a
+        // tone, it is a click with an 800 Hz tint.
+        //
+        // DTMF IS THE POSITIVE CONTROL AND IS DELIBERATELY NOT TOUCHED. It
+        // sits in the same family, is heard as clearly present, and differs in
+        // exactly the two variables that decide masking: it puts energy at two
+        // frequencies at once instead of one, and it runs long enough to read
+        // as a pitch. Harmonicity is one of the strongest auditory grouping
+        // cues — partials at integer ratios fuse into one perceived object and
+        // segregate from aperiodic noise, which is what band noise is.
+        //
+        // So the tone modes copy those two variables and nothing else: a voice
+        // with harmonics instead of a bare sine, and DTMF's duration instead
+        // of 30 ms. Press is the right voice — struck, then out of the way —
+        // and because it is one of the seven named voices these follow the
+        // #147 set switch, so an operator on Simple gets the plain sines back.
+        //
+        // MUST BE JUDGED AGAINST A LIVE BAND. The original assessment was made
+        // in a quiet room with no radio connected, which is the FLOOR and not
+        // the worst case. Evening QRN on 40 or 80 is the benchmark. Judging in
+        // a quiet room is exactly how this shipped the first time.
+        // ------------------------------------------------------------------
+
+        /// <summary>The fixed pitch for SingleTone, and the fallback pitch
+        /// wherever a typing sound has nothing better to play.</summary>
+        private const int TypingToneHz = 800;
+
         /// <summary>
-        /// Play a random mechanical keyboard sound from the loaded pool.
+        /// How long a typing tone lasts. <see cref="PlayDtmfTone"/>'s duration,
+        /// deliberately and to the millisecond: DTMF is the one member of this
+        /// family that is not buried, and length is half of why.
         /// </summary>
+        /// <remarks>
+        /// Checked against the code rather than taken from the write-up, which
+        /// said 50 — as did DTMF's own summary line, which had drifted from
+        /// the constant beneath it. Both say 60 now.
+        /// </remarks>
+        private const int TypingToneMs = 60;
+
+        /// <summary>
+        /// The typing family's level. <see cref="VolumeSoft"/> by name rather
+        /// than by coincidence — its whole definition is "repeat sounds that
+        /// fire many times a minute", which is what a keystroke is.
+        /// </summary>
+        /// <remarks>
+        /// This is a rise from the 0.25 these used, and it is only defensible
+        /// for the TONE modes. The mechanical WAV modes are broadband
+        /// transients and gain does not rescue those — see
+        /// <see cref="PlayMechanicalKey"/>, which is fixed by levelling the
+        /// pool rather than by pushing it harder.
+        /// </remarks>
+        private const float VolumeTyping = VolumeSoft;
+
+        /// <summary>
+        /// One keystroke tone: harmonic, and long enough to read as a pitch.
+        /// Every tone-mode keystroke goes through here so the three modes
+        /// cannot drift apart in anything except the pitch they choose.
+        /// </summary>
+        private static void PlayTypingTone(int frequencyHz)
+        {
+            PlayVoicedDecay(EarconVoices.Press, frequencyHz, TypingToneMs, VolumeTyping);
+        }
+
+        /// <summary>
+        /// The peak every mechanical keyboard sample is levelled to.
+        /// </summary>
+        /// <remarks>
+        /// Comfortably below full scale, and it sits in the middle of the
+        /// range the old blanket 8x actually produced (0.35 to 1.30), so the
+        /// pool as a whole is about as loud as it was. What changes is that
+        /// the samples now agree with each other.
+        /// </remarks>
+        private const float MechanicalKeyTargetPeak = 0.8f;
+
+        /// <summary>
+        /// Play a random mechanical keyboard sound from the loaded pool,
+        /// levelled so every sample in it lands at the same peak.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This used to apply a blanket 8x to whichever sample came up.</b>
+        /// Someone had already reached for gain here, with a comment saying
+        /// why, and the sounds were still buried — which is #115's whole
+        /// point: these are broadband transients, they resemble band noise,
+        /// and no amount of gain makes a click stop being click-shaped. Do not
+        /// spend DSP trying to make one beat the noise.
+        /// </para>
+        /// <para>
+        /// <b>Measured 2026-08-26, because "the boost may be clipping" was a
+        /// hypothesis and not a fact.</b> All thirteen samples are 24-bit
+        /// stereo, 48 kHz, 200 ms. Peaks run 0.0435 to 0.1630. At 8x the
+        /// loudest reaches 1.304 — 2.3 dB past full scale — and
+        /// <see cref="CachedSound"/>'s gain constructor hard-clamps, so it
+        /// clips. Four of the thirteen clip at all, and across the pool it is
+        /// <b>42 samples out of 124,800, or 0.03%</b>.
+        /// </para>
+        /// <para>
+        /// <b>So the clipping is real, and it is not the problem.</b> 0.03% of
+        /// samples cannot flatten an envelope; the worry that the existing fix
+        /// was degrading what it meant to rescue does not survive the
+        /// measurement. It is confined to the attack transient of four
+        /// samples, which is at least the part that carries a click's
+        /// identity, so it is worth not doing.
+        /// </para>
+        /// <para>
+        /// <b>The measurement found something louder, which nobody was looking
+        /// for: the pool's peaks span 11.5 dB.</b> One blanket gain therefore
+        /// produced keystrokes whose loudness jumped by more than 11 dB at
+        /// random, keypress to keypress. That is far more audible than 0.03%
+        /// clipping and reads as the application being inconsistent rather
+        /// than as variety.
+        /// </para>
+        /// <para>
+        /// Per-sample levelling fixes both at once, and needs no DSP: every
+        /// sample lands at the same peak, nothing clips, and the randomness
+        /// that remains is the character of the samples rather than their
+        /// volume. Ear-gated, because the quietest sample is now noticeably
+        /// louder than it was.
+        /// </para>
+        /// </remarks>
         private static void PlayMechanicalKey()
         {
             if (_keyboardSounds == null || _keyboardSounds.Length == 0)
             {
-                // Fallback: short click
-                PlayTone(800, 15, 0.3f);
+                // No pool loaded. A 15 ms sine was the worst offender in the
+                // whole typing family — comfortably below the roughly 50 ms
+                // where the ear starts hearing pitch instead of onset — so the
+                // fallback is the same tone the other modes now play.
+                PlayTypingTone(TypingToneHz);
                 return;
             }
+            // The pool is levelled once, at load. Normalising per keystroke
+            // would allocate a fresh 200 ms buffer on every keypress for a
+            // result that never changes.
             int idx = _keyRandom.Next(_keyboardSounds.Length);
-            var sound = _keyboardSounds[idx];
-            // Keyboard sounds are low amplitude — boost 8x for audibility over radio audio
-            var boosted = new CachedSound(sound, 8.0f);
-            PlayCachedSound(boosted);
+            PlayCachedSound(_keyboardSounds[idx]);
         }
 
         /// <summary>
-        /// Play a DTMF dual-tone for the given digit (50ms burst).
+        /// Play a DTMF dual-tone for the given digit (60 ms burst).
         /// </summary>
         private static void PlayDtmfTone(char digit)
         {
             if (!DtmfFreqs.TryGetValue(digit, out var freqs))
             {
-                PlayTone(800, 30, 0.25f); // fallback for non-digit chars
+                // Not a DTMF key. Falls back to the tone the other modes play
+                // rather than to the bare 30 ms sine it used, which was one of
+                // the offenders #115 was written about.
+                PlayTypingTone(TypingToneHz);
                 return;
             }
 
@@ -1895,7 +2378,12 @@ namespace JJFlexWpf
                     try
                     {
                         using var stream = File.OpenRead(file);
-                        sounds.Add(new CachedSound(stream));
+                        // Levelled here, once, rather than boosted at every
+                        // keystroke. The pool's own peaks span 11.5 dB
+                        // (measured 2026-08-26), so a single blanket gain made
+                        // keystroke loudness jump at random — see
+                        // PlayMechanicalKey for the measurement.
+                        sounds.Add(new CachedSound(stream).Normalized(MechanicalKeyTargetPeak));
                     }
                     catch (Exception ex)
                     {
@@ -1988,11 +2476,170 @@ namespace JJFlexWpf
             }
         }
 
-        /// <summary>Bench gain for a provider going into the alert mixer.</summary>
+        // ------------------------------------------------------------------
+        // Per-sound relative level — a DESIGN control, not a listening one
+        //
+        // The bench gain above is a listening control: scoped to one Play
+        // call, deliberately not saved, there so two sounds can be compared
+        // against each other and against band noise. It answers "how loud is
+        // this right now."
+        //
+        // This answers a different question — "how loud should this sound be,
+        // relative to its tier, from now on" — and so it must PERSIST. It is
+        // what "the whole modern vocabulary sits a tier below the legacy one"
+        // actually needs: 0.30 against 0.60 is 6 dB, and the sounds heard most
+        // often were the hardest to hear. The three tiers fixed most of that
+        // by giving every sound a level it picks for a reason that can be said
+        // in words; what they cannot do is let one individual sound be trimmed
+        // when the ear says the tier is right and that one sound still is not.
+        //
+        // In dB, not as a multiplier, because that is how the judgement is
+        // actually made ("this wants to come down three") and because equal
+        // steps in dB are equal steps to the ear. Zero means untouched, which
+        // is the default for every sound and what ships.
+        //
+        // BOUNDED, AND ASYMMETRICALLY, because the two directions carry
+        // different risks.
+        //
+        // Cutting is safe at any depth, so cuts go to -12 dB. Boosting is not:
+        // the loudest tier is a peak amplitude of 0.65, so even +4 dB puts a
+        // sound past full scale, and there is no headroom left at the device
+        // to absorb it. A persisted boost that distorts is worse than a bench
+        // gain that does, because the bench gain evaporates when the Play call
+        // returns and this one does not.
+        //
+        // So boosts stop at +3 dB, which is roughly the headroom the top tier
+        // has left. A sound wanting more than that does not want a trim, it
+        // wants a different TIER — and the tiers are chosen for reasons that
+        // can be said in words, which is the better conversation to be having.
+        // The quiet-vocabulary problem this was written for is a 6 dB gap, and
+        // the answer to it is to raise the quiet sounds a tier rather than to
+        // boost them individually.
+        //
+        // A trim can never silence a sound outright: -12 dB is a quarter of
+        // the amplitude, not zero. The family switches exist for turning
+        // things off, and losing a warning by accident should not be one
+        // slider away.
+        // ------------------------------------------------------------------
+
+        /// <summary>The deepest cut a single sound may be given.</summary>
+        public const float MinLevelTrimDb = -12f;
+
+        /// <summary>
+        /// The largest boost a single sound may be given — roughly the
+        /// headroom the loudest tier has left before full scale.
+        /// </summary>
+        public const float MaxLevelTrimDb = 3f;
+
+        private static readonly Dictionary<string, float> _levelTrimDb = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The earcon currently being built, so the gain applied at the mixer
+        /// can find its trim.
+        /// </summary>
+        /// <remarks>
+        /// Same reasoning as the bench flags above, and the same guarantee:
+        /// an earcon's public method builds its providers synchronously and
+        /// hands them to the mixer before returning, so a thread-local set on
+        /// the way in reaches exactly that sound. It is SET rather than
+        /// cleared at the end because a sound may add more than one provider —
+        /// the filter stretch adds two — and consuming it on first use would
+        /// trim half a sound. Every path that reaches the mixer sets it first:
+        /// <see cref="Gate"/> for the gated families,
+        /// <see cref="BenchGate"/> for the handful outside them, and
+        /// <see cref="NoTrim"/> for the scratchpad, which plays voices rather
+        /// than named earcons and has nothing to look up.
+        /// </remarks>
+        [ThreadStatic] private static float _currentTrimDb;
+
+        /// <summary>
+        /// The trim on one earcon, in dB. Zero when it has never been given
+        /// one, which is every sound as shipped.
+        /// </summary>
+        /// <param name="earconId">the method name, which is the same stable id
+        /// <see cref="EarconCatalog"/> uses</param>
+        public static float GetLevelTrimDb(string earconId)
+        {
+            if (string.IsNullOrEmpty(earconId)) return 0f;
+            lock (_levelTrimDb)
+                return _levelTrimDb.TryGetValue(earconId, out float db) ? db : 0f;
+        }
+
+        /// <summary>
+        /// Trim one earcon relative to its tier. Zero removes the trim rather
+        /// than storing a zero, so a config only ever carries real decisions.
+        /// </summary>
+        public static void SetLevelTrimDb(string earconId, float db)
+        {
+            if (string.IsNullOrEmpty(earconId)) return;
+            db = Math.Clamp(db, MinLevelTrimDb, MaxLevelTrimDb);
+            lock (_levelTrimDb)
+            {
+                if (Math.Abs(db) < 0.05f) _levelTrimDb.Remove(earconId);
+                else _levelTrimDb[earconId] = db;
+            }
+        }
+
+        /// <summary>Every trim that has been set, for persistence.</summary>
+        public static IReadOnlyDictionary<string, float> GetAllLevelTrimsDb()
+        {
+            lock (_levelTrimDb)
+                return new Dictionary<string, float>(_levelTrimDb, StringComparer.Ordinal);
+        }
+
+        /// <summary>Replace every trim at once — the restore side of persistence.</summary>
+        public static void SetAllLevelTrimsDb(IEnumerable<KeyValuePair<string, float>>? trims)
+        {
+            lock (_levelTrimDb)
+            {
+                _levelTrimDb.Clear();
+                if (trims == null) return;
+                foreach (var kv in trims)
+                {
+                    if (string.IsNullOrEmpty(kv.Key)) continue;
+                    float db = Math.Clamp(kv.Value, MinLevelTrimDb, MaxLevelTrimDb);
+                    if (Math.Abs(db) >= 0.05f) _levelTrimDb[kv.Key] = db;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Arm the trim for a sound outside the six family switches — the
+        /// calibration and bench sounds, which answer to the master gate only.
+        /// </summary>
+        /// <remarks>
+        /// These would otherwise reach the mixer without setting the
+        /// thread-local and inherit whatever the previous sound on this thread
+        /// was trimmed by. Returns the master gate so it reads as a drop-in
+        /// for the <c>if (!EarconsEnabled) return;</c> it replaces.
+        /// </remarks>
+        private static bool BenchGate([CallerMemberName] string earconName = "")
+        {
+            _currentTrimDb = GetLevelTrimDb(earconName);
+            return EarconsEnabled;
+        }
+
+        /// <summary>
+        /// Declare that what follows is not a named earcon and must not be
+        /// trimmed — the scratchpad's raw tones and voice auditions.
+        /// </summary>
+        private static void NoTrim() => _currentTrimDb = 0f;
+
+        /// <summary>
+        /// Bench gain and per-sound trim for a provider going into the alert
+        /// mixer. One wrapper for both: they multiply, because one is "louder
+        /// while I listen" and the other is "quieter from now on", and an
+        /// operator auditioning a trimmed sound wants to hear the trim.
+        /// </summary>
         private static ISampleProvider ApplyPreviewGain(ISampleProvider source)
         {
-            if (!_previewActive || Math.Abs(_previewGain - 1f) < 0.001f) return source;
-            return new VolumeSampleProvider(source) { Volume = _previewGain };
+            float gain = _previewActive ? _previewGain : 1f;
+            float trimDb = _currentTrimDb;
+            if (Math.Abs(trimDb) >= 0.05f)
+                gain *= (float)Math.Pow(10.0, trimDb / 20.0);
+
+            if (Math.Abs(gain - 1f) < 0.001f) return source;
+            return new VolumeSampleProvider(source) { Volume = gain };
         }
 
         #endregion
@@ -2034,7 +2681,12 @@ namespace JJFlexWpf
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
             var swept = new SweepPanningSampleProvider(monoSource, startPan, endPan, durationMs);
-            AlertMixer.AddMixerInput(swept);
+            // Through the same gain wrapper as the other two, so a trim is
+            // uniform across every one-shot. This also closes a pre-existing
+            // gap: the bench gain never reached the swept-pan sounds either,
+            // so auditioning an expand or collapse sweep at a bench gain moved
+            // nothing.
+            AlertMixer.AddMixerInput(ApplyPreviewGain(swept));
         }
 
         internal static void PlayTone(int frequencyHz, int durationMs, float volume)
@@ -2600,12 +3252,39 @@ namespace JJFlexWpf
             public WaveFormat WaveFormat { get; }
 
             /// <summary>Create a gain-boosted copy of an existing CachedSound.</summary>
+            /// <remarks>
+            /// Hard-clamps, so a gain that overshoots destroys peaks rather
+            /// than wrapping. Prefer <see cref="Normalized"/> where the point
+            /// is to reach a level rather than to apply a specific gain — it
+            /// works out the gain from the audio instead of being told one.
+            /// </remarks>
             public CachedSound(CachedSound source, float gain)
             {
                 WaveFormat = source.WaveFormat;
                 AudioData = new float[source.AudioData.Length];
                 for (int i = 0; i < AudioData.Length; i++)
                     AudioData[i] = Math.Clamp(source.AudioData[i] * gain, -1f, 1f);
+            }
+
+            /// <summary>
+            /// A copy scaled so its loudest sample sits exactly at
+            /// <paramref name="targetPeak"/>. Nothing clips, by construction.
+            /// </summary>
+            /// <remarks>
+            /// Returns this instance unchanged when there is no peak to scale
+            /// — digital silence has no level to normalise TO, and dividing by
+            /// it would turn a silent file into full-scale noise.
+            /// </remarks>
+            public CachedSound Normalized(float targetPeak)
+            {
+                float peak = 0f;
+                foreach (float s in AudioData)
+                {
+                    float a = Math.Abs(s);
+                    if (a > peak) peak = a;
+                }
+                if (peak <= 0.0001f) return this;
+                return new CachedSound(this, targetPeak / peak);
             }
 
             public CachedSound(Stream wavStream)

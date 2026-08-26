@@ -2440,11 +2440,14 @@ namespace Radios
             {
                 try
                 {
-                    if (!farewell.Wait(SkFarewellWaitMs))
+                    // Read once — the trace must report the bound that was
+                    // actually applied, not a second evaluation of it.
+                    int waitMs = SkFarewellWaitMs();
+                    if (!farewell.Wait(waitMs))
                     {
                         Tracing.TraceLine(
                             "Disconnect:SK farewell did not finish within "
-                            + SkFarewellWaitMs + "ms — continuing teardown",
+                            + waitMs + "ms — continuing teardown",
                             TraceLevel.Warning);
                     }
                 }
@@ -2456,12 +2459,81 @@ namespace Radios
         }
 
         /// <summary>
-        /// How long any path that plays the SK farewell may wait for it before
-        /// giving up and continuing. Matches the bound
-        /// <c>ApplicationEvents.MyApplication_Shutdown</c> already applies to its
-        /// own call, so the two SK paths cannot drift apart.
+        /// The wait used when nothing has reported a farewell duration — the
+        /// flat figure both SK paths used before #143.
         /// </summary>
-        internal const int SkFarewellWaitMs = 5000;
+        /// <remarks>
+        /// Also the FLOOR of the computed wait, so this change can only ever
+        /// lengthen the window, never shorten it. A speed that fits today must
+        /// keep fitting.
+        /// </remarks>
+        public const int SkFarewellFallbackMs = 5000;
+
+        /// <summary>
+        /// The hard ceiling. A farewell must never be able to hang a
+        /// disconnect or an exit, whatever the keying speed or the state of
+        /// the sound card.
+        /// </summary>
+        /// <remarks>
+        /// Comfortably clear of the worst honest case — the short string at
+        /// the slowest allowed speed, 10 WPM, is around 7.6 seconds — so this
+        /// bounds a wedged device rather than a slow operator. The real
+        /// governor is <c>EarconCwOutput.WaitForDrain</c>, which observes the
+        /// device and bounds itself; this is the backstop behind it.
+        /// </remarks>
+        public const int SkFarewellCeilingMs = 15000;
+
+        /// <summary>
+        /// How long any path that plays the SK farewell may wait for it before
+        /// giving up and continuing.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Derived, not chosen.</b> Until 2026-08-26 this was a flat 5000
+        /// ms, and the comment behind it named exactly the right case — "the
+        /// richer '73 de JJF SK' farewell at speed >= 25 WPM" — while the
+        /// arithmetic undershot it by about a second. Two bands were being
+        /// truncated: roughly 10-15 WPM on the short string, and 25-31 on the
+        /// long one. Between and above, it fitted. Testing one speed in the
+        /// middle showed a clean pass, which is how it survived.
+        /// </para>
+        /// <para>
+        /// The string's length is not a function of speed alone: at 25 WPM the
+        /// farewell also GROWS, from roughly 63 PARIS units to roughly 129. So
+        /// the number comes from the CW side, which knows both the text and
+        /// the speed, rather than from a second calculation here.
+        /// </para>
+        /// <para>
+        /// <b>This is a different defect from the drain race, with the same
+        /// symptom.</b> That one signalled completion on a computed duration,
+        /// so the wait was satisfied EARLY and teardown cut the tail; raising
+        /// a timeout does nothing for it, and it was fixed in Sprint 32 Track
+        /// H by observing the device instead of predicting it. This one
+        /// genuinely EXPIRES at the speed extremes. Do not let a fix for one
+        /// look like a fix for the other.
+        /// </para>
+        /// <para>
+        /// Both SK paths call this, so they cannot drift apart — which was the
+        /// point of the shared constant it replaces.
+        /// </para>
+        /// </remarks>
+        public static int SkFarewellWaitMs()
+        {
+            int budget;
+            try
+            {
+                budget = ScreenReaderOutput.CwFarewellBudgetMs?.Invoke() ?? 0;
+            }
+            catch
+            {
+                // A farewell must not be able to fail a disconnect, and that
+                // includes failing to work out how long to wait for one.
+                budget = 0;
+            }
+
+            if (budget <= 0) return SkFarewellFallbackMs;
+            return Math.Clamp(budget, SkFarewellFallbackMs, SkFarewellCeilingMs);
+        }
 
         private bool _IsConnected = false; // set in radioPropertyChangedHandler
         /// <summary>

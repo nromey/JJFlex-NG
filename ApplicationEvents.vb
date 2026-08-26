@@ -404,9 +404,14 @@ Namespace My
                 ", SkAlreadyPlayedThisSession=" & Radios.ScreenReaderOutput.SkAlreadyPlayedThisSession.ToString() &
                 ", AtuProgressToneRunning=" & JJFlexWpf.EarconPlayer.IsATUProgressEarconRunning.ToString() &
                 ", BenchToneRunning=" & JJFlexWpf.EarconPlayer.IsBenchToneRunning.ToString())
-            ' Play SK prosign on app close. Timeout bumped to 5 seconds to cover the
-            ' richer "73 de JJF SK" farewell at speed >= 25 WPM (the MainWindow-side
-            ' PlayCwSK delegate picks short-or-long based on current WPM).
+            ' Play SK prosign on app close. The wait is DERIVED from the farewell
+            ' about to be sent -- FlexBase.SkFarewellWaitMs() asks the CW side how
+            ' long this string takes at this speed, then clamps it. It was a flat
+            ' 5 seconds until #143, chosen for exactly the right case (the richer
+            ' "73 de JJF SK" at speed >= 25 WPM) and short for it by about a
+            ' second. Roughly 10-15 WPM and 25-31 WPM were being truncated; 20,
+            ' which is what Noel runs, fits comfortably, which is why nobody saw
+            ' it. Both SK paths call the same method so they cannot drift.
             ' Skip if FlexBase.Disconnect already played SK during this session —
             ' otherwise the user hears 73 twice when exiting from a connected state
             ' (Disconnect path → SK once, then Shutdown → SK again).
@@ -415,10 +420,12 @@ Namespace My
                Not Radios.ScreenReaderOutput.SkAlreadyPlayedThisSession Then
                 Try
                     Dim swFarewell = System.Diagnostics.Stopwatch.StartNew()
-                    Dim finished = Radios.ScreenReaderOutput.PlayCwSK.Invoke().Wait(5000)
+                    Dim waitMs = Radios.FlexBase.SkFarewellWaitMs()
+                    Dim finished = Radios.ScreenReaderOutput.PlayCwSK.Invoke().Wait(waitMs)
                     JJTrace.Tracing.TraceLine(
                         "Shutdown: farewell " & If(finished, "completed", "TIMED OUT") &
-                        " after " & swFarewell.ElapsedMilliseconds.ToString() & "ms")
+                        " after " & swFarewell.ElapsedMilliseconds.ToString() &
+                        "ms of " & waitMs.ToString() & "ms allowed")
                 Catch ex As Exception
                     ' Swallowing this silently is how a suppressed farewell became
                     ' undiagnosable; trace it, still never open a window.

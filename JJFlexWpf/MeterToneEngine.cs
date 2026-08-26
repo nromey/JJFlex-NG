@@ -31,6 +31,29 @@ namespace JJFlexWpf
         // instead of sharing one 10 Hz budget between them.
         private const long ThrottleIntervalTicks = TimeSpan.TicksPerMillisecond * 100;
 
+        /// <summary>
+        /// The floor below which a dBFS transmit meter is reporting its
+        /// sentinel rather than a measurement, and must not be spoken as a
+        /// level.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <see cref="FlexBase.ScMicDb"/>, <see cref="FlexBase.ScMicMaxDb"/>,
+        /// <see cref="FlexBase.ScMicRecentDb"/> and
+        /// <see cref="FlexBase.SwAlcDb"/> all initialise to -150 and stay
+        /// there until their meter first reports. -150 is not a quiet
+        /// microphone; it is "no meter has spoken yet", and the two must never
+        /// be read as the same thing.
+        /// </para>
+        /// <para>
+        /// The figure matches the guard <c>ScreenFieldsPanel.UpdateMicVerdict</c>
+        /// has used since it was written; it is named here so the two cannot
+        /// drift, and that panel should be pointed at this constant rather
+        /// than its own literal.
+        /// </para>
+        /// </remarks>
+        public const float DbfsNoReading = -140f;
+
         /// <summary>Global kill switch for all meter tones.</summary>
         public static bool Enabled
         {
@@ -544,11 +567,13 @@ namespace JJFlexWpf
         /// it, so Track D reported it rather than making it.
         /// </para>
         /// <para>
-        /// The same conflation has a second surface:
-        /// <see cref="GetMeterSpeechSummary"/> reads <c>_rig.ALC</c>, which is
-        /// also HWALC, and announces it as a bare "ALC". Its guard of
-        /// <c>&gt; 0.01</c> is the same units mistake, so in practice that line
-        /// is never spoken at all.
+        /// The same conflation HAD a second surface, and that one is fixed:
+        /// <see cref="GetMeterSpeechSummary"/> used to read <c>_rig.ALC</c> —
+        /// also HWALC — and announce it as a bare "ALC", with a guard of
+        /// <c>&gt; 0.01</c> that made the same units mistake, so in practice
+        /// the line was never spoken at all. It now reads
+        /// <see cref="FlexBase.SwAlcDb"/> and says "TX drive". The watcher
+        /// below is still the open half of this.
         /// </para>
         /// </remarks>
         private const string PeakWatcherMeterName = "HWALC";
@@ -724,6 +749,32 @@ namespace JJFlexWpf
         /// Generate a speech summary of current meter values.
         /// Works whether tones are on or off.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Three surfaces read this</b> — the Speak Meters key
+        /// (Ctrl+Alt+V), its menu item, and the Status dialog's Meters
+        /// section — so a wrong meter here is wrong in three places at once.
+        /// </para>
+        /// <para>
+        /// <b>Every transmit figure below is the same one the corrected
+        /// surfaces use, and that is the whole point of the method.</b> Until
+        /// 2026-08-26 this read <c>SWRValue</c>, <c>ALC</c> and
+        /// <c>MicData</c> — the radio's own SWR meter, the external-amplifier
+        /// ALC jack, and the analog codec meter. Every one of them had already
+        /// been established as the wrong instrument elsewhere in the app, and
+        /// the most reflexive way an operator has of asking how transmit is
+        /// going was the surface that never got the correction. On a PC-audio
+        /// station it said "Mic -120" while the Audio Workshop said the level
+        /// was fine; into a bad load it said "SWR 1.0" while the chain check
+        /// called the load suspect.
+        /// </para>
+        /// <para>
+        /// A blind operator has no second opinion — they cannot glance at a
+        /// needle to sanity-check what they just heard. Do not repoint any of
+        /// these at a raw radio meter. <c>MeterSpeechSummarySourceTests</c> in
+        /// Radios.Tests fails the build if one of the three comes back.
+        /// </para>
+        /// </remarks>
         public static string GetMeterSpeechSummary()
         {
             if (_rig == null) return Lexicon.Get("audio.meters.no_radio");
@@ -754,16 +805,71 @@ namespace JJFlexWpf
                 sb.Append(Lexicon.Get("audio.meters.forward_power",
                     ("power", FlexBase.FormatForwardPowerSpoken(_rig.ForwardPowerWatts)))).Append(' ');
 
-                float swr = _rig.SWRValue;
-                if (swr > 0)
-                    sb.Append(Lexicon.Get("audio.meters.swr", ("swr", $"{swr:F1}"))).Append(' ');
+                // SWR is WORKED OUT from forward and reflected power, never
+                // read from the radio's own SWR meter. That meter reported
+                // 1.008 into an unterminated antenna port on 2026-08-22 while
+                // 76% of the power was coming back, then dropped to its -25
+                // no-reading sentinel mid-transmit. It is accurate when the
+                // antenna system is fine and wrong when it is not, which is
+                // exactly backwards for a number nobody consults until
+                // something has already gone wrong. FlexBase.ComputedSWR is
+                // the same arithmetic the live PTT warning, the transmit
+                // chain check and the Fixer all use, so this key can no
+                // longer disagree with them.
+                //
+                // NaN means there is not enough forward power to derive
+                // anything — between syllables on SSB, or key-up. Say so
+                // rather than going silent: silence is ambiguous, and an
+                // invented 1.0 is the failure this replaces.
+                float swr = _rig.ComputedSWR;
+                sb.Append(float.IsNaN(swr)
+                        ? Lexicon.Get("audio.meters.swr_no_reading")
+                        : Lexicon.Get("audio.meters.swr", ("swr", $"{swr:F1}")))
+                    .Append(' ');
 
-                float alc = _rig.ALC;
-                if (alc > 0.01f)
-                    sb.Append(Lexicon.Get("audio.meters.alc", ("alc", $"{alc:F2}"))).Append(' ');
+                // Transmit DRIVE is SW ALC. The old code read _rig.ALC, which
+                // is HWALC — the voltage on the external-amplifier ALC jack —
+                // and announced it as a bare "ALC". Two separate mistakes in
+                // one line: the wrong meter, and a guard of > 0.01 applied to
+                // a reading in dBFS, which meant the line was in practice
+                // never spoken at all.
+                //
+                // HWALC is deliberately NOT repointed here. Noel ruled on
+                // 2026-08-11 that it stays surfaced as AMPLIFIER ALC, because
+                // older amplifiers genuinely use that line for overdrive
+                // protection. It is a second thing with its own wording, not a
+                // replacement — which is why this one says "TX drive", the
+                // same words the Audio Workshop's Live Meters already uses.
+                float drive = _rig.SwAlcDb;
+                if (drive > DbfsNoReading)
+                    sb.Append(Lexicon.Get("audio.meters.tx_drive", ("drive", $"{drive:F1}"))).Append(' ');
 
-                float mic = _rig.MicData;
-                sb.Append(Lexicon.Get("audio.meters.mic", ("mic", $"{mic:F1}"))).Append(' ');
+                // Microphone: SC_MIC, and the wording comes from
+                // MicAudioReport so this key cannot drift from the Home audio
+                // expander, the Audio Workshop's reading field, or the JJ
+                // key's mic check. It also inherits the operator's
+                // verdict-output preference, so someone who wants figures
+                // without coaching gets figures without coaching.
+                //
+                // The old code read _rig.MicData, the analog codec meter,
+                // which reads -120 for PC audio. On a PC-audio station this
+                // key said "Mic -120" while the Workshop two keystrokes away
+                // said the level was fine.
+                //
+                // Live/last selection matches ScreenFieldsPanel.UpdateMicVerdict
+                // exactly: the recent peak follows a level back DOWN, so it
+                // tracks a mic-gain change made mid-transmit, where the
+                // whole-transmit peak-hold only ever grows.
+                float recent = _rig.ScMicRecentDb;
+                float max = _rig.ScMicMaxDb;
+                if (recent > DbfsNoReading)
+                    sb.Append(MicAudioReport.Compose(
+                        _rig, Lexicon.Get("audio.fields.mic_verdict_now"), recent, live: true));
+                else if (max > DbfsNoReading)
+                    sb.Append(MicAudioReport.Compose(
+                        _rig, Lexicon.Get("audio.fields.mic_verdict_last"), max, live: false));
+                else
+                    sb.Append(Lexicon.Get("audio.fields.mic_verdict_none"));
             }
 
             return sb.ToString().TrimEnd();
