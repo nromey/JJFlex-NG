@@ -263,14 +263,14 @@ public partial class MainWindow : UserControl
                     userConfig.OfferStationSaveOnDisconnect;
                 // #147, and here for the same reason the CW settings are:
                 // AudioOutputConfig.Apply() runs on CONNECT, so an operator who
-                // chose the Classic set would hear the Modern one on every
+                // chose the Simple set would hear the Rich one on every
                 // dialog ding and JJ-key tone between launch and their first
                 // connect — including the whole of a session that never
                 // connects at all.
                 EarconVoices.ActiveSet =
-                    userConfig.EarconVoiceSet == (int)EarconVoiceSet.Classic
-                        ? EarconVoiceSet.Classic
-                        : EarconVoiceSet.Modern;
+                    userConfig.EarconVoiceSet == (int)EarconVoiceSet.Simple
+                        ? EarconVoiceSet.Simple
+                        : EarconVoiceSet.Rich;
             }
         }
         catch (Exception ex)

@@ -15,14 +15,40 @@ namespace JJFlexWpf
     /// sets, and the only variable is timbre and envelope — which is exactly
     /// the comparison an operator is trying to make.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The two names are RICH and SIMPLE, and the names are the ruling.</b>
+    /// Noel settled this on 2026-08-21, choosing them over "Modern / Classic"
+    /// — which is what this enum said until Sprint 35 — because the
+    /// application already has a Classic and Modern TUNING MODE meaning
+    /// something entirely unrelated. Two unrelated Classic/Modern switches is
+    /// a confusion an operator navigating by name cannot resolve. "Pure tone /
+    /// Layered" was also considered and rejected as more jargon.
+    /// </para>
+    /// <para>
+    /// Rich and Simple describe what the operator HEARS, promise nothing about
+    /// history, and collide with nothing. Do not reintroduce the old words,
+    /// here or in operator-facing text.
+    /// </para>
+    /// <para>
+    /// <b>The ordinals are load-bearing and did not move.</b> The choice
+    /// persists as an int (<c>AudioOutputConfig.EarconVoiceSet</c>), so Rich
+    /// must stay 0 and Simple must stay 1 or every saved configuration flips
+    /// to the other set on upgrade.
+    /// </para>
+    /// </remarks>
     public enum EarconVoiceSet
     {
         /// <summary>The rebuilt set: shaped attack, decay, harmonics, and a
-        /// warning family that escalates on three axes. Sprint 32 Track E.</summary>
-        Modern = 0,
+        /// warning family that escalates on three axes. Sprint 32 Track E.
+        /// The default, and what ships.</summary>
+        Rich = 0,
 
-        /// <summary>The set as it sounded before that rebuild.</summary>
-        Classic = 1,
+        /// <summary>Plain tones — the set as it sounded before that rebuild.
+        /// <b>Not a byte-for-byte restoration</b>, and the label must not
+        /// promise one: some original earcons differed in duration and
+        /// sequencing too, not only in timbre.</summary>
+        Simple = 1,
     }
 
     /// <summary>
@@ -65,11 +91,11 @@ namespace JJFlexWpf
         // #147 — the set selector
         // ------------------------------------------------------------------
 
-        private static volatile EarconVoiceSet _activeSet = EarconVoiceSet.Modern;
+        private static volatile EarconVoiceSet _activeSet = EarconVoiceSet.Rich;
 
         /// <summary>
         /// Which set the seven accessors resolve against. Defaults to
-        /// <see cref="EarconVoiceSet.Modern"/>, so an operator who never opens
+        /// <see cref="EarconVoiceSet.Rich"/>, so an operator who never opens
         /// the setting hears exactly what shipped.
         ///
         /// Read on every earcon, written from Settings. A plain volatile field
@@ -85,13 +111,22 @@ namespace JJFlexWpf
 
         /// <summary>The set names as an operator reads them, in enum order.
         /// Index matches <see cref="EarconVoiceSet"/>.</summary>
+        /// <remarks>
+        /// "Simple" says plain, not OLD. The set is not a byte-for-byte
+        /// restoration of anything, and a label promising the original sounds
+        /// would be a promise the code does not keep.
+        /// </remarks>
         public static IReadOnlyList<string> SetLabels { get; } = new[]
         {
-            "Modern — shaped tones with harmonics",
-            "Classic — plain tones, as they sounded before",
+            "Rich — layered tones that carry better through band noise",
+            "Simple — plain tones, closer to earlier versions",
         };
 
-        private static bool Classic => _activeSet == EarconVoiceSet.Classic;
+        /// <summary>
+        /// True when the plain set is live. Named for the set it selects, so
+        /// the ternaries below read as "Simple ? plain : layered".
+        /// </summary>
+        private static bool Simple => _activeSet == EarconVoiceSet.Simple;
 
         // ------------------------------------------------------------------
         // The seven words. Each resolves through the active set; nothing that
@@ -104,9 +139,9 @@ namespace JJFlexWpf
         /// upper partial and the shaped attack give it a body that survives
         /// being played over receive audio. Sustains for the whole note.
         ///
-        /// Classic: the bare sine it replaced.
+        /// Simple: the bare sine it replaced.
         /// </summary>
-        public static MeterVoice Plain => Classic ? ClassicPlain : ModernPlain;
+        public static MeterVoice Plain => Simple ? SimplePlain : RichPlain;
 
         /// <summary>
         /// The button press. Fast strike, then it gets out of the way — the
@@ -114,21 +149,21 @@ namespace JJFlexWpf
         /// <see cref="DecayingOver"/> so the tone lands and falls away inside
         /// its own duration instead of stopping dead.
         ///
-        /// Classic: a sine that stops dead, because that is what it did.
+        /// Simple: a sine that stops dead, because that is what it did.
         /// </summary>
-        public static MeterVoice Press => Classic ? ClassicPress : ModernPress;
+        public static MeterVoice Press => Simple ? SimplePress : RichPress;
 
         /// <summary>
         /// The confirmation ding: fundamental plus a soft octave, a long tail.
         /// Replaces the hand-rolled DingToneSampleProvider, which was a fourth
         /// synthesiser doing exactly this and nothing else.
         ///
-        /// Classic: that hand-rolled ding's own spectrum — fundamental plus
+        /// Simple: that hand-rolled ding's own spectrum — fundamental plus
         /// octave, no third partial, perfectly harmonic. This is one of the two
-        /// voices where Classic is NOT a bare sine, because the sound it is
+        /// voices where Simple is NOT a bare sine, because the sound it is
         /// reproducing was never a bare sine.
         /// </summary>
-        public static MeterVoice Chime => Classic ? ClassicChime : ModernChime;
+        public static MeterVoice Chime => Simple ? SimpleChime : RichChime;
 
         /// <summary>
         /// The warning alarm's timbre, carried over unchanged from the
@@ -139,30 +174,30 @@ namespace JJFlexWpf
         /// equal-power normalisation, so its loudness is directly comparable
         /// with every other earcon for the first time.
         ///
-        /// Classic: the same partials with the symmetric linear ramps it had
-        /// before normalisation. The other voice whose Classic form is not a
+        /// Simple: the same partials with the symmetric linear ramps it had
+        /// before normalisation. The other voice whose Simple form is not a
         /// bare sine — the alarm was already additive when it was written.
         /// </summary>
-        public static MeterVoice Alarm => Classic ? ClassicAlarm : ModernAlarm;
+        public static MeterVoice Alarm => Simple ? SimpleAlarm : RichAlarm;
 
         /// <summary>
         /// First warning — a nudge. Mellow, steady, no pattern. Says "you are
         /// still transmitting" without saying anything is wrong yet.
         ///
-        /// Classic: <c>Beep(800, 150)</c>, which is to say a sine.
+        /// Simple: <c>Beep(800, 150)</c>, which is to say a sine.
         /// </summary>
-        public static MeterVoice WarningCalm => Classic ? ClassicSine : ModernWarningCalm;
+        public static MeterVoice WarningCalm => Simple ? SimpleSine : RichWarningCalm;
 
         /// <summary>
         /// Second warning — insistent. Brighter spectrum, and it pulses twice
         /// inside its own duration (60 ms on, 40 ms off against a 200 ms note),
         /// so the repetition is audible without the tone getting longer.
         ///
-        /// Classic: a sine. In the original family the only thing separating
-        /// the three warnings was pitch, and selecting Classic restores that
+        /// Simple: a sine. In the original family the only thing separating
+        /// the three warnings was pitch, and selecting Simple restores that
         /// — including the weakness #118 was written to fix.
         /// </summary>
-        public static MeterVoice WarningInsistent => Classic ? ClassicSine : ModernWarningInsistent;
+        public static MeterVoice WarningInsistent => Simple ? SimpleSine : RichWarningInsistent;
 
         /// <summary>
         /// Last warning — the "oh crap". Inharmonic partials give it a metallic
@@ -170,15 +205,15 @@ namespace JJFlexWpf
         /// rather than pulses. Deliberately unpleasant: it fires when the next
         /// thing the operator does depends on hearing it.
         ///
-        /// Classic: a sine, one step higher than the last one.
+        /// Simple: a sine, one step higher than the last one.
         /// </summary>
-        public static MeterVoice WarningUrgent => Classic ? ClassicSine : ModernWarningUrgent;
+        public static MeterVoice WarningUrgent => Simple ? SimpleSine : RichWarningUrgent;
 
         // ------------------------------------------------------------------
-        // Modern definitions — Sprint 32 Track E, unchanged
+        // Rich definitions — Sprint 32 Track E, unchanged
         // ------------------------------------------------------------------
 
-        private static MeterVoice ModernPlain { get; } = new MeterVoice
+        private static MeterVoice RichPlain { get; } = new MeterVoice
         {
             Name = "Alert Plain",
             Description = "Clean tone with a little warmth",
@@ -187,7 +222,7 @@ namespace JJFlexWpf
             SustainLevel = 1f,
         };
 
-        private static MeterVoice ModernPress { get; } = new MeterVoice
+        private static MeterVoice RichPress { get; } = new MeterVoice
         {
             Name = "Alert Press",
             Description = "Struck tone that falls away",
@@ -196,7 +231,7 @@ namespace JJFlexWpf
             SustainLevel = 0f,
         };
 
-        private static MeterVoice ModernChime { get; } = new MeterVoice
+        private static MeterVoice RichChime { get; } = new MeterVoice
         {
             Name = "Alert Chime",
             Description = "Bright ding with a ringing tail",
@@ -206,7 +241,7 @@ namespace JJFlexWpf
             SustainLevel = 0f,
         };
 
-        private static MeterVoice ModernAlarm { get; } = new MeterVoice
+        private static MeterVoice RichAlarm { get; } = new MeterVoice
         {
             Name = "Alert Alarm",
             Description = "Sustained tone with harmonics, unmistakably not a toggle",
@@ -229,7 +264,7 @@ namespace JJFlexWpf
         // a reference, which is the whole point of a warning.
         // ------------------------------------------------------------------
 
-        private static MeterVoice ModernWarningCalm { get; } = new MeterVoice
+        private static MeterVoice RichWarningCalm { get; } = new MeterVoice
         {
             Name = "Alert Warning Calm",
             Description = "Mellow steady nudge",
@@ -238,7 +273,7 @@ namespace JJFlexWpf
             SustainLevel = 1f,
         };
 
-        private static MeterVoice ModernWarningInsistent { get; } = new MeterVoice
+        private static MeterVoice RichWarningInsistent { get; } = new MeterVoice
         {
             Name = "Alert Warning Insistent",
             Description = "Brighter, pulses twice",
@@ -250,7 +285,7 @@ namespace JJFlexWpf
             GateOffMs = 40f,
         };
 
-        private static MeterVoice ModernWarningUrgent { get; } = new MeterVoice
+        private static MeterVoice RichWarningUrgent { get; } = new MeterVoice
         {
             Name = "Alert Warning Urgent",
             Description = "Harsh metallic hammering",
@@ -265,12 +300,12 @@ namespace JJFlexWpf
         };
 
         // ------------------------------------------------------------------
-        // Classic definitions — what the same seven words meant before the
+        // Simple definitions — what the same seven words meant before the
         // Sprint 32 rebuild.
         //
         // This is a RECONSTRUCTION, not a blanket "everything becomes a sine".
         // Five of the seven really were a bare sine gated on and off with
-        // symmetric 10 ms linear fades, and for those ClassicSine is the honest
+        // symmetric 10 ms linear fades, and for those SimpleSine is the honest
         // answer. Two were not: the confirmation ding was a hand-rolled
         // fundamental-plus-octave with a tail, and the warning alarm was
         // already additive when Noel specified it on 2026-08-19. Turning those
@@ -284,38 +319,38 @@ namespace JJFlexWpf
         // is not the thing being judged.
         // ------------------------------------------------------------------
 
-        private static MeterVoice ClassicSine { get; } = new MeterVoice
+        private static MeterVoice SimpleSine { get; } = new MeterVoice
         {
-            Name = "Classic Sine",
+            Name = "Simple Sine",
             Description = "Plain sine, gated on and off",
             Partials = new[] { 1f },
             AttackMs = 10f,
             SustainLevel = 1f,
         };
 
-        private static MeterVoice ClassicPlain => ClassicSine;
+        private static MeterVoice SimplePlain => SimpleSine;
 
-        private static MeterVoice ClassicPress { get; } = new MeterVoice
+        private static MeterVoice SimplePress { get; } = new MeterVoice
         {
-            Name = "Classic Press",
+            Name = "Simple Press",
             Description = "Plain sine that stops dead",
             Partials = new[] { 1f },
             AttackMs = 10f,
             SustainLevel = 1f,
         };
 
-        private static MeterVoice ClassicChime { get; } = new MeterVoice
+        private static MeterVoice SimpleChime { get; } = new MeterVoice
         {
-            Name = "Classic Chime",
+            Name = "Simple Chime",
             Description = "Fundamental and octave, with a tail",
             Partials = new[] { 1f, 0.25f },
             AttackMs = 2f,
             SustainLevel = 0f,
         };
 
-        private static MeterVoice ClassicAlarm { get; } = new MeterVoice
+        private static MeterVoice SimpleAlarm { get; } = new MeterVoice
         {
-            Name = "Classic Alarm",
+            Name = "Simple Alarm",
             Description = "Sustained tone with harmonics, symmetric ramps",
             Partials = new[] { 1f, 0.35f, 0.18f },
             AttackMs = 10f,
@@ -330,11 +365,11 @@ namespace JJFlexWpf
         /// length instead of a fixed tail that is too long on short sounds and
         /// too short on long ones.
         ///
-        /// In the Classic set this is deliberately a no-op beyond the clone.
+        /// In the Simple set this is deliberately a no-op beyond the clone.
         /// The decay shape IS part of what #147 lets an operator switch off —
-        /// applying it to a Classic voice would give a plain sine a modern
+        /// applying it to a Simple voice would give a plain sine a layered
         /// envelope, which is neither set. The one exception is a voice that
-        /// asks for a zero sustain in its own definition (Classic Chime), which
+        /// asks for a zero sustain in its own definition (Simple Chime), which
         /// keeps the tail it always had.
         ///
         /// Always returns a clone. Built-in voices are shared data and are
@@ -343,7 +378,7 @@ namespace JJFlexWpf
         public static MeterVoice DecayingOver(MeterVoice baseVoice, int durationMs, float sustainLevel = 0f)
         {
             var v = (baseVoice ?? Plain).Clone();
-            if (Classic && v.SustainLevel > 0f) return v;
+            if (Simple && v.SustainLevel > 0f) return v;
             v.DecayMs = Math.Max(durationMs - v.AttackMs, 1f);
             v.SustainLevel = Math.Clamp(sustainLevel, 0f, 1f);
             return v;

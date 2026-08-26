@@ -189,12 +189,16 @@ namespace JJFlexWpf
         public string CwWaveform { get; set; } = EarconVoices.DefaultCwWaveformId;
 
         /// <summary>
-        /// Which set of alert-voice definitions is live (#147): 0 = Modern (the
-        /// rebuilt sounds, and the default), 1 = Classic (the plain sine-based
+        /// Which set of alert-voice definitions is live (#147): 0 = Rich (the
+        /// rebuilt sounds, and the default), 1 = Simple (the plain sine-based
         /// set they replaced). Stored as an int for XML serialization; see
         /// <see cref="EarconVoiceSet"/>.
+        ///
+        /// <b>The int is the persisted form, so the ordinals cannot move.</b>
+        /// The names changed from Modern/Classic in Sprint 35; the numbers
+        /// deliberately did not, or every saved config would flip sets.
         /// </summary>
-        public int EarconVoiceSet { get; set; } = (int)JJFlexWpf.EarconVoiceSet.Modern;
+        public int EarconVoiceSet { get; set; } = (int)JJFlexWpf.EarconVoiceSet.Rich;
 
         /// <summary>CW notification speed in WPM (10-30, default 20).</summary>
         public int CwSpeedWpm { get; set; } = 20;
@@ -601,9 +605,9 @@ namespace JJFlexWpf
             // rather than cast blind: a hand-edited config saying 7 should get
             // the shipped sounds, not an exception on the audio path.
             EarconVoices.ActiveSet =
-                EarconVoiceSet == (int)JJFlexWpf.EarconVoiceSet.Classic
-                    ? JJFlexWpf.EarconVoiceSet.Classic
-                    : JJFlexWpf.EarconVoiceSet.Modern;
+                EarconVoiceSet == (int)JJFlexWpf.EarconVoiceSet.Simple
+                    ? JJFlexWpf.EarconVoiceSet.Simple
+                    : JJFlexWpf.EarconVoiceSet.Rich;
 
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
