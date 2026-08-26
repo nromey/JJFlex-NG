@@ -382,6 +382,18 @@ public static class KeyInventory
             new[] { "problem", "problems", "recorded", "failure", "failed", "error", "errors",
                     "wrong", "issue", "issues", "went", "missed", "notification", "diagnostic",
                     "diagnostics", "history", "leader" }, "Global", "General"),
+        // Sprint 35 Track D (#253). O for "what is On". Parked beside Ctrl+D and
+        // Ctrl+R so the three diagnostics chords live together: Ctrl+D starts
+        // recording evidence, Ctrl+R reads what has already gone wrong, and this
+        // one answers what is running and costing something right now. Plain O
+        // rather than a Ctrl form because O was free in every variant, so there
+        // was no taken letter to reach around.
+        new("Leader", "Leader key", "Ctrl+J, O",
+            "Say what is still running and what it is costing — recording, captures, meter tones",
+            new[] { "running", "on", "still", "what", "recording", "record", "instrumentation",
+                    "capture", "meter", "stream", "transcript", "tones", "cost", "costing",
+                    "size", "megabytes", "disk", "left", "forgot", "diagnostic", "diagnostics",
+                    "leader" }, "Global", "General"),
         new("Leader", "Leader key", "Ctrl+J, L", "Speak log statistics",
             new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
         new("Leader", "Leader key", "Ctrl+J, M", "Open the memories dialog",

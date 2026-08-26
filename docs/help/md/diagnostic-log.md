@@ -23,6 +23,16 @@ Your radio streams meter readings continuously — mic level, SWR, forward and r
 
 Leave it off day to day — it's off by default. Turn it on when you're at the bench working a transmit-audio or SWR question, where those numbers are the whole point, and turn it off when you're done. (Earlier versions poured the raw stream into every Detailed log and capture, which is a big part of why those files grew so alarmingly fast. Now the meters are recorded only when you ask, and far more compactly.)
 
+## Knowing what you left on
+
+Every switch on this tab has the same awkward property: it stays where you put it, it changes what the app writes to your disk, and until now nothing about it made a sound. Turn the meter stream on for a bench session, get distracted, and it's still on tomorrow morning — and the only way to find out was to come back to this tab and look.
+
+That's fixed, in three places:
+
+- **Press `Ctrl+J` then `O` any time** and JJ Flexible tells you what it currently has running and what each one has cost: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." Nothing running gets an answer too.
+- **If something grows past a sensible size, it says so** — once, at the moment it crosses the line. Not on a timer. A reminder that arrives every few minutes is a reminder you stop hearing, and then it's worse than nothing.
+- **If you close JJ Flexible with recording still going, it tells you first** and offers to turn it off on the way out. The everyday log and your meter tones don't raise this — the log is on for everybody and the tones are, well, audible. It's the silent, persistent ones that get a word.
+
 ## Detailed capture — the "watch this" button
 
 A capture is for when you can make the problem happen. Start a capture, reproduce the problem, stop the capture — and everything the app did in between is recorded at maximum detail and saved as its own named session, separate from the everyday log.
