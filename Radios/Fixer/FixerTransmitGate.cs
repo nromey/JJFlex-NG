@@ -223,6 +223,20 @@ namespace Radios.Fixer
         /// <summary>True while a transmit granted by this gate is in flight.</summary>
         public bool InFlight => _inFlight;
 
+        /// <summary>
+        /// Told when a granted transmit has actually keyed (#236). The host
+        /// uses it to arm the PTT safety controller's live health monitoring
+        /// for the duration — the reflected-power watch the controller's own
+        /// key-down paths get, which a gate-keyed transmit otherwise never
+        /// had. Observed, never consulted: nothing about the grant decision
+        /// rides on it, and a hook that throws is swallowed.
+        /// </summary>
+        public Action OnKeyed { get; set; }
+
+        /// <summary>Told when the in-flight transmit really ended — once per
+        /// keying, not per NoteUnkeyed call, which is safe to repeat.</summary>
+        public Action OnUnkeyed { get; set; }
+
         /// <summary>True when the run was abandoned.</summary>
         public bool Aborted => _aborted;
 
@@ -432,6 +446,7 @@ namespace Radios.Fixer
             _window.Add(_keyedAt);
             _transmitCount++;
             if (!string.IsNullOrWhiteSpace(stageId)) _transmitted.Add(stageId);
+            try { OnKeyed?.Invoke(); } catch { /* observation must not break keying */ }
         }
 
         /// <summary>
@@ -451,6 +466,8 @@ namespace Radios.Fixer
             double held = (_clock() - _keyedAt).TotalSeconds;
             if (held > 0 && !double.IsNaN(held) && !double.IsInfinity(held))
                 _keyDownSeconds += held;
+
+            try { OnUnkeyed?.Invoke(); } catch { /* observation must not break unkeying */ }
         }
 
         private void TrimWindow(DateTime now)

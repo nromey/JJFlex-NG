@@ -170,5 +170,66 @@ namespace Radios
                 ? Lexicon.Get(key, ("percent", percent), ("antenna", antennaName))
                 : Lexicon.Get(key, ("percent", percent));
         }
+
+        /// <summary>
+        /// Forward watts above which the reflected-power CUT may act (#224).
+        /// Below it there is little to protect and cutting costs the operator
+        /// a contact for nothing — the bench dead key measured 0.22 W into an
+        /// open port, harmless. Above it the radio is folding back to survive
+        /// something: the case that started this had 13.4 of 17.5 W coming
+        /// straight back. The boundary between "worth telling you" and
+        /// "worth stopping for", ruled at ten by Noel 2026-08-25.
+        /// </summary>
+        public const float ReflectedCutMinForwardWatts = 10f;
+
+        /// <summary>
+        /// Whether the transmission should be CUT, not merely warned about
+        /// (#224). Only ever true when the operator turned the setting on: an
+        /// app that unilaterally unkeys a transmitter has taken the station
+        /// away mid-transmission, and some operators — a reactive load, a
+        /// tuner mid-cycle, an experimental antenna — would find that
+        /// intolerable.
+        /// </summary>
+        /// <param name="settingEnabled">The operator's own choice. Never
+        /// defaulted to true by a caller.</param>
+        /// <param name="alreadyWarned">
+        /// True once <see cref="ShouldWarnReflected"/> has fired this
+        /// transmission. The cut requires it, which is the two-samples rule
+        /// arriving by reuse rather than by a second counter: the warning
+        /// fired on an EARLIER sample, this decision reads the current one,
+        /// so a single transient at key-down can never cut — the same
+        /// reasoning as the antenna checker's early stop.
+        /// </param>
+        /// <param name="forwardWatts">Forward power in WATTS.</param>
+        /// <param name="reflectedWatts">Reflected power in WATTS.</param>
+        /// <param name="tuning">True while the antenna tuner runs a cycle —
+        /// high reflected power during one is the tuner working, and a cut
+        /// here would kill every tune-up the operator starts.</param>
+        public static bool ShouldCutReflected(bool settingEnabled, bool alreadyWarned,
+                                              float forwardWatts, float reflectedWatts,
+                                              bool tuning)
+        {
+            if (!settingEnabled || !alreadyWarned || tuning) return false;
+            if (float.IsNaN(forwardWatts) || forwardWatts <= ReflectedCutMinForwardWatts)
+                return false;
+
+            float back = ReflectedFractionOf(forwardWatts, reflectedWatts);
+            return !float.IsNaN(back) && back >= ReflectedWarnFraction;
+        }
+
+        /// <summary>
+        /// What is said when the cut fires. It must say what happened, why,
+        /// and above all that the operator is NO LONGER TRANSMITTING — they
+        /// have no visual cue that it happened and will keep talking.
+        /// </summary>
+        public static string ReflectedCutText(float fraction, string antennaName)
+        {
+            int percent = (int)Math.Round(fraction * 100f);
+            bool named = !string.IsNullOrWhiteSpace(antennaName);
+            string key = named ? "audio.ptt.reflected_cut_on" : "audio.ptt.reflected_cut";
+            return named
+                ? Lexicon.Get(key, ("percent", percent), ("antenna", antennaName))
+                : Lexicon.Get(key, ("percent", percent));
+        }
     }
 }

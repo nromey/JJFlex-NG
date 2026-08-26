@@ -164,5 +164,78 @@ namespace Radios.Tests
             Assert.DoesNotContain("{", plain);
             Assert.DoesNotContain("  ", plain);
         }
+
+        // ---- the reflected-power CUT (#224) ----
+        //
+        // The measured bad case: 13.4 of 17.5 watts coming straight back.
+
+        [Fact]
+        public void The_cut_never_fires_unless_the_operator_turned_it_on()
+        {
+            // The worst measured case, and still no: an app that unilaterally
+            // unkeys a transmitter has taken the station away. The setting is
+            // the operator's, not ours.
+            Assert.False(TransmitSafety.ShouldCutReflected(
+                settingEnabled: false, alreadyWarned: true,
+                forwardWatts: 17.5f, reflectedWatts: 13.4f, tuning: false));
+        }
+
+        [Fact]
+        public void The_cut_requires_the_warning_to_have_fired_on_an_earlier_sample()
+        {
+            // The two-samples rule by reuse: the PA ramps, and a single bad
+            // sample at key-down is a transient, not a load.
+            Assert.False(TransmitSafety.ShouldCutReflected(
+                true, alreadyWarned: false, 17.5f, 13.4f, tuning: false));
+            Assert.True(TransmitSafety.ShouldCutReflected(
+                true, alreadyWarned: true, 17.5f, 13.4f, tuning: false));
+        }
+
+        [Fact]
+        public void Below_the_power_floor_the_alarm_warns_but_never_cuts()
+        {
+            // The bench dead key measured 0.22 W into an open port — harmless,
+            // and cutting there costs the operator a contact for nothing. Ten
+            // watts exactly is still "telling", not "stopping".
+            Assert.False(TransmitSafety.ShouldCutReflected(true, true, 0.22f, 0.17f, false));
+            Assert.False(TransmitSafety.ShouldCutReflected(
+                true, true, TransmitSafety.ReflectedCutMinForwardWatts, 8f, false));
+            Assert.True(TransmitSafety.ShouldCutReflected(true, true, 11f, 8f, false));
+        }
+
+        [Fact]
+        public void A_tuner_mid_cycle_is_never_cut()
+        {
+            // An ATU tune transmits into a deliberately bad match and walks
+            // toward a good one; high reflected power during one is the tuner
+            // WORKING. A cut here would kill every tune-up.
+            Assert.True(TransmitSafety.ShouldCutReflected(true, true, 17.5f, 13.4f, false));
+            Assert.False(TransmitSafety.ShouldCutReflected(true, true, 17.5f, 13.4f, true));
+        }
+
+        [Fact]
+        public void An_unreadable_meter_never_cuts()
+        {
+            Assert.False(TransmitSafety.ShouldCutReflected(
+                true, true, float.NaN, 13.4f, false));
+            Assert.False(TransmitSafety.ShouldCutReflected(
+                true, true, 17.5f, float.NaN, false));
+        }
+
+        [Fact]
+        public void The_cut_sentence_says_you_are_no_longer_on_the_air()
+        {
+            // A blind operator whose transmit was cut has no visual cue and
+            // will keep talking. The one thing the words must never leave in
+            // doubt is that the transmission has ENDED.
+            string named = TransmitSafety.ReflectedCutText(0.76f, "ANT1");
+            Assert.Contains("no longer on the air", named);
+            Assert.Contains("ANT1", named);
+            Assert.Contains("76", named);
+
+            string plain = TransmitSafety.ReflectedCutText(0.76f, "");
+            Assert.Contains("no longer on the air", plain);
+            Assert.DoesNotContain("{", plain);
+        }
     }
 }

@@ -86,6 +86,31 @@ public sealed class FixerDialog : JJFlexDialog
         _radio = radio;
         _gate = new FixerTransmitGate();
 
+        // #236's middle option: every gate-keyed transmit arms the PTT safety
+        // controller's LIVE reflected-power watch for its duration. The gate
+        // still owns whether a transmit may START; the controller watches what
+        // happens WHILE it is up — the half these checks never had. Resolved
+        // per call through the same live path the Audio Workshop uses (the
+        // controller is recreated on operator switch and must not be cached).
+        // Whether the checks' keying should ride the controller entirely is
+        // still Noel's open call; neither stack is weakened meanwhile.
+        _gate.OnKeyed = () =>
+        {
+            try { AudioWorkshopDialog.PttControllerSource?.Invoke()
+                      ?.BeginExternalTransmitWatch(); }
+            catch (Exception ex)
+            { Tracing.TraceLine("FixerDialog: could not arm the transmit watch — "
+                                + ex.Message, TraceLevel.Warning); }
+        };
+        _gate.OnUnkeyed = () =>
+        {
+            try { AudioWorkshopDialog.PttControllerSource?.Invoke()
+                      ?.EndExternalTransmitWatch(); }
+            catch (Exception ex)
+            { Tracing.TraceLine("FixerDialog: could not disarm the transmit watch — "
+                                + ex.Message, TraceLevel.Warning); }
+        };
+
         // The transmit-audio boundary — one instance, like the gate, because
         // stage 4 is read against stage 3's meter capture and somebody has to
         // hold it between the two runs. Everything it transmits goes through

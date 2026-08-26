@@ -59,6 +59,24 @@ namespace Radios
         public int AlcAutoReleaseSeconds { get; set; } = 60;
 
         /// <summary>
+        /// When true, the reflected-power alarm CUTS the transmission when it
+        /// fires with forward power above the cut floor (#224, ruled by Noel
+        /// 2026-08-25). When false — the default — the alarm only warns.
+        /// </summary>
+        /// <remarks>
+        /// A setting, not a behaviour, on purpose: an app that unilaterally
+        /// unkeys a transmitter has taken the operator's station away
+        /// mid-transmission, and an operator running a reactive load or an
+        /// experimental antenna would find that intolerable. Default OFF is
+        /// the least-surprising choice; whether the protective default (ON)
+        /// should win instead is flagged for Noel — flipping it is this one
+        /// line. The decision itself lives in
+        /// <c>TransmitSafety.ShouldCutReflected</c>, pure and tested; the ATU
+        /// stand-down and the two-sample rule live there too.
+        /// </remarks>
+        public bool CutTransmitOnReflectedAlarm { get; set; }
+
+        /// <summary>
         /// When true, TX/RX transition speech is announced ("Transmitting", "Receiving").
         /// When false, speech is muted but tones and safety warnings always play.
         /// </summary>

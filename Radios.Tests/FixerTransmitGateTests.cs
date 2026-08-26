@@ -187,6 +187,47 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_keyed_witnesses_fire_once_per_real_keying()
+        {
+            // #236: the host arms the PTT controller's live health watch on
+            // these. Once per keying — NoteUnkeyed is deliberately safe to
+            // repeat, and a repeat must not disarm someone else's watch.
+            var g = Ready();
+            int keyed = 0, unkeyed = 0;
+            g.OnKeyed = () => keyed++;
+            g.OnUnkeyed = () => unkeyed++;
+
+            g.NoteKeyed(Stage);
+            g.NoteUnkeyed();
+            g.NoteUnkeyed();   // the safe repeat
+            g.NoteUnkeyed();
+
+            Assert.Equal(1, keyed);
+            Assert.Equal(1, unkeyed);
+
+            // And an unmatched unkey before any keying tells nobody anything.
+            var fresh = Ready();
+            int phantom = 0;
+            fresh.OnUnkeyed = () => phantom++;
+            fresh.NoteUnkeyed();
+            Assert.Equal(0, phantom);
+        }
+
+        [Fact]
+        public void A_throwing_witness_never_breaks_the_keying_accounting()
+        {
+            var g = Ready();
+            g.OnKeyed = () => throw new InvalidOperationException("observer bug");
+            g.OnUnkeyed = () => throw new InvalidOperationException("observer bug");
+
+            g.NoteKeyed(Stage);
+            Assert.True(g.InFlight);
+            g.NoteUnkeyed();
+            Assert.False(g.InFlight);
+            Assert.Equal(1, g.TransmitCount);
+        }
+
+        [Fact]
         public void A_remote_declaration_carries_its_provenance_for_the_report()
         {
             // #247: the load was once accepted from an operator a thousand

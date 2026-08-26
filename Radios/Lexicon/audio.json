@@ -493,6 +493,8 @@
   "audio.ptt.hard_limit": "Hard transmit limit, receiving",
   "audio.ptt.mic_level_too_high": "Microphone level too high",
   "audio.ptt.no_signal_release": "No signal detected, receiving",
+  "audio.ptt.reflected_cut": "Transmit stopped. {percent} percent of your power was coming back, and your reflected power cutoff is turned on, so your transmission was ended. You are no longer on the air. Check the antenna before keying again.",
+  "audio.ptt.reflected_cut_on": "Transmit stopped. {percent} percent of your power was coming back on {antenna}, and your reflected power cutoff is turned on, so your transmission was ended. You are no longer on the air. Check {antenna} before keying again.",
   "audio.ptt.power_coming_back": "{percent} percent of your power is coming back. Check that the antenna is connected.",
   "audio.ptt.power_coming_back_dummy_load": "{percent} percent of your power is coming back, but you have declared a dummy load. Check that the load is on the port you are transmitting on.",
   "audio.ptt.power_coming_back_on": "{percent} percent of your power is coming back on {antenna}. Check that the antenna is connected.",
