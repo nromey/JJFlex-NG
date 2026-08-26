@@ -389,6 +389,9 @@ namespace Flex.Smoothlake.FlexLib
             }
 
             OnWanRadioListReceived(wanRadioList);
+            // JJFlex patch (Sprint 35 Track K): per-connection raise so the
+            // owning session can attribute this list to its own account.
+            OnRadioListReceivedForThisConnection(wanRadioList);
         }
         
         private void ParseRadioConnectReadyMessage(string msg)
@@ -580,6 +583,21 @@ namespace Flex.Smoothlake.FlexLib
         {
             if (WanRadioRadioListRecieved == null) return;
             WanRadioRadioListRecieved(radios);
+        }
+
+        // JJFlex patch (Sprint 35 Track K, 2026-08-26): instance-scoped radio-list
+        // event, raised alongside the static one above. The static event cannot
+        // say WHICH WanServer's TLS session delivered a list, so with more than
+        // one concurrent session (one held open per SmartLink account) every
+        // subscriber hears every account's list with no way to attribute it.
+        // Purely additive: the static event still fires exactly as stock.
+        // Reportable upstream to Flex; see MIGRATION.md.
+        public event WanRadioRadioListRecievedEventHandler RadioListReceivedForThisConnection;
+
+        private void OnRadioListReceivedForThisConnection(List<Radio> radios)
+        {
+            if (RadioListReceivedForThisConnection == null) return;
+            RadioListReceivedForThisConnection(radios);
         }
 
         public delegate void TestConnectionResultsReceivedEventHandler(WanTestConnectionResults results);
