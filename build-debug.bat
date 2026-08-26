@@ -222,7 +222,10 @@ REM subfolder of the main bin dir so the single zip below picks it up.
 REM Release installers DO NOT go through this path and therefore do not bundle
 REM the harness — build-installers.bat builds the vbproj only, not the sln.
 REM ---------------------------------------------------------------------------
-set "HARNESS_SRC=tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows"
+REM RID-specific since task #135, so the path carries win-x64 exactly as the
+REM main app's does. Without the RID the harness dragged sixteen Android,
+REM Linux and macOS natives into every tester zip.
+set "HARNESS_SRC=tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows\win-x64"
 set "HARNESS_DST=%BIN_DIR%\tools\harness"
 if exist "%HARNESS_SRC%\SmartLinkSessionHarness.exe" (
     echo Bundling harness  : %HARNESS_SRC%\ -> %HARNESS_DST%\
