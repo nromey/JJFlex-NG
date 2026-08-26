@@ -362,6 +362,40 @@ namespace Radios
         }
 
         /// <summary>
+        /// The launch notice: everything running that nothing else in the
+        /// application announces, or null when there is nothing worth saying at
+        /// startup.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// #194's first bullet — "announce at startup when any of them is on,
+        /// once, naming which" — reading the register rather than growing its
+        /// own list. That is the whole reason the register was built first: two
+        /// surfaces answering the same question from two hand-maintained lists
+        /// is how they come to disagree.
+        /// </para>
+        /// <para>
+        /// Notable only. The always-on log and the audible meter tones would
+        /// make this fire at every launch for every operator, and an
+        /// announcement everybody hears every time is one nobody hears at all.
+        /// The complete answer is a keypress away.
+        /// </para>
+        /// </remarks>
+        public static string? DescribeNotableForSpeech()
+        {
+            var notable = Snapshot().Where(r => r.Weight == RunningCostWeight.Notable).ToList();
+            if (notable.Count == 0) return null;
+
+            var sb = new StringBuilder();
+            foreach (RunningCostReading r in notable)
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(r.Sentence());
+            }
+            return Lexicon.Get("logging.running.startup", ("list", sb.ToString()));
+        }
+
+        /// <summary>
         /// Sample every measure and raise <see cref="ThresholdCrossed"/> for any
         /// bound crossed since the last look. Cheap, side-effect-free when
         /// nothing has grown, and safe to call from anywhere.

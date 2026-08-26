@@ -440,10 +440,29 @@ public partial class MainWindow : UserControl
         // state behind an open advisory. While the advisory chain is active,
         // BOTH the speech and the focus grab wait their turn; the chain
         // replays them when the last advisory closes.
+        // #194, served by #253's register rather than by a second list of its
+        // own: if instrumentation the operator cannot see is switched on, this
+        // is the moment to say so. Null whenever nothing silent-and-costly is
+        // running, which is the ordinary case, so an ordinary launch is
+        // unchanged.
+        //
+        // HERE and not at launch proper, for the reason InitializeApplication
+        // already records: a screen reader flushes its queue on every window
+        // change, the whole connect flow is window changes, and an utterance
+        // made before Home arrives would never survive to be heard. This is
+        // the first announcement that does survive, so the notice rides
+        // directly behind it — and inherits the advisory-parking policy for
+        // free rather than inventing a second one.
+        string? runningNotice = null;
+        try { runningNotice = Radios.RunningCostRegister.DescribeNotableForSpeech(); }
+        catch { /* never let a diagnostics read cost somebody their arrival announcement */ }
+
         if (_advisorySequenceActive)
         {
             _welcomeFocusPending = true;
             _deferredStartupSpeech.Add((message, null));
+            if (runningNotice != null)
+                _deferredStartupSpeech.Add((runningNotice, Radios.VerbosityLevel.Critical));
             return;
         }
 
@@ -452,6 +471,14 @@ public partial class MainWindow : UserControl
         FocusHome();
         Radios.ScreenReaderOutput.Speak(
             message, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
+        if (runningNotice != null)
+        {
+            // Critical, and queued behind the arrival. Critical because the
+            // operator did not ask and cannot see it; queued because it is the
+            // second half of arriving, not an interruption of it.
+            Radios.ScreenReaderOutput.Speak(
+                runningNotice, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Critical);
+        }
     }
 
     /// <summary>

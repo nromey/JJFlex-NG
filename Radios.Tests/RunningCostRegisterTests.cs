@@ -162,6 +162,31 @@ namespace Radios.Tests
             Assert.DoesNotContain("Something switched off", spoken, StringComparison.Ordinal);
         }
 
+        [Fact]
+        public void TheLaunchNoticeStaysSilentWhenOnlyRoutineThingsAreOn()
+        {
+            // The always-on log and the audible meter tones are on for
+            // everybody. A launch notice everybody hears every time is one
+            // nobody hears at all.
+            RunningCostRegister.Register(Cost("log", "The diagnostic log", () => true));
+            RunningCostRegister.Register(Cost("tones", "Meter tones", () => true));
+
+            Assert.Null(RunningCostRegister.DescribeNotableForSpeech());
+        }
+
+        [Fact]
+        public void TheLaunchNoticeNamesOnlyTheSilentCostlyOnes()
+        {
+            RunningCostRegister.Register(Cost("log", "The diagnostic log", () => true));
+            RunningCostRegister.Register(Cost("stream", "Meter stream recording", () => true,
+                weight: RunningCostWeight.Notable));
+
+            string? notice = RunningCostRegister.DescribeNotableForSpeech();
+            Assert.NotNull(notice);
+            Assert.Contains("Meter stream recording", notice!, StringComparison.Ordinal);
+            Assert.DoesNotContain("The diagnostic log", notice!, StringComparison.Ordinal);
+        }
+
         // ── Thresholds, never timers ─────────────────────────────────────
 
         [Fact]
