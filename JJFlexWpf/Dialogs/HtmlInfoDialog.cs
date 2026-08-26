@@ -290,4 +290,30 @@ document.addEventListener('keydown', function (e) {
 
         AdvisoryDialog.Show(title, HelpMarkdown.ToPlainText(markdown), null, actions);
     }
+
+    /// <summary>
+    /// Show content that is ALREADY HTML — a saved Fixer run's report is the
+    /// founding case: its HTML form was rendered by FixerReport when the run
+    /// was recorded, and pushing it through the markdown pipeline would be a
+    /// second renderer wearing a disguise. The caller supplies the plain-text
+    /// form for the no-WebView2 fallback, for the same reason: both forms
+    /// already exist, made by one renderer, and must not be re-derived here.
+    /// </summary>
+    public static void ShowHtml(string title, string html, string plainTextFallback,
+        Window? owner = null, params AdvisoryDialog.AdvisoryAction[] actions)
+    {
+        if (IsAvailable)
+        {
+            var dialog = new HtmlInfoDialog(title, html, owner, actions);
+            dialog.ShowModalDialog();
+
+            if (!dialog._initFailed)
+            {
+                dialog._chosenAction?.Invoke();
+                return;
+            }
+        }
+
+        AdvisoryDialog.Show(title, plainTextFallback, null, actions);
+    }
 }
