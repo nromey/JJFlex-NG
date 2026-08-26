@@ -853,11 +853,25 @@ public class KeyCommands
 
         // LATEST: an S-meter reading superseded by a newer one has no value -
         // the operator wants the signal now, not a recital of the last five.
+        //
+        // repeatWhileHeld, because this is a QUERY key, not a swept value
+        // (Sprint 35 Track M, from Don's "I hit ctrl+s and it just lags",
+        // 2026-08-26). Without it the coalescer classes a quick second press
+        // as a sweep: each press pushes the settle timer out, so hammering
+        // the key was SILENT until released - and a repeat of the same
+        // reading was then dropped as a duplicate, so on a steady signal the
+        // second press said nothing at all. The flag's name says "held", but
+        // its two effects are exactly what a deliberate re-press needs: new
+        // presses never defer the pending announcement, and "still S9" is
+        // spoken rather than swallowed - on a meter, the repetition IS the
+        // information. Presses spaced past the sweep window never coalesce
+        // at all and stay instant, same as before.
         Radios.ScreenReaderOutput.Speak(
             msg,
             Radios.Speech.SpeechIntent.Latest,
             Radios.VerbosityLevel.Terse,
-            coalesceKey: "smeter");
+            coalesceKey: "smeter",
+            repeatWhileHeld: true);
     }
 
     /// <summary>

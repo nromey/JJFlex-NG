@@ -17,7 +17,14 @@ namespace Radios.Tests
     //  The recorder is process-global static state, so all tests live in
     //  this one class (xUnit runs tests within a class sequentially) and
     //  each test Configures its own transcript file.
+    //
+    //  Sprint 35 Track M: no longer one class — SpeechCoalescerTimingTests
+    //  also Configures the recorder, so the one-class rule became the
+    //  collection below (same evolution RadioConfigStaticsCollection went
+    //  through, and this time before the predicted parallel-trample failure
+    //  rather than after it).
     // ────────────────────────────────────────────────────────────────
+    [Collection(SpeechOutputStaticsCollection.Name)]
     public class OutputChannelRecorderTests : IDisposable
     {
         private readonly string _path;
