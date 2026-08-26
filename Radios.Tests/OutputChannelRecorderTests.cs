@@ -27,6 +27,13 @@ namespace Radios.Tests
             string dir = Path.Combine(Path.GetTempPath(), "jjflex-recorder-tests");
             Directory.CreateDirectory(dir);
             _path = Path.Combine(dir, Guid.NewGuid().ToString("N") + ".jsonl");
+
+            // The speech arbiter is process-global and now protects queued
+            // utterances across interrupts (Sprint 35 Track L). Without this
+            // reset, a queued utterance from the previous test is still inside
+            // its believed-unspoken window and gets salvaged into THIS test's
+            // transcript the moment an interrupt=true Speak runs.
+            ScreenReaderOutput.ResetTransientSpeechStateForTest();
         }
 
         public void Dispose()
