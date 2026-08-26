@@ -20,4 +20,13 @@
     <ProjectReference Include="..\Radios\Radios.csproj" />
     <ProjectReference Include="..\FlexLib_API\FlexLib\FlexLib.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Recorded output transcripts used as regression fixtures. The 0822
+         file is the #197 positive control: a real bench session in which a
+         correct, fully-recorded Critical warning was never heard because it
+         queued behind two seconds of TX narration. The queue-depth rule MUST
+         flag it — a pass on that file means the instrument is broken. -->
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

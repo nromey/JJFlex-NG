@@ -200,6 +200,18 @@ namespace Radios
             RecordGated);
 
         /// <summary>
+        /// Test-only: drop the arbiter's transient state — pending coalesced
+        /// values, the believed-pending ledger, per-key dedup. The arbiter is
+        /// process-global, so tests that drive this static surface would
+        /// otherwise leak protection state into one another: the first
+        /// observed failure was a prior test's queued utterance being
+        /// salvaged into the next test's transcript. The arbiter's own
+        /// behaviour is tested against private instances (SpeechArbiterTests)
+        /// and never needs this.
+        /// </summary>
+        internal static void ResetTransientSpeechStateForTest() => _arbiter.DiscardAll();
+
+        /// <summary>
         /// Speak with an explicit intent. This is the form new code should use.
         /// </summary>
         /// <param name="message">What to say.</param>

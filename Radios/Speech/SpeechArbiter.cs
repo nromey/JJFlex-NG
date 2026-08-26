@@ -244,9 +244,11 @@ namespace Radios.Speech
         }
 
         /// <summary>
-        /// Estimated milliseconds the reader spends saying <paramref name="message"/>.
-        /// Shared with the #197 transcript queue-depth rule so the live ledger
-        /// and the offline analysis cannot drift apart.
+        /// Estimated milliseconds the reader spends saying <paramref name="message"/>,
+        /// for ledger protection. Deliberately NOT shared with the #197
+        /// transcript queue-depth rule, whose estimate must err realistic
+        /// where this one must err generous — see SpeechQueueDepthRule's
+        /// class doc for the asymmetry argument.
         /// </summary>
         internal static int EstimateSpokenMs(string message) =>
             Math.Min(SalvageCapMs, Math.Max(SalvageMinMs, message.Length * SalvageMsPerCharacter));
