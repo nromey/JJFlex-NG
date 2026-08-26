@@ -449,6 +449,16 @@ evidence: rf-power-setting, tx-slice, tx-mode, ptt-source
 # first rule that fires in a stage, and when both apply this is the more useful
 # sentence: it names a cause the operator can act on rather than a ratio they
 # have to interpret.
+#
+# THE 40 BELOW IS TransmitSafety.ReflectedWarnPercent, and a test holds them
+# together: ReflectedThresholdAgreementTests parses this shipped file and fails
+# the build's test run if this figure and that constant disagree. This file is
+# data and cannot reference the constant, which is why the pairing was once
+# kept by comments alone — and a third consumer (the transmit-check tune
+# probe) was then written at 20 without reading them (#237). The probe's
+# fallback is now deliberately stricter and derives from the same constant; if
+# you move this figure, move ReflectedWarnPercent, and the test will tell you
+# what else is watching.
 rule: power-coming-back
 in-stage: 12
 needs: transmitting is yes

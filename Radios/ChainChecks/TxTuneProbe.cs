@@ -94,7 +94,21 @@ namespace Radios.ChainChecks
         /// runs to infinity near the end of its range. Into the dummy load this
         /// measured 0.05 percent; into an empty connector on the same radio, 76.
         /// </summary>
-        public const double ReflectedSuspectPercent = 20.0;
+        /// <remarks>
+        /// <b>DELIBERATELY STRICTER than the live warning</b> — half of
+        /// <see cref="TransmitSafety.ReflectedWarnPercent"/>, and derived from
+        /// it so the two can only move together. The live warning fires while a
+        /// human is holding the key with intent; this fires during a bounded
+        /// UNATTENDED probe into a load the operator has only declared, and a
+        /// probe that is more cautious than a person is the right way round.
+        /// <para>The RATIO is a pin, not a ruling: whether the probe should sit
+        /// at half, at parity, or somewhere else is an open question for Noel
+        /// (#237). Until it is ruled, the derivation keeps the difference
+        /// visible as a decision rather than leaving it to read as drift —
+        /// which is exactly how this constant came to disagree with the other
+        /// two in the first place.</para>
+        /// </remarks>
+        public const double ReflectedSuspectPercent = TransmitSafety.ReflectedWarnPercent / 2.0;
 
         /// <summary>Why a tune did not happen. Kept distinct because the
         /// remedies are completely different and an operator told the wrong one
@@ -391,13 +405,30 @@ namespace Radios.ChainChecks
             // Fallback only when SWR could not be derived — reflected above
             // forward, or too little forward power to divide by. The share
             // still works where the ratio does not.
+            //
+            // The share is computed by TransmitSafety.ReflectedFractionOf, the
+            // SAME arithmetic the live warning uses, low-forward guard and all
+            // (#237 — it was derived independently here, and two computations
+            // of one ratio is how thresholds stop being comparable). Its guard
+            // cannot fire on this path — fwd.Value already cleared NoPowerWatts
+            // above — but one home for the rule beats a private copy that
+            // happens to agree today.
+            //
+            // ORDERING, decided rather than discovered: the chain rules report
+            // power-coming-back BEFORE high-swr, naming a cause the operator
+            // can act on. This verdict leads with SWR because it feeds
+            // Explain's prose, where the ratio is the number an operator and a
+            // FlexRadio engineer both already think in, and the reflected
+            // share only speaks when SWR could not be derived at all. Two
+            // surfaces, two readers, same thresholds.
             if (double.IsNaN(computedSwr))
             {
                 Reading rev = Find(meters, "REFPWR");
-                if (rev.Reported && fwd.Value > 0.0)
+                if (rev.Reported)
                 {
-                    double sharePercent = (rev.Value / fwd.Value) * 100.0;
-                    if (sharePercent >= ReflectedSuspectPercent)
+                    double sharePercent = 100.0 * TransmitSafety.ReflectedFractionOf(
+                        (float)fwd.Value, (float)rev.Value);
+                    if (!double.IsNaN(sharePercent) && sharePercent >= ReflectedSuspectPercent)
                         return Verdict.MakesPowerLoadSuspect;
                 }
             }

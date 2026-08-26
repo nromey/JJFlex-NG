@@ -25,8 +25,9 @@ namespace Radios
     public static class TransmitSafety
     {
         /// <summary>
-        /// Fraction of transmit power arriving back before the operator is told,
-        /// between 0 and 1.
+        /// THE reflected-power threshold, as a percentage of forward power.
+        /// This is the one home; everything that judges reflected share names
+        /// this constant or is tested against it.
         /// </summary>
         /// <remarks>
         /// MEASURED on 2026-08-22, not guessed. The bench 8600 transmitting into
@@ -36,12 +37,30 @@ namespace Radios
         /// sits in an enormous empty gap rather than on a judgement call. For
         /// scale it is a standing wave ratio near 5 to 1, past anything a
         /// working antenna presents.
-        /// <para>Deliberately the same figure as the power-coming-back rule in
-        /// tx-chain-rules.txt. An operator who hears this live and then runs the
-        /// transmit chain check must not be given two different answers about
-        /// the same station. If one moves, move the other.</para>
+        /// <para><b>Three consumers, kept in step by a test, not by this
+        /// comment.</b> (1) The live PTT warning, through
+        /// <see cref="ReflectedWarnFraction"/>. (2) The power-coming-back rule
+        /// in tx-chain-rules.txt — a data file that cannot reference this
+        /// constant, so ReflectedThresholdAgreementTests parses the shipped
+        /// file and fails if the two drift. (3) The transmit-check tune probe's
+        /// fallback, <c>TxTuneProbe.ReflectedSuspectPercent</c>, which is
+        /// DELIBERATELY STRICTER and derives from this constant so the
+        /// relationship is visible — see its own remarks. An operator who hears
+        /// the live warning and then runs a check must not be given two
+        /// different answers about the same station.</para>
+        /// <para>History: this invariant was documented for the first two
+        /// consumers, honoured for months, and then quietly broken when the
+        /// probe's fallback was written at 20 without reading the note (#237).
+        /// Hence the test — a comment asked future editors to keep the figures
+        /// in step, and a future editor did not.</para>
         /// </remarks>
-        public const float ReflectedWarnFraction = 0.40f;
+        public const double ReflectedWarnPercent = 40.0;
+
+        /// <summary>
+        /// <see cref="ReflectedWarnPercent"/> as a fraction between 0 and 1,
+        /// for the live warning path which works in fractions.
+        /// </summary>
+        public const float ReflectedWarnFraction = (float)(ReflectedWarnPercent / 100.0);
 
         /// <summary>
         /// Seconds of transmit before the reflected-power warning may speak.
