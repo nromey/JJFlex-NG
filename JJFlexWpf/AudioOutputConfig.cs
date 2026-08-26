@@ -319,6 +319,42 @@ namespace JJFlexWpf
         public List<MeterVoice> UserVoices { get; set; } = new();
 
         /// <summary>
+        /// One earcon's level trim, relative to the tier it already picked.
+        /// </summary>
+        /// <remarks>
+        /// A list of pairs rather than a dictionary because
+        /// <c>XmlSerializer</c> will not serialise a Dictionary, and a config
+        /// file that silently drops a section is worse than a slightly
+        /// wordier one.
+        /// </remarks>
+        public sealed class EarconLevelTrim
+        {
+            /// <summary>The earcon's method name — the same stable id the
+            /// catalog uses. Never translated, never renamed casually.</summary>
+            public string Id { get; set; } = "";
+
+            /// <summary>Trim in dB, bounded by
+            /// <see cref="EarconPlayer.MinLevelTrimDb"/> and
+            /// <see cref="EarconPlayer.MaxLevelTrimDb"/>.</summary>
+            public float Db { get; set; }
+        }
+
+        /// <summary>
+        /// Per-sound level trims (#115, #119). Only sounds that were actually
+        /// trimmed appear here, so an untouched install persists nothing and
+        /// every sound keeps whatever its tier says.
+        /// </summary>
+        /// <remarks>
+        /// <b>Distinct from the bench gain, which is deliberately NOT saved.</b>
+        /// The bench gain is a listening control — scoped to one Play call, for
+        /// comparing sounds against each other and against band noise. This is
+        /// a design control: it says how loud a sound should be from now on,
+        /// and a decision made by ear is worth nothing if it does not survive a
+        /// restart.
+        /// </remarks>
+        public List<EarconLevelTrim> EarconLevelTrims { get; set; } = new();
+
+        /// <summary>
         /// The one meter list (Track D2): each entry is a source plus a range
         /// plus a voice, with audibility and readability as properties of the
         /// same meter. Empty = never configured; the engine seeds from the
@@ -609,6 +645,16 @@ namespace JJFlexWpf
                     ? JJFlexWpf.EarconVoiceSet.Simple
                     : JJFlexWpf.EarconVoiceSet.Rich;
 
+            // Per-sound level trims. Restored wholesale; the player clamps and
+            // drops anything meaningless, so a hand-edited file cannot leave an
+            // earcon silenced or running at four times its tier.
+            var trims = new List<KeyValuePair<string, float>>();
+            if (EarconLevelTrims != null)
+                foreach (var t in EarconLevelTrims)
+                    if (t != null && !string.IsNullOrEmpty(t.Id))
+                        trims.Add(new KeyValuePair<string, float>(t.Id, t.Db));
+            EarconPlayer.SetAllLevelTrimsDb(trims);
+
             EarconPlayer.MasterVolume = MasterVolume;
             EarconPlayer.AlertVolume = AlertVolume;
             EarconPlayer.SetAlertDevice(EarconDeviceNumber);
@@ -699,6 +745,15 @@ namespace JJFlexWpf
             MeterDeviceNumber = EarconPlayer.GetMeterDeviceNumber();
             Meters = MeterToneEngine.ExportDefinitions();
             UserVoices = MeterVoiceLibrary.GetUserVoices();
+
+            // Sorted by id so the file has a stable order — a config that
+            // reshuffles a section on every save makes every diff of it
+            // useless for working out what actually changed.
+            var trimList = new List<EarconLevelTrim>();
+            foreach (var kv in EarconPlayer.GetAllLevelTrimsDb())
+                trimList.Add(new EarconLevelTrim { Id = kv.Key, Db = kv.Value });
+            trimList.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
+            EarconLevelTrims = trimList;
 
             // What the engine hands back is always current-model, so say so.
             // The migration is a no-op on an already-current file even without

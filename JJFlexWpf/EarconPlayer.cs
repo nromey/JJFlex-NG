@@ -179,6 +179,12 @@ namespace JJFlexWpf
         /// </summary>
         private static bool Gate(EarconCategory category, [CallerMemberName] string earconName = "")
         {
+            // Arm this sound's per-tier trim for the providers it is about to
+            // build. Set here because Gate is the one thing every gated earcon
+            // does first, and the same CallerMemberName the recorder already
+            // relies on is the earcon's stable id.
+            _currentTrimDb = GetLevelTrimDb(earconName);
+
             bool on = On(category);
             if (Radios.OutputChannelRecorder.RecordEnabled)
             {
@@ -937,6 +943,10 @@ namespace JJFlexWpf
         /// <param name="candidate">'A' through 'D'; anything else is ignored.</param>
         public static void ConnectSeriesCandidate(char candidate)
         {
+            // A parameterised audition, not a named earcon, so there is no id
+            // to look a trim up by — and it must not inherit the trim of
+            // whatever played before it on this thread.
+            NoTrim();
             if (!EarconsEnabled) return;
 
             int p = ConnectPhaseTonePitchHz;
@@ -1054,7 +1064,7 @@ namespace JJFlexWpf
                         + "alert tone set is currently selected.")]
         public static void VoiceSetSampler()
         {
-            if (!EarconsEnabled) return;
+            if (!BenchGate()) return;
             PlayVoicedDecay(EarconVoices.Press, 800, 60, VolumeNormal);
             PlayLaterVoiced(EarconVoices.Chime, new[] { (1000, 160) }, VolumeNormal, 220);
             PlayLaterVoiced(EarconVoices.WarningCalm, new[] { (800, 150) }, VolumeSoft, 560);
@@ -1237,7 +1247,7 @@ namespace JJFlexWpf
                         + "the other calibration and bench sounds.")]
         public static void ReverseBoomTone()
         {
-            if (!EarconsEnabled || AlertMixer == null) return;
+            if (!BenchGate() || AlertMixer == null) return;
             try
             {
                 // Low sweep: 80Hz → 800Hz over 400ms (the "whoosh")
@@ -1356,7 +1366,7 @@ namespace JJFlexWpf
                         + "a tension and resolve it. Compare against Feature on.")]
         public static void FeatureOnToneThreeNoteCandidate()
         {
-            if (!EarconsEnabled) return;
+            if (!BenchGate()) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (500, 60), (0, 40), (700, 60), (0, 40), (750, 80) }, VolumeNormal);
         }
@@ -1368,7 +1378,7 @@ namespace JJFlexWpf
                         + "Feature off.")]
         public static void FeatureOffToneThreeNoteCandidate()
         {
-            if (!EarconsEnabled) return;
+            if (!BenchGate()) return;
             PlayVoicedDecaySequence(EarconVoices.Press,
                 new[] { (750, 60), (0, 40), (700, 60), (0, 40), (500, 80) }, VolumeNormal);
         }
@@ -1965,6 +1975,7 @@ namespace JJFlexWpf
         public static void PlayScratchpadVoiced(MeterVoice? voice, int freqHz, int durationMs,
             float volume, float pan, bool decay)
         {
+            NoTrim();
             var v = voice ?? MeterVoiceLibrary.Resolve(null);
             if (decay) PlayVoicedDecay(v, freqHz, durationMs, volume, pan);
             else PlayVoiced(v, freqHz, durationMs, volume, pan);
@@ -1982,6 +1993,7 @@ namespace JJFlexWpf
         public static void PlayScratchpadScale(MeterVoice? voice, int startHz, int endHz,
             int noteMs, float volume, float pan, bool decay)
         {
+            NoTrim();
             if (startHz <= 0 || endHz <= 0) return;
             var v = voice ?? MeterVoiceLibrary.Resolve(null);
             int perNote = Math.Clamp(noteMs, 40, 1000);
@@ -2014,6 +2026,7 @@ namespace JJFlexWpf
         public static void PlayScratchpadHarmonics(MeterVoice? voice, int fundamentalHz,
             int count, int noteMs, float volume, float pan, bool decay)
         {
+            NoTrim();
             if (fundamentalHz <= 0) return;
             var v = voice ?? MeterVoiceLibrary.Resolve(null);
             int perNote = Math.Clamp(noteMs, 40, 1000);
@@ -2037,6 +2050,7 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayScratchpadChirp(int startHz, int endHz, int durationMs, float volume, float pan)
         {
+            NoTrim();
             PlayChirpPanned(startHz, endHz, durationMs, volume, pan);
         }
 
@@ -2061,6 +2075,7 @@ namespace JJFlexWpf
         public static int PlayScratchpadCountdown(MeterVoice? voice, bool transmit,
             int countHz, int stepMs, int landingMs, float volume, float pan)
         {
+            NoTrim();
             var v = voice ?? CountdownVoice;
             var steps = CountdownSteps(transmit, countHz,
                 Math.Clamp(stepMs, 20, 2000), Math.Clamp(landingMs, 20, 4000));
@@ -2093,6 +2108,13 @@ namespace JJFlexWpf
         /// </summary>
         public static void PlayTypingSound(char digit, TypingSoundMode mode)
         {
+            // Typing sounds are not catalog entries — they have their own mode
+            // setting rather than an earcon id — so there is nothing to look a
+            // per-sound trim up by, and they must not inherit one from the
+            // sound that played before them. If they ever want their own
+            // trim, they need an id first.
+            NoTrim();
+
             // Outside the EarconCategory gates on purpose (typing sounds have
             // their own mode setting), so recorded here: mode Off is this
             // family's gate. One event per keystroke sound - human-paced.
@@ -2449,11 +2471,170 @@ namespace JJFlexWpf
             }
         }
 
-        /// <summary>Bench gain for a provider going into the alert mixer.</summary>
+        // ------------------------------------------------------------------
+        // Per-sound relative level — a DESIGN control, not a listening one
+        //
+        // The bench gain above is a listening control: scoped to one Play
+        // call, deliberately not saved, there so two sounds can be compared
+        // against each other and against band noise. It answers "how loud is
+        // this right now."
+        //
+        // This answers a different question — "how loud should this sound be,
+        // relative to its tier, from now on" — and so it must PERSIST. It is
+        // what "the whole modern vocabulary sits a tier below the legacy one"
+        // actually needs: 0.30 against 0.60 is 6 dB, and the sounds heard most
+        // often were the hardest to hear. The three tiers fixed most of that
+        // by giving every sound a level it picks for a reason that can be said
+        // in words; what they cannot do is let one individual sound be trimmed
+        // when the ear says the tier is right and that one sound still is not.
+        //
+        // In dB, not as a multiplier, because that is how the judgement is
+        // actually made ("this wants to come down three") and because equal
+        // steps in dB are equal steps to the ear. Zero means untouched, which
+        // is the default for every sound and what ships.
+        //
+        // BOUNDED, AND ASYMMETRICALLY, because the two directions carry
+        // different risks.
+        //
+        // Cutting is safe at any depth, so cuts go to -12 dB. Boosting is not:
+        // the loudest tier is a peak amplitude of 0.65, so even +4 dB puts a
+        // sound past full scale, and there is no headroom left at the device
+        // to absorb it. A persisted boost that distorts is worse than a bench
+        // gain that does, because the bench gain evaporates when the Play call
+        // returns and this one does not.
+        //
+        // So boosts stop at +3 dB, which is roughly the headroom the top tier
+        // has left. A sound wanting more than that does not want a trim, it
+        // wants a different TIER — and the tiers are chosen for reasons that
+        // can be said in words, which is the better conversation to be having.
+        // The quiet-vocabulary problem this was written for is a 6 dB gap, and
+        // the answer to it is to raise the quiet sounds a tier rather than to
+        // boost them individually.
+        //
+        // A trim can never silence a sound outright: -12 dB is a quarter of
+        // the amplitude, not zero. The family switches exist for turning
+        // things off, and losing a warning by accident should not be one
+        // slider away.
+        // ------------------------------------------------------------------
+
+        /// <summary>The deepest cut a single sound may be given.</summary>
+        public const float MinLevelTrimDb = -12f;
+
+        /// <summary>
+        /// The largest boost a single sound may be given — roughly the
+        /// headroom the loudest tier has left before full scale.
+        /// </summary>
+        public const float MaxLevelTrimDb = 3f;
+
+        private static readonly Dictionary<string, float> _levelTrimDb = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The earcon currently being built, so the gain applied at the mixer
+        /// can find its trim.
+        /// </summary>
+        /// <remarks>
+        /// Same reasoning as the bench flags above, and the same guarantee:
+        /// an earcon's public method builds its providers synchronously and
+        /// hands them to the mixer before returning, so a thread-local set on
+        /// the way in reaches exactly that sound. It is SET rather than
+        /// cleared at the end because a sound may add more than one provider —
+        /// the filter stretch adds two — and consuming it on first use would
+        /// trim half a sound. Every path that reaches the mixer sets it first:
+        /// <see cref="Gate"/> for the gated families,
+        /// <see cref="BenchGate"/> for the handful outside them, and
+        /// <see cref="NoTrim"/> for the scratchpad, which plays voices rather
+        /// than named earcons and has nothing to look up.
+        /// </remarks>
+        [ThreadStatic] private static float _currentTrimDb;
+
+        /// <summary>
+        /// The trim on one earcon, in dB. Zero when it has never been given
+        /// one, which is every sound as shipped.
+        /// </summary>
+        /// <param name="earconId">the method name, which is the same stable id
+        /// <see cref="EarconCatalog"/> uses</param>
+        public static float GetLevelTrimDb(string earconId)
+        {
+            if (string.IsNullOrEmpty(earconId)) return 0f;
+            lock (_levelTrimDb)
+                return _levelTrimDb.TryGetValue(earconId, out float db) ? db : 0f;
+        }
+
+        /// <summary>
+        /// Trim one earcon relative to its tier. Zero removes the trim rather
+        /// than storing a zero, so a config only ever carries real decisions.
+        /// </summary>
+        public static void SetLevelTrimDb(string earconId, float db)
+        {
+            if (string.IsNullOrEmpty(earconId)) return;
+            db = Math.Clamp(db, MinLevelTrimDb, MaxLevelTrimDb);
+            lock (_levelTrimDb)
+            {
+                if (Math.Abs(db) < 0.05f) _levelTrimDb.Remove(earconId);
+                else _levelTrimDb[earconId] = db;
+            }
+        }
+
+        /// <summary>Every trim that has been set, for persistence.</summary>
+        public static IReadOnlyDictionary<string, float> GetAllLevelTrimsDb()
+        {
+            lock (_levelTrimDb)
+                return new Dictionary<string, float>(_levelTrimDb, StringComparer.Ordinal);
+        }
+
+        /// <summary>Replace every trim at once — the restore side of persistence.</summary>
+        public static void SetAllLevelTrimsDb(IEnumerable<KeyValuePair<string, float>>? trims)
+        {
+            lock (_levelTrimDb)
+            {
+                _levelTrimDb.Clear();
+                if (trims == null) return;
+                foreach (var kv in trims)
+                {
+                    if (string.IsNullOrEmpty(kv.Key)) continue;
+                    float db = Math.Clamp(kv.Value, MinLevelTrimDb, MaxLevelTrimDb);
+                    if (Math.Abs(db) >= 0.05f) _levelTrimDb[kv.Key] = db;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Arm the trim for a sound outside the six family switches — the
+        /// calibration and bench sounds, which answer to the master gate only.
+        /// </summary>
+        /// <remarks>
+        /// These would otherwise reach the mixer without setting the
+        /// thread-local and inherit whatever the previous sound on this thread
+        /// was trimmed by. Returns the master gate so it reads as a drop-in
+        /// for the <c>if (!EarconsEnabled) return;</c> it replaces.
+        /// </remarks>
+        private static bool BenchGate([CallerMemberName] string earconName = "")
+        {
+            _currentTrimDb = GetLevelTrimDb(earconName);
+            return EarconsEnabled;
+        }
+
+        /// <summary>
+        /// Declare that what follows is not a named earcon and must not be
+        /// trimmed — the scratchpad's raw tones and voice auditions.
+        /// </summary>
+        private static void NoTrim() => _currentTrimDb = 0f;
+
+        /// <summary>
+        /// Bench gain and per-sound trim for a provider going into the alert
+        /// mixer. One wrapper for both: they multiply, because one is "louder
+        /// while I listen" and the other is "quieter from now on", and an
+        /// operator auditioning a trimmed sound wants to hear the trim.
+        /// </summary>
         private static ISampleProvider ApplyPreviewGain(ISampleProvider source)
         {
-            if (!_previewActive || Math.Abs(_previewGain - 1f) < 0.001f) return source;
-            return new VolumeSampleProvider(source) { Volume = _previewGain };
+            float gain = _previewActive ? _previewGain : 1f;
+            float trimDb = _currentTrimDb;
+            if (Math.Abs(trimDb) >= 0.05f)
+                gain *= (float)Math.Pow(10.0, trimDb / 20.0);
+
+            if (Math.Abs(gain - 1f) < 0.001f) return source;
+            return new VolumeSampleProvider(source) { Volume = gain };
         }
 
         #endregion
@@ -2495,7 +2676,12 @@ namespace JJFlexWpf
             if (monoSource.WaveFormat.Channels != 1)
                 monoSource = monoSource.ToMono();
             var swept = new SweepPanningSampleProvider(monoSource, startPan, endPan, durationMs);
-            AlertMixer.AddMixerInput(swept);
+            // Through the same gain wrapper as the other two, so a trim is
+            // uniform across every one-shot. This also closes a pre-existing
+            // gap: the bench gain never reached the swept-pan sounds either,
+            // so auditioning an expand or collapse sweep at a bench gain moved
+            // nothing.
+            AlertMixer.AddMixerInput(ApplyPreviewGain(swept));
         }
 
         internal static void PlayTone(int frequencyHz, int durationMs, float volume)
