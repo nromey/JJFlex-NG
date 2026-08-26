@@ -68,6 +68,11 @@ public sealed class FixerDialog : JJFlexDialog
     private readonly System.Collections.Generic.Dictionary<string, bool> _explainOpen =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // The operator's hearing affirmation (#243), fed into stage 0's facts on
+    // its next run. Per-run like every declaration: a fresh dialog asks
+    // afresh, because the station may have changed since.
+    private HeardRadio _hearing = HeardRadio.NotAsked;
+
     private CancellationTokenSource? _stageCancel;
     private bool _ready;
     private bool _initFailed;
@@ -138,7 +143,7 @@ public sealed class FixerDialog : JJFlexDialog
             // FixerHostWiring is structurally forbidden to touch. It leaves
             // them at their defaults and says so; the host, which does hold the
             // radio, fills them in here.
-            ReadAudioSetup = WithRadioFacts(FixerHostWiring.AudioSetup()),
+            ReadAudioSetup = WithHearing(WithRadioFacts(FixerHostWiring.AudioSetup())),
 
             // WIRED. Reuses the existing microphone probe rather than
             // measuring again.
@@ -251,6 +256,22 @@ public sealed class FixerDialog : JJFlexDialog
         static void Note(string what, Exception ex) =>
             Tracing.TraceLine("FixerDialog: could not read " + what + " — "
                               + ex.Message, TraceLevel.Warning);
+    }
+
+    /// <summary>
+    /// Fold the operator's hearing affirmation (#243) into stage 0's facts.
+    /// Separate from the radio facts because it needs no radio — "no radio is
+    /// connected" is one of its answers.
+    /// </summary>
+    private Func<AudioSetupFacts> WithHearing(Func<AudioSetupFacts> inner)
+    {
+        if (inner == null) return null;
+        return () =>
+        {
+            AudioSetupFacts f = inner();
+            if (f != null) f.OperatorHearsRadio = _hearing;
+            return f;
+        };
     }
 
     /// <summary>
@@ -518,6 +539,17 @@ document.addEventListener('keydown', function (e) {
                 _declarations[TransmitStageSet.LoadDeclaration] = m.Value;
                 Tracing.TraceLine("FixerDialog: load declared as \"" + m.Value + "\"",
                                   TraceLevel.Info);
+                Render();
+                return;
+
+            case FixerPageMessage.Kind.DeclareHearing:
+                // The operator's own reading of the receive path (#243). The
+                // choice id decides the fact; the words go on the page and
+                // into the report. Fed into stage 0's facts on its next run.
+                _hearing = TransmitStageSet.HearingFromChoice(m.Choice);
+                _declarations[TransmitStageSet.HearingDeclaration] = m.Value;
+                Tracing.TraceLine("FixerDialog: hearing declared as \"" + m.Value + "\" ("
+                                  + _hearing + ")", TraceLevel.Info);
                 Render();
                 return;
 

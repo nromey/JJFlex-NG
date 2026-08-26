@@ -54,6 +54,28 @@ namespace Radios.Fixer
         public const string LoadDummy = "dummy-load";
         public const string LoadAntenna = "antenna";
 
+        // The hearing affirmation (#243) — asked INSIDE stage 0, because the
+        // operator is an instrument and this is where the reading is taken.
+        // Travels as its own wire kind, recorded by the host, and fed back
+        // into stage 0's facts for the next run of the stage.
+        public const string HearingDeclaration = "radio-hearing";
+        public const string HearingYes = "hears";
+        public const string HearingNo = "hears-nothing";
+        public const string HearingNoRadio = "no-radio";
+
+        /// <summary>Map a hearing choice id from the wire to the fact it
+        /// asserts. An unknown id reads as not-asked, never as a guess.</summary>
+        public static HeardRadio HearingFromChoice(string choiceId)
+        {
+            switch ((choiceId ?? "").Trim().ToLowerInvariant())
+            {
+                case HearingYes: return HeardRadio.Hears;
+                case HearingNo: return HeardRadio.HearsNothing;
+                case HearingNoRadio: return HeardRadio.NoRadio;
+                default: return HeardRadio.NotAsked;
+            }
+        }
+
         /// <summary>
         /// What the host supplies. Every field may be null; a null measurement
         /// leaves its stage recorded as unable to run, and a null fix leaves
@@ -194,6 +216,30 @@ namespace Radios.Fixer
                     DescribeRunAction = () =>
                         "Running this takes a quick reading of the audio path. "
                         + "Nothing transmits.",
+                    // The operator as an instrument (#243). Over a remote
+                    // link, "I can hear the radio" settles in one press what
+                    // no probe in this stage can: PC audio is on, the
+                    // transport is carrying audio, the output device works,
+                    // and the decode path works.
+                    Declarations = new[]
+                    {
+                        new FixerRunDeclaration(
+                            HearingDeclaration,
+                            "Can you hear the radio right now?",
+                            "You are the best instrument in the room for this question. "
+                            + "Hearing the radio proves the whole receive path in one "
+                            + "stroke, which narrows where a transmit problem can be.",
+                            new[]
+                            {
+                                new FixerDeclarationChoice(HearingYes,
+                                    "I can hear the radio"),
+                                new FixerDeclarationChoice(HearingNo,
+                                    "I hear nothing from the radio"),
+                                new FixerDeclarationChoice(HearingNoRadio,
+                                    "No radio is connected"),
+                            },
+                            messageKind: "declare-hearing"),
+                    },
                     SkipChoices = new[] { operatorSkip },
                     // This stage offers only the specific fixes it detected.
                     // The full picker is AudioDevicesDialog's job, so the one

@@ -553,6 +553,27 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void A_stage_declaration_renders_inside_its_card_with_its_own_kind()
+        {
+            // Stage-scoped declarations are the operator-as-instrument slot
+            // (#243): asked inside the stage's card, posted under the
+            // declaration's own wire kind.
+            var set = Kettle(Answering("wet"), Answering("hot"));
+            set.Stages[0].Declarations = new[]
+            {
+                new FixerRunDeclaration("taste", "Can you taste the water?",
+                    "You are the best instrument for this.",
+                    new[] { new FixerDeclarationChoice("yes", "I can taste it") },
+                    messageKind: "declare-hearing"),
+            };
+
+            string card = CardOf(FixerPage.Render(new FixerRun(set)), "fill");
+            Assert.Contains("Can you taste the water?", card);
+            Assert.Contains("data-kind=\"declare-hearing\"", card);
+            Assert.Contains("id=\"declared-taste\"", card);
+        }
+
+        [Fact]
         public void A_live_question_overrides_the_static_one_when_supplied()
         {
             // The transmit set names the actual TX port and, for a remote
