@@ -164,10 +164,18 @@ internal static class FixerFixActions
         Devices.DeviceInfo? inTwin = FixerFixDecisions.OnApi(liveIn, Devices.WasapiTypeId);
         Devices.DeviceInfo? outTwin = FixerFixDecisions.OnApi(liveOut, Devices.WasapiTypeId);
 
+        // A microphone with no WASAPI endpoint is WORKING HARDWARE, and the
+        // words here must not read as "buy a different one" (#239). MME
+        // records fine; what it costs is measurement trust. Say that, and
+        // mention the picker only for an operator who happens to own a
+        // second microphone — never as the remedy.
         if (liveIn != null && inTwin == null)
             return NothingChanged(preApi, "Nothing was changed: your microphone, \"" + liveIn.Name
                 + "\", is not available under WASAPI on this computer, and switching would leave "
-                + "it behind. Choose a WASAPI microphone in the full device picker instead.");
+                + "it behind. Keep using it — it records fine. Just read the levels in this run "
+                + "as approximate, because they describe Windows' conversion as much as the "
+                + "microphone. If you have another microphone that does offer WASAPI, the full "
+                + "device picker can move you to it.");
 
         int applied = Devices.ApplyHostApiSelection(Devices.WasapiTypeId);
         if (applied != Devices.WasapiTypeId)

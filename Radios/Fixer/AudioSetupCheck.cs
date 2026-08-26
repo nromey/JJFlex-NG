@@ -138,6 +138,24 @@ namespace Radios.Fixer
             // runs, so a microphone measurement through it measures Windows'
             // resampler. It is also PortAudio's default nomination, so it is
             // what an operator gets by doing nothing (#61).
+            //
+            // MME IN USE IS A CAVEAT ON THE NUMBERS, NOT A FAULT (#239). It
+            // records fine; nothing anywhere gates a stage on it, and an
+            // MME-only setup runs all five stages with the caveat attached.
+            // The finding stays FixOwner.Us only where WASAPI exists to move
+            // to, and the fix is atomic around the microphone — an operator
+            // whose only microphone is MME-only is never told to replace
+            // working hardware.
+            //
+            // DIRECTSOUND'S STATUS, decided rather than left implicit (#239):
+            // it is NOT offered as a target and is NOT treated as better than
+            // MME. Devices.cs groups the two together — "MME and DirectSound
+            // convert silently; WASAPI and WDM-KS do not" — so for the one
+            // thing this stage cares about, measurement honesty, DirectSound
+            // buys nothing: the same converter sits behind it wearing a
+            // different name. A microphone with DirectSound but no WASAPI
+            // gets the same answer as an MME-only one — keep using it, read
+            // the levels as approximate.
             if (IsMme(facts.OpenHostApi))
             {
                 if (facts.WasapiAvailable)
