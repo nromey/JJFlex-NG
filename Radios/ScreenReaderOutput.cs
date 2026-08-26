@@ -175,93 +175,29 @@ namespace Radios
         // application keeps working while call sites migrate deliberately.
         // Mapping is deliberately asymmetric and documented at the overload.
 
-        /// <summary>Quiet period after the LAST change before a Latest utterance speaks.</summary>
-        ///
-        /// A debounce, not a throttle - the timer restarts on every new value,
-        /// so a sweep speaks once when the operator stops rather than at a
-        /// fixed cadence while they are still moving.
-        ///
-        /// The first attempt got this wrong and it was audible: a fixed 120 ms
-        /// window that did NOT restart fired every 120 ms during a hold, each
-        /// utterance cutting off the last after about one phoneme. Reported
-        /// 2026-08-18 as "r r r r r RF gain 5". The comment justifying it
-        /// claimed restarting would "defer the announcement forever" - which
-        /// cannot happen, because a sweep ends when a finger comes off a key.
-        private const int CoalesceMs = 300;
-
         /// <summary>
-        /// How long after an utterance a key is still considered "sweeping",
-        /// so the next value coalesces instead of speaking immediately.
+        /// The timing-and-order brain: the Latest coalescer (lead-then-settle,
+        /// with its three constants), the Urgent discard, and — since Sprint 35
+        /// — the believed-pending ledger that stops an interrupt from silently
+        /// destroying queued speech. Caught live on 2026-08-25: one keypress
+        /// produced six utterances, three queued; an interrupt from a
+        /// different thread three milliseconds later flushed the reader's
+        /// queue, the operator heard none of the three, and the trace said
+        /// "Spoke" for every one. The arbiter now re-queues what an interrupt
+        /// would have destroyed: **Interrupt jumps the queue, it does not burn
+        /// it.** Only Urgent (and the operator's own Silence) discards.
         ///
-        /// Must comfortably exceed the Windows key-repeat INITIAL delay, which
-        /// defaults to around half a second. That delay is the whole reason a
-        /// plain debounce clicks: press and hold, and the gap before the repeat
-        /// burst arrives is longer than any debounce short enough to feel
-        /// responsive - so the first press speaks, the burst speaks again, and
-        /// the second cuts off the first.
-        private const int SweepWindowMs = 1200;
-
-        /// <summary>
-        /// Minimum spacing between two utterances WE emit for the same key.
-        ///
-        /// Every Latest emission interrupts, which is right when it supersedes
-        /// a stale value and wrong when the thing it interrupts is us. A value
-        /// announcement takes roughly a second to speak, so a settle coming due
-        /// shortly after the lead cut the lead off mid-word - heard as clicks
-        /// and ticks while sweeping.
-        ///
-        /// Measured from the trace on 2026-08-18: "TX Power 87" at 26.978 s,
-        /// "TX Power 86" at 28.256 s. 1.28 seconds apart, against an utterance
-        /// about 1.2 seconds long, landing exactly on the tail of the first.
-        ///
-        /// Tuning the sweep window cannot fix this - the window and the
-        /// utterance are the same order of magnitude, so any setting trades
-        /// clicks for lag. A floor on the gap fixes it directly: a settle that
-        /// comes due too soon WAITS rather than cutting in, and speaks a moment
-        /// later with the same information.
-        ///
-        /// Deliberately a fixed estimate rather than asking the backend whether
-        /// it is still speaking: is-speaking is a per-backend feature bit, so a
-        /// design that polls it works under one screen reader and silently
-        /// stalls under another.
-        private const int MinGapMs = 1200;
-
-        // A "speak anyway after N ms" ceiling used to live here, so a long hold
-        // got periodic feedback rather than silence. It was REMOVED on
-        // 2026-08-18 because it did not work by ear: a value announcement takes
-        // longer to speak than the ceiling allowed, so each periodic utterance
-        // was cut off by the next one, producing the clicks and ticks the
-        // operator reported while sweeping.
-        //
-        // The choice is between silence during a hold and speech that is
-        // audibly chopped. Silence is better: the operator is holding a key
-        // deliberately and knows the value is moving, whereas a click carries
-        // no information at all and sounds like a fault.
-        //
-        // If periodic feedback is wanted later it must be SHORT enough to
-        // finish - the bare number rather than the whole phrase - not the full
-        // announcement fired more often.
-
-        private sealed class PendingUtterance
-        {
-            public string Message = string.Empty;
-            public VerbosityLevel Level;
-
-            /// <summary>See the repeatWhileHeld parameter on Speak.</summary>
-            public bool RepeatWhileHeld;
-            /// <summary>Call site of the newest value, for the transcript.</summary>
-            public string? Origin;
-            public System.Threading.Timer? Timer;
-        }
-
-        private static readonly Dictionary<string, PendingUtterance> _pending =
-            new Dictionary<string, PendingUtterance>(StringComparer.Ordinal);
-
-        /// <summary>Per key: what was last spoken, and when.</summary>
-        private static readonly Dictionary<string, (string Message, DateTime At)> _lastByKey =
-            new Dictionary<string, (string, DateTime)>(StringComparer.Ordinal);
-
-        private static readonly object _pendingLock = new object();
+        /// An instance class with an injected clock so its timing is testable
+        /// exactly, in Radios.Tests, with no sleeping and no wall clock. This
+        /// static class remains the public surface and the backend plumbing;
+        /// the arbiter makes the decisions.
+        /// </summary>
+        private static readonly Speech.SpeechArbiter _arbiter = new Speech.SpeechArbiter(
+            new Speech.SystemSpeechClock(),
+            () => CurrentVerbosity,
+            EmitCore,
+            SilenceBackendQuietly,
+            RecordGated);
 
         /// <summary>
         /// Speak with an explicit intent. This is the form new code should use.
@@ -309,9 +245,7 @@ namespace Radios
                 case Speech.SpeechIntent.Urgent:
                     // Cut what is speaking AND drop what is queued, so nothing
                     // stale can play on top of a transmit warning.
-                    DiscardPending();
-                    try { _backend?.Silence(); } catch { }
-                    Emit(message, interrupt: true, intent, level, origin);
+                    _arbiter.Urgent(message, level, origin);
                     return;
 
                 case Speech.SpeechIntent.Latest:
@@ -321,197 +255,48 @@ namespace Radios
                             $"ScreenReaderOutput: Latest without a coalesce key - "
                             + $"treating as Interrupt: '{message}'",
                             TraceLevel.Warning);
-                        Emit(message, interrupt: true, intent, level, origin);
+                        _arbiter.Emit(message, interrupt: true, intent, level, origin);
                         return;
                     }
-                    Coalesce(coalesceKey!, message, level, repeatWhileHeld, origin);
+                    _arbiter.Latest(coalesceKey!, message, level, repeatWhileHeld, origin);
                     return;
 
                 case Speech.SpeechIntent.Queue:
-                    Emit(message, interrupt: false, intent, level, origin);
+                    _arbiter.Emit(message, interrupt: false, intent, level, origin);
                     return;
 
                 default:
-                    Emit(message, interrupt: true, intent, level, origin);
+                    _arbiter.Emit(message, interrupt: true, intent, level, origin);
                     return;
             }
         }
 
         /// <summary>
-        /// Lead, then settle.
+        /// The single point where text actually reaches the backend — the
+        /// arbiter's sink. Every intent funnels through the arbiter into here,
+        /// so suppression, the last-message history and tracing cannot be
+        /// bypassed by adding a new intent.
         ///
-        /// The FIRST value for a key speaks immediately, so a single deliberate
-        /// press is instant. Anything arriving while that key is still sweeping
-        /// is coalesced and spoken once the operator stops.
+        /// Returns true when the text was actually handed to the backend. The
+        /// arbiter's believed-pending ledger keys on that return: a suppressed
+        /// or backend-less emission occupied the reader with nothing and
+        /// flushed nothing, and accounting for it as if it had would make the
+        /// protection policy lie in both directions.
         ///
-        /// **Why not a plain debounce.** Windows key repeat waits about half a
-        /// second before the burst begins - longer than any debounce short
-        /// enough to feel responsive. So a plain debounce speaks on the first
-        /// press, speaks again after the burst, and the second cuts off the
-        /// first. That was heard as clicks and ticks while sweeping a value on
-        /// 2026-08-18. The tuning code had already solved it this way, by hand,
-        /// and worked; this brings the same shape into the shared mechanism
-        /// instead of leaving it as a sixth private copy.
-        ///
-        /// Coalescing has to happen before emission: once text reaches a screen
-        /// reader we cannot take it back.
+        /// <paramref name="salvaged"/> marks a re-emission of a queued
+        /// utterance an interrupt would otherwise have destroyed. It skips
+        /// <see cref="Remember"/> — the text entered the history when it was
+        /// first emitted, and a salvage is the same information at a new time,
+        /// not new information — and it is tagged in the transcript so a
+        /// reader can tell one utterance re-queued from a call site that fired
+        /// twice.
         /// </summary>
-        private static void Coalesce(
-            string key, string message, VerbosityLevel level, bool repeatWhileHeld = false,
-            string? origin = null)
-        {
-            lock (_pendingLock)
-            {
-                if (_pending.TryGetValue(key, out var existing))
-                {
-                    existing.Message = message;
-                    existing.Level = level;
-                    existing.RepeatWhileHeld = repeatWhileHeld;
-                    existing.Origin = origin;
-
-                    // A repeating entry must NOT have its timer pushed out by
-                    // each new keypress: the operator is holding the key, so
-                    // restarting the wait would defer the announcement for
-                    // exactly as long as they need to hear it.
-                    if (repeatWhileHeld) return;
-
-                    try
-                    {
-                        existing.Timer?.Change(CoalesceMs, System.Threading.Timeout.Infinite);
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        // Raced with its own flush; the next value starts a
-                        // fresh entry, so there is nothing to repair.
-                    }
-                    return;
-                }
-
-                // Not sweeping: speak now. This is the single deliberate press,
-                // and making it wait is the difference between a control that
-                // answers and one that feels sticky.
-                bool sweeping =
-                    _lastByKey.TryGetValue(key, out var last)
-                    && (DateTime.UtcNow - last.At).TotalMilliseconds < SweepWindowMs;
-
-                if (!sweeping && RemainingGapMs(key) == 0)
-                {
-                    _lastByKey[key] = (message, DateTime.UtcNow);
-                    Emit(message, interrupt: true, Speech.SpeechIntent.Latest, level, origin);
-                    return;
-                }
-
-                // Either mid-sweep, or too soon after our own last utterance to
-                // lead without clipping it. Both cases coalesce.
-
-                var entry = new PendingUtterance
-                {
-                    Message = message,
-                    Level = level,
-                    RepeatWhileHeld = repeatWhileHeld,
-                    Origin = origin,
-                };
-                _pending[key] = entry;
-                entry.Timer = new System.Threading.Timer(
-                    _ => FlushCoalesced(key), null, CoalesceMs, System.Threading.Timeout.Infinite);
-            }
-        }
-
-        private static void FlushCoalesced(string key)
-        {
-            PendingUtterance? entry;
-            lock (_pendingLock)
-            {
-                if (!_pending.TryGetValue(key, out entry)) return;
-                _pending.Remove(key);
-
-                // Nothing new to say. Skipping matters: on a two- or three-step
-                // sweep the settle would otherwise arrive while the lead
-                // utterance is still speaking and cut it off to repeat a value
-                // the operator has already heard.
-                if (!entry.RepeatWhileHeld
-                    && _lastByKey.TryGetValue(key, out var last)
-                    && string.Equals(last.Message, entry.Message, StringComparison.Ordinal))
-                {
-                    entry.Timer?.Dispose();
-                    return;
-                }
-
-                // Too soon after our own last utterance for this key: speaking
-                // now would cut it off mid-word. Put the entry back and wait
-                // out the remainder - the information is unchanged, only its
-                // timing moves.
-                int wait = RemainingGapMs(key);
-                if (wait > 0)
-                {
-                    _pending[key] = entry;
-                    try
-                    {
-                        entry.Timer?.Change(wait, System.Threading.Timeout.Infinite);
-                        return;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        _pending.Remove(key);
-                        // Fall through and speak; a disposed timer cannot be
-                        // rescheduled, and losing the value entirely is worse
-                        // than a clipped one.
-                    }
-                }
-
-                _lastByKey[key] = (entry.Message, DateTime.UtcNow);
-            }
-
-            entry.Timer?.Dispose();
-            if ((int)entry.Level <= (int)CurrentVerbosity)
-            {
-                Emit(entry.Message, interrupt: true, Speech.SpeechIntent.Latest, entry.Level, entry.Origin);
-            }
-            else
-            {
-                // The verbosity setting moved while this value was pending.
-                RecordGated(entry.Message, entry.Level, Speech.SpeechIntent.Latest, entry.Origin);
-            }
-        }
-
-        /// <summary>
-        /// True when speaking for this key right now would cut off our own
-        /// previous utterance; the caller should wait out the remainder.
-        /// Returns the milliseconds still to wait, or 0 when clear.
-        /// </summary>
-        private static int RemainingGapMs(string key)
-        {
-            if (!_lastByKey.TryGetValue(key, out var last)) return 0;
-            var elapsed = (DateTime.UtcNow - last.At).TotalMilliseconds;
-            var remaining = MinGapMs - elapsed;
-            return remaining <= 0 ? 0 : (int)Math.Ceiling(remaining);
-        }
-
-        /// <summary>Drop everything waiting to be spoken. Used by Urgent.</summary>
-        private static void DiscardPending()
-        {
-            lock (_pendingLock)
-            {
-                foreach (var entry in _pending.Values) entry.Timer?.Dispose();
-                _pending.Clear();
-
-                // Forget what was last spoken as well, so the next value after
-                // an urgent warning always speaks rather than being suppressed
-                // as a duplicate of something the flush just discarded.
-                _lastByKey.Clear();
-            }
-        }
-
-        /// <summary>
-        /// The single point where text actually reaches the backend. Every
-        /// intent funnels through here, so suppression, the last-message
-        /// history and tracing cannot be bypassed by adding a new intent.
-        /// </summary>
-        private static void Emit(string message, bool interrupt,
-            Speech.SpeechIntent? intent = null, VerbosityLevel? level = null, string? origin = null)
+        private static bool EmitCore(string message, bool interrupt,
+            Speech.SpeechIntent? intent, VerbosityLevel? level, string? origin, bool salvaged)
         {
             bool suppressed = SuppressSpeech;
             bool rendered = false;
+            bool reachedBackend = false;
 
             if (!suppressed)
             {
@@ -521,13 +306,15 @@ namespace Radios
                     if (_available)
                     {
                         _backend?.Speak(message, interrupt);
-                        Remember(message);
+                        reachedBackend = true;
+                        if (!salvaged) Remember(message);
                         // rendered means "actually sounded": with render off the
                         // diverted backend accepted the text and discarded it,
                         // and the transcript must not claim otherwise.
                         rendered = OutputChannelRecorder.RenderEnabled;
                         Tracing.TraceLine(
-                            $"ScreenReaderOutput: Spoke '{message}' (interrupt={interrupt})",
+                            $"ScreenReaderOutput: Spoke '{message}' (interrupt={interrupt}"
+                            + $"{(salvaged ? ", salvaged" : string.Empty)})",
                             TraceLevel.Verbose);
                     }
                 }
@@ -542,9 +329,25 @@ namespace Radios
             // not dropped - the transcript shows it fired.
             if (OutputChannelRecorder.RecordEnabled)
             {
+                string? recordOrigin = salvaged
+                    ? (string.IsNullOrEmpty(origin) ? "(salvaged)" : origin + " (salvaged)")
+                    : origin;
                 OutputChannelRecorder.RecordSpeech(message, level?.ToString(), intent?.ToString(),
-                    interrupt, gated: false, suppressed, rendered, origin);
+                    interrupt, gated: false, suppressed, rendered, recordOrigin);
             }
+
+            return reachedBackend;
+        }
+
+        /// <summary>
+        /// Best-effort cut of current speech, for the arbiter's Urgent path.
+        /// Deliberately does NOT record a silence event: Urgent's own speech
+        /// event, with intent Urgent, already tells a transcript reader the
+        /// queue was cut, and a paired silence line would double-count it.
+        /// </summary>
+        private static void SilenceBackendQuietly()
+        {
+            try { _backend?.Silence(); } catch { }
         }
 
         /// <summary>Record a verbosity-gated utterance - fired but filtered.</summary>
@@ -576,7 +379,13 @@ namespace Radios
         /// Interrupt, which is what it always meant. false becomes Queue rather
         /// than "some third thing", because letting the screen reader queue is
         /// exactly what not-interrupting has always done. So this overload
-        /// changes NO behaviour; it only renames it.
+        /// changes NO behaviour relative to the intent form; it only renames it.
+        ///
+        /// (Both forms now share the arbiter's protection policy: an
+        /// interrupt=true call from here re-queues queued speech believed
+        /// unheard, exactly as SpeechIntent.Interrupt does. That matters
+        /// because the 429 legacy interrupt-true sites are precisely where the
+        /// destroy-by-timing race lived.)
         /// </summary>
         public static void Speak(string message, bool interrupt = false,
             [CallerFilePath] string callerFile = "",
@@ -584,9 +393,10 @@ namespace Radios
             [CallerMemberName] string callerMember = "")
         {
             if (string.IsNullOrEmpty(message)) return;
-            // This body used to be a verbatim copy of Emit's; delegating keeps
-            // behaviour identical and gives the #171 transcript one funnel.
-            Emit(message, interrupt, null, null, FormatOrigin(callerFile, callerLine, callerMember));
+            // Delegating keeps behaviour identical to the intent overloads and
+            // gives the #171 transcript one funnel.
+            _arbiter.Emit(message, interrupt, null, null,
+                FormatOrigin(callerFile, callerLine, callerMember));
         }
 
         /// <summary>
@@ -609,7 +419,7 @@ namespace Radios
                 RecordGated(message, level, null, origin);
                 return;
             }
-            Emit(message, interrupt, null, level, origin);
+            _arbiter.Emit(message, interrupt, null, level, origin);
         }
 
         /// <summary>
@@ -800,6 +610,11 @@ namespace Radios
             }
             catch { /* ignore */ }
 
+            // The operator (or a transition) asked for quiet: the arbiter must
+            // forget its believed backlog, or the next interrupt would
+            // "salvage" and re-speak the very utterances this call shut up.
+            _arbiter.OnSilenced();
+
             // Recorded because an explicit silence is a cutoff: a transcript
             // reader chasing "it stopped mid-sentence" needs this line.
             if (OutputChannelRecorder.RecordEnabled)
@@ -813,6 +628,10 @@ namespace Radios
         /// </summary>
         public static void Shutdown()
         {
+            // Stop the arbiter's timers first, so a coalesced settle cannot
+            // fire into a backend that is mid-disposal.
+            try { _arbiter.DiscardAll(); } catch { /* ignore */ }
+
             try
             {
                 if (_initialized)
@@ -864,11 +683,11 @@ namespace Radios
         // press between hearing something and asking for it again destroys it.
         // A single-slot memory is exactly one press too shallow to be useful.
         //
-        // The coalescer's _lastByKey looks like history and is not: it is
-        // per-key dedup state, it holds only the newest value per key, and
-        // DiscardPending clears the whole thing on any urgent flush — which is
-        // to say it is emptied precisely when something worth re-reading has
-        // just happened.
+        // The arbiter's per-key last-spoken state looks like history and is
+        // not: it is per-key dedup state, it holds only the newest value per
+        // key, and an urgent flush clears the whole thing — which is to say it
+        // is emptied precisely when something worth re-reading has just
+        // happened.
         //
         // So this is a proper ring: the last ten distinct utterances, newest
         // first, recorded at the single point where text actually reaches the
@@ -955,8 +774,13 @@ namespace Radios
             // Critical, and past the verbosity gate on purpose: the operator
             // asked for this one by pressing a key, so the setting that governs
             // how much the application volunteers has no bearing on it.
+            //
+            // Through the arbiter so the replay's interrupt salvages any queued
+            // backlog instead of destroying it — asking to hear something again
+            // must not silently cost the operator something they had not heard
+            // the first time.
             _replaying = true;
-            try { Emit(message, interrupt: true); }
+            try { _arbiter.Emit(message, interrupt: true, null, null, null); }
             finally { _replaying = false; }
             return true;
         }
