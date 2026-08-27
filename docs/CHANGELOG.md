@@ -46,6 +46,8 @@ This release is about the space where you actually spend your time in the app �
 - **[Slice changes can stick now](#slice-changes-stick).** Release a slice, close the radio, come back tomorrow, and there it is again — that was every morning for me, and it turns out the layout lives in the radio, not in this app. Slice changes now tell you they're temporary, "Save Station Setup to Radio" is right there on the Slice menu where the question actually occurs to you, and there's an optional offer at disconnect. It never saves on its own, and it flatly refuses while another operator is on your radio.
 - [Squelch lives in Home now](#squelch-in-home). Arrow right past the S-meter and you'll find it. Press Q from anywhere in Home to toggle it — same muscle memory as M for mute, R for RIT, X for XIT.
 - [The sounds are yours to shape now](#sounds-you-shape). Your CW notifications can follow the radio's own sidetone pitch, or keep the frequency you set. They can be something richer than a pure sine, which matters a lot if band noise keeps burying them. `Ctrl+J` then `E` re-sends recent CW you missed, stepping further back each press. And if you preferred the plain alert sounds to the rebuilt ones, there's a setting that gives them back.
+- **["Which build are you on?" is one key away now](#speak-the-build)** — `Ctrl+J` then `Alt+V` speaks the version, whether it's a test build or a release build, and the day it was built. No more opening About in the middle of writing up a problem.
+- [The JJ key list is complete again](#jj-key-list-complete). Three JJ keys were working and written down nowhere; they're documented now, the help and the app check each other from here on, and a near miss in the layer tells you which key you nearly pressed instead of just "Unknown command."
 - [Escape](#escape-does-its-job) now closes screen field categories. Press Escape once inside an open field group to close it. Press Escape twice quickly (about half a second between presses) to collapse all open field categories at once. Once the categories are collapsed, you'll be back at Home — because there's no place like home ... there's no place like home ... what? Sorry, fell asleep there for a second, no idea why. This suggestion came from Don, who got really tired of tabbing through large fields just to close them. You've done it right if you hear two tones — can't miss 'em.
 - **The [key map across Home](#universal-keys-from-home) makes sense now.** R toggles RIT from anywhere you press it. X toggles XIT. The `=` key does the old transceive thing (which freed X to do what most hams expect). Pan moves to Page Up / Home / Page Down instead of letter keys, so if your finger slips you don't pan to Patagonia.
 - **You can finally change your keys — for real this time.** Tools then Hotkey Editor opens the new Keys surface: every command in the app with its current key, its scope, and its default, arranged by scope, alphabetically, or by function group — plus a read-only view of all the built-in field keys. Pick a command, press Change Key, press the key you want — it works immediately, no restart. If the key already belongs to something else, JJ Flexible names the collision out loud and asks before taking it. There's unbind, per-key reset to default, reset-all with a confirmation, and an Export Key List button that writes your whole key map to a file you can read or share. The old Key Assignments window — the one where Update looked like it saved and never actually did — is gone. Help then Key Assignments opens the same surface for browsing, one menu item instead of three.
@@ -300,6 +302,30 @@ A few touches worth knowing about:
 - No WebView2 runtime on your machine? The same facts appear as plain selectable text. You lose the formatting, never the information.
 - Crash reports and debug bundles now carry this exact same information, assembled by the same code — so what About shows you is guaranteed to match what a crash report says was running. No more two versions of the truth.
 - Escape closes the dialog even while you're reading inside the page content.
+
+[Return to version headlines](#unreleased-headlines)
+
+### "Which build are you on?" is one key away now {#speak-the-build}
+
+Every bug report starts with that question, and until now the only answer lived in Help, About — a dialog you have to stop and go open, right when you're in the middle of describing the thing that just went wrong.
+
+Press `Ctrl+J` then `Alt+V` and JJ Flexible says it: "Version 4.1.16.1024, Debug, built August 27, 2026." Version, whether it's a test build or a release build, and the day it was made. Short enough to read straight back to me in an email, and it works from anywhere, including from inside a dialog.
+
+V for Version. The Alt is on it because plain `V` has been volume mode for a while now, and volume mode isn't going anywhere.
+
+The build date is the part I'm most pleased with. File dates lie to you: by the time one of my test builds has travelled through Dropbox and landed on your machine, the date on the file is the day it arrived, not the day I built it. The date this key speaks is stamped inside the build itself, so it survives the trip. It comes from the same place the About page reads, so the two can never tell you different things.
+
+The full picture — every component version, the exact commit, where your trace file lives — is still Help, About. This is the pocket version.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The JJ key list is complete again {#jj-key-list-complete}
+
+Three JJ key commands were working perfectly and were written down nowhere. `Ctrl+J` then `Ctrl+D` starts a detailed capture, `Ctrl+J` then `Ctrl+R` reads back the problems recorded this session, and `Ctrl+J` then `E` re-sends CW you missed — all shipping, all missing from the JJ Key Commands help page. A command you can't find in the help is a command you don't have, so all three have their entry now.
+
+The help pages and the app's own key list are checked against each other automatically from here on. If a JJ key ever gets added without a line in the help — or a line hangs around for a key that's been removed — that's now a broken build on my end rather than something you discover by accident two years later.
+
+**A near miss in the JJ layer tells you what you nearly pressed.** Press `Ctrl+J` then a key that isn't bound, and instead of "Unknown command" you hear which key you probably meant: "Ctrl+G is not a command. G: Arm or disarm the TX test tone." One key and you're where you were going. The layer mixes plain letters, Shift and Ctrl on the same letters, so this is a slip it invites — and standing inside the layer being told to go read a list of thirty entries was never a real answer.
 
 [Return to version headlines](#unreleased-headlines)
 

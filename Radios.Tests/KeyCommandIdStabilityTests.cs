@@ -143,7 +143,11 @@ namespace Radios.Tests
                 Assert.Equal(name, Enum.GetName(type, (CommandValues)value));
             }
 
-            Assert.Equal(122, names.Length);
+            // 123 as of Sprint 36 Track F, which appended SpeakVersion = 121
+            // for the Ctrl+J, Alt+V build chord (#269). Bump this deliberately
+            // when a command is added; a test that counts is how an accidental
+            // renumbering gets noticed.
+            Assert.Equal(123, names.Length);
         }
     }
 }

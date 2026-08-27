@@ -34,6 +34,38 @@ namespace JJFlexWpf.Tests
             Assert.True(found, "Ctrl+G is unbound and bare G arms the test tone — the near-miss must be found");
             Assert.Equal("G", key);
             Assert.Contains("test tone", what, System.StringComparison.OrdinalIgnoreCase);
+
+            // Sprint 36 Track F: pinned exactly, because this is the sentence
+            // #206 is actually about and the second half of the task was that
+            // it be SHORT. The inventory description ends "(replaces your
+            // microphone while transmitting)" — true, and not what someone
+            // standing in the layer having just mistyped needs to hear. The
+            // whole spoken line is "Ctrl+G is not a command. G: Arm or disarm
+            // the TX test tone".
+            Assert.Equal("Arm or disarm the TX test tone", what);
+        }
+
+        [Fact]
+        public void The_named_alternative_is_a_line_not_a_paragraph()
+        {
+            // Every near-miss the layer can produce, measured. The worst case
+            // before briefing was "Say what is still running and what it is
+            // costing — recording, captures, meter tones", which put the whole
+            // spoken line past twenty words.
+            var pressed = new[]
+            {
+                Keys.O | Keys.Shift, Keys.V | Keys.Control, Keys.K | Keys.Control,
+                Keys.A | Keys.Alt, Keys.Q | Keys.Control, Keys.E | Keys.Control,
+            };
+
+            foreach (var chord in pressed)
+            {
+                if (!KeyInventory.TryFindLeaderNearMiss(chord, out _, out string what)) continue;
+                Assert.True(what.Length <= 52,
+                    $"the near-miss for {chord} says {what.Length} characters: \"{what}\"");
+                Assert.DoesNotContain(" — ", what, System.StringComparison.Ordinal);
+                Assert.DoesNotContain(" (", what, System.StringComparison.Ordinal);
+            }
         }
 
         [Fact]
