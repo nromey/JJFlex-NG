@@ -12,6 +12,7 @@
                     MinWidth="150" Height="28" Margin="0,0,8,0"
                     AutomationProperties.Name="Refresh the device list"
                     AutomationProperties.AcceleratorKey="Alt+R"
+                    local:JJFlexHelp.Text="Asks Windows for its sound devices again, for when something was plugged in or switched on after this window opened. The page's overall status follows."
                     Click="RefreshButton_Click"/>
             <Button x:Name="OkButton"
                     Content="_OK"
@@ -36,7 +37,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,10"
-                           Focusable="True"
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Audio device status"/>
 
@@ -71,7 +71,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,10"
-                           Focusable="True"
                            AutomationProperties.Name="Audio system note"/>
 
                 <Label Content="Radio receive audio _plays through:"
@@ -88,7 +87,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,10"
-                           Focusable="True"
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Radio receive audio device note"/>
 
@@ -107,7 +105,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,10"
-                           Focusable="True"
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Microphone device note"/>
 
@@ -131,7 +128,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,10"
-                           Focusable="True"
                            AutomationProperties.Name="Transmit audio quality note"/>
 
                 <!-- ================= Microphone Check ================= -->
@@ -225,7 +221,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,0,0,4"
-                           Focusable="True"
                            AutomationProperties.Name="Windows input level note"/>
 
                 <Button x:Name="MicPrivacyButton"
@@ -289,7 +284,6 @@
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
                            Margin="0,4,0,0"
-                           Focusable="True"
                            AutomationProperties.Name="Device listing note"/>
             </StackPanel>
         </ScrollViewer>

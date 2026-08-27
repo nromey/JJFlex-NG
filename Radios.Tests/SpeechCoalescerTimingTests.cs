@@ -35,9 +35,10 @@ namespace Radios.Tests
     //  Timing behaviour of the Latest-intent coalescer (Sprint 35 Track M).
     //
     //  These tests run against WALL CLOCK, because that is all the coalescer
-    //  offers: its constants (CoalesceMs, SweepWindowMs, MinGapMs) feed
-    //  System.Threading.Timer and DateTime.UtcNow directly, so lead, settle
-    //  and push-out cannot be exercised without actually waiting. That gap is
+    //  offers: its constants (CoalesceMs, SweepWindowMs, and the derived
+    //  anti-clip gap) feed System.Threading.Timer and DateTime.UtcNow
+    //  directly, so lead, settle and push-out cannot be exercised without
+    //  actually waiting. That gap is
     //  itself a Track M finding, handed to Track L as a design: inject a
     //  clock and timer factory into ScreenReaderOutput and these tests can be
     //  rewritten on virtual time, exact and instant. Until then, every sleep
@@ -52,9 +53,17 @@ namespace Radios.Tests
     //  300 ms settle timer, so a hammered key is silent until released. That
     //  is CORRECT for a swept value (the settle policy is documented and
     //  deliberate) and wrong for an on-demand query key, which is what
-    //  repeatWhileHeld exists to express and what no caller passed. These
-    //  tests pin both halves: the sweep contract stays as designed, and the
-    //  repeatWhileHeld contract actually delivers what its comment promises.
+    //  repeatWhileHeld exists to express. These tests pin both halves: the
+    //  sweep contract stays as designed, and the repeatWhileHeld contract
+    //  actually delivers what its comment promises.
+    //
+    //  Ctrl+S is the one production caller that passes the flag, and as of
+    //  2026-08-27 it is still the only one — verified across every
+    //  coalesceKey site. The other four (gain, volume, slice volume, value
+    //  field) are SWEPT values, where the settle policy is right and the
+    //  flag would reintroduce the periodic chatter removed on 2026-08-18.
+    //  ValueFieldControl says so at its own call site and answers the
+    //  end-of-range case with a tone instead.
     //
     //  Each test uses its own coalesce key and a GUID message prefix, and
     //  filters the transcript on that prefix — so a straggler timer from an
@@ -67,12 +76,17 @@ namespace Radios.Tests
         private readonly string _path;
         private readonly string _prefix;
 
-        // Mirrors of the private constants in ScreenReaderOutput. If Track L
-        // changes those, these tests fail honestly (a settle arriving early
-        // or late) rather than silently testing stale timing.
+        // Mirrors of the arbiter's constants. If they change, these tests fail
+        // honestly (a settle arriving early or late) rather than silently
+        // testing stale timing.
+        //
+        // GapCeilingMs replaced a flat MinGapMs on 2026-08-27 (#282): the
+        // anti-clip gap is now derived per message and this is its upper
+        // bound, so it remains the right worst-case drain margin below —
+        // every real gap is this or shorter.
         private const int CoalesceMs = 300;
         private const int SweepWindowMs = 1200;
-        private const int MinGapMs = 1200;
+        private const int GapCeilingMs = 1200;
 
         public SpeechCoalescerTimingTests()
         {
@@ -162,9 +176,10 @@ namespace Radios.Tests
             Assert.Single(during);
             Assert.EndsWith("value 1", during[0], StringComparison.Ordinal);
 
-            // Drain: settle timer (300 ms) plus a full MinGap in case the
+            // Drain: settle timer (300 ms) plus a full gap at its ceiling,
+            // in case the
             // flush has to wait out the gap, plus margin.
-            Thread.Sleep(CoalesceMs + MinGapMs + 500);
+            Thread.Sleep(CoalesceMs + GapCeilingMs + 500);
 
             var after = SpokenTexts();
             Assert.Equal(2, after.Count);
@@ -178,14 +193,14 @@ namespace Radios.Tests
         {
             // The repeatWhileHeld contract: new presses update the pending
             // value but do NOT push the timer out, so a hammered key speaks
-            // its lead and then a fresh reading roughly every MinGap, and the
+            // its lead and then a fresh reading roughly every gap, and the
             // final value always lands. This is what the Ctrl+S call site now
             // passes (Sprint 35 Track M) — a meter query where "still S9" is
             // information and silence-until-release is a bug.
             string key = "test:" + _prefix + "query";
 
             // Hammer for ~2.6 s: lead at ~0, first cadence utterance at
-            // ~MinGap (1200 ms), second at ~2*MinGap (2400 ms).
+            // ~one gap (1200 ms at the ceiling), second at ~two.
             for (int i = 1; i <= 26; i++)
             {
                 Press(key, "reading " + i, repeatWhileHeld: true);
@@ -201,7 +216,7 @@ namespace Radios.Tests
             Assert.EndsWith("reading 1", during[0], StringComparison.Ordinal);
 
             // Drain and confirm the final reading was spoken last.
-            Thread.Sleep(CoalesceMs + MinGapMs + 500);
+            Thread.Sleep(CoalesceMs + GapCeilingMs + 500);
             var after = SpokenTexts();
             Assert.EndsWith("reading 26", after[after.Count - 1], StringComparison.Ordinal);
         }
@@ -219,7 +234,7 @@ namespace Radios.Tests
             Thread.Sleep(800); // inside the sweep window: second press coalesces
             Press(key, "S7");
 
-            Thread.Sleep(CoalesceMs + MinGapMs + 500);
+            Thread.Sleep(CoalesceMs + GapCeilingMs + 500);
             Assert.Single(SpokenTexts());
         }
 
@@ -234,7 +249,7 @@ namespace Radios.Tests
             Thread.Sleep(800);
             Press(key, "S7", repeatWhileHeld: true);
 
-            Thread.Sleep(CoalesceMs + MinGapMs + 500);
+            Thread.Sleep(CoalesceMs + GapCeilingMs + 500);
             Assert.Equal(2, SpokenTexts().Count);
         }
     }

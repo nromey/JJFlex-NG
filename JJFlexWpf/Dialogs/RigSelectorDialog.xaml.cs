@@ -18,7 +18,7 @@ namespace JJFlexWpf.Dialogs
     /// affordance, never two rows: screen-reader users arrow this list, and two
     /// rows carrying the same nickname read as two radios.</para>
     /// </summary>
-    public class RadioListItem
+    public class RadioListItem : Radios.IRosterOrderKey
     {
         public string Serial { get; set; } = "";
 
@@ -516,10 +516,21 @@ namespace JJFlexWpf.Dialogs
         public bool SelectedIsRemote { get; private set; }
 
         /// <summary>
-        /// True when the connect must travel the SmartLink path specifically —
-        /// the operator forced it, or the chain chose SmartLink for a radio
-        /// that is ALSO on the local network. The connect layer must not
-        /// quietly substitute the LAN path when this is set.
+        /// True when the chosen leg IS the SmartLink leg, so the connect layer
+        /// must resolve the WAN identity for it rather than settling for the
+        /// LAN object of a dual-homed radio. Leg identity, nothing more.
+        ///
+        /// <para><b>It used to mean something else, and the difference cost an
+        /// evening (task #284).</b> This was
+        /// <c>remote &amp;&amp; (forced || radio.LanAvailable)</c> — so the
+        /// fact that the radio was ALSO on the local network is what turned a
+        /// preference into a compulsion. The trace then carried
+        /// <c>forced=False</c> and <c>forceWanPath=True</c> one line apart,
+        /// both true, in two different vocabularies. Whether fallback is
+        /// allowed is <see cref="SelectedPathForced"/>'s question and only
+        /// ever was; this flag answers "which identity does THIS leg
+        /// resolve", and the answer does not depend on what else is
+        /// reachable.</para>
         /// </summary>
         public bool SelectedPreferRemotePath { get; private set; }
 
@@ -535,6 +546,22 @@ namespace JJFlexWpf.Dialogs
         /// <summary>True when the operator forced this connect's path from
         /// the context menu — this path only, no fallback, prompt-if-needed.</summary>
         public bool SelectedPathForced { get; private set; }
+
+        /// <summary>
+        /// The sentence this dialog spoke as it handed the connect on: the
+        /// radio named, and the leg about to be tried.
+        /// </summary>
+        /// <remarks>
+        /// Published so the connecting window can carry the same words in its
+        /// own opening line. That utterance is made one statement before this
+        /// dialog closes, and a screen reader flushes its queue on a window
+        /// change, so it cannot be relied on to arrive — see task #93 and
+        /// globals.PendingDisconnectLead, which is the same pattern pointing the
+        /// other way. It is the literal string rather than the ingredients on
+        /// purpose: two places composing "the same" sentence is how they end up
+        /// disagreeing.
+        /// </remarks>
+        public string SelectedConnectingLine { get; private set; } = "";
 
         public RigSelectorDialog(RigSelectorCallbacks callbacks)
         {
@@ -1410,14 +1437,11 @@ namespace JJFlexWpf.Dialogs
         /// </remarks>
         private void ReorderLocked()
         {
-            var ordered = _radiosList
-                .Select((r, i) => (radio: r, index: i))
-                .OrderByDescending(x => x.radio.IsFavorite)
-                .ThenByDescending(x => x.radio.IsLive)
-                .ThenByDescending(x => x.radio.WanAvailable)
-                .ThenBy(x => x.index)
-                .Select(x => x.radio)
-                .ToList();
+            // The rule itself lives in Radios.RosterOrder, where it can be
+            // stated once and tested without a window. What is left here is the
+            // decision about WHEN to apply it, which is the half this dialog
+            // actually owns.
+            var ordered = Radios.RosterOrder.Apply(_radiosList);
             if (!_radiosList.SequenceEqual(ordered))
             {
                 _radiosList.Clear();
@@ -1446,6 +1470,90 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// Ask the connection layer which paths reach each radio RIGHT NOW, and
+        /// write the answer onto the rows.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Task #254, the half about a flag that outlives what it described.</b>
+        /// <c>WanAvailable</c> was set when a SmartLink list mentioned a radio
+        /// and then never revised. A whole-tree grep for an assignment of false
+        /// to it returned nothing: the only writes were the discovery merge and
+        /// the removal handler, and the removal handler returns early for a row
+        /// that is already not live. So once a radio was promoted it stayed
+        /// promoted for the rest of the session — reading as reachable over
+        /// SmartLink long after the session that vouched for it had been torn
+        /// down, and sorting above radios that really were reachable.
+        /// </para>
+        /// <para>
+        /// That is the same defect twice. The ROW TEXT said "remote via
+        /// SmartLink" about a radio nothing had confirmed recently, and the ROW
+        /// ORDER put it above local radios — so the list order silently recorded
+        /// which account had been refreshed last rather than anything the
+        /// operator chose. Both stop the moment the flag means "reachable now",
+        /// because that is the only thing the third sort clause was ever
+        /// supposed to express.
+        /// </para>
+        /// <para>
+        /// <b>Asked outside the lock, applied inside it.</b> The availability
+        /// query takes the connection layer's own locks; holding this dialog's
+        /// list lock across a call into another component is how lock orders get
+        /// invented by accident. Same discipline the roster paint already
+        /// follows for its file reads.
+        /// </para>
+        /// <para>
+        /// It cannot invent reachability. The answer comes from the live radio
+        /// list and the WAN handle map, so a row only reads reachable while
+        /// something is actually vouching for it.
+        /// </para>
+        /// </remarks>
+        private void ReconcileAvailability()
+        {
+            var ask = _callbacks.GetRadioAvailability;
+            if (ask == null) return;
+
+            List<string> serials;
+            lock (_radiosLock)
+            {
+                serials = _radiosList
+                    .Where(r => !string.IsNullOrWhiteSpace(r.Serial))
+                    .Select(r => r.Serial)
+                    .ToList();
+            }
+            if (serials.Count == 0) return;
+
+            var now = new Dictionary<string, (bool lan, bool wan)>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var serial in serials)
+            {
+                try { now[serial] = ask(serial); }
+                catch (Exception ex)
+                {
+                    // A bookkeeping question must never take the picker down.
+                    System.Diagnostics.Trace.WriteLine(
+                        $"RigSelector.ReconcileAvailability({serial}): {ex.Message}");
+                }
+            }
+
+            lock (_radiosLock)
+            {
+                foreach (var r in _radiosList)
+                {
+                    if (string.IsNullOrWhiteSpace(r.Serial)) continue;
+                    if (!now.TryGetValue(r.Serial, out var avail)) continue;
+                    if (r.LanAvailable == avail.lan && r.WanAvailable == avail.wan) continue;
+
+                    Tracing.TraceLine(
+                        $"RigSelector: {r.Serial} availability now lan={avail.lan} wan={avail.wan} "
+                        + $"(was lan={r.LanAvailable} wan={r.WanAvailable}) — #254",
+                        System.Diagnostics.TraceLevel.Info);
+                    r.LanAvailable = avail.lan;
+                    r.WanAvailable = avail.wan;
+                }
+            }
+        }
+
+        /// <summary>
         /// Re-render the list from <see cref="_radiosList"/>.
         /// </summary>
         /// <param name="reorder">
@@ -1454,6 +1562,8 @@ namespace JJFlexWpf.Dialogs
         /// </param>
         private void RefreshRadiosList(bool reorder = false)
         {
+            ReconcileAvailability();
+
             // A LAN radio re-announces about once a second, and every
             // announcement used to tear the ListBox down and rebuild it —
             // destroying focused containers, firing spurious SelectionChanged
@@ -1872,13 +1982,54 @@ namespace JJFlexWpf.Dialogs
             var radioName = RowName(radio);
             bool remote = path == ConnectPathKind.SmartLink;
             var acctEmail = CurrentAccountEmail();
-            var via = remote
+
+            // ***** SAY WHAT IS BEING TRIED, NOT WHAT IS HAPPENING. *****
+            //
+            // This fires BEFORE the dialog closes and before a single byte has
+            // travelled, so it is a prediction. It used to be worded as a
+            // report — "Connecting to K5NER over SmartLink as
+            // nromey@fastmail.com" — which states the path as settled at the one
+            // moment nothing has been attempted. When the walk then falls back,
+            // the operator has been told something that turned out to be false,
+            // and the sentence that corrects it arrives seconds later if at all.
+            //
+            // "Trying" costs one word and cannot be falsified by a fallback. It
+            // also puts this line into the same vocabulary as the rest of the
+            // walk, which already says "Trying the local network" when it moves
+            // on — so a connect that changes its mind now reads as one
+            // continuous itinerary rather than two contradicting claims.
+            //
+            // The radio and the account are still named, because that half is
+            // TX-safety wording rather than progress narration: a unified list
+            // puts Don's production 6300 one arrow key from Noel's own 8600.
+            var legName = remote
                 ? string.IsNullOrWhiteSpace(acctEmail)
-                    ? Lexicon.Get("connect.selector.via_smartlink")
-                    : Lexicon.Get("connect.selector.via_smartlink_as", ("acctEmail", acctEmail))
-                : Lexicon.Get("connect.selector.via_local");
-            _callbacks.ScreenReaderSpeak?.Invoke(
-                Lexicon.Get("connect.selector.connecting", ("radioName", radioName), ("via", via)), true);
+                    ? Lexicon.Get("connect.walk.leg_smartlink")
+                    : Lexicon.Get("connect.walk.leg_smartlink_as", ("acctEmail", acctEmail))
+                : Lexicon.Get("connect.walk.leg_local");
+            var connectingLine = Lexicon.Get("connect.selector.connecting",
+                ("radioName", radioName), ("legName", legName));
+            _callbacks.ScreenReaderSpeak?.Invoke(connectingLine, true);
+
+            // ***** AND HAND THE SAME SENTENCE TO THE WINDOW THAT ARRIVES. *****
+            //
+            // Task #93: the line above is spoken one statement before this
+            // dialog closes, and a screen reader flushes its queue on a window
+            // change — so the operator may hear none of it. The connecting
+            // window has carried a bare "Connecting to FLEX-8600..." of its own,
+            // which meant the WHICH PATH half was the part that reliably went
+            // missing, and that is the half worth having: it is what tells you
+            // whether the wait you are about to sit through is a LAN connect
+            // that should take three seconds or a SmartLink one that can take
+            // thirty.
+            //
+            // Deliberately not deleted above. Naming the radio and account
+            // before a session opens is TX-safety wording, not decoration — a
+            // unified list puts Don's production 6300 one arrow key from Noel's
+            // own 8600. If both land the operator hears the identification
+            // twice, which is the right way round for a safety line to fail.
+            SelectedConnectingLine = connectingLine;
+
             // AS prosign (wait / standing by) alongside the "Connecting to X" speech.
             // Pair with BT which fires at connect-ready in MainWindow.PowerOn.
             if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
@@ -1887,7 +2038,7 @@ namespace JJFlexWpf.Dialogs
             SelectedSerial = radio.Serial;
             SelectedLowBW = radio.LowBW;
             SelectedIsRemote = remote;
-            SelectedPreferRemotePath = remote && (forced || radio.LanAvailable);
+            SelectedPreferRemotePath = remote;
             SelectedPathForced = forced;
             SelectedFallbackPaths = forced ? new List<ConnectPathKind>() : fallbacks;
             DialogResult = true;

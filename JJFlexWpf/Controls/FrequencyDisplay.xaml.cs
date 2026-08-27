@@ -649,6 +649,25 @@ public partial class FrequencyDisplay : UserControl
     internal static string? GetStepNameForKey(string fieldKey, int posInField, int fieldLen, string? fieldText = null)
         => GetStepName(fieldKey, posInField, fieldLen, fieldText);
 
+    /// <summary>
+    /// The step name for the digit the cursor is standing on RIGHT NOW in the
+    /// given field, e.g. "1 kilohertz" — the same position arithmetic
+    /// AdjustFreq performs before tuning, extracted so context help (#184)
+    /// reports the digit the keys would actually act on. Null when the field
+    /// has no position-sensitive stepping or does not exist.
+    /// </summary>
+    public string? CurrentStepName(string fieldKey)
+    {
+        if (!_fieldDict.ContainsKey(fieldKey)) return null;
+        int fieldStart = GetFieldPosition(fieldKey);
+        int fieldLen = GetFieldLength(fieldKey);
+        if (fieldLen <= 0) return null;
+        int pos = DisplayBox.SelectionStart - fieldStart;
+        if (pos < 0) pos = 0;
+        if (pos >= fieldLen) pos = fieldLen - 1;
+        return GetStepName(fieldKey, pos, fieldLen, Read(fieldKey));
+    }
+
     private static string? GetStepName(string fieldKey, int posInField, int fieldLen, string? fieldText = null)
     {
         if (fieldKey == "Freq")

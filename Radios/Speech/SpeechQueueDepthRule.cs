@@ -74,7 +74,9 @@ namespace Radios.Speech
         /// <summary>
         /// How much believed backlog a Critical utterance may queue behind
         /// before it is presumed unheard. "Roughly a second" — specifically
-        /// the codebase's existing one-utterance figure, MinGapMs, measured
+        /// the codebase's existing one-utterance figure — <see
+        /// cref="SpeechArbiter.GapCeilingMs"/>, which was the flat MinGapMs
+        /// until 2026-08-27 — measured
         /// from a real trace on 2026-08-18: a typical value announcement runs
         /// about 1.2 s. Queuing behind the single utterance currently being
         /// spoken is normal sentence flow and must pass; queuing behind more

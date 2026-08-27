@@ -43,9 +43,11 @@ namespace JJFlexWpf
         /// they existed). Under the master <see cref="EarconsEnabled"/> gate:
         /// the master off silences everything regardless of category state.
         ///
-        /// Deliberately NOT per-sound. Five switches an operator can hold in
-        /// their head beat sixty they cannot; each public earcon method
-        /// declares its family and new earcons must pick one.
+        /// Deliberately NOT per-sound. A handful of switches an operator can
+        /// hold in their head beat sixty they cannot; each public earcon
+        /// method declares its family and new earcons must pick one. (This
+        /// sentence said "five switches" until Sprint 31 made it six and
+        /// Sprint 36 made it seven — the count now lives in the enum alone.)
         ///
         /// Outside the categories, on purpose: CW notifications (their own
         /// switch on the Audio tab), typing sounds (their own mode setting),
@@ -77,11 +79,19 @@ namespace JJFlexWpf
             /// nobody asked for.
             /// </summary>
             Warnings = 5,
+            /// <summary>
+            /// The context-help availability cue (#275) — two quick rising
+            /// taps behind a focus landing, meaning Ctrl+F1 has something new
+            /// to say there. Its own switch, per the task: the lowest-stakes
+            /// message the app has, so an operator must be able to silence it
+            /// without touching anything else.
+            /// </summary>
+            ContextHelp = 6,
         }
 
         // One flag per EarconCategory value, all on by default. Persisted in
         // AudioOutputConfig alongside EarconsEnabled.
-        private static readonly bool[] _categoryEnabled = { true, true, true, true, true, true };
+        private static readonly bool[] _categoryEnabled = { true, true, true, true, true, true, true };
 
         /// <summary>Whether a category is individually enabled (master gate not considered).</summary>
         public static bool GetCategoryEnabled(EarconCategory category) =>
@@ -1087,6 +1097,42 @@ namespace JJFlexWpf
             else
                 PlayVoicedDecaySequence(EarconVoices.Press,
                     new[] { (800, 25), (0, 30), (800, 25), (0, 30), (800, 25) }, VolumeNormal);
+        }
+
+        // ------------------------------------------------------------------
+        // Context help available (#275). Two taps, 660 then 880 Hz — RISING,
+        // because rising reads as "there is more" where falling reads as
+        // dismissal. 40 ms each, 60 ms apart, 140 ms total. Mid-range on
+        // purpose: cutting through noise is what a warning is for, and this is
+        // the lowest-stakes message the app has. Voiced (harmonics, not a bare
+        // sine) per #115 — harmonics let it stay quiet AND audible. It sits
+        // above voice fundamentals so it does not muddle with speech, and
+        // below the 2-4 kHz region where band hiss and the alarm family live.
+        //
+        // LEVEL: VolumeSoft, the lowest tier — the tier whose stated meaning
+        // ("background acknowledgement of something the operator did not ask
+        // about") is exactly this cue's role. That is the same CONSTANT as the
+        // first PTT warning, but at 40 ms a tap against the warning's 150 ms
+        // sustained tone it carries a fraction of the energy and lands well
+        // below the warning family by ear, which is what the design asks for
+        // — without inventing a fourth loudness tier (#114).
+        //
+        // WHEN it fires is not this method's business: ContextHelpCue owns
+        // the settle delay and the only-when-content-changes rule. Nothing
+        // else should call this directly.
+        // ------------------------------------------------------------------
+
+        /// <summary>Context help availability cue — two quick rising taps.</summary>
+        [Earcon("Context help available", EarconCategory.ContextHelp, Order = 1,
+            Description = "Two quick rising taps a moment after you land on a control: "
+                        + "Ctrl+F1 has something new to say there. Silent while you are "
+                        + "moving, and silent on controls whose help you have already been "
+                        + "told about.")]
+        public static void ContextHelpAvailableTone()
+        {
+            if (!Gate(EarconCategory.ContextHelp)) return;
+            PlayVoicedDecaySequence(EarconVoices.Press,
+                new[] { (660, 40), (0, 60), (880, 40) }, VolumeSoft);
         }
 
         /// <summary>Typewriter bell — plays at end of frequency entry in mechanical keyboard mode.</summary>

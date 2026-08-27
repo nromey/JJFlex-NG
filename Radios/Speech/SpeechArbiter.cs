@@ -1,6 +1,8 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using JJTrace;
 
 namespace Radios.Speech
 {
@@ -43,12 +45,24 @@ namespace Radios.Speech
     /// Silence clears the ledger too, because resurrecting speech someone
     /// just shut up would defy them.
     ///
+    /// **And the rescue is bounded.** A salvaged utterance re-enters the
+    /// ledger, which is right — a second interrupt must not destroy what the
+    /// first one had to rescue — but until 2026-08-27 it re-entered with a
+    /// fresh lease and no memory of having been rescued at all, so it renewed
+    /// its own youth and extended the very window that justified rescuing it
+    /// again. Nine keypresses produced ten salvages of one sentence, arriving
+    /// later each time. Every entry now carries the moment it FIRST reached the
+    /// reader and how many times it has been rescued, and is dropped past
+    /// either bound. Stale speech is worse than silence: re-speaking "Detailed
+    /// capture started" a minute later does not merely annoy, it says
+    /// "started" about something that started long ago.
+    ///
     /// **Why estimates, not truth.** Asking the backend whether it is still
     /// speaking is a per-backend feature bit; a design that polls it works
-    /// under one screen reader and silently stalls under another (the MinGap
-    /// comment below makes the same argument). And the reader speaks traffic
-    /// we never see — its own focus and window announcements — so our text
-    /// often starts LATER than any model predicts. The estimate therefore
+    /// under one screen reader and silently stalls under another (the
+    /// anti-clip gap comment below makes the same argument). And the reader
+    /// speaks traffic we never see — its own focus and window announcements —
+    /// so our text often starts LATER than any model predicts. The estimate
     /// errs long on purpose: over-protection at worst repeats something the
     /// operator already heard, under-protection silently destroys something
     /// they never did. Those costs are not symmetric.
@@ -89,31 +103,78 @@ namespace Radios.Speech
         /// </summary>
         internal const int SweepWindowMs = 1200;
 
+        // ── The anti-clip gap: minimum spacing between two utterances WE
+        //    emit for the same key ──
+        //
+        // Every Latest emission interrupts, which is right when it supersedes
+        // a stale value and wrong when the thing it interrupts is us. A value
+        // announcement takes roughly a second to speak, so a settle coming due
+        // shortly after the lead cut the lead off mid-word - heard as clicks
+        // and ticks while sweeping.
+        //
+        // Measured from the trace on 2026-08-18: "TX Power 87" at 26.978 s,
+        // "TX Power 86" at 28.256 s. 1.28 seconds apart, against an utterance
+        // about 1.2 seconds long, landing exactly on the tail of the first.
+        //
+        // Tuning the sweep window cannot fix this - the window and the
+        // utterance are the same order of magnitude, so any setting trades
+        // clicks for lag. A floor on the gap fixes it directly: a settle that
+        // comes due too soon WAITS rather than cutting in, and speaks a moment
+        // later with the same information.
+        //
+        // Deliberately a fixed estimate rather than asking the backend whether
+        // it is still speaking: is-speaking is a per-backend feature bit, so a
+        // design that polls it works under one screen reader and silently
+        // stalls under another.
+        //
+        // **This was one flat constant, MinGapMs = 1200, until 2026-08-27.**
+        // A flat floor sized for the WORST utterance charges every utterance
+        // the worst utterance's price: "S 3" waited as long as a full sentence
+        // for no reason at all. It also happened to equal SweepWindowMs, which
+        // read as one number doing two jobs - "when does this stop counting as
+        // a sweep" and "when may I speak again" are different questions and
+        // their agreeing on 1200 was a coincidence, not a design.
+        //
+        // The gap is now derived from what was actually spoken, which is what
+        // the floor was always trying to approximate. The ceiling is the old
+        // constant, deliberately: this change may only make the gap SHORTER
+        // than it used to be, never longer, so it cannot introduce a new lag
+        // anywhere, and the 2026-08-18 case above still gets its full 1200.
+
         /// <summary>
-        /// Minimum spacing between two utterances WE emit for the same key.
+        /// Speaking-rate estimate for the anti-clip gap. NOT the ledger's
+        /// <see cref="SalvageMsPerCharacter"/>, and the difference is not an
+        /// oversight.
         ///
-        /// Every Latest emission interrupts, which is right when it supersedes
-        /// a stale value and wrong when the thing it interrupts is us. A value
-        /// announcement takes roughly a second to speak, so a settle coming due
-        /// shortly after the lead cut the lead off mid-word - heard as clicks
-        /// and ticks while sweeping.
-        ///
-        /// Measured from the trace on 2026-08-18: "TX Power 87" at 26.978 s,
-        /// "TX Power 86" at 28.256 s. 1.28 seconds apart, against an utterance
-        /// about 1.2 seconds long, landing exactly on the tail of the first.
-        ///
-        /// Tuning the sweep window cannot fix this - the window and the
-        /// utterance are the same order of magnitude, so any setting trades
-        /// clicks for lag. A floor on the gap fixes it directly: a settle that
-        /// comes due too soon WAITS rather than cutting in, and speaks a moment
-        /// later with the same information.
-        ///
-        /// Deliberately a fixed estimate rather than asking the backend whether
-        /// it is still speaking: is-speaking is a per-backend feature bit, so a
-        /// design that polls it works under one screen reader and silently
-        /// stalls under another.
+        /// The ledger protects mostly PROSE — connect messages, warnings — for
+        /// which 80 ms/char is a generous, err-long rate. The gap governs
+        /// Latest keys, which are short NUMERIC readouts where characters
+        /// expand into syllables: "87" is two characters and three syllables,
+        /// "TX" is two characters and two spelled letters. The one measurement
+        /// this class records is exactly that content — "TX Power 87", eleven
+        /// characters, about 1.2 s — which is 110 ms/char, not 80. Applying
+        /// the ledger's prose rate here would UNDER-estimate a readout and
+        /// re-open the 2026-08-18 clipping regression.
         /// </summary>
-        internal const int MinGapMs = 1200;
+        internal const int GapMsPerCharacter = 110;
+
+        /// <summary>
+        /// Floor on the derived gap. Character count is a poor proxy at the
+        /// short end: "S 3" is three characters and takes far longer than
+        /// 330 ms to say, because a letter and a digit are each a whole word.
+        /// 700 ms covers the shortest real announcements ("Mute on",
+        /// "Volume 5", an S-meter reading) without charging them the full
+        /// sentence price.
+        /// </summary>
+        internal const int GapFloorMs = 700;
+
+        /// <summary>
+        /// Ceiling on the derived gap — the old flat MinGapMs, kept as the
+        /// upper bound so this change is strictly a reduction. A value readout
+        /// long enough to hit this is a value readout that genuinely takes
+        /// that long to speak.
+        /// </summary>
+        internal const int GapCeilingMs = 1200;
 
         // A "speak anyway after N ms" ceiling used to live here, so a long hold
         // got periodic feedback rather than silence. It was REMOVED on
@@ -169,6 +230,44 @@ namespace Radios.Speech
         /// </summary>
         private const int LedgerCap = 16;
 
+        /// <summary>
+        /// How many times one utterance may be salvaged before it is dropped.
+        ///
+        /// **The bound that stops the runaway.** A salvaged utterance re-enters
+        /// the ledger so that a SECOND interrupt cannot destroy what the first
+        /// one already had to rescue — which is right, and is why this is 2 and
+        /// not 1. What was missing was any end to it: each re-entry took a
+        /// FRESH lease and pushed <c>_readerBusyUntilUtc</c> further out, so the
+        /// window that justified the next salvage was manufactured by the last
+        /// one. Measured 2026-08-26: nine keypresses produced TEN salvages of
+        /// one sentence, each arriving later than the last, and nothing in the
+        /// mechanism would ever have stopped it.
+        ///
+        /// Two rescues is where protection stops being protection. An utterance
+        /// that has been re-queued twice and still not been spoken is chasing a
+        /// burst of interrupts it is not going to get ahead of, and by then the
+        /// operator has heard two newer things instead.
+        /// </summary>
+        internal const int MaxSalvages = 2;
+
+        /// <summary>
+        /// Age bound, as a multiple of the utterance's OWN estimated duration,
+        /// measured from FIRST emission rather than the latest re-queue.
+        ///
+        /// Measuring from the latest re-queue is precisely the defect: it lets
+        /// an utterance renew its own youth. Measured from first emission it
+        /// cannot, however many times it is rescued.
+        ///
+        /// Two of its own duration, because <see cref="EstimateSpokenMs"/> is
+        /// already the generous err-long estimate — one multiple is merely
+        /// "should have finished by now", and doubling it leaves room for the
+        /// reader's own focus and window traffic to have delayed our text (the
+        /// 2026-08-25 capture measured 670 ms of exactly that). Past two, the
+        /// utterance is describing a moment that has gone. "Detailed capture
+        /// started" re-spoken a minute later does not merely annoy, it LIES.
+        /// </summary>
+        internal const int SalvageAgeMultiple = 2;
+
         // ── State ──
 
         private sealed class PendingUtterance
@@ -191,14 +290,32 @@ namespace Radios.Speech
             public string? Origin;
             /// <summary>When the reader is estimated to have finished saying it.</summary>
             public DateTime EstFinishUtc;
+
+            /// <summary>
+            /// When this utterance FIRST reached the reader. Never moves, however
+            /// many times the entry is salvaged — that is the whole point: the
+            /// age bound has to be measured against something a re-queue cannot
+            /// renew. <see cref="EstFinishUtc"/> is renewed by design, so it is
+            /// the wrong thing to age against.
+            /// </summary>
+            public DateTime FirstEmittedUtc;
+
+            /// <summary>How many times an interrupt has already rescued this one.</summary>
+            public int SalvageCount;
         }
 
         private readonly Dictionary<string, PendingUtterance> _pending =
             new Dictionary<string, PendingUtterance>(StringComparer.Ordinal);
 
-        /// <summary>Per key: what was last spoken, and when.</summary>
-        private readonly Dictionary<string, (string Message, DateTime At)> _lastByKey =
-            new Dictionary<string, (string, DateTime)>(StringComparer.Ordinal);
+        /// <summary>
+        /// Per key: what was last spoken, when, and how long the next utterance
+        /// for this key must wait so it does not cut that one off. The gap is
+        /// stored rather than recomputed because it belongs to the message that
+        /// was SPOKEN, and by the time the next one is due that message is gone
+        /// from everywhere else.
+        /// </summary>
+        private readonly Dictionary<string, (string Message, DateTime At, int GapMs)> _lastByKey =
+            new Dictionary<string, (string, DateTime, int)>(StringComparer.Ordinal);
 
         /// <summary>
         /// Queued utterances handed to the reader and believed not yet fully
@@ -254,6 +371,22 @@ namespace Radios.Speech
             Math.Min(SalvageCapMs, Math.Max(SalvageMinMs, message.Length * SalvageMsPerCharacter));
 
         /// <summary>
+        /// How long the next utterance for a key must wait after
+        /// <paramref name="message"/> so it does not cut it off mid-word.
+        ///
+        /// Same shape as <see cref="EstimateSpokenMs"/> and deliberately NOT
+        /// the same numbers — see <see cref="GapMsPerCharacter"/> for the
+        /// rate and <see cref="GapFloorMs"/> for the floor. Two policies over
+        /// one idea, which is the pattern this class already uses between the
+        /// ledger and SpeechQueueDepthRule: the errors point in opposite
+        /// directions, so one set of constants cannot serve both. Erring long
+        /// in the ledger costs a repeat; erring long HERE costs an answer the
+        /// operator asked for and did not get.
+        /// </summary>
+        internal static int AntiClipGapMs(string message) =>
+            Math.Clamp(message.Length * GapMsPerCharacter, GapFloorMs, GapCeilingMs);
+
+        /// <summary>
         /// Emit an utterance now — the funnel for Queue, Interrupt, Urgent and
         /// the legacy bool overloads. Ledger accounting and interrupt salvage
         /// happen here, so no overload can bypass the protection policy.
@@ -285,6 +418,26 @@ namespace Radios.Speech
         ///
         /// Coalescing has to happen before emission: once text reaches a screen
         /// reader we cannot take it back.
+        ///
+        /// **On <paramref name="repeatWhileHeld"/> — #264, and where it stands.**
+        /// The backlog records this guard as "built, documented and never wired
+        /// by any caller". That was true when written and is not true now:
+        /// Sprint 35 Track M wired it at Ctrl+S (KeyCommands, coalesceKey
+        /// "smeter"), which is a QUERY key — the operator is asking again, and
+        /// asking again deserves an answer rather than a deferral.
+        ///
+        /// Re-verified across every <c>coalesceKey</c> call site on 2026-08-27:
+        /// Ctrl+S is still the only one that should pass it, and the other four
+        /// are SWEPT values where the settle policy is correct — gain, volume,
+        /// slice volume, and the value field. Wiring the flag there would give a
+        /// held key an utterance every gap for as long as it is held, which is
+        /// exactly the periodic feedback removed on 2026-08-18 for being heard
+        /// as clicks and ticks. ValueFieldControl reached the same conclusion at
+        /// its own call site and answers the end-of-range case with a tone.
+        ///
+        /// So the finding is: not "nobody wired it" but "one caller wired it and
+        /// that is the complete set". Recorded here rather than in the backlog
+        /// because this is where the next person will look.
         /// </summary>
         public void Latest(string key, string message, VerbosityLevel level,
             bool repeatWhileHeld, string? origin)
@@ -326,7 +479,7 @@ namespace Radios.Speech
 
                 if (!sweeping && RemainingGapMsLocked(key) == 0)
                 {
-                    _lastByKey[key] = (message, now);
+                    _lastByKey[key] = (message, now, AntiClipGapMs(message));
                     EmitLocked(message, interrupt: true, SpeechIntent.Latest, level, origin);
                     return;
                 }
@@ -427,29 +580,87 @@ namespace Radios.Speech
             _believedQueued.Clear();
             foreach (var s in salvage)
             {
+                string? refusal = SalvageRefusalLocked(s, now);
+                if (refusal != null)
+                {
+                    // A salvage that gives up SILENTLY is the same defect class
+                    // as the one this bound exists to fix: speech that vanishes
+                    // while the record says everything is fine. Say which bound
+                    // was hit and what it was measured against.
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: dropped a salvage ({refusal}) after "
+                        + $"{s.SalvageCount} rescue(s), "
+                        + $"{(int)(now - s.FirstEmittedUtc).TotalMilliseconds} ms after first "
+                        + $"emission: '{s.Message}'",
+                        TraceLevel.Warning);
+                    continue;
+                }
+
                 bool requeued = _sink(s.Message, false, s.Intent, s.Level, s.Origin, salvaged: true);
                 // Re-enter the ledger so a SECOND interrupt cannot destroy
-                // what the first one already had to salvage.
-                if (requeued) LedgerAddLocked(s.Message, s.Intent, s.Level, s.Origin, _clock.UtcNow);
+                // what the first one already had to salvage — bounded, now, by
+                // the count it carries with it.
+                if (requeued)
+                {
+                    s.SalvageCount++;
+                    LedgerEnterLocked(s, _clock.UtcNow);
+                }
             }
         }
 
+        /// <summary>
+        /// Why this utterance may NOT be salvaged again, or null when it may.
+        /// The returned phrase goes straight into the trace, so it names the
+        /// bound and the measurement rather than merely reporting a refusal.
+        /// </summary>
+        private string? SalvageRefusalLocked(BelievedQueued entry, DateTime now)
+        {
+            if (entry.SalvageCount >= MaxSalvages)
+                return $"salvage cap: already rescued {entry.SalvageCount} times, limit {MaxSalvages}";
+
+            int ageMs = (int)(now - entry.FirstEmittedUtc).TotalMilliseconds;
+            int boundMs = EstimateSpokenMs(entry.Message) * SalvageAgeMultiple;
+            if (ageMs > boundMs)
+                return $"stale: {ageMs} ms old against a {boundMs} ms bound";
+
+            return null;
+        }
+
+        /// <summary>A first entry into the ledger: this is emission number one.</summary>
         private void LedgerAddLocked(string message,
             SpeechIntent? intent, VerbosityLevel? level, string? origin, DateTime now)
         {
-            var start = _readerBusyUntilUtc > now ? _readerBusyUntilUtc : now;
-            var finish = start.AddMilliseconds(EstimateSpokenMs(message));
-            _readerBusyUntilUtc = finish;
-
-            if (_believedQueued.Count >= LedgerCap) _believedQueued.RemoveAt(0);
-            _believedQueued.Add(new BelievedQueued
+            LedgerEnterLocked(new BelievedQueued
             {
                 Message = message,
                 Intent = intent,
                 Level = level,
                 Origin = origin,
-                EstFinishUtc = finish,
-            });
+                FirstEmittedUtc = now,
+                SalvageCount = 0,
+            }, now);
+        }
+
+        /// <summary>
+        /// Put an entry into the ledger and stack its estimated speaking time
+        /// onto the reader's believed busy-until.
+        ///
+        /// A re-entering salvage brings its own <c>FirstEmittedUtc</c> and
+        /// <c>SalvageCount</c> with it. That is the fix for #273 in one line:
+        /// the lease is renewed, as it must be — the reader really is going to
+        /// be busy that long again — but the entry's AGE and its rescue count
+        /// are not, so the thing that justifies the next rescue is no longer
+        /// manufactured by the last one.
+        /// </summary>
+        private void LedgerEnterLocked(BelievedQueued entry, DateTime now)
+        {
+            var start = _readerBusyUntilUtc > now ? _readerBusyUntilUtc : now;
+            var finish = start.AddMilliseconds(EstimateSpokenMs(entry.Message));
+            _readerBusyUntilUtc = finish;
+            entry.EstFinishUtc = finish;
+
+            if (_believedQueued.Count >= LedgerCap) _believedQueued.RemoveAt(0);
+            _believedQueued.Add(entry);
         }
 
         private void PruneLedgerLocked(DateTime now)
@@ -500,7 +711,7 @@ namespace Radios.Speech
                     }
                 }
 
-                _lastByKey[key] = (entry.Message, _clock.UtcNow);
+                _lastByKey[key] = (entry.Message, _clock.UtcNow, AntiClipGapMs(entry.Message));
                 entry.Timer?.Dispose();
 
                 if ((int)entry.Level <= (int)_verbosity())
@@ -520,12 +731,16 @@ namespace Radios.Speech
         /// True when speaking for this key right now would cut off our own
         /// previous utterance; the caller should wait out the remainder.
         /// Returns the milliseconds still to wait, or 0 when clear.
+        ///
+        /// The wait is the gap the PREVIOUS message earned, not a constant:
+        /// a short readout is out of the way sooner and must not hold the key
+        /// for as long as a sentence would.
         /// </summary>
         private int RemainingGapMsLocked(string key)
         {
             if (!_lastByKey.TryGetValue(key, out var last)) return 0;
             var elapsed = (_clock.UtcNow - last.At).TotalMilliseconds;
-            var remaining = MinGapMs - elapsed;
+            var remaining = last.GapMs - elapsed;
             return remaining <= 0 ? 0 : (int)Math.Ceiling(remaining);
         }
 

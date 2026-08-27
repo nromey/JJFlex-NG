@@ -41,7 +41,7 @@ namespace Radios.Fixer.Evidence
     /// file-based records).
     /// </para>
     /// </remarks>
-    public sealed class FixerRunRecord
+    public sealed class FixerRunRecord : IEvidenceRecord
     {
         /// <summary>Bumped when the shape changes incompatibly. Readers skip
         /// files from the future rather than misreading them.</summary>

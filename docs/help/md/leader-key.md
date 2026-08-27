@@ -10,6 +10,8 @@ The JJ key — `Ctrl+J`, J for JJ — gives you quick access to DSP toggles, aud
 
 If you change your mind, press `Escape`. You will hear a soft falling tone letting you know that the JJ Command layer has closed. The layer waits patiently until you press a key or cancel — there is no timer sneaking you out of it.
 
+<!-- LEADER-KEY-TABLE: every row from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and these tables fail until it has a row; delete a chord and a leftover row fails too. The wording is yours — only the set of keys is checked. -->
+
 ## DSP Toggles
 
 Two of these come in on-radio and PC flavours, and the names now say so. "On-Radio" noise reduction runs in the radio's own DSP hardware (8000-series and Aurora only). "PC" noise reduction runs inside JJ Flexible on this computer and works on every radio.
@@ -38,6 +40,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 | C | Toggle Compander on or off |
 | Ctrl+A | Turn PC audio on or off — whether radio audio plays through this computer at all. It reads the radio back before answering, so if turning it on could not find a sound device it says that rather than claiming success. `V` then `P` rides how loud it plays; this is the switch |
 | Shift+P | Toggle Speech Processor on or off |
+| E | Re-send the CW notifications you just heard — E for echo. Press E again to step back to an earlier one |
 
 ## Filter Information
 
@@ -54,12 +57,16 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 | T | Toggle meter tones on or off |
 | Shift+T | Toggle alert sounds (earcons) on or off |
 | D | Toggle tuning speech debounce on or off |
+| Ctrl+Q | Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all. Saved captures live under Tools, Signal captures |
 
 ## Status, Information, and Slices
 
 | Key | Action |
 |-----|--------|
 | O | Say what is still running and what it is costing — recording, captures, meter tones. O for "what's on" |
+| Ctrl+D | Start or stop a detailed capture of what the app is doing. Works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs |
+| Ctrl+R | Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement |
+| Alt+V | Speak the version, the build type and the date this copy was built. The answer to "which build are you on?" without leaving what you are doing |
 | L | Speak log statistics |
 | M | Display Flex memory list |
 | Shift+A through Shift+H | Jump straight to that slice from anywhere (Shift+F is reserved for the RX filter readout) |
@@ -70,6 +77,8 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 |-----|--------|
 | ? or H | List all JJ Command layer commands aloud |
 | Escape | Close the JJ Command layer |
+
+<!-- END LEADER-KEY-TABLE -->
 
 ## Audio Feedback
 

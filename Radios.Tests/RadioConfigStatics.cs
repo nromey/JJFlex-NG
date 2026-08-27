@@ -35,11 +35,39 @@ namespace Radios.Tests
     /// has no assembly-level fixture, and several types under test hold their
     /// folder in a <c>static readonly</c> field evaluated at type load, which
     /// can happen before any fixture would have run.</para>
+    ///
+    /// <para><b>There are TWO roots, and binding one of them is the shape of
+    /// failure this whole type exists to prevent.</b>
+    /// <see cref="RadioConfig.BaseDirectory"/> governs the per-radio stores;
+    /// <see cref="RadioConfig.AppDataRoot"/> governs everything else under the
+    /// settings tree — the Fixer's run store, the output transcripts, the
+    /// connection profiles, the profile reports, the SmartLink account file.
+    /// The second one is resolved from the ENVIRONMENT and cached, and until
+    /// this was written nothing in the test process redirected it, so it
+    /// resolved to the operator's live <c>%AppData%\JJFlexRadio</c> for the
+    /// whole run. <c>SmartLinkAccountManager</c> holds its folder in a
+    /// <c>static readonly</c> field, so merely loading that type from a test
+    /// bound the live path — which is why setting the variable here, before any
+    /// of them load, is the only place this can be done.</para>
+    ///
+    /// <para>That is verbatim the defect <see cref="RadioConfig.AppDataRoot"/>'s
+    /// own remarks describe one layer down: an isolation that truthfully
+    /// reports itself isolated, for the one directory it governs, while
+    /// everything else writes the live folder regardless. So this reads the
+    /// root BACK after setting it and records <see cref="Failure"/> if it did
+    /// not take. A floor that cannot say whether it held is not a floor.</para>
     /// </summary>
     internal static class TestSettingsRoot
     {
         /// <summary>The throwaway tree bound for the life of the test process.</summary>
         internal static string Directory { get; private set; } = "";
+
+        /// <summary>
+        /// Why the throwaway tree is not fully in force, or null when it is.
+        /// Asserted by <c>TestSettingsRootTests</c>: a floor nobody checks is a
+        /// floor nobody can tell has gone.
+        /// </summary>
+        internal static string? Failure { get; private set; }
 
         [ModuleInitializer]
         internal static void Bind()
@@ -55,6 +83,8 @@ namespace Radios.Tests
                 KnownRadioRoster.CacheDirectory = Directory;
                 Lexicon.OverlayDirectoryOverride = Directory;
 
+                BindAppDataRoot();
+
                 AppDomain.CurrentDomain.ProcessExit += (_, _) =>
                 {
                     try { System.IO.Directory.Delete(Directory, recursive: true); }
@@ -68,10 +98,48 @@ namespace Radios.Tests
                 // means the tests fall back to the old behaviour, which is what
                 // they had before — but say so, loudly, because it means the
                 // live settings folder is back in scope.
+                Failure = ex.GetType().Name + ": " + ex.Message;
                 Console.Error.WriteLine(
                     "TestSettingsRoot: could not bind a throwaway settings root (" +
                     ex.Message + "). Tests may read the machine's live " +
                     "%AppData%\\JJFlexRadio.");
+            }
+        }
+
+        /// <summary>
+        /// Point <see cref="RadioConfig.AppDataRoot"/> at the throwaway tree by
+        /// the one mechanism it honours — <c>JJFLEX_CONFIG_DIR</c> — and then
+        /// confirm it landed.
+        /// </summary>
+        /// <remarks>
+        /// <para>The variable rather than a setter because that is deliberately
+        /// the only door: the root is read from the environment precisely so
+        /// that a store binding its folder at type-load cannot bind the wrong
+        /// one depending on which type someone touched first. Setting it in
+        /// THIS process only; it is not inherited by anything and evaporates
+        /// with the run, which is the same per-run contract the app's own use
+        /// of the variable has.</para>
+        /// <para><c>ForgetAppDataRoot</c> in case the root was already read and
+        /// cached — a cached live path would survive the variable being set and
+        /// the redirection would report success while changing nothing.</para>
+        /// </remarks>
+        private static void BindAppDataRoot()
+        {
+            Environment.SetEnvironmentVariable(RadioConfig.ConfigDirOverrideVariable, Directory);
+            RadioConfig.ForgetAppDataRoot();
+
+            string actual = RadioConfig.AppDataRoot;
+            if (!string.Equals(
+                    Path.TrimEndingDirectorySeparator(actual),
+                    Path.TrimEndingDirectorySeparator(Directory),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                Failure =
+                    "RadioConfig.AppDataRoot is '" + actual + "', not the throwaway tree '" +
+                    Directory + "'. Every store that resolves from AppDataRoot — the Fixer run " +
+                    "store, output transcripts, connection profiles, profile reports, the " +
+                    "SmartLink account file — is pointed at that directory instead.";
+                Console.Error.WriteLine("TestSettingsRoot: " + Failure);
             }
         }
     }

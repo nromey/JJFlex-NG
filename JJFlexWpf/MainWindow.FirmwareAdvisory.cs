@@ -103,7 +103,9 @@ public partial class MainWindow
             // Breaking releases get no "don't show this again" — re-prompting is
             // the point (2026-08-03 policy). Routine ones can be silenced per
             // radio and version; the next release announces itself again.
-            string? suppressKey = image.Breaking ? null : $"firmware|{serial}|{image.Version}";
+            Radios.AdvisoryKey? suppressKey = image.Breaking
+                ? null
+                : Radios.AdvisoryKeys.FirmwareUpdate(serial, image.Version);
 
             await Dispatcher.BeginInvoke(() =>
             {

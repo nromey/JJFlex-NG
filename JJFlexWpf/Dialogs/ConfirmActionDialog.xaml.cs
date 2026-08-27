@@ -26,7 +26,7 @@ namespace JJFlexWpf.Dialogs
     public partial class ConfirmActionDialog : JJFlexDialog
     {
         private readonly string? _radioModel;
-        private readonly string? _suppressKey;
+        private readonly Radios.AdvisoryKey? _suppressKey;
 
         /// <param name="radioModel">
         /// The connected radio's model, for actions that ask the user to go and touch
@@ -37,15 +37,23 @@ namespace JJFlexWpf.Dialogs
         /// hidden: a button that leads to an apology is worse than no button.
         /// </param>
         /// <param name="suppressKey">
-        /// Optional <see cref="AdvisorySuppression"/> key. When set, the dialog grows
-        /// a "Don't show this explanation again" checkbox; answering Yes with it
-        /// checked persists the key. Callers must check
-        /// <see cref="AdvisorySuppression.IsSuppressed"/> themselves before showing
-        /// (and decide what a suppressed prompt means — usually "treat as Yes").
+        /// Optional <see cref="Radios.AdvisorySuppression"/> key, declared in
+        /// <see cref="Radios.AdvisoryKeys"/> so it arrives carrying the words that
+        /// name it in Settings. When set, the dialog grows a "Don't show this
+        /// explanation again" checkbox; answering Yes with it checked persists the
+        /// key. Callers must check
+        /// <see cref="Radios.AdvisorySuppression.IsSuppressed(Radios.AdvisoryKey)"/>
+        /// themselves before showing (and decide what a suppressed prompt means —
+        /// usually "treat as Yes").
         /// Only for teaching/consent text whose outcome is still reported some
         /// other re-readable way; suppressing a receipt would be a silent change.
         /// Version the key (e.g. "-v1") so the explanation returns when its
         /// contents change.
+        /// <para>Since Sprint 36 (#267) this is reversible: everything silenced
+        /// here is listed under Settings → Notifications → Messages You Have
+        /// Silenced and can be restored one at a time. Before that it was not,
+        /// which on a CONFIRMATION dialog meant one keypress could stop a
+        /// destructive action asking, permanently, with no way back.</para>
         /// </param>
         public ConfirmActionDialog(
             string title,
@@ -55,7 +63,7 @@ namespace JJFlexWpf.Dialogs
             string yesLabel = "_Yes",
             string noLabel = "_No",
             string? radioModel = null,
-            string? suppressKey = null)
+            Radios.AdvisoryKey? suppressKey = null)
         {
             InitializeComponent();
 
@@ -66,7 +74,15 @@ namespace JJFlexWpf.Dialogs
             _radioModel = radioModel;
             _suppressKey = suppressKey;
             if (suppressKey != null)
+            {
                 DontShowAgainCheck.Visibility = Visibility.Visible;
+                // Say where the way back is, at the moment the door is offered.
+                // This dialog is a CONFIRMATION — the one place where silencing
+                // something has real consequences — so the operator should not
+                // have to guess whether the choice is final.
+                JJFlexHelp.SetText(DontShowAgainCheck,
+                    Radios.Lexicon.Get("settings.silenced.reversible_help"));
+            }
 
             // One reviewable document: message, then each warning as its own
             // paragraph, then the question the buttons answer. Blank separator
@@ -112,7 +128,7 @@ namespace JJFlexWpf.Dialogs
             // would mean "never ask, and don't do it" — an unresolvable state
             // the next time the action is attempted.
             if (_suppressKey != null && DontShowAgainCheck.IsChecked == true)
-                AdvisorySuppression.Suppress(_suppressKey);
+                Radios.AdvisorySuppression.Suppress(_suppressKey);
             DialogResult = true;
             Close();
         }

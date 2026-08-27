@@ -234,6 +234,10 @@
       <param name="Local" value="pages\settings-double-tap-tolerance.htm">
     </OBJECT>
     <LI><OBJECT type="text/sitemap">
+      <param name="Name" value="Messages You Have Silenced">
+      <param name="Local" value="pages\settings-silenced-messages.htm">
+    </OBJECT>
+    <LI><OBJECT type="text/sitemap">
       <param name="Name" value="The Diagnostic Log">
       <param name="Local" value="pages\diagnostic-log.htm">
     </OBJECT>

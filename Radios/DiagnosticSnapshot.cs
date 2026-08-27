@@ -95,6 +95,29 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Local date the running build was produced, e.g. "2026-08-27", or
+        /// null when it cannot be established. See <see cref="BuildStamp"/> for
+        /// where it comes from and why the file's own timestamp is the last
+        /// resort rather than the first.
+        /// </summary>
+        public string BuildDate { get; private set; }
+
+        /// <summary>
+        /// "Debug" or "Release" for the running build, or null when it cannot
+        /// be established. A tester's report that names the version without the
+        /// configuration is ambiguous — the nightly and the installer share a
+        /// version number and behave differently.
+        /// </summary>
+        public string BuildConfiguration { get; private set; }
+
+        /// <summary>
+        /// The git commit the build was made from, short form, or null when the
+        /// informational version carries no SHA (a build made outside a
+        /// checkout).
+        /// </summary>
+        public string BuildCommit { get; private set; }
+
         /// <summary>Full path of the running executable.</summary>
         public string ExecutablePath { get; private set; }
 
@@ -205,6 +228,211 @@ namespace Radios
                 }
                 catch { return null; }
             }
+        }
+
+        /// <summary>
+        /// The four facts that identify a build to a tester: the 4-part
+        /// version, the date it was produced, Debug or Release, and the commit.
+        /// Any field may be null when it could not be established honestly.
+        /// </summary>
+        public sealed class BuildIdentity
+        {
+            internal BuildIdentity(string version, DateTime? built, string configuration, string commit)
+            {
+                Version = version;
+                Built = built;
+                Configuration = configuration;
+                Commit = commit;
+            }
+
+            /// <summary>4-part FileVersion, e.g. "4.1.16.1024".</summary>
+            public string Version { get; }
+
+            /// <summary>Local build time, or null when it could not be established.</summary>
+            public DateTime? Built { get; }
+
+            /// <summary>Local build date, "yyyy-MM-dd" — the written form.</summary>
+            public string Date
+            {
+                get
+                {
+                    return Built.HasValue
+                        ? Built.Value.ToString("yyyy-MM-dd",
+                            System.Globalization.CultureInfo.InvariantCulture)
+                        : null;
+                }
+            }
+
+            /// <summary>
+            /// The same date said aloud: "August 27, 2026". A hyphenated ISO
+            /// date is for a page you read; a tester saying the date down a
+            /// phone wants the month by name. Both come off one DateTime here,
+            /// in the single assembler, so they cannot drift.
+            /// </summary>
+            public string DateSpoken
+            {
+                get
+                {
+                    return Built.HasValue
+                        ? Built.Value.ToString("MMMM d, yyyy",
+                            System.Globalization.CultureInfo.InvariantCulture)
+                        : null;
+                }
+            }
+
+            /// <summary>"Debug" or "Release".</summary>
+            public string Configuration { get; }
+
+            /// <summary>Short git SHA, or null outside a checkout.</summary>
+            public string Commit { get; }
+        }
+
+        private static BuildIdentity _buildStamp;
+
+        /// <summary>
+        /// Cheap, cached build identity for callers that must not pay for a
+        /// full <see cref="Capture"/> — the leader-key chord that speaks the
+        /// build (#269) runs on a keypress and probes no native DLLs.
+        ///
+        /// It lives HERE, beside <see cref="QuickFileVersion"/>, because this
+        /// class is the single assembler of version strings. #269's own note
+        /// says it: read from the thing the About page already uses, do not
+        /// build a second version-reporting path.
+        ///
+        /// THE DATE DOES NOT COME FROM THE FILE'S TIMESTAMP FIRST, and that is
+        /// the entire point (#268). Dropbox rewrites timestamps on delivery, so
+        /// the moment a tester receives a build, the file stops being able to
+        /// say when it was made. install-manifest.json carries the build time as
+        /// a VALUE the build itself wrote, which no delivery channel rewrites.
+        /// The executable's own write time is the fallback for a tree that has
+        /// no manifest, and it is honestly worse.
+        /// </summary>
+        public static BuildIdentity BuildStamp
+        {
+            get
+            {
+                var cached = _buildStamp;
+                if (cached != null) return cached;
+                cached = new BuildIdentity(
+                    QuickFileVersion, ProbeBuildDate(), ProbeConfiguration(), ProbeCommit());
+                _buildStamp = cached;
+                return cached;
+            }
+        }
+
+        private static DateTime? ProbeBuildDate()
+        {
+            try
+            {
+                string generated = ReadManifestGeneratedUtc();
+                if (!string.IsNullOrEmpty(generated) &&
+                    DateTime.TryParse(generated,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AdjustToUniversal |
+                        System.Globalization.DateTimeStyles.AssumeUniversal,
+                        out DateTime utc))
+                {
+                    return utc.ToLocalTime();
+                }
+            }
+            catch { }
+
+            try
+            {
+                string path = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                    return File.GetLastWriteTime(path);
+            }
+            catch { }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The "generated" value out of install-manifest.json, read from the
+        /// head of the file only.
+        ///
+        /// The manifest carries a SHA-256 for every one of the ~364 shipped
+        /// files, so parsing the whole document to reach one string near the
+        /// top would be absurd on a keypress. generate-install-manifest.ps1
+        /// writes schema, source, product, version, generated in that order —
+        /// well inside the first block — so a partial reader that stops at the
+        /// first match gets the answer without ever seeing the file list.
+        /// </summary>
+        private static string ReadManifestGeneratedUtc()
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "install-manifest.json");
+            if (!File.Exists(path)) return null;
+
+            byte[] head = new byte[4096];
+            int read;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                read = fs.Read(head, 0, head.Length);
+            }
+            if (read <= 0) return null;
+
+            var reader = new System.Text.Json.Utf8JsonReader(
+                head.AsSpan(0, read), isFinalBlock: false, state: default);
+            try
+            {
+                while (reader.Read())
+                {
+                    if (reader.TokenType != System.Text.Json.JsonTokenType.PropertyName) continue;
+                    if (!reader.ValueTextEquals("generated")) continue;
+                    if (reader.Read() && reader.TokenType == System.Text.Json.JsonTokenType.String)
+                        return reader.GetString();
+                    return null;
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Ran off the end of the head block before finding it, or the
+                // file is not what we expect. Either way the caller falls back.
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Debug or Release, from the entry assembly's own DebuggableAttribute
+        /// rather than from install-manifest.json — the manifest writes
+        /// "configuration" LAST, after the whole file list, so reaching it would
+        /// mean parsing the entire document. The attribute is intrinsic to the
+        /// binary and cannot disagree with the binary.
+        /// </summary>
+        private static string ProbeConfiguration()
+        {
+            try
+            {
+                Assembly asm = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+                var d = (System.Diagnostics.DebuggableAttribute)Attribute.GetCustomAttribute(
+                    asm, typeof(System.Diagnostics.DebuggableAttribute));
+                if (d == null) return "Release";
+                return d.DebuggingFlags.HasFlag(
+                    System.Diagnostics.DebuggableAttribute.DebuggingModes.DisableOptimizations)
+                    ? "Debug" : "Release";
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// The short SHA out of AssemblyInformationalVersion ("4.1.16+abc1234").
+        /// </summary>
+        private static string ProbeCommit()
+        {
+            try
+            {
+                Assembly asm = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+                var info = (AssemblyInformationalVersionAttribute)Attribute.GetCustomAttribute(
+                    asm, typeof(AssemblyInformationalVersionAttribute));
+                string v = info?.InformationalVersion;
+                if (string.IsNullOrEmpty(v)) return null;
+                int plus = v.IndexOf('+');
+                if (plus < 0 || plus == v.Length - 1) return null;
+                string sha = v.Substring(plus + 1);
+                return sha.Length > 7 ? sha.Substring(0, 7) : sha;
+            }
+            catch { return null; }
         }
 
         /// <summary>
@@ -343,6 +571,18 @@ namespace Radios
                     if (!string.IsNullOrEmpty(fvi.FileVersion))
                         AppFileVersion = fvi.FileVersion;
                 }
+            }
+            catch { }
+
+            // Same assembler, one probe: the About page and the spoken build
+            // chord (#269) cannot disagree about when this was built, because
+            // there is only one thing that works it out.
+            try
+            {
+                var stamp = BuildStamp;
+                BuildDate = stamp.Date;
+                BuildConfiguration = stamp.Configuration;
+                BuildCommit = stamp.Commit;
             }
             catch { }
         }
@@ -595,6 +835,10 @@ namespace Radios
                 Add(SectionApplication, "Build", AppInformationalVersion);
             if (AppFileVersion != null)
                 Add(SectionApplication, "FileVersion", AppFileVersion);
+            if (BuildDate != null)
+                Add(SectionApplication, "Built", BuildDate);
+            if (BuildConfiguration != null)
+                Add(SectionApplication, "Configuration", BuildConfiguration);
             Add(SectionApplication, "Executable",
                 ExecutablePath ?? "not available");
             Add(SectionApplication, "Self-contained",

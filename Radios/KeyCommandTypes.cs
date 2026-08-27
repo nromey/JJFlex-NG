@@ -173,6 +173,9 @@ public enum CommandValues
     // references them by value, so inserting in the middle would silently
     // rebind every operator's customised key past the insertion point.
     RepeatLastCw = 120,
+    // Sprint 36 Track F (#269). Appended, for the same reason RepeatLastCw was:
+    // these are ordinals and a stored KeyDefs.xml references them by value.
+    SpeakVersion = 121,
 }
 
 /// <summary>

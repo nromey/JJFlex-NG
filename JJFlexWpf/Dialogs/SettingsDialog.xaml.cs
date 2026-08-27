@@ -135,6 +135,23 @@ namespace JJFlexWpf.Dialogs
 
             InitializeComponent();
 
+            // The PC-audio status line explains the checkbox directly above it,
+            // so it belongs to that checkbox rather than to the tab order
+            // (#211). Ctrl+F1 on the checkbox now reads what it does AND what
+            // it is doing right now, and the sentence no longer sits between
+            // the operator and the next control.
+            //
+            // The two other read-only lines on this dialog — the Radio Outputs
+            // advisory and the Radio Profile status — are deliberately still
+            // tab stops. Both are SECTION signposts rather than notes about a
+            // control: the Radio Outputs advisory exists to say why the panel
+            // beneath it is empty, which is exactly when there is no control
+            // to hang it on, and the profile status reports the outcome of the
+            // whole tab. Text that is the only carrier of its information stays
+            // reachable — the same rule DecorativeText states from the other
+            // side.
+            JJFlexHelp.SetNoteFor(PcAudioStatusText, PcAudioCheck);
+
             // Category navigation (task #134). Attached before anything else
             // touches SettingsTabs, so a tab selected later in this
             // constructor — or by SelectTabByHeader before the dialog is
@@ -345,6 +362,7 @@ namespace JJFlexWpf.Dialogs
             EarconTuningCheck.IsChecked = _audioConfig.EarconTuningEnabled;
             EarconCommandsCheck.IsChecked = _audioConfig.EarconCommandsEnabled;
             EarconWarningsCheck.IsChecked = _audioConfig.EarconWarningsEnabled;
+            EarconContextHelpCheck.IsChecked = _audioConfig.EarconContextHelpEnabled;
 
             // Sprint 33 Track F — the three "how the app sounds" pickers. All
             // three preview on selection change, so an operator arrowing
@@ -1381,6 +1399,7 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.EarconTuningEnabled = EarconTuningCheck.IsChecked == true;
             _audioConfig.EarconCommandsEnabled = EarconCommandsCheck.IsChecked == true;
             _audioConfig.EarconWarningsEnabled = EarconWarningsCheck.IsChecked == true;
+            _audioConfig.EarconContextHelpEnabled = EarconContextHelpCheck.IsChecked == true;
             _audioConfig.CwNotificationsEnabled = CwNotificationsCheck.IsChecked == true;
             // Sprint 33 Track F. Read back by index rather than by the label
             // text: the labels are user-facing prose and will be reworded, and

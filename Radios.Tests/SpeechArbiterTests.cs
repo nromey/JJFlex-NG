@@ -13,10 +13,18 @@ namespace Radios.Tests
     //  The coalescer's behaviour IS its timing, and until the clock seam
     //  existed none of it was testable without sleeping — slow, flaky,
     //  and an instrument that lies occasionally. Every test here drives a
-    //  manual clock by hand: advance to 1199 ms and assert silence,
-    //  advance one more and assert exactly one utterance. The three
-    //  constants (CoalesceMs 300, SweepWindowMs 1200, MinGapMs 1200) are
+    //  manual clock by hand: advance to one millisecond short of a
+    //  boundary and assert silence, advance one more and assert exactly
+    //  one utterance. CoalesceMs (300) and SweepWindowMs (1200) are
     //  exercised at their exact boundaries.
+    //
+    //  The anti-clip gap is no longer a constant to pin (#282, 2026-08-27):
+    //  it is derived per message from AntiClipGapMs, so each test below
+    //  states the arithmetic for ITS OWN message rather than quoting 1200.
+    //  "RF gain 5" is nine characters and earns 990 ms; "TX Power 87" is
+    //  eleven and hits the 1200 ms ceiling; "S 3" is three and lands on the
+    //  700 ms floor. A test that quoted one number for all three would go
+    //  green while saying nothing.
     //
     //  The arbiter is an instance class with injected callbacks, so these
     //  tests touch NO process-wide statics — no collection serialisation
@@ -140,7 +148,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Latest_SecondValueDuringSweep_SettlesExactlyAtMinGap()
+        public void Latest_SecondValueDuringSweep_SettlesExactlyAtTheGapTheLeadEarned()
         {
             var a = NewArbiter();
             a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, false, "t");   // lead at 0
@@ -148,21 +156,75 @@ namespace Radios.Tests
             _clock.Advance(400);
             a.Latest("rf", "RF gain 6", VerbosityLevel.Terse, false, "t");   // coalesces
 
-            // CoalesceMs would flush at 700, but MinGapMs (1200 from the lead)
-            // defers the settle so it cannot clip the lead's tail. Nothing may
-            // speak at 700, nothing at 1199 — and at exactly 1200 the settle
+            // CoalesceMs would flush at 700, but the lead is still speaking:
+            // "RF gain 5" is nine characters, so the anti-clip gap is 990 ms
+            // and the settle waits it out rather than cutting in. Nothing may
+            // speak at 700, nothing at 989 — and at exactly 990 the settle
             // fires once with the newest value.
+            //
+            // 990, not 1200. Under the old flat floor this deliberate second
+            // press waited 210 ms longer than the lead needed, for nothing.
+            int gap = Radios.Speech.SpeechArbiter.AntiClipGapMs("RF gain 5");
+            Assert.Equal(990, gap);
+
             _clock.Advance(299);            // t = 699
             Assert.Single(_calls);
             _clock.Advance(1);              // t = 700 — coalesce due, gap defers
             Assert.Single(_calls);
-            _clock.Advance(499);            // t = 1199
+            _clock.Advance(gap - 700 - 1);  // t = 989
+            Assert.Single(_calls);
+            _clock.Advance(1);              // t = 990
+            Assert.Equal(2, _calls.Count);
+            Assert.Equal("RF gain 6", _calls[1].Message);
+            Assert.Equal(gap, _calls[1].AtMs);
+            Assert.True(_calls[1].Interrupt);
+        }
+
+        [Fact]
+        public void Latest_ShortReadout_SettlesOnTheFloor_NotTheCeiling()
+        {
+            // #282, the operator-visible half: a short readout must not be
+            // charged a long sentence's price. "S 3" is three characters, so
+            // the derived gap lands on the 700 ms floor — and the settle can
+            // therefore speak the moment the coalesce timer's own deferral is
+            // satisfied, 500 ms earlier than the old flat 1200.
+            var a = NewArbiter();
+            a.Latest("smeter", "S 3", VerbosityLevel.Terse, false, "t");     // lead at 0
+
+            _clock.Advance(400);
+            a.Latest("smeter", "S 2", VerbosityLevel.Terse, false, "t");     // coalesces
+
+            Assert.Equal(700, Radios.Speech.SpeechArbiter.AntiClipGapMs("S 3"));
+
+            _clock.Advance(299);            // t = 699
+            Assert.Single(_calls);
+            _clock.Advance(1);              // t = 700 — coalesce due AND gap clear
+            Assert.Equal(2, _calls.Count);
+            Assert.Equal("S 2", _calls[1].Message);
+            Assert.Equal(700, _calls[1].AtMs);
+        }
+
+        [Fact]
+        public void Latest_LongReadout_StillWaitsTheFullCeiling()
+        {
+            // The other direction, and the reason the ceiling exists: the
+            // 2026-08-18 clipping regression was measured on exactly this
+            // message. "TX Power 87" is eleven characters — 1210 ms derived,
+            // clamped to the 1200 ms ceiling — so this case is UNCHANGED by
+            // #282. The gap may only ever get shorter than it used to be.
+            var a = NewArbiter();
+            a.Latest("tx", "TX Power 87", VerbosityLevel.Terse, false, "t"); // lead at 0
+
+            _clock.Advance(400);
+            a.Latest("tx", "TX Power 86", VerbosityLevel.Terse, false, "t"); // coalesces
+
+            Assert.Equal(1200, Radios.Speech.SpeechArbiter.AntiClipGapMs("TX Power 87"));
+
+            _clock.Advance(799);            // t = 1199
             Assert.Single(_calls);
             _clock.Advance(1);              // t = 1200
             Assert.Equal(2, _calls.Count);
-            Assert.Equal("RF gain 6", _calls[1].Message);
             Assert.Equal(1200, _calls[1].AtMs);
-            Assert.True(_calls[1].Interrupt);
         }
 
         [Fact]
@@ -180,14 +242,17 @@ namespace Radios.Tests
             _clock.Advance(200);
             a.Latest("tx", "TX Power 8", VerbosityLevel.Terse, false, "t");  // due 1100
 
-            // Flush at 1100 is still inside MinGap (100 ms short), so the
-            // settle waits out the remainder and lands at exactly 1200.
-            _clock.Advance(399);            // t = 1199
+            // "TX Power 5" is ten characters, so the lead's anti-clip gap is
+            // 1100 ms — exactly when the pushed-out flush comes due, so the
+            // settle speaks without any further deferral.
+            Assert.Equal(1100, Radios.Speech.SpeechArbiter.AntiClipGapMs("TX Power 5"));
+
+            _clock.Advance(299);            // t = 1099
             Assert.Single(_calls);
-            _clock.Advance(1);              // t = 1200
+            _clock.Advance(1);              // t = 1100
             Assert.Equal(2, _calls.Count);
             Assert.Equal("TX Power 8", _calls[1].Message);
-            Assert.Equal(1200, _calls[1].AtMs);
+            Assert.Equal(1100, _calls[1].AtMs);
 
             // Intermediate values 6 and 7 were superseded and never spoken.
             Assert.DoesNotContain(_calls, c => c.Message is "TX Power 6" or "TX Power 7");
@@ -222,15 +287,22 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Latest_RepeatWhileHeld_TimerIsNotPushedOut_AndRepeatsAreSpacedByMinGap()
+        public void Latest_RepeatWhileHeld_TimerIsNotPushedOut_AndRepeatsAreSpacedByTheGap()
         {
-            // The #264 flag, pinned: no production caller sets repeatWhileHeld
-            // yet, so this path had never been exercised anywhere. Its
-            // documented contract: a repeating entry must NOT have its flush
-            // deferred by each keypress (the operator is holding the key), the
-            // identical value IS re-spoken (the repetition is the information
-            // — "still at minimum" is how you learn to stop pressing), and
-            // repeats are spaced by MinGap so they cannot chop each other.
+            // The #264 flag, pinned. Its documented contract: a repeating
+            // entry must NOT have its flush deferred by each keypress (the
+            // operator is holding the key), the identical value IS re-spoken
+            // (the repetition is the information — "still at minimum" is how
+            // you learn to stop pressing), and repeats are spaced by the
+            // anti-clip gap so they cannot chop each other.
+            //
+            // This said "no production caller sets repeatWhileHeld yet" until
+            // 2026-08-27, and it had been false since Sprint 35 Track M wired
+            // Ctrl+S (KeyCommands.cs, coalesceKey "smeter"). That call site is
+            // still the ONLY one, deliberately — see the #264 note there.
+            //
+            // "Volume minimum" is fourteen characters, so its derived gap hits
+            // the 1200 ms ceiling and the cadence below is unchanged by #282.
             var a = NewArbiter();
             a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, true, "t"); // lead at 0
 
@@ -241,7 +313,7 @@ namespace Radios.Tests
             _clock.Advance(100);
             a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, true, "t"); // must NOT push to 900
 
-            // Flush stays due at 700; MinGap defers the actual utterance to
+            // Flush stays due at 700; the gap defers the actual utterance to
             // exactly 1200 from the lead.
             _clock.Advance(599);            // t = 1199
             Assert.Single(_calls);
@@ -251,7 +323,7 @@ namespace Radios.Tests
             Assert.Equal(1200, _calls[1].AtMs);
 
             // Still holding: the next repeat coalesces at 1300 and speaks at
-            // 2400 — MinGap from the previous utterance, never sooner.
+            // 2400 — a full gap from the previous utterance, never sooner.
             _clock.Advance(100);            // t = 1300
             a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, true, "t");
             _clock.Advance(1099);           // t = 2399
@@ -333,6 +405,114 @@ namespace Radios.Tests
 
             Assert.Equal(2, _calls.Count);
             Assert.DoesNotContain(_calls, c => c.Salvaged);
+        }
+
+        // ── #273: the rescue is bounded ──
+
+        /// <summary>
+        /// The sentence from the 2026-08-26 capture, verbatim. Its length is
+        /// load-bearing: it is what makes the estimated speaking window long
+        /// enough for the runaway to keep finding itself still "pending".
+        /// </summary>
+        private const string CaptureStarted =
+            "Detailed capture started. Reproduce the problem, then stop the capture "
+            + "from this button or the Diagnostics tab.";
+
+        [Fact]
+        public void Salvage_StopsAtTheCap_InsteadOfRenewingItsOwnLease()
+        {
+            // THE FIELD CASE, REPLAYED. 2026-08-26: a detailed capture was
+            // running, so its start announcement sat in the ledger; the
+            // operator then pressed Ctrl+S nine times. Every press interrupted,
+            // every interrupt rescued the same sentence, and each rescue took a
+            // fresh lease that pushed the believed-busy window further out —
+            // manufacturing the very window that justified the next rescue.
+            // Nine presses, TEN salvages of one sentence, each arriving later
+            // than the last, and nothing in the mechanism would have stopped
+            // it.
+            var a = NewArbiter();
+            a.Emit(CaptureStarted, false, null, VerbosityLevel.Terse, "TraceAdmin");
+
+            for (int i = 1; i <= 9; i++)
+            {
+                _clock.Advance(600);
+                a.Emit("S " + i, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "KeyCommands");
+            }
+
+            // Every reading still speaks — the readings were never the problem.
+            Assert.Equal(9, _calls.Count(c => !c.Salvaged && c.Interrupt));
+
+            // The sentence is rescued twice and then dropped, not nine or ten
+            // times. Two, because a SECOND interrupt must still not destroy
+            // what the first one had to rescue; a third is chasing a burst it
+            // will not get ahead of.
+            var salvaged = _calls.Where(c => c.Salvaged).ToList();
+            Assert.Equal(Radios.Speech.SpeechArbiter.MaxSalvages, salvaged.Count);
+            Assert.All(salvaged, c => Assert.Equal(CaptureStarted, c.Message));
+
+            // And it stops EARLY, not merely eventually: both rescues land in
+            // the first two presses, and presses three through nine carry
+            // nothing stale behind them at all.
+            Assert.Equal(new double[] { 600, 1200 }, salvaged.Select(c => c.AtMs));
+        }
+
+        [Fact]
+        public void Salvage_RefusedOnceOlderThanItsOwnDuration_MeasuredFromFirstEmission()
+        {
+            // The second bound, and the one the cap cannot cover: two
+            // interrupts far enough apart that the rescue count never reaches
+            // its limit, but the utterance is long past describing anything
+            // current. Age is measured from FIRST emission — measuring from
+            // the latest re-queue is the defect itself, since that lets an
+            // utterance renew its own youth.
+            int est = Radios.Speech.SpeechArbiter.EstimateSpokenMs(CaptureStarted);
+            int ageBound = est * Radios.Speech.SpeechArbiter.SalvageAgeMultiple;
+            int interrupterMs = Radios.Speech.SpeechArbiter.EstimateSpokenMs("Now");
+
+            var a = NewArbiter();
+            a.Emit(CaptureStarted, false, null, VerbosityLevel.Terse, "TraceAdmin");
+
+            // Just before the first estimate expires: rescued, count now 1.
+            int firstInterruptAt = est - 100;
+            _clock.Advance(firstInterruptAt);
+            a.Emit("Now", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            Assert.Single(_calls.Where(c => c.Salvaged));
+
+            // That rescue re-entered the ledger with a fresh lease, which is
+            // correct — the reader really is going to be busy that long again.
+            // So the entry is still believed pending here, which is precisely
+            // the window the runaway lived in. What it does NOT get back is its
+            // age: it is now older than twice its own duration, and it goes.
+            int reLeasedFinish = firstInterruptAt + interrupterMs + est;
+            int secondInterruptAt = 2 * est + 350;
+            Assert.True(secondInterruptAt > ageBound,
+                "the second interrupt must fall past the age bound, or nothing is being tested");
+            Assert.True(secondInterruptAt < reLeasedFinish,
+                "and inside the lease the rescue itself renewed, or the ordinary prune would "
+                + "have removed the entry and the age bound would never be consulted");
+
+            _clock.Advance(secondInterruptAt - firstInterruptAt);
+            a.Emit("Later", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+
+            Assert.Single(_calls.Where(c => c.Salvaged));
+        }
+
+        [Fact]
+        public void Salvage_TwiceInQuickSuccession_IsStillAllowed_TheAgeBoundIsWhatRefused()
+        {
+            // POSITIVE CONTROL for the test above. Same message, same two
+            // interrupts, same arbiter — only the spacing differs. If this went
+            // green with one salvage too, the previous test would be measuring
+            // something other than the age bound and neither would be evidence.
+            var a = NewArbiter();
+            a.Emit(CaptureStarted, false, null, VerbosityLevel.Terse, "TraceAdmin");
+
+            _clock.Advance(100);
+            a.Emit("Now", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(100);
+            a.Emit("Later", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+
+            Assert.Equal(2, _calls.Count(c => c.Salvaged));
         }
 
         [Fact]

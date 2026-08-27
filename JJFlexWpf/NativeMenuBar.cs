@@ -93,7 +93,7 @@ public class NativeMenuBar : IDisposable
     /// </remarks>
     private readonly Dictionary<int, string> _itemNames = new();
     // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
-    private readonly List<(IntPtr popup, int id, Func<bool> stateGetter, string baseText)> _checkItems = new();
+    private readonly List<(IntPtr popup, int id, Func<bool> stateGetter, string baseText, bool enabled)> _checkItems = new();
     // Top-level popup handle → menu name (for screen reader announcement on open)
     private readonly Dictionary<IntPtr, string> _popupNames = new();
     /// <summary>
@@ -287,9 +287,17 @@ public class NativeMenuBar : IDisposable
 
         // Only update checkmarks that belong to this specific popup —
         // updating ALL checkmarks on every popup caused NVDA to stutter.
-        foreach (var (itemPopup, id, stateGetter, baseText) in _checkItems)
+        foreach (var (itemPopup, id, stateGetter, baseText, enabled) in _checkItems)
         {
             if (itemPopup != popup) continue;
+
+            // A greyed toggle has no state to report, and rewriting it here
+            // would ENABLE it: ModifyMenuW replaces an item's flags outright, so
+            // passing MF_STRING without MF_GRAYED quietly hands back a command
+            // that cannot work. Leave the greyed label exactly as it was
+            // appended — it already carries its own reason (#214).
+            if (!enabled) continue;
+
             try
             {
                 bool isOn = stateGetter();
@@ -752,128 +760,204 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
-    /// Build audio control items (shared between Classic Operations and Modern Audio/Slice menus).
-    /// Radio-dependent items are guarded; non-radio items (earcon device) are always available.
+    /// Build the Audio menu's items, in the one order they ever appear. Shared
+    /// by the Classic top-level Audio menu and the Modern Slice, Audio submenu,
+    /// so both get the same shape from the same place.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The composition lives in <see cref="Radios.AudioMenuLayout"/> and the
+    /// handlers live here. That split is the fix for #214. This method used to
+    /// wrap seven items in <c>if (Rig != null)</c>, so the menu's SHAPE — what
+    /// is first, what is fifth — changed with connection state, and a Windows
+    /// menu starts a first-letter search AFTER the highlighted item. Read the
+    /// layout for the full mechanism and for what this deliberately does not
+    /// fix.
+    /// </para>
+    /// <para>
+    /// Every radio-gated handler still opens with its own no-radio guard. A
+    /// greyed item raises no WM_COMMAND, so from this menu those guards should
+    /// now be unreachable — they stay because the guard is the cheap half of
+    /// the pair, and a handler that assumes a radio because a menu promised one
+    /// is exactly the assumption that stops being true.
+    /// </para>
+    /// </remarks>
     private void BuildAudioItems(IntPtr parent)
     {
-        if (Rig != null)
+        bool connected = Rig != null;
+
+        foreach (var entry in Radios.AudioMenuLayout.Entries)
         {
-            AddChecked(parent, "Mute/Unmute Slice", () =>
+            if (entry.Kind == Radios.AudioMenuEntryKind.Separator)
             {
-                if (Rig == null) { SpeakNoRadio(); return; }
-                bool newMute = !Rig.SliceMute;
-                Rig.SliceMute = newMute;
-                // Matches the hotkey road (KeyCommands.MuteSliceHandler), which
-                // has toned on newMute since it was written. Mute All directly
-                // below this has always toned too, which is what makes the
-                // omission here read as an oversight rather than a decision.
-                EarconPlayer.ToggleTone(newMute);
-                SpeakAfterMenuClose(newMute
-                    ? Radios.Lexicon.Get("audio.mute.muted")
-                    : Radios.Lexicon.Get("audio.mute.unmuted"));
-            }, () => Rig?.SliceMute == true);
+                AddSep(parent);
+                continue;
+            }
 
-            AddWired(parent, "Mute/Unmute All Slices", () =>
+            string label = Radios.AudioMenuLayout.LabelFor(entry, connected);
+            bool enabled = connected || !entry.NeedsRadio;
+
+            switch (entry.Id)
             {
-                if (Rig == null) { SpeakNoRadio(); return; }
-                bool target = !Rig.AllMySlicesMuted;
-                Rig.SetAllMySlicesMute(target);
-                if (target) EarconPlayer.MuteAllOnTone();
-                else EarconPlayer.MuteAllOffTone();
-                SpeakAfterMenuClose(target
-                    ? Radios.Lexicon.Get("audio.mute.all_slices_muted")
-                    : Radios.Lexicon.Get("audio.mute.all_slices_unmuted"));
-            });
-
-            AddWired(parent, "Release All Extra Slices", () =>
-            {
-                if (Rig == null) { SpeakNoRadio(); return; }
-                int before = Rig.MyNumSlices;
-                if (before <= 1) { SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.only_one_active")); return; }
-                if (Rig.ReleaseAllExtraSlices())
-                {
-                    EarconPlayer.MuteAllOnTone();
-                    int removed = before - 1;
-                    string keptLetter = Rig.VFOToLetter(Rig.RXVFO);
-                    SpeakAfterMenuClose(removed == 1
-                        ? Radios.Lexicon.Get("settings.slice.released_extras_one",
-                            ("removed", removed), ("keptLetter", keptLetter))
-                        : Radios.Lexicon.Get("settings.slice.released_extras_many",
-                            ("removed", removed), ("keptLetter", keptLetter)));
-                }
-            });
-
-            AddChecked(parent, "PC Audio On/Off", () =>
-            {
-                if (Rig == null) { SpeakNoRadio(); return; }
-                bool wanted = !Rig.PCAudio;
-                Rig.PCAudio = wanted;
-                // Threads Track (2026-08-12): remember the operator's choice
-                // per radio, so remember-last can restore it on the next
-                // connect. Intent, not outcome — a toggle that failed tonight
-                // is still the wish worth carrying forward.
-                RadioConfig.RecordPcAudioUserChoice(Rig.SelectedRadioSerial, wanted);
-                // Read the radio back rather than the request. Turning PC audio
-                // on can fail — no usable sound device — and the old code
-                // announced the wish, not the outcome, so a failed toggle said
-                // "PC audio on" while nothing played. QB Track B, 2026-08-07.
-                bool actual = Rig.PCAudio;
-                // Sound the outcome for the same reason the speech does. PC
-                // audio can refuse to come on when no sound device is
-                // configured, and a rising tone over a toggle that did not
-                // happen is a confident lie.
-                EarconPlayer.ToggleTone(actual);
-                SpeakAfterMenuClose(
-                    actual ? Radios.Lexicon.Get("audio.pc_audio.on")
-                    : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
-                    : Radios.Lexicon.Get("audio.pc_audio.off"));
-            }, () => Rig?.PCAudio == true);
-
-            AddSep(parent);
-
-            // === Levels dialogs (Audio Arc Track A-2, 2026-08-11) ===
-            // Field feedback from Noel at the radio: a menu is the wrong
-            // instrument for riding a value — it dismisses after each
-            // activation, so five nudges meant five trips two menus deep.
-            // The up/down PAIRS (Track A's PC Audio and On-Radio submenus,
-            // plus the pre-Track-A flat Audio Gain and Pan pairs, which
-            // duplicated Home's Volume and Pan fields) are retired; each
-            // group is now a single door into a dialog that stays open
-            // while you ride its levels with Up/Down. Two doors, not one:
-            // the two sides of the wire stay two surfaces on purpose.
-            // Slice Volume and Pan live on as arrow fields in Home's audio
-            // expander (Ctrl+Shift+U) — they are per-slice controls, not
-            // levels on either side of the wire. Ctrl+J, V volume mode is
-            // the fast route to all of it and is unchanged.
-            AddWired(parent, "PC Audio Levels (this computer)\tCtrl+J, V", () =>
-            {
-                if (Rig == null) { SpeakNoRadio(); return; }
-                new Dialogs.PcAudioLevelsDialog(Rig, _window.PersistPcOutputVolume)
-                    .ShowDialog();
-            });
-            AddWired(parent, "On-Radio Levels (the radio's own jacks)\tCtrl+J, V", () =>
-            {
-                if (Rig == null) { SpeakNoRadio(); return; }
-                new Dialogs.OnRadioLevelsDialog(Rig).ShowDialog();
-            });
-
-            AddSep(parent);
+                case "mute-slice":
+                    AddChecked(parent, label, MenuMuteSlice,
+                        () => Rig?.SliceMute == true, enabled);
+                    break;
+                case "mute-all-slices":
+                    AddWired(parent, label, MenuMuteAllSlices, enabled);
+                    break;
+                case "release-extra-slices":
+                    AddWired(parent, label, MenuReleaseExtraSlices, enabled);
+                    break;
+                case "pc-audio":
+                    AddChecked(parent, label, MenuTogglePcAudio,
+                        () => Rig?.PCAudio == true, enabled);
+                    break;
+                case "pc-audio-levels":
+                    AddWired(parent, label, MenuPcAudioLevels, enabled);
+                    break;
+                case "on-radio-levels":
+                    AddWired(parent, label, MenuOnRadioLevels, enabled);
+                    break;
+                case "audio-devices":
+                    AddWired(parent, label, MenuAudioDevices, enabled);
+                    break;
+                case "earcon-scratchpad":
+                    AddWired(parent, label, MenuEarconScratchpad, enabled);
+                    break;
+                case "audio-workshop":
+                    AddWired(parent, label, MenuAudioWorkshop, enabled);
+                    break;
+                default:
+                    // A layout row nobody wired. Say so rather than dropping it:
+                    // a silently missing row moves every position after it, which
+                    // is the whole defect this menu was rebuilt to stop.
+                    Tracing.TraceLine("NativeMenuBar: Audio menu entry '" + entry.Id
+                        + "' has no handler", TraceLevel.Error);
+                    AddNotImplemented(parent, entry.Label);
+                    break;
+            }
         }
-
-        // Device setup — always available (no radio required).
-        // Renamed 2026-08-07 (QB Track B): this is one dialog covering every
-        // sound device JJ Flex uses, not the old two-modals-in-a-row radio-only
-        // picker. The menu entry survives because muscle memory and the help
-        // pages both point at it; only the destination changed.
-        AddWired(parent, "Audio Devices", () =>
-            _window.AudioSetupCallback?.Invoke());
-        AddWired(parent, "Earcon Scratchpad", () =>
-        {
-            var dlg = new Dialogs.EarconScratchpadDialog();
-            dlg.ShowDialog();
-        });
     }
+
+    private void MenuMuteSlice()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        bool newMute = !Rig.SliceMute;
+        Rig.SliceMute = newMute;
+        // Matches the hotkey road (KeyCommands.MuteSliceHandler), which
+        // has toned on newMute since it was written. Mute All directly
+        // below this has always toned too, which is what makes the
+        // omission here read as an oversight rather than a decision.
+        EarconPlayer.ToggleTone(newMute);
+        SpeakAfterMenuClose(newMute
+            ? Radios.Lexicon.Get("audio.mute.muted")
+            : Radios.Lexicon.Get("audio.mute.unmuted"));
+    }
+
+    private void MenuMuteAllSlices()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        bool target = !Rig.AllMySlicesMuted;
+        Rig.SetAllMySlicesMute(target);
+        if (target) EarconPlayer.MuteAllOnTone();
+        else EarconPlayer.MuteAllOffTone();
+        SpeakAfterMenuClose(target
+            ? Radios.Lexicon.Get("audio.mute.all_slices_muted")
+            : Radios.Lexicon.Get("audio.mute.all_slices_unmuted"));
+    }
+
+    private void MenuReleaseExtraSlices()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        int before = Rig.MyNumSlices;
+        if (before <= 1) { SpeakAfterMenuClose(Radios.Lexicon.Get("settings.slice.only_one_active")); return; }
+        if (Rig.ReleaseAllExtraSlices())
+        {
+            EarconPlayer.MuteAllOnTone();
+            int removed = before - 1;
+            string keptLetter = Rig.VFOToLetter(Rig.RXVFO);
+            SpeakAfterMenuClose(removed == 1
+                ? Radios.Lexicon.Get("settings.slice.released_extras_one",
+                    ("removed", removed), ("keptLetter", keptLetter))
+                : Radios.Lexicon.Get("settings.slice.released_extras_many",
+                    ("removed", removed), ("keptLetter", keptLetter)));
+        }
+    }
+
+    private void MenuTogglePcAudio()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        bool wanted = !Rig.PCAudio;
+        Rig.PCAudio = wanted;
+        // Threads Track (2026-08-12): remember the operator's choice
+        // per radio, so remember-last can restore it on the next
+        // connect. Intent, not outcome — a toggle that failed tonight
+        // is still the wish worth carrying forward.
+        RadioConfig.RecordPcAudioUserChoice(Rig.SelectedRadioSerial, wanted);
+        // Read the radio back rather than the request. Turning PC audio
+        // on can fail — no usable sound device — and the old code
+        // announced the wish, not the outcome, so a failed toggle said
+        // "PC audio on" while nothing played. QB Track B, 2026-08-07.
+        bool actual = Rig.PCAudio;
+        // Sound the outcome for the same reason the speech does. PC
+        // audio can refuse to come on when no sound device is
+        // configured, and a rising tone over a toggle that did not
+        // happen is a confident lie.
+        EarconPlayer.ToggleTone(actual);
+        SpeakAfterMenuClose(
+            actual ? Radios.Lexicon.Get("audio.pc_audio.on")
+            : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
+            : Radios.Lexicon.Get("audio.pc_audio.off"));
+    }
+
+    // === Levels dialogs (Audio Arc Track A-2, 2026-08-11) ===
+    // Field feedback from Noel at the radio: a menu is the wrong
+    // instrument for riding a value — it dismisses after each
+    // activation, so five nudges meant five trips two menus deep.
+    // The up/down PAIRS (Track A's PC Audio and On-Radio submenus,
+    // plus the pre-Track-A flat Audio Gain and Pan pairs, which
+    // duplicated Home's Volume and Pan fields) are retired; each
+    // group is now a single door into a dialog that stays open
+    // while you ride its levels with Up/Down. Two doors, not one:
+    // the two sides of the wire stay two surfaces on purpose.
+    // Slice Volume and Pan live on as arrow fields in Home's audio
+    // expander (Ctrl+Shift+U) — they are per-slice controls, not
+    // levels on either side of the wire. Ctrl+J, V volume mode is
+    // the fast route to all of it and is unchanged.
+    private void MenuPcAudioLevels()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        new Dialogs.PcAudioLevelsDialog(Rig, _window.PersistPcOutputVolume).ShowDialog();
+    }
+
+    private void MenuOnRadioLevels()
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        new Dialogs.OnRadioLevelsDialog(Rig).ShowDialog();
+    }
+
+    // Device setup — always available (no radio required).
+    // Renamed 2026-08-07 (QB Track B): this is one dialog covering every
+    // sound device JJ Flex uses, not the old two-modals-in-a-row radio-only
+    // picker. The menu entry survives because muscle memory and the help
+    // pages both point at it; only the destination changed. That is also why
+    // #214 was NOT fixed by renaming it to give the menu unique first
+    // letters — see AudioMenuLayout.
+    private void MenuAudioDevices() => _window.AudioSetupCallback?.Invoke();
+
+    private void MenuEarconScratchpad()
+    {
+        var dlg = new Dialogs.EarconScratchpadDialog();
+        dlg.ShowDialog();
+    }
+
+    // The workshop is the mic-setup and monitoring surface, and the Audio menu
+    // is the first place an operator looks for it (Noel 2026-08-11). It used to
+    // be appended by each of the two callers after this builder ran; it is a row
+    // of the Audio menu like any other and now lives in the layout with them.
+    private void MenuAudioWorkshop()
+        => Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0);
 
     /// <summary>
     /// Build slice management items (Create/Release Slice).
@@ -1667,11 +1751,11 @@ public class NativeMenuBar : IDisposable
 
             // Audio
             var audioSub = AddSubmenu(slice, "Audio");
+            // Every row, including Audio Workshop, comes from AudioMenuLayout.
+            // This used to append the workshop itself, as did the Classic Audio
+            // menu below — the same row wired in two places, which is a second
+            // copy of the menu's order living outside the menu's order.
             BuildAudioItems(audioSub);
-            // Audio Workshop belongs on the Audio menu, not just Tools — it's the
-            // mic-setup/monitoring surface, so operators look for it here (Noel 2026-08-11).
-            AddWired(audioSub, "Audio Workshop\tCtrl+Shift+W", () =>
-                Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
 
             // Slice management
             BuildSliceItems(slice);
@@ -1826,12 +1910,10 @@ public class NativeMenuBar : IDisposable
 
         // === Audio ===
         var audio = AddPopup(bar, "Audi&o");
+        // Same rows, same order, same shape whether a radio is connected or
+        // not — see AudioMenuLayout. Parity with the Slice, Audio submenu is
+        // now structural rather than something each caller has to remember.
         BuildAudioItems(audio);
-        // Parity with the Slice > Audio submenu (b4bd721f): the workshop is
-        // the mic-setup/monitoring surface, and this top-level Audio menu is
-        // the first place an operator looks for it.
-        AddWired(audio, "Audio Workshop\tCtrl+Shift+W", () =>
-            Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));
 
         // === Tools ===
         var tools = AddPopup(bar, "&Tools");
@@ -1867,6 +1949,14 @@ public class NativeMenuBar : IDisposable
         AddWired(fixSub, "Saved check runs...", () =>
             Dialogs.FixerPastRunsDialog.Show(() => Rig,
                 System.Windows.Window.GetWindow(_window)));
+
+        // Sprint 36 Track C (#271) — the QSO signal analyzer's saved captures:
+        // view, rename, export, delete. Top level of Tools, not inside Fix — a
+        // capture is a measurement of a contact, not a repair artifact, and
+        // the stop announcement names this exact route ("under Tools, Signal
+        // captures"), so the words and the menu must agree.
+        AddWired(tools, "Signal captures...", () =>
+            Dialogs.SignalCapturesDialog.Show(System.Windows.Window.GetWindow(_window)));
 
         // RENAMED from "Diagnostics" 2026-08-25, and the rename is the point.
         // This item does not diagnose anything — it deep-links to the settings
@@ -2189,23 +2279,29 @@ public class NativeMenuBar : IDisposable
         return sub;
     }
 
-    /// <summary>Add a menu item with a specific handler.</summary>
-    private void AddWired(IntPtr popup, string text, Action handler)
+    /// <summary>
+    /// Add a menu item with a specific handler. Pass <paramref name="enabled"/>
+    /// false to grey it — the row stays present, stays arrow-reachable, and
+    /// stays where it was, which is what keeps first-letter navigation stable
+    /// (#214). A greyed item raises no WM_COMMAND, so its handler will not run.
+    /// </summary>
+    private void AddWired(IntPtr popup, string text, Action handler, bool enabled = true)
     {
         int id = _nextId++;
-        AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
+        AppendMenuW(popup, MF_STRING | (enabled ? 0 : MF_GRAYED), (UIntPtr)id, text);
         _handlers[id] = handler;
         _itemNames[id] = text;
     }
 
     /// <summary>Add a checkable menu item — checkmark updated dynamically via WM_INITMENUPOPUP.</summary>
-    private void AddChecked(IntPtr popup, string text, Action handler, Func<bool> stateGetter)
+    private void AddChecked(IntPtr popup, string text, Action handler, Func<bool> stateGetter,
+                            bool enabled = true)
     {
         int id = _nextId++;
-        AppendMenuW(popup, MF_STRING, (UIntPtr)id, text);
+        AppendMenuW(popup, MF_STRING | (enabled ? 0 : MF_GRAYED), (UIntPtr)id, text);
         _handlers[id] = handler;
         _itemNames[id] = text;
-        _checkItems.Add((popup, id, stateGetter, text));
+        _checkItems.Add((popup, id, stateGetter, text, enabled));
     }
 
     // ── Verbs that are not there yet, and how they should say so ──

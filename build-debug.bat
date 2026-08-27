@@ -39,12 +39,29 @@ REM   6  a JJ Flexible instance is running (would lock Radios.dll)
 REM   7  NOTES generation failed or produced no file
 REM   8  Dropbox publish failed — NOTHING was deleted, testers keep their build
 REM   9  NAS archive incomplete — this version has no bisectable copy
+REM  10  a helper script under scripts\ is missing — see PREFLIGHT below
 REM
 REM NOTES FILE
 REM   If debug-notes.txt exists at the repo root, its contents are used as the
 REM   NOTES file body (with a header prepended). Otherwise a minimal auto-
 REM   generated NOTES is produced from recent git log. Either way the output
 REM   filename is NOTES-<version>-debug.txt alongside the zip.
+REM
+REM BUILD IDENTITY (task #268)
+REM   BUILD-INFO.txt is written into the build tree before zipping, so it is
+REM   INSIDE the artifact and survives delivery. Dropbox re-stamps a delivered
+REM   file with the recipient's sync time, so no timestamp on a tester's disk
+REM   says anything about when the build was made. The 4-part version, the
+REM   build time and the commit are written into the file itself instead.
+REM
+REM RUNNING THIS FROM GIT BASH
+REM   `cmd //c build-debug.bat` fails with "'build-debug.bat' is not recognized",
+REM   even standing in this directory. Git Bash exports
+REM   NoDefaultCurrentDirectoryInExePath=1, which tells cmd to stop looking in
+REM   the current directory for a bare name. Name the path and it works:
+REM     cmd //c ".\build-debug.bat"
+REM     cmd //c "C:\dev\JJFlex-NG\build-debug.bat"
+REM   Measured 2026-08-27 — the bare form is the only one that fails.
 
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
@@ -89,6 +106,42 @@ echo WARNING: unknown argument: %~1
 shift
 goto parse_args
 :end_parse_args
+
+REM ---------------------------------------------------------------------------
+REM PREFLIGHT — the helper scripts must exist BEFORE anything is attempted.
+REM ---------------------------------------------------------------------------
+REM Every helper below is invoked as `powershell ... -File "%~dp0scripts\X.ps1"`
+REM and every call site guards with `if errorlevel 1`. That guard does not cover
+REM a missing helper, and the way it fails is worth stating exactly, because the
+REM shape of it is counter-intuitive:
+REM
+REM   powershell -File <path that does not exist>   ->   errorlevel -196608
+REM
+REM `if errorlevel N` in cmd is a GREATER-THAN-OR-EQUAL test, and -196608 is not
+REM greater than or equal to 1. So the guard does not fire, the script carries
+REM on, and the first visible symptom is some later step failing on a file that
+REM was never produced. Measured on this machine 2026-08-27, not assumed.
+REM
+REM CLAUDE.md warns about `powershell -File <path>` and describes the failure as
+REM "exits 0 silently". The exit code is negative rather than zero; the
+REM consequence is the same and slightly worse, since a negative code also
+REM defeats a `neq 0` written the obvious way. One check up front, naming the
+REM file, costs nothing and closes all of them at once.
+set "HELPER_MISSING="
+for %%H in (build-debug-zip.ps1 build-debug-notes.ps1 archive-debug-to-nas.ps1 publish-debug-to-dropbox.ps1) do (
+    if not exist "%~dp0scripts\%%H" (
+        echo ERROR: helper script missing: %~dp0scripts\%%H
+        set "HELPER_MISSING=1"
+    )
+)
+if defined HELPER_MISSING (
+    echo.
+    echo   One or more helpers under scripts\ are not there. They are not
+    echo   optional - the build, the zip, the NOTES, the NAS archive and the
+    echo   Dropbox publish are all delegated to them.
+    echo.
+    exit /b 10
+)
 
 echo ============================================
 echo JJ Flex Debug Builder
@@ -213,6 +266,20 @@ if /I not "%EXEVER%"=="%APPVER%" (
     exit /b 4
 )
 echo Built exe version : %EXEVER%  (matches expected)
+
+REM The exe's own last-write time IS the build time, and it is the only clock
+REM reading that stays true after the artifact leaves this machine. Captured
+REM once here and handed to the NOTES/BUILD-INFO helper, so the two files
+REM cannot straddle a minute boundary and disagree (task #268).
+set "BUILT="
+for /f "usebackq delims=" %%b in (`powershell -NoProfile -Command "(Get-Item '%BIN_DIR%\jjflexible.exe').LastWriteTime.ToString('yyyy-MM-dd HH:mm')"`) do set "BUILT=%%b"
+if "%BUILT%"=="" (
+    echo ERROR: could not read the built exe's timestamp. Refusing to stamp a
+    echo   build identity from the wall clock - a wrong date confidently printed
+    echo   is exactly the problem BUILD-INFO.txt exists to solve.
+    exit /b 4
+)
+echo Built at          : %BUILT%
 echo.
 
 REM ---------------------------------------------------------------------------
@@ -225,26 +292,63 @@ REM ---------------------------------------------------------------------------
 REM RID-specific since task #135, so the path carries win-x64 exactly as the
 REM main app's does. Without the RID the harness dragged sixteen Android,
 REM Linux and macOS natives into every tester zip.
+REM THE ARROW IN THE ECHO BELOW IS ESCAPED (-^>) AND MUST STAY THAT WAY.
+REM This is task #133's second failure, which sat undiagnosed from 2026-08-19
+REM until 2026-08-27. The line read `echo ... %HARNESS_SRC%\ -> %HARNESS_DST%\`,
+REM and cmd read the bare > as a REDIRECTION: it tried to open a file at the
+REM path %HARNESS_DST%\, which is a directory, printed
+REM
+REM     The system cannot find the path specified.
+REM
+REM swallowed the message it was supposed to print, set errorlevel 0, and
+REM carried on. Every symptom matched: an unattributed error appearing between
+REM the version check and "Creating zip:", nothing named, nothing broken, and
+REM the "Bundling harness" line simply absent. It reproduced on both branches
+REM of the question people kept asking - it fails whether or not the
+REM destination folder already exists, because a directory is never a valid
+REM redirection target.
 set "HARNESS_SRC=tools\SmartLinkSessionHarness\bin\x64\Debug\net10.0-windows\win-x64"
 set "HARNESS_DST=%BIN_DIR%\tools\harness"
+set "HARNESS_STATUS=not bundled"
 if exist "%HARNESS_SRC%\SmartLinkSessionHarness.exe" (
-    echo Bundling harness  : %HARNESS_SRC%\ -> %HARNESS_DST%\
+    echo Bundling harness  : %HARNESS_SRC%\ -^> %HARNESS_DST%\
     if not exist "%HARNESS_DST%" mkdir "%HARNESS_DST%"
-    xcopy /Y /Q /E "%HARNESS_SRC%\*" "%HARNESS_DST%\" >nul
-    REM Also copy the harness README so testers see usage docs alongside the exe.
-    if exist "tools\SmartLinkSessionHarness\README.md" (
-        copy /Y "tools\SmartLinkSessionHarness\README.md" "%HARNESS_DST%\README.md" >nul
+    if not exist "%HARNESS_DST%" (
+        echo   WARNING: could not create %HARNESS_DST% - harness NOT bundled.
+    ) else (
+        xcopy /Y /Q /E "%HARNESS_SRC%\*" "%HARNESS_DST%\" >nul
+        REM Also copy the harness README so testers see usage docs alongside the exe.
+        if exist "tools\SmartLinkSessionHarness\README.md" (
+            copy /Y "tools\SmartLinkSessionHarness\README.md" "%HARNESS_DST%\README.md" >nul
+        )
+        REM Checked rather than assumed. A silent step failure in a distribution
+        REM script is how a build ships missing a component nobody notices - the
+        REM other half of what #133 found here.
+        if exist "%HARNESS_DST%\SmartLinkSessionHarness.exe" (
+            set "HARNESS_STATUS=bundled"
+        ) else (
+            echo   WARNING: the copy ran and SmartLinkSessionHarness.exe is not at
+            echo            %HARNESS_DST% - this zip has NO harness in it.
+        )
     )
 ) else (
     echo WARNING: harness exe not found at %HARNESS_SRC% - proceeding without it.
     echo   ^(sln build should produce it; check that SmartLinkSessionHarness.csproj
     echo   is still in JJFlexRadio.sln.^)
 )
+echo Harness           : !HARNESS_STATUS!
 echo.
 
 REM ---------------------------------------------------------------------------
-REM Zip + NOTES
+REM NOTES + BUILD-INFO, then zip
 REM ---------------------------------------------------------------------------
+REM ORDER MATTERS AND IT CHANGED (task #268). The NOTES step used to run AFTER
+REM the zip. It now runs first, because the same helper also writes
+REM BUILD-INFO.txt INTO the build tree, and that file has to be there before the
+REM tree is zipped or it does not travel with the artifact.
+REM
+REM Running it first has a second benefit: a NOTES failure now costs nothing,
+REM where before it came after a minute of compression.
 set "STAMP="
 for /f "usebackq delims=" %%s in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMdd-HHmm'"`) do set "STAMP=%%s"
 
@@ -252,36 +356,20 @@ set "ZIP_NAME=JJFlex_%APPVER%_x64_debug.zip"
 set "ZIP_PATH=%TEMP%\%ZIP_NAME%"
 set "NOTES_NAME=NOTES-%APPVER%-debug.txt"
 set "NOTES_PATH=%TEMP%\%NOTES_NAME%"
-
-REM Delegated to scripts\build-debug-zip.ps1, which uses System.IO.Compression
-REM directly instead of Compress-Archive. Compress-Archive lives in a SCRIPT
-REM module, so it silently refuses to load under a Restricted execution policy
-REM and the zip step failed on this machine every time. See the header of that
-REM helper for the full diagnosis. -ExecutionPolicy Bypass is required for the
-REM helper itself to run, exactly as for the NOTES helper below.
-echo Creating zip: %ZIP_PATH%
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-zip.ps1" -SourceDir "%CD%\%BIN_DIR%" -DestPath "%ZIP_PATH%"
-if errorlevel 1 (
-    echo.
-    echo ERROR: zip failed. The reason is printed directly above by the zip helper.
-    echo   It is NOT a running instance of the app: this script already checked
-    echo   for that before building and would have stopped with exit code 6.
-    echo.
-    exit /b 5
-)
+set "BUILDINFO_PATH=%CD%\%BIN_DIR%\BUILD-INFO.txt"
 
 echo Generating NOTES: %NOTES_PATH%
 REM Delegated to scripts\build-debug-notes.ps1. Inline PowerShell inside an
 REM if/else batch block is too fragile (the "(Debug x64)" parens in the NOTES
 REM header text confused cmd.exe's parser — it closed the if-block early).
-REM Helper file accepts -Version/-GitSha/-OutPath/-BodyPath and produces the
-REM same output cleanly.
+REM Helper file accepts -Version/-GitSha/-Built/-OutPath/-BodyPath/-BuildInfoPath
+REM and produces the same output cleanly.
 if exist "%~dp0debug-notes.txt" (
     echo   using debug-notes.txt at repo root
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-notes.ps1" -Version "%APPVER%" -GitSha "%GITSHA%" -OutPath "%NOTES_PATH%" -BodyPath "%~dp0debug-notes.txt"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-notes.ps1" -Version "%APPVER%" -GitSha "%GITSHA%" -Built "%BUILT%" -OutPath "%NOTES_PATH%" -BuildInfoPath "%BUILDINFO_PATH%" -BodyPath "%~dp0debug-notes.txt"
 ) else (
     echo   auto-generating from recent git log
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-notes.ps1" -Version "%APPVER%" -GitSha "%GITSHA%" -OutPath "%NOTES_PATH%"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-notes.ps1" -Version "%APPVER%" -GitSha "%GITSHA%" -Built "%BUILT%" -OutPath "%NOTES_PATH%" -BuildInfoPath "%BUILDINFO_PATH%"
 )
 REM Checked, because everything downstream copies this file around and a
 REM missing NOTES would first be noticed by a tester with no notes (#230).
@@ -294,6 +382,33 @@ if not exist "%NOTES_PATH%" (
     echo.
     echo ERROR: the NOTES helper exited 0 and produced no file at %NOTES_PATH%.
     exit /b 7
+)
+if not exist "%BUILDINFO_PATH%" (
+    echo.
+    echo ERROR: BUILD-INFO.txt is not at %BUILDINFO_PATH%, so the zip would carry
+    echo   no identity and a tester could not date this build from the artifact.
+    exit /b 7
+)
+
+REM ---------------------------------------------------------------------------
+REM Zip
+REM ---------------------------------------------------------------------------
+REM Delegated to scripts\build-debug-zip.ps1, which uses System.IO.Compression
+REM directly instead of Compress-Archive. Compress-Archive could not be loaded
+REM at all on this machine and the batch file's guess about the cause - a file
+REM lock from a running app - was wrong. The real mechanism needs BOTH halves
+REM and neither on its own does it; see the header of that helper, which now
+REM carries the measurements. -ExecutionPolicy Bypass is required for the helper
+REM itself to run, exactly as for the NOTES helper above.
+echo Creating zip: %ZIP_PATH%
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\build-debug-zip.ps1" -SourceDir "%CD%\%BIN_DIR%" -DestPath "%ZIP_PATH%"
+if errorlevel 1 (
+    echo.
+    echo ERROR: zip failed. The reason is printed directly above by the zip helper.
+    echo   It is NOT a running instance of the app: this script already checked
+    echo   for that before building and would have stopped with exit code 6.
+    echo.
+    exit /b 5
 )
 
 REM ---------------------------------------------------------------------------
@@ -334,7 +449,7 @@ set "PUBLISH_STATUS=not published"
 if "%PUBLISH%"=="1" (
     echo.
     echo Dropbox publish: %DROPBOX_DEBUG%
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\publish-debug-to-dropbox.ps1" -ZipPath "%ZIP_PATH%" -NotesPath "%NOTES_PATH%" -DestDir "%DROPBOX_DEBUG%"
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\publish-debug-to-dropbox.ps1" -ZipPath "%ZIP_PATH%" -NotesPath "%NOTES_PATH%" -DestDir "%DROPBOX_DEBUG%" -Version "%APPVER%" -Built "%BUILT%" -GitSha "%GITSHA%"
     if errorlevel 1 (
         set "PUBLISH_STATUS=FAILED"
     ) else (
@@ -351,8 +466,10 @@ REM ---------------------------------------------------------------------------
 echo.
 echo ============================================
 echo Version %APPVER%  (Debug x64^)
+echo Built at %BUILT%  (commit %GITSHA%^)
 echo Zip at %ZIP_PATH%
 echo Notes at %NOTES_PATH%
+echo Harness: !HARNESS_STATUS!
 echo NAS archive: !NAS_STATUS!
 if "%PUBLISH%"=="1" echo Dropbox publish: !PUBLISH_STATUS!
 echo ============================================

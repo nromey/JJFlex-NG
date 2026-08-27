@@ -134,7 +134,23 @@ namespace Radios.Tests
                       "Radios/ChainChecks/RxChainFacts.cs and TxChainFacts.cs"),
             new Known(Rules.DuplicateProse, "This device follows your Windows default microphone. Rig", "#256",
                       "JJFlexWpf/Dialogs/AudioDevicesDialog.xaml.cs and AudioWorkshopDialog.TxAudio.cs"),
-            new Known(Rules.DuplicateProse, "Re-send recent CW notifications, pressing again for earl", "#256",
+            // Sprint 36 Track F. Both of these are ONE defect wearing two hats:
+            // a leader command's description is written once as a registry
+            // KeyTableEntry (Hotkey Editor, Command Finder) and again as a
+            // LeaderCommands FixedKeyEntry (Ctrl+J, H help, Keys dialog). The
+            // CW key was already here; the version key joins it because a new
+            // leader chord CANNOT be added without both rows — #269's own
+            // checklist requires them, and LeaderLayerConsistencyTests fails if
+            // either is missing. Unifying the two tables is #256's job and it
+            // is the right fix; until then a new chord adds a line here rather
+            // than pretending the sentence has one home.
+            //
+            // The CW key was reworded this sprint (the comma clause moved
+            // behind an em dash so LeaderPhrase can cut it for the near-miss),
+            // which is why the old text no longer matches.
+            new Known(Rules.DuplicateProse, "Re-send recent CW notifications — press again for earlie", "#256",
+                      "the command's own words live in JJFlexWpf/KeyCommands.cs and again in KeyInventory.cs"),
+            new Known(Rules.DuplicateProse, "Speak the version and build date of this copy", "#256",
                       "the command's own words live in JJFlexWpf/KeyCommands.cs and again in KeyInventory.cs"),
             new Known(Rules.DuplicateProse, "Mic Bias (low-voltage electret mic power — not 48-volt p", "#256",
                       "JJFlexWpf/Dialogs/AudioWorkshopDialog.TxAudio.cs and NativeMenuBar.cs"),
@@ -194,6 +210,21 @@ namespace Radios.Tests
             new Known(Rules.ClickOnlyCheckBox, "SettingsDialog.xaml/EnforcePrivateIpCheck", "#256", ClickOnly),
             new Known(Rules.ClickOnlyCheckBox, "SettingsDialog.xaml/VerboseDiagnosticsCheck", "#256", ClickOnly),
             new Known(Rules.ClickOnlyCheckBox, "SettingsDialog.xaml/RadioProfileNoPhysicalAccessCheck", "#256", ClickOnly),
+
+            // Found 2026-08-27 by Track G (#176) when the detector was widened
+            // from <CheckBox to every XAML toggle AND to controls built in
+            // code. Both predate the sprint and belong to #256 with the other
+            // eight; neither is new damage. They are listed separately because
+            // the reason they were invisible is worth keeping: the rule was
+            // reporting a population it had only half enumerated, which reads
+            // exactly like a population that is clean.
+            new Known(Rules.ClickOnlyCheckBox, "MainWindow.xaml/TuneToggleButton", "#256",
+                      "a ToggleButton rather than a CheckBox, and " + ClickOnly
+                      + ". Its handler writes IsChecked back at MainWindow.xaml.cs, which is the "
+                      + "same tell RadioOutputMute_Click carries"),
+            new Known(Rules.ClickOnlyCheckBox, "AudioWorkshopDialog.Amplifier.cs/_ampOperateCheck", "#256",
+                      "built in code rather than declared in XAML, and " + ClickOnly
+                      + ". No XAML scan can see it, which is why it outlived the first eight"),
 
             // #255's shape at the layer that can be proved without the host.
             new Known(Rules.SilentKeying, "FixerTransmitBoundary.ProbeTransmitter", "#255",

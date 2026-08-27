@@ -41,11 +41,33 @@
 # exactly one file makes the answer depend on a deletion succeeding. The file
 # says it outright, is written after the copies are verified, and costs
 # nothing.
+#
+# IT NOW CARRIES Built AND Commit TOO (task #268). Naming the current pair
+# answers "which of these is current?", and until 2026-08-27 that was all it
+# answered. The question testers actually ask is "which build do I have, and
+# when was it made?", and the only answer visible to them was the file date --
+# which Dropbox rewrites to the moment it finished syncing on their machine.
+# One tester read his copy's stamp as a 2 AM publish; nobody had been awake.
+#
+# LATEST.txt is still the WEAKER of the two answers and is not meant to be the
+# only one. It describes a folder, so it stops being true the moment a tester
+# keeps two builds side by side to compare, and it does not travel with a
+# forwarded zip. The durable answer is BUILD-INFO.txt, written into the build
+# tree before zipping, which is inside the artifact and goes wherever it goes.
+# This file points at it by name so a tester who finds one finds the other.
+#
+# -Version, -Built and -GitSha are optional so this script still runs standalone
+# for a hand-drop. When they are absent LATEST.txt says the identity was not
+# supplied rather than quietly omitting it -- an absent line reads as "there was
+# nothing to say", which is the failure mode this whole file exists to avoid.
 
 param(
     [Parameter(Mandatory=$true)] [string] $ZipPath,
     [Parameter(Mandatory=$true)] [string] $NotesPath,
-    [Parameter(Mandatory=$true)] [string] $DestDir
+    [Parameter(Mandatory=$true)] [string] $DestDir,
+    [string] $Version = "",
+    [string] $Built   = "",
+    [string] $GitSha  = ""
 )
 
 $ErrorActionPreference = 'Stop'
@@ -139,14 +161,33 @@ foreach ($filter in @('JJFlex_*_debug*.zip', 'NOTES-*-debug*.txt')) {
 
 # --- say which one is current, in a file rather than by implication ----------
 
-$latest = @(
+if ($Version -or $Built -or $GitSha) {
+    $identity = @(
+        "Version: $(if ($Version) { $Version } else { 'not supplied' })",
+        "Built:   $(if ($Built)   { $Built }   else { 'not supplied' })",
+        "Commit:  $(if ($GitSha)  { $GitSha }  else { 'not supplied' })"
+    )
+} else {
+    $identity = @(
+        "This copy was published by hand, so no build identity was passed in.",
+        "Open BUILD-INFO.txt inside the zip -- it always knows."
+    )
+}
+
+$latest = (@(
     "The current JJ Flexible debug build in this folder:",
     "",
     "  $($zipLanded.Name)",
     "  $($notesLanded.Name)",
+    ""
+) + $identity + @(
     "",
-    "Published $(Get-Date -Format 'yyyy-MM-dd HH:mm')."
-) -join "`r`n"
+    "Published to this folder $(Get-Date -Format 'yyyy-MM-dd HH:mm'), which is not",
+    "the same thing as when it was built, and neither of those is what the file",
+    "date on your machine will say. Dropbox re-stamps a file with the moment it",
+    "finished delivering it to you. Read the Built line above, or BUILD-INFO.txt",
+    "inside the zip, and ignore Explorer."
+)) -join "`r`n"
 
 $latestWritten = $true
 try {

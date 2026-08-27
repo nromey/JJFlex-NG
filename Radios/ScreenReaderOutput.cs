@@ -64,6 +64,20 @@ namespace Radios
         /// </summary>
         private static Speech.IScreenReader _backend;
 
+        /// <summary>
+        /// Guards every hand-off to <see cref="_backend"/> and the swap in
+        /// <see cref="RebindNow"/>.
+        ///
+        /// Before the reader watchdog (#283) the backend was created once and
+        /// never replaced, so an unsynchronised field was safe. It can now be
+        /// disposed and rebuilt on the watchdog's thread while a Speak from a
+        /// radio event is in flight, and a call into a freed Prism backend is a
+        /// native crash rather than an exception — nothing above would catch
+        /// it. Held only across the P/Invoke itself; never across the arbiter,
+        /// which would invert the lock order.
+        /// </summary>
+        private static readonly object _backendLock = new object();
+
         // ── Verbosity engine (Sprint 24 Phase 6) ──
 
         /// <summary>
@@ -139,9 +153,14 @@ namespace Radios
 
                 Tracing.TraceLine(
                     $"ScreenReaderOutput: {_backend.BackendName} backend, reader "
-                    + $"{_screenReaderName ?? "none detected"}, speech={_available}, "
-                    + $"braille={_backend.HasBraille}",
+                    + $"{_screenReaderName ?? "none detected"}, tier={Tier}, "
+                    + $"speech={_available}, braille={_backend.HasBraille}",
                     _available ? TraceLevel.Info : TraceLevel.Warning);
+
+                // #283: from here on, keep asking. The binding made on this
+                // line was treated as the answer for the life of the process.
+                _watch.NoteBound(_screenReaderName, Tier == Speech.SpeechTier.ScreenReader);
+                StartReaderWatch();
             }
             catch (Exception ex)
             {
@@ -317,7 +336,7 @@ namespace Radios
                     if (!_initialized) Initialize();
                     if (_available)
                     {
-                        _backend?.Speak(message, interrupt);
+                        lock (_backendLock) { _backend?.Speak(message, interrupt); }
                         reachedBackend = true;
                         if (!salvaged) Remember(message);
                         // rendered means "actually sounded": with render off the
@@ -359,7 +378,7 @@ namespace Radios
         /// </summary>
         private static void SilenceBackendQuietly()
         {
-            try { _backend?.Silence(); } catch { }
+            try { lock (_backendLock) { _backend?.Silence(); } } catch { }
         }
 
         /// <summary>Record a verbosity-gated utterance - fired but filtered.</summary>
@@ -546,7 +565,7 @@ namespace Radios
 
                 if (_available)
                 {
-                    _backend?.Output(message, interrupt);
+                    lock (_backendLock) { _backend?.Output(message, interrupt); }
                     rendered = OutputChannelRecorder.RenderEnabled;
                     Tracing.TraceLine($"ScreenReaderOutput: Output '{message}'", TraceLevel.Verbose);
                 }
@@ -617,7 +636,7 @@ namespace Radios
             {
                 if (_available)
                 {
-                    _backend?.Silence();
+                    lock (_backendLock) { _backend?.Silence(); }
                 }
             }
             catch { /* ignore */ }
@@ -640,7 +659,12 @@ namespace Radios
         /// </summary>
         public static void Shutdown()
         {
-            // Stop the arbiter's timers first, so a coalesced settle cannot
+            // The watchdog first: it is the one thing that can decide to build
+            // a NEW backend, and it must not do that while we are tearing the
+            // current one down.
+            try { StopReaderWatch(); } catch { /* ignore */ }
+
+            // Stop the arbiter's timers next, so a coalesced settle cannot
             // fire into a backend that is mid-disposal.
             try { _arbiter.DiscardAll(); } catch { /* ignore */ }
 
@@ -648,7 +672,7 @@ namespace Radios
             {
                 if (_initialized)
                 {
-                    _backend?.Dispose();
+                    lock (_backendLock) { _backend?.Dispose(); }
                 }
             }
             catch { /* ignore */ }
@@ -895,6 +919,13 @@ namespace Radios
                 + $"speech={_available}, braille={_backend?.HasBraille == true}",
                 TraceLevel.Info);
 
+            // The backend moved without us asking, so the watchdog's belief
+            // about what we are bound to is now stale. Telling it here is what
+            // lets Prism's own recovery win a race with ours: the next
+            // observation agrees and the watchdog stands down having done
+            // nothing.
+            _watch.NoteBound(_screenReaderName, tier == Speech.SpeechTier.ScreenReader);
+
             // Announce ONLY the climb onto the operator's own reader, once and
             // quietly (queued, Terse). Until this moment they were hearing a
             // strange voice with no explanation; this line is spoken by the
@@ -912,6 +943,25 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// State the speech channel into the trace: backend, reader, TIER, and
+        /// what the reader watchdog can see.
+        ///
+        /// <b>Call this at the start of every detailed capture, not only at
+        /// startup.</b> On 2026-08-26 four captures were read closely while
+        /// chasing an evening of screen-reader symptoms and not one of them
+        /// could say what the application was talking to — the line existed,
+        /// but only in the startup log, which no mid-session capture contains.
+        /// The whole evening's confusion was one already-written sentence
+        /// filed where nobody was reading. An instrument that records the truth
+        /// where nobody looks is the same as one that does not record it.
+        ///
+        /// The TIER is here because backend and reader together still do not
+        /// say HOW we are talking, and the tiers are not interchangeable: our
+        /// own text reaching the operator's reader, a UI Automation
+        /// notification, and a second independent voice talking over their
+        /// screen reader all report the same backend.
+        /// </summary>
         public static void TraceBackend()
         {
             try
@@ -920,12 +970,253 @@ namespace Radios
                 Tracing.TraceLine(
                     $"Speech: backend={_backend?.BackendName ?? "none"}, "
                     + $"reader={_screenReaderName ?? "none detected"}, "
+                    + $"tier={Tier}, "
                     + $"speech={_available}, braille={_backend?.HasBraille == true}",
                     TraceLevel.Info);
+
+                bool healthy = ScreenReaderPresence.ProbeWorks();
+                string seen = ScreenReaderPresence.Detect() ?? "none";
+                Tracing.TraceLine(
+                    $"Speech watchdog: running reader={seen}, probe={(healthy ? "healthy" : "UNUSABLE")}, "
+                    + $"watching every {WatchIntervalMs} ms, can recognise [{ScreenReaderPresence.ObservableReaders}]",
+                    healthy ? TraceLevel.Info : TraceLevel.Warning);
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"Speech: could not report backend - {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
+        // ══ Re-detecting the screen reader (#283) ═════════════════════════
+        //
+        // Established at the radio 2026-08-26: launch under NVDA, switch to
+        // JAWS, and the application goes on speaking to NVDA for the rest of
+        // the session. JAWS, getting nothing from us, falls back to reading the
+        // UI tree itself and recites ancestors on every arrow press. Close the
+        // application, start JAWS first, relaunch, and everything works.
+        //
+        // Prism handles the swap; we are the layer that never asks again.
+        //
+        // The machinery that SHOULD have covered it was already here and could
+        // not fire. PrismScreenReader re-acquires on the RISING edge of a
+        // reader becoming available, and discards that edge while a controller
+        // reader is already held. Start JAWS while NVDA is still up and the
+        // rise is thrown away; NVDA then exits, the binding is flagged dead,
+        // and nothing is left to re-trigger — JAWS is already available and
+        // will not rise a second time. So the fix is not a new event, it is not
+        // waiting for one: a watchdog compares what is RUNNING against what we
+        // are BOUND TO, which cannot miss an edge because it never looks at
+        // one.
+        //
+        // Noel's design, ruled the same day, and the order matters:
+        // "we'll need to do a check on screen reader during the poll, and if it
+        // changes we flush speech and send it to the right screen reader."
+
+        /// <summary>
+        /// How often the watchdog looks. One FindWindow per known reader, so
+        /// the tick itself is microseconds; the interval is set by how long an
+        /// operator should have to wait after swapping readers, not by cost.
+        /// With the settle counts in <see cref="ScreenReaderWatch"/> a swap is
+        /// acted on about three seconds after it happens, and a reader that
+        /// merely restarted is ridden out without a rebind.
+        /// </summary>
+        private const int WatchIntervalMs = 1000;
+
+        private static readonly ScreenReaderWatch _watch = new ScreenReaderWatch();
+        private static System.Threading.Timer? _watchTimer;
+        private static readonly object _watchLock = new object();
+        private static bool _probeUnusableTraced;
+        private static int _rebinding;   // 0/1, Interlocked — one rebind at a time
+
+        /// <summary>
+        /// Begin watching for a screen reader change. Idempotent; called from
+        /// <see cref="Initialize"/> once the first binding exists.
+        ///
+        /// Deliberately not started when speech was diverted for a recorded
+        /// transcript (#171): that run has no Prism, no reader and no ears, and
+        /// a watchdog there would rebuild a real backend under a test.
+        /// </summary>
+        public static void StartReaderWatch()
+        {
+            if (!OutputChannelRecorder.RenderEnabled) return;
+            lock (_watchLock)
+            {
+                if (_watchTimer != null) return;
+                _watchTimer = new System.Threading.Timer(
+                    _ => WatchTick(), null, WatchIntervalMs, WatchIntervalMs);
+            }
+            Tracing.TraceLine(
+                $"Speech watchdog: watching for a screen reader change every {WatchIntervalMs} ms "
+                + $"(can recognise [{ScreenReaderPresence.ObservableReaders}]).",
+                TraceLevel.Info);
+        }
+
+        /// <summary>Stop watching. Safe to call when not started.</summary>
+        public static void StopReaderWatch()
+        {
+            System.Threading.Timer? t;
+            lock (_watchLock) { t = _watchTimer; _watchTimer = null; }
+            t?.Dispose();
+        }
+
+        private static void WatchTick()
+        {
+            try
+            {
+                bool healthy = ScreenReaderPresence.ProbeWorks();
+                string? seen = healthy ? ScreenReaderPresence.Detect() : null;
+
+                switch (_watch.Observe(seen, healthy))
+                {
+                    case ScreenReaderWatch.Decision.Rebind:
+                        RebindNow(seen);
+                        break;
+
+                    case ScreenReaderWatch.Decision.StandDown:
+                        // Once. This is a machine-shaped condition, not an
+                        // event: it will be true on every tick from now on, and
+                        // a line a second is the trace flood that has already
+                        // cost this project debugging sessions.
+                        if (!_probeUnusableTraced)
+                        {
+                            _probeUnusableTraced = true;
+                            Tracing.TraceLine(
+                                "Speech watchdog: the screen-reader probe cannot see the shell, so it "
+                                + "cannot tell 'no reader is running' from 'I cannot look'. Standing "
+                                + "down rather than guessing — speech stays bound to "
+                                + $"{_screenReaderName ?? "whatever it started on"}. A reader swap will "
+                                + "not be noticed until the application is restarted.",
+                                TraceLevel.Warning);
+                        }
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                // A watchdog that can crash the process it guards is worse than
+                // no watchdog. This runs on a pool thread, forever.
+                Tracing.TraceLine($"Speech watchdog: tick threw - {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Rebuild the speech backend against whatever reader is running now,
+        /// flushing everything in flight on the way.
+        ///
+        /// <b>The flush is the load-bearing half.</b> Stopping speech to the
+        /// reader that left is not enough. The arbiter keeps a believed-pending
+        /// ledger and SALVAGES from it on the next interrupt, so a backlog that
+        /// survived the switch would be re-spoken INTO THE NEW READER — the
+        /// operator swaps readers and immediately hears a re-run of
+        /// announcements meant for the last one. <c>DiscardAll</c> already
+        /// clears the pending set, the ledger, and the per-key dedup (so the
+        /// next value speaks rather than being suppressed as a duplicate);
+        /// it is called on both sides of the swap and is never given a second
+        /// implementation.
+        ///
+        /// It is called OUTSIDE <see cref="_backendLock"/> deliberately. The
+        /// arbiter takes its own lock and then calls back in to the backend, so
+        /// taking ours first and the arbiter's second would invert the order
+        /// against every ordinary utterance and deadlock the speech path — the
+        /// one failure a blind operator cannot diagnose.
+        /// </summary>
+        /// <param name="observedReader">
+        /// What the probe saw, for the trace. The new backend chooses for
+        /// itself; this is not passed to it.
+        /// </param>
+        internal static void RebindNow(string? observedReader)
+        {
+            if (System.Threading.Interlocked.Exchange(ref _rebinding, 1) == 1) return;
+            string previous = _screenReaderName ?? "none";
+            try
+            {
+                Tracing.TraceLine(
+                    $"Speech watchdog: bound to '{previous}' (tier={Tier}) but '{observedReader ?? "no reader"}' "
+                    + "is what is running. Flushing pending speech and re-binding.",
+                    TraceLevel.Warning);
+
+                // 1. Nothing queued may survive into the new reader.
+                try { _arbiter.DiscardAll(); } catch { /* best effort */ }
+
+                bool speaks;
+                Speech.SpeechTier tier;
+                lock (_backendLock)
+                {
+                    // 2. Best-effort quiet on the way out. Usually a no-op: the
+                    // reader we are talking to has typically already gone,
+                    // which is the whole reason we are here.
+                    try { _backend?.Silence(); } catch { /* best effort */ }
+
+                    var old = _backend;
+                    if (old is Speech.PrismScreenReader oldPrism)
+                        oldPrism.ChannelChanged -= OnChannelChanged;
+
+                    // 3. Dispose BEFORE creating. The opposite order would be
+                    // safer against ending up with nothing — and would mean two
+                    // live Prism contexts, both holding a controller binding to
+                    // the same reader, which is the one shape this integration
+                    // has already been burned by. It is affordable here because
+                    // the factory does not return silence: with no reader
+                    // running Prism acquires a synthesiser, and the only way to
+                    // get nothing is a missing prism.dll, in which case the
+                    // backend we just released had nothing either.
+                    try { old?.Dispose(); } catch { /* best effort */ }
+
+                    _backend = Speech.ScreenReaderFactory.Create();
+                    _available = _backend.HasSpeech;
+                    _screenReaderName = _backend.DetectedReader;
+                    if (_backend is Speech.PrismScreenReader prism)
+                        prism.ChannelChanged += OnChannelChanged;
+
+                    speaks = _available;
+                    tier = Tier;
+                }
+
+                // 4. And again, so the announcement below is the first thing
+                // the new reader is asked to say rather than the tail of
+                // whatever the swap itself queued.
+                try { _arbiter.DiscardAll(); } catch { /* best effort */ }
+
+                _watch.NoteBound(_screenReaderName, tier == Speech.SpeechTier.ScreenReader);
+
+                if (OutputChannelRecorder.RecordEnabled)
+                {
+                    OutputChannelRecorder.RecordSpeechBackend(
+                        _backend?.BackendName ?? "none", _screenReaderName, tier.ToString(),
+                        speaks, _backend?.HasBraille == true);
+                }
+
+                Tracing.TraceLine(
+                    $"Speech watchdog: re-bound from '{previous}' to "
+                    + $"'{_screenReaderName ?? "none detected"}', tier={tier}, speech={speaks}, "
+                    + $"braille={_backend?.HasBraille == true}.",
+                    speaks ? TraceLevel.Info : TraceLevel.Error);
+
+                // 5. Say so. Spoken by the NEW reader, in the operator's own
+                // voice, which is most of the message: until this instant they
+                // were being answered by a reader that had gone, with nothing
+                // anywhere saying why. It also makes the fault self-reporting —
+                // next time, silence where this sentence belongs says the
+                // rebind did not happen.
+                if (speaks && tier == Speech.SpeechTier.ScreenReader)
+                {
+                    string name = string.IsNullOrEmpty(_screenReaderName)
+                        ? Lexicon.Get("connect.session.screen_reader_unnamed")
+                        : _screenReaderName!;
+                    Speak(Lexicon.Get("connect.session.speech_channel_changed", ("name", name)),
+                        Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical);
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"Speech watchdog: re-bind from '{previous}' threw - {ex.Message}. "
+                    + "Speech may be bound to a reader that has gone.",
+                    TraceLevel.Error);
+            }
+            finally
+            {
+                System.Threading.Interlocked.Exchange(ref _rebinding, 0);
             }
         }
 
@@ -949,7 +1240,7 @@ namespace Radios
             try
             {
                 if (!_initialized) Initialize();
-                _backend?.Braille(message);
+                lock (_backendLock) { _backend?.Braille(message); }
             }
             catch (Exception ex)
             {

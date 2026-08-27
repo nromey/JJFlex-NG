@@ -12,7 +12,7 @@ namespace JJFlexWpf;
 /// universal Home keys, filter chords, leader-key commands, PTT keys,
 /// navigation keys, and system-reserved chords.
 ///
-/// This is DATA, deliberately in one place, because it drives five surfaces
+/// This is DATA, deliberately in one place, because it drives six surfaces
 /// that used to drift apart:
 ///   1. DisplayField.HelpItems (the per-field F1-style help dialog)
 ///   2. The '?' speak-keys-here handler on home fields
@@ -21,9 +21,11 @@ namespace JJFlexWpf;
 ///      ApplicationEvents.vb)
 ///   5. The generated key manifest (KeyManifest) reconciled against
 ///      docs/help/md/keyboard-reference.md
+///   6. Ctrl+F1 context help on the Home fields (#184) — FrequencyContextRows
+///      and SpeakTextFor, composed live by MainWindow's help provider
 ///
 /// If a field handler in FreqOutHandlers gains or loses a key, update the
-/// tables here — the five surfaces above follow automatically.
+/// tables here — the six surfaces above follow automatically.
 /// </summary>
 public static class KeyInventory
 {
@@ -327,6 +329,17 @@ public static class KeyInventory
         new("Leader", "Leader key", "Ctrl+J, Q", "Capture a noise profile for PC Spectral NR (press Q again to cancel)",
             new[] { "noise", "profile", "capture", "quiet", "qrn", "sample", "spectral", "sub",
                     "subtraction", "baseline", "leader" }, "Radio", "DSP"),
+        // Sprint 36 Track C (#271) — the QSO signal analyzer. Ctrl+Q because
+        // plain Q is the noise capture and Q is the letter "QSO" reaches for;
+        // Ctrl+F, Ctrl+D and Ctrl+R are the precedent for the Ctrl-modified
+        // form when the letter you want is taken. The two capture chords sit
+        // side by side on purpose.
+        new("Leader", "Leader key", "Ctrl+J, Ctrl+Q",
+            "Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (press it again to stop and hear the report)",
+            new[] { "qso", "signal", "analyzer", "analyse", "analyze", "capture", "watch",
+                    "qsb", "fade", "fading", "fades", "flutter", "swing", "strength",
+                    "smeter", "meter", "report", "peak", "trough", "average", "trend",
+                    "rising", "falling", "coming", "up", "down", "leader" }, "Radio", "General"),
         new("Leader", "Leader key", "Ctrl+J, A", "Toggle Auto Notch",
             new[] { "anf", "auto", "notch", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
@@ -368,7 +381,7 @@ public static class KeyInventory
         // which sits inside the Shift+A-Shift+H slice-jump range. Ctrl+J, Ctrl+F
         // is the in-layer precedent for a Ctrl-modified follow-on key.
         new("Leader", "Leader key", "Ctrl+J, Ctrl+D",
-            "Start or stop a detailed capture of what the app is doing",
+            "Start or stop a detailed capture — everything the app is doing",
             new[] { "capture", "detailed", "diagnostic", "diagnostics", "trace", "tracing", "log",
                     "record", "bug", "problem", "report", "verbose", "leader" }, "Global", "General"),
         // Sprint 31 Track Q (#100). Ctrl+R for "Recorded problems", parked
@@ -394,6 +407,16 @@ public static class KeyInventory
                     "capture", "meter", "stream", "transcript", "tones", "cost", "costing",
                     "size", "megabytes", "disk", "left", "forgot", "diagnostic", "diagnostics",
                     "leader" }, "Global", "General"),
+        // Sprint 36 Track F (#269). V for Version; Alt because bare V is volume
+        // mode and has been since the Audio Arc. The first Alt chord in the
+        // layer — WpfKeyConverter resolves Key.System before the switch sees
+        // it, so the trap that killed the 2026-08-13 Alt+L binding does not
+        // reach here.
+        new("Leader", "Leader key", "Ctrl+J, Alt+V",
+            "Speak the version and build date of this copy",
+            new[] { "version", "build", "which", "number", "release", "debug", "nightly",
+                    "date", "built", "tester", "report", "identify", "about", "copy",
+                    "running", "installed", "update", "updated", "leader" }, "Global", "General"),
         new("Leader", "Leader key", "Ctrl+J, L", "Speak log statistics",
             new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
         new("Leader", "Leader key", "Ctrl+J, M", "Open the memories dialog",
@@ -404,7 +427,7 @@ public static class KeyInventory
         // smallest character in Morse, for the one chord that only ever answers
         // in Morse. Plain E was the last obvious free letter; Shift+E belongs to
         // the slice-jump row.
-        new("Leader", "Leader key", "Ctrl+J, E", "Re-send recent CW notifications, pressing again for earlier ones",
+        new("Leader", "Leader key", "Ctrl+J, E", "Re-send recent CW notifications — press again for earlier ones",
             new[] { "repeat", "cw", "morse", "echo", "again", "history", "recent", "earlier",
                     "back", "previous", "missed", "resend", "code", "leader" }, "Global", "Audio"),
         new("Leader", "Leader key", "Ctrl+J, Shift+T", "Toggle alert sounds (earcons)",
@@ -439,8 +462,11 @@ public static class KeyInventory
         {
             foreach (var chord in Radios.LeaderChordParser.ParseDisplay(e.KeyDisplay, e.ExcludedKeys))
             {
+                // Brief, not the full description: this table exists only to
+                // answer the near-miss, and the near-miss is a one-breath
+                // recovery line, not a help entry (#206). See LeaderPhrase.
                 if (!table.ContainsKey(chord))
-                    table[chord] = (KeyManifest.FormatKey(chord), e.Description);
+                    table[chord] = (KeyManifest.FormatKey(chord), Radios.LeaderPhrase.Brief(e.Description));
             }
         }
         _leaderChords = table;
@@ -795,6 +821,32 @@ public static class KeyInventory
             items.Add((u.KeyDisplay, u.Description));
         items.Add(("?", "speak this list"));
         return items;
+    }
+
+    /// <summary>
+    /// The rows Ctrl+F1 reads on the Frequency field (#184): the live map for
+    /// the current tuning mode, verbatim from the same tables that drive
+    /// every other key surface. In Classic the cursor-movement row is
+    /// prepended, because in Classic the cursor position IS the tuning step
+    /// and the movement keys are the thing that sets it — a Classic map that
+    /// never mentions Left and Right teaches half the mode.
+    /// </summary>
+    public static List<(string key, string description)> FrequencyContextRows(bool modern)
+    {
+        var rows = FieldKeys
+            .Where(e => e.Context == (modern ? "Freq.Modern" : "Freq.Classic"))
+            .Select(e => (e.KeyDisplay, e.Description))
+            .ToList();
+        if (!modern)
+        {
+            // Pulled by key display rather than duplicated, so the wording has
+            // exactly one home. TuningContextHelpTests holds the positive
+            // control proving this lookup still finds its row.
+            var leftRight = HomeNavigation.FirstOrDefault(e => e.KeyDisplay == "Left / Right");
+            if (leftRight != null)
+                rows.Insert(0, (leftRight.KeyDisplay, leftRight.Description));
+        }
+        return rows;
     }
 
     // ────────────────────────────────────────────────────────────────

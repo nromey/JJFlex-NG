@@ -13,7 +13,7 @@ These keys work no matter where you are in the application — and "no matter wh
 | Key | Action |
 |-----|--------|
 | F1 | Open this help file |
-| Ctrl+F1 | Explain the control you are sitting on — the longer story its short name leaves out. If there's nothing extra, it says so honestly |
+| Ctrl+F1 | Explain the control you are sitting on — the longer story its short name leaves out, plus whatever the note beneath it currently says. If there's nothing extra, it says so honestly |
 | Ctrl+/ | Open Command Finder (search all commands) |
 | Ctrl+J | The JJ key (press, release, then press a second key) |
 | Ctrl+Shift+M | Switch between Classic and Modern tuning mode |
@@ -37,6 +37,8 @@ The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate variou
 
 Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
 
+<!-- LEADER-KEY-TABLE: every row here is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this table fails until it has a row; delete a chord and a leftover row fails too. The wording is yours — only the set of keys is checked. -->
+
 | Key | Action |
 |-----|--------|
 | N | Toggle legacy Noise Reduction |
@@ -48,6 +50,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | Shift+R | Toggle PC Neural Noise Reduction (runs on your computer, works on every radio) |
 | Shift+S | Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio) |
 | Q | Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below) |
+| Ctrl+Q | Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below) |
 | A | Toggle Auto Notch |
 | P | Toggle Audio Peak Filter (APF, CW only) |
 | V | Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below) |
@@ -62,6 +65,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | D | Toggle tuning speech debounce |
 | Ctrl+D | Start or stop a detailed capture of what the app is doing — works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs |
 | Ctrl+R | Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement |
+| Alt+V | Speak the version, the build type and the date this copy was built (see "Which build am I on" below) |
 | O | Say what is still running and what it is costing — recording, captures, meter tones (see "What is still running" below) |
 | L | Speak log statistics |
 | M | Open the memories dialog |
@@ -71,6 +75,8 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | Shift+A through Shift+H | Jump to that slice from anywhere (Shift+F is reserved for the RX filter readout) |
 | ? or H | List all JJ Command layer commands |
 | Escape | Close the JJ Command layer |
+
+<!-- END LEADER-KEY-TABLE -->
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
@@ -103,6 +109,39 @@ Arms or disarms the Audio Workshop's TX test tone from anywhere, using your save
 
 Captures a noise profile for PC Spectral NR: three seconds (adjustable, 1 to 5) of what your band sounds like with nobody talking, so the spectral engine knows exactly what to subtract. Find a quiet spot on the band, press `Ctrl+J` then `Q`, and listen — it announces the start, counts the seconds out loud as they pass, and tells you when the profile is captured and whether Spectral NR is using it. Press `Q` again mid-capture to cancel. The capture listens to the radio audio playing through this computer, so PC audio has to be on — if it isn't, the capture says so instead of pretending. A finished capture saves itself and comes back on your next connect; naming and managing profiles lives in the Noise Profiles dialog (Slice menu, DSP, PC Noise Reduction). The full story is on the PC-Side Noise Reduction help page.
 
+### QSO signal analyzer — Ctrl+J, then Ctrl+Q
+
+"Is he fading? Is that QSB? Is he coming up?" You can't answer that by
+listening to a stream of spoken meter readings — a pattern over time is
+exactly what a human can't extract from numbers read one at a time, and the
+speech would sit on top of the very signal you're trying to hear. So this one
+works like a stopwatch instead: press `Ctrl+J` then `Ctrl+Q` when a station
+starts talking, work the contact in silence, and press it again when you want
+the answer. You'll hear the story of the signal: "Peaked S 9, fell to S 4,
+averaged S 6. Deep fades about every 5 seconds." That's a real signal report
+with evidence behind it — the kind of thing that goes straight in your log or
+right back on the air.
+
+It runs until you stop it — there's no timer, because a capture that quit
+early mid-fade would hand you a confident answer built on half the story. The
+safety net is the running-cost machinery: `Ctrl+J` then `O` will tell you a
+capture is going, it speaks up on its own if you leave it running past
+fifteen minutes, and closing the app asks about it on the way out.
+
+Every capture saves itself when you stop it. The full report — peak, trough,
+average, swing, fade rhythm and depth, trend, how long you transmitted, and
+exactly how each number was measured — lives under Tools, then Signal
+captures, where you can read it, rename it (a capture named "Don on 40
+meters" beats "the one from 9:14" a week later), export it as a web page or
+plain text to send to someone, or delete it. Anything the capture could NOT
+determine says so in as many words: a ten-second capture doesn't guess at a
+fade rhythm, it tells you it was too short to see one.
+
+Your own transmissions are left out of the measurements automatically — while
+you're keyed up, the S-meter isn't describing the other station. And if no
+readings arrive at all, the report says exactly that, because "no data" and
+"a quiet band" should never sound the same.
+
 ### CW echo — Ctrl+J, then E
 
 Ctrl+F4 walks back through the last ten things the app *said*. This is the same idea for the last ten things it *sent in CW* — the slice census, "SL A USB", anything the app keyed at you. Press `Ctrl+J` then `E` and it re-sends the most recent one. Press it again and you step back another message, and another, wrapping round to the newest when you run off the end.
@@ -118,6 +157,18 @@ O for "what's on". Press `Ctrl+J` then `O` and JJ Flexible tells you every expen
 This one exists because sighted operators get it for free. They have a recording light in the corner of the screen, a meter they can watch moving, a panel that's obviously open. We don't, and a switch that stays on across restarts, quietly changes what the app writes to disk, and never says a word about itself is exactly the kind of thing this program is supposed to fix.
 
 There's more to it than the key. If something you left on grows past a sensible size, JJ Flexible now says so on its own — once, when it actually crosses the line, not on a nagging timer. And if you close the app with recording still going, it tells you what's still on before it goes, and offers to turn it off for you on the way out.
+
+### Which build am I on — Ctrl+J, then Alt+V
+
+V for Version, with Alt on it because plain `V` has been volume mode for a while now and isn't moving.
+
+Press `Ctrl+J` then `Alt+V` and JJ Flexible says the version number, whether it's a test build or a release build, and the date it was built: "Version 4.1.16.1024, Debug, built August 27, 2026." That's it — short enough to read straight back to me in an email.
+
+This is the answer to a question that comes up in every single bug report, and until now the only place to find it was Help, About — a dialog you have to go and open, which is a nuisance when you're already in the middle of describing something that just went wrong. Now it's one chord from wherever you are, including from inside a dialog.
+
+The build date matters more than you'd think. File dates lie: by the time a test build has travelled through Dropbox to you, the date on the file is the date it arrived, not the date I built it. The date this key speaks is stamped inside the build itself, so it's the real one no matter how the build reached you.
+
+If you want the whole picture — every component version, the exact commit, where your trace file lives — that's still Help, About, and it's still the right place for it.
 
 One more thing about the JJ layer: it works inside dialogs now. Press `Ctrl+J` in the Audio Workshop — or any other dialog — and the layer answers exactly as it does from Home. The mic check was built with that in mind, since the workshop is precisely where you sit while adjusting mic gain.
 
@@ -271,6 +322,8 @@ When focused on the Frequency field in Classic tuning mode:
 | S | Turn split on |
 | T | Toggle showing the transmit frequency |
 
+Press Ctrl+F1 on the Frequency field for the live picture: it confirms Classic mode is active, names the digit your cursor is sitting on, reads this key map, and names the key that switches to Modern tuning.
+
 ## JJ Flexible Home — Frequency Field Keys (Modern tuning mode)
 
 When focused on the Frequency field in Modern tuning mode:
@@ -286,6 +339,8 @@ When focused on the Frequency field in Modern tuning mode:
 | Shift+S | Speak both your coarse and fine step sizes |
 
 The coarse and fine step values are configured in Settings → Tuning. Coarse and fine each have a single step value, so there's no mode to switch and no list to cycle through.
+
+Press Ctrl+F1 on the Frequency field for the live picture: it confirms Modern mode is active, speaks your actual coarse and fine step values, reads this key map, and names the key that switches to Classic tuning.
 
 ## JJ Flexible Home — RIT and XIT Field Keys
 
@@ -487,8 +542,8 @@ Some commands ship without a key, and it is worth knowing that this is not one l
 **Already have a key, just not their own one.** These answer to the JJ key, so
 you may not need to bind anything: show memories (`Ctrl+J`, `M`), log
 statistics (`Ctrl+J`, `L`), speak TX filter width (`Ctrl+J`, `F`), toggle meter
-tones (`Ctrl+J`, `T`), PC audio on/off (`Ctrl+J`, `Ctrl+A`), and echo recent CW
-(`Ctrl+J`, `E`).
+tones (`Ctrl+J`, `T`), PC audio on/off (`Ctrl+J`, `Ctrl+A`), echo recent CW
+(`Ctrl+J`, `E`), and speak the version and build (`Ctrl+J`, `Alt+V`).
 
 **Live somewhere better than a key.** Audio devices, ATU memories, reboot
 radio, and transmit controls all open something, and the menu that opens them

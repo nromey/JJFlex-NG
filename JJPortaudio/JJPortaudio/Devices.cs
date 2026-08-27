@@ -1484,6 +1484,7 @@ namespace JJPortaudio
                 Tracing.TraceLine("Devices.SelectPickerRows: advanced view, showing all "
                     + all.Count + " endpoints", TraceLevel.Info);
                 picker.AddRange(all);
+                SortForPicker(picker);
                 return picker;
             }
 
@@ -1530,12 +1531,160 @@ namespace JJPortaudio
                 hidden.Clear();
             }
 
+            SortForPicker(picker);
+
             Tracing.TraceLine("Devices.SelectPickerRows: " + all.Count + " endpoints, "
                 + picker.Count + " shown under " + NameOfHostApi(SelectedHostApiTypeId)
                 + (otherApi > 0 ? ", " + otherApi + " on other host APIs" : "")
                 + (hidden.Count > 0 ? ", " + hidden.Count + " hidden (loopback/virtual cable)" : ""),
                 TraceLevel.Info);
             return picker;
+        }
+
+        /// <summary>
+        /// Put the picker's rows in the order a person would look for them:
+        /// by device name, counting digits as numbers, then by host API
+        /// preference, then by the system's own index so the order is total
+        /// and stable.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why order at all (#213).</b> The lists arrived in PortAudio's
+        /// enumeration order, which is driver and registry order — nothing an
+        /// operator can predict, and nothing that keeps related rows together.
+        /// An interface with numbered ports is the worst case: Line 1, Line 2,
+        /// Line 3 and Line 4 scatter through the list with unrelated devices
+        /// between them.
+        /// </para>
+        /// <para>
+        /// This costs a sighted operator almost nothing — they scan the list
+        /// and find the row — and it costs a screen-reader operator the whole
+        /// list, because arrowing is linear and TYPE-AHEAD is the fast path.
+        /// Type-ahead only works if the rows a letter matches are together;
+        /// an unsorted list turns first-letter navigation into a lottery.
+        /// </para>
+        /// <para>
+        /// <b>Digits count as numbers, not characters.</b> Plain alphabetical
+        /// order puts Line 10 between Line 1 and Line 2, which is a visible
+        /// half-measure on exactly the hardware this exists for.
+        /// </para>
+        /// <para>
+        /// <b>The system default is NOT hoisted to the top, and that is a
+        /// decision.</b> <see cref="DeviceInfo.Display"/> already calls it out
+        /// in words, for the reason recorded there: "first in the list" is not
+        /// information you can hear. Hoisting it would also break the sorted
+        /// invariant that type-ahead depends on, to convey something the row
+        /// already says out loud. What the default must NOT lose is being the
+        /// FALLBACK selection when nothing is saved — that used to fall out of
+        /// list position and now has to be asked for by name; see the picker
+        /// dialog's DefaultOrFirstUsableIndex.
+        /// </para>
+        /// <para>
+        /// <b>Nothing here folds or hides.</b> The host-API filter and the
+        /// hidden-kind filter above have already decided WHICH rows exist; this
+        /// only decides their order. In the advanced view, where one physical
+        /// device legitimately appears once per host API, sorting by name is
+        /// what finally puts those endpoints next to each other instead of
+        /// scattering them — and the host-API tie-break then lists them in a
+        /// consistent, preference order rather than enumeration order.
+        /// </para>
+        /// </remarks>
+        private static void SortForPicker(List<DeviceInfo> rows)
+        {
+            if (rows == null || rows.Count < 2) return;
+            rows.Sort(ComparePickerRows);
+        }
+
+        /// <summary>Total order over picker rows: name, then host API, then index.</summary>
+        private static int ComparePickerRows(DeviceInfo a, DeviceInfo b)
+        {
+            int byName = CompareDeviceNames(a?.Name, b?.Name);
+            if (byName != 0) return byName;
+
+            int byApi = HostApiRank(a?.HostApiTypeId ?? -1)
+                .CompareTo(HostApiRank(b?.HostApiTypeId ?? -1));
+            if (byApi != 0) return byApi;
+
+            return (a?.DeviceID ?? -1).CompareTo(b?.DeviceID ?? -1);
+        }
+
+        /// <summary>
+        /// Compare two device names the way a person reads them: case
+        /// insensitively, and treating a run of digits as one number rather
+        /// than as characters, so Line 2 comes before Line 10.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Ordinal rather than culture-aware on purpose. This order is what
+        /// type-ahead lands on, so it has to be the same on every machine and
+        /// in every locale; a culture-sensitive collation would reorder the
+        /// list for some operators and not others, and the one thing a
+        /// keyboard operator is entitled to is that the list does not move.
+        /// </para>
+        /// <para>
+        /// Digit runs are compared by value, with leading zeros ignored, and
+        /// a longer run of significant digits is the larger number. Equal
+        /// values fall through to the next segment rather than declaring the
+        /// names equal, so "Line 01" and "Line 1" still order deterministically
+        /// by what follows.
+        /// </para>
+        /// </remarks>
+        public static int CompareDeviceNames(string a, string b)
+        {
+            a ??= "";
+            b ??= "";
+
+            int i = 0, j = 0;
+            while (i < a.Length && j < b.Length)
+            {
+                bool aDigit = char.IsDigit(a[i]);
+                bool bDigit = char.IsDigit(b[j]);
+
+                if (aDigit && bDigit)
+                {
+                    int aStart = i, bStart = j;
+                    while (i < a.Length && char.IsDigit(a[i])) i++;
+                    while (j < b.Length && char.IsDigit(b[j])) j++;
+
+                    // Skip leading zeros so 007 and 7 are the same number.
+                    int aZeros = aStart;
+                    while (aZeros < i - 1 && a[aZeros] == '0') aZeros++;
+                    int bZeros = bStart;
+                    while (bZeros < j - 1 && b[bZeros] == '0') bZeros++;
+
+                    int aLen = i - aZeros, bLen = j - bZeros;
+                    if (aLen != bLen) return aLen < bLen ? -1 : 1;
+
+                    int digits = string.CompareOrdinal(a, aZeros, b, bZeros, aLen);
+                    if (digits != 0) return digits < 0 ? -1 : 1;
+                    continue;
+                }
+
+                if (aDigit != bDigit)
+                {
+                    // A digit sorts before a letter, which is what ordinal
+                    // comparison would have done anyway; being explicit keeps
+                    // the two branches from disagreeing.
+                    return aDigit ? -1 : 1;
+                }
+
+                char ca = char.ToUpperInvariant(a[i]);
+                char cb = char.ToUpperInvariant(b[j]);
+                if (ca != cb) return ca < cb ? -1 : 1;
+                i++;
+                j++;
+            }
+
+            // One name is a prefix of the other: the shorter comes first. This
+            // is also what puts an MME-truncated twin immediately before the
+            // full-length name it was cut from.
+            int remaining = (a.Length - i).CompareTo(b.Length - j);
+            if (remaining != 0) return remaining;
+
+            // Same letters, different case only. Order by the raw text so the
+            // comparison is a total order rather than reporting equality for
+            // names that are not equal.
+            return string.CompareOrdinal(a, b);
         }
 
         /// <summary>
