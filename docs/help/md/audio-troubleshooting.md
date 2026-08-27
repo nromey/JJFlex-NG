@@ -102,6 +102,19 @@ the device your alerts and CW notifications play through, and the meter tone
 device. The current choice is announced when the dialog opens, and the system
 default is marked in words.
 
+Both device lists are in name order, and a number inside a name is treated as a
+number — so Line 2 comes before Line 10, and an interface's numbered inputs sit
+together. Typing the first letter of a device jumps you to it, and repeating the
+letter walks through everything that starts with it.
+
+Under most controls on that page there is a short line describing what is
+happening right now: which device is in use, why a control is greyed, what the
+audio system you chose means for the two lists. Those lines are read out when
+the dialog opens, and they are not Tab stops — so getting from the audio system
+combo to the device list is one press, not two. To hear one again on purpose,
+put focus on the control it belongs to and press **Ctrl+F1**: you get what that
+control does, followed by whatever its line currently says.
+
 ### The Audio System, at the Top of the Dialog
 
 Windows hands the same sound card to programs through more than one driver

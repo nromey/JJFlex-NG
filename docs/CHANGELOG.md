@@ -103,6 +103,9 @@ This release is about the space where you actually spend your time in the app �
 - **[You pick the audio system now, and the list got shorter for it](#pick-your-audio-system).** Windows hands the same sound card to programs through several different driver models, and JJ Flexible used to pick one for you without saying so. There's a plain "Audio system" choice at the top of the Audio Devices dialog now — WASAPI by default, with MME there for anything WASAPI won't open. Picking it up front means the duplicate copies of your hardware simply aren't in the list to begin with, so the picker is *smaller* than it was before this control existed. That's not the usual direction, and I'm quietly delighted about it.
 - **[Mono microphones work](#mono-microphones-work).** If your only microphone has one channel — which is most USB headsets — JJ Flexible used to list it and then refuse it, which is a polite way of saying you couldn't use the app. Your voice goes to the radio on both channels now. No workaround, no second interface, no panning tricks.
 - **[Transmit audio quality is yours to set](#transmit-audio-quality).** Full quality is still the default and still what you want. But when a remote link is having a bad night and your audio keeps breaking up, there are lower settings that ask less of the connection. Duller audio that gets through beats better audio that doesn't.
+- **[The device lists are in an order that makes sense](#devices-in-order).** They used to come out in whatever order Windows handed them over, which is why Line 3 and Line 4 could end up at opposite ends of the list with a webcam between them. They're in name order now, and where a name ends in a number, the number is treated as a number — so Line 2 comes before Line 10 instead of after it. Typing a letter to jump through the list finally works the way you'd expect, because everything that starts with that letter is together.
+- **[The explanations stopped standing in front of the controls](#notes-out-of-the-way).** The Audio Devices page had seven read-only lines you had to Tab past. They're still there, still say the same thing — they just don't cost you a keystroke each any more. Press Ctrl+F1 on any control and you'll hear what it does *and* what it's doing right now.
+- **[The Audio menu is the same shape whether you're connected or not](#steady-audio-menu).** Pressing a letter to jump through a menu only builds muscle memory if the menu holds still, and this one didn't — items that need a radio used to vanish when there wasn't one, which quietly moved everything else. They stay put now, greyed, saying "needs a radio" right in the row.
 - **[CW notifications moved in with their speaker](#cw-with-alert-device).** The switch and the device it plays through are on the same tab now, next to each other, instead of one tab apart. Defaults unchanged — CW notifications are still off until you turn them on.
 - **[JJ Flex now updates itself](#in-app-updates).** Tools menu has a new "Check for Updates" item. Settings has a new "Updates" tab where you pick your channel — Stable, Beta, or Nightly — and decide whether you want JJ Flex to check on its own. By default it checks at startup and every couple of hours while it's running, but you're in charge of all of that. When an update lands, you get a dialog that tells you what's new and how big the download is, and one keystroke does the install. No more hunting for installers on the website.
 - **[Hear yourself before anyone else does](#audio-check).** The Audio Workshop grew an Audio Check: one button keys the radio and your own transmit audio comes back in your headphones while you talk. Record a take, unkey, and it plays right back so you can hear what a mic adjustment actually did. If your setup ritual has always been "how do I sound?" into a quiet band, this is that friend, on demand, with nobody rolling their eyes. And by default the check now makes **no RF at all** — dummy load, zero watts — because every meter it reads tells the same truth with the power at zero.
@@ -253,6 +256,50 @@ Under the microphone list there's a **Transmit audio quality** setting. Full qua
 The lower settings encode your voice at a lower sample rate. It uses less of your connection and it sounds duller — that's the trade, plainly. It's there for the bad night, when a remote link keeps breaking your transmit audio into gravel and you'd rather sound like a telephone and be understood.
 
 Two honest caveats, because I'd rather you hear them from me than discover them. Your sound card has the last word: if it can't run at the rate you asked for, JJ Flexible opens at one it can and encodes to match, rather than sending the radio something it can't follow. And since MME converts rates and WASAPI doesn't, the lower settings are most likely to actually take hold while you're on MME. The change applies from your next connection, not to one already running.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The Device Lists Are in an Order That Makes Sense {#devices-in-order}
+
+Your device lists used to arrive in the order Windows felt like handing them over. That order comes out of drivers and the registry, and there is no version of it that a human being can predict. Noel put it plainly: "the dialog is not sorted alphabetically, so you get line 3 and line 4." If you own an interface with numbered inputs, its ports were scattered down the list with a webcam and a monitor's speakers sitting between them.
+
+They're in name order now. And where a name has a number in it, that number is treated as a number, so Line 2 comes before Line 10 rather than after it. Sorting these as plain text would have been the easy version of this fix and it would have put Line 10 second, which is a wrong answer on exactly the hardware this is for.
+
+Here's why it's worth more to us than tidiness. If you can see the list, an unsorted one costs you a glance. If you're arrowing it, it costs you the whole list — and typing a letter to jump, which is the fast way through any list, only helps when everything starting with that letter is in one place. Scattered rows turn that gesture into a lottery. Now it lands where you'd expect, every time.
+
+Your Windows default device still gets called out by name in its row, and it's still what gets chosen for you when you've never picked anything. It just isn't wedged at the top of the list any more, because "it's first" was never something you could hear anyway.
+
+Nothing about which devices are listed has changed — the audio system you picked still decides that, and the advanced "show everything" checkbox still shows everything. All that changed is where the rows sit. In the advanced view this is actually a bigger improvement than in the normal one: when your interface legitimately appears once per driver model, those copies are now next to each other instead of strewn about.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The Explanations Stopped Standing in Front of the Controls {#notes-out-of-the-way}
+
+The Audio Devices page explains itself as you go. Under the audio system selector there's a line about what you picked. Under each device list, a line telling you what's in use. Under the microphone level, a line saying why it's greyed out. Good lines, all of them, and I'd write them again.
+
+The problem was that every one of them was a Tab stop. Three controls in that top section, three notes between them — six stops to get through three controls, every single pass. And it wasn't only slow. Noel went looking for the audio system selector one evening, pressed Shift+Tab from the device list, landed on a read-only box that just reads text at you, and concluded the selector didn't exist. Which is exactly the right conclusion to draw from what he was handed. The control was there. The explanation was standing in front of it.
+
+So the notes came out of the Tab order. They're still on the page, they still say the same thing, and they're still read out when the window opens. What's new is how you go back to one on purpose: **press Ctrl+F1 on the control itself**, and you get what that control does *plus* whatever its note currently says, in one answer. The status is read live, so it's never a stale sentence from three changes ago.
+
+I did this everywhere the pattern showed up — the Audio Devices page, the Power dialog, the Filter Calculator, and the PC audio status in Settings. Two read-only lines in Settings deliberately stayed as Tab stops, and the reason is worth saying out loud: the Radio Outputs line exists to tell you why that section is empty when no radio is connected, which is precisely when there's no control to attach it to. A sentence that's the only thing carrying the information stays where you can reach it. The rule isn't "prose is bad," it's "prose about a control belongs with the control."
+
+[Return to version headlines](#unreleased-headlines)
+
+### The Audio Menu Holds Still Now {#steady-audio-menu}
+
+If you navigate menus by pressing the first letter of what you want — and if you're on a screen reader, you probably do — you've learned some of these by feel. That only works if the menu holds still, and the Audio menu didn't.
+
+Noel caught it: "when the radio is not connected, Alt+O then A goes to Audio Workshop, then Audio Devices. When I was connected to the radio... A goes directly to Audio Devices." Same menu, same key, two different destinations, and nothing to tell you which one you were about to get.
+
+The cause is a small piece of Windows trivia with a large consequence. A menu starts looking for your letter *after* whatever's currently highlighted, and a menu opens with its first item highlighted — so an item sitting at the top of a menu gets skipped by its own first letter. With no radio connected, everything that needs a radio was simply left out, Audio Devices became the first item, and pressing A stepped straight past it. Connect a radio, those items come back, Audio Devices is no longer first, and the same keypress lands on it.
+
+The commands that need a radio stay in the menu now whether you have one or not. When you don't, they're greyed and the row itself says "needs a radio," so your screen reader tells you both things as you arrow past — instead of you pressing Enter to find out. That's the same treatment this menu already gives anything else that isn't available, and it means the menu is the same shape, in the same order, in both states.
+
+Two small knock-on changes while I was in there. Earcon Scratchpad and Audio Devices swapped places, which puts Audio Devices and Audio Workshop next to each other — they're the two you actually go to, and the scratchpad had somehow ended up sitting between them. And the Audio Workshop entry is now built in the same place as the rest of the menu instead of being tacked on twice, once for each of the two menus it appears on, which is how two copies of a list slowly stop agreeing.
+
+One thing I want to be straight about: this makes the gesture *consistent*, not *one press*. Audio Devices and Audio Workshop both begin with A, so A still cycles between them — it just cycles the same way every time now, instead of depending on whether you're connected. Making it a single press means renaming one of those two entries, and both names are in the help pages and in a lot of people's fingers. That's a decision to make deliberately, not a side effect of fixing a menu.
+
+If you'd rather not press a letter twice, Audio Devices is also on the Settings pages, and the Audio Workshop has always had Ctrl+Shift+W. And Ctrl+/ — the Command Finder — will take you to either one by name.
 
 [Return to version headlines](#unreleased-headlines)
 

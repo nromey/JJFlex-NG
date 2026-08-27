@@ -33,6 +33,17 @@ public partial class PowerDialog : JJFlexDialog
         _rig = rig;
         InitializeComponent();
 
+        // Both read-only lines belong to both power fields — the header says
+        // which scale the numbers are in, the range line says what values are
+        // accepted, and neither is meaningful apart from the field you are on.
+        // Registered rather than left in the tab order (#211): Ctrl+F1 on
+        // either field reads them, and neither is walked through to reach the
+        // other field or Close.
+        JJFlexHelp.SetNoteFor(HeaderText, RfPowerField);
+        JJFlexHelp.SetNoteFor(RangeText, RfPowerField);
+        JJFlexHelp.SetNoteFor(HeaderText, TunePowerField);
+        JJFlexHelp.SetNoteFor(RangeText, TunePowerField);
+
         ConfigureForCurrentMode();
 
         RfPowerField.ValueChanged += (s, v) =>

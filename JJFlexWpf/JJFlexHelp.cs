@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 
 namespace JJFlexWpf;
@@ -32,6 +35,21 @@ namespace JJFlexWpf;
 ///
 /// XAML: with xmlns:local="clr-namespace:JJFlexWpf" in scope, write
 /// local:JJFlexHelp.Text="...". Code-behind: JJFlexHelp.SetText(element, "...").
+///
+/// STATUS NOTES (#211, 2026-08-27). A dialog's read-only note lines — "Currently
+/// using X", "Saved device not connected" — used to be tab stops, because WPF
+/// dialogs run in focus mode and a plain TextBlock is not somewhere the Tab key
+/// goes. Focusable="True" made them reachable and, in doing so, put the
+/// explanation AHEAD of the thing it explains in the one ordering a keyboard
+/// operator actually walks: Shift+Tab from the device list landed on prose, and
+/// concluding from that there was no control above it is the correct inference
+/// from what the operator was given.
+///
+/// <see cref="SetNoteFor"/> registers a note against the CONTROL it describes.
+/// The note keeps its words, keeps its place on screen and keeps its accessible
+/// name — it simply stops being a stop. Ctrl+F1 on the control now answers with
+/// the authored explanation AND every note registered to it, read live, so the
+/// answer is never stale. See <see cref="FindExplanation"/>.
 /// </summary>
 public static class JJFlexHelp
 {
@@ -49,12 +67,100 @@ public static class JJFlexHelp
         (string?)element.GetValue(TextProperty);
 
     /// <summary>
+    /// The status notes registered against a control, in the order they were
+    /// registered. Lives on the CONTROL, not on the note.
+    /// </summary>
+    private static readonly DependencyProperty NotesProperty =
+        DependencyProperty.RegisterAttached(
+            "Notes",
+            typeof(List<DependencyObject>),
+            typeof(JJFlexHelp),
+            new FrameworkPropertyMetadata(null));
+
+    /// <summary>
+    /// Register <paramref name="note"/> as an explanation belonging to
+    /// <paramref name="control"/>, so Ctrl+F1 on the control reads it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Call this for every read-only note that has stopped being a tab stop.
+    /// Removing the tab stop alone would silently take the words away from the
+    /// operator who needs them most, which is worse than the friction — the
+    /// note has to stay REACHABLE, just not be walked through on the way
+    /// somewhere else.
+    /// </para>
+    /// <para>
+    /// The note's text is read at ASK time, not at registration time, so a
+    /// line that changes twice a second answers with what it currently says.
+    /// A note that is <see cref="UIElement.Visibility"/> Collapsed is skipped:
+    /// a note the operator cannot see is one the app has decided does not
+    /// apply, and reading it anyway would contradict the screen.
+    /// </para>
+    /// <para>
+    /// Several notes may share one control; they are read in registration
+    /// order after the control's own explanation.
+    /// </para>
+    /// </remarks>
+    public static void SetNoteFor(DependencyObject note, DependencyObject control)
+    {
+        if (note == null || control == null) return;
+        if (control.GetValue(NotesProperty) is not List<DependencyObject> notes)
+        {
+            notes = new List<DependencyObject>();
+            control.SetValue(NotesProperty, notes);
+        }
+        if (!notes.Contains(note)) notes.Add(note);
+    }
+
+    /// <summary>
+    /// The explanation <paramref name="node"/> offers by itself: its own
+    /// on-demand text (or its focus-time hint), followed by the current words
+    /// of any notes registered to it. Empty when it offers nothing.
+    /// </summary>
+    private static string OwnExplanation(DependencyObject node, out string source)
+    {
+        string? help = GetText(node);
+        source = "JJFlexHelp";
+        if (string.IsNullOrWhiteSpace(help))
+        {
+            help = System.Windows.Automation.AutomationProperties.GetHelpText(node);
+            source = "HelpText";
+        }
+
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(help)) sb.Append(help!.Trim());
+
+        if (node.GetValue(NotesProperty) is List<DependencyObject> notes)
+        {
+            foreach (DependencyObject note in notes)
+            {
+                if (note is UIElement ui && ui.Visibility != Visibility.Visible) continue;
+                string words = note is TextBlock tb
+                    ? tb.Text
+                    : System.Windows.Automation.AutomationProperties.GetName(note);
+                if (string.IsNullOrWhiteSpace(words)) continue;
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(words.Trim());
+                source += "+note";
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Find the explanation for the control the operator would say they are
     /// "on": starting at <paramref name="start"/>, walk toward the root, and
     /// at each element take JJFlexHelp.Text first, then
     /// AutomationProperties.HelpText. First non-empty answer wins, so the
     /// nearest explanation beats an outer one and the on-demand text beats
     /// the focus-time hint on the same element.
+    ///
+    /// Any status notes registered to an element with <see cref="SetNoteFor"/>
+    /// are read after that element's own explanation, in registration order
+    /// and in their current words. An element carrying only notes still
+    /// answers, so a control with no authored help is not silent just because
+    /// its explanation happens to live in a line beneath it.
     ///
     /// The walk prefers the visual tree but falls back to the logical tree
     /// wherever the visual chain runs out. That fallback is load-bearing:
@@ -71,13 +177,7 @@ public static class JJFlexHelp
         int guard = 0; // trees are finite, but a cycle here would hang the UI thread
         while (node != null && guard++ < 128)
         {
-            string? help = GetText(node);
-            string source = "JJFlexHelp";
-            if (string.IsNullOrWhiteSpace(help))
-            {
-                help = System.Windows.Automation.AutomationProperties.GetHelpText(node);
-                source = "HelpText";
-            }
+            string help = OwnExplanation(node, out string source);
             trace?.Invoke(
                 $"walk {node.GetType().Name} " +
                 (string.IsNullOrWhiteSpace(help) ? "(none)" : source + "='" + help + "'"));
