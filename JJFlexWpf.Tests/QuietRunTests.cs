@@ -47,4 +47,22 @@ public sealed class QuietRunTests
         Assert.False(string.IsNullOrWhiteSpace(described));
         Assert.Contains("audio", described, System.StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void TheReportNamesTheSoundThisCannotSwitchOff()
+    {
+        // A suppression that overstates its reach is the instrument this whole
+        // track exists to remove. MessageBox.Show with any MessageBoxImage
+        // sounds through user32 before a line of our code runs, and
+        // ModalWatchdog exists precisely because at least one dialog raises one
+        // while it is being CONSTRUCTED — which is the one thing this tier does
+        // to every dialog in the app. The watchdog closes that box after it has
+        // already been heard.
+        //
+        // So the caveat is stated on the SUCCESS path. An operator who heard a
+        // ding during an otherwise correct run deserves a report that accounts
+        // for it rather than one that contradicts him.
+        Assert.Contains("message-box", QuietRun.Describe(), System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NOT suppressed", QuietRun.UnsuppressedSounds, System.StringComparison.Ordinal);
+    }
 }

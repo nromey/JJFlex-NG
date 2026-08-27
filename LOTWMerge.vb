@@ -202,7 +202,10 @@ Public Class LOTWMerge
                 End If
                 If (inCount Mod 50) = 0 Then
                     MsgLib.TextOut.DisplayText(ProgressBox, ".", False)
-                    Console.Beep()
+                    ' Task #233: Console.Beep is an audio device as far as a
+                    ' blind operator's ears are concerned, so it goes through
+                    ' the same gate as every other sound in the app.
+                    If Radios.OutputChannelRecorder.RenderEnabled Then Console.Beep()
                 End If
             Loop
 

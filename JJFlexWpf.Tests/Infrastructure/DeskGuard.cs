@@ -32,6 +32,18 @@ namespace JJFlexWpf.Tests.Infrastructure;
 /// explicit human declaration, refuses. A guard whose uncertain case is "carry
 /// on" is the guard that just failed.
 /// </para>
+/// <para>
+/// <b>Isolation means invisible AND inaudible, since task #233.</b> Until then
+/// this asked one question — is the UI thread on a desktop nobody is looking at
+/// — and answered "allowed" on the strength of it. That is a sighted person's
+/// definition of isolated. <see cref="PrivateDesktop"/> does nothing whatever
+/// about sound, so a run could pass this guard and then play earcons and speech
+/// at whoever was sitting there, which for this project's users is the WORSE of
+/// the two failures: a noise arriving from something that cannot be found,
+/// focused or dismissed. A half-working guard is more dangerous than none
+/// because it is trusted, so both facts are now conditions rather than one
+/// being a condition and the other a line in a report.
+/// </para>
 /// </remarks>
 internal static class DeskGuard
 {
@@ -61,35 +73,74 @@ internal static class DeskGuard
 
         /// <summary>Isolation was switched off and nobody declared the desk free.</summary>
         RefusedIsolationDisabled,
+
+        /// <summary>
+        /// The windows would be invisible and the run would still be audible.
+        /// Refuse — this is the failure the operator actually experiences.
+        /// </summary>
+        RefusedAudioNotSuppressed,
+
+        /// <summary>
+        /// The run would read and write the operator's own settings folder.
+        /// Refuse, and this one is not waivable.
+        /// </summary>
+        RefusedSettingsNotIsolated,
     }
 
     public static bool IsAllowed(Verdict v)
         => v == Verdict.AllowedIsolated || v == Verdict.AllowedDeskDeclaredFree;
 
     /// <summary>
-    /// Decide, from the three facts that matter. Pure, so the rule can be read
+    /// Decide, from the four facts that matter. Pure, so the rule can be read
     /// and reasoned about without starting a UI thread.
     /// </summary>
     /// <param name="isolationRequested">Was a private desktop asked for?</param>
     /// <param name="isolation">What actually happened when it was attempted.</param>
     /// <param name="deskDeclaredFree">Did a human say the screen is theirs to use?</param>
+    /// <param name="audioSuppressed">
+    /// Did <see cref="QuietRun"/> confirm, by reading it back, that rendering
+    /// is off for this process?
+    /// </param>
+    /// <param name="settingsIsolated">
+    /// Did <see cref="TestSettingsRoot"/> confirm, by reading it back, that the
+    /// whole settings tree points somewhere throwaway?
+    /// </param>
     /// <remarks>
-    /// The human declaration is checked FIRST and wins outright. Someone who
-    /// has stepped away has said the strongest thing available, and a test run
-    /// that refuses after being told it may proceed is a test run nobody can
-    /// use.
+    /// <para>The human declaration is checked before the desk conditions and
+    /// wins over them outright. Someone who has stepped away has said the
+    /// strongest thing available, and a test run that refuses after being told
+    /// it may proceed is a test run nobody can use. That declaration covers
+    /// sound as well as windows: "the machine is mine to use" is not a
+    /// statement about one sense.</para>
+    /// <para><b>It does NOT cover the settings, which is why that one is
+    /// checked first and cannot be waived.</b> <c>JJFLEX_TIER1_DESK_FREE</c>
+    /// says the SCREEN and the SPEAKERS are free — a statement about a person
+    /// having stepped away from a desk. It is not consent to rewrite their
+    /// configuration, nobody would read it as that, and the damage outlives the
+    /// run rather than evaporating with it. Consent to be disturbed and consent
+    /// to be modified are different consents, and a guard that treats one as
+    /// the other has stopped asking the question it was written to ask.</para>
+    /// <para>Sound is checked LAST of the refusals, so a run that fails both
+    /// reports the desktop failure. Both are true, and the desktop one is the
+    /// one that has to be fixed first for the other question to even arise.</para>
     /// </remarks>
     public static Verdict Decide(bool isolationRequested,
                                  DesktopIsolation isolation,
-                                 bool deskDeclaredFree)
+                                 bool deskDeclaredFree,
+                                 bool audioSuppressed,
+                                 bool settingsIsolated)
     {
+        if (!settingsIsolated) return Verdict.RefusedSettingsNotIsolated;
+
         if (deskDeclaredFree) return Verdict.AllowedDeskDeclaredFree;
 
         if (!isolationRequested) return Verdict.RefusedIsolationDisabled;
 
-        return isolation == DesktopIsolation.Isolated
-            ? Verdict.AllowedIsolated
-            : Verdict.RefusedIsolationFailed;
+        if (isolation != DesktopIsolation.Isolated) return Verdict.RefusedIsolationFailed;
+
+        if (!audioSuppressed) return Verdict.RefusedAudioNotSuppressed;
+
+        return Verdict.AllowedIsolated;
     }
 
     /// <summary>True when a human has declared the desk free for this run.</summary>
@@ -117,6 +168,29 @@ internal static class DeskGuard
             + "the screen is free to use, so the run stopped rather than show them.\r\n\r\n"
             + "Set " + DeskFreeVariable + "=1 for this run if that is what you want.",
 
+        Verdict.RefusedAudioNotSuppressed =>
+            "The windows would have been invisible, but this run would still have "
+            + "made NOISE. Building these dialogs drives earcons and speech, and "
+            + "turning that off for the test process FAILED"
+            + (QuietRun.Failure == null ? "" : " (" + QuietRun.Failure + ")")
+            + ".\r\n\r\n"
+            + "A run you cannot see but can hear is worse than one you can see: the "
+            + "sound arrives from something that cannot be found, focused or "
+            + "dismissed. So the run stopped.\r\n\r\n"
+            + "If the machine is yours to use — you have stepped away, or you do not "
+            + "mind the noise — set " + DeskFreeVariable + "=1 for this run.",
+
+        Verdict.RefusedSettingsNotIsolated =>
+            "This run would have read and written YOUR OWN settings folder. These "
+            + "tests construct every dialog in the application, and a dialog reads "
+            + "and rewrites configuration as it builds itself — key maps, per-radio "
+            + "profiles, connection entries.\r\n\r\n"
+            + (TestSettingsRoot.Failure ?? "The throwaway settings tree was not bound.")
+            + "\r\n\r\n"
+            + DeskFreeVariable + " does NOT lift this. That variable says the screen "
+            + "and speakers are yours to disturb; it is not consent to change your "
+            + "configuration, and the damage would outlast the run.",
+
         _ => "",
     };
 
@@ -127,10 +201,12 @@ internal static class DeskGuard
     /// </summary>
     public static string Describe(Verdict v) => v switch
     {
-        Verdict.AllowedIsolated => "windows on a private desktop",
-        Verdict.AllowedDeskDeclaredFree => "windows VISIBLE — desk declared free",
+        Verdict.AllowedIsolated => "windows on a private desktop, audio suppressed",
+        Verdict.AllowedDeskDeclaredFree => "windows VISIBLE and audio UNCHECKED — desk declared free",
         Verdict.RefusedIsolationFailed => "refused — private desktop could not be created",
         Verdict.RefusedIsolationDisabled => "refused — isolation off and desk not declared free",
+        Verdict.RefusedAudioNotSuppressed => "refused — invisible but audible: audio could not be suppressed",
+        Verdict.RefusedSettingsNotIsolated => "refused — the operator's own settings folder was in scope",
         _ => "unknown",
     };
 }

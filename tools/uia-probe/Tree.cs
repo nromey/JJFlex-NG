@@ -126,6 +126,39 @@ internal static class Tree
 /// </summary>
 internal static class Act
 {
+    /// <summary>
+    /// Printed after every toggle that moved, because the movement is not the
+    /// result and reading it as one is task #176.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found 2026-08-21 on <c>PcAudioCheck</c>.</b> The box changed
+    /// appearance, <c>PcAudioCheck_Click</c> never ran, no state changed and no
+    /// tone played. <c>TogglePattern.Toggle</c> moves <c>IsChecked</c>; it does
+    /// not raise <c>Click</c>. A control wired via <c>Checked</c>/
+    /// <c>Unchecked</c> therefore drives correctly through this and a control
+    /// wired via <c>Click</c> does not — the same call, valid on one control and
+    /// vacuous on its neighbour, with nothing in the result to tell them apart.
+    /// </para>
+    /// <para>
+    /// This tool cannot see event wiring from outside the process, so it cannot
+    /// know which kind it just touched. What it CAN do is stop reporting the
+    /// thing it does not know. It used to print "TOGGLED, now Off" — a claim
+    /// about the outcome, sourced entirely from the control's own state, which
+    /// is the one reading that is true in both cases. It now reports the
+    /// movement as movement and says what to assert instead.
+    /// </para>
+    /// <para>
+    /// The population of controls that will be vacuous here is enumerated, and
+    /// gated, by <c>Radios.Tests.IntegrationPassRuleTests.No_check_box_is_wired_to_Click_alone</c>.
+    /// </para>
+    /// </remarks>
+    internal const string ToggleCaveat =
+        "This is the control's OWN state and is NOT evidence that anything happened: "
+        + "TogglePattern does not raise Click, so a Click-wired control moves its box and "
+        + "runs no handler. Assert on the CONSEQUENCE — a transcript event, a config write, "
+        + "a tone — or drive it with a real Space press instead. See task #176.";
+
     public static string Perform(int pid, string op, string? automationId, string? name, string? className,
         int index, string? value)
     {
@@ -163,8 +196,20 @@ internal static class Act
                 sb.AppendLine("SELECTED"); break;
             case "toggle":
                 var tp = (TogglePattern)el.GetCurrentPattern(TogglePattern.Pattern);
+                ToggleState before = tp.Current.ToggleState;
                 tp.Toggle();
-                sb.AppendLine($"TOGGLED, now {tp.Current.ToggleState}"); break;
+                ToggleState after = tp.Current.ToggleState;
+
+                if (after == before)
+                {
+                    sb.AppendLine($"TOGGLE DID NOTHING — still {after}. The control refused the "
+                        + "pattern outright.");
+                }
+                else
+                {
+                    sb.AppendLine($"STATE MOVED {before} to {after}. {ToggleCaveat}");
+                }
+                break;
             case "expand":
                 ((ExpandCollapsePattern)el.GetCurrentPattern(ExpandCollapsePattern.Pattern)).Expand();
                 sb.AppendLine("EXPANDED"); break;

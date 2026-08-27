@@ -72,6 +72,46 @@ Default process name is `jjflexible`. Every command takes `--pid N` or
   element through its automation pattern. For getting the app into a starting
   position, *not* for verifying key bindings: invoking a button proves the
   button works and proves nothing about the key meant to reach it.
+  **And see the next section before you use `--op toggle` for anything.**
+
+## `--op toggle` moves the box. It does not press it. (#176)
+
+`TogglePattern.Toggle` sets `IsChecked`. It does **not** raise `Click`.
+
+So the same call is valid on one control and vacuous on its neighbour:
+
+- A control wired via `Checked` / `Unchecked` hears the change however it
+  happens, so it drives correctly through the pattern. Verified on the
+  MetersPanel trio — Peak Watcher, Speech Timer, Auto-on-tune: six toggles, six
+  tones, every direction matching reported state.
+- A control wired via `Click` hears nothing. Found on `PcAudioCheck`: the box
+  changed appearance, `PcAudioCheck_Click` never ran, no state changed, no tone
+  played.
+
+**And a vacuous toggle looks exactly like a successful one.** The control
+reports the new state, a tree read confirms it, and a test asserting "the box is
+now checked" passes having asserted nothing about the behaviour it was written
+to cover. It fails open, silently, in the direction of green.
+
+**The rule: never assert on the control's own state after driving it.** Assert
+on the CONSEQUENCE — a transcript event, a config write, a tone. That is the
+right assertion regardless of wiring, and it is the one the test actually cares
+about. Where a tone or a transcript event is the consequence, the output
+transcript already supplies it. Where you need the press itself, use a real
+`Space` through `press`.
+
+Two things now make the wrong choice visible instead of silent:
+
+- `act --op toggle` no longer prints `TOGGLED`. It prints `STATE MOVED x to y`
+  followed by a standing caveat that the state is not evidence, or
+  `TOGGLE DID NOTHING` when the control refused the pattern outright. The tool
+  cannot see event wiring from outside the process, so it cannot know which kind
+  of control it touched — what it can do is stop claiming the part it does not
+  know.
+- The population of controls that WILL be vacuous here is enumerated and gated
+  by `Radios.Tests.IntegrationPassRuleTests.No_check_box_is_wired_to_Click_alone`,
+  which covers XAML `CheckBox`, `ToggleButton` and `RadioButton` and controls
+  built in code. Ten today, all owned by task #256. A new one fails that test.
 - `inventory` — read `KeyInventory` out of the build under test.
 - `unbound` — every registry command shipping with no key, and the reason
   recorded for it.

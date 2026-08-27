@@ -160,6 +160,15 @@ being used and a human saying "have at it".
 - `tools/uia-probe` (`jjprobe`) is used read-only (`windows`) by the
   smoke tier, and is the pressing half of any future Tier 2 wiring. The
   runner does not reimplement any of it.
+
+  **Before wiring Tier 2, read the `--op toggle` section of
+  `tools/uia-probe/README.md` (#176).** Driving a checkbox through UI
+  Automation's `TogglePattern` moves its state without raising `Click`,
+  so on a `Click`-wired control the test does nothing and passes. A
+  vacuous toggle is indistinguishable from a successful one: the control
+  reports the new state, the tree read confirms it, and an assertion on
+  that state is green. Never assert on the control's own state after
+  driving it — assert on the consequence, or press a real `Space`.
 - The runner never builds the app. It tests the build that exists, and
   says exactly which one — path, timestamp, version — flagging it STALE
   when any source file in the working tree was saved after the exe was
