@@ -8825,14 +8825,11 @@ namespace Radios
                     {
                         return _SMeter;
                     }
-                    // return s-units
-
-                    int val = _SMeter + 127 - 3; // puts s0 at 0.
-                    if (val < 0) val = 0;
-                    int s = val / 6; // S-unit
-                    // Perhaps indicate over S9.
-                    val = (s <= 9) ? s : val - (9 * 6) + 9;
-                    return val;
+                    // S-units (dB-over-S9 plus 9 above S9). The arithmetic
+                    // lives in SMeterReading.FromDbm — one home, shared with
+                    // the QSO signal analyzer, so a recorded dBm and this
+                    // live reading can never disagree by a constant.
+                    return SMeterReading.FromDbm(_SMeter);
                 }
             }
         }

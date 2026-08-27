@@ -48,6 +48,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | Shift+R | Toggle PC Neural Noise Reduction (runs on your computer, works on every radio) |
 | Shift+S | Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio) |
 | Q | Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below) |
+| Ctrl+Q | Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below) |
 | A | Toggle Auto Notch |
 | P | Toggle Audio Peak Filter (APF, CW only) |
 | V | Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below) |
@@ -102,6 +103,39 @@ Arms or disarms the Audio Workshop's TX test tone from anywhere, using your save
 ### Noise capture — Ctrl+J, then Q
 
 Captures a noise profile for PC Spectral NR: three seconds (adjustable, 1 to 5) of what your band sounds like with nobody talking, so the spectral engine knows exactly what to subtract. Find a quiet spot on the band, press `Ctrl+J` then `Q`, and listen — it announces the start, counts the seconds out loud as they pass, and tells you when the profile is captured and whether Spectral NR is using it. Press `Q` again mid-capture to cancel. The capture listens to the radio audio playing through this computer, so PC audio has to be on — if it isn't, the capture says so instead of pretending. A finished capture saves itself and comes back on your next connect; naming and managing profiles lives in the Noise Profiles dialog (Slice menu, DSP, PC Noise Reduction). The full story is on the PC-Side Noise Reduction help page.
+
+### QSO signal analyzer — Ctrl+J, then Ctrl+Q
+
+"Is he fading? Is that QSB? Is he coming up?" You can't answer that by
+listening to a stream of spoken meter readings — a pattern over time is
+exactly what a human can't extract from numbers read one at a time, and the
+speech would sit on top of the very signal you're trying to hear. So this one
+works like a stopwatch instead: press `Ctrl+J` then `Ctrl+Q` when a station
+starts talking, work the contact in silence, and press it again when you want
+the answer. You'll hear the story of the signal: "Peaked S 9, fell to S 4,
+averaged S 6. Deep fades about every 5 seconds." That's a real signal report
+with evidence behind it — the kind of thing that goes straight in your log or
+right back on the air.
+
+It runs until you stop it — there's no timer, because a capture that quit
+early mid-fade would hand you a confident answer built on half the story. The
+safety net is the running-cost machinery: `Ctrl+J` then `O` will tell you a
+capture is going, it speaks up on its own if you leave it running past
+fifteen minutes, and closing the app asks about it on the way out.
+
+Every capture saves itself when you stop it. The full report — peak, trough,
+average, swing, fade rhythm and depth, trend, how long you transmitted, and
+exactly how each number was measured — lives under Tools, then Signal
+captures, where you can read it, rename it (a capture named "Don on 40
+meters" beats "the one from 9:14" a week later), export it as a web page or
+plain text to send to someone, or delete it. Anything the capture could NOT
+determine says so in as many words: a ten-second capture doesn't guess at a
+fade rhythm, it tells you it was too short to see one.
+
+Your own transmissions are left out of the measurements automatically — while
+you're keyed up, the S-meter isn't describing the other station. And if no
+readings arrive at all, the report says exactly that, because "no data" and
+"a quiet band" should never sound the same.
 
 ### CW echo — Ctrl+J, then E
 
