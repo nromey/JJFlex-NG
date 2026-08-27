@@ -1001,6 +1001,13 @@ Module globals
             Tracing.TraceLine(
                 $"Detailed capture started {Date.Now:O} reason={reason} level={Tracing.TheSwitch.Level}")
             TraceCaptureStateMarker()
+            ' Which speech backend, which reader, which TIER — restated at the
+            ' head of EVERY capture, not only at startup (#283). The startup
+            ' line already said "reader=NVDA" on an evening spent under JAWS,
+            ' and it appeared in no capture anybody was reading, so four traces
+            ' were studied closely and none could say what the application was
+            ' talking to. One line, filed where the reader is looking.
+            Radios.ScreenReaderOutput.TraceBackend()
         Catch ex As Exception
             Tracing.ErrTraceOnly(ex)
             _captureStartedLocal = Nothing

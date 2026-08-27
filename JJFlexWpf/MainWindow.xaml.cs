@@ -684,7 +684,28 @@ public partial class MainWindow : UserControl
     /// through, every release is immediate exactly as before. See
     /// <see cref="Radios.PttHoldFilter"/> for the whole story.
     /// </summary>
-    private readonly Radios.PttHoldFilter _pttHoldFilter = new();
+    private readonly Radios.PttHoldFilter _pttHoldFilter = BuildPttHoldFilter();
+
+    /// <summary>
+    /// Hand the filter the two things it cannot work out for itself: this
+    /// machine's keyboard repeat delay, and a way to ask Windows whether the
+    /// space bar is physically down.
+    ///
+    /// The repeat delay is the load-bearing half. The first shipped version of
+    /// the filter used one learned window for both the first gap of a press
+    /// (the repeat delay) and the gaps inside a repeat stream (about half
+    /// that), so it trained itself down to the smaller number and then chopped
+    /// the start of every press — measured three times on one held key,
+    /// 2026-08-26. Reading the operator's own setting is what makes the fix
+    /// something other than a constant that happened to work on one desk.
+    /// </summary>
+    private static Radios.PttHoldFilter BuildPttHoldFilter()
+    {
+        var f = new Radios.PttHoldFilter();
+        f.SetKeyRepeatDelay(Radios.KeyRepeatTiming.DelayMs());
+        f.PhysicalKeyDown = () => Radios.PhysicalKeyState.IsDown(Radios.PhysicalKeyState.VkSpace);
+        return f;
+    }
 
     /// <summary>
     /// Runs a deferred PTT release to ground when no synthetic re-down
@@ -694,6 +715,14 @@ public partial class MainWindow : UserControl
 
     /// <summary>One Error-level trace line when the filter first arms.</summary>
     private bool _pttFilterArmTraced;
+
+    /// <summary>
+    /// One Error-level trace line the first time the physical key state
+    /// contradicts the reader's release. It answers a question this design
+    /// deliberately does not depend on — whether Windows' own key state
+    /// survives a synthesising reader — so it is worth saying loudly once.
+    /// </summary>
+    private bool _pttProbeExtensionTraced;
 
     /// <summary>
     /// Current PTT configuration. Set during radio connect, used by Settings dialog.
@@ -1872,10 +1901,13 @@ public partial class MainWindow : UserControl
                     _pttFilterArmTraced = true;
                     Tracing.TraceLine("PTT: screen reader is synthesising key-release pairs for a"
                         + " held Ctrl+Space (release " + _pttHoldFilter.SyntheticReleaseCount
-                        + " arrived too fast to be human). Absorbing releases with a "
-                        + _pttHoldFilter.DeferMs + " ms hold so transmit stays keyed —"
-                        + " see task #216. The first hold of this session took one brief"
-                        + " unkey before detection; later holds are continuous.",
+                        + " arrived too fast to be human). Absorbing releases so transmit stays"
+                        + " keyed — see task #216. Windows repeat delay on this machine is "
+                        + _pttHoldFilter.KeyRepeatDelayMs + " ms, so the first gap of a press is"
+                        + " bridged with " + _pttHoldFilter.FirstGapDeferMs + " ms and gaps inside"
+                        + " the repeat stream with " + _pttHoldFilter.RepeatGapDeferMs + " ms."
+                        + " Two windows, because they measure two different things: sharing one"
+                        + " is what chopped the start of every press before 2026-08-26.",
                         TraceLevel.Error);
                 }
                 StartPttDeferTimer(_pttHoldFilter.DeferMs);
@@ -1906,7 +1938,32 @@ public partial class MainWindow : UserControl
             {
                 _pttDeferTimer!.Stop();
                 if (_pttHoldFilter.DeferralElapsed(Environment.TickCount64))
+                {
                     _pttController?.PttUp();
+                    return;
+                }
+
+                // Still pending means Windows says the key is physically down
+                // even though the reader sent a release. Keep transmitting and
+                // ask again shortly — the corroboration is bounded inside the
+                // filter, so a probe that is wrong cannot hold the transmitter
+                // open (#216).
+                if (_pttHoldFilter.ReleasePending)
+                {
+                    if (!_pttProbeExtensionTraced)
+                    {
+                        _pttProbeExtensionTraced = true;
+                        Tracing.TraceLine("PTT: a deferred release ran out while Windows still"
+                            + " reported the space bar physically down, so the hold was extended"
+                            + " rather than unkeyed. This is the operating system's key state"
+                            + " disagreeing with the screen reader's event stream, which is"
+                            + " exactly what #216 predicted — and it is the first evidence that"
+                            + " the physical key state survives a synthesising reader. Further"
+                            + " extensions counted, not logged.",
+                            TraceLevel.Error);
+                    }
+                    StartPttDeferTimer(_pttHoldFilter.NextRecheckMs);
+                }
             };
         }
         _pttDeferTimer.Stop();
