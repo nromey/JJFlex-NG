@@ -89,6 +89,32 @@ if (theRadio.DiversityIsAllowed) { ... }  // 2-SCU radios only
 if (theRadio.AvailableSlices >= 2) { ... }
 ```
 
+### Naming a namespace under `Radios`
+
+**Check `Radios.<X>` against `System.<X>` before you write it.** In VB a
+`Radios.<X>` namespace SHADOWS `System.<X>` for every file with `Imports
+Radios`, silently — no warning, no error, the wrong type simply gets used, and
+the build breaks in a file you never opened. Sprint 32 Track C named its
+namespace `Radios.Diagnostics`, the Radios project compiled clean, and the
+solution build failed with four errors in `PersonalData.vb`. It renamed to
+`Radios.ChainChecks`.
+
+The natural name for a subsystem is very often a `System.` child — Diagnostics,
+Threading, Text, IO, Timers, Net, Security, Runtime, Globalization,
+Collections, Reflection, Media, Windows, Xml, Linq. (Deliberately unbackticked:
+those are words in a warning, not symbols to go and find, and the instruction
+sweep rightly reads a backticked name as the latter.) The C# side compiles
+either way, so a project-level build tells you nothing.
+
+`Radios.Tests/RadiosNamespaceShadowingTests.cs` now refuses the collision:
+it reads the second-level names under `Radios` (committed AND untracked, so a
+brand-new file counts) and compares them against every namespace reachable
+from the `<Import>` list in `JJFlexRadio.vbproj`. **Nothing collides today** —
+verified 2026-08-27 — and the one near-miss, `Radios.Speech` versus
+`System.Speech`, is held open only because the VB app does not reference that
+package. A second test says so, so the day somebody adds it, a test explains
+why rather than `PersonalData.vb`.
+
 ### Accessibility Guidelines
 - Remove `&` from menu labels (interferes with screen readers)
 - Always Set `AccessibleName` and `AccessibleRole` on controls
@@ -171,6 +197,20 @@ powershell -Command "(Get-Item 'bin\x64\Release\net10.0-windows\win-x64\jjflexib
 ```
 
 If the timestamp doesn't match the current time, the build did NOT produce a fresh binary. Also note: building the **solution** (`JJFlexRadio.sln`) may skip the main project — always build the **project** directly (`JJFlexRadio.vbproj`) to be safe.
+
+**THIS IS A BUILD-MACHINE CHECK AND IT DOES NOT SURVIVE DELIVERY.** On a
+tester's disk the same timestamp means nothing at all: Dropbox re-stamps a
+delivered file with the moment it finished syncing on the recipient's machine,
+so the date drifts from every other tester's copy of the same build. Don read
+his copy as a 2 AM publish; nobody had been awake (#268). Never ask a tester
+"what's the date on the file?" and never reason from one.
+
+What a delivered artifact IS good for: **`BUILD-INFO.txt`**, written into the
+build tree before zipping so it travels inside the artifact, and the `Built:` /
+`Commit:` lines in `NOTES-<version>-debug.txt` and `LATEST.txt`. All three are
+produced by `build-debug.bat` and all three say the same thing, because they
+are rendered from one identity block stamped with the exe's own last-write
+time. The zip filename's 4-part version identifies the build exactly.
 
 ### Platforms
 - Primary: x64 (64-bit, recommended)
@@ -511,6 +551,24 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    something deliberately removed. Judge, then either fix the entry or stamp it
    `RESOLVED`/`SHIPPED`/`SUPERSEDED` so it stops flagging and the archive sweep
    in 1a can find it.
+
+   **It also checks SYMBOLS now, as of 2026-08-27 (#272)** — backticked
+   identifiers in memory entries **and in the task register**, against every
+   identifier in the code. Same discipline, same "candidates, not errors", same
+   "do not chase the count to zero". A stale symbol in a TASK is the expensive
+   one, because tasks are read by agents about to write code: fix the task,
+   then re-run `export-task-register.ps1`.
+
+   Its header claimed symbol extraction from the day it was written and had
+   none for six days — the tool's own defect class, in the tool. Anyone relying
+   on it to catch a rename got a green result for nothing.
+
+   **Two checkers, split by corpus, and neither should grow into the other.**
+   This script owns the memory tree and the task register, which live outside
+   every repo. `Radios.Tests/IntegrationPassInstructionTests` owns this file
+   and `MIGRATION.md`, and is scoped by `git ls-files` on purpose. Do not point
+   the drift checker at CLAUDE.md, and do not give the integration pass a walk
+   into the user profile.
 
    Added 2026-08-21. Its first run found three real drifts in minutes, **two of
    them in this file**: the keyboard audit told you to grep `KeyCommands.vb`

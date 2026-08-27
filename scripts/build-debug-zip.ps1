@@ -4,28 +4,46 @@
 #
 # WHY THIS EXISTS (2026-08-20). build-debug.bat used to zip with
 # Compress-Archive, and on failure printed "is jjflexible.exe locked by a
-# running instance?". That message was a guess, and it was wrong. Two real
-# faults, both confirmed on the ms-02:
+# running instance?". That message was a guess, and it was wrong:
 #
-#   1. Compress-Archive ships in Microsoft.PowerShell.Archive, which is a
-#      SCRIPT module (.psm1). Windows PowerShell 5.1 on this machine runs
-#      under the default Restricted execution policy, so the module cannot
-#      load and the cmdlet never runs at all:
-#        "The 'Compress-Archive' command was found in the module
-#         'Microsoft.PowerShell.Archive', but the module could not be loaded."
-#      powershell.exe then exits 1, the batch file saw errorlevel 1, and
-#      printed its guess about a file lock. Nothing was ever locked.
-#
-#   2. $env:PSModulePath is inherited, so when the .bat is launched from a
-#      PowerShell 7 terminal, 5.1 resolves Microsoft.PowerShell.Archive to
-#      PS7's copy under C:\program files\windowsapps\microsoft.powershell_*
-#      instead of its own. That makes the failure environment-dependent:
-#      the same script run from a plain cmd window picks a different module.
+#   "The 'Compress-Archive' command was found in the module
+#    'Microsoft.PowerShell.Archive', but the module could not be loaded."
 #
 # The lock explanation was not merely unverified, it was impossible.
 # build-debug.bat already exits with code 6 BEFORE the build if any
 # jjflexible/JJFlexRadio process is running, so by the time control reaches
 # the zip step a running instance has been ruled out by the script itself.
+#
+# THE MECHANISM, MEASURED 2026-08-27 (task #133). This header used to name two
+# independent faults. It is one fault with two necessary halves, and saying it
+# the other way is wrong in a way that matters -- somebody fixing "the
+# execution policy" alone would have changed nothing:
+#
+#   1. $env:PSModulePath IS INHERITED. Launched with a PowerShell 7 environment
+#      in scope, the 5.1 child sees PS7's module directory first and resolves
+#      Microsoft.PowerShell.Archive to PS7's v1.2.6 under
+#      C:\program files\windowsapps\microsoft.powershell_*, ahead of its own
+#      v1.0.1.0 in System32. Autoload does NOT fall back once the first
+#      candidate fails.
+#
+#   2. THAT COPY IS A .psm1 OUTSIDE $PSHOME. Windows PowerShell exempts script
+#      modules under its own System32 module directory from the execution
+#      policy; it does not exempt one living under WindowsApps. Under the
+#      default Restricted policy the import raises a PSSecurityException:
+#      "running scripts is disabled on this system."
+#
+# NEITHER HALF ALONE DOES IT, and both were checked rather than reasoned:
+#   - poisoned PSModulePath + -ExecutionPolicy Bypass  -> Compress-Archive works
+#   - clean 5.1-only PSModulePath + Restricted policy  -> Compress-Archive works
+#   - poisoned PSModulePath + Restricted policy        -> the failure above
+# So 5.1's own bundled Archive module is also a script module and loads fine
+# under Restricted, and PS7's 1.2.6 runs fine on 5.1 when it is allowed to
+# load. The header's old claim that 1.2.6 "will not run on 5.1" was a version
+# story for what is actually a file-location story.
+#
+# The same shadowing hits any module the 5.1 child needs, not just this one:
+# under the poisoned path Get-ExecutionPolicy itself fails, because
+# Microsoft.PowerShell.Security resolves the same way.
 #
 # THE FIX: use System.IO.Compression.ZipFile directly. It is a .NET
 # Framework type in a binary assembly, not a script module, so it is immune

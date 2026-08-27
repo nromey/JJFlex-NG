@@ -130,9 +130,64 @@ namespace Radios.Tests
         /// throws. A wrong answer here reads as success.
         /// </para>
         /// </remarks>
-        private static List<string> TrackedFiles(string root)
+        private static List<string> TrackedFiles(string root) => GitFiles(root, "ls-files -z");
+
+        /// <summary>
+        /// Authored C# and VB that git does not track yet, ignored files
+        /// excluded.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Deliberately NOT folded into <see cref="AllFiles"/> or
+        /// <see cref="AuthoredSource"/>.</b> Every other sweep in the pass wants
+        /// the committed tree and nothing else, for the reason
+        /// <see cref="TrackedFiles"/> spells out: a verdict that changes with
+        /// whatever is lying around a checkout cannot be believed.
+        /// </para>
+        /// <para>
+        /// One sweep genuinely needs the other answer. The namespace-shadowing
+        /// guard exists to stop a new <c>Radios.X</c> being named, and a new
+        /// namespace arrives in a NEW FILE — untracked at the moment somebody
+        /// would most like to be told. Measured 2026-08-27: adding
+        /// <c>namespace Radios.Timers</c> and running the guard reported clean,
+        /// because git had never heard of the file. A guard that only sees a
+        /// mistake after it is committed is a guard that fires after the build
+        /// it was meant to save.
+        /// </para>
+        /// <para>
+        /// <c>--exclude-standard</c> keeps the gitignore discipline: build
+        /// output and stray reference clones stay out, exactly as they do for
+        /// the tracked list.
+        /// </para>
+        /// </remarks>
+        /// <remarks>
+        /// <para>
+        /// <b>A method, and it re-asks git every call, on purpose.</b> The first
+        /// attempt made this a static property with a field initializer, and
+        /// field initializers run BEFORE the static constructor body — so it
+        /// called git with a null <see cref="Root"/> and quietly returned
+        /// nothing. The guard built on it then reported clean against a
+        /// deliberate collision, twice. A cached empty list is exactly the
+        /// silent-success shape this file is full of warnings about, and the
+        /// cache bought nothing: one git call is milliseconds.
+        /// </para>
+        /// </remarks>
+        internal static IReadOnlyList<string> UntrackedSource()
         {
-            var psi = new System.Diagnostics.ProcessStartInfo("git", "ls-files -z")
+            var found = new List<string>();
+            foreach (string file in GitFiles(Root, "ls-files -z --others --exclude-standard"))
+            {
+                if (IsExcluded(file)) continue;
+                if (!SourceExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase)) continue;
+                if (IsVendor(file)) continue;
+                found.Add(file);
+            }
+            return found;
+        }
+
+        private static List<string> GitFiles(string root, string arguments)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("git", arguments)
             {
                 WorkingDirectory = root,
                 RedirectStandardOutput = true,
@@ -149,13 +204,13 @@ namespace Radios.Tests
                 listing = git.StandardOutput.ReadToEnd();
                 git.WaitForExit();
                 if (git.ExitCode != 0)
-                    throw new InvalidOperationException("git ls-files exited " + git.ExitCode);
+                    throw new InvalidOperationException("git " + arguments + " exited " + git.ExitCode);
             }
             catch (Exception ex)
             {
                 throw new InvalidOperationException(
                     "The integration pass could not ask git which files are tracked under \""
-                    + root + "\", so it has no trustworthy corpus. It refuses to fall back to a "
+                    + root + "\" (git " + arguments + "), so it has no trustworthy corpus. It refuses to fall back to a "
                     + "filesystem walk: that walk reads gitignored trees, and a sweep whose "
                     + "answer depends on what is lying around the checkout is worse than no "
                     + "sweep, because it is read as a verdict. Underlying: " + ex.Message, ex);
