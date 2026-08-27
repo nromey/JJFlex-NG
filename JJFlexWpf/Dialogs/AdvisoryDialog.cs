@@ -21,8 +21,14 @@ namespace JJFlexWpf.Dialogs;
 /// Optional action buttons sit one tab past the text ("Open Radio Setup"
 /// beats directions to it — the app does the walking). An optional
 /// "Don't show this again" checkbox persists through
-/// <see cref="AdvisorySuppression"/>; Show() returns without displaying
+/// <see cref="Radios.AdvisorySuppression"/>; Show() returns without displaying
 /// anything when the key is already suppressed.
+///
+/// The key is a <see cref="Radios.AdvisoryKey"/> rather than a bare string, so
+/// it arrives carrying the words that name it in Settings → Notifications →
+/// Messages You Have Silenced. Suppression has been reversible since Sprint 36
+/// (#267), and it can only stay reversible if every silenced message can say
+/// what it was.
 /// </summary>
 public sealed class AdvisoryDialog : JJFlexDialog
 {
@@ -32,7 +38,7 @@ public sealed class AdvisoryDialog : JJFlexDialog
     private readonly CheckBox? _dontShowAgain;
     private Action? _chosenAction;
 
-    private AdvisoryDialog(string title, string body, string? suppressKey,
+    private AdvisoryDialog(string title, string body, Radios.AdvisoryKey? suppressKey,
         IReadOnlyList<AdvisoryAction> actions)
     {
         Title = title;
@@ -64,6 +70,9 @@ public sealed class AdvisoryDialog : JJFlexDialog
                 Margin = new Thickness(0, 10, 0, 0),
             };
             AutomationProperties.SetName(_dontShowAgain, dontShowAgain.Replace("_", ""));
+            // Say where the way back is, at the moment the door is offered.
+            // An escape hatch nobody knows about is not an escape hatch.
+            JJFlexHelp.SetText(_dontShowAgain, Radios.Lexicon.Get("settings.silenced.reversible_help"));
             root.Children.Add(_dontShowAgain);
         }
 
@@ -135,17 +144,17 @@ public sealed class AdvisoryDialog : JJFlexDialog
     /// already suppressed; passing a key also adds the "Don't show this again"
     /// checkbox. Any chosen action runs after the dialog closes.
     /// </summary>
-    public static void Show(string title, string body, string? suppressKey = null,
+    public static void Show(string title, string body, Radios.AdvisoryKey? suppressKey = null,
         params AdvisoryAction[] actions)
     {
-        if (suppressKey != null && AdvisorySuppression.IsSuppressed(suppressKey))
+        if (suppressKey != null && Radios.AdvisorySuppression.IsSuppressed(suppressKey))
             return;
 
         var dialog = new AdvisoryDialog(title, body, suppressKey, actions);
         dialog.ShowModalDialog();
 
         if (suppressKey != null && dialog._dontShowAgain?.IsChecked == true)
-            AdvisorySuppression.Suppress(suppressKey);
+            Radios.AdvisorySuppression.Suppress(suppressKey);
 
         dialog._chosenAction?.Invoke();
     }

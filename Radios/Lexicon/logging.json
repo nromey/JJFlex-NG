@@ -189,6 +189,8 @@
   "logging.reverse_beacon.browser_failed": "Could not open browser",
   "logging.reverse_beacon.opening_browser": "Opening Reverse Beacon in your browser",
   "logging.running.close_anyway": "_Close anyway",
+  "logging.running.dont_ask_again": "_Don't ask me this again",
+  "logging.running.dont_ask_again_help": "Takes effect only if you then choose Close anyway. JJ Flexible will close quietly from then on and leave these running.",
   "logging.running.exit_intro": "These are still running:",
   "logging.running.exit_question": "Close JJ Flexible?",
   "logging.running.exit_title": "Still Running",

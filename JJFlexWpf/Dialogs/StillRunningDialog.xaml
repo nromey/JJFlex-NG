@@ -23,7 +23,25 @@
                  VerticalScrollBarVisibility="Auto"
                  MaxHeight="300"
                  Margin="0,0,0,12"
+                 KeyboardNavigation.TabIndex="1"
                  AutomationProperties.Name="What is still running"/>
+
+        <!-- "Don't ask me this again" (#267, Sprint 36). Noel overruled its
+             omission, and the ordering was the whole point: this checkbox
+             only became safe once Settings could LIST what had been silenced
+             and put any of it back. Before that, ticking it here removed the
+             only thing that tells an operator his instrumentation is still on,
+             permanently, with nothing anywhere able to bring it back.
+
+             Honoured on "Close anyway" ONLY - see the code-behind. Above the
+             buttons visually, last in the tab order, same as the advisory
+             dialog: it is the rarely-wanted control, and the buttons are what
+             somebody at an exit prompt is reaching for. -->
+        <CheckBox x:Name="DontAskAgainCheck"
+                  Content="_Don't ask me this again"
+                  Margin="0,0,0,10"
+                  KeyboardNavigation.TabIndex="3"
+                  AutomationProperties.Name="Don't ask me this again"/>
 
         <!-- Three answers, because the question genuinely has three. Turning
              the instrumentation off is the whole point of the prompt, so it is
@@ -35,7 +53,8 @@
              Enter to mean anything, and "close anyway" is not a safe default
              when the persisted switches are exactly what the prompt exists to
              catch. Escape means Stay open, via IsCancel and the base class. -->
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                    KeyboardNavigation.TabIndex="2">
             <Button x:Name="StopButton"
                     Content="_Turn these off and close"
                     Padding="12,0" Height="26" Margin="0,0,8,0"

@@ -1464,6 +1464,35 @@
                     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
                                Style="{StaticResource DialogLabel}"
                                Text="What gets saved is the radio's global profile, which is the whole station — every slice, its frequency and its mode — and it is shared with everyone who connects to that radio, not just you."/>
+
+                    <!-- Messages You Have Silenced (#267). Its own StackPanel
+                         so the Loaded hook belongs to this section alone and
+                         the count refreshes every time the tab is reached —
+                         the same pattern the Radios tab uses. A setting the
+                         operator can turn off must be a setting the operator
+                         can turn back on, and until Sprint 36 this one could
+                         not be. -->
+                    <StackPanel Loaded="SilencedSection_Loaded">
+                        <Separator Margin="0,4,0,8"/>
+                        <TextBlock Text="Messages You Have Silenced" FontWeight="SemiBold"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                        <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                                   Style="{StaticResource DialogLabel}"
+                                   Focusable="True"
+                                   Text="When a message offers &quot;Don't show this again&quot; and you take it, JJ Flexible keeps it here by name. Nothing is lost — you can bring any of them back."
+                                   AutomationProperties.Name="When a message offers Don't show this again and you take it, JJ Flexible keeps it here by name. Nothing is lost, you can bring any of them back."/>
+                        <TextBlock x:Name="SilencedCountText" TextWrapping="Wrap" Margin="0,0,0,8"
+                                   Style="{StaticResource DialogLabel}"
+                                   Focusable="True"
+                                   AutomationProperties.Name="How many messages are silenced"/>
+                        <Button x:Name="ReviewSilencedButton"
+                                Content="_Review silenced messages..."
+                                HorizontalAlignment="Left" Padding="12,0" Height="26"
+                                Margin="0,0,0,8"
+                                AutomationProperties.Name="Review silenced messages"
+                   local:JJFlexHelp.Text="Opens the list of every message you have told JJ Flexible not to show again. Each one says what it was and when you silenced it, and any of them can be brought back on its own — or all of them at once."
+                                Click="ReviewSilencedButton_Click"/>
+                    </StackPanel>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>
