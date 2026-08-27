@@ -327,6 +327,17 @@ public static class KeyInventory
         new("Leader", "Leader key", "Ctrl+J, Q", "Capture a noise profile for PC Spectral NR (press Q again to cancel)",
             new[] { "noise", "profile", "capture", "quiet", "qrn", "sample", "spectral", "sub",
                     "subtraction", "baseline", "leader" }, "Radio", "DSP"),
+        // Sprint 36 Track C (#271) — the QSO signal analyzer. Ctrl+Q because
+        // plain Q is the noise capture and Q is the letter "QSO" reaches for;
+        // Ctrl+F, Ctrl+D and Ctrl+R are the precedent for the Ctrl-modified
+        // form when the letter you want is taken. The two capture chords sit
+        // side by side on purpose.
+        new("Leader", "Leader key", "Ctrl+J, Ctrl+Q",
+            "Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (press it again to stop and hear the report)",
+            new[] { "qso", "signal", "analyzer", "analyse", "analyze", "capture", "watch",
+                    "qsb", "fade", "fading", "fades", "flutter", "swing", "strength",
+                    "smeter", "meter", "report", "peak", "trough", "average", "trend",
+                    "rising", "falling", "coming", "up", "down", "leader" }, "Radio", "General"),
         new("Leader", "Leader key", "Ctrl+J, A", "Toggle Auto Notch",
             new[] { "anf", "auto", "notch", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",

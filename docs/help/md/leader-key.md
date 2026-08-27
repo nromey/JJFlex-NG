@@ -54,6 +54,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 | T | Toggle meter tones on or off |
 | Shift+T | Toggle alert sounds (earcons) on or off |
 | D | Toggle tuning speech debounce on or off |
+| Ctrl+Q | Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all. Saved captures live under Tools, Signal captures |
 
 ## Status, Information, and Slices
 

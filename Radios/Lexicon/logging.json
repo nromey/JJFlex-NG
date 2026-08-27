@@ -195,6 +195,7 @@
   "logging.running.meter_lines": "{count} meter lines into the log",
   "logging.running.nothing": "Nothing that costs anything is running.",
   "logging.running.persists": "and it will still be on the next time you start",
+  "logging.running.qso_capture": "watching the S-meter for {duration}, {count} readings",
   "logging.running.since": "started {clock}",
   "logging.running.startup": "Recording is on. {list}",
   "logging.running.stay_open": "_Stay open",

@@ -3229,6 +3229,26 @@ public class KeyCommands
                 }
                 break;
 
+            // Sprint 36 Track C (#271): the QSO signal analyzer — watch a
+            // contact's S-meter, then hear what the signal did, QSB and all.
+            // Ctrl+Q because plain Q is the noise capture and Q is the letter
+            // "QSO" reaches for; Ctrl+F, Ctrl+D and Ctrl+R are the precedent
+            // for the Ctrl-modified form when the letter you want is taken.
+            // The two capture chords live side by side on purpose.
+            //
+            // A toggle: the same chord stops the capture and speaks the
+            // headline; the full report lands under Tools, Signal captures.
+            // Runs until told — no auto-stop, ruled 2026-08-26 — and the
+            // running-cost registration is what makes that safe (Ctrl+J, O
+            // reports it, thresholds speak up, exit asks about it).
+            //
+            // No rig gate at the case: STOPPING must work even after the
+            // radio has gone away, or a capture could only be ended by
+            // exiting. The handler gates starting on its own.
+            case Keys.Q | Keys.Control:
+                ToggleQsoSignalCaptureFromChord();
+                break;
+
             case Keys.A:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Auto Notch",
@@ -4075,6 +4095,61 @@ public class KeyCommands
         {
             EarconPlayer.LeaderInvalidTone();
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("logging.running.unavailable"),
+                Radios.VerbosityLevel.Critical);
+        }
+    }
+
+    /// <summary>
+    /// Ctrl+J, Ctrl+Q — start or stop the QSO signal analyzer (#271).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Starting needs a radio; stopping deliberately does not, so a capture
+    /// can always be ended — including after a disconnect, when the buffer
+    /// still holds a window worth reporting on.
+    /// </para>
+    /// <para>
+    /// The stop headline interrupts at Critical, because it is the answer to
+    /// a keypress — the same contract as Ctrl+J, O. The detail report is
+    /// baked into the saved capture; nothing here renders it.
+    /// </para>
+    /// </remarks>
+    private void ToggleQsoSignalCaptureFromChord()
+    {
+        try
+        {
+            if (Radios.SignalCapture.QsoSignalCaptureController.IsRunning)
+            {
+                _context.Trace("Leader:QSO capture stop");
+                var result = Radios.SignalCapture.QsoSignalCaptureController.Stop(
+                    "stopped by you", out bool saved);
+                EarconPlayer.FeatureOffTone();
+                // A lost race with the exit-path stop leaves nothing to report.
+                if (result == null) return;
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.SignalCapture.QsoSignalHeadline.Compose(
+                        result.Analysis, result.Record.CaptureId, saved),
+                    Radios.VerbosityLevel.Critical, true);
+                return;
+            }
+
+            var rig = _context.GetRigControl();
+            if (rig == null)
+            {
+                LeaderNoRadio();
+                return;
+            }
+
+            _context.Trace("Leader:QSO capture start");
+            Radios.SignalCapture.QsoSignalCaptureController.Start(rig);
+            EarconPlayer.FeatureOnTone();
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.qso.started"),
+                Radios.VerbosityLevel.Critical, true);
+        }
+        catch
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.qso.failed"),
                 Radios.VerbosityLevel.Critical);
         }
     }

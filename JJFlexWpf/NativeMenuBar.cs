@@ -1868,6 +1868,14 @@ public class NativeMenuBar : IDisposable
             Dialogs.FixerPastRunsDialog.Show(() => Rig,
                 System.Windows.Window.GetWindow(_window)));
 
+        // Sprint 36 Track C (#271) — the QSO signal analyzer's saved captures:
+        // view, rename, export, delete. Top level of Tools, not inside Fix — a
+        // capture is a measurement of a contact, not a repair artifact, and
+        // the stop announcement names this exact route ("under Tools, Signal
+        // captures"), so the words and the menu must agree.
+        AddWired(tools, "Signal captures...", () =>
+            Dialogs.SignalCapturesDialog.Show(System.Windows.Window.GetWindow(_window)));
+
         // RENAMED from "Diagnostics" 2026-08-25, and the rename is the point.
         // This item does not diagnose anything — it deep-links to the settings
         // tab that turns the diagnostic LOG on and saves a capture. Sitting a
