@@ -135,6 +135,23 @@ namespace JJFlexWpf.Dialogs
 
             InitializeComponent();
 
+            // The PC-audio status line explains the checkbox directly above it,
+            // so it belongs to that checkbox rather than to the tab order
+            // (#211). Ctrl+F1 on the checkbox now reads what it does AND what
+            // it is doing right now, and the sentence no longer sits between
+            // the operator and the next control.
+            //
+            // The two other read-only lines on this dialog — the Radio Outputs
+            // advisory and the Radio Profile status — are deliberately still
+            // tab stops. Both are SECTION signposts rather than notes about a
+            // control: the Radio Outputs advisory exists to say why the panel
+            // beneath it is empty, which is exactly when there is no control
+            // to hang it on, and the profile status reports the outcome of the
+            // whole tab. Text that is the only carrier of its information stays
+            // reachable — the same rule DecorativeText states from the other
+            // side.
+            JJFlexHelp.SetNoteFor(PcAudioStatusText, PcAudioCheck);
+
             // Category navigation (task #134). Attached before anything else
             // touches SettingsTabs, so a tab selected later in this
             // constructor — or by SelectTabByHeader before the dialog is

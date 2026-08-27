@@ -13,7 +13,7 @@ These keys work no matter where you are in the application — and "no matter wh
 | Key | Action |
 |-----|--------|
 | F1 | Open this help file |
-| Ctrl+F1 | Explain the control you are sitting on — the longer story its short name leaves out. If there's nothing extra, it says so honestly |
+| Ctrl+F1 | Explain the control you are sitting on — the longer story its short name leaves out, plus whatever the note beneath it currently says. If there's nothing extra, it says so honestly |
 | Ctrl+/ | Open Command Finder (search all commands) |
 | Ctrl+J | The JJ key (press, release, then press a second key) |
 | Ctrl+Shift+M | Switch between Classic and Modern tuning mode |

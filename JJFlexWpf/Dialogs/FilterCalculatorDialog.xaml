@@ -4,10 +4,17 @@
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Filter Calculator"
         Width="360" Height="280">
-    <StackPanel Margin="12" KeyboardNavigation.TabNavigation="Cycle">
+    <!-- The instruction below is no longer a tab stop (#211). None of the three
+         boxes carries an explanation of its own, so the panel holds it: Ctrl+F1
+         from any of them walks up to here and finds it. That is one deliberate
+         press instead of a stop paid on every pass through a four-control
+         dialog. ResultText below IS still a stop, and deliberately — it is the
+         answer the operator came for, not prose about a control, and no control
+         repeats it. -->
+    <StackPanel Margin="12" KeyboardNavigation.TabNavigation="Cycle"
+                local:JJFlexHelp.Text="Enter any two of low edge, high edge and width. The third is computed as you type, and Apply sends the pair to the current slice.">
         <TextBlock Text="Enter any two values. The third will be computed."
                    TextWrapping="Wrap" Margin="0,0,0,12"
-                   Focusable="True"
                    AutomationProperties.Name="Enter any two values. The third will be computed." />
 
         <StackPanel Orientation="Horizontal" Margin="0,4">

@@ -361,7 +361,6 @@
                                Style="{StaticResource DialogLabel}"
                                TextWrapping="Wrap"
                                Margin="0,0,0,8"
-                               Focusable="True"
                                AutomationProperties.LiveSetting="Polite"
                                AutomationProperties.Name="Radio audio through this computer, status"/>
                     <!-- Per-radio on-connect behaviour. Collapsed (out of the

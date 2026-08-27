@@ -49,12 +49,22 @@ namespace JJFlexWpf.Dialogs
         /// Set a status line's text and its accessible name together.
         /// </summary>
         /// <remarks>
-        /// A focusable TextBlock reports AutomationProperties.Name, not its
-        /// Text, so a status line whose Name was authored once in XAML reads the
-        /// same sentence forever no matter what it is displaying. These lines
-        /// exist precisely because their content changes; they have to say the
+        /// <para>
+        /// A TextBlock reports AutomationProperties.Name, not its Text, so a
+        /// status line whose Name was authored once in XAML reads the same
+        /// sentence forever no matter what it is displaying. These lines exist
+        /// precisely because their content changes; they have to say the
         /// current thing. Empty text becomes a single space — a genuinely blank
         /// line is a hole a screen reader arrows straight past.
+        /// </para>
+        /// <para>
+        /// These lines are NOT tab stops since #211 (2026-08-27). Nothing here
+        /// changes for that: the accessible name still has to track the text,
+        /// because the dialog-body read and the review cursor both take the
+        /// name. What reaches them deliberately is Ctrl+F1 on the control each
+        /// one explains — see <c>RegisterNotes</c>, which reads the note's
+        /// Text live, so this method needs no second push.
+        /// </para>
         /// </remarks>
         internal static void SetStatusLine(TextBlock block, string text)
         {
@@ -180,6 +190,8 @@ namespace JJFlexWpf.Dialogs
 
             InitializeComponent();
 
+            RegisterNotes();
+
             // 2 Hz, matching the Audio Workshop's meter cadence: fast enough to
             // follow a voice, slow enough that the value is readable.
             _micTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
@@ -214,6 +226,46 @@ namespace JJFlexWpf.Dialogs
             SetMicReading("Microphone check: not running. Choose a microphone above, then press "
                 + "Alt+M to start it. JJ Flexible listens to that microphone and tells you what "
                 + "it hears. Nothing is transmitted and the radio is not involved.");
+        }
+
+        /// <summary>
+        /// Say which control each read-only note belongs to, so Ctrl+F1 on the
+        /// control reads the note (#211).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This page had SEVEN read-only notes in the tab order and three
+        /// controls in the section they describe: combo, note, list, note,
+        /// list, note — six stops for three controls. The notes are worth
+        /// having; they are not worth a stop each, and putting the explanation
+        /// AHEAD of the control it explains is how the audio-system selector
+        /// came to be unfindable on 2026-08-24 (see the constructor's focus
+        /// note above, which fixed where focus LANDS without reducing what it
+        /// has to walk through afterwards).
+        /// </para>
+        /// <para>
+        /// The notes stay on screen, keep their accessible names, and are
+        /// still read as part of the dialog body when it opens. What they lose
+        /// is the Tab key. What replaces it is Ctrl+F1 on the control, which
+        /// now answers with the control's own explanation followed by whatever
+        /// its note currently says — one deliberate press instead of a toll on
+        /// every pass.
+        /// </para>
+        /// <para>
+        /// Overall page status is registered against Refresh rather than a
+        /// field, because it belongs to the page and not to any one control,
+        /// and Refresh is the control whose whole job is that status.
+        /// </para>
+        /// </remarks>
+        private void RegisterNotes()
+        {
+            JJFlexHelp.SetNoteFor(StatusText, RefreshButton);
+            JJFlexHelp.SetNoteFor(HostApiNote, HostApiCombo);
+            JJFlexHelp.SetNoteFor(RadioOutputNote, RadioOutputList);
+            JJFlexHelp.SetNoteFor(RadioInputNote, RadioInputList);
+            JJFlexHelp.SetNoteFor(TxRateNote, TxRateCombo);
+            JJFlexHelp.SetNoteFor(MicLevelNote, MicLevelSlider);
+            JJFlexHelp.SetNoteFor(FilterNoteText, AdvancedDevicesCheck);
         }
 
         /// <summary>
@@ -729,7 +781,7 @@ namespace JJFlexWpf.Dialogs
             // can open — never the not-connected row, which cannot carry audio
             // at all. Mono rows qualify since 2026-08-16; the engine opens them
             // as mono and duplicates to stereo.
-            int fallbackIdx = FirstUsableIndex(rows);
+            int fallbackIdx = DefaultOrFirstUsableIndex(rows);
 
             if (savedMissing)
             {
@@ -809,14 +861,43 @@ namespace JJFlexWpf.Dialogs
             return rows;
         }
 
-        private static int FirstUsableIndex(IReadOnlyList<Devices.DeviceInfo> list)
+        /// <summary>
+        /// The row to pre-select when the operator has never chosen one: the
+        /// Windows default if it is usable, otherwise the first usable row.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This asks for the default BY NAME, and used to get it by luck. The
+        /// picker's rows arrived in PortAudio's enumeration order with the
+        /// default moved to the front (<c>Devices.MoveDefaultFirst</c>), so
+        /// "the first usable row" was the Windows default nearly always and
+        /// nobody had to say so.
+        /// </para>
+        /// <para>
+        /// Sorting the picker by name (#213) breaks that coincidence: the first
+        /// row is now whichever device happens to sort first, which is no basis
+        /// at all for deciding what a person's microphone should be. Reading
+        /// the flag instead is both correct and independent of order, which is
+        /// what it should always have been.
+        /// </para>
+        /// <para>
+        /// <c>GroupIsSystemDefault</c> as well as <c>IsDefault</c>, for the
+        /// reason recorded on those fields: PortAudio flags one endpoint of a
+        /// physical device, and a list filtered to a host API may be showing a
+        /// different endpoint of the same hardware.
+        /// </para>
+        /// </remarks>
+        private static int DefaultOrFirstUsableIndex(IReadOnlyList<Devices.DeviceInfo> list)
         {
+            int firstUsable = -1;
             for (int i = 0; i < list.Count; i++)
             {
                 if (list[i].IsMissingSaved) continue;
-                if (list[i].UsableForRadioAudio) return i;
+                if (!list[i].UsableForRadioAudio) continue;
+                if (firstUsable < 0) firstUsable = i;
+                if (list[i].IsDefault || list[i].GroupIsSystemDefault) return i;
             }
-            return -1;
+            return firstUsable;
         }
 
         private static int IndexOf(IReadOnlyList<Devices.DeviceInfo> list, Devices.DeviceInfo target)
