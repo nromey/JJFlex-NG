@@ -1382,6 +1382,10 @@
                                   Content="Warning sounds" Margin="0,0,0,4"
                                   AutomationProperties.Name="Warning sounds"
                    local:JJFlexHelp.Text="The warning alarm — a long 800 hertz tone with harmonics, deliberately unlike anything else the app plays — and the quieter two-note tone that says a problem was recorded. This is the one worth leaving on. Every other sound here answers a key you just pressed; these two fire when the app has something to tell you that you did not ask about, such as transmit audio that would not have gone out."/>
+                        <CheckBox x:Name="EarconContextHelpCheck"
+                                  Content="Context help cue" Margin="0,0,0,4"
+                                  AutomationProperties.Name="Context help cue"
+                   local:JJFlexHelp.Text="Two quick rising taps a moment after you land on a control, meaning Control F1 has something to say there. It only sounds when that help is different from the last help it announced, so moving between controls stays quiet."/>
                     </StackPanel>
 
                     <Separator Margin="0,4,0,8"/>

@@ -12,7 +12,7 @@ namespace JJFlexWpf;
 /// universal Home keys, filter chords, leader-key commands, PTT keys,
 /// navigation keys, and system-reserved chords.
 ///
-/// This is DATA, deliberately in one place, because it drives five surfaces
+/// This is DATA, deliberately in one place, because it drives six surfaces
 /// that used to drift apart:
 ///   1. DisplayField.HelpItems (the per-field F1-style help dialog)
 ///   2. The '?' speak-keys-here handler on home fields
@@ -21,9 +21,11 @@ namespace JJFlexWpf;
 ///      ApplicationEvents.vb)
 ///   5. The generated key manifest (KeyManifest) reconciled against
 ///      docs/help/md/keyboard-reference.md
+///   6. Ctrl+F1 context help on the Home fields (#184) — FrequencyContextRows
+///      and SpeakTextFor, composed live by MainWindow's help provider
 ///
 /// If a field handler in FreqOutHandlers gains or loses a key, update the
-/// tables here — the five surfaces above follow automatically.
+/// tables here — the six surfaces above follow automatically.
 /// </summary>
 public static class KeyInventory
 {
@@ -795,6 +797,32 @@ public static class KeyInventory
             items.Add((u.KeyDisplay, u.Description));
         items.Add(("?", "speak this list"));
         return items;
+    }
+
+    /// <summary>
+    /// The rows Ctrl+F1 reads on the Frequency field (#184): the live map for
+    /// the current tuning mode, verbatim from the same tables that drive
+    /// every other key surface. In Classic the cursor-movement row is
+    /// prepended, because in Classic the cursor position IS the tuning step
+    /// and the movement keys are the thing that sets it — a Classic map that
+    /// never mentions Left and Right teaches half the mode.
+    /// </summary>
+    public static List<(string key, string description)> FrequencyContextRows(bool modern)
+    {
+        var rows = FieldKeys
+            .Where(e => e.Context == (modern ? "Freq.Modern" : "Freq.Classic"))
+            .Select(e => (e.KeyDisplay, e.Description))
+            .ToList();
+        if (!modern)
+        {
+            // Pulled by key display rather than duplicated, so the wording has
+            // exactly one home. TuningContextHelpTests holds the positive
+            // control proving this lookup still finds its row.
+            var leftRight = HomeNavigation.FirstOrDefault(e => e.KeyDisplay == "Left / Right");
+            if (leftRight != null)
+                rows.Insert(0, (leftRight.KeyDisplay, leftRight.Description));
+        }
+        return rows;
     }
 
     // ────────────────────────────────────────────────────────────────

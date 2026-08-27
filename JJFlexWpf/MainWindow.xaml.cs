@@ -63,6 +63,18 @@ public partial class MainWindow : UserControl
 
         Loaded += MainWindow_Loaded;
 
+        // Ctrl+F1 on the Home fields (#184). Focus in the Home display always
+        // sits on the same SilentTextBox whichever FIELD the cursor is in, so
+        // a static help string cannot answer — and the Frequency field's
+        // answer additionally depends on which tuning mode is live, where the
+        // cursor stands, and the step values. A provider resolves all of that
+        // at the moment the key is pressed.
+        JJFlexHelp.SetProvider(FreqOut, ComposeFreqOutContextHelp);
+
+        // The context-help availability cue (#275) — two rising taps behind a
+        // focus landing when Ctrl+F1 has something new to say there.
+        ContextHelpCue.Install();
+
         // Focus-return: when any JJFlexDialog closes, put keyboard focus back
         // inside the application and then speak compact status.
         //
@@ -779,6 +791,55 @@ public partial class MainWindow : UserControl
             + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.CoarseTuneStep)
             + ", fine "
             + FreqOutHandlers.FormatStepForSpeech(_freqOutHandlers.FineTuneStep);
+    }
+
+    /// <summary>
+    /// The Ctrl+F1 answer for the Home display (#184), resolved live for the
+    /// field the cursor is standing in.
+    ///
+    /// The Frequency field leads with STATE — the live tuning mode, then the
+    /// cursor digit (Classic) or the step values (Modern) — then reads only
+    /// the live key map, then names the way to the other mode. The map rows
+    /// come verbatim from KeyInventory, the same table behind the '?' key,
+    /// the per-field help dialog, the Keys dialog, the Command Finder and the
+    /// exported manifest, so this is not a new hand-maintained copy (#274 is
+    /// what the last extra copy cost). Every other field answers with its
+    /// '?' text for the same reason: one source, zero new prose.
+    /// </summary>
+    private string? ComposeFreqOutContextHelp()
+    {
+        var field = FreqOut.GetFocusedField();
+        if (field == null) return null;
+        bool modern = ActiveUIMode == UIMode.Modern;
+
+        if (field.Key != "Freq")
+            return KeyInventory.SpeakTextFor(field.Key, field.Label ?? field.Key, modern);
+
+        // Binary CurrentVerbosity ternary, the ToggleUIMode pattern — Chatty
+        // gets connective coaching, everyone gets the full live map. The
+        // answer itself always speaks: the operator explicitly asked.
+        bool chatty = Radios.ScreenReaderOutput.CurrentVerbosity == VerbosityLevel.Chatty;
+
+        // The switch key as CURRENTLY bound, so a remapped key is never
+        // misquoted. Null when unbound — the composer names the menu instead.
+        var switchEntry = KeyCommandsRef?.Lookup(CommandValues.ToggleTuningMode);
+        var switchKey = switchEntry?.KeyDef?.Key ?? System.Windows.Forms.Keys.None;
+        string? switchDisplay = switchKey == System.Windows.Forms.Keys.None
+            ? null : KeyManifest.FormatKey(switchKey);
+
+        // Step values mirror FreqOutHandlers' own defaults if the handler is
+        // somehow not built yet — the help must not invent numbers.
+        int coarseHz = _freqOutHandlers?.CoarseTuneStep ?? 5000;
+        int fineHz = _freqOutHandlers?.FineTuneStep ?? 100;
+
+        return Radios.TuningContextHelp.ComposeFrequencyField(
+            modern,
+            chatty,
+            switchDisplay,
+            FreqOutHandlers.FormatStepForSpeech(coarseHz),
+            FreqOutHandlers.FormatStepForSpeech(fineHz),
+            modern ? null : FreqOut.CurrentStepName("Freq"),
+            KeyInventory.FrequencyContextRows(modern));
     }
 
     /// <summary>
