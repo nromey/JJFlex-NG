@@ -158,8 +158,19 @@ Public Class ConnectingForm
         ' any of it. Armed here, at the moment the window appears, so the clock
         ' runs from when the operator started waiting rather than from whenever
         ' the radio first answers.
-        _armedVoice = _narrator.OpeningVoice()
-        ArmWaitVoice(_armedVoice)
+        '
+        ' ONLY FOR A REAL RADIO CONNECT, which is what having a profiler means.
+        ' The legacy one-argument constructor puts this same window up for the
+        ' picker's brief SmartLink passes, where the "radio name" is whatever
+        ' ExtractRadioName could scrape out of a status string — so a refresh
+        ' pass would have started saying "Still connecting to radio." every four
+        ' seconds. Those passes are silent too and probably should not be, but
+        ' they need their own words rather than a borrowed sentence about a
+        ' radio that is not being connected to.
+        If _profiler IsNot Nothing Then
+            _armedVoice = _narrator.OpeningVoice()
+            ArmWaitVoice(_armedVoice)
+        End If
     End Sub
 
     ''' <summary>
