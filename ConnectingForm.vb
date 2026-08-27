@@ -18,6 +18,12 @@ Imports Radios
 ''' counting earcons (1 / 1+1 / 1+1+1). Phase announcements only fire if a
 ''' phase takes longer than 500 ms so fast LAN connects stay silent.
 '''
+''' Task #212 (2026-08-26): the phase announcements named the MOMENTS and
+''' nothing covered the WAITS between them, which is where all the time goes.
+''' The decision about what to say, and when, now lives in
+''' Radios.ConnectNarrator so it can be tested without a radio; this class is
+''' the adapter that applies each step to a label, a voice and an earcon.
+'''
 ''' Two timers manage time-bound escalation:
 '''   - 60 s wall clock: surface a diagnostic-rich "Keep waiting / Cancel"
 '''     dialog using recent ConnectionProfiler events.
@@ -37,8 +43,10 @@ Public Class ConnectingForm
     Private ReadOnly _profiler As Radios.ConnectionProfiler
     Private ReadOnly _radioName As String
     Private _profilerHandler As Action(Of String, Long, Dictionary(Of String, Object))
-    Private _phaseStartTickMs As Long = 0
-    Private _currentPhase As Integer = 1
+    Private ReadOnly _narrator As Radios.ConnectNarrator
+    ''' <summary>The heartbeat currently covering this wait, so the escalation
+    ''' prompt can silence it and put it back if the operator keeps waiting.</summary>
+    Private _armedVoice As Radios.ConnectWaitVoice
     Private _cancelHandled As Boolean = False
     ''' <summary>True when WE closed the form because the connect finished.
     ''' Distinguishes our own Close() from the operator pressing X or Alt+F4,
@@ -46,9 +54,6 @@ Public Class ConnectingForm
     Private _programmaticClose As Boolean = False
     Private _escalationActive As Boolean = False
 
-    ' Phase announcements only fire if the current phase takes longer than
-    ' this. Fast LAN connects (~3 s total, with phases sub-second) stay silent.
-    Private Const PhaseAnnounceThresholdMs As Integer = 500
     Private Const EscalationIntervalMs As Integer = 60_000      ' 60 s
     Private Const AutoCancelCeilingMs As Integer = 300_000       ' 5 min
 
@@ -58,7 +63,16 @@ Public Class ConnectingForm
     ''' Optionally wires up to a ConnectionProfiler so the modal updates text
     ''' as the connection moves through phases.
     ''' </summary>
-    Public Sub New(radioName As String, cancelCallback As Action, profiler As Radios.ConnectionProfiler)
+    ''' <param name="lead">
+    ''' The sentence the radio picker spoke as it handed the connect on — see
+    ''' <c>RigSelectorDialog.SelectedConnectingLine</c>, which composes it and is
+    ''' the only place its wording lives. It becomes this window's opening line
+    ''' so the operator gets it even though the picker's own utterance was made
+    ''' across a window change and may have been flushed. Nothing to carry means
+    ''' the plain form as before. Task #93.
+    ''' </param>
+    Public Sub New(radioName As String, cancelCallback As Action, profiler As Radios.ConnectionProfiler,
+                   Optional lead As String = Nothing)
         _radioName = If(radioName, Radios.Lexicon.Get("connect.connecting.default_radio_name"))
         _cancelCallback = cancelCallback
         _profiler = profiler
@@ -80,7 +94,11 @@ Public Class ConnectingForm
         AccessibleName = Radios.Lexicon.Get("connect.connecting.title")
         AccessibleRole = AccessibleRole.Dialog
 
-        Dim initialMessage = Radios.Lexicon.Get("connect.connecting.initial", ("radioName", _radioName))
+        ' The lead is already a finished sentence, so it is carried whole rather
+        ' than having the plain form's trailing ellipsis bolted onto its end.
+        Dim initialMessage = If(String.IsNullOrWhiteSpace(lead),
+                                Radios.Lexicon.Get("connect.connecting.initial", ("radioName", _radioName)),
+                                Radios.Lexicon.Get("connect.connecting.initial_lead", ("lead", lead.Trim())))
         _statusLabel = New Label() With {
             .Text = initialMessage,
             .Dock = DockStyle.Fill,
@@ -127,11 +145,31 @@ Public Class ConnectingForm
             _autoCancelTimer.Start()
         End If
 
-        _phaseStartTickMs = Environment.TickCount64
+        _narrator = New Radios.ConnectNarrator(_radioName)
 
         If _profiler IsNot Nothing Then
             _profilerHandler = AddressOf OnProfilerEvent
             AddHandler _profiler.EventRecorded, _profilerHandler
+        End If
+
+        ' The connect leg runs BEFORE the first profiler event this form cares
+        ' about. Over SmartLink that stretch is a session, a sign-in, a hole
+        ' punch and a TLS handshake, and until #212 nothing said a word during
+        ' any of it. Armed here, at the moment the window appears, so the clock
+        ' runs from when the operator started waiting rather than from whenever
+        ' the radio first answers.
+        '
+        ' ONLY FOR A REAL RADIO CONNECT, which is what having a profiler means.
+        ' The legacy one-argument constructor puts this same window up for the
+        ' picker's brief SmartLink passes, where the "radio name" is whatever
+        ' ExtractRadioName could scrape out of a status string — so a refresh
+        ' pass would have started saying "Still connecting to radio." every four
+        ' seconds. Those passes are silent too and probably should not be, but
+        ' they need their own words rather than a borrowed sentence about a
+        ' radio that is not being connected to.
+        If _profiler IsNot Nothing Then
+            _armedVoice = _narrator.OpeningVoice()
+            ArmWaitVoice(_armedVoice)
         End If
     End Sub
 
@@ -210,6 +248,43 @@ Public Class ConnectingForm
         Close()
     End Sub
 
+    ' ── The progress heartbeat ────────────────────────────────────────────
+    '
+    ' ProgressVoice is the mechanism discovery already uses, and #212 asked for
+    ' the connect walk to use the same one rather than grow a second. Two
+    ' details are load-bearing:
+    '
+    '   * Armed with NO OPENING LINE. Whatever just changed phase has already
+    '     said what is happening; the heartbeat exists only to keep saying
+    '     "still". ProgressVoice treats an empty opening as nothing to speak, so
+    '     the first word arrives one repeat interval in — which is why a fast
+    '     LAN connect, whose phases are sub-second, never hears any of this.
+    '
+    '   * STOPPED whenever the wait it covered ends, including on the way out
+    '     through cancel and close. A heartbeat that outlives its wait is worse
+    '     than the silence it replaced: it reassures an operator about work that
+    '     finished or failed.
+
+    Private Sub ArmWaitVoice(voice As Radios.ConnectWaitVoice)
+        If voice Is Nothing Then Return
+        If Not Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled Then Return
+        Try
+            Radios.ProgressVoice.Start(voice.What,
+                                       Nothing, Nothing,
+                                       voice.StillTerse, voice.StillChatty,
+                                       voice.RepeatMs, voice.MaxMs)
+        Catch ex As Exception
+            Tracing.TraceLine("ConnectingForm: progress voice failed to start: " & ex.Message, TraceLevel.Warning)
+        End Try
+    End Sub
+
+    Private Shared Sub StopWaitVoice(reason As String)
+        Try
+            Radios.ProgressVoice.Stop(reason)
+        Catch
+        End Try
+    End Sub
+
     ' ── State-aware text + counting-earcon dispatch ───────────────────────
 
     Private Sub OnProfilerEvent(eventName As String, elapsedMs As Long, data As Dictionary(Of String, Object))
@@ -226,53 +301,52 @@ Public Class ConnectingForm
     Private Sub HandleProfilerEvent(eventName As String, elapsedMs As Long, data As Dictionary(Of String, Object))
         If IsDisposed Then Return
 
-        Select Case eventName
-            Case "start_slices_available"
-                EnterPhase(2, Radios.Lexicon.Get("connect.connecting.phase_slice_wait", ("radioName", _radioName)))
-            Case "start_antenna_available"
-                EnterPhase(3, Radios.Lexicon.Get("connect.connecting.phase_setup"))
-            Case "station_name_set"
-                ' Connection nearly complete — the openTheRadio caller will
-                ' close us shortly. Don't change phase or earcon.
-            Case "start_early_abort", "start_grace_abort"
-                UpdateStatus(Radios.Lexicon.Get("connect.connecting.retrying"))
-            Case "start_cancelled", "start_cancelled_in_station_wait"
-                UpdateStatus(Radios.Lexicon.Get("connect.connecting.cancelling"))
-        End Select
-    End Sub
+        Dim step_ = _narrator.OnEvent(eventName, data)
+        If step_ Is Nothing OrElse step_.IsEmpty Then Return
 
-    Private Sub EnterPhase(phase As Integer, text As String)
-        If phase <= _currentPhase Then
-            UpdateStatus(text)
-            Return
+        If step_.StopVoice Then StopWaitVoice("connect: " & eventName)
+
+        If step_.StatusText IsNot Nothing Then UpdateStatus(step_.StatusText)
+
+        ' Phase announcements ride at Chatty. Critical-level events (errors,
+        ' cancel, timeout) are spoken elsewhere at Critical so they pierce
+        ' verbosity-off.
+        If step_.Speak AndAlso step_.StatusText IsNot Nothing _
+           AndAlso Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled Then
+            Try
+                Radios.ScreenReaderOutput.Speak(step_.StatusText, VerbosityLevel.Chatty)
+            Catch
+            End Try
         End If
 
-        Dim phaseDurationMs = Environment.TickCount64 - _phaseStartTickMs
-        Dim previousPhase = _currentPhase
-        _currentPhase = phase
-        _phaseStartTickMs = Environment.TickCount64
-        UpdateStatus(text)
-
-        ' Don't re-announce or earcon for fast common-case connects. If the
-        ' previous phase took less than the threshold, the user gets silent
-        ' progression — fast LAN connects stay unobtrusive.
-        If phaseDurationMs < PhaseAnnounceThresholdMs Then Return
-        If Not Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled Then Return
-
-        ' Phase announcement at default verbosity (Chatty). Critical-level
-        ' events (errors, cancel, timeout) are spoken elsewhere with their
-        ' own Critical level so they pierce verbosity-off.
-        Try
-            Radios.ScreenReaderOutput.Speak(text, VerbosityLevel.Chatty)
-        Catch
-        End Try
+        ' The reason a connect died, said HERE rather than after this window is
+        ' torn down. Critical: a failed connect is a state change the operator
+        ' has to hear whatever their verbosity, and it is not "connection
+        ' progress" they can have switched off.
+        If step_.SpeakExtra IsNot Nothing Then
+            Try
+                Radios.ScreenReaderOutput.Speak(step_.SpeakExtra, VerbosityLevel.Critical, True)
+            Catch
+            End Try
+        End If
 
         ' Counting earcon for the new phase (1 / 1+1 / 1+1+1).
-        Try
-            JJFlexWpf.EarconPlayer.ConnectPhaseTone(phase)
-        Catch ex As Exception
-            Tracing.TraceLine("ConnectingForm: phase earcon failed: " & ex.Message, TraceLevel.Warning)
-        End Try
+        If step_.PlayPhaseTone Then
+            Try
+                JJFlexWpf.EarconPlayer.ConnectPhaseTone(step_.Phase)
+            Catch ex As Exception
+                Tracing.TraceLine("ConnectingForm: phase earcon failed: " & ex.Message, TraceLevel.Warning)
+            End Try
+        End If
+
+        ' Armed LAST, so the heartbeat's clock starts after whatever this event
+        ' had to say rather than racing it.
+        If step_.Arm IsNot Nothing Then
+            _armedVoice = step_.Arm
+            ArmWaitVoice(step_.Arm)
+        ElseIf step_.StopVoice Then
+            _armedVoice = Nothing
+        End If
     End Sub
 
     ' ── Cancel paths: Escape, X close, escalation, auto-cancel ────────────
@@ -345,10 +419,17 @@ Public Class ConnectingForm
         closeTimer.Start()
     End Sub
 
+    ''' <summary>
+    ''' Everything that is running on a clock, stopped. The one funnel every
+    ''' exit already goes through — CloseForm, OnFormClosed and RequestCancel —
+    ''' which is why the progress heartbeat is stopped here rather than at three
+    ''' call sites that would each have to remember.
+    ''' </summary>
     Private Sub StopTimers()
         Try : _focusTimer?.Stop() : Catch : End Try
         Try : _escalationTimer?.Stop() : Catch : End Try
         Try : _autoCancelTimer?.Stop() : Catch : End Try
+        StopWaitVoice("connecting window finished")
     End Sub
 
     ' ── 60 s escalation ───────────────────────────────────────────────────
@@ -357,6 +438,12 @@ Public Class ConnectingForm
         If _cancelHandled OrElse IsDisposed Then Return
         If _escalationActive Then Return ' Already showing an escalation dialog.
         _escalationActive = True
+
+        ' Nothing reassuring should be spoken over a question. The heartbeat is
+        ' answering "is this still happening"; the prompt about to appear asks
+        ' the operator to decide whether it should be, and the two talking at
+        ' once would make the decision harder rather than easier.
+        StopWaitVoice("escalation prompt open")
 
         Try
             Dim diagnostic = BuildDiagnosticMessage()
@@ -381,12 +468,16 @@ Public Class ConnectingForm
                 Return
             End If
 
-            ' Keep waiting — restart the 60 s clock for the next escalation.
+            ' Keep waiting — restart the 60 s clock for the next escalation, and
+            ' put the heartbeat back. The operator has just said they want this
+            ' to continue, which makes "is it still going" their live question
+            ' again.
             Try
                 _escalationTimer.Stop()
                 _escalationTimer.Start()
             Catch
             End Try
+            ArmWaitVoice(_armedVoice)
         Finally
             _escalationActive = False
         End Try

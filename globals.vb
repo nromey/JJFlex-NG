@@ -302,6 +302,18 @@ Module globals
     ''' by the code that opens it.
     ''' </summary>
     Friend PendingDisconnectLead As String = Nothing
+
+    ''' <summary>
+    ''' The verdict on a connect attempt that failed, held until the connecting
+    ''' window has gone and the shell window is back in front.
+    '''
+    ''' Same reasoning as <see cref="PendingDisconnectLead"/> and the same
+    ''' failure it prevents: an utterance made while a window is closing is
+    ''' flushed by the screen reader, so "Connection failed" — the one sentence
+    ''' that distinguishes a dead connect from a slow one — could be issued,
+    ''' traced, and never heard. Drained in openTheRadio.
+    ''' </summary>
+    Friend PendingConnectVerdict As String = Nothing
     Friend ReadOnly Property BootTraceFileName As String
         Get
             Dim rv As String = BaseConfigDir & "\" & InternalName
@@ -3625,7 +3637,12 @@ Module globals
     ''' Returns once the form's Shown event has fired so subsequent UpdateStatus
     ''' / CloseForm calls have a valid window handle.
     ''' </summary>
-    Private Sub ShowConnectingFormOnOwnThread(radioName As String, profiler As Radios.ConnectionProfiler)
+    ''' <param name="lead">
+    ''' The picker's own "Connecting to X over SmartLink" sentence, carried into
+    ''' this window's opening line. See ConnectingForm and task #93.
+    ''' </param>
+    Private Sub ShowConnectingFormOnOwnThread(radioName As String, profiler As Radios.ConnectionProfiler,
+                                              Optional lead As String = Nothing)
         Dim ready As New Threading.ManualResetEventSlim(False)
         Dim cancelCallback As Action = Sub()
                                            Try
@@ -3639,7 +3656,7 @@ Module globals
         _connectingFormThread = New Threading.Thread(
             Sub()
                 Try
-                    Dim form = New ConnectingForm(radioName, cancelCallback, profiler)
+                    Dim form = New ConnectingForm(radioName, cancelCallback, profiler, lead)
                     AddHandler form.Shown, Sub(sender, e) ready.Set()
                     _connectingForm = form
                     Application.Run(form)
@@ -4054,7 +4071,14 @@ Module globals
             ' thread so Escape and the X close button respond even while Start()
             ' blocks the main UI thread in its station-name-wait loop.
             Dim radioName = If(CurrentRig?.Name, "radio")
-            ShowConnectingFormOnOwnThread(radioName, Radios.ConnectionProfiler.Current)
+            ' Task #93: the picker names the radio and the leg it is about to try
+            ' one statement before it closes, into the exact window change that
+            ' flushes a screen reader's queue. The same sentence arrives WITH
+            ' this window instead, where it cannot be cut — the WHICH PATH half
+            ' is what tells the operator whether to expect three seconds or
+            ' thirty, and it was the half most reliably lost.
+            ShowConnectingFormOnOwnThread(radioName, Radios.ConnectionProfiler.Current,
+                                          dialog.SelectedConnectingLine)
             Radios.ConnectionProfiler.Current?.RecordEvent("connecting_form_shown")
 
             ' For remote radios: use ReconnectRemote which establishes a fresh SmartLink
@@ -4142,7 +4166,32 @@ Module globals
                 Dim failMsg = If(String.IsNullOrEmpty(advice),
                                  Radios.Lexicon.Get("connect.walk.failed"),
                                  Radios.Lexicon.Get("connect.walk.failed_with_advice", ("advice", advice)))
-                Radios.ScreenReaderOutput.Speak(failMsg, VerbosityLevel.Critical, True)
+
+                ' DO NOT SPEAK THE VERDICT HERE. Task #212: the connecting
+                ' window has just been asked to close, and a screen reader
+                ' flushes its queue when the focused window changes — so this
+                ' sentence was being issued into the exact transition that
+                ' destroys it, which is how a failed connect can sound like a
+                ' hang. It is held instead and spoken by openTheRadio once the
+                ' shell window is back in front, which is the same shape as
+                ' PendingDisconnectLead: information belongs to the surface that
+                ' has focus, not to the moment before it.
+                '
+                ' AND NOT AT ALL WHEN THE OPERATOR STOPPED IT. Pressing Escape
+                ' or Alt+F4 already said "Connection attempt cancelled" at
+                ' Critical, and a cancel arrives here indistinguishable from a
+                ' failure because both simply leave connectOk false. Following
+                ' the operator's own decision with "Connection failed" would tell
+                ' them something went wrong when what actually happened is that
+                ' they stopped it — and holding the verdict until the shell is in
+                ' front is exactly what would make that reliably audible for the
+                ' first time. A cancel has to sound like stopping.
+                If RigControl.CancelRequested Then
+                    Tracing.TraceLine("wpfSelectorProc: connect ended by operator cancel — no failure verdict", TraceLevel.Info)
+                Else
+                    PendingConnectVerdict = failMsg
+                    Tracing.TraceLine("wpfSelectorProc: holding the connect verdict until the shell is back in front — " & failMsg, TraceLevel.Info)
+                End If
 
                 ' Sprint 30 Track D's failure-moment offer (#78), wired here
                 ' rather than in MainWindow — the track's note named that file,
@@ -4156,9 +4205,17 @@ Module globals
                 ' refusal, a timeout, a radio that was not there — is exactly
                 ' the case where the log holds the whole handshake and the
                 ' evidence goes stale fastest.
+                '
+                ' A CANCEL IS EXCLUDED FOR THE SAME REASON, and it was not
+                ' before: an operator who pressed Escape got a Problems-list
+                ' entry reading "The connection to K5NER failed" and heard the
+                ' offer to send a diagnostic about it. Nothing failed. Two of the
+                ' three attempts in the 2026-08-26 field trace ended this way, so
+                ' this is the common case rather than a corner of one.
                 Dim failClass = RigControl.LastConnectFailureReport?.Class
-                If Not failClass.HasValue OrElse
-                   failClass.Value <> Radios.ConnectFailureClass.AuthenticationFailed Then
+                If Not RigControl.CancelRequested AndAlso
+                   (Not failClass.HasValue OrElse
+                    failClass.Value <> Radios.ConnectFailureClass.AuthenticationFailed) Then
                     Dim failedName = RigControl.RadioNickname
                     If String.IsNullOrEmpty(failedName) Then failedName = serial
                     Radios.OperationFailure.Report(
@@ -4403,6 +4460,18 @@ Module globals
             ' Run WPF RigSelector on T1 (main UI thread) directly.
             wpfSelectorProc(initialCall)
             AppShellForm?.Activate()
+
+            ' The connecting window is gone and the shell is in front again, so
+            ' this is the first moment a verdict on a failed connect can survive
+            ' being said. Critical and interrupting: a connect that did not
+            ' happen is a state change the operator has to hear at any
+            ' verbosity, and by now nothing else is mid-sentence.
+            If Not String.IsNullOrEmpty(PendingConnectVerdict) Then
+                Dim verdict = PendingConnectVerdict
+                PendingConnectVerdict = Nothing
+                Radios.ScreenReaderOutput.Speak(verdict, VerbosityLevel.Critical, True)
+            End If
+
             rv = (radioSelected = DialogResult.OK)
 
 RadioConnected:
