@@ -176,11 +176,15 @@ public static class ReportWriter
                           ? $" (Windows error {PrivateDesktop.LastError})"
                           : string.Empty));
         sb.AppendLine($"- Sound: {QuietRun.Describe()}");
+        sb.AppendLine($"- Settings: {TestSettingsRoot.Describe()}");
         sb.AppendLine();
-        sb.AppendLine("Visual isolation and audio suppression are separate facts and both are stated. " +
+        sb.AppendLine("Sight, sound and settings are three separate facts and all three are stated. " +
                       "A run can be invisible and still be heard, which for this project's users is the " +
                       "worse of the two failures: a sound that arrives from something that cannot be " +
-                      "found, focused or dismissed.");
+                      "found, focused or dismissed. And it can be both invisible and silent while still " +
+                      "rewriting the operator's own configuration, which is the failure that outlasts " +
+                      "the run — this tier constructs every dialog in the app, and a dialog reads and " +
+                      "rewrites configuration as it builds itself.");
         sb.AppendLine();
     }
 

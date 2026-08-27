@@ -195,6 +195,21 @@ namespace Radios.Tests
             new Known(Rules.ClickOnlyCheckBox, "SettingsDialog.xaml/VerboseDiagnosticsCheck", "#256", ClickOnly),
             new Known(Rules.ClickOnlyCheckBox, "SettingsDialog.xaml/RadioProfileNoPhysicalAccessCheck", "#256", ClickOnly),
 
+            // Found 2026-08-27 by Track G (#176) when the detector was widened
+            // from <CheckBox to every XAML toggle AND to controls built in
+            // code. Both predate the sprint and belong to #256 with the other
+            // eight; neither is new damage. They are listed separately because
+            // the reason they were invisible is worth keeping: the rule was
+            // reporting a population it had only half enumerated, which reads
+            // exactly like a population that is clean.
+            new Known(Rules.ClickOnlyCheckBox, "MainWindow.xaml/TuneToggleButton", "#256",
+                      "a ToggleButton rather than a CheckBox, and " + ClickOnly
+                      + ". Its handler writes IsChecked back at MainWindow.xaml.cs, which is the "
+                      + "same tell RadioOutputMute_Click carries"),
+            new Known(Rules.ClickOnlyCheckBox, "AudioWorkshopDialog.Amplifier.cs/_ampOperateCheck", "#256",
+                      "built in code rather than declared in XAML, and " + ClickOnly
+                      + ". No XAML scan can see it, which is why it outlived the first eight"),
+
             // #255's shape at the layer that can be proved without the host.
             new Known(Rules.SilentKeying, "FixerTransmitBoundary.ProbeTransmitter", "#255",
                       "it consults the transmit gate and keys the radio for a tune, and takes "

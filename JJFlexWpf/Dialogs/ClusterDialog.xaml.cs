@@ -114,6 +114,26 @@ namespace JJFlexWpf.Dialogs
 
         // --- Display pump ---
 
+        /// <summary>
+        /// The spot beep, through the same gate every other sound in this app
+        /// goes through.
+        /// </summary>
+        /// <remarks>
+        /// <b>Task #233.</b> These two call sites were raw <c>Console.Beep()</c>
+        /// and were the only audio in JJFlexWpf that did not consult
+        /// <c>OutputChannelRecorder.RenderEnabled</c> — so a run that had turned
+        /// rendering off, and reported itself silent, could still be heard from
+        /// here. <c>EarconPlayer.FallbackBeep</c> already states the rule this
+        /// was missing: "Console.Beep is still an audio device as far as a blind
+        /// operator's ears are concerned."
+        /// </remarks>
+        private static void SpotBeep()
+        {
+            if (!Radios.OutputChannelRecorder.RenderEnabled) return;
+            try { Console.Beep(); }
+            catch { /* no console, no speaker; a spot beep is not worth a crash */ }
+        }
+
         private void DisplayTimer_Tick(object? sender, EventArgs e)
         {
             if (_closing || _queue.IsEmpty) return;
@@ -127,7 +147,7 @@ namespace JJFlexWpf.Dialogs
                     if (txt.Length > 5 && txt.StartsWith("DX de", StringComparison.Ordinal))
                     {
                         ShowDX(txt);
-                        if (_beepMode == BeepMode.DXOnly) Console.Beep();
+                        if (_beepMode == BeepMode.DXOnly) SpotBeep();
                     }
                     else
                     {
@@ -135,7 +155,7 @@ namespace JJFlexWpf.Dialogs
                     }
                 }
 
-                if (_beepMode == BeepMode.On) Console.Beep();
+                if (_beepMode == BeepMode.On) SpotBeep();
             }
 
             // Memory management: purge excess text

@@ -80,8 +80,19 @@ public static class UiThread
                 // how a stream of dialogs reached Noel's screen on 2026-08-25
                 // while he was working: the guard ran, reported its own failure
                 // to a property nobody consulted, and let the windows through.
+                //
+                // Task #233 widened what "isolated" means, twice. Both extra
+                // facts are READ BACK rather than assumed — QuietRun.Silenced
+                // comes from OutputChannelRecorder and TestSettingsRoot.Isolated
+                // from RadioConfig.AppDataRoot — because the desktop half of
+                // this guard was passing while the run was still audible AND
+                // still writing the operator's real settings folder. Both are
+                // conditions of being allowed now, not lines in the report
+                // afterwards.
                 Guard = DeskGuard.Decide(RequestPrivateDesktop, Isolation,
-                                         DeskGuard.DeskDeclaredFree);
+                                         DeskGuard.DeskDeclaredFree,
+                                         QuietRun.Silenced,
+                                         TestSettingsRoot.Isolated);
 
                 if (!DeskGuard.IsAllowed(Guard))
                 {
@@ -168,7 +179,9 @@ public static class UiThread
                     : DesktopIsolation.NotAttempted;
 
                 var verdict = DeskGuard.Decide(privateDesktop, isolation,
-                                               DeskGuard.DeskDeclaredFree);
+                                               DeskGuard.DeskDeclaredFree,
+                                               QuietRun.Silenced,
+                                               TestSettingsRoot.Isolated);
                 if (!DeskGuard.IsAllowed(verdict))
                     throw new DeskNotFreeException(
                         DeskGuard.Explain(verdict, PrivateDesktop.LastError));

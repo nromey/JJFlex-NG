@@ -274,8 +274,10 @@ namespace Radios.Tests
         {
             var findings = new List<Finding>();
             int examined = 0;
+            int declared = 0;
 
-            var element = new Regex(@"<CheckBox\b[^>]*?(/>|>)", RegexOptions.Singleline);
+            var element = new Regex(@"<(CheckBox|ToggleButton|RadioButton)\b[^>]*?(/>|>)",
+                                    RegexOptions.Singleline);
             foreach (string file in IntegrationPassTree.AllFiles)
             {
                 if (!file.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase)) continue;
@@ -301,16 +303,67 @@ namespace Radios.Tests
                 }
             }
 
-            // POSITIVE CONTROL. The regex must actually be finding check boxes;
-            // a pattern that matches nothing reports a clean tree.
+            // The half no XAML scan can see. A control built in code and wired
+            // with `+= handler` has the identical defect and leaves no element
+            // to match, so the rule was reporting a population it had only half
+            // enumerated — which reads exactly like a population that is clean.
+            foreach (string file in IntegrationPassTree.AuthoredSource)
+            {
+                if (IntegrationPassTree.IsTest(file)) continue;
+                if (!file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) continue;
+
+                string text = IntegrationPassTree.Read(file);
+                foreach (string field in ToggleFields(text))
+                {
+                    declared++;
+                    string esc = Regex.Escape(field);
+                    if (!Regex.IsMatch(text, @"\b" + esc + @"\s*(\.|\?\.)\s*Click\s*\+=")) continue;
+                    if (Regex.IsMatch(text, @"\b" + esc + @"\s*(\.|\?\.)\s*(Checked|Unchecked)\s*\+=")) continue;
+
+                    findings.Add(new Finding(Rules.ClickOnlyCheckBox,
+                        Path.GetFileName(file) + "/" + field,
+                        "in " + IntegrationPassTree.Relative(file) + ": built in code and wired to "
+                        + "Click and neither Checked nor Unchecked, so a state change that did not "
+                        + "come from a press never reaches the handler."));
+                }
+            }
+
+            // POSITIVE CONTROLS, one per corpus. A pattern that matches nothing
+            // reports a clean tree, and the two scans fail independently.
             Assert.True(examined > 40,
-                "only " + examined + " CheckBox elements were examined across the whole tree, so "
-                + "the matcher has stopped working and this rule proves nothing.");
+                "only " + examined + " CheckBox/ToggleButton/RadioButton elements were examined "
+                + "across the whole tree, so the XAML matcher has stopped working and this rule "
+                + "proves nothing.");
+            Assert.True(declared > 15,
+                "only " + declared + " toggle-typed fields were found in code across the whole "
+                + "tree, so the code matcher has stopped working and the half of this rule that "
+                + "no XAML scan can see proves nothing.");
 
             Gate(Rules.ClickOnlyCheckBox,
-                 "A check box should hear its own state change however it happens, not only when "
-                 + "somebody presses it.",
+                 "A check box, toggle button or radio button should hear its own state change "
+                 + "however it happens, not only when somebody presses it.",
                  findings);
+        }
+
+        /// <summary>
+        /// Names of fields and locals whose declared type is a WPF toggle.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately narrow: a declaration, not a use. Matching every
+        /// identifier that ever appears beside <c>.Click +=</c> would flag every
+        /// button in the app, and the rule is about controls that carry a
+        /// CHECKED STATE somebody can move without pressing them.
+        /// </remarks>
+        private static IEnumerable<string> ToggleFields(string text)
+        {
+            var decl = new Regex(
+                @"\b(CheckBox|ToggleButton|RadioButton)\s*\??\s+(?<name>[A-Za-z_]\w*)\s*(=|;|,|\))",
+                RegexOptions.Compiled);
+
+            return decl.Matches(text)
+                       .Select(m => m.Groups["name"].Value)
+                       .Distinct(StringComparer.Ordinal)
+                       .ToList();
         }
 
         // ═══════════════════════════════════════════════════════════════

@@ -724,7 +724,8 @@ Friend Class LogEntry
         setFieldText(AdifTags.iADIF_DupCount, CStr(ct))
         isDup = (ct > 1)
         If isDup Then
-            SystemSounds.Exclamation.Play()
+            ' Task #233: a system sound is still a sound. Gated like the rest.
+            If Radios.OutputChannelRecorder.RenderEnabled Then SystemSounds.Exclamation.Play()
         End If
     End Sub
 
