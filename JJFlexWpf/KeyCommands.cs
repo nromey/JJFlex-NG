@@ -646,6 +646,9 @@ public class KeyCommands
         {
             Radios.ScreenReaderOutput.Speak(
                 help, Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Critical);
+            // The availability cue (#275) must not announce what was just
+            // read out in full.
+            ContextHelpCue.NoteSpoken(help);
             return;
         }
 

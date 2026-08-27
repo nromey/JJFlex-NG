@@ -322,6 +322,8 @@ When focused on the Frequency field in Classic tuning mode:
 | S | Turn split on |
 | T | Toggle showing the transmit frequency |
 
+Press Ctrl+F1 on the Frequency field for the live picture: it confirms Classic mode is active, names the digit your cursor is sitting on, reads this key map, and names the key that switches to Modern tuning.
+
 ## JJ Flexible Home — Frequency Field Keys (Modern tuning mode)
 
 When focused on the Frequency field in Modern tuning mode:
@@ -337,6 +339,8 @@ When focused on the Frequency field in Modern tuning mode:
 | Shift+S | Speak both your coarse and fine step sizes |
 
 The coarse and fine step values are configured in Settings → Tuning. Coarse and fine each have a single step value, so there's no mode to switch and no list to cycle through.
+
+Press Ctrl+F1 on the Frequency field for the live picture: it confirms Modern mode is active, speaks your actual coarse and fine step values, reads this key map, and names the key that switches to Classic tuning.
 
 ## JJ Flexible Home — RIT and XIT Field Keys
 

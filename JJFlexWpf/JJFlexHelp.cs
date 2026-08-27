@@ -117,10 +117,31 @@ public static class JJFlexHelp
     /// on-demand text (or its focus-time hint), followed by the current words
     /// of any notes registered to it. Empty when it offers nothing.
     /// </summary>
-    private static string OwnExplanation(DependencyObject node, out string source)
+    private static string OwnExplanation(
+        DependencyObject node, Action<string>? trace, out string source)
     {
-        string? help = GetText(node);
-        source = "JJFlexHelp";
+        // Three channels, nearest-first on this one element: a live Provider
+        // (#184) outranks a static string, which outranks the UIA hint. Notes
+        // (#211) are appended to whichever answered, because a note explains
+        // the CONTROL, not the channel that happened to describe it.
+        string? help = null;
+        source = "Provider";
+        var provider = GetProvider(node);
+        if (provider != null)
+        {
+            try { help = provider(); }
+            catch (Exception ex)
+            {
+                // A throwing provider must not take Ctrl+F1 down with it —
+                // fall through to the static channels and say so.
+                trace?.Invoke($"provider on {node.GetType().Name} threw: {ex.Message}");
+            }
+        }
+        if (string.IsNullOrWhiteSpace(help))
+        {
+            help = GetText(node);
+            source = "JJFlexHelp";
+        }
         if (string.IsNullOrWhiteSpace(help))
         {
             help = System.Windows.Automation.AutomationProperties.GetHelpText(node);
@@ -149,9 +170,36 @@ public static class JJFlexHelp
     }
 
     /// <summary>
+    /// The DYNAMIC explanation channel (#184). Text is right for controls
+    /// whose explanation is a constant; the Home Frequency field's answer
+    /// depends on which tuning mode is live, where the cursor stands, and
+    /// what the step values are — state that no attached string can carry.
+    /// A provider is asked at the moment Ctrl+F1 is pressed, so its answer
+    /// is the state the operator is actually in.
+    ///
+    /// Checked BEFORE Text at each step of the walk: an element that went to
+    /// the trouble of computing its answer live outranks its own static
+    /// fallback. A provider returning null or empty falls through to Text
+    /// and HelpText on the same element, then to the parent.
+    /// </summary>
+    public static readonly DependencyProperty ProviderProperty =
+        DependencyProperty.RegisterAttached(
+            "Provider",
+            typeof(Func<string?>),
+            typeof(JJFlexHelp),
+            new FrameworkPropertyMetadata(null));
+
+    public static void SetProvider(DependencyObject element, Func<string?>? value) =>
+        element.SetValue(ProviderProperty, value);
+
+    public static Func<string?>? GetProvider(DependencyObject element) =>
+        (Func<string?>?)element.GetValue(ProviderProperty);
+
+    /// <summary>
     /// Find the explanation for the control the operator would say they are
     /// "on": starting at <paramref name="start"/>, walk toward the root, and
-    /// at each element take JJFlexHelp.Text first, then
+    /// at each element take JJFlexHelp.Provider first (live answers beat
+    /// static ones), then JJFlexHelp.Text, then
     /// AutomationProperties.HelpText. First non-empty answer wins, so the
     /// nearest explanation beats an outer one and the on-demand text beats
     /// the focus-time hint on the same element.
@@ -161,6 +209,10 @@ public static class JJFlexHelp
     /// and in their current words. An element carrying only notes still
     /// answers, so a control with no authored help is not silent just because
     /// its explanation happens to live in a line beneath it.
+    ///
+    /// Two readers: the Ctrl+F1 handler, and the availability cue (#275),
+    /// which resolves the same walk after focus settles so its tone is an
+    /// honest promise about what Ctrl+F1 would say.
     ///
     /// The walk prefers the visual tree but falls back to the logical tree
     /// wherever the visual chain runs out. That fallback is load-bearing:
@@ -177,7 +229,7 @@ public static class JJFlexHelp
         int guard = 0; // trees are finite, but a cycle here would hang the UI thread
         while (node != null && guard++ < 128)
         {
-            string help = OwnExplanation(node, out string source);
+            string help = OwnExplanation(node, trace, out string source);
             trace?.Invoke(
                 $"walk {node.GetType().Name} " +
                 (string.IsNullOrWhiteSpace(help) ? "(none)" : source + "='" + help + "'"));
