@@ -2218,7 +2218,7 @@ public partial class MainWindow : UserControl
                     string msg = Radios.Lexicon.Get("connect.smartlink.setup_body");
                     Dialogs.AdvisoryDialog.Show(
                         Radios.Lexicon.Get("connect.smartlink.setup_title"), msg,
-                        suppressKey: "smartlink-setup",
+                        suppressKey: Radios.AdvisoryKeys.SmartLinkSetup,
                         new Dialogs.AdvisoryDialog.AdvisoryAction(
                             Radios.Lexicon.Get("connect.smartlink.action_open_radio_setup"), () => OpenSettingsCallback?.Invoke("Radio Setup")));
                 });
@@ -2285,7 +2285,7 @@ public partial class MainWindow : UserControl
 
                 Dialogs.AdvisoryDialog.Show(
                     Radios.Lexicon.Get("connect.smartlink.not_registered_title"), msg,
-                    suppressKey: $"register|{serial}",
+                    suppressKey: Radios.AdvisoryKeys.RegisterRadio(serial),
                     actions.ToArray());
             });
         }

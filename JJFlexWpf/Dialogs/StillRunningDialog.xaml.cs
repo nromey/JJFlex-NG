@@ -38,12 +38,31 @@ namespace JJFlexWpf.Dialogs
     /// exists to refuse. Everything else about it follows the same house
     /// pattern: one caret-readable body, no default button, Escape cancels.</para>
     ///
-    /// <para><b>No "don't show this again".</b> ConfirmActionDialog offers one
-    /// and it is right there for the taking, but a suppression key on THIS
-    /// prompt would switch off the only thing that tells an operator their
-    /// instrumentation is still on — which is the entire defect. Suppression is
-    /// for teaching text whose outcome is reported some other re-readable way.
-    /// This prompt IS the report.</para>
+    /// <para><b>"Don't ask me this again", added in Sprint 36 (#267) and
+    /// deliberately not before.</b> This dialog shipped without one, on the
+    /// reasoning that a suppression key here would switch off the only thing
+    /// telling an operator his instrumentation is still on — which is the
+    /// entire defect the prompt exists to fix. That reasoning was sound while
+    /// suppression was a ONE-WAY door: the store could silence a message and
+    /// nothing anywhere could bring it back, so the checkbox would have been a
+    /// permanent, unrecoverable loss of the report.
+    ///
+    /// Noel overruled the omission, and the sequencing is what makes it safe.
+    /// Settings → Notifications → Messages You Have Silenced now lists what has
+    /// been silenced, by name and date, and restores any of it. The checkbox
+    /// went in only after that existed. This is exactly the message somebody
+    /// silences in a hurry on the way out of the shack and wants back a month
+    /// later, when a meter capture has been quietly filling the disk since —
+    /// so it needed the way back more than most, not less.</para>
+    ///
+    /// <para><b>Honoured on "Close anyway" only.</b> Same rule
+    /// ConfirmActionDialog applies to Yes, and for a sharper reason here.
+    /// "Turn these off and close" with the box ticked would be a standing
+    /// instruction to change the operator's persisted settings at every future
+    /// exit without saying so — a much larger promise than "stop asking", and
+    /// not one a checkbox on an exit prompt should be able to make. "Stay
+    /// open" with the box ticked is not an answer at all. So the box means
+    /// what it says: stop asking, and close.</para>
     ///
     /// <para><b>It only ever appears when something Notable is running.</b> The
     /// always-on diagnostic log and the audible meter tones are Routine and
@@ -68,6 +87,16 @@ namespace JJFlexWpf.Dialogs
             StopButton.Content = Lexicon.Get("logging.running.stop_and_close");
             CloseButton.Content = Lexicon.Get("logging.running.close_anyway");
             StayButton.Content = Lexicon.Get("logging.running.stay_open");
+            DontAskAgainCheck.Content = Lexicon.Get("logging.running.dont_ask_again");
+            AutomationProperties.SetName(DontAskAgainCheck,
+                Lexicon.Get("logging.running.dont_ask_again").Replace("_", ""));
+            // What this checkbox does HERE, then the one sentence that owns
+            // where suppression is undone. Every dialog offering the checkbox
+            // reads that second sentence from the same key, so if the surface
+            // ever moves there is one string to change rather than three.
+            JJFlexHelp.SetText(DontAskAgainCheck,
+                Lexicon.Get("logging.running.dont_ask_again_help") + " " +
+                Lexicon.Get("settings.silenced.reversible_help"));
 
             var body = new StringBuilder(Lexicon.Get("logging.running.exit_intro"));
             bool anyStoppable = false;
@@ -119,6 +148,12 @@ namespace JJFlexWpf.Dialogs
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
+            // Only here, and only on this button — see the class remarks. The
+            // key is versioned, so re-wording what this prompt says brings it
+            // back for everyone who silenced the older wording.
+            if (DontAskAgainCheck.IsChecked == true)
+                AdvisorySuppression.Suppress(AdvisoryKeys.StillRunningAtExit);
+
             Choice = StillRunningChoice.CloseAnyway;
             CloseWithResult(true);
         }

@@ -754,12 +754,24 @@ Module globals
     ''' Only Notable registrations reach the prompt, so an ordinary exit is
     ''' still a silent exit. Any failure here returns True: a prompt that breaks
     ''' must never trap the operator inside the application.
+    '''
+    ''' <para>An operator who ticked "Don't ask me this again" and chose Close
+    ''' anyway gets exactly that: a silent close with the instrumentation left
+    ''' as it is. That is not a quiet loss of the report — Settings,
+    ''' Notifications, Messages You Have Silenced lists this prompt by name and
+    ''' puts it back (#267). The checkbox was added only once that list
+    ''' existed.</para>
     ''' </remarks>
     Friend Function ConfirmStillRunningAtExit() As Boolean
         Try
             Dim notable = Radios.RunningCostRegister.Snapshot().
                 Where(Function(r) r.Weight = Radios.RunningCostWeight.Notable).ToList()
             If notable.Count = 0 Then Return True
+
+            If Radios.AdvisorySuppression.IsSuppressed(Radios.AdvisoryKeys.StillRunningAtExit) Then
+                Tracing.TraceLine("ExitApplication: still-running prompt is silenced; closing with instrumentation left on")
+                Return True
+            End If
 
             Dim dlg As New JJFlexWpf.Dialogs.StillRunningDialog(notable)
             dlg.ShowDialog()

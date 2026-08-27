@@ -1,0 +1,81 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.SilencedMessagesDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:JJFlexWpf"
+    Title="Messages You Have Silenced"
+    Width="640" SizeToContent="Height"
+    ResizeMode="NoResize">
+    <!-- The way back out of "Don't show this again" (#267).
+
+         A NAMED LIST, not a reset button. A single "reset all warnings"
+         punishes an operator for the messages he silenced on purpose - he
+         loses the ones he meant to lose along with the one he wants back - so
+         he stops pressing it, and the escape hatch may as well not exist. The
+         list says what each one was and when it went quiet, and every one of
+         them can come back on its own.
+
+         Layout follows ProblemsDialog: a Grid rather than a DockPanel with the
+         buttons docked Bottom, because in that layout the buttons are declared
+         first and therefore come first in the tab order. That is tolerable for
+         a dialog you answer and wrong for one you read. Here the reading comes
+         first in both the layout and the tab order. -->
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="LeadText" Grid.Row="0"
+                   TextWrapping="Wrap" Margin="0,0,0,10"
+                   Focusable="True"
+                   AutomationProperties.Name="About this list"/>
+
+        <!-- One line per silenced message, and the line is the whole story:
+             what the message was, and when it was silenced. A reader arrowing
+             this list gets one complete fact per press, which is the only
+             reading mode that works when the list IS the reason the window
+             opened. A detail pane beside it would make arrowing say only that
+             something exists. -->
+        <ListBox x:Name="SilencedList" Grid.Row="1"
+                 Height="200" Margin="0,0,0,10"
+                 DisplayMemberPath="Text"
+                 HorizontalContentAlignment="Stretch"
+                 AutomationProperties.Name="Silenced messages, most recently silenced first"
+                 local:JJFlexHelp.Text="Every message you have told JJ Flexible not to show again, most recent first. Each line says what the message was and when you silenced it. Choose one and press Show this again to bring it back - it will appear the next time the situation that raises it comes around."
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 SelectionChanged="SilencedList_SelectionChanged"/>
+
+        <!-- What just happened, in writing as well as out loud. The spoken
+             receipt is gone the moment it is said; this line can be found
+             again by someone who missed it. -->
+        <TextBlock x:Name="StatusText" Grid.Row="2"
+                   TextWrapping="Wrap" Margin="0,0,0,10"
+                   Focusable="True"
+                   AutomationProperties.Name="What just happened"/>
+
+        <StackPanel Grid.Row="3" Style="{StaticResource ButtonPanel}">
+            <!-- Not IsDefault. Enter in this window should not restore
+                 whatever the list happens to be sitting on. -->
+            <Button x:Name="RestoreButton" Content="_Show this again"
+                    Style="{StaticResource DialogButton}"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Show the selected message again"
+                    local:JJFlexHelp.Text="Brings the selected message back. It will be shown again the next time the situation that raises it comes around, exactly as it was before you silenced it."
+                    Click="RestoreButton_Click"/>
+            <Button x:Name="RestoreAllButton" Content="Show _all of them again"
+                    Style="{StaticResource DialogButton}"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Show all silenced messages again"
+                    local:JJFlexHelp.Text="Brings every message in this list back at once. Use it when you want a clean slate; if you only want one of them, choose it in the list and press Show this again instead."
+                    Click="RestoreAllButton_Click"/>
+            <!-- IsCancel so Escape and the button do the same thing. -->
+            <Button x:Name="CloseButton" Content="Close"
+                    Style="{StaticResource CancelButton}"
+                    IsCancel="True"
+                    AutomationProperties.Name="Close"
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+    </Grid>
+</local:JJFlexDialog>

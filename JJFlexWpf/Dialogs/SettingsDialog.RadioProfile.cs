@@ -86,8 +86,14 @@ namespace JJFlexWpf.Dialogs
         /// contents change — otherwise "don't show again" quietly becomes "never
         /// tell me about new things you do to my radio." The receipt dialog is
         /// never suppressed; only this explanation is.
+        ///
+        /// <para>Declared in <see cref="Radios.AdvisoryKeys"/> since Sprint 36
+        /// (#267), where the key and the words that name it in Settings are
+        /// written in one expression. A bare const here could be silenced and
+        /// never described again.</para>
         /// </summary>
-        private const string NoPhysicalAccessCascadeKey = "no-physical-access-cascade-v1";
+        private static Radios.AdvisoryKey NoPhysicalAccessCascadeKey
+            => Radios.AdvisoryKeys.NoPhysicalAccessCascade;
 
         private void RadioProfileSection_Loaded(object sender, RoutedEventArgs e)
         {
