@@ -506,11 +506,21 @@ public class KeyCommands
             // separate history on purpose: an operator running with speech off
             // and CW notifications on has CW to walk back through and no speech.
             new(CommandValues.RepeatLastCw, KeyTypes.Command, RepeatLastCwHandler,
-                "Re-send recent CW notifications, pressing again for earlier ones", "Repeat Last CW", false, FunctionGroups.General, KeyScope.Global)
+                "Re-send recent CW notifications — press again for earlier ones", "Repeat Last CW", false, FunctionGroups.General, KeyScope.Global)
                 { Keywords = new[] { "repeat", "cw", "morse", "last", "again", "history",
                                      "recent", "earlier", "back", "previous", "missed",
                                      "resend", "slice", "census", "code" },
                   ShortActionLabel = "repeat last CW" },
+            // Sprint 36 Track F (#269). "Which build are you on?" is the first
+            // question of every tester conversation, and until now the only
+            // answer was Help, About — a dialog you have to leave what you are
+            // doing to open. The chord makes a report self-identifying.
+            new(CommandValues.SpeakVersion, KeyTypes.Command, SpeakVersionHandler,
+                "Speak the version and build date of this copy", "Speak Version", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "version", "build", "which", "number", "release", "debug",
+                                     "nightly", "date", "built", "tester", "report", "identify",
+                                     "about", "copy", "running", "installed", "update", "updated" },
+                  ShortActionLabel = "speak version" },
 
             // ── Verbosity (Sprint 24 Phase 6) ──
             new(CommandValues.CycleVerbosity, KeyTypes.Command, CycleVerbosityHandler,
@@ -1280,6 +1290,46 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.repeat.no_recent_cw"), Radios.VerbosityLevel.Critical);
     }
 
+    // #269. Reads DiagnosticSnapshot.BuildStamp — the same assembler the About
+    // page uses — rather than reaching for the assembly itself, because a
+    // second version-reporting path is how About and the spoken answer end up
+    // disagreeing about what is running.
+    //
+    // NO COMMIT HASH, deliberately, and this departs from the task's own
+    // suggested wording. feedback_numeric_identifiers is explicit: say
+    // "version 4.1.16.3", not "commit 9410f7dc" — Eloquence drops into NATO
+    // phonetics for hex and the operator has to ask for repeats. The SHA is
+    // still in Help, About and in every diagnostic capture, which is where hex
+    // is the authoritative identifier and belongs. This chord exists to be read
+    // back down a phone.
+    //
+    // Critical verbosity: someone who asks which build they are on wants the
+    // answer even with speech turned down.
+    private void SpeakVersionHandler()
+    {
+        var build = Radios.DiagnosticSnapshot.BuildStamp;
+
+        string text;
+        if (string.IsNullOrEmpty(build.Version))
+        {
+            text = Radios.Lexicon.Get("settings.build.unavailable");
+        }
+        else
+        {
+            string configuration = string.IsNullOrEmpty(build.Configuration)
+                ? "unknown build type" : build.Configuration;
+            text = string.IsNullOrEmpty(build.DateSpoken)
+                ? Radios.Lexicon.Get("settings.build.spoken_no_date",
+                    ("version", build.Version), ("configuration", configuration))
+                : Radios.Lexicon.Get("settings.build.spoken",
+                    ("version", build.Version), ("configuration", configuration),
+                    ("date", build.DateSpoken));
+        }
+
+        _context.Trace("Leader:speak version — " + text);
+        Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Critical);
+    }
+
     private void CycleVerbosityHandler()
     {
         var newLevel = Radios.ScreenReaderOutput.CycleVerbosity();
@@ -1478,6 +1528,11 @@ public class KeyCommands
             "Ctrl+J, E re-sends recent CW notifications — E for echo. The flat chord "
             + "that would have mirrored the speech repeat on Ctrl+F4 is Ctrl+Shift+F4, "
             + "and that already focuses the CW send text box."),
+        [CommandValues.SpeakVersion] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Alt+V speaks the version, build type and build date. Alt rather than "
+            + "bare V because V is volume mode, and V is the letter you reach for when you "
+            + "want the Version. Help, About carries the same facts in full, including the "
+            + "commit."),
         [CommandValues.RemoteAudio] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Ctrl+A turns PC audio on and off — added Sprint 32 Track G. Noel named "
             + "this one specifically: 'No hotkey for PC audio on and off available that I "
@@ -1728,6 +1783,7 @@ public class KeyCommands
         new(Keys.None, CommandValues.SpeakFrequency, KeyScope.Radio), // unbound: Shadowed
         new(Keys.F4 | Keys.Control, CommandValues.RepeatLastMessage, KeyScope.Global),
         new(Keys.None, CommandValues.RepeatLastCw, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, E
+        new(Keys.None, CommandValues.SpeakVersion, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Alt+V
 
         // Former hard-wired meta-commands (QB Track H, 2026-08-07) — same
         // chords they always had, now registry-owned and visible.
@@ -3417,6 +3473,23 @@ public class KeyCommands
             // after something went away.
             case Keys.E:
                 RepeatLastCwHandler();
+                break;
+
+            // #269. V for Version, Alt to clear the collision — bare V has been
+            // volume mode since the Audio Arc, and it is not moving.
+            //
+            // ALT ON THIS PATH IS SAFE, and that is a checked claim rather than
+            // an assumption. WPF reports Key.System when Alt is held and hides
+            // the real key in e.SystemKey, which is how the Alt+L binding of
+            // 2026-08-13 shipped completely dead. WpfKeyConverter resolves it
+            // before this switch ever sees the press (`e.Key == Key.System ?
+            // e.SystemKey : e.Key`), so what arrives here is a proper
+            // Keys.V | Keys.Alt. Ctrl+D, Ctrl+F and Ctrl+R are the in-layer
+            // precedent for a modified follow-on key; this is the first Alt one.
+            //
+            // Static verification is necessary and not sufficient: press it.
+            case Keys.V | Keys.Alt:
+                SpeakVersionHandler();
                 break;
 
             // Help

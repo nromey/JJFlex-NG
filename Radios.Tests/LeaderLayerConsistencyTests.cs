@@ -117,6 +117,7 @@ namespace Radios.Tests
 
             Assert.Equal(2, entries.Count);
             Assert.Equal("Ctrl+J, N", entries[0].Display);
+            Assert.Equal("Toggle a thing", entries[0].Description);
             Assert.Empty(entries[0].Excluded);
             Assert.Equal(new[] { "Ctrl+J, Shift+B" }, entries[1].Excluded);
 
@@ -253,183 +254,29 @@ namespace Radios.Tests
 
         // ────────────────────────────────────────────────────────────────
         //  Real-source extraction
+        //
+        //  The scanners themselves live in LeaderSourceScan, shared with the
+        //  doc-coverage check (#265). They were extracted from here rather
+        //  than copied: two readers of one table is the defect both tests
+        //  exist to catch.
         // ────────────────────────────────────────────────────────────────
 
-        private sealed record InventoryEntry(string Display, List<string> Excluded);
-
         private static HashSet<Keys> RealAdvertised(out int entryCount)
-        {
-            string src = ReadSource(Path.Combine("JJFlexWpf", "KeyInventory.cs"));
-            var entries = InventoryEntries(src);
-            entryCount = entries.Count;
-            return Advertised(entries);
-        }
+            => LeaderSourceScan.RealAdvertised(out entryCount);
 
         private static HashSet<Keys> RealHandled()
-        {
-            string src = ReadSource(Path.Combine("JJFlexWpf", "KeyCommands.cs"));
-            return SwitchCases(src, "DoLeaderCommand");
-        }
+            => LeaderSourceScan.RealHandled();
 
-        private static HashSet<Keys> Advertised(List<InventoryEntry> entries)
-        {
-            var set = new HashSet<Keys>();
-            foreach (var e in entries)
-            {
-                var chords = LeaderChordParser.ParseDisplay(e.Display, e.Excluded);
-                Assert.True(chords.Count > 0,
-                    $"LeaderCommands entry '{e.Display}' parsed to no chords — either the entry "
-                    + "or LeaderChordParser needs fixing; an unparseable entry would otherwise be "
-                    + "silently exempt from this whole test");
-                foreach (var c in chords) set.Add(c);
-            }
-            return set;
-        }
+        private static HashSet<Keys> Advertised(List<LeaderSourceScan.InventoryEntry> entries)
+            => LeaderSourceScan.Advertised(entries);
 
-        /// <summary>
-        /// Every LeaderCommands entry's KeyDisplay plus its ExcludedKeys, read
-        /// from the inventory source.
-        /// </summary>
-        private static List<InventoryEntry> InventoryEntries(string source)
-        {
-            var result = new List<InventoryEntry>();
+        private static List<LeaderSourceScan.InventoryEntry> InventoryEntries(string source)
+            => LeaderSourceScan.InventoryEntries(source);
 
-            int start = source.IndexOf("FixedKeyEntry[] LeaderCommands", StringComparison.Ordinal);
-            if (start < 0) return result;
-            int end = source.IndexOf("};", start, StringComparison.Ordinal);
-            if (end < 0) return result;
-            string region = source.Substring(start, end - start);
-
-            // Entry chunks: each begins with the array's fixed first two
-            // arguments. The chunk runs to the next entry (or region end), so
-            // an ExcludedKeys initializer stays with ITS entry — applying the
-            // exclusion globally would delete the separately-advertised
-            // Shift+F row along with the range's gap.
-            var starts = Regex.Matches(region, @"new\s*\(\s*""Leader""\s*,\s*""Leader key""\s*,")
-                .Cast<Match>().ToList();
-            for (int i = 0; i < starts.Count; i++)
-            {
-                int from = starts[i].Index;
-                int to = i + 1 < starts.Count ? starts[i + 1].Index : region.Length;
-                string chunk = region.Substring(from, to - from);
-
-                var display = Regex.Match(chunk,
-                    @"new\s*\(\s*""Leader""\s*,\s*""Leader key""\s*,\s*""([^""]+)""");
-                if (!display.Success) continue;
-
-                var excluded = new List<string>();
-                var ex = Regex.Match(chunk, @"ExcludedKeys\s*=\s*new\[\]\s*\{([^}]*)\}");
-                if (ex.Success)
-                {
-                    foreach (Match m in Regex.Matches(ex.Groups[1].Value, @"""([^""]+)"""))
-                        excluded.Add(m.Groups[1].Value);
-                }
-
-                result.Add(new InventoryEntry(display.Groups[1].Value, excluded));
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// Every <c>case Keys....:</c> label in the named method's body, as
-        /// parsed chords. Strings and comments are blanked first so neither
-        /// can plant a phantom label, and the body is bounded by real brace
-        /// counting rather than a landmark comment.
-        /// </summary>
         private static HashSet<Keys> SwitchCases(string source, string methodName)
-        {
-            var result = new HashSet<Keys>();
-
-            int sig = source.IndexOf(methodName + "(Keys k)", StringComparison.Ordinal);
-            if (sig < 0) return result;
-
-            string clean = BlankStringsAndComments(source);
-            int open = clean.IndexOf('{', sig);
-            if (open < 0) return result;
-
-            int depth = 0, i = open;
-            for (; i < clean.Length; i++)
-            {
-                if (clean[i] == '{') depth++;
-                else if (clean[i] == '}' && --depth == 0) break;
-            }
-            string body = clean.Substring(open, i - open);
-
-            foreach (Match m in Regex.Matches(body, @"case\s+((?:Keys\.\w+\s*\|?\s*)+):"))
-            {
-                Keys chord = Keys.None;
-                bool ok = true;
-                foreach (Match token in Regex.Matches(m.Groups[1].Value, @"Keys\.(\w+)"))
-                {
-                    if (Enum.TryParse(token.Groups[1].Value, out Keys part)) chord |= part;
-                    else ok = false;
-                }
-                if (ok && chord != Keys.None) result.Add(chord);
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// Replace string-literal and comment CONTENT with spaces, length
-        /// preserved, so brace counting and label matching see only code.
-        /// </summary>
-        private static string BlankStringsAndComments(string source)
-        {
-            var sb = new StringBuilder(source);
-            int i = 0;
-            while (i < sb.Length)
-            {
-                char c = sb[i];
-                if (c == '"')
-                {
-                    bool verbatim = i > 0 && sb[i - 1] == '@';
-                    i++;
-                    while (i < sb.Length)
-                    {
-                        if (verbatim && sb[i] == '"' && i + 1 < sb.Length && sb[i + 1] == '"')
-                        { sb[i] = ' '; sb[i + 1] = ' '; i += 2; continue; }
-                        if (sb[i] == '"') { i++; break; }
-                        if (!verbatim && sb[i] == '\\' && i + 1 < sb.Length)
-                        { sb[i] = ' '; sb[i + 1] = ' '; i += 2; continue; }
-                        sb[i] = ' ';
-                        i++;
-                    }
-                    continue;
-                }
-                if (c == '/' && i + 1 < sb.Length && sb[i + 1] == '/')
-                {
-                    while (i < sb.Length && sb[i] != '\n') { sb[i] = ' '; i++; }
-                    continue;
-                }
-                if (c == '/' && i + 1 < sb.Length && sb[i + 1] == '*')
-                {
-                    sb[i] = ' '; sb[i + 1] = ' '; i += 2;
-                    while (i < sb.Length && !(sb[i] == '*' && i + 1 < sb.Length && sb[i + 1] == '/'))
-                    { sb[i] = ' '; i++; }
-                    if (i + 1 < sb.Length) { sb[i] = ' '; sb[i + 1] = ' '; i += 2; }
-                    continue;
-                }
-                i++;
-            }
-            return sb.ToString();
-        }
+            => LeaderSourceScan.SwitchCases(source, methodName);
 
         private static string ReadSource(string relative)
-        {
-            string path = Path.Combine(RepoRoot(), relative);
-            Assert.True(File.Exists(path), "source not found: " + path);
-            return File.ReadAllText(path);
-        }
-
-        private static string RepoRoot()
-        {
-            var dir = new DirectoryInfo(AppContext.BaseDirectory);
-            while (dir != null)
-            {
-                if (File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) return dir.FullName;
-                dir = dir.Parent;
-            }
-            return AppContext.BaseDirectory;
-        }
+            => LeaderSourceScan.ReadSource(relative);
     }
 }

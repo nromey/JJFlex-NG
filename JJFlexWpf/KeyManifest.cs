@@ -20,6 +20,13 @@ namespace JJFlexWpf;
 ///   - the "Export Key List" markdown file
 ///   - manual reconciliation against docs/help/md/keyboard-reference.md
 ///
+/// That last line is no longer wholly manual for the LEADER layer. Sprint 36
+/// Track F (#265) added Radios.Tests/LeaderDocCoverageTests, which reads the
+/// same LeaderCommands table this generator reads and fails the build when
+/// keyboard-reference.md or leader-key.md is missing a chord — or carries a row
+/// for one that no longer exists. The rest of the key surface is still checked
+/// by hand.
+///
 /// Build() is a method, not a script — call it from anywhere (a future
 /// build-time audit can host KeyCommands with a stub context and diff the
 /// markdown against the shipped doc).

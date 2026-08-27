@@ -368,7 +368,7 @@ public static class KeyInventory
         // which sits inside the Shift+A-Shift+H slice-jump range. Ctrl+J, Ctrl+F
         // is the in-layer precedent for a Ctrl-modified follow-on key.
         new("Leader", "Leader key", "Ctrl+J, Ctrl+D",
-            "Start or stop a detailed capture of what the app is doing",
+            "Start or stop a detailed capture — everything the app is doing",
             new[] { "capture", "detailed", "diagnostic", "diagnostics", "trace", "tracing", "log",
                     "record", "bug", "problem", "report", "verbose", "leader" }, "Global", "General"),
         // Sprint 31 Track Q (#100). Ctrl+R for "Recorded problems", parked
@@ -394,6 +394,16 @@ public static class KeyInventory
                     "capture", "meter", "stream", "transcript", "tones", "cost", "costing",
                     "size", "megabytes", "disk", "left", "forgot", "diagnostic", "diagnostics",
                     "leader" }, "Global", "General"),
+        // Sprint 36 Track F (#269). V for Version; Alt because bare V is volume
+        // mode and has been since the Audio Arc. The first Alt chord in the
+        // layer — WpfKeyConverter resolves Key.System before the switch sees
+        // it, so the trap that killed the 2026-08-13 Alt+L binding does not
+        // reach here.
+        new("Leader", "Leader key", "Ctrl+J, Alt+V",
+            "Speak the version and build date of this copy",
+            new[] { "version", "build", "which", "number", "release", "debug", "nightly",
+                    "date", "built", "tester", "report", "identify", "about", "copy",
+                    "running", "installed", "update", "updated", "leader" }, "Global", "General"),
         new("Leader", "Leader key", "Ctrl+J, L", "Speak log statistics",
             new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
         new("Leader", "Leader key", "Ctrl+J, M", "Open the memories dialog",
@@ -404,7 +414,7 @@ public static class KeyInventory
         // smallest character in Morse, for the one chord that only ever answers
         // in Morse. Plain E was the last obvious free letter; Shift+E belongs to
         // the slice-jump row.
-        new("Leader", "Leader key", "Ctrl+J, E", "Re-send recent CW notifications, pressing again for earlier ones",
+        new("Leader", "Leader key", "Ctrl+J, E", "Re-send recent CW notifications — press again for earlier ones",
             new[] { "repeat", "cw", "morse", "echo", "again", "history", "recent", "earlier",
                     "back", "previous", "missed", "resend", "code", "leader" }, "Global", "Audio"),
         new("Leader", "Leader key", "Ctrl+J, Shift+T", "Toggle alert sounds (earcons)",
@@ -439,8 +449,11 @@ public static class KeyInventory
         {
             foreach (var chord in Radios.LeaderChordParser.ParseDisplay(e.KeyDisplay, e.ExcludedKeys))
             {
+                // Brief, not the full description: this table exists only to
+                // answer the near-miss, and the near-miss is a one-breath
+                // recovery line, not a help entry (#206). See LeaderPhrase.
                 if (!table.ContainsKey(chord))
-                    table[chord] = (KeyManifest.FormatKey(chord), e.Description);
+                    table[chord] = (KeyManifest.FormatKey(chord), Radios.LeaderPhrase.Brief(e.Description));
             }
         }
         _leaderChords = table;

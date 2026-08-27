@@ -37,6 +37,8 @@ The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate variou
 
 Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
 
+<!-- LEADER-KEY-TABLE: every row here is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this table fails until it has a row; delete a chord and a leftover row fails too. The wording is yours — only the set of keys is checked. -->
+
 | Key | Action |
 |-----|--------|
 | N | Toggle legacy Noise Reduction |
@@ -62,6 +64,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | D | Toggle tuning speech debounce |
 | Ctrl+D | Start or stop a detailed capture of what the app is doing — works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs |
 | Ctrl+R | Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement |
+| Alt+V | Speak the version, the build type and the date this copy was built (see "Which build am I on" below) |
 | O | Say what is still running and what it is costing — recording, captures, meter tones (see "What is still running" below) |
 | L | Speak log statistics |
 | M | Open the memories dialog |
@@ -71,6 +74,8 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | Shift+A through Shift+H | Jump to that slice from anywhere (Shift+F is reserved for the RX filter readout) |
 | ? or H | List all JJ Command layer commands |
 | Escape | Close the JJ Command layer |
+
+<!-- END LEADER-KEY-TABLE -->
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
@@ -118,6 +123,18 @@ O for "what's on". Press `Ctrl+J` then `O` and JJ Flexible tells you every expen
 This one exists because sighted operators get it for free. They have a recording light in the corner of the screen, a meter they can watch moving, a panel that's obviously open. We don't, and a switch that stays on across restarts, quietly changes what the app writes to disk, and never says a word about itself is exactly the kind of thing this program is supposed to fix.
 
 There's more to it than the key. If something you left on grows past a sensible size, JJ Flexible now says so on its own — once, when it actually crosses the line, not on a nagging timer. And if you close the app with recording still going, it tells you what's still on before it goes, and offers to turn it off for you on the way out.
+
+### Which build am I on — Ctrl+J, then Alt+V
+
+V for Version, with Alt on it because plain `V` has been volume mode for a while now and isn't moving.
+
+Press `Ctrl+J` then `Alt+V` and JJ Flexible says the version number, whether it's a test build or a release build, and the date it was built: "Version 4.1.16.1024, Debug, built August 27, 2026." That's it — short enough to read straight back to me in an email.
+
+This is the answer to a question that comes up in every single bug report, and until now the only place to find it was Help, About — a dialog you have to go and open, which is a nuisance when you're already in the middle of describing something that just went wrong. Now it's one chord from wherever you are, including from inside a dialog.
+
+The build date matters more than you'd think. File dates lie: by the time a test build has travelled through Dropbox to you, the date on the file is the date it arrived, not the date I built it. The date this key speaks is stamped inside the build itself, so it's the real one no matter how the build reached you.
+
+If you want the whole picture — every component version, the exact commit, where your trace file lives — that's still Help, About, and it's still the right place for it.
 
 One more thing about the JJ layer: it works inside dialogs now. Press `Ctrl+J` in the Audio Workshop — or any other dialog — and the layer answers exactly as it does from Home. The mic check was built with that in mind, since the workshop is precisely where you sit while adjusting mic gain.
 
@@ -487,8 +504,8 @@ Some commands ship without a key, and it is worth knowing that this is not one l
 **Already have a key, just not their own one.** These answer to the JJ key, so
 you may not need to bind anything: show memories (`Ctrl+J`, `M`), log
 statistics (`Ctrl+J`, `L`), speak TX filter width (`Ctrl+J`, `F`), toggle meter
-tones (`Ctrl+J`, `T`), PC audio on/off (`Ctrl+J`, `Ctrl+A`), and echo recent CW
-(`Ctrl+J`, `E`).
+tones (`Ctrl+J`, `T`), PC audio on/off (`Ctrl+J`, `Ctrl+A`), echo recent CW
+(`Ctrl+J`, `E`), and speak the version and build (`Ctrl+J`, `Alt+V`).
 
 **Live somewhere better than a key.** Audio devices, ATU memories, reboot
 radio, and transmit controls all open something, and the menu that opens them
