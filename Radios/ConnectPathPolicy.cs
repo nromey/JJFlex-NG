@@ -31,6 +31,20 @@ namespace Radios
         public const string ConnectedOutcome = "connected";
 
         /// <summary>
+        /// The outcome for a leg whose session connected and whose radio then
+        /// failed to open (task #284).
+        ///
+        /// <para>Deliberately not <see cref="ConnectedOutcome"/>, which is
+        /// what it used to be recorded as, and deliberately its own word
+        /// rather than a generic failure: a leg that got all the way to a live
+        /// session and still did not produce a working radio is a different
+        /// story from one that could not find the radio at all, and the
+        /// difference is exactly what someone reading the ring later wants to
+        /// know.</para>
+        /// </summary>
+        public const string OpenFailedOutcome = "open_failed";
+
+        /// <summary>
         /// How many successful connects in a row on one path constitute a
         /// trend worth prefilling.
         ///
@@ -153,10 +167,28 @@ namespace Radios
         /// outranks that, ever, however strong the trend disagreeing with
         /// it.</item>
         /// <item>A learned trend, as a prefill — it only orders a chain that
-        /// nobody has ordered.</item>
+        /// nobody has ordered, and it may not send a connect out to the
+        /// internet for a radio that is answering on this subnet.</item>
         /// <item>The derived default: local first unless the radio's story is
         /// remote.</item>
         /// </list>
+        ///
+        /// <para><b>Why a trend does not outrank a radio on the LAN (task
+        /// #284).</b> A SmartLink habit can only be LEARNED while the radio is
+        /// not on your network — that is the condition under which those
+        /// connects happened. Replaying it at the moment the radio is
+        /// broadcasting from 192.168.50.100 applies evidence outside the
+        /// conditions it was gathered under, and the result is what Noel hit
+        /// twice on 2026-08-26: his own 8600, one subnet hop away, reached
+        /// through FlexRadio's servers, with "I'm not trying smart link, it's
+        /// detected local network." Present LAN presence is evidence about
+        /// NOW; a trend is evidence about a set of past conditions.</para>
+        ///
+        /// <para>An operator who genuinely wants SmartLink from inside their
+        /// own shack still gets it — by storing that chain (rung 1, which no
+        /// trend has ever been allowed to touch) or by forcing the path from
+        /// the context menu, which does not come through here at all. What is
+        /// removed is the app deciding it on their behalf from a habit.</para>
         ///
         /// <para>Every result carries BOTH paths, which is what makes
         /// automatic fallback ordinary list-walking rather than special-case
@@ -176,8 +208,9 @@ namespace Radios
             if (storedChain != null && storedChain.Count > 0)
                 return new List<ConnectPathKind>(storedChain);
 
-            // 2. A trend, prefilling an unordered chain.
-            if (learned == ConnectPathKind.SmartLink) return RemoteFirst();
+            // 2. A trend, prefilling an unordered chain — except that it may
+            //    not route around a radio that is answering on this subnet.
+            if (learned == ConnectPathKind.SmartLink) return lanAvailable ? LocalFirst() : RemoteFirst();
             if (learned == ConnectPathKind.Local) return LocalFirst();
 
             // 3. The derived default — the historical behaviour, now explicit.

@@ -92,6 +92,83 @@ namespace Radios
             }
         }
 
+        // ------------------------------------------------------------------
+        // A leg that connects is not a leg that worked (task #284)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The pending leg: one that has connected at the session layer and
+        /// whose OPEN has not yet resolved. At most one exists, because at
+        /// most one connect is ever in flight.
+        /// </summary>
+        private static (string serial, string path, long durationMs)? _pending;
+
+        /// <summary>True while a leg is connected but not yet opened.</summary>
+        public static bool HasPendingOutcome
+        {
+            get { lock (_sync) { return _pending != null; } }
+        }
+
+        /// <summary>
+        /// A leg's session connected. Do NOT record it yet.
+        ///
+        /// <para><b>This is the fix for a loop that fed itself.</b> Until task
+        /// #284 the walk recorded <c>"connected"</c> the moment
+        /// <c>ReconnectRemote</c> returned true — which happens while the radio
+        /// is still fifty seconds away from opening, or from failing to. On
+        /// 2026-08-26 four consecutive SmartLink attempts to a radio sitting at
+        /// 192.168.50.100 failed at the open, and all four were written into
+        /// this ring as successes (durations 341, 1334, 350 and 913 ms, each
+        /// matching a <c>ReconnectRemote: END connected=True</c> line). Three
+        /// in a row is a trend, so <see cref="ConnectPathPolicy"/> then
+        /// recommended SmartLink for the NEXT attempt, which failed the same
+        /// way and reinforced it again. Every failure made the next failure
+        /// more likely, and the store showed an unbroken run of success.</para>
+        ///
+        /// <para>So the record waits for the open. Arm here; commit in
+        /// <see cref="CommitPendingOutcome"/> once the radio has actually
+        /// opened or actually failed to.</para>
+        /// </summary>
+        public static void ArmPendingOutcome(string serial, string path, long durationMs)
+        {
+            lock (_sync) { _pending = (serial ?? "", path ?? "", durationMs); }
+        }
+
+        /// <summary>
+        /// The open resolved. Write what really happened: a success only when
+        /// the radio opened, <see cref="ConnectPathPolicy.OpenFailedOutcome"/>
+        /// when the session connected and the radio never came up.
+        ///
+        /// <para>Safe to call when nothing is armed — it does nothing. Safe to
+        /// call twice: the second call has nothing left to commit. A process
+        /// that dies between arm and commit records NOTHING for that leg,
+        /// which is the right way to lose it. A missing attempt teaches the
+        /// policy nothing; a false success teaches it the wrong thing.</para>
+        /// </summary>
+        public static void CommitPendingOutcome(bool opened)
+        {
+            (string serial, string path, long durationMs)? p;
+            lock (_sync)
+            {
+                p = _pending;
+                _pending = null;
+            }
+            if (p == null) return;
+            Record(p.Value.serial, p.Value.path,
+                opened ? ConnectPathPolicy.ConnectedOutcome : ConnectPathPolicy.OpenFailedOutcome,
+                p.Value.durationMs);
+        }
+
+        /// <summary>
+        /// Throw the pending leg away without recording it — for a leg the
+        /// walk moved on from, so its outcome is decided by the leg that
+        /// followed rather than by this one.
+        /// </summary>
+        public static void DiscardPendingOutcome()
+        {
+            lock (_sync) { _pending = null; }
+        }
+
         /// <summary>The recorded attempts for one radio, oldest first.
         /// Empty when nothing has been recorded (or the store is
         /// unreadable) — never null, never throws.</summary>

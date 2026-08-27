@@ -516,10 +516,21 @@ namespace JJFlexWpf.Dialogs
         public bool SelectedIsRemote { get; private set; }
 
         /// <summary>
-        /// True when the connect must travel the SmartLink path specifically —
-        /// the operator forced it, or the chain chose SmartLink for a radio
-        /// that is ALSO on the local network. The connect layer must not
-        /// quietly substitute the LAN path when this is set.
+        /// True when the chosen leg IS the SmartLink leg, so the connect layer
+        /// must resolve the WAN identity for it rather than settling for the
+        /// LAN object of a dual-homed radio. Leg identity, nothing more.
+        ///
+        /// <para><b>It used to mean something else, and the difference cost an
+        /// evening (task #284).</b> This was
+        /// <c>remote &amp;&amp; (forced || radio.LanAvailable)</c> — so the
+        /// fact that the radio was ALSO on the local network is what turned a
+        /// preference into a compulsion. The trace then carried
+        /// <c>forced=False</c> and <c>forceWanPath=True</c> one line apart,
+        /// both true, in two different vocabularies. Whether fallback is
+        /// allowed is <see cref="SelectedPathForced"/>'s question and only
+        /// ever was; this flag answers "which identity does THIS leg
+        /// resolve", and the answer does not depend on what else is
+        /// reachable.</para>
         /// </summary>
         public bool SelectedPreferRemotePath { get; private set; }
 
@@ -1887,7 +1898,7 @@ namespace JJFlexWpf.Dialogs
             SelectedSerial = radio.Serial;
             SelectedLowBW = radio.LowBW;
             SelectedIsRemote = remote;
-            SelectedPreferRemotePath = remote && (forced || radio.LanAvailable);
+            SelectedPreferRemotePath = remote;
             SelectedPathForced = forced;
             SelectedFallbackPaths = forced ? new List<ConnectPathKind>() : fallbacks;
             DialogResult = true;
