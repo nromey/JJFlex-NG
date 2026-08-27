@@ -13,6 +13,18 @@ namespace Radios.Fixer.Evidence
     /// </summary>
     public static class EvidenceExportWriter
     {
+
+        /// <summary>
+        /// The plain-text form of any evidence record: exactly what Copy would
+        /// have put on the clipboard when the record was written. One home, so
+        /// a change to what "plain text" means reaches every family at once.
+        /// </summary>
+        public static string PlainText(IEvidenceRecord record)
+        {
+            if (record == null) throw new System.ArgumentNullException(nameof(record));
+            return record.ReportText;
+        }
+
         public static bool Write(string path, Func<string> content, string traceName)
         {
             try

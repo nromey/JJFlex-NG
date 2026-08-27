@@ -35,7 +35,7 @@ namespace Radios.SignalCapture
     /// overwrites the same file in place.
     /// </para>
     /// </remarks>
-    public sealed class QsoSignalCaptureRecord
+    public sealed class QsoSignalCaptureRecord : Radios.Fixer.Evidence.IEvidenceRecord
     {
         public int Schema { get; set; } = 1;
 

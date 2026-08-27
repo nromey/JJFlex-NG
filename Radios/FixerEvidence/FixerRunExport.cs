@@ -42,10 +42,7 @@ namespace Radios.Fixer.Evidence
         /// <summary>The plain-text form, exactly what Copy would have put on
         /// the clipboard when the run was last recorded.</summary>
         public static string PlainText(FixerRunRecord record)
-        {
-            if (record == null) throw new ArgumentNullException(nameof(record));
-            return record.ReportText;
-        }
+            => EvidenceExportWriter.PlainText(record);
 
         /// <summary>A filename stem for exports: the check, the run id and the
         /// start stamp, e.g. "transmit-check-A52-5T2-20260825-2114". The id is

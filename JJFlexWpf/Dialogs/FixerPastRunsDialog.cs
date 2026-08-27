@@ -244,7 +244,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
         try
         {
             Clipboard.SetText(run.ReportText);
-            Say("The report is on the clipboard, as plain text.");
+            Say(Radios.Fixer.Evidence.EvidenceStrings.CopiedToClipboard);
         }
         catch (Exception ex)
         {
@@ -267,7 +267,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
             Title = "Export check run " + run.RunId,
             FileName = FixerRunExport.FileBaseName(run),
             DefaultExt = ".html",
-            Filter = "Web page (*.html)|*.html|Plain text (*.txt)|*.txt",
+            Filter = Radios.Fixer.Evidence.EvidenceStrings.ExportFilter,
         };
         if (picker.ShowDialog(this) != true) return;
 

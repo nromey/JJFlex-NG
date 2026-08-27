@@ -25,10 +25,7 @@ namespace Radios.SignalCapture
 
         /// <summary>The plain-text form, exactly what Copy puts on the clipboard.</summary>
         public static string PlainText(QsoSignalCaptureRecord record)
-        {
-            if (record == null) throw new ArgumentNullException(nameof(record));
-            return record.ReportText;
-        }
+            => Radios.Fixer.Evidence.EvidenceExportWriter.PlainText(record);
 
         /// <summary>A filename stem for exports, e.g.
         /// "signal-capture-A52-5T2-20260826-2114". The id is in the name

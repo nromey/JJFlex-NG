@@ -209,7 +209,7 @@ public sealed class SignalCapturesDialog : JJFlexDialog
         try
         {
             Clipboard.SetText(capture.ReportText);
-            Say("The report is on the clipboard, as plain text.");
+            Say(Radios.Fixer.Evidence.EvidenceStrings.CopiedToClipboard);
         }
         catch (Exception ex)
         {
@@ -328,7 +328,7 @@ public sealed class SignalCapturesDialog : JJFlexDialog
             Title = "Export capture " + capture.DisplayName,
             FileName = QsoSignalCaptureExport.FileBaseName(capture),
             DefaultExt = ".html",
-            Filter = "Web page (*.html)|*.html|Plain text (*.txt)|*.txt",
+            Filter = Radios.Fixer.Evidence.EvidenceStrings.ExportFilter,
         };
         if (picker.ShowDialog(this) != true) return;
 
