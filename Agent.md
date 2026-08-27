@@ -9,6 +9,112 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-26 — THE EVENING THE RADIO WROTE THE SPRINT
+
+**88 commits, `59d081c1..9bbb382a`. 156 files, +23,563 / -2,063, net +21,500.**
+Pushed to origin, along with all thirteen Sprint 35 track branches.
+
+### What happened
+
+**Sprint 35 merged.** Thirteen tracks, three conflicts, all of the "both tracks
+added to the same place" kind. Containment sweep clean on all thirteen. 1,194
+tests green.
+
+**The integration pass fired on its first merged tree and found four real
+cross-track defects** — which is exactly what Sprint 35's Track F built it for,
+and none of them were visible from inside any single track. One sentence built
+in two dialogs; two test classes hand-rolling a save/restore and each omitting
+a different piece; #249's six baseline entries genuinely closed; and **two
+tracks asserting opposite designs** about whether an unrun stage should offer
+the next one. Both merged clean. Nothing failed.
+
+**The pass itself was unreliable and is now fixed.** The same commit came back
+clean in a worktree and reported 29 findings in the main clone, because the
+corpus was a filesystem walk and the main clone carries a gitignored
+`flexlib4218/`. Corpus is now `git ls-files`; verified by running one commit in
+both checkouts and getting one answer.
+
+**#266 built** — `FrequencyEchoGuard`. It rejects exactly one thing: an echo
+equal to the value our write replaced. Nine tests over an injected clock, plus
+one that reads `FlexBase.cs` to prove both guards are ARMED and CONSULTED,
+verified by deliberately removing the arming and watching it fail.
+
+### The evening at the radio — where the sprint came from
+
+Nine tasks filed, two retracted, one closed as already fixed. Nearly all of it
+from Noel pressing something and reporting what he heard.
+
+- **#283 is the root cause of most of the confusion.** We bind a screen reader
+  once at startup and never re-detect. He launched under NVDA, switched to
+  JAWS, and the app kept talking to NVDA. He proved it himself by relaunching
+  with JAWS running first: "JAWS spoke everything ... no problem."
+- **#216 CONFIRMED IN A TRACE.** One press and hold keyed and unkeyed the radio
+  THREE TIMES before settling. Two episodes, both opening at exactly 353 ms.
+- **#282 confirmed in code.** `MinGapMs = 1200` swallows every other deliberate
+  tuning press. He suspected the coalescer hours before I did and was right.
+- **#284 reproduced twice.** A radio on the LAN connected through SmartLink
+  with `forceWanPath=True` while the selector logged `forced=False` one line
+  earlier, and the open failed after discovery was disposed.
+
+### Two retractions, both corrected by Noel pressing the key
+
+**#278** — a verbatim JAWS dump showing an ancestor recital on every arrow
+press. Real dump, wrong conclusion: it was #283, JAWS reading the tree because
+it got nothing from us. *A faithful artifact of a misconfigured system is still
+a faithful artifact OF A MISCONFIGURED SYSTEM.*
+
+**#279** — claimed the capture stop announces nothing, from four captures none
+of which contained a stop announcement. **A capture cannot contain its own stop
+message**; the instrument switches off a moment before the event. Four samples
+sharing one defect are not corroboration.
+
+### Cross-surface activity
+
+- **JJFlex-NG:** 88 commits. The only repo with activity today.
+- **Freight Fate:** `feat/career-1.9`, 1 dirty, **16 unpushed**, idle today.
+- **Civ VI Access:** `main`, 2 dirty, **45 unpushed**, idle today. Pushing both
+  remains Noel's call; the dev mirror covers durability.
+- **Memory:** five files touched today, all this session. New entry
+  `project_smartlink_hairpins_to_own_lan.md` — with port forwarding, choosing
+  Remote to his own radio still connects LOCALLY because the router hairpins,
+  so the rarbox exit node is the only genuinely remote path this machine has.
+- **Planning:** `sprint36-crooked-elmer-pileup.md` written to JJFlex-private.
+- **Task register:** 138 open, 141 closed.
+
+### Seal checks
+
+- MEMORY.md 11,501 bytes — under the 12 KB threshold, no archive sweep needed.
+- `dotnet list package --vulnerable`: **no vulnerable packages**, any project.
+- Memory drift: **7 candidates**, the expected steady state (entries naming
+  files in estates this machine does not hold). No new class of hit.
+- Backups all complete: memory (10 projects), Claude state (433 MB), private
+  docs (434 files), AppData config (59 files), dev mirror (15.82 GB).
+- No nightly published — this was a merge-and-diagnose day, and distribution is
+  a deliberate act.
+
+### Setup for tomorrow
+
+**ELEVEN SPRINT 36 TRACKS STAGED AND BRIEFED. NOTHING LAUNCHED.** Worktrees
+`../jjflex-36a` through `../jjflex-36k`, branches `sprint36/track-a..k`, all cut
+from `9bbb382a`. Twenty-three tasks. Every brief leads with PROHIBITIONS before
+goals.
+
+A arbiter (#273, #282, #264) · B suppression (#267) · C QSO analyzer (#271) ·
+D reader awareness (#283, #216) · E connect path (#284) · F leader layer (#265,
+#183, #206, #269) · G instruments that lie (#232, #233, #176) · H build tooling
+(#133, #268, #272, #141) · I navigation friction (#211, #213, #214) · J connect
+cluster (#212, #203, #254, #93) · K context help (#184, #186, #275).
+
+**Do not launch while Noel is testing** — per-agent token counters are read
+aloud and make testing impossible. He stopped two tracks tonight for that.
+Suggested staging: A, D, E first, then B, G, J, then C, F, H, I, K.
+
+**Bench list needs the radio:** `Ctrl+J O` after #276; held `Ctrl+Space` under
+JAWS for #216; the countdown audition; the reflected-power cut's first firing;
+and #266 over a genuinely remote path, which needs the exit node.
+
+---
+
 ## END-OF-DAY SEAL — 2026-08-25 — SECOND SEAL — THE NIGHT THE OPERATOR USED IT
 
 **This is the SECOND seal on 2026-08-25.** The first (below, "the day the tone
