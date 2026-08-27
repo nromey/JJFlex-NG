@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using Section = Radios.Fixer.Evidence.EvidenceSection;
 
 namespace Radios.Fixer
 {
@@ -41,28 +42,7 @@ namespace Radios.Fixer
 
         /// <summary>The plain-text form — what Copy puts on the clipboard.</summary>
         public static string PlainText(FixerRun run)
-        {
-            var sb = new StringBuilder();
-            foreach (Section s in Build(run))
-            {
-                if (s.Title.Length > 0)
-                {
-                    sb.AppendLine(s.Title);
-                    sb.AppendLine(new string('-', s.Title.Length));
-                }
-                foreach (Item item in s.Items)
-                {
-                    switch (item.Kind)
-                    {
-                        case ItemKind.Paragraph: sb.AppendLine(item.Text); break;
-                        case ItemKind.Bullet: sb.AppendLine("- " + item.Text); break;
-                        case ItemKind.Preformatted: sb.AppendLine(item.Text.TrimEnd()); break;
-                    }
-                }
-                sb.AppendLine();
-            }
-            return sb.ToString().TrimEnd() + Environment.NewLine;
-        }
+            => Evidence.EvidenceReportDocument.PlainText(Build(run));
 
         /// <summary>
         /// The HTML form, as a fragment for the page's report region. Prose
@@ -71,62 +51,11 @@ namespace Radios.Fixer
         /// slot it under its own hierarchy without a skip.
         /// </summary>
         public static string HtmlFragment(FixerRun run, int headingLevel = 3)
-        {
-            if (headingLevel < 2 || headingLevel > 6)
-                throw new ArgumentOutOfRangeException(nameof(headingLevel));
-
-            string h = "h" + headingLevel.ToString(CultureInfo.InvariantCulture);
-            var sb = new StringBuilder();
-            foreach (Section s in Build(run))
-            {
-                if (s.Title.Length > 0)
-                    sb.Append('<').Append(h).Append('>').Append(Esc(s.Title))
-                      .Append("</").Append(h).AppendLine(">");
-
-                bool inList = false;
-                foreach (Item item in s.Items)
-                {
-                    if (inList && item.Kind != ItemKind.Bullet)
-                    { sb.AppendLine("</ul>"); inList = false; }
-
-                    switch (item.Kind)
-                    {
-                        case ItemKind.Paragraph:
-                            sb.Append("<p>").Append(Esc(item.Text)).AppendLine("</p>");
-                            break;
-                        case ItemKind.Bullet:
-                            if (!inList) { sb.AppendLine("<ul>"); inList = true; }
-                            sb.Append("<li>").Append(Esc(item.Text)).AppendLine("</li>");
-                            break;
-                        case ItemKind.Preformatted:
-                            sb.Append("<pre>").Append(Esc(item.Text.TrimEnd())).AppendLine("</pre>");
-                            break;
-                    }
-                }
-                if (inList) sb.AppendLine("</ul>");
-            }
-            return sb.ToString();
-        }
+            => Evidence.EvidenceReportDocument.HtmlFragment(Build(run), headingLevel);
 
         // -------- the one content model both forms render --------
-
-        private enum ItemKind { Paragraph, Bullet, Preformatted }
-
-        private readonly struct Item
-        {
-            public readonly ItemKind Kind;
-            public readonly string Text;
-            public Item(ItemKind kind, string text) { Kind = kind; Text = text ?? ""; }
-        }
-
-        private sealed class Section
-        {
-            public string Title = "";
-            public readonly List<Item> Items = new List<Item>();
-            public void Para(string t) => Items.Add(new Item(ItemKind.Paragraph, t));
-            public void Bullet(string t) => Items.Add(new Item(ItemKind.Bullet, t));
-            public void Pre(string t) => Items.Add(new Item(ItemKind.Preformatted, t));
-        }
+        // The model and both renderings live in EvidenceReportDocument, shared
+        // with the QSO signal capture report; this class only builds sections.
 
         private static List<Section> Build(FixerRun run)
         {
@@ -373,8 +302,5 @@ namespace Radios.Fixer
 
         private static string Stamp(DateTime utc)
             => utc.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
-
-        private static string Esc(string s)
-            => (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
     }
 }

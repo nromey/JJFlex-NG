@@ -35,6 +35,33 @@ namespace Radios
         public const int TopSUnit = 9;
 
         /// <summary>
+        /// A dBm value as the app's integer S-meter reading: plain S-units at
+        /// or below S9, dB-over-S9 plus 9 above it (see the class remarks).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This is the app's meter calibration, extracted verbatim from the
+        /// <c>FlexBase.SMeter</c> getter</b> so the live readout and anything
+        /// that analyses recorded dBm agree to the digit: S0 at -124 dBm, six
+        /// decibels per S-unit, S9 at -70 dBm, dB-over-S9 above that. The
+        /// truncation toward zero is the getter's own historical behaviour,
+        /// kept because the QSO signal analyzer must report the same S-unit
+        /// the operator's Ctrl+S would have spoken at that instant.
+        /// </para>
+        /// </remarks>
+        public static int FromDbm(double dbm)
+        {
+            // The live path stores (int)data — truncation toward zero — before
+            // converting. Reproduce it exactly; do not "fix" it to rounding
+            // here alone, or the analyzer and the live readout drift by one.
+            int val = (int)dbm + 127 - 3; // puts S0 at 0.
+            if (val < 0) val = 0;
+            int s = val / 6; // S-unit
+            // Above S9 the reading becomes dB-over-S9 plus 9.
+            return (s <= TopSUnit) ? s : val - (TopSUnit * 6) + TopSUnit;
+        }
+
+        /// <summary>
         /// Decibels over S9, from a raw <c>SMeter</c> reading.
         /// </summary>
         /// <remarks>

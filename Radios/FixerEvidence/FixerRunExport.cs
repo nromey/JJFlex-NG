@@ -31,30 +31,12 @@ namespace Radios.Fixer.Evidence
         {
             if (record == null) throw new ArgumentNullException(nameof(record));
 
-            string title = Esc(record.StageSetName + " check report — run " + record.RunId);
-            var sb = new StringBuilder();
-            sb.AppendLine("<!DOCTYPE html>");
-            sb.AppendLine("<html lang=\"en\">");
-            sb.AppendLine("<head>");
-            sb.AppendLine("<meta charset=\"utf-8\">");
-            sb.Append("<title>").Append(title).AppendLine("</title>");
-            // Readability only: measure, spacing, and pre blocks that wrap
-            // instead of forcing a horizontal scroll. No colors — the reader's
-            // own light/dark preference wins by default.
-            sb.AppendLine("<style>");
-            sb.AppendLine("body { font-family: Segoe UI, sans-serif; max-width: 70ch; "
-                        + "margin: 1em auto; padding: 0 1em; line-height: 1.5; }");
-            sb.AppendLine("pre { white-space: pre-wrap; overflow-wrap: break-word; }");
-            sb.AppendLine("</style>");
-            sb.AppendLine("</head>");
-            sb.AppendLine("<body>");
-            sb.Append("<h1>").Append(title).AppendLine("</h1>");
-            if (!string.IsNullOrEmpty(leadHtmlFragment))
-                sb.AppendLine(leadHtmlFragment);
-            sb.AppendLine(record.ReportHtml);
-            sb.AppendLine("</body>");
-            sb.AppendLine("</html>");
-            return sb.ToString();
+            // The shell — head, title, readability CSS, no colors — is shared
+            // with the QSO signal capture export via EvidenceHtmlShell.
+            return EvidenceHtmlShell.Standalone(
+                record.StageSetName + " check report — run " + record.RunId,
+                leadHtmlFragment,
+                record.ReportHtml);
         }
 
         /// <summary>The plain-text form, exactly what Copy would have put on
@@ -83,28 +65,11 @@ namespace Radios.Fixer.Evidence
         /// an email that never gets its attachment.</summary>
         public static bool WriteHtml(FixerRunRecord record, string path,
                                      string leadHtmlFragment = null)
-            => Write(path, () => StandaloneHtml(record, leadHtmlFragment));
+            => EvidenceExportWriter.Write(path, () => StandaloneHtml(record, leadHtmlFragment),
+                                          "FixerRunExport");
 
         /// <summary>Write the plain-text form. False (traced) on failure.</summary>
         public static bool WriteText(FixerRunRecord record, string path)
-            => Write(path, () => PlainText(record));
-
-        private static bool Write(string path, Func<string> content)
-        {
-            try
-            {
-                File.WriteAllText(path, content(), new UTF8Encoding(false));
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("FixerRunExport: could not write " + path + " — "
-                                  + ex.Message, TraceLevel.Warning);
-                return false;
-            }
-        }
-
-        private static string Esc(string s)
-            => (s ?? "").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+            => EvidenceExportWriter.Write(path, () => PlainText(record), "FixerRunExport");
     }
 }
