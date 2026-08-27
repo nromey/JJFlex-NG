@@ -3574,6 +3574,24 @@ Module globals
     Private radioSelected As DialogResult
 
     ''' <summary>
+    ''' The itinerary of the connect currently being set up, still holding the
+    ''' paths that have NOT been tried.
+    '''
+    ''' <para>It lives at module scope on purpose (task #284). The walk used to
+    ''' be a local list inside <see cref="wpfSelectorProc"/>, so it ceased to
+    ''' exist the moment the loop returned — and the loop returns as soon as a
+    ''' leg's SESSION connects, which is up to a minute before anyone knows
+    ''' whether the radio actually opened. When the open then failed there was
+    ''' no itinerary left to walk on with, and the operator's only move was
+    ''' Alt+F4. He made it, twice.</para>
+    '''
+    ''' <para>Plain data — serial, bandwidth flag, list, index. Nothing in it
+    ''' is a radio or a session, so a torn-down connection cannot take it
+    ''' with it.</para>
+    ''' </summary>
+    Private _pendingWalk As Radios.ConnectWalk
+
+    ''' <summary>
     ''' Handler for FlexBase.RadioFound events, dispatches to the WPF dialog.
     ''' </summary>
     Private _wpfRadioFoundCallback As Action(Of JJFlexWpf.Dialogs.RadioListItem)
@@ -4028,11 +4046,6 @@ Module globals
             Dim serial = dialog.SelectedSerial
             Dim lowBW = dialog.SelectedLowBW
             Dim isRemote = dialog.SelectedIsRemote
-            ' Set when the connect must travel SmartLink specifically (the
-            ' operator forced it, or the chain chose SmartLink for a radio
-            ' also on the local network). The connect layer must not quietly
-            ' substitute the LAN path underneath that choice.
-            Dim preferWan = dialog.SelectedPreferRemotePath
             Dim pathForced = dialog.SelectedPathForced
             Dim connectOk As Boolean = False
 
@@ -4041,13 +4054,25 @@ Module globals
             ' silently. A forced path has no fallbacks by construction
             ' (force-remote is the hole-punch test instrument; succeeding
             ' over the wrong path would invalidate the test).
-            Dim walk As New List(Of Radios.ConnectPathKind)
-            walk.Add(If(isRemote, Radios.ConnectPathKind.SmartLink, Radios.ConnectPathKind.Local))
-            If Not pathForced AndAlso dialog.SelectedFallbackPaths IsNot Nothing Then
-                walk.AddRange(dialog.SelectedFallbackPaths)
-            End If
+            '
+            ' Held at module scope, not in a local, so it is still here when
+            ' the OPEN fails long after this loop has returned — see
+            ' _pendingWalk and ResumeWalkAfterFailedOpen (task #284).
+            Dim walk = Radios.ConnectWalk.Build(
+                serial, lowBW,
+                If(isRemote, Radios.ConnectPathKind.SmartLink, Radios.ConnectPathKind.Local),
+                dialog.SelectedFallbackPaths, pathForced)
+            _pendingWalk = walk
+            Radios.ConnectionHistory.DiscardPendingOutcome()
 
-            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW} walk=[{String.Join(",", walk)}] preferWanPath={preferWan} forced={pathForced}", TraceLevel.Info)
+            ' The old line printed preferWanPath beside forced, which are two
+            ' different questions in two vocabularies, and reading them as one
+            ' cost a day: the trace said forced=False and forceWanPath=True one
+            ' line apart and both were true (#284). Only ONE question belongs
+            ' here — may this walk move on? — because which identity a leg
+            ' resolves is now decided by the leg's own name, and the itinerary
+            ' already prints that.
+            Tracing.TraceLine($"wpfSelectorProc: connecting {serial} lowBW={lowBW} walk=[{walk.Describe()}] forced={pathForced} fallbackAllowed={walk.HasNextLeg}", TraceLevel.Info)
             Radios.ConnectionProfiler.Current?.RecordEvent("connect_call_begin")
 
             ' Auth ladder, rung 5: while another path remains in the chain, a
@@ -4056,54 +4081,12 @@ Module globals
             ' the retry-with-form below knows the failure was auth-shaped.
             Dim suppressedAuthFailure As Boolean = False
 
-            For legIndex = 0 To walk.Count - 1
-                Dim legPath = walk(legIndex)
-                Dim lastLeg = (legIndex = walk.Count - 1)
-                Dim legName = If(legPath = Radios.ConnectPathKind.SmartLink, Radios.Lexicon.Get("connect.walk.leg_smartlink"), Radios.Lexicon.Get("connect.walk.leg_local"))
-                Dim legSw = System.Diagnostics.Stopwatch.StartNew()
-
-                If legPath = Radios.ConnectPathKind.SmartLink Then
-                    connectOk = RigControl.ReconnectRemote(serial, lowBW,
-                        forceWanPath:=(preferWan OrElse legIndex > 0),
-                        allowInteractiveLogin:=lastLeg)
-                    Dim failReport = RigControl.LastConnectFailureReport
-                    If Not connectOk AndAlso Not lastLeg AndAlso failReport IsNot Nothing AndAlso
-                       failReport.Class = Radios.ConnectFailureClass.AuthenticationFailed Then
-                        suppressedAuthFailure = True
-                    End If
-                Else
-                    ' A fallback local leg only makes sense when a LAN object
-                    ' actually exists — Connect() would otherwise resolve the
-                    ' WAN object and quietly travel SmartLink under a leg that
-                    ' announced itself as local.
-                    Dim avail = RigControl.RadioAvailability(serial)
-                    If legIndex > 0 AndAlso Not avail.lan Then
-                        legSw.Stop()
-                        Tracing.TraceLine($"wpfSelectorProc: leg {legIndex} local skipped — radio not on the LAN", TraceLevel.Info)
-                        Radios.ConnectionHistory.Record(serial, legPath.ToString(), "not_found", legSw.ElapsedMilliseconds)
-                        If Not lastLeg Then Continue For
-                        connectOk = False
-                        Exit For
-                    End If
-                    connectOk = RigControl.Connect(serial, lowBW)
-                End If
-
-                legSw.Stop()
-                Radios.ConnectionHistory.Record(serial, legPath.ToString(),
-                    If(connectOk, "connected", If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed")),
-                    legSw.ElapsedMilliseconds)
-
-                If connectOk Then Exit For
-
-                If Not lastLeg Then
-                    ' No silent path substitution: the fallback says so.
-                    Dim nextName = If(walk(legIndex + 1) = Radios.ConnectPathKind.SmartLink, Radios.Lexicon.Get("connect.walk.leg_smartlink"), Radios.Lexicon.Get("connect.walk.leg_local"))
-                    Tracing.TraceLine($"wpfSelectorProc: leg {legIndex} ({legName}) failed; walking to {nextName}", TraceLevel.Info)
-                    Radios.ScreenReaderOutput.Speak(
-                        Radios.Lexicon.Get("connect.walk.falling_back", ("legName", legName), ("nextName", nextName)),
-                        VerbosityLevel.Critical, True)
-                End If
-            Next
+            Do
+                connectOk = RunWalkLeg(walk, suppressedAuthFailure)
+                If connectOk Then Exit Do
+                If Not AnnounceWalkOn(walk, "wpfSelectorProc") Then Exit Do
+                walk.MoveNext()
+            Loop
 
             ' The chain is exhausted and a SmartLink leg failed on auth while
             ' its prompt was suppressed: NOW the native sign-in is earned.
@@ -4113,12 +4096,20 @@ Module globals
                 Dim retrySw = System.Diagnostics.Stopwatch.StartNew()
                 connectOk = RigControl.ReconnectRemote(serial, lowBW, forceWanPath:=True, allowInteractiveLogin:=True)
                 retrySw.Stop()
-                Radios.ConnectionHistory.Record(serial, Radios.ConnectPathKind.SmartLink.ToString(),
-                    If(connectOk, "connected", If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed")),
-                    retrySw.ElapsedMilliseconds)
+                If connectOk Then
+                    ' Armed, not recorded — the open still has to happen.
+                    Radios.ConnectionHistory.ArmPendingOutcome(serial,
+                        Radios.ConnectPathKind.SmartLink.ToString(), retrySw.ElapsedMilliseconds)
+                Else
+                    Radios.ConnectionHistory.Record(serial, Radios.ConnectPathKind.SmartLink.ToString(),
+                        If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed"),
+                        retrySw.ElapsedMilliseconds)
+                End If
             End If
 
             If Not connectOk Then
+                _pendingWalk = Nothing
+                Radios.ConnectionHistory.DiscardPendingOutcome()
                 _connectingForm?.CloseForm()
                 _connectingForm = Nothing
                 ' QB Track D: speak the classified evidence, not a bare verdict.
@@ -4167,11 +4158,180 @@ Module globals
                 {"success", True}
             })
         Else
+            _pendingWalk = Nothing
+            Radios.ConnectionHistory.DiscardPendingOutcome()
             radioSelected = DialogResult.Cancel
             RigControl.Dispose()
             RigControl = Nothing
         End If
     End Sub
+
+    ''' <summary>The operator-facing name of one leg.</summary>
+    Private Function WalkLegName(path As Radios.ConnectPathKind) As String
+        Return If(path = Radios.ConnectPathKind.SmartLink,
+                  Radios.Lexicon.Get("connect.walk.leg_smartlink"),
+                  Radios.Lexicon.Get("connect.walk.leg_local"))
+    End Function
+
+    ''' <summary>
+    ''' Say that this leg failed and the walk is moving to the next one.
+    ''' Returns False when there is no next one, so the caller stops.
+    '''
+    ''' <para>No silent path substitution: the fallback says so, out loud, in
+    ''' the walk's own existing words. Both the selector's first pass and the
+    ''' after-a-failed-open resume come through here, so a fallback sounds the
+    ''' same whichever of them made it.</para>
+    ''' </summary>
+    Private Function AnnounceWalkOn(walk As Radios.ConnectWalk, where As String) As Boolean
+        If walk Is Nothing OrElse Not walk.HasNextLeg Then Return False
+        Dim legName = WalkLegName(walk.Current)
+        Dim nextName = WalkLegName(walk.PeekNext.Value)
+        Tracing.TraceLine($"{where}: leg {walk.LegIndex} ({legName}) failed; walking to {nextName}", TraceLevel.Info)
+        Radios.ScreenReaderOutput.Speak(
+            Radios.Lexicon.Get("connect.walk.falling_back", ("legName", legName), ("nextName", nextName)),
+            VerbosityLevel.Critical, True)
+        Return True
+    End Function
+
+    ''' <summary>
+    ''' Attempt the walk's CURRENT leg on <see cref="RigControl"/>.
+    '''
+    ''' <para>Returns whether the SESSION connected — which is not the same
+    ''' question as whether the radio opened, and conflating the two is task
+    ''' #284. So a leg that connects does not write its history record yet; it
+    ''' ARMS one, and whoever learns the open's fate commits it. A leg that
+    ''' fails here failed at connect, which is knowable now, so it records
+    ''' immediately.</para>
+    '''
+    ''' <para>One copy, two callers: the selector's first pass and
+    ''' <see cref="ResumeWalkAfterFailedOpen"/>. A resumed leg must behave
+    ''' identically to a first-pass one — including holding out for the WAN
+    ''' identity on a SmartLink leg — and the only way to be sure of that is
+    ''' for there to be one implementation.</para>
+    ''' </summary>
+    Private Function RunWalkLeg(walk As Radios.ConnectWalk, ByRef suppressedAuthFailure As Boolean) As Boolean
+        Dim serial = walk.Serial
+        Dim lowBW = walk.LowBW
+        Dim legPath = walk.Current
+        Dim legIndex = walk.LegIndex
+        Dim lastLeg = walk.IsLastLeg
+        Dim connectOk As Boolean = False
+        Dim legSw = System.Diagnostics.Stopwatch.StartNew()
+
+        If legPath = Radios.ConnectPathKind.SmartLink Then
+            ' EVERY SmartLink leg resolves the WAN identity — first leg or
+            ' fallback, forced or not. That is what makes it the SmartLink leg.
+            ' It is not a compulsion and it says nothing about whether the
+            ' operator forced anything; settling for the LAN object of a
+            ' dual-homed radio here would make the announcement a lie (#85).
+            ' Reading it as a compulsion is what produced a trace carrying
+            ' forced=False and forceWanPath=True one line apart (#284).
+            connectOk = RigControl.ReconnectRemote(serial, lowBW,
+                forceWanPath:=True,
+                allowInteractiveLogin:=lastLeg)
+            Dim failReport = RigControl.LastConnectFailureReport
+            If Not connectOk AndAlso Not lastLeg AndAlso failReport IsNot Nothing AndAlso
+               failReport.Class = Radios.ConnectFailureClass.AuthenticationFailed Then
+                suppressedAuthFailure = True
+            End If
+        Else
+            ' A fallback local leg only makes sense when a LAN object
+            ' actually exists — Connect() would otherwise resolve the
+            ' WAN object and quietly travel SmartLink under a leg that
+            ' announced itself as local.
+            Dim avail = RigControl.RadioAvailability(serial)
+            If legIndex > 0 AndAlso Not avail.lan Then
+                legSw.Stop()
+                Tracing.TraceLine($"connect walk: leg {legIndex} local skipped — radio not on the LAN", TraceLevel.Info)
+                Radios.ConnectionHistory.Record(serial, legPath.ToString(), "not_found", legSw.ElapsedMilliseconds)
+                Return False
+            End If
+            connectOk = RigControl.Connect(serial, lowBW)
+        End If
+
+        legSw.Stop()
+        If connectOk Then
+            Radios.ConnectionHistory.ArmPendingOutcome(serial, legPath.ToString(), legSw.ElapsedMilliseconds)
+        Else
+            Radios.ConnectionHistory.Record(serial, legPath.ToString(),
+                If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed"),
+                legSw.ElapsedMilliseconds)
+        End If
+        Return connectOk
+    End Function
+
+    ''' <summary>
+    ''' The open failed. Give the failure back to the walk instead of to the
+    ''' operator: try the paths the itinerary still holds, opening each one
+    ''' before calling it a success.
+    '''
+    ''' <para><b>Why this exists (task #284).</b> The walk used to end at the
+    ''' session layer. SmartLink connected in 445 ms, the radio was found, a
+    ''' remote connect was sent — and the loop exited on that success, fifty-six
+    ''' seconds before the station-name wait gave up. The Local leg of
+    ''' <c>[SmartLink, Local]</c> was never reached in either reproduction,
+    ''' because nothing had failed yet at the moment the walk was still
+    ''' running. A fallback that is never reached is not a fallback.</para>
+    '''
+    ''' <para><b>Why it can work at all.</b> It runs BEFORE any teardown. Both
+    ''' traces show the order plainly: <c>rig's open failed</c>, then
+    ''' <c>CloseTheRadio</c>, then <c>FlexBase.Dispose:True</c>, then
+    ''' <c>Discovery.Receive: task exited cleanly</c> — the teardown FOLLOWS the
+    ''' failure and is caused by it. At this point discovery is still up (the
+    ''' 21:27 trace has the 8600 rediscovered at 192.168.50.100 forty
+    ''' milliseconds after the failure), <c>myRadioList</c> still holds the LAN
+    ''' object, and the FlexBase instance is intact — <c>Start()</c> disconnects
+    ''' the FlexLib radio on timeout but disposes nothing. So the same instance
+    ''' can connect the next leg, exactly as the first pass would have.</para>
+    '''
+    ''' <para>A cancel is not a failure and must not be walked on: the operator
+    ''' pressed Escape because they wanted OUT, and offering them another
+    ''' fifteen seconds of a different path is the opposite of answering.</para>
+    ''' </summary>
+    Private Function ResumeWalkAfterFailedOpen() As Boolean
+        Dim walk = _pendingWalk
+        If walk Is Nothing Then Return False
+        If RigControl Is Nothing Then Return False
+
+        If RigControl.CancelRequested Then
+            Tracing.TraceLine("connect walk: open failed after a cancel — not walking on", TraceLevel.Info)
+            Return False
+        End If
+
+        If Not walk.HasNextLeg Then
+            Tracing.TraceLine($"connect walk: open failed on {walk.Current} and the itinerary [{walk.Describe()}] is exhausted", TraceLevel.Info)
+            Return False
+        End If
+
+        Dim suppressedAuthFailure As Boolean = False
+        Dim opened As Boolean = False
+
+        Do
+            If Not AnnounceWalkOn(walk, "connect walk (after failed open)") Then Exit Do
+            walk.MoveNext()
+            Radios.ConnectionProfiler.Current?.RecordEvent("walk_resume_leg", New Dictionary(Of String, Object) From {
+                {"leg", walk.LegIndex},
+                {"path", walk.Current.ToString()}
+            })
+
+            If Not RunWalkLeg(walk, suppressedAuthFailure) Then Continue Do
+
+            ' The session is up on this leg. It is not a success until the
+            ' radio opens, which is the whole lesson of this task.
+            Tracing.TraceLine($"connect walk: leg {walk.LegIndex} ({walk.Current}) connected — opening", TraceLevel.Info)
+            opened = RigControl.Start()
+            Radios.ConnectionHistory.CommitPendingOutcome(opened)
+            If opened Then
+                Tracing.TraceLine($"connect walk: leg {walk.LegIndex} ({walk.Current}) opened", TraceLevel.Info)
+                Exit Do
+            End If
+
+            Tracing.TraceLine($"connect walk: leg {walk.LegIndex} ({walk.Current}) connected but did not open", TraceLevel.Warning)
+            If RigControl.CancelRequested Then Exit Do
+        Loop
+
+        Return opened
+    End Function
 
     ''' <summary>
     ''' Open the radio — builds OpenParms, runs selector, wires MainWindow.
@@ -4180,6 +4340,11 @@ Module globals
     Friend Function openTheRadio(initialCall As Boolean) As Boolean
         Try
             Dim rv As Boolean
+            ' No itinerary until this attempt builds one. Auto-connect reaches
+            ' the open without going through the selector, so a walk left over
+            ' from an earlier attempt must not be inherited by it.
+            _pendingWalk = Nothing
+            Radios.ConnectionHistory.DiscardPendingOutcome()
             OpenParms = New FlexBase.OpenParms()
             OpenParms.ProgramName = ProgramName
             OpenParms.ParentWindow = AppShellForm
@@ -4365,6 +4530,21 @@ RadioConnected:
                         Tracing.TraceLine("OpenTheRadio:Start failed, no retry path available (local or no serial)", TraceLevel.Info)
                     End If
                 End If
+
+                ' The open has resolved, one way or the other, and ONLY NOW is
+                ' the leg's outcome actually known. Recording it at the moment
+                ' the session connected is what taught the path policy that
+                ' four failed SmartLink attempts were four successes (#284).
+                Radios.ConnectionHistory.CommitPendingOutcome(rv)
+
+                ' Hand the failure back to the walk before handing it to the
+                ' operator. This runs BEFORE CloseTheRadio, which is the only
+                ' reason there is still discovery to find the radio with and a
+                ' FlexBase to connect it on.
+                If Not rv Then
+                    rv = ResumeWalkAfterFailedOpen()
+                End If
+                _pendingWalk = Nothing
 
                 If Not rv Then
                     radioSelected = DialogResult.Abort

@@ -91,15 +91,101 @@ namespace Radios.Tests
         [Fact]
         public void TrendOnlyPrefillsWhenNoChoiceIsStored()
         {
+            // The radio is NOT on the LAN, so the trend is the only thing with
+            // an opinion about order, and it gets to have it.
             var chain = ConnectPathPolicy.Resolve(
                 storedChain: new List<ConnectPathKind>(),
                 learned: ConnectPathKind.SmartLink,
-                lanAvailable: true, wanAvailable: true, lastSeenRemote: false);
+                lanAvailable: false, wanAvailable: true, lastSeenRemote: false);
 
-            // Availability alone would have said local first; the trend
-            // reorders it, because nobody has said otherwise.
             Assert.Equal(ConnectPathKind.SmartLink, chain[0]);
             Assert.Equal(2, chain.Count);
+        }
+
+        // ------------------------------------------------------------------
+        // Task #284 — a trend does not outrank a radio on this subnet
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void ASmartLinkTrendDoesNotSendAConnectToTheInternetForARadioOnTheLAN()
+        {
+            // Reproduced twice on 2026-08-26. Noel's 8600 was broadcasting from
+            // 192.168.50.100 and had been discovered on the LAN seconds
+            // earlier; the ring held three SmartLink successes learned while he
+            // was behind a Tailscale exit node. The chain came back
+            // [SmartLink, Local] and the connect went out through FlexRadio's
+            // servers. "I'm not trying smart link, it's detected local
+            // network."
+            //
+            // This assertion IS the fix. Present LAN presence is evidence about
+            // now; a SmartLink trend can only have been learned while the radio
+            // was NOT on this subnet, so replaying it here applies evidence
+            // outside the conditions that produced it.
+            var chain = ConnectPathPolicy.Resolve(
+                storedChain: null,
+                learned: ConnectPathKind.SmartLink,
+                lanAvailable: true, wanAvailable: true, lastSeenRemote: true);
+
+            Assert.Equal(ConnectPathKind.Local, chain[0]);
+            Assert.Equal(ConnectPathKind.SmartLink, chain[1]);
+        }
+
+        [Fact]
+        public void ASmartLinkTrendStillLeadsWhenTheRadioIsNotOnTheLAN()
+        {
+            // The narrowing must not become a deletion. Away from home, the
+            // trend is the whole point of task #79 and it still decides.
+            var chain = ConnectPathPolicy.Resolve(
+                storedChain: null,
+                learned: ConnectPathKind.SmartLink,
+                lanAvailable: false, wanAvailable: true, lastSeenRemote: false);
+
+            Assert.Equal(ConnectPathKind.SmartLink, chain[0]);
+        }
+
+        [Fact]
+        public void ASmartLinkTrendStillOrdersAChainWhenNothingIsReachableYet()
+        {
+            // Neither list has landed. Availability has no opinion, so the
+            // habit is the best guess available and gets to order the attempt.
+            var chain = ConnectPathPolicy.Resolve(
+                storedChain: null,
+                learned: ConnectPathKind.SmartLink,
+                lanAvailable: false, wanAvailable: false, lastSeenRemote: false);
+
+            Assert.Equal(ConnectPathKind.SmartLink, chain[0]);
+        }
+
+        [Fact]
+        public void AStoredSmartLinkChoiceStillWinsForARadioOnTheLAN()
+        {
+            // The narrowing applies to the TREND, at rung 2. An operator who
+            // deliberately stored SmartLink-first — testing hole punching from
+            // inside his own shack is exactly why someone would — is not
+            // second-guessed by the fact that the radio is also on the LAN.
+            var stored = new List<ConnectPathKind>
+            {
+                ConnectPathKind.SmartLink, ConnectPathKind.Local,
+            };
+
+            var chain = ConnectPathPolicy.Resolve(
+                stored, ConnectPathKind.SmartLink,
+                lanAvailable: true, wanAvailable: true, lastSeenRemote: true);
+
+            Assert.Equal(ConnectPathKind.SmartLink, chain[0]);
+        }
+
+        [Fact]
+        public void ARadioOnTheLANAlwaysCarriesSmartLinkAsItsFallback()
+        {
+            // Preferring local must not mean refusing to walk on. Local first,
+            // SmartLink still behind it — the whole result, not just the head.
+            var chain = ConnectPathPolicy.Resolve(
+                null, ConnectPathKind.SmartLink,
+                lanAvailable: true, wanAvailable: true, lastSeenRemote: false);
+
+            Assert.Equal(2, chain.Count);
+            Assert.Contains(ConnectPathKind.SmartLink, chain);
         }
 
         [Fact]
