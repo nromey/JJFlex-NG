@@ -6,11 +6,12 @@ using System.Windows.Threading;
 namespace JJFlexWpf;
 
 /// <summary>
-/// The context-help availability cue (#275): two quick rising taps, a moment
-/// after focus settles on a control, meaning "Ctrl+F1 has something to say
-/// here that it has not already said". The WPF half — focus watching and the
-/// settle timer; the decision itself is Radios.ContextHelpCueDecider and the
-/// sound is EarconPlayer.ContextHelpAvailableTone.
+/// The context-help availability cue (#275): a flick and a soft note an octave
+/// above it, a moment after focus settles on a control, meaning "Ctrl+F1 has
+/// something to say here that it has not already said". The WPF half — focus
+/// watching, the settle timer and the shutdown latch; the decision itself is
+/// Radios.ContextHelpCueDecider and the sound is
+/// EarconPlayer.ContextHelpAvailableTone.
 ///
 /// TIMING. The tone fires only after focus has RESTED on one control for
 /// <see cref="SettleMs"/> — Noel's own proposed delay. Someone tabbing
@@ -34,17 +35,24 @@ namespace JJFlexWpf;
 public static class ContextHelpCue
 {
     /// <summary>
-    /// How long focus must rest before the cue may sound. 1.5 seconds, per
-    /// Noel's proposal — long enough that moving between controls stays
-    /// silent and the focus announcement has gone first.
+    /// How long focus must rest before the cue may sound — long enough that
+    /// moving between controls stays silent and the focus announcement has
+    /// gone first.
     /// </summary>
-    internal const int SettleMs = 2500;   // 1500 was too eager in the field (Noel, 2026-08-27) — the cue fired while he was still moving
+    /// <remarks>
+    /// 1500 was Noel's original proposal and it was too eager in the field
+    /// (2026-08-27): the cue fired while he was still moving. 2500 has NOT
+    /// been auditioned at the time of writing — if it is still wrong, this
+    /// constant is the whole of the fix.
+    /// </remarks>
+    internal const int SettleMs = 2500;
 
     private static bool _installed;
     private static readonly Radios.ContextHelpCueDecider Decider = new();
     private static DispatcherTimer? _settle;
     private static WeakReference<DependencyObject>? _pending;
     private static WeakReference<IInputElement>? _lastSeen;
+    private static bool _shuttingDown;
 
     /// <summary>
     /// Register the focus watcher. Call once from the WPF surface's
@@ -66,8 +74,52 @@ public static class ContextHelpCue
             handledEventsToo: true);
     }
 
+    /// <summary>
+    /// The application is on its way out — disarm, and stay disarmed.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why this exists (#275).</b> Noel heard a tone with no speech
+    /// just before exiting on 2026-08-27 and could not place it; once he had
+    /// identified this cue, the shape matched. It is not a coincidence and it
+    /// is not about the sound. Exiting puts a confirmation in front of the
+    /// operator, focus lands on it, and reading a prompt takes longer than the
+    /// settle interval — so the cue resolves and announces that help is
+    /// available on a surface that is about to cease to exist. Every axis of
+    /// the design is right and the statement is still false.</para>
+    /// <para>Called at the TOP of MainWindow.RequestShutdown, before the exit
+    /// sequence runs, because the exit prompt is inside that sequence and is
+    /// the most likely thing focus was resting on.</para>
+    /// <para>Shutdown can be declined, so this is reversible — see
+    /// <see cref="ResumeAfterCancelledShutdown"/>. A latch that could not be
+    /// released would silently kill the cue for the rest of a session in which
+    /// the operator changed their mind about leaving.</para>
+    /// </remarks>
+    public static void SuspendForShutdown()
+    {
+        _shuttingDown = true;
+        _settle?.Stop();
+        _pending = null;
+        JJTrace.Tracing.TraceLine(
+            "ContextHelpCue: disarmed for shutdown",
+            System.Diagnostics.TraceLevel.Verbose);
+    }
+
+    /// <summary>
+    /// The operator declined to exit. Re-arm.
+    /// </summary>
+    public static void ResumeAfterCancelledShutdown()
+    {
+        if (!_shuttingDown) return;
+        _shuttingDown = false;
+        JJTrace.Tracing.TraceLine(
+            "ContextHelpCue: re-armed, shutdown was cancelled",
+            System.Diagnostics.TraceLevel.Verbose);
+    }
+
     private static void OnGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
+        if (_shuttingDown) return;
+
         var focused = e.NewFocus;
         if (focused == null) return;
 
@@ -99,6 +151,7 @@ public static class ContextHelpCue
         _settle?.Stop();
         try
         {
+            if (_shuttingDown) return;
             if (_pending == null || !_pending.TryGetTarget(out var element)) return;
 
             // Only cue the control the operator is STILL on. Focus that moved
@@ -106,8 +159,36 @@ public static class ContextHelpCue
             // also lands here as silence.
             if (!ReferenceEquals(Keyboard.FocusedElement, element)) return;
 
+            // Still attached to a live window? A surface being torn down keeps
+            // its element references — and its keyboard focus — for a while
+            // after it stops being anywhere an operator can act. This is the
+            // second line behind SuspendForShutdown, and it is here because
+            // that latch depends on one caller remembering to call it, while
+            // this holds for any teardown path anyone adds later.
+            if (PresentationSource.FromDependencyObject(element) == null)
+            {
+                JJTrace.Tracing.TraceLine(
+                    "ContextHelpCue: settled on a control with no live window — silent",
+                    System.Diagnostics.TraceLevel.Verbose);
+                return;
+            }
+
             string? help = JJFlexHelp.FindExplanation(element);
-            if (Decider.ShouldCue(help, DateTime.UtcNow))
+            bool cue = Decider.ShouldCue(help, DateTime.UtcNow);
+
+            // Verbose, so it lands in a DETAILED capture and nowhere else.
+            // Before this there was NO trace on the earcon path at any level —
+            // EarconPlayer records which earcon it played exactly never — so a
+            // quiet log said nothing whatsoever about whether this cue fired,
+            // and a 7,998-line Info trace containing no earcon lines was read
+            // on 2026-08-27 as if it were evidence. It was not. This one line
+            // is what makes the next audition settleable from a capture.
+            JJTrace.Tracing.TraceLine(
+                "ContextHelpCue: settled on " + element.GetType().Name
+                    + (cue ? " — sounding" : " — silent (no new help)"),
+                System.Diagnostics.TraceLevel.Verbose);
+
+            if (cue)
                 EarconPlayer.ContextHelpAvailableTone();
         }
         catch (Exception ex)
