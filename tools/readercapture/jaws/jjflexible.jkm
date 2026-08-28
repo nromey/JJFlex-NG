@@ -1,0 +1,16 @@
+; Key map for the JJ Flexible reader capture instrument.
+;
+; These bindings are APPLICATION SCOPED. They exist only while jjflexible.exe
+; has focus, so they cannot shadow a JAWS command anywhere else.
+;
+; Control+J is deliberately untouched: it is JJ Flexible's own leader key.
+
+[common keys]
+Insert+Shift+J=JJFCaptureCopy
+JAWSKey+Shift+J=JJFCaptureCopy
+Insert+Shift+K=JJFCaptureMarker
+JAWSKey+Shift+K=JJFCaptureMarker
+Insert+Control+Shift+J=JJFCaptureToggle
+JAWSKey+Control+Shift+J=JJFCaptureToggle
+Insert+Alt+J=JJFCaptureControl
+JAWSKey+Alt+J=JJFCaptureControl
