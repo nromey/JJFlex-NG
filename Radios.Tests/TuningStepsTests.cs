@@ -357,8 +357,8 @@ namespace Radios.Tests
         /// only thing standing between it and a key name spoken aloud to an
         /// operator is this pairing.
         /// </summary>
-        [Fact]
-        public void The_step_walk_speaks_with_the_keys_that_have_been_proof_read()
+        /// <summary>The body of WalkStep, for the scans below to read.</summary>
+        private static string WalkStepBody()
         {
             string source = LeaderSourceScan.ReadSource(
                 Path.Combine("JJFlexWpf", "FreqOutHandlers.cs"));
@@ -367,7 +367,13 @@ namespace Radios.Tests
             Assert.True(start >= 0, "WalkStep has moved or been renamed");
             int end = source.IndexOf("\n    /// <summary>", start, StringComparison.Ordinal);
             Assert.True(end > start, "could not find the end of WalkStep");
-            string body = source.Substring(start, end - start);
+            return source.Substring(start, end - start);
+        }
+
+        [Fact]
+        public void The_step_walk_speaks_with_the_keys_that_have_been_proof_read()
+        {
+            string body = WalkStepBody();
 
             foreach (string key in new[]
             {
@@ -391,6 +397,66 @@ namespace Radios.Tests
                     $"WalkStep speaks {m.Groups[1].Value}, which has no lexicon text — an "
                     + "operator would hear the key name read out instead of a step size");
             }
+        }
+
+        /// <summary>
+        /// A step key is a SWEPT VALUE, not a query, and it has to speak like
+        /// one: Latest, with a coalesce key, so holding an arrow says where it
+        /// landed instead of every rung on the way.
+        /// </summary>
+        /// <remarks>
+        /// <para>Coarse and fine must not share a coalesce key. One shared key
+        /// lets a fine announcement replace a pending coarse one while an
+        /// operator alternates between them, and they hear half of what they
+        /// changed — a bug with no symptom except silence.</para>
+        /// <para>And repeatWhileHeld must stay unset. ValueFieldControl
+        /// settled this for every swept value with an end stop: arriving at an
+        /// end says so once, in words. Setting it here would also cut across
+        /// the anti-clip gap that turns a held key into a readable cadence
+        /// rather than a stutter.</para>
+        /// </remarks>
+        [Fact]
+        public void The_step_walk_speaks_as_a_sweep_with_coarse_and_fine_kept_apart()
+        {
+            string body = WalkStepBody();
+
+            Assert.Contains("SpeechIntent.Latest", body, StringComparison.Ordinal);
+            Assert.Contains("coalesceKey:", body, StringComparison.Ordinal);
+            Assert.Contains("\"tuning-step:coarse\"", body, StringComparison.Ordinal);
+            Assert.Contains("\"tuning-step:fine\"", body, StringComparison.Ordinal);
+            Assert.DoesNotContain("repeatWhileHeld", body, StringComparison.Ordinal);
+
+            // Positive control: this scan must be reading real code, or every
+            // DoesNotContain above passes for free.
+            Assert.Contains("TuningSteps.Step(", body, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The picker's rows must CARRY their step, not be matched to one by
+        /// position in a parallel list.
+        /// </summary>
+        /// <remarks>
+        /// Two collections holding one fact, kept in step only by both being
+        /// appended in the same order, is the shape behind a whole family of
+        /// quiet defects — including the one the CW track found on 2026-08-27,
+        /// where a flush emptied a queue without decrementing the count of
+        /// what was outstanding. Here the failure would be a step the operator
+        /// did not choose being applied without a word said about it: no
+        /// exception, no failed build, no test that would notice.
+        /// </remarks>
+        [Fact]
+        public void The_picker_reads_the_chosen_step_off_the_row_not_out_of_a_parallel_list()
+        {
+            string source = LeaderSourceScan.ReadSource(
+                Path.Combine("JJFlexWpf", "Dialogs", "TuningStepsDialog.xaml.cs"));
+
+            Assert.Contains("SelectedItem is StepRow", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("SelectedIndex]", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("[CoarseList.SelectedIndex", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("[FineList.SelectedIndex", source, StringComparison.Ordinal);
+
+            // Positive control: the file really was read.
+            Assert.Contains("ChoicesIncluding", source, StringComparison.Ordinal);
         }
 
         /// <summary>

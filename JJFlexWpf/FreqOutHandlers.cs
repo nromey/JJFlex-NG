@@ -174,13 +174,6 @@ public class FreqOutHandlers
     private int _coarseStep = 5000;  // 5 kHz coarse default
     private int _fineStep = 100;     // 100 Hz fine default
 
-    // How long the end of a step ladder stays quiet after saying so. Long
-    // enough to swallow a held key under any screen reader, short enough that
-    // a deliberate second press still answers — a person re-pressing a key on
-    // purpose is a good three or four times slower than this. See WalkStep.
-    private const int StepLimitQuietMs = 400;
-    private long _lastStepLimitTicks = -StepLimitQuietMs;
-
     /// <summary>Current coarse tuning step in Hz (Up / Down).</summary>
     public int CoarseTuneStep
     {
@@ -249,41 +242,37 @@ public class FreqOutHandlers
     /// </summary>
     /// <param name="coarse">True for the coarse step, false for the fine one.</param>
     /// <param name="direction">Above zero for a larger step, below for smaller.</param>
-    /// <param name="isRepeat">True when Windows generated this press by
-    /// auto-repeat rather than the operator pressing the key again.</param>
     /// <remarks>
     /// <para>The end of the ladder SPEAKS. It does not wrap, and it does not
     /// go quiet: a key that leaves the value where it was is indistinguishable
     /// from a key that is not bound at all, which is the exact defect #302 was
     /// raised about one level up.</para>
-    /// <para>It says so ONCE, though. A held key walks five rungs in about a
-    /// second and then sits at the wall generating presses several times a
-    /// second, and repeating "largest" at that rate is noise standing where
-    /// band audio should be. The first arrival at the end announces; the
-    /// stream behind it is silent, and the next deliberate press announces
-    /// again.</para>
-    /// <para><b>Two guards, because one of them is screen-reader dependent.</b>
-    /// <paramref name="isRepeat"/> is the precise signal and costs nothing —
-    /// but a reader that SYNTHESISES key pairs rather than passing a real hold
-    /// delivers a stream of first presses, and every one of them reports
-    /// IsRepeat false. JAWS does exactly that, roughly four times a second
-    /// (see project_jaws_does_not_deliver_held_keys). So the wall is also
-    /// gated on a short quiet window, which does not care how the keystrokes
-    /// were manufactured. Anything a person could call a deliberate second
-    /// press is well outside it.</para>
+    /// <para><b>A SWEPT VALUE, so it speaks through Latest with a coalesce
+    /// key</b> — the same shape as slice volume, the gain keys, and
+    /// ValueFieldControl. Holding an arrow walks several rungs; coalescing
+    /// means the operator hears WHERE IT LANDED rather than every value on
+    /// the way, and identical repeats against the wall are dropped by the
+    /// arbiter, so arriving at the end says so once. This is emphatically not
+    /// the Query case — a step key is not asking a question that must be
+    /// answered again on re-press, it is a value being swept, where the settle
+    /// is correct and the tail is the right answer.</para>
+    /// <para>Coarse and fine carry SEPARATE keys on purpose. One shared key
+    /// would let a fine announcement replace a pending coarse one while the
+    /// operator alternated between them, and they would hear only half of
+    /// what they changed.</para>
+    /// <para><b>repeatWhileHeld is deliberately not set.</b> It exists for a
+    /// range whose end is worth restating while you lean on it; here the
+    /// sentence already names the value AND says "largest" or "smallest", and
+    /// ValueFieldControl settled the same question the same way — arriving at
+    /// an end says so once, in words. Leaving it off also keeps the
+    /// anti-clip gap doing its job of turning a held key into a cadence
+    /// instead of a stutter.</para>
     /// </remarks>
-    public void WalkStep(bool coarse, int direction, bool isRepeat = false)
+    public void WalkStep(bool coarse, int direction)
     {
         var ladder = coarse ? Radios.TuningSteps.Coarse : Radios.TuningSteps.Fine;
         int current = coarse ? _coarseStep : _fineStep;
         var move = Radios.TuningSteps.Step(ladder, current, direction);
-
-        if (move.AtLimit)
-        {
-            long now = Environment.TickCount64;
-            if (isRepeat || now - _lastStepLimitTicks < StepLimitQuietMs) return;
-            _lastStepLimitTicks = now;
-        }
 
         ApplyStepSizes(
             coarse ? move.Hz : _coarseStep,
@@ -298,7 +287,9 @@ public class FreqOutHandlers
 
         Radios.ScreenReaderOutput.Speak(
             Lexicon.Get(key, ("step", FormatStepForSpeech(move.Hz))),
-            VerbosityLevel.Terse, true);
+            Radios.Speech.SpeechIntent.Latest,
+            VerbosityLevel.Terse,
+            coalesceKey: coarse ? "tuning-step:coarse" : "tuning-step:fine");
     }
 
     /// <summary>
@@ -2551,12 +2542,12 @@ public class FreqOutHandlers
                 int direction = key == Key.Right ? 1 : -1;
                 if (Keyboard.Modifiers == ModifierKeys.Alt)
                 {
-                    WalkStep(coarse: true, direction, e.IsRepeat);
+                    WalkStep(coarse: true, direction);
                     e.Handled = true;
                 }
                 else if (Keyboard.Modifiers == ModifierKeys.Shift)
                 {
-                    WalkStep(coarse: false, direction, e.IsRepeat);
+                    WalkStep(coarse: false, direction);
                     e.Handled = true;
                 }
                 break;

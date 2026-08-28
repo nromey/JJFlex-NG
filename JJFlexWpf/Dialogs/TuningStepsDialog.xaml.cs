@@ -1,6 +1,6 @@
-using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Controls;
 using Radios;
 
 namespace JJFlexWpf.Dialogs
@@ -21,8 +21,26 @@ namespace JJFlexWpf.Dialogs
     /// </remarks>
     public partial class TuningStepsDialog : JJFlexDialog
     {
-        private readonly IReadOnlyList<TuningSteps.Choice> _coarseChoices;
-        private readonly IReadOnlyList<TuningSteps.Choice> _fineChoices;
+        /// <summary>
+        /// One row: the step it stands for, and the words the row shows.
+        /// </summary>
+        /// <remarks>
+        /// <b>The row CARRIES its step rather than being matched to one by
+        /// position.</b> The first version put labels in the list and kept the
+        /// choices in a parallel array, reading the operator's answer back by
+        /// index — two representations of one fact, correct only for as long
+        /// as both were appended in lockstep, and wrong SILENTLY if they ever
+        /// were not: a mismatched index sets a step the operator did not pick
+        /// and says nothing. Nothing about that would fail a build or a test.
+        /// One representation removes the question.
+        /// <para>ToString is what the ListBox renders and therefore what a
+        /// screen reader reads — the same shape DialogCatalog.DialogEntry
+        /// uses.</para>
+        /// </remarks>
+        private sealed record StepRow(TuningSteps.Choice Choice)
+        {
+            public override string ToString() => TuningSteps.LabelFor(Choice);
+        }
 
         /// <summary>The chosen coarse step in Hz. Meaningful only when the
         /// dialog returned true.</summary>
@@ -46,30 +64,33 @@ namespace JJFlexWpf.Dialogs
             // ChoicesIncluding, not the bare ladder: a picker that omits the
             // value currently in force would show one step while another was
             // running, and would change it the moment OK was pressed.
-            _coarseChoices = TuningSteps.ChoicesIncluding(TuningSteps.Coarse, currentCoarseHz);
-            _fineChoices = TuningSteps.ChoicesIncluding(TuningSteps.Fine, currentFineHz);
-
-            Fill(CoarseList, _coarseChoices, currentCoarseHz);
-            Fill(FineList, _fineChoices, currentFineHz);
+            Fill(CoarseList, TuningSteps.ChoicesIncluding(TuningSteps.Coarse, currentCoarseHz),
+                currentCoarseHz);
+            Fill(FineList, TuningSteps.ChoicesIncluding(TuningSteps.Fine, currentFineHz),
+                currentFineHz);
         }
 
-        private static void Fill(System.Windows.Controls.ListBox list,
-            IReadOnlyList<TuningSteps.Choice> choices, int currentHz)
+        private static void Fill(ListBox list,
+            System.Collections.Generic.IReadOnlyList<TuningSteps.Choice> choices, int currentHz)
         {
-            for (int i = 0; i < choices.Count; i++)
+            foreach (var choice in choices)
             {
-                list.Items.Add(TuningSteps.LabelFor(choices[i]));
-                if (choices[i].Hz == currentHz) list.SelectedIndex = i;
+                var row = new StepRow(choice);
+                list.Items.Add(row);
+                if (choice.Hz == currentHz) list.SelectedItem = row;
             }
-            if (list.SelectedIndex < 0 && list.Items.Count > 0) list.SelectedIndex = 0;
+            if (list.SelectedItem == null && list.Items.Count > 0) list.SelectedIndex = 0;
         }
+
+        /// <summary>The step a list is showing as chosen, or the fallback when
+        /// somehow nothing is selected.</summary>
+        private static int ChosenHz(ListBox list, int fallbackHz) =>
+            list.SelectedItem is StepRow row ? row.Choice.Hz : fallbackHz;
 
         private void OkButton_Click(object sender, RoutedEventArgs e)
         {
-            if (CoarseList.SelectedIndex >= 0 && CoarseList.SelectedIndex < _coarseChoices.Count)
-                CoarseStepHz = _coarseChoices[CoarseList.SelectedIndex].Hz;
-            if (FineList.SelectedIndex >= 0 && FineList.SelectedIndex < _fineChoices.Count)
-                FineStepHz = _fineChoices[FineList.SelectedIndex].Hz;
+            CoarseStepHz = ChosenHz(CoarseList, CoarseStepHz);
+            FineStepHz = ChosenHz(FineList, FineStepHz);
 
             CloseWithResult(true);
         }
