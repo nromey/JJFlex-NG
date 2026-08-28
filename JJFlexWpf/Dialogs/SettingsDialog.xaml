@@ -956,12 +956,12 @@
                               AutomationProperties.Name="Signal strength">
                         <StackPanel Margin="4">
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                <controls:DecorativeText Text="Read the S-meter in:"
+                                <controls:DecorativeText Text="Signal strength unit:"
                                            VerticalAlignment="Center"
                                            Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
                                 <ComboBox x:Name="RadioProfileSmeterUnitsCombo" MinWidth="220"
                                           Style="{StaticResource DialogComboBox}"
-                                          AutomationProperties.Name="Unit the S-meter is read in for this radio"
+                                          AutomationProperties.Name="Signal strength unit"
                    local:JJFlexHelp.Text="Saved for this radio and used every time you connect to it. Ctrl+J then Ctrl+S switches it from anywhere, and the Operations menu has it too."
                                           SelectionChanged="RadioProfileSmeterUnitsCombo_SelectionChanged">
                                     <ComboBoxItem Content="S-units"/>
