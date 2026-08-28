@@ -22,8 +22,27 @@
 # something real: a mute is worse news than a low level, and both are worse
 # news than a routing choice. Say the most disabling thing first.
 
+#
+# STAGE 4 IS A DIFFERENT KIND OF CHECK, added 2026-08-28 (#350).
+#
+# Stages 0 to 3 read SETTINGS: mutes, levels, a routing switch. Every one of
+# them is something this application asked the radio to be, so the whole report
+# could be verifiably correct while no audio had ever reached the computer. It
+# said the plumbing was configured; it never said water came out.
+#
+# Stage 4 reads what ARRIVED — bytes the radio sent that crossed the network
+# and were counted on this side. That is the half a manufacturer's support desk
+# asks about first, and the only half that means anything to a reader who does
+# not trust our software.
+#
+# Every rule in it is gated on pc-audio, and that gate is not optional. The
+# network audio stream only carries sound to this computer when radio audio
+# through this computer is switched on; an operator listening on the radio's
+# own speaker has no such stream, measures zero, and has nothing wrong with
+# their station. An ungated rule here would accuse the commonest setup there is.
+
 ruleset: Receive audio check
-version: 1
+version: 2
 
 
 # ── Stage 0 ───────────────────────────────────────────────────────────────
@@ -135,5 +154,61 @@ needs: remote-radio is yes
 broken-when: pc-audio is no
 verdict: PC audio is currently switched off and you are connected remotely, so there is no path at all for the sound to reach you. The radio's own headphone jack is at the radio, wherever that is.
 fix: Turn PC audio on. Control plus J, then A, does it from anywhere in the application, and the setting is also in Settings, Audio.
+evidence: pc-audio
+evidence: remote-radio
+
+
+# ── Stage 4 ───────────────────────────────────────────────────────────────
+#
+# The first stage in this file that measures rather than reads back. See the
+# note at the top for why it is gated on pc-audio throughout, and why "nothing
+# arrived" is reported as three different findings rather than one.
+#
+# Order, worst news first: nothing at all is arriving, then the radio is
+# clearly alive and only the audio is missing, then the general case.
+
+stage: 4 audio arriving from the radio
+about: Whether audio is actually reaching this computer, measured from what the radio has been sending over the last half minute rather than from any setting.
+nothing-to-check: radio audio through this computer is switched off, so the radio is not sending any audio here and none is expected. What you hear comes out of the radio itself.
+
+rule: rx-nothing-arriving
+in-stage: 4
+needs: pc-audio is yes
+broken-when: rx-audio-kbps at most 0
+broken-when: rx-total-kbps at most 0
+verdict: Radio audio through this computer is switched on, but nothing at all has been arriving from the radio: over the readings just taken we measured no audio and no other data either. That points at the link between this computer and the radio rather than at any audio setting.
+fix: The connection may have dropped without saying so. Disconnect and connect again, which reopens the control link and the audio stream together. If you are connected remotely, check the internet link at both ends first.
+evidence: rx-audio-kbps
+evidence: rx-audio-readings
+evidence: rx-total-kbps
+evidence: rx-meter-kbps
+evidence: pc-audio
+evidence: remote-radio
+
+rule: rx-meters-but-no-audio
+in-stage: 4
+needs: pc-audio is yes
+broken-when: rx-audio-kbps at most 0
+broken-when: rx-meter-kbps at least 1
+verdict: The radio is talking to this computer — its meter readings are arriving at {rx-meter-kbps} — but no audio is coming with them. Over the readings just taken, audio was present in {rx-audio-readings} readings. The link is alive; it is the audio on it that is missing.
+fix: Turn radio audio through this computer off and then on again, which asks the radio for a fresh audio stream. Control plus J, then A, does that from anywhere in the application. If it stays silent, disconnect and connect again.
+evidence: rx-audio-kbps
+evidence: rx-audio-readings
+evidence: rx-meter-kbps
+evidence: rx-total-kbps
+evidence: pc-audio
+evidence: remote-radio
+
+rule: rx-data-but-no-audio
+in-stage: 4
+needs: pc-audio is yes
+broken-when: rx-audio-kbps at most 0
+broken-when: rx-total-kbps at least 1
+verdict: Radio audio through this computer is switched on and data is arriving from the radio at {rx-total-kbps}, but none of it was audio: over the readings just taken, audio was present in {rx-audio-readings} readings.
+fix: Ask the radio for a fresh audio stream by turning radio audio through this computer off and then on again — Control plus J, then A. If nothing changes, disconnect and connect again.
+evidence: rx-audio-kbps
+evidence: rx-audio-readings
+evidence: rx-total-kbps
+evidence: rx-meter-kbps
 evidence: pc-audio
 evidence: remote-radio

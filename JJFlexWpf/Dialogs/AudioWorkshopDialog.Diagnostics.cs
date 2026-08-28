@@ -306,6 +306,22 @@ public partial class AudioWorkshopDialog
                     ? ReportText(rx)
                     : Lexicon.Get("audio.diagnostics.rx_nothing_wrong",
                         ("headphone", rig.HeadphoneGain), ("lineout", rig.LineoutGain));
+
+                // THE MEASUREMENT, ALWAYS, BROKEN OR NOT (#350).
+                //
+                // Everything above this line is a setting we made — mutes,
+                // levels, a routing switch — so the report could be entirely
+                // correct while no audio had ever reached the computer. Don
+                // asked for the missing half and Flex would ask for it first.
+                //
+                // It is appended rather than folded into either branch because
+                // the case that matters most is the one where nothing is wrong:
+                // that branch shows one lexicon sentence and never renders the
+                // stage walk or an evidence block, so a measurement joined only
+                // to those would still be invisible exactly when it is needed.
+                string arriving = RxChainFacts.ArrivalSentence(facts);
+                if (arriving.Length != 0)
+                    message += Environment.NewLine + Environment.NewLine + arriving;
             }
         }
         catch (Exception ex)

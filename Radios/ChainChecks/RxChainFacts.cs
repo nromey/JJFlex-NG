@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using JJTrace;
 using System.Diagnostics;
 
 namespace Radios.ChainChecks
 {
     /// <summary>
-    /// What the radio says about its own outputs, for the receive walk.
+    /// What the radio says about its own outputs, and what has actually been
+    /// arriving from it, for the receive walk.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -19,6 +21,18 @@ namespace Radios.ChainChecks
     /// be taken is recorded as ABSENT with the reason, never defaulted to zero
     /// — a fabricated zero here would fire "your level is at zero" and send an
     /// operator to a control that was already correct.
+    /// </para>
+    /// <para>
+    /// <b>Settings are not evidence, and until 2026-08-28 that was all this
+    /// collected (#350).</b> Nine facts, every one of them something WE had set:
+    /// three mutes, two levels, a routing switch, the model and the serial. The
+    /// report could be entirely, verifiably correct while no audio had ever
+    /// reached the computer — it said the plumbing was configured and never said
+    /// water came out. Don asked for the missing half and he was right: "radio
+    /// audio through this computer: on" is a switch of ours, while "audio is
+    /// arriving from the radio at 42 kilobits per second" is a fact about the
+    /// RADIO, measured from bytes that crossed the network, and only the second
+    /// survives a reader who distrusts our software (#217).
     /// </para>
     /// </remarks>
     public static class RxChainFacts
@@ -39,6 +53,11 @@ namespace Radios.ChainChecks
                 const string why = "no radio is connected, so the radio could not be asked";
                 foreach (string name in RadioFactNames())
                     f.Add(DiagnosticFact.Absent(name, LabelFor(name), why, "the radio"));
+
+                const string noTraffic = "no radio is connected, so nothing could be arriving to measure";
+                foreach (string name in TrafficFactNames())
+                    f.Add(DiagnosticFact.Absent(name, LabelFor(name), noTraffic, "the radio"));
+
                 return f;
             }
 
@@ -76,9 +95,184 @@ namespace Radios.ChainChecks
                   () => DiagnosticFact.Text("radio-serial", LabelFor("radio-serial"),
                                             rig.SelectedRadioSerial ?? "", "the radio"));
 
+            // LAST, because the evidence block reads as a walk and this is the
+            // far end of it: everything above is what the radio was told, and
+            // this is what came back across the network.
+            AddTrafficFacts(f, rig);
+
             return f;
         }
 
+        // ── What actually arrived ────────────────────────────────────────────
+
+        /// <summary>
+        /// The measured half of the report: how much traffic the radio has been
+        /// sending us, taken from the rolling sampler on <see cref="FlexBase"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Absent, never zero, when there is nothing to report.</b> A window
+        /// with no readings in it means we have not looked yet — the connect is
+        /// seconds old, or the sampler could not start — and that is a completely
+        /// different answer from "no audio arrived". Defaulting it to zero would
+        /// fire a rule accusing a station that is working perfectly, which is a
+        /// worse outcome than the gap this whole fact set exists to close.
+        /// </para>
+        /// <para>
+        /// <b>Zero IS the right answer in the commonest setup</b>, and nothing
+        /// here treats it as a fault on its own. The Opus receive stream carries
+        /// sound to this computer only when radio audio through this computer is
+        /// switched on; an operator listening on the radio's own speaker has no
+        /// such stream, no such traffic, and nothing wrong. Every rule that reads
+        /// these facts is gated on <c>pc-audio</c> for that reason, and the
+        /// evidence block carries <c>pc-audio</c> and <c>remote-radio</c>
+        /// immediately above them so the scope travels with the number.
+        /// </para>
+        /// </remarks>
+        private static void AddTrafficFacts(DiagnosticFacts f, FlexBase rig)
+        {
+            RxTrafficReading rx;
+            try
+            {
+                rx = rig.RxTraffic;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("RxChainFacts: receive traffic could not be read — " + ex.Message,
+                                  TraceLevel.Warning);
+                rx = null;
+            }
+
+            if (rx == null)
+            {
+                // ABSENT: nothing in this build is watching, so this is not
+                // observable from here at all.
+                foreach (string name in TrafficFactNames())
+                    f.Add(DiagnosticFact.Absent(name, LabelFor(name),
+                        "the receive traffic sampler could not be read", "the radio"));
+                return;
+            }
+
+            if (!rx.HasSamples)
+            {
+                // SILENT, not absent, and the distinction is the one this whole
+                // fact type exists to keep: we ARE watching and have simply not
+                // taken a reading yet, which is the ordinary state for the first
+                // second or two after a connect. Calling it absent would say the
+                // measurement cannot be made here, and send whoever reads the
+                // report looking for a hole in the application.
+                foreach (string name in TrafficFactNames())
+                    f.Add(DiagnosticFact.Silent(name, LabelFor(name),
+                        "no traffic readings have been taken yet — this needs a few seconds "
+                        + "after connecting, so run the check again shortly", "the radio"));
+                return;
+            }
+
+            string window = rx.DescribeWindow();
+            DateTime? at = rx.NewestAtUtc;
+
+            f.Add(DiagnosticFact.Measure("rx-audio-kbps", LabelFor("rx-audio-kbps"),
+                                         rx.AudioPeakKbps, "kilobits per second",
+                                         "the radio's network audio stream, highest of " + window,
+                                         at));
+
+            f.Add(DiagnosticFact.Measure("rx-audio-readings", LabelFor("rx-audio-readings"),
+                                         rx.AudioReadingsWithTraffic, "of " + rx.SampleCount,
+                                         "the radio's network audio stream, " + window,
+                                         at));
+
+            f.Add(DiagnosticFact.Measure("rx-total-kbps", LabelFor("rx-total-kbps"),
+                                         rx.TotalPeakKbps, "kilobits per second",
+                                         "the radio, highest of " + window,
+                                         at));
+
+            f.Add(DiagnosticFact.Measure("rx-meter-kbps", LabelFor("rx-meter-kbps"),
+                                         rx.MeterPeakKbps, "kilobits per second",
+                                         "the radio's meter stream, highest of " + window,
+                                         at));
+        }
+
+        /// <summary>
+        /// The measurement said plainly, for the report an operator reads and
+        /// hears — not for the evidence block, which quotes the facts themselves.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>A measurement, never a verdict.</b> The sentence is about what WE
+        /// observed, not about whether the radio is faulty: "we measured no
+        /// receive audio in ten readings" is something we can stand behind, and
+        /// "your audio is broken" is not. Where something genuinely is wrong, a
+        /// rule in <c>rx-chain-rules.txt</c> says so and this still reports only
+        /// the numbers underneath it.
+        /// </para>
+        /// <para>
+        /// It exists because the receive report is the ONLY place these readings
+        /// reach a person. The stage-by-stage walk is shown only when a rule
+        /// fires, and the receive check has never rendered an evidence block at
+        /// all — so without this sentence the measurement would be joined to the
+        /// report and still invisible in the case that matters most, which is the
+        /// report that looks fine and says nothing about audio.
+        /// </para>
+        /// </remarks>
+        public static string ArrivalSentence(DiagnosticFacts facts)
+        {
+            if (facts == null) return "";
+
+            DiagnosticFact audio = facts.Find("rx-audio-kbps");
+            if (audio == null) return "";
+
+            if (audio.State != FactState.Observed)
+            {
+                return "Audio arriving from the radio: not measured — "
+                     + (audio.Why.Length != 0 ? audio.Why : "no reading was available") + ".";
+            }
+
+            DiagnosticFact readings = facts.Find("rx-audio-readings");
+            DiagnosticFact total = facts.Find("rx-total-kbps");
+            DiagnosticFact meter = facts.Find("rx-meter-kbps");
+            DiagnosticFact pcAudio = facts.Find("pc-audio");
+
+            var sb = new StringBuilder();
+
+            double peak = audio.Number ?? 0;
+            sb.Append("Audio arriving from the radio: ");
+            sb.Append(peak > 0
+                ? "up to " + audio.TextValue + " " + audio.Units
+                : "none measured");
+
+            if (readings != null && readings.State == FactState.Observed)
+            {
+                sb.Append(", in ").Append(readings.TextValue).Append(' ').Append(readings.Units)
+                  .Append(" readings taken about a second apart");
+            }
+            sb.Append('.');
+
+            if (total != null && total.State == FactState.Observed)
+            {
+                sb.Append(" All data arriving from the radio over the same readings: up to ")
+                  .Append(total.TextValue).Append(' ').Append(total.Units);
+                if (meter != null && meter.State == FactState.Observed)
+                    sb.Append(", of which meter readings were up to ").Append(meter.TextValue);
+                sb.Append('.');
+            }
+
+            // The scope, said out loud rather than left for the reader to infer
+            // from a switch three lines further up. Without it a correct zero
+            // reads as an accusation.
+            if (pcAudio != null && pcAudio.State == FactState.Observed && peak <= 0)
+            {
+                sb.Append(pcAudio.Number > 0
+                    ? " Radio audio through this computer is on, so audio should be arriving here."
+                    : " Radio audio through this computer is off, so none is expected here — "
+                      + "the sound stays at the radio.");
+            }
+
+            return sb.ToString();
+        }
+
+        // ── Names and labels ─────────────────────────────────────────────────
+
+        /// <summary>The facts read off the radio's own settings.</summary>
         private static IEnumerable<string> RadioFactNames()
         {
             yield return "headphone-muted";
@@ -90,6 +284,17 @@ namespace Radios.ChainChecks
             yield return "remote-radio";
             yield return "radio-model";
             yield return "radio-serial";
+        }
+
+        /// <summary>The facts measured from what arrived. Kept separate from
+        /// <see cref="RadioFactNames"/> because their reason for being missing is
+        /// a different sentence: nothing was asked versus nothing was seen.</summary>
+        private static IEnumerable<string> TrafficFactNames()
+        {
+            yield return "rx-audio-kbps";
+            yield return "rx-audio-readings";
+            yield return "rx-total-kbps";
+            yield return "rx-meter-kbps";
         }
 
         private static string LabelFor(string name)
@@ -105,6 +310,10 @@ namespace Radios.ChainChecks
                 case "remote-radio": return "Connected remotely";
                 case "radio-model": return "Radio model";
                 case "radio-serial": return "Radio serial number";
+                case "rx-audio-kbps": return "Audio arriving over the network from the radio";
+                case "rx-audio-readings": return "Readings in which audio was arriving";
+                case "rx-total-kbps": return "All data arriving from the radio";
+                case "rx-meter-kbps": return "Meter readings arriving from the radio";
                 default: return name.Replace('-', ' ');
             }
         }

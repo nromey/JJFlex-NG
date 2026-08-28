@@ -1544,6 +1544,14 @@ namespace Radios
             // wants to run it.
             SelectedRadioSerial = theRadio.Serial;
 
+            // ── Receive traffic sampler (#350) ──────────────────────────────
+            // The whole of this lives in FlexBase.ReceiveTraffic.cs; this is the
+            // only line it adds to this file. It starts a one-a-second reading of
+            // how much the radio is actually sending us, so the receive report
+            // can state a measurement rather than only the settings we made. It
+            // stops itself when the radio goes away.
+            StartRxTrafficWatch();
+
             ConnectionProfiler.Current?.RecordEvent("connect_handlers_wired");
 
             theRadio.LowBandwidthConnect = lowBW;
