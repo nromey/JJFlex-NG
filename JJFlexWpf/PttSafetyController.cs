@@ -117,6 +117,15 @@ namespace JJFlexWpf
         private int _healthTxSeconds;
         private int _healthLockSeconds;
 
+        /// <summary>
+        /// The dispatcher every timer above belongs to, captured where they are
+        /// created. <see cref="KillTransmitNow"/> may be called from a thread
+        /// that is not this one, and <c>DispatcherTimer.Stop</c> is thread-
+        /// affine — but the RF has to come off before anything is marshalled
+        /// anywhere, so the two halves are deliberately separated.
+        /// </summary>
+        private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+
         public PttSafetyController(
             Func<FlexBase?> getRigControl,
             Func<bool> getRadioPowerOn,
@@ -127,6 +136,8 @@ namespace JJFlexWpf
             _getRadioPowerOn = getRadioPowerOn;
             _config = config;
             _updateStatusDisplay = updateStatusDisplay;
+            EnsureKillWiring();
+            PublishCutSetting();
         }
 
         /// <summary>
@@ -135,6 +146,30 @@ namespace JJFlexWpf
         public void UpdateConfig(PttConfig config)
         {
             _config = config;
+            PublishCutSetting();
+        }
+
+        /// <summary>
+        /// Give the kill switch the host-side things it cannot reach from
+        /// Radios: the alarm earcon. Idempotent, and called from anywhere that
+        /// is about to key outside this controller — the transmit checks open
+        /// their dialog whether or not a controller was ever built, and a kill
+        /// that cannot make a sound is half a kill.
+        /// </summary>
+        public static void EnsureKillWiring()
+        {
+            TransmitKillSwitch.Alarm = EarconPlayer.HardKillTone;
+        }
+
+        /// <summary>
+        /// The operator's reflected-power cutoff, published to the kill switch
+        /// so the checks' live watch reads the SAME setting this controller
+        /// does. Never defaulted true by anyone: an app that unilaterally
+        /// unkeys a transmitter has taken the station away mid-transmission.
+        /// </summary>
+        private void PublishCutSetting()
+        {
+            TransmitKillSwitch.CutOnReflectedAlarm = () => _config.CutTransmitOnReflectedAlarm;
         }
 
         /// <summary>
@@ -153,11 +188,27 @@ namespace JJFlexWpf
         // by reading before acting, as the audit asked. This is the middle
         // option from that audit: the checks keep their own gate for STARTING
         // a transmit, and additionally arm this controller's health
-        // monitoring for the duration, so reflected power is watched live
-        // without the warning ladder — built for an operator holding PTT with
-        // intent — taking over a bounded probe. Whether their keying should
-        // ride this controller entirely remains Noel's call; neither stack is
-        // weakened in the meantime.
+        // monitoring for the duration.
+        //
+        // ── WHAT THIS ACTUALLY DELIVERS, MEASURED BY READING (Track Q, #236) ──
+        //
+        // Less than it reads as, and the reason is the thread. StartAlcTimer
+        // creates a DispatcherTimer, which ticks only while the WPF dispatcher
+        // is pumping. The three transmit-check stages that key run
+        // SYNCHRONOUSLY ON THE UI THREAD by design (FixerDialog.RunStage), for
+        // between two and roughly twenty-five seconds each. For that entire
+        // window the dispatcher is blocked, so this timer's first tick is
+        // queued until after the carrier is already down — and the live
+        // reflected-power watch it was wired for cannot fire during the one
+        // transmission it was wired for.
+        //
+        // The watch is KEPT rather than removed: it is correct for any external
+        // transmit that does not block the dispatcher, it costs nothing, and
+        // removing a guard on the strength of today's call graph is how the
+        // next one gets missed. What actually watches a check's carrier is
+        // Radios.TransmitKillSwitch, which runs the SAME TransmitSafety rules
+        // on a thread of its own — one home for the threshold, two schedulers,
+        // and only one of them can run when it matters.
 
         private int _externalWatchers;
 
@@ -193,6 +244,72 @@ namespace JJFlexWpf
             Tracing.TraceLine("PTT: external transmit watch off (" + _externalWatchers + ")",
                               TraceLevel.Info);
             // The tick stops itself on its next pass once Idle and unwatched.
+        }
+
+        // -------------------------------------------------------------------
+        // The hard kill, from anywhere (#236)
+        // -------------------------------------------------------------------
+
+        /// <summary>
+        /// Stop transmitting NOW, whatever is transmitting and whichever thread
+        /// is asking.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Everything else in this class is dispatcher-bound, and that is
+        /// the gap this closes.</b> The warning ladder, the fifteen-minute hard
+        /// kill, the ALC auto-release and the reflected-power cut are all
+        /// <c>DispatcherTimer</c> ticks, so none of them can fire while
+        /// something is blocking the UI thread — which is exactly what the
+        /// transmit checks do for the whole time their carrier is up. So does
+        /// every route an operator has: the Fixer page's Stop button and its
+        /// Escape arrive as WebView2 messages, and <c>OnPreviewKeyDown</c> is a
+        /// WPF event. All three queue behind the blocked stage.
+        /// </para>
+        /// <para>
+        /// So the order here is not stylistic. The carrier comes off on the
+        /// CALLING thread first, both carriers, each attempted on its own.
+        /// Only the bookkeeping — state, timers, the status line — is marshalled
+        /// back, and only when this controller actually owned the transmission.
+        /// </para>
+        /// <para>
+        /// An armed transmit check has its own confirmed announcement, so this
+        /// hands the kill to <see cref="TransmitKillSwitch"/> rather than
+        /// speaking over it. One kill, one voice.
+        /// </para>
+        /// </remarks>
+        /// <param name="source">Who asked, for the trace.</param>
+        public void KillTransmitNow(string source)
+        {
+            bool owned = State != PttState.Idle;
+            FlexBase? rig = null;
+            try { rig = _getRigControl(); } catch { }
+
+            Tracing.TraceLine("PTT: HARD KILL requested by " + source
+                              + " (controller state " + State + ")", TraceLevel.Warning);
+
+            // 1. RF off, here, now. Independently, so a throw on one carrier
+            //    cannot skip the other.
+            TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+            TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Tune);
+
+            // 2. If a transmit check is armed, it owns the confirmation and the
+            //    words — it is the thing that knows whether a carrier was ever
+            //    raised. A no-op when nothing is armed.
+            TransmitKillSwitch.Request(TransmitKillSwitch.Source.HostRequest);
+
+            if (!owned) return;
+
+            // 3. Our own bookkeeping, on the thread that owns the timers.
+            if (_dispatcher.CheckAccess()) FinishOwnedKill();
+            else _dispatcher.BeginInvoke(new Action(FinishOwnedKill));
+        }
+
+        private void FinishOwnedKill()
+        {
+            if (State == PttState.Idle) return;
+            EarconPlayer.HardKillTone();
+            GoIdle(Lexicon.Get("audio.ptt.kill_stopped"), forceSpeech: true);
         }
 
         /// <summary>
@@ -762,9 +879,11 @@ namespace JJFlexWpf
             // construction: the warning latched on an earlier tick, this
             // reads the current one, so a key-down transient can never cut.
             // Only for transmissions THIS CONTROLLER owns: during an external
-            // watch (a transmit-check probe) the state is Idle and the probe
-            // has its own bounded abort — cutting under it would yank a
-            // measurement the gate already limits.
+            // watch (a transmit-check probe) the state is Idle. That is no
+            // longer a decision not to protect the probe — since #236 the
+            // checks carry the same cut, through the same TransmitSafety rule,
+            // on TransmitKillSwitch's own thread, where it can actually run
+            // while the stage blocks this one.
             if (State != PttState.Idle
                 && TransmitSafety.ShouldCutReflected(
                     _config.CutTransmitOnReflectedAlarm, _healthReflectedWarned,

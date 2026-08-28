@@ -131,66 +131,88 @@ namespace Radios.ChainChecks
                 + tunePower.ToString(CultureInfo.InvariantCulture)
                 + ", antenna " + SafeAntenna(rig), TraceLevel.Info);
 
-            try
+            // Armed BEFORE the carrier, and for the whole keyed block: while
+            // this is armed the operator's Escape reaches the transmitter on a
+            // thread of its own, which is the only route that survives this
+            // probe being run synchronously on the UI thread (#236).
+            using (TransmitKillSwitch.Arm(rig, "the transmitter check"))
             {
-                rig.TxTune = true;
-
-                // The write is queued. Wait for the radio to say it happened
-                // rather than believing the setter — and if it never does, that
-                // is itself the finding, not a reason to keep waiting.
-                everKeyed = WaitForKeyUp(rig, cancel);
-                if (everKeyed) Witness(onKeyConfirmed, "onKeyConfirmed");
-                if (!everKeyed)
+                try
                 {
-                    Tracing.TraceLine("TxTuneProbeRunner: radio never reported transmitting "
-                        + "within " + KeyUpTimeoutMs + " ms", TraceLevel.Warning);
-                }
+                    // The one write in this file that raises RF. It refuses if
+                    // the arm above is somehow not in place, so a keying site
+                    // that lost its kill route does not transmit at all.
+                    if (!TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Tune))
+                        return Refuse(TxTuneProbe.SkipReason.RefusedByHost,
+                            "the tune carrier was not raised, because no way to stop it "
+                            + "was in place");
 
-                var elapsed = Stopwatch.StartNew();
-                int consecutiveBad = 0;
-
-                while (elapsed.ElapsedMilliseconds < TxTuneProbe.TuneMs)
-                {
-                    if (cancel.IsCancellationRequested)
-                        return Refuse(TxTuneProbe.SkipReason.Cancelled, "cancelled mid-carrier");
-
-                    meters = ReadMeters(rig);
-                    lastComputedSwr = SafeComputedSwr(rig);
-                    double reflectedPercent = ReflectedPercent(meters);
-
-                    if (TxTuneProbe.ShouldStopEarly(lastComputedSwr, reflectedPercent,
-                                                    consecutiveBad))
+                    // The write is queued. Wait for the radio to say it happened
+                    // rather than believing the setter — and if it never does, that
+                    // is itself the finding, not a reason to keep waiting.
+                    everKeyed = WaitForKeyUp(rig, cancel);
+                    if (everKeyed) Witness(onKeyConfirmed, "onKeyConfirmed");
+                    if (!everKeyed)
                     {
-                        stoppedEarly = true;
-                        Tracing.TraceLine("TxTuneProbeRunner: stopping early at "
-                            + elapsed.ElapsedMilliseconds + " ms — computed SWR "
-                            + Show(lastComputedSwr) + ", reflected "
-                            + Show(reflectedPercent) + " percent", TraceLevel.Warning);
-                        break;
+                        Tracing.TraceLine("TxTuneProbeRunner: radio never reported transmitting "
+                            + "within " + KeyUpTimeoutMs + " ms", TraceLevel.Warning);
                     }
 
-                    consecutiveBad = TxTuneProbe.LooksBad(lastComputedSwr, reflectedPercent)
-                        ? consecutiveBad + 1 : 0;
+                    var elapsed = Stopwatch.StartNew();
+                    int consecutiveBad = 0;
 
-                    cancel.WaitHandle.WaitOne(SampleEveryMs);
+                    while (elapsed.ElapsedMilliseconds < TxTuneProbe.TuneMs)
+                    {
+                        // The operator's own stop, polled between samples. The
+                        // token above cannot carry it — the boundary calls this
+                        // with default(CancellationToken) — and even a real one
+                        // would have to be cancelled by the UI thread this probe
+                        // is blocking.
+                        if (TransmitKillSwitch.KillRequested)
+                            return Refuse(TxTuneProbe.SkipReason.Cancelled,
+                                          "stopped by the operator mid-carrier");
+
+                        if (cancel.IsCancellationRequested)
+                            return Refuse(TxTuneProbe.SkipReason.Cancelled, "cancelled mid-carrier");
+
+                        meters = ReadMeters(rig);
+                        lastComputedSwr = SafeComputedSwr(rig);
+                        double reflectedPercent = ReflectedPercent(meters);
+
+                        if (TxTuneProbe.ShouldStopEarly(lastComputedSwr, reflectedPercent,
+                                                        consecutiveBad))
+                        {
+                            stoppedEarly = true;
+                            Tracing.TraceLine("TxTuneProbeRunner: stopping early at "
+                                + elapsed.ElapsedMilliseconds + " ms — computed SWR "
+                                + Show(lastComputedSwr) + ", reflected "
+                                + Show(reflectedPercent) + " percent", TraceLevel.Warning);
+                            break;
+                        }
+
+                        consecutiveBad = TxTuneProbe.LooksBad(lastComputedSwr, reflectedPercent)
+                            ? consecutiveBad + 1 : 0;
+
+                        cancel.WaitHandle.WaitOne(SampleEveryMs);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("TxTuneProbeRunner: failed mid-carrier — " + ex.Message,
-                                  TraceLevel.Error);
-                throw;
-            }
-            finally
-            {
-                // Every path out lands here, including the throw above and the
-                // early returns inside the loop. Unkey, then confirm it took.
-                Unkey(rig);
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("TxTuneProbeRunner: failed mid-carrier — " + ex.Message,
+                                      TraceLevel.Error);
+                    throw;
+                }
+                finally
+                {
+                    // Every path out lands here, including the throw above and the
+                    // early returns inside the loop. Unkey, then confirm it took.
+                    Unkey(rig);
 
-                // The witness is told AFTER the carrier is down, never before:
-                // its whole purpose is to record that transmitting stopped, and
-                // a witness notified first would be recording an intention.
-                Witness(onUnkeyed, "onUnkeyed");
+                    // The witness is told AFTER the carrier is down, never before:
+                    // its whole purpose is to record that transmitting stopped, and
+                    // a witness notified first would be recording an intention.
+                    Witness(onUnkeyed, "onUnkeyed");
+                }
             }
 
             // A radio that never reported transmitting produced no measurement.
@@ -243,6 +265,7 @@ namespace Radios.ChainChecks
             var w = Stopwatch.StartNew();
             while (w.ElapsedMilliseconds < KeyUpTimeoutMs)
             {
+                if (TransmitKillSwitch.KillRequested) return false;
                 if (cancel.IsCancellationRequested) return false;
                 try { if (rig.Transmit || rig.TxTune) return true; }
                 catch { return false; }
@@ -258,13 +281,9 @@ namespace Radios.ChainChecks
         /// </summary>
         private static void Unkey(FlexBase rig)
         {
-            try { rig.TxTune = false; }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("TxTuneProbeRunner: COULD NOT UNKEY — " + ex.Message,
-                                  TraceLevel.Error);
-                return;
-            }
+            // Through the switch, which never refuses and never throws — the
+            // same drop the kill uses, so there is one unkey and not two.
+            TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Tune);
 
             // The unkey is queued like the key was, so confirm rather than
             // assume. If it will not drop, that is worth an Error line in the

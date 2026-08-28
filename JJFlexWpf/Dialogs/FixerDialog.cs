@@ -86,6 +86,13 @@ public sealed class FixerDialog : JJFlexDialog
         _radio = radio;
         _gate = new FixerTransmitGate();
 
+        // The kill switch's alarm earcon lives in this assembly and the switch
+        // lives in Radios, so somebody has to hand it over. Done here as well
+        // as in the PTT controller's own constructor because this dialog can
+        // open when no controller was ever built — and a kill that cannot make
+        // a sound is half a kill. Idempotent.
+        PttSafetyController.EnsureKillWiring();
+
         // #236's middle option: every gate-keyed transmit arms the PTT safety
         // controller's LIVE reflected-power watch for its duration. The gate
         // still owns whether a transmit may START; the controller watches what
@@ -920,10 +927,24 @@ document.addEventListener('keydown', function (e) {
     /// Drop the carrier by every route we have, and never throw.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Cancelling the stage is what normally stops it, because the runner
     /// unkeys in its own finally. The direct writes are the backstop for a
     /// runner that is wedged, and they are attempted independently: a
     /// transmitter left keyed is worse than any exception this could raise.
+    /// </para>
+    /// <para>
+    /// <b>Every route into here needs the dispatcher, so none of them can
+    /// arrive while a keying stage is running.</b> The page's Stop and its
+    /// Escape are WebView2 messages; <c>OnPreviewKeyDown</c> is a WPF event;
+    /// the closing handler is a window event. All of them queue behind the
+    /// synchronous stage. That is why the kill also has a route that does not
+    /// come through here at all — see <see cref="TransmitKillSwitch"/> — and
+    /// why this hands the request to it rather than keeping a second unkey of
+    /// its own. When a check is armed the switch owns the confirmation and the
+    /// words; when nothing is armed it is a no-op and the direct writes below
+    /// are all that happen, silently, which is right.
+    /// </para>
     /// </remarks>
     private void UnkeyNow()
     {
@@ -932,11 +953,9 @@ document.addEventListener('keydown', function (e) {
         FlexBase? rig = null;
         try { rig = _radio(); } catch { }
 
-        if (rig != null)
-        {
-            try { rig.TxTune = false; } catch { }
-            try { rig.Transmit = false; } catch { }
-        }
+        TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Tune);
+        TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+        TransmitKillSwitch.Request(TransmitKillSwitch.Source.HostRequest);
 
         _gate.NoteUnkeyed();
     }
