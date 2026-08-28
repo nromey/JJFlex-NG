@@ -63,7 +63,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 - **Shift+T** — Toggle alert sounds (earcons) on or off
 - **D** — Toggle tuning speech debounce on or off
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all. Saved captures live under Tools, Signal captures
-- **Ctrl+S** — Speak the signal strength in dBm. It is the same meter `Ctrl+S` reads in S-units — one S-unit is 6 dB, which is a factor of four in power hiding inside a single reading, so dBm is what you want for "did that antenna change help?" There is also a setting that switches `Ctrl+S` itself over to dBm permanently; this chord is for when you just want one precise reading without changing anything
+- **Ctrl+S** — Switch the S-meter between S-units and dBm. One S-unit is 6 dB, which is a factor of four in power hiding inside a single reading, so dBm is what you want for "did that antenna change help?" and S-units are the comfortable everyday scale. The chord says which unit you landed on, and the choice sticks for that radio — so `Ctrl+S` on its own reads the meter in whichever one you're in, and says the unit either way. The same switch lives on the Radios tab in Settings, where you can see where it stands without pressing anything
 
 ## Status, Information, and Slices
 

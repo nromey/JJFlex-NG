@@ -86,7 +86,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 - **Shift+T** — Toggle alert sounds (earcons) on/off
 - **D** — Toggle tuning speech debounce
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)
-- **Ctrl+S** — Speak the signal strength in dBm — the same meter `Ctrl+S` reads in S-units, only finer. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is the reading to take when you want to know whether that antenna change actually helped
+- **Ctrl+S** — Switch the S-meter between S-units and dBm. It tells you which one you landed on, and it stays that way for this radio until you change it back — so `Ctrl+S` on its own reads the meter in whichever unit you chose. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is what you want when you're asking whether that antenna change actually helped. It's also on the Radios tab in Settings, if you'd rather see where it stands than press a key to find out
 
 ### Status, information, and slices
 
