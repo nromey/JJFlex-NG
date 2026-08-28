@@ -148,21 +148,14 @@ public sealed class FixerDialog : JJFlexDialog
             // The dialog's stage-timeout token, polled — the host delegate
             // signatures carry no CancellationToken, and this is the only
             // road the 120-second ceiling has into a keyed stage.
-            stopRequested: () =>
-            {
-                CancellationTokenSource? c = _stageCancel;
-                try { return c != null && c.IsCancellationRequested; }
-                catch (ObjectDisposedException) { return true; }
-            },
+            stopRequested: StageStopRequested,
             // Spoken while the UI thread is blocked inside the stage, which
             // is exactly why it is speech: the page cannot render a notice
-            // until the stage is over, and the moment to speak is now.
-            speakNow: () => ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.fixer.speak_now"),
-                VerbosityLevel.Critical, interrupt: true),
-            speakDone: () => ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.fixer.speak_done"),
-                VerbosityLevel.Critical, interrupt: true),
+            // until the stage is over, and the moment to speak is now. Every
+            // stage cue goes through Cue() — one helper, so a new stage
+            // cannot grow its own wiring beside it (#255).
+            speakNow: Cue("audio.fixer.speak_now"),
+            speakDone: Cue("audio.fixer.speak_done"),
             // The transmit countdown (#261): tones, not speech, so the count
             // cannot be flushed by the spoken cue's interrupt. The sound is
             // Track G's; FixerCountdown is the seam.
@@ -172,10 +165,23 @@ public sealed class FixerDialog : JJFlexDialog
         {
             // WIRED. The transmit boundary, consulting the gate before anything
             // keys. This is the stage Don needs today.
+            //
+            // With the same cues as the other keying stages (#255): stage 2
+            // used to key in total silence while blocking the UI thread — the
+            // speak pair was built for stage 4, the countdown for stages 3
+            // and 4, and this stage got neither. The countdown is the warning
+            // that RF is imminent (Noel's ruling for stage 3 applies with the
+            // same force here: the operator does nothing, and the count is
+            // the only cue before a live transmitter); the spoken pair says
+            // it is a tune carrier and that nothing is wanted of them.
             ProbeTransmitter = FixerTransmitBoundary.ProbeTransmitter(
                 _gate,
                 () => _radio() ?? null!,
-                TransmitStageSet.TransmitterCheck),
+                TransmitStageSet.TransmitterCheck,
+                speakNow: Cue("audio.fixer.tune_now"),
+                speakDone: Cue("audio.fixer.speak_done"),
+                countdown: FixerCountdown.TransmitTone,
+                stopRequested: StageStopRequested),
 
             // WIRED. What the operator said the antenna socket is connected to.
             // Read from the gate rather than from our own copy, so the value in
@@ -214,12 +220,8 @@ public sealed class FixerDialog : JJFlexDialog
                 new FixerHostWiring.MicCueHooks
                 {
                     Countdown = FixerCountdown.RecordTone,
-                    SpeakListenNow = () => ScreenReaderOutput.Speak(
-                        Lexicon.Get("audio.fixer.listen_now"),
-                        VerbosityLevel.Critical, interrupt: true),
-                    SpeakListenDone = () => ScreenReaderOutput.Speak(
-                        Lexicon.Get("audio.fixer.listen_done"),
-                        VerbosityLevel.Critical, interrupt: true),
+                    SpeakListenNow = Cue("audio.fixer.listen_now"),
+                    SpeakListenDone = Cue("audio.fixer.listen_done"),
                 })),
 
             // WIRED. The five fixes stage 0 offers at the point of detection.
@@ -285,6 +287,34 @@ public sealed class FixerDialog : JJFlexDialog
 
         Loaded += OnLoaded;
         Closing += OnClosing;
+    }
+
+    /// <summary>
+    /// One spoken cue for a blocking stage, from the lexicon, at Critical with
+    /// interrupt — the register every stage cue uses.
+    /// </summary>
+    /// <remarks>
+    /// The one shared helper #255 asked for. The speak pair was invented for
+    /// stage 4, then re-wired by hand for stage 1, and stage 2 got nothing —
+    /// the fifth instance in one session of "the machinery exists and the next
+    /// author built beside it". A stage cue that is not a <c>Cue(key)</c> call
+    /// is now visibly odd in a diff, which is the point.
+    /// </remarks>
+    private static Action Cue(string lexiconKey)
+        => () => ScreenReaderOutput.Speak(Lexicon.Get(lexiconKey),
+                                          VerbosityLevel.Critical, interrupt: true);
+
+    /// <summary>
+    /// Has this stage's cancellation fired? Polled by the boundaries — the
+    /// host delegate signatures carry no CancellationToken, and this is the
+    /// only road the 120-second ceiling has into a keyed stage. One method,
+    /// shared by every boundary, so their answers cannot differ.
+    /// </summary>
+    private bool StageStopRequested()
+    {
+        CancellationTokenSource? c = _stageCancel;
+        try { return c != null && c.IsCancellationRequested; }
+        catch (ObjectDisposedException) { return true; }
     }
 
     /// <summary>
@@ -843,6 +873,12 @@ document.addEventListener('keydown', function (e) {
                 Notice("", "Opening the audio device list.");
                 OpenDevicePicker();
                 return;
+
+            case FixerPageMessage.Kind.OpenPowerDialog:
+                // Power belongs to PowerDialog. The page asks; it does not
+                // grow a number box of its own (#250).
+                OpenPowerDialog();
+                return;
         }
     }
 
@@ -997,7 +1033,20 @@ document.addEventListener('keydown', function (e) {
     private void Stop(FixerAbort.Source source)
     {
         bool keyed = _gate.InFlight || RigIsKeyed();
-        FixerAbort.Plan plan = FixerAbort.Decide(keyed, source, RunInProgress);
+        // The result count is what makes the question honest (#250): a stop
+        // between stages used to end the run and every recorded measurement
+        // silently.
+        //
+        // MERGE NOTE (Sprint 37): resultsAreKept is FALSE on this branch
+        // because nothing here persists the run. The persistence track wires
+        // FixerEvidenceKit into this dialog in the same sprint; once its
+        // field lands, pass the kit's own signal (its Record property is
+        // non-null exactly when the journal is live) so the question stops
+        // threatening a discard that will not happen — and never a constant
+        // true, because the journal can fail to set up.
+        FixerAbort.Plan plan = FixerAbort.Decide(keyed, source, RunInProgress,
+                                                 _run.ResultsInRunOrder.Count,
+                                                 resultsAreKept: false);
 
         Tracing.TraceLine("FixerDialog: stop from " + source + ", keyed=" + keyed
                           + ", run=" + RunInProgress, TraceLevel.Info);
@@ -1112,8 +1161,12 @@ document.addEventListener('keydown', function (e) {
         if (_closing || _initFailed) { _evidence.End("closed"); return; }
 
         bool keyed = _gate.InFlight || RigIsKeyed();
+        // MERGE NOTE (Sprint 37): resultsAreKept false for the same reason as
+        // in Stop() — see the note there.
         FixerAbort.Plan plan = FixerAbort.Decide(keyed, FixerAbort.Source.WindowClosing,
-                                                 RunInProgress);
+                                                 RunInProgress,
+                                                 _run.ResultsInRunOrder.Count,
+                                                 resultsAreKept: false);
 
         // Whatever else the plan says, if the carrier is up it comes down —
         // and it comes down here rather than after the window has gone.
@@ -1257,6 +1310,44 @@ document.addEventListener('keydown', function (e) {
                               TraceLevel.Warning);
             ToPage("status", "That help page could not be opened.");
         }
+    }
+
+    private void OpenPowerDialog()
+    {
+        // #250: the transmitting stages name the power they will use, and the
+        // next thing an operator wants is to change it. The Fixer is modal, so
+        // "go to the main window" used to cost the whole run. PowerDialog is
+        // the app's one home for power — XVTR-aware, limit-checked, and it
+        // applies live and speaks each change — so the page hands off to it
+        // exactly as it hands off to the device picker.
+        //
+        // Nothing is spoken before it opens: a screen reader flushes its
+        // queue on a window change, so the arriving window carries its own
+        // announcement.
+        FlexBase? rig;
+        try { rig = _radio(); } catch { rig = null; }
+        if (rig == null)
+        {
+            ToPage("status", "No radio is connected, so there is no power to change.");
+            return;
+        }
+
+        try
+        {
+            var dlg = new PowerDialog(rig) { Owner = this };
+            dlg.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: power dialog failed — " + ex.Message,
+                              TraceLevel.Warning);
+            ToPage("status", "The power window could not be opened.");
+        }
+
+        // The stage sentences carry tune and RF power, and either may just
+        // have moved — re-render so the page tells the truth, and focus
+        // returns to the current stage's heading.
+        Render();
     }
 
     private void OpenDevicePicker()

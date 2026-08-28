@@ -226,11 +226,11 @@ namespace Radios.Tests
                       "built in code rather than declared in XAML, and " + ClickOnly
                       + ". No XAML scan can see it, which is why it outlived the first eight"),
 
-            // #255's shape at the layer that can be proved without the host.
-            new Known(Rules.SilentKeying, "FixerTransmitBoundary.ProbeTransmitter", "#255",
-                      "it consults the transmit gate and keys the radio for a tune, and takes "
-                      + "no delegate with which to say so. Stage 2 blocks the UI thread while "
-                      + "transmitting, so nothing else can speak for it either"),
+            // #255's silent-keying entry — CLOSED in Sprint 37 Track N.
+            // FixerTransmitBoundary.ProbeTransmitter now takes speakNow and
+            // speakDone (and the countdown), so stage 2 announces its own
+            // transmit the way stage 4 always could. Deleted rather than
+            // commented out: a baseline is a list of what is STILL true.
 
             // #256's two phantom grep targets are CLOSED. CLAUDE.md no longer
             // backticks RegisterScope — a backticked name reads as an instruction

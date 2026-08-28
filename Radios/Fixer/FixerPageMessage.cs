@@ -79,6 +79,10 @@ namespace Radios.Fixer
             OpenHelp,
             /// <summary>Open the audio device picker, which the host owns.</summary>
             OpenDevicePicker,
+            /// <summary>Open the power dialog, which the host owns (#250). The
+            /// transmitting stages name the power they will use; this is how
+            /// the operator changes it without leaving the modal Fixer.</summary>
+            OpenPowerDialog,
         }
 
         /// <summary>Why a message was unusable. Traced, never shown raw to the operator.</summary>
@@ -250,6 +254,9 @@ namespace Radios.Fixer
 
                     case "open-device-picker":
                         return new FixerPageMessage(Kind.OpenDevicePicker, Fault.None, run, "", "");
+
+                    case "open-power-dialog":
+                        return new FixerPageMessage(Kind.OpenPowerDialog, Fault.None, run, "", "");
 
                     default:
                         return Bad(Fault.UnknownKind);

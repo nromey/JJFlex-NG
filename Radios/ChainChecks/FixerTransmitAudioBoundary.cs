@@ -305,8 +305,7 @@ namespace Radios.ChainChecks
                     // transmitter. Key-up is issued on the third tone.
                     if (!CountdownThenReadyToKey())
                     {
-                        facts.Detail = "The check was stopped during the countdown, before "
-                                     + "the radio was keyed. Nothing was transmitted.";
+                        facts.Detail = StoppedDuringCountdownText;
                         return facts;
                     }
 
@@ -558,8 +557,7 @@ namespace Radios.ChainChecks
                 // honest MOX latency.
                 if (!CountdownThenReadyToKey())
                 {
-                    facts.Detail = "The check was stopped during the countdown, before the "
-                                 + "radio was keyed. Nothing was transmitted.";
+                    facts.Detail = StoppedDuringCountdownText;
                     return facts;
                 }
 
@@ -657,11 +655,7 @@ namespace Radios.ChainChecks
         /// so the timing an operator learns does not change with the sound.
         /// </summary>
         private bool CountdownThenReadyToKey()
-        {
-            Witness(_countdown, "countdown");
-            SleepUnlessStopped(CountdownKeyUpAtMs);
-            return !StopRequested();
-        }
+            => CountUnkeyedThenReadyToKey(_countdown, _stopRequested);
 
         /// <summary>
         /// Wait for the radio to confirm the transmit state. Mox is queued
@@ -791,23 +785,13 @@ namespace Radios.ChainChecks
             }
         }
 
-        /// <summary>
-        /// Should this stage stop now?
-        /// </summary>
+        /// <summary>Should this stage stop now?</summary>
         /// <remarks>
-        /// TWO SOURCES, and only one of them is an operator. The host hook is
-        /// the dialog's stage TIMEOUT — a token cancelled by a timer, which is
-        /// why it can fire at all while these stages block the UI thread. The
-        /// kill switch is the operator's own stop, raised on a thread that does
-        /// not need the dispatcher (#236). Before that existed, every sampling
-        /// loop in this file could only be ended by a clock.
+        /// The kill-switch half of this question lives in <see cref="StopAsked"/>
+        /// so that EVERY stop check gets it, not just this one — see the note
+        /// there.
         /// </remarks>
-        private bool StopRequested()
-        {
-            if (TransmitKillSwitch.KillRequested) return true;
-            try { return _stopRequested != null && _stopRequested(); }
-            catch { return true; }
-        }
+        private bool StopRequested() => StopAsked(_stopRequested);
 
         /// <summary>
         /// Tell a witness something happened, and never let it break the run —
@@ -815,16 +799,82 @@ namespace Radios.ChainChecks
         /// exception would replace what actually went wrong with a failure to
         /// keep a note.
         /// </summary>
-        private static void Witness(Action a, string which)
+        /// <remarks>
+        /// Internal since Sprint 37: the tune-probe boundary
+        /// (<see cref="FixerTransmitBoundary"/>) carries the same cues for
+        /// stage 2 (#255), and two implementations of "a cue must never take
+        /// the run down" is one more than is safe — the same reasoning that
+        /// made <c>Safely</c> and <c>ReadKeyed</c> internal.
+        /// </remarks>
+        internal static void Witness(Action a, string which)
         {
             if (a == null) return;
             try { a(); }
             catch (Exception ex)
             {
-                Tracing.TraceLine("FixerTransmitAudioBoundary: " + which
+                Tracing.TraceLine("FixerTransmitBoundaries: " + which
                                   + " threw and was ignored — " + ex.Message,
                                   TraceLevel.Warning);
             }
+        }
+
+        /// <summary>
+        /// The one sentence for a stage stopped during its countdown, before
+        /// anything keyed. One home: it is said by both audio stages and by
+        /// the tune probe, and a reader comparing reports must be able to see
+        /// they describe the same event.
+        /// </summary>
+        internal const string StoppedDuringCountdownText =
+            "The check was stopped during the countdown, before the radio was "
+            + "keyed. Nothing was transmitted.";
+
+        /// <summary>
+        /// The countdown-then-key pacing, shared by every keying stage: start
+        /// the tones, wait unkeyed until <see cref="CountdownKeyUpAtMs"/>, and
+        /// answer whether the caller may key. False means a stop arrived —
+        /// the caller must then not key. A missing hook counts silently and
+        /// still paces the key-up, so the timing an operator learns does not
+        /// change with the sound.
+        /// </summary>
+        internal static bool CountUnkeyedThenReadyToKey(Action countdown,
+                                                        Func<bool> stopRequested)
+        {
+            Witness(countdown, "countdown");
+            var w = Stopwatch.StartNew();
+            while (w.ElapsedMilliseconds < CountdownKeyUpAtMs)
+            {
+                if (StopAsked(stopRequested)) return false;
+                Thread.Sleep(25);
+            }
+            return !StopAsked(stopRequested);
+        }
+
+        /// <summary>A stop hook read defensively: a hook that throws reads as
+        /// "stop", because carrying on past a broken stop path is the one
+        /// direction this must not fail in.</summary>
+        /// <remarks>
+        /// TWO SOURCES, and only one of them is an operator. The hook is the
+        /// dialog's stage TIMEOUT — a token cancelled by a timer, which is why
+        /// it can fire at all while these stages block the UI thread. The kill
+        /// switch is the operator's own stop, raised on a thread that does not
+        /// need the dispatcher (#236). Before that existed, every sampling loop
+        /// in this file could only be ended by a clock.
+        /// <para><b>The kill check is HERE rather than at one caller, and that
+        /// placement is the whole point.</b> Sprint 37 merged the kill switch
+        /// (Track Q) with the extraction of this helper (Track N); Track Q had
+        /// guarded only <c>StopRequested</c>, while this helper is also what
+        /// <see cref="CountUnkeyedThenReadyToKey"/> asks, twice, during the
+        /// count-in. Leaving it at the one site would have meant the countdown
+        /// listened ONLY to the dialog's hook — the dispatcher-queued path that
+        /// cannot run while a stage holds the UI thread — so Escape during the
+        /// count-in would have done nothing, silently, which is the exact defect
+        /// #236 was raised about. One question, one place to ask it.</para>
+        /// </remarks>
+        internal static bool StopAsked(Func<bool> stopRequested)
+        {
+            if (TransmitKillSwitch.KillRequested) return true;
+            try { return stopRequested != null && stopRequested(); }
+            catch { return true; }
         }
 
         // ================================================================

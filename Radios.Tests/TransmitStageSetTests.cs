@@ -650,5 +650,39 @@ namespace Radios.Tests
             Assert.Contains("Nothing transmits.",
                 set.Find(TransmitStageSet.MicrophoneCheck).DescribeRunAction());
         }
+
+        [Fact]
+        public void Every_transmitting_stage_offers_the_power_hand_off()
+        {
+            // The other half of #250: the stage names the power it will use,
+            // so it must also offer the way to change it — WITHOUT leaving
+            // the modal Fixer, because leaving used to abandon the run. The
+            // hand-off goes to the host's own power surface; the page never
+            // grows a number box of its own.
+            var set = TransmitStageSet.Build(new TransmitStageSet.Hosts());
+
+            foreach (FixerStage s in set.Stages)
+            {
+                bool offers = s.HostActions.Any(
+                    a => a.MessageKind == "open-power-dialog");
+                Assert.True(s.Transmits == offers,
+                    "stage " + s.Number + " (" + s.Title + ") "
+                    + (s.Transmits
+                        ? "transmits and does not offer the power hand-off"
+                        : "does not transmit and offers the power hand-off anyway"));
+            }
+
+            // Stage 2 transmits the tune carrier, so its label names TUNE
+            // power; the audio stages transmit at the RF power and say so.
+            Assert.Equal("Change the tune power",
+                set.Find(TransmitStageSet.TransmitterCheck).HostActions
+                   .Single(a => a.MessageKind == "open-power-dialog").Label);
+            Assert.Equal("Change the transmit power",
+                set.Find(TransmitStageSet.InjectedTransmit).HostActions
+                   .Single(a => a.MessageKind == "open-power-dialog").Label);
+            Assert.Equal("Change the transmit power",
+                set.Find(TransmitStageSet.SpokenTransmit).HostActions
+                   .Single(a => a.MessageKind == "open-power-dialog").Label);
+        }
     }
 }

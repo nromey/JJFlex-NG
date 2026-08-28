@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using Radios.Fixer;
 using Xunit;
 
@@ -84,16 +85,35 @@ namespace Radios.Tests
             File.WriteAllText(Path.Combine(dir, "report-as-emailed.txt"),
                               FixerReport.PlainText(FixerStates.ProblemsFound().Run));
 
-            // Assert on all four, naming the directory, so a failure says
+            // WHICH TREE WROTE THESE. The path is absolute and shared, so
+            // during a sprint EVERY worktree's test run writes here and the
+            // last writer wins — found on 2026-08-27, when a page freshly
+            // rewritten by a parallel track's suite showed this track's
+            // change UNDONE, with a new timestamp, which reads exactly like
+            // your own edit failing to take. The pages cannot carry the
+            // stamp themselves without polluting what Noel reviews, so it
+            // rides beside them: before trusting a walk of these files,
+            // check SOURCE.txt names the tree you meant.
+            File.WriteAllText(Path.Combine(dir, "SOURCE.txt"),
+                "Written from " + IntegrationPassTree.Root + Environment.NewLine
+                + "at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " local."
+                + Environment.NewLine
+                + "This folder is shared by every worktree; the last test run "
+                + "to finish owns these files." + Environment.NewLine);
+
+            // Assert on all five, naming the directory, so a failure says
             // WHERE it looked rather than just that something was false.
             foreach (string name in new[] { "1-nothing-run-yet.html",
                                             "2-problems-found.html",
                                             "3-nothing-wrong.html",
-                                            "report-as-emailed.txt" })
+                                            "report-as-emailed.txt",
+                                            "SOURCE.txt" })
             {
                 string full = Path.Combine(dir, name);
                 Assert.True(File.Exists(full), "did not write " + full);
-                Assert.True(new FileInfo(full).Length > 500, "wrote almost nothing to " + full);
+                long floor = name == "SOURCE.txt" ? 100 : 500;
+                Assert.True(new FileInfo(full).Length > floor,
+                            "wrote almost nothing to " + full);
             }
         }
 

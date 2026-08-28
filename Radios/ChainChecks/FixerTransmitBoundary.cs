@@ -64,8 +64,34 @@ namespace Radios.ChainChecks
         /// The stage this probe belongs to, so the gate can enforce its
         /// once-per-stage rule against the right thing.
         /// </param>
+        /// <param name="speakNow">
+        /// Told when the radio has confirmed keying (#255). The host owns the
+        /// words — for a tune carrier they must say nothing is wanted of the
+        /// operator, because stage 4's "speak into your microphone" is wrong
+        /// here. This stage blocks the UI thread while it transmits, so
+        /// nothing else can say anything for it.
+        /// </param>
+        /// <param name="speakDone">
+        /// Told after the carrier is down — only if <paramref name="speakNow"/>
+        /// was told, so nobody hears "finished" for a transmit that never
+        /// began.
+        /// </param>
+        /// <param name="countdown">
+        /// Starts the transmit countdown tones (#261), UNKEYED, with the
+        /// key-up issued when the count reaches
+        /// <see cref="FixerTransmitAudioBoundary.CountdownKeyUpAtMs"/>. The
+        /// operator does nothing in this stage — the count is the warning
+        /// that RF is imminent, the same ruling that gave stage 3 its count.
+        /// It never sounds for a transmit the gate refused.
+        /// </param>
+        /// <param name="stopRequested">
+        /// Polled during the countdown. True ends the stage before anything
+        /// keys, recorded honestly as stopped-before-keying.
+        /// </param>
         public static Func<TxTuneProbe.Result> ProbeTransmitter(
-            FixerTransmitGate gate, RadioSource radio, string stageId)
+            FixerTransmitGate gate, RadioSource radio, string stageId,
+            Action speakNow = null, Action speakDone = null,
+            Action countdown = null, Func<bool> stopRequested = null)
         {
             if (gate == null || radio == null || string.IsNullOrWhiteSpace(stageId))
                 return null;
@@ -98,6 +124,21 @@ namespace Radios.ChainChecks
                     return TxTuneProbe.Result.NotRun(SkipFor(d.Why), d.Explanation);
                 }
 
+                // The countdown, UNKEYED, after the grant and before the key
+                // (#255, #261). Stage 2 used to key in total silence while
+                // blocking the UI thread — the speak pair had been built for
+                // stage 4 and the countdown for stages 3 and 4, and this
+                // stage got neither. Shared pacing, so the timing an operator
+                // learns on one keying stage holds on all of them.
+                if (!FixerTransmitAudioBoundary.CountUnkeyedThenReadyToKey(
+                        countdown, stopRequested))
+                {
+                    return TxTuneProbe.Result.NotRun(
+                        TxTuneProbe.SkipReason.Cancelled,
+                        FixerTransmitAudioBoundary.StoppedDuringCountdownText);
+                }
+
+                bool cuedTransmitting = false;
                 return TxTuneProbeRunner.Run(
                     rig,
                     // Re-derived from the gate's own record rather than passed
@@ -106,8 +147,23 @@ namespace Radios.ChainChecks
                     loadDeclared: gate.LoadDeclaration.Length > 0,
                     cancel: default,
                     antennaPort: null,
-                    onKeyConfirmed: () => gate.NoteKeyed(stageId),
-                    onUnkeyed: gate.NoteUnkeyed);
+                    onKeyConfirmed: () =>
+                    {
+                        gate.NoteKeyed(stageId);
+                        // Spoken only on the radio's confirmation, never on
+                        // the setter's return — the same rule as stage 4's
+                        // "go": a radio that never keys never gets a cue.
+                        cuedTransmitting = true;
+                        FixerTransmitAudioBoundary.Witness(speakNow, "speakNow");
+                    },
+                    onUnkeyed: () =>
+                    {
+                        gate.NoteUnkeyed();
+                        // Only if the start cue went out: "finished" for a
+                        // transmit that never began would be an invention.
+                        if (cuedTransmitting)
+                            FixerTransmitAudioBoundary.Witness(speakDone, "speakDone");
+                    });
             };
         }
 
