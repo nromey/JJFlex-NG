@@ -86,6 +86,10 @@ namespace Radios.SignalCapture
                 _startSlice = SafeRead(() => rig.ActiveSliceLetter, "") ?? "";
                 session.FrequencyText = _startFrequency > 0
                     ? FormatMHz(_startFrequency) : "";
+                // The number as well as the words: the S-unit calibration is
+                // chosen from it (#296), and a display string cannot be
+                // measured against 30 MHz.
+                session.FrequencyHz = _startFrequency;
                 session.ModeText = _startMode;
                 session.SliceLetter = _startSlice;
                 session.RadioModelText = SafeRead(() => rig.RadioModel, "") ?? "";

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Radios.SignalCapture;
@@ -46,7 +46,7 @@ namespace Radios.Tests
             Assert.Contains("stopped by you", record.ReportText);
             Assert.Contains("Frequency: 14.24 MHz", record.ReportText);
             Assert.False(string.IsNullOrEmpty(record.ReportHtml));
-            Assert.Equal("S7", record.PeakDisplay);
+            Assert.Equal("S8", record.PeakDisplay);
         }
 
         [Fact]
@@ -73,7 +73,7 @@ namespace Radios.Tests
             Assert.Equal(200, samples.Count(s => s.LocalTransmit));
             var reAnalyzed = QsoSignalAnalysis.Analyze(
                 samples.ToList(), record.CaptureSeconds, record.BufferFilled);
-            Assert.Equal(7, SMeterReading.FromDbm(reAnalyzed.PeakDbm));
+            Assert.Equal(7, SMeterReading.FromDbm(reAnalyzed.PeakDbm, SMeterReading.Band.Hf));
         }
 
         [Fact]

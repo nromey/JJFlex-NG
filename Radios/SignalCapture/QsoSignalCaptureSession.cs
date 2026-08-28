@@ -81,6 +81,11 @@ namespace Radios.SignalCapture
         // Context observations, filled by the controller at start; empty means
         // could-not-be-read, per the record's convention.
         public string FrequencyText { get; set; } = "";
+
+        /// <summary>Receive frequency in hertz at start; 0 when unreadable.
+        /// Chooses the S-unit calibration — see the record's remarks.</summary>
+        public ulong FrequencyHz { get; set; }
+
         public string ModeText { get; set; } = "";
         public string SliceLetter { get; set; } = "";
         public string RadioModelText { get; set; } = "";
@@ -151,6 +156,7 @@ namespace Radios.SignalCapture
                 EndReason = endReason ?? "",
                 BufferFilled = _bufferFilled,
                 FrequencyText = FrequencyText,
+                FrequencyHz = FrequencyHz,
                 ModeText = ModeText,
                 SliceLetter = SliceLetter,
                 RadioModelText = RadioModelText,

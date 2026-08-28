@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System.Text;
 
 namespace Radios.SignalCapture
@@ -19,14 +19,23 @@ namespace Radios.SignalCapture
     /// </remarks>
     public static class QsoSignalHeadline
     {
-        /// <summary>The sentence spoken when the operator stops a capture.</summary>
-        public static string Compose(QsoSignalAnalysisResult a, string captureId, bool saved)
+        /// <summary>
+        /// The sentence spoken when the operator stops a capture.
+        /// </summary>
+        /// <param name="band">
+        /// Which S-unit calibration to speak in — the capture's own, from its
+        /// receive frequency. Required rather than defaulted: the headline and
+        /// the report must never name different S-units for one capture, and a
+        /// default here would let them (#296).
+        /// </param>
+        public static string Compose(QsoSignalAnalysisResult a, string captureId, bool saved,
+                                     SMeterReading.Band band)
         {
             var sb = new StringBuilder();
             sb.Append(Lexicon.Get("audio.qso.stopped",
                 ("duration", SpokenDuration.English(a.CaptureSeconds))));
 
-            Append(sb, Body(a));
+            Append(sb, Body(a, band));
 
             Append(sb, saved
                 ? Lexicon.Get("audio.qso.saved", ("id", captureId))
@@ -34,7 +43,7 @@ namespace Radios.SignalCapture
             return sb.ToString();
         }
 
-        private static string Body(QsoSignalAnalysisResult a)
+        private static string Body(QsoSignalAnalysisResult a, SMeterReading.Band band)
         {
             if (a.SampleCount == 0)
                 return Lexicon.Get("audio.qso.nothing");
@@ -47,14 +56,14 @@ namespace Radios.SignalCapture
             var sb = new StringBuilder();
             if (a.SwingSUnits < 1)
             {
-                sb.Append(Lexicon.Get("audio.qso.steady", ("mean", SpokenS(a.MeanDbm))));
+                sb.Append(Lexicon.Get("audio.qso.steady", ("mean", SpokenS(a.MeanDbm, band))));
             }
             else
             {
                 sb.Append(Lexicon.Get("audio.qso.range",
-                    ("peak", SpokenS(a.PeakDbm)),
-                    ("trough", SpokenS(a.TroughDbm)),
-                    ("mean", SpokenS(a.MeanDbm))));
+                    ("peak", SpokenS(a.PeakDbm, band)),
+                    ("trough", SpokenS(a.TroughDbm, band)),
+                    ("mean", SpokenS(a.MeanDbm, band))));
             }
 
             switch (a.Qsb)
@@ -82,9 +91,9 @@ namespace Radios.SignalCapture
         }
 
         /// <summary>A dBm value in the same spoken form as the Ctrl+S readout.</summary>
-        private static string SpokenS(double dbm)
+        private static string SpokenS(double dbm, SMeterReading.Band band)
         {
-            int smeter = SMeterReading.FromDbm(dbm);
+            int smeter = SMeterReading.FromDbm(dbm, band);
             return SMeterReading.IsOverS9(smeter)
                 ? Lexicon.Get("audio.smeter.over_s9", ("over", SMeterReading.ExcessOverS9(smeter)))
                 : Lexicon.Get("audio.smeter.s_units", ("smeter", smeter));

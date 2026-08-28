@@ -1,4 +1,4 @@
-//#define KeepAlive
+﻿//#define KeepAlive
 //#define feedback // for testing mic input
 //#define TwoSlices
 //#define NoATU
@@ -8902,8 +8902,14 @@ namespace Radios
         /// <see cref="FormatForwardPowerSpoken"/>. The branch is kept only so
         /// existing integer callers keep compiling.</para>
         /// </remarks>
-        private int _SMeter;
-        public int SMeter
+        // NO private _SMeter field here, and that absence is load-bearing
+        // (#295). FlexBase used to declare one, which SHADOWED
+        // AllRadios._SMeter without `new` or `override`. The meter handler
+        // wrote the shadow; AllRadios.RawSMeter read the base field, which
+        // nothing on a Flex ever wrote; and RawSMeter was therefore
+        // permanently zero on every radio this application supports. Writing
+        // the base field is what makes one value serve every reader.
+        public override int SMeter
         {
             get
             {
@@ -8922,7 +8928,14 @@ namespace Radios
                     // lives in SMeterReading.FromDbm — one home, shared with
                     // the QSO signal analyzer, so a recorded dBm and this
                     // live reading can never disagree by a constant.
-                    return SMeterReading.FromDbm(_SMeter);
+                    //
+                    // The frequency is an argument because the calibration
+                    // depends on it: IARU R.1 puts S9 twenty decibels lower
+                    // above 30 MHz, so 6 m, 2 m and 70 cm need the other
+                    // reference (#296). RXFrequency is the right one to pass —
+                    // the meter stream this reads is the ACTIVE slice's, and
+                    // RXFrequency tracks that same slice.
+                    return SMeterReading.FromDbm(_SMeter, RXFrequency);
                 }
             }
         }
@@ -16748,8 +16761,12 @@ namespace Radios
         // sonification subscribes to MeterData instead, which carries the Meter
         // itself; see the meter-inventory section above.
 
-        /// <summary>Raw S-meter value in dBm (before S-unit conversion).</summary>
-        public int SMeterRaw => _SMeter;
+        // SMeterRaw removed in Sprint 37 Track G (#295). It was a second name
+        // for AllRadios.RawSMeter on the same object, it had no callers, and
+        // it existed only because the base property was broken: RawSMeter read
+        // a field FlexBase shadowed and never wrote, so it always answered
+        // zero, and a working duplicate got built beside it. With the shadow
+        // gone, RawSMeter is the one name — do not reintroduce this.
 
         private string importDir;
         private bool wasPCAudio;

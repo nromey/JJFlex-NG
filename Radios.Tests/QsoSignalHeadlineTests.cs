@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Radios;
 using Radios.SignalCapture;
@@ -32,10 +32,10 @@ namespace Radios.Tests
         public void ASteadySignalGetsTheWholeSentence()
         {
             var a = QsoSignalAnalysis.Analyze(Trace(60, _ => -79.0), 60);
-            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true);
+            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
 
             Assert.Equal(
-                "Capture stopped after 1 minute. Steady at S 7. "
+                "Capture stopped after 1 minute. Steady at S 8. "
                 + "Saved as capture AAA-222, under Tools, Signal captures.",
                 headline);
         }
@@ -45,10 +45,10 @@ namespace Radios.Tests
         {
             var a = QsoSignalAnalysis.Analyze(
                 Trace(90, t => -85.0 + 12.0 * Math.Sin(2 * Math.PI * t / 12.0)), 90);
-            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true);
+            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
 
             Assert.StartsWith("Capture stopped after 1 minute 30 seconds. "
-                + "Peaked S 8, fell to S 4, averaged S 6.", headline);
+                + "Peaked S 9, fell to S 5, averaged S 7.", headline);
             Assert.Contains("Deep fades about every 12 seconds.", headline);
             Assert.EndsWith("Saved as capture AAA-222, under Tools, Signal captures.",
                 headline);
@@ -58,7 +58,7 @@ namespace Radios.Tests
         public void NoReadingsIsSpokenAsAGapNeverAsSilence()
         {
             var a = QsoSignalAnalysis.Analyze(new List<QsoSignalSample>(), 45);
-            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true);
+            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
 
             Assert.Equal(
                 "Capture stopped after 45 seconds. No meter readings arrived. "
@@ -71,7 +71,7 @@ namespace Radios.Tests
         public void ATooShortCaptureSaysSoInsteadOfGuessing()
         {
             var a = QsoSignalAnalysis.Analyze(Trace(3, _ => -80.0), 3);
-            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true);
+            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
 
             Assert.Contains("Too short to measure, so nothing was determined.", headline);
         }
@@ -80,7 +80,7 @@ namespace Radios.Tests
         public void AFailedSaveIsNamedNeverImplied()
         {
             var a = QsoSignalAnalysis.Analyze(Trace(60, _ => -79.0), 60);
-            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: false);
+            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: false, SMeterReading.Band.Hf);
 
             Assert.EndsWith("The capture could not be saved to disk.", headline);
             Assert.DoesNotContain("Saved as capture", headline);
@@ -90,7 +90,7 @@ namespace Radios.Tests
         public void ARisingSignalCarriesTheTrendAndTheMissingRhythm()
         {
             var a = QsoSignalAnalysis.Analyze(Trace(60, t => -100.0 + t * 0.5), 60);
-            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true);
+            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
 
             Assert.Contains("It moved, but too few fade cycles fit to measure a rhythm.",
                 headline);
@@ -100,14 +100,14 @@ namespace Radios.Tests
         [Fact]
         public void AnOverS9PeakSpeaksInDbOverNine()
         {
-            // Peaks at -50 dBm: 20 dB over S9 on this calibration. The
+            // Peaks at -50 dBm: 23 dB over S9 on the IARU HF scale. The
             // over-S9 wording must be the same one Ctrl+S uses, decibels AS
             // IS — never multiplied.
             var a = QsoSignalAnalysis.Analyze(
                 Trace(60, t => -65.0 + 15.0 * Math.Sin(2 * Math.PI * t / 15.0)), 60);
-            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true);
+            string headline = QsoSignalHeadline.Compose(a, "AAA-222", saved: true, SMeterReading.Band.Hf);
 
-            Assert.Contains("Peaked S 9 plus 20 dB", headline);
+            Assert.Contains("Peaked S 9 plus 23 dB", headline);
         }
     }
 }
