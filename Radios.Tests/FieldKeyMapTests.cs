@@ -296,6 +296,37 @@ public static class KeyInventory
         }
 
         /// <summary>
+        /// Every field table in the inventory belongs to a field that exists.
+        /// A table for a context nothing dispatches to is a whole field's worth
+        /// of keys advertised into the void — the same defect as one dead key,
+        /// multiplied, and invisible to the per-key checks below because there
+        /// is no handler to compare against.
+        /// </summary>
+        [Fact]
+        public void Every_declared_field_context_is_a_field_that_exists()
+        {
+            Assert.True(Real.OrphanContexts.Count == 0,
+                "KeyInventory declares field keys for contexts no `switch (field.Key)` "
+                + "dispatches to: " + string.Join(", ", Real.OrphanContexts));
+        }
+
+        /// <summary>
+        /// The scan met nothing it could not read. Every note is a place where
+        /// the shape of the source changed out from under this check, and a
+        /// check that has quietly stopped reading part of the map reports
+        /// exactly what a clean map reports.
+        /// </summary>
+        [Fact]
+        public void The_scan_met_no_shape_it_could_not_read()
+        {
+            var notes = Real.Notes.Distinct(StringComparer.Ordinal)
+                .OrderBy(s => s, StringComparer.Ordinal).ToList();
+            Assert.True(notes.Count == 0,
+                "the key-map scan could not read part of the source, so its findings "
+                + "are incomplete:" + Environment.NewLine + string.Join(Environment.NewLine, notes));
+        }
+
+        /// <summary>
         /// THE WORSE DIRECTION. A key six surfaces advertise and no handler
         /// implements: the per-field help dialog, the '?' speak-keys handler,
         /// the Keys dialog, Command Finder rows, the generated manifest and

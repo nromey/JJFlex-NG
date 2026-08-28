@@ -389,12 +389,6 @@ namespace Radios.Tests
             {
                 var conjunct = Unwrap(raw);
 
-                if (conjunct.ToString().Contains("Keyboard.Modifiers", StringComparison.Ordinal)
-                    || NamesLocalModifier(conjunct, ctx))
-                {
-                    // handled below by the specific shapes; nothing to gate on
-                }
-
                 foreach (string gateField in PrivateFields(conjunct))
                 {
                     clause.Gated = true;
@@ -512,10 +506,6 @@ namespace Radios.Tests
             else if (binary.IsKind(SyntaxKind.LessThanOrEqualExpression) && CharLiteral(right) is char hi)
                 high = hi;
         }
-
-        private static bool NamesLocalModifier(ExpressionSyntax expression, Context ctx)
-            => expression.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>()
-                .Any(i => ctx.LocalBools.ContainsKey(i.Identifier.ValueText));
 
         /// <summary>
         /// The private fields a condition reads. A branch reachable only when
