@@ -1361,6 +1361,24 @@ namespace Radios
         /// </summary>
         public static Action? CancelCw { get; set; }
 
+        /// <summary>
+        /// #182, Noel's ruling: CW notifications CLOSE, they do not queue.
+        /// Invoked by <see cref="SendCwText"/> immediately before each new
+        /// message so the new one supersedes whatever is pending: unprotected
+        /// queued sequences are dropped and the in-flight one yields at its
+        /// next CHARACTER boundary — never mid-symbol, because a half-sent
+        /// character is a different character (#88). The session prosigns and
+        /// the SK farewell are exempt (a short, named list) and play out.
+        ///
+        /// Wired to <c>MorseNotifier.CloseForNewMessage</c> by MainWindow —
+        /// the same inversion as every delegate here: this assembly sits
+        /// below JJFlexWpf and announces intent rather than seeing the
+        /// notifier. Distinct from <see cref="CancelCw"/> on purpose: that is
+        /// the operator's own interrupt and cuts immediately, mid-character,
+        /// farewell included.
+        /// </summary>
+        public static Action? SupersedePendingCw { get; set; }
+
         // ══ Recent CW history (#153, Sprint 33 Track F) ══
         //
         // The speech repeat above walks the last ten things SPOKEN. This walks
@@ -1421,12 +1439,47 @@ namespace Radios
         private static long _cwWalkGeneration;
 
         /// <summary>
+        /// The last CW text actually transmitted, for the trigger rule below.
+        /// Guarded by <see cref="_cwHistoryLock"/>. Distinct from the history
+        /// ring: the ring answers "what did that say?" and survives dedup
+        /// collapsing; this answers "is this send news?".
+        /// </summary>
+        private static string? _lastCwSent;
+
+        /// <summary>
+        /// Forget what was last sent, so the next message keys even when its
+        /// text happens to match. Called on disconnect: a new session
+        /// deserves its opening census even when the numbers match last
+        /// session's.
+        /// </summary>
+        public static void ResetCwLastSent()
+        {
+            lock (_cwHistoryLock) { _lastCwSent = null; }
+        }
+
+        /// <summary>
         /// Send text as CW and remember it.
         ///
         /// This is the single point where CW text reaches the notifier, which is
         /// why the history is recorded here rather than at the callers: a future
         /// caller gets into the walk by using this method, and cannot forget to.
         /// Prosign playback deliberately does not come through here.
+        ///
+        /// Two rules from Noel, 2026-08-27, both enforced here so no caller
+        /// can forget them:
+        ///
+        /// THE TRIGGER RULE (#161): CW is driven by message changes or slice
+        /// changes, and the test is a comparison against WHAT WAS LAST SENT,
+        /// not a list of events that fire — those look identical until
+        /// something fires twice. A send whose text equals the last
+        /// transmission is not news and is dropped, with a trace line. (The
+        /// slice is embedded in the text — "SL A USB" — so text equality IS
+        /// state equality.) This supersedes the older status-ping reading
+        /// under which an identical census re-keyed.
+        ///
+        /// CLOSE, DO NOT QUEUE (#182): a message that does send supersedes
+        /// whatever is pending, via <see cref="SupersedePendingCw"/>, so
+        /// arrowing across four slices sends the fourth, not four.
         /// </summary>
         /// <returns>A Task that resolves when the CW has finished playing, or
         /// immediately when nothing was sent.</returns>
@@ -1435,6 +1488,25 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(text)) return Task.CompletedTask;
             var play = PlayCwText;
             if (play == null) return Task.CompletedTask;
+
+            lock (_cwHistoryLock)
+            {
+                if (string.Equals(_lastCwSent, text, StringComparison.Ordinal))
+                {
+                    Tracing.TraceLine(
+                        $"ScreenReaderOutput.SendCwText: suppressed unchanged CW \"{text}\" (trigger rule: neither message nor slice changed)",
+                        TraceLevel.Info);
+                    return Task.CompletedTask;
+                }
+                _lastCwSent = text;
+            }
+
+            try { SupersedePendingCw?.Invoke(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ScreenReaderOutput: CW supersede before send failed - {ex.Message}",
+                    TraceLevel.Warning);
+            }
 
             RememberCw(text);
             return play(text);

@@ -266,6 +266,19 @@ public partial class MainWindow : UserControl
         // the ATU progress tone is a separate input on the alert mixer and
         // keeps running, which was verified rather than assumed.
         Radios.ScreenReaderOutput.CancelCw = () => _morseNotifier.Cancel();
+        // #182 (Noel's ruling): notifications CLOSE, they do not queue. Each
+        // new SendCwText message supersedes the pending one — dropped from
+        // the queue if unstarted, closed at the next CHARACTER boundary if
+        // keying (#88: a half-sent character is a different character). The
+        // session prosigns and the SK farewell are exempt and play out.
+        Radios.ScreenReaderOutput.SupersedePendingCw = () => _morseNotifier.CloseForNewMessage();
+        // #182's other half: Ctrl silences CW the way it already silences
+        // speech. The hook OBSERVES the key — the reader still receives it
+        // and still silences itself — and the busy check is one volatile
+        // read, so the hook thread never does real work. The cancel is the
+        // same one the repeat key uses: CW output only, continuous earcons
+        // untouched.
+        CwCtrlInterrupt.Install(() => _cwOutput.IsBusy, () => _morseNotifier.Cancel());
         // (#146) The radio announces its CW sidetone pitch on connect, on every
         // change, and as null on disconnect. Whether the notifier USES it is the
         // operator's setting; the notifier holds both numbers and picks.

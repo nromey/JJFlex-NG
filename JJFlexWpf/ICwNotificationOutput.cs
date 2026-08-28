@@ -14,14 +14,38 @@ namespace JJFlexWpf
         public CwElementType Type { get; }
         public int DurationMs { get; }
 
+        /// <summary>
+        /// True when this gap follows a COMPLETE character — the
+        /// inter-character and inter-word gaps of a string, never the
+        /// intra-character gap between the elements of one character.
+        ///
+        /// This is the grammar #182 keys on: "close, do not queue" means a
+        /// superseded sequence yields at the next character boundary rather
+        /// than mid-symbol, because a half-sent character is not silence, it
+        /// is a DIFFERENT character (#88), and a fluent reader decodes
+        /// garbage rather than noticing an interruption. Marks are never
+        /// boundaries; a mark is by definition inside a character.
+        /// </summary>
+        public bool IsCharBoundary { get; }
+
         public CwElement(CwElementType type, int durationMs)
+            : this(type, durationMs, isCharBoundary: false)
+        {
+        }
+
+        public CwElement(CwElementType type, int durationMs, bool isCharBoundary)
         {
             Type = type;
             DurationMs = durationMs;
+            IsCharBoundary = isCharBoundary && type == CwElementType.Gap;
         }
 
         public static CwElement Mark(int ms) => new CwElement(CwElementType.Mark, ms);
         public static CwElement Gap(int ms)  => new CwElement(CwElementType.Gap, ms);
+
+        /// <summary>An inter-character or inter-word gap — a safe close point.</summary>
+        public static CwElement BoundaryGap(int ms) =>
+            new CwElement(CwElementType.Gap, ms, isCharBoundary: true);
     }
 
     public enum CwElementType
@@ -72,15 +96,40 @@ namespace JJFlexWpf
         /// (haptic, visual) ignore this exactly as they ignore sidetoneHz.
         /// </param>
         /// <param name="ct">Cancels mid-sequence playback.</param>
+        /// <param name="protectedFromClose">
+        /// True for the short, named exempt list of #182 — the session
+        /// prosigns and the SK farewell. A protected sequence is never
+        /// dropped from the pending queue and never soft-closed by
+        /// <see cref="CloseForNewMessage"/>; it plays to completion. The
+        /// operator's Ctrl interrupt (<see cref="Cancel"/>) still stops it —
+        /// their silence command outranks etiquette.
+        /// </param>
         Task PlayElementsAsync(
             IReadOnlyList<CwElement> elements,
             int sidetoneHz,
             float volume,
             int riseFallMs,
             MeterVoice? markVoice,
-            CancellationToken ct);
+            CancellationToken ct,
+            bool protectedFromClose = false);
 
         /// <summary>Cancel any in-flight sequence immediately.</summary>
         void Cancel();
+
+        /// <summary>
+        /// #182, Noel's ruling: notifications CLOSE, they do not queue. A new
+        /// notification supersedes the pending one — drop every unprotected
+        /// sequence still waiting in the queue, and ask the in-flight one (if
+        /// unprotected) to yield at its next character boundary rather than
+        /// mid-symbol. The caller then enqueues the new message normally, so
+        /// arrowing across four slices sends the fourth, not four.
+        /// </summary>
+        /// <returns>
+        /// True when anything was actually superseded — a pending sequence
+        /// dropped or an in-flight one asked to yield. False when the channel
+        /// was idle or held only protected sequences, so callers can avoid
+        /// recording a close that closed nothing.
+        /// </returns>
+        bool CloseForNewMessage();
     }
 }

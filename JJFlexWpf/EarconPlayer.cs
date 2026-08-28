@@ -2770,12 +2770,22 @@ namespace JJFlexWpf
         /// newer one fires before it finishes).
         /// </summary>
         internal static IDisposable SubmitCwSequence(ISampleProvider sequence)
+            => SubmitCwSequence(sequence, null);
+
+        /// <summary>
+        /// As above, with the sample positions of the sequence's character
+        /// boundaries (#182) so a supersede can close the stream at the end
+        /// of the character in progress rather than mid-symbol. Null means no
+        /// boundaries — a single character, which is atomic.
+        /// </summary>
+        internal static IDisposable SubmitCwSequence(
+            ISampleProvider sequence, IReadOnlyList<long>? boundarySamplePositions)
         {
             if (sequence == null) throw new ArgumentNullException(nameof(sequence));
             if (!EarconsEnabled || AlertMixer == null) return NullCancellable.Instance;
             try
             {
-                var cancellable = new CancellableCwProvider(sequence);
+                var cancellable = new CancellableCwProvider(sequence, boundarySamplePositions);
                 AddToMixer(cancellable);
                 return cancellable;
             }
