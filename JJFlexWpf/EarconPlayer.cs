@@ -46,8 +46,9 @@ namespace JJFlexWpf
         /// Deliberately NOT per-sound. A handful of switches an operator can
         /// hold in their head beat sixty they cannot; each public earcon
         /// method declares its family and new earcons must pick one. (This
-        /// sentence said "five switches" until Sprint 31 made it six and
-        /// Sprint 36 made it seven — the count now lives in the enum alone.)
+        /// sentence said "five switches" until Sprint 31 made it six; Sprint 36
+        /// briefly made it seven with a ContextHelp category whose one earcon
+        /// was removed by #343 — the count now lives in the enum alone.)
         ///
         /// Outside the categories, on purpose: CW notifications (their own
         /// switch on the Audio tab), typing sounds (their own mode setting),
@@ -79,19 +80,11 @@ namespace JJFlexWpf
             /// nobody asked for.
             /// </summary>
             Warnings = 5,
-            /// <summary>
-            /// The context-help availability cue (#275) — two quick rising
-            /// taps behind a focus landing, meaning Ctrl+F1 has something new
-            /// to say there. Its own switch, per the task: the lowest-stakes
-            /// message the app has, so an operator must be able to silence it
-            /// without touching anything else.
-            /// </summary>
-            ContextHelp = 6,
         }
 
         // One flag per EarconCategory value, all on by default. Persisted in
         // AudioOutputConfig alongside EarconsEnabled.
-        private static readonly bool[] _categoryEnabled = { true, true, true, true, true, true, true };
+        private static readonly bool[] _categoryEnabled = { true, true, true, true, true, true };
 
         /// <summary>Whether a category is individually enabled (master gate not considered).</summary>
         public static bool GetCategoryEnabled(EarconCategory category) =>
@@ -146,6 +139,8 @@ namespace JJFlexWpf
         // FOUR tiers as of 2026-08-27 (#275). Track K deliberately declined to
         // invent a fourth one and said so; this is the case that overturned
         // that, and the reason is a MEANING the three tiers could not express.
+        // (The context-help cue that founded the Faint tier was itself removed
+        // by #343; the tier and its meaning stay for the next genuine OFFER.)
         // Soft is the floor for "something the operator DID", however
         // incidental. An OFFER is not that: nobody asked for it, it reports no
         // action, and acting on it is optional. Noel, hearing the context-help
@@ -1113,81 +1108,6 @@ namespace JJFlexWpf
             else
                 PlayVoicedDecaySequence(EarconVoices.Press,
                     new[] { (800, 25), (0, 30), (800, 25), (0, 30), (800, 25) }, VolumeNormal);
-        }
-
-        // ------------------------------------------------------------------
-        // Context help available (#275), REBUILT 2026-08-27 after its first
-        // audition. It shipped as two 40 ms taps at 660 then 880 Hz in the
-        // Press voice at VolumeSoft, and Noel did not hear a new sound at all
-        // — he heard one he already knew: "the double tone beepbeep that I'm
-        // used to... it was a toggle."
-        //
-        // He was right, and the parameters say why. Feature on is Press,
-        // 500 → 750, two even 60 ms taps. The old cue was Press, 660 → 880,
-        // two even 40 ms taps. Same voice, same contour, same count, same
-        // rhythm, adjacent register: it was the toggle transposed up a fourth.
-        // A cue whose whole job is to mean ONE thing cannot be a transposition
-        // of the most common sound in the application.
-        //
-        // So every axis that carries identity moves, and the tier moves for a
-        // separate reason:
-        //
-        //   RHYTHM. The toggle vocabulary owns EVEN pairs and even triples
-        //   (Feature on/off, All slices, Connect steps) — equal notes with an
-        //   audible gap between them, heard as two events. This is one gesture
-        //   with an upbeat: a 20 ms flick, then a 12 ms gap too short to
-        //   separate them, then a note more than seven times as long. Unequal
-        //   is the point. Nothing else in the app has this shape.
-        //
-        //   INTERVAL. A rising OCTAVE, 554 → 1109. The toggle is a fifth and
-        //   the old cue was a fourth, both of which read as MELODY — two
-        //   different notes. An octave is the one interval that reads as the
-        //   SAME note arriving higher, so the pair fuses into a single lifted
-        //   thing rather than a little tune. Both pitches sit clear of every
-        //   pitch already in use by more than a semitone; deliberately checked,
-        //   because near-misses are what make two sounds confusable.
-        //
-        //   TIMBRE. EarconVoices.Plain, not Press. Press is a STRIKE — 3 ms
-        //   attack, three partials — and a sharp onset is most of what makes a
-        //   sound demand attention. Plain has the gentlest attack in the set
-        //   (6 ms) and the fewest partials (two), so it arrives instead of
-        //   hitting. Played through PlayVoicedDecaySequence so the long note
-        //   fades across its whole length rather than stopping: it recedes, it
-        //   does not end. Plain is also the connect series' voice, which was
-        //   weighed — that series is same-pitch even repeats at 750 Hz and only
-        //   during a connect, so nothing about this can be mistaken for it.
-        //
-        //   RISING is kept. It was not what he objected to, and the original
-        //   reason holds: rising reads as "there is more", falling as dismissal
-        //   — and falling pairs already mean a toggle turned OFF, which would
-        //   be a collision of MEANING and therefore worse than one of sound.
-        //
-        // LEVEL: VolumeFaint, the new fourth tier, for the third and separate
-        // complaint — "too conspicuous". Distinctness is interval, rhythm and
-        // timbre; conspicuousness is the tier, and no amount of the former
-        // fixes the latter. See the tier comment for why an OFFER earns a rung
-        // of its own rather than borrowing Soft.
-        //
-        // WHEN it fires is not this method's business: ContextHelpCue owns the
-        // settle delay, the only-when-content-changes rule and the shutdown
-        // latch. Nothing else should call this directly.
-        //
-        // RE-AUDITION AFTER ANY EDIT HERE. A tone cannot be judged by reading
-        // its parameters — that is how the first one shipped.
-        // ------------------------------------------------------------------
-
-        /// <summary>Context help availability cue — a flick and a soft note an
-        /// octave above it, fading away.</summary>
-        [Earcon("Context help available", EarconCategory.ContextHelp, Order = 1,
-            Description = "A quick low flick and a soft note an octave above it, fading "
-                        + "away, a moment after you land on a control: Ctrl+F1 has "
-                        + "something new to say there. Silent while you are moving, and "
-                        + "silent on controls whose help you have already been told about.")]
-        public static void ContextHelpAvailableTone()
-        {
-            if (!Gate(EarconCategory.ContextHelp)) return;
-            PlayVoicedDecaySequence(EarconVoices.Plain,
-                new[] { (554, 20), (0, 12), (1109, 150) }, VolumeFaint);
         }
 
         /// <summary>Typewriter bell — plays at end of frequency entry in mechanical keyboard mode.</summary>

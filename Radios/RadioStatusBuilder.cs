@@ -85,7 +85,19 @@ namespace Radios
                 return "No radio connected";
 
             if (!snap.HasActiveSlice)
-                return $"Connected to {snap.RadioModel}, no active slice";
+            {
+                // Assert an ABSENCE only when the slice census has actually
+                // arrived. During a connect, slices take a second or two to
+                // populate, and this used to return "no active slice" in that
+                // window — a sentence that was false within two seconds, spoken
+                // to the operator by the post-dialog status path (#348).
+                // MyNumSlices > 0 is the same test SpeakConnectStatus applies
+                // before trusting slice facts; until it passes, say only what
+                // is known: the connection itself.
+                return radio.MyNumSlices > 0
+                    ? $"Connected to {snap.RadioModel}, no active slice"
+                    : $"Connected to {snap.RadioModel}";
+            }
 
             string bandPart = string.IsNullOrEmpty(snap.BandSpoken) ? "" : $", {snap.BandSpoken} band";
             string slicePart = string.IsNullOrEmpty(snap.SliceLetter) ? "" : $", slice {snap.SliceLetter}";
