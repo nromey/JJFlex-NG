@@ -265,7 +265,7 @@ These keys work when you're in either Classic or Modern tuning mode:
 - **Ctrl+Alt+P** — Cycle the meter tone preset (RX, TX, Full Monitor)
 - **Ctrl+Alt+V** — Speak the current meter values
 - **Shift+M** — Mute or unmute every slice at once
-- **Shift+Comma** — Release every slice except the first
+- **Shift+Comma** — Release every slice except the one you are on
 - **Escape** — Collapse the field group you're in, or return to Home
 - **Double tap Escape (quickly)** — Collapse all open field groups and return to Home
 
@@ -305,7 +305,7 @@ These keys work from ANY field within your JJ Flexible Home. First, remember to 
 - **Q** — Toggle squelch on/off
 - **=** — Transceive current slice (set both RX and TX to this slice)
 - **Shift+M** — Mute or unmute every slice at once
-- **Shift+Comma** — Release every slice except the first
+- **Shift+Comma** — Release every slice except the one you are on
 - **?** — Speak the keys for the field you're on
 
 Navigation inside the Home: Left and Right arrows move one character at a time, Home jumps to the first field (except on the Slice field, where it pans center), End jumps to the last field, and Page Down jumps straight to the Frequency field from fields that don't use Page Down themselves.

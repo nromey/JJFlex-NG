@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -48,7 +48,7 @@ internal sealed class SweepOptions
     /// <summary>
     /// Excluded by default because they destroy operator state rather than
     /// changing it: Comma releases the current slice, Shift+Comma releases every
-    /// slice except the first, and Period creates slices that then have to be
+    /// slice except the one you are on, and Period creates slices that then have to be
     /// cleaned up. Pass --exclude "" to press them anyway.
     /// </summary>
     public static readonly string[] DefaultExclusions = { "Comma", "Shift+Comma", "Period" };

@@ -232,7 +232,7 @@
   "audio.fields.processor_mode": "Processor Mode",
   "audio.fields.processor_normal": "Normal",
   "audio.fields.release_all_button": "Release All Extra Slices",
-  "audio.fields.release_all_name": "Release every slice except the first, back to one slice",
+  "audio.fields.release_all_name": "Release every slice except the one you are on, back to one slice",
   "audio.fields.release_slice_button": "Release Slice",
   "audio.fields.release_slice_name": "Release the last slice",
   "audio.fields.released_extra_many": "Released {removed} extra slices, slice {keptLetter} active",

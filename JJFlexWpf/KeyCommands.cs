@@ -565,7 +565,7 @@ public class KeyCommands
                 "Mute or unmute every slice at once", "Mute All Slices", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "mute", "all", "slices", "audio", "unmute", "silence", "fleet" }, ShortActionLabel = "mute all slices" },
             new(CommandValues.ReleaseAllExtraSlices, KeyTypes.Command, ReleaseAllExtraSlicesHandler,
-                "Release every slice except the first, back to one slice", "Release All Extra Slices", false, FunctionGroups.Audio, KeyScope.Radio)
+                "Release every slice except the one you are on, back to one slice", "Release All Extra Slices", false, FunctionGroups.Audio, KeyScope.Radio)
                 { Keywords = new[] { "release", "all", "slices", "extra", "clean", "reset", "single" }, ShortActionLabel = "release extra slices" },
 
             // ── Former hard-wired meta-commands (QB Track H, 2026-08-07) ──

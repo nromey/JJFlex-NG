@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -332,7 +332,7 @@ public static class KeyInventory
             { KeySpoken = "Shift slash" },
         new("HomeNav", "JJ Flexible Home", "Shift+M", "Mute or unmute every slice at once",
             new[] { "mute", "all", "slices" }),
-        new("HomeNav", "JJ Flexible Home", "Shift+Comma", "Release every slice except the first",
+        new("HomeNav", "JJ Flexible Home", "Shift+Comma", "Release every slice except the one you are on",
             new[] { "release", "slices", "extra" }),
     };
 
