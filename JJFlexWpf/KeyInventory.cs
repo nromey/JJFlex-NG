@@ -196,14 +196,33 @@ public static class KeyInventory
             new[] { "transmit", "frequency", "show", "tx" }),
 
         // ── Frequency field, Modern tuning ──
+        //
+        // One rule holds the four arrow rows together (#302): VERTICAL TUNES,
+        // HORIZONTAL SIZES; PLAIN IS COARSE, MODIFIED IS FINE. Learning either
+        // half teaches the other. The coarse SIZING pair carries Alt because
+        // bare Left / Right is the HomeNav cursor row and belongs to the whole
+        // Home surface in both tuning modes; the fine sizing pair keeps plain
+        // Shift so it mirrors Shift+Up / Shift+Down exactly.
+        //
+        // Order matters here — these rows are read out in sequence by Ctrl+F1.
+        // Tune first, then size, then the ways to type, hear and set.
         new("Freq.Modern", "Frequency field (Modern tuning)", "Up / Down", "Tune by your coarse step",
             new[] { "tune", "coarse", "step" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+Up / Shift+Down", "Tune by your fine step",
             new[] { "tune", "fine", "step" }),
+        new("Freq.Modern", "Frequency field (Modern tuning)", "Alt+Left / Alt+Right", "Make your coarse step smaller or larger",
+            new[] { "step", "coarse", "size", "smaller", "larger", "bigger", "change", "set",
+                    "increment", "tuning", "alt" }),
+        new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+Left / Shift+Right", "Make your fine step smaller or larger",
+            new[] { "step", "fine", "size", "smaller", "larger", "bigger", "change", "set",
+                    "increment", "tuning", "shift" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Digits", "Type a frequency, then Enter to apply",
             new[] { "frequency", "enter", "type", "digits" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "F", "Speak the current frequency",
             new[] { "frequency", "speak", "read" }),
+        new("Freq.Modern", "Frequency field (Modern tuning)", "S", "Choose both step sizes from a list",
+            new[] { "step", "steps", "size", "sizes", "coarse", "fine", "choose", "pick", "set",
+                    "list", "picker", "tuning" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+S", "Speak the coarse and fine step sizes",
             new[] { "step", "speak", "coarse", "fine" }),
 
