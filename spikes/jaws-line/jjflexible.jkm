@@ -1,0 +1,19 @@
+; Key map for the Sprint 38 Track H braille line spike.
+;
+; APPLICATION SCOPED - these exist only while jjflexible.exe has focus, so
+; they cannot shadow a JAWS command anywhere else.
+;
+; Deliberately disjoint from the readercapture instrument's keys
+; (Insert+Shift+J / K, Insert+Control+Shift+J, Insert+Alt+J) so that if the
+; two scripts are ever merged with a Use statement, nothing collides.
+; Control+J is untouched: it is JJ Flexible's own leader key.
+
+[common keys]
+Insert+Shift+V=JJFSpikeStatus
+JAWSKey+Shift+V=JJFSpikeStatus
+Insert+Shift+B=JJFSpikeFlashPaint
+JAWSKey+Shift+B=JJFSpikeFlashPaint
+Insert+Shift+L=JJFSpikeStructuredToggle
+JAWSKey+Shift+L=JJFSpikeStructuredToggle
+Insert+Shift+R=JJFSpikeRawPaint
+JAWSKey+Shift+R=JJFSpikeRawPaint
