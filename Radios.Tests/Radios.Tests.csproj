@@ -14,6 +14,11 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- Test-only, and it never ships: FieldKeyMapScan parses the Home field
+         handlers as SYNTAX rather than as text. The handlers nest modifier
+         tests inside character tests, which is exactly where a regex scan is
+         least reliable and where the bugs are (#339). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
 
   <ItemGroup>
