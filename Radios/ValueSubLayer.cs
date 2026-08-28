@@ -266,20 +266,27 @@ namespace Radios
             EntryValue = seed;
             _live = true;
 
-            // MERGE NOTE (Sprint 37): Track A replaces repeatWhileHeld with a
-            // SpeechCoalesceKind on this overload. A value layer is the
-            // genuine SWEEP case — held-arrow nudges settle to the tail, and
-            // the repetition at a rail IS information ("still at minimum" is
-            // how the operator learns to stop pressing). At merge, swap this
-            // argument for the sweep/settle kind; do NOT pick Query, which
-            // answers immediately and would bypass the anti-clip gap that
-            // makes a held key a readable cadence.
+            // A value layer is the genuine SWEEP case — held-arrow nudges
+            // settle to the tail — so this is Value, not Query. Query answers
+            // immediately, which is right for a key that ASKS something and
+            // wrong for a value being moved.
+            //
+            // MERGE RECORD (Sprint 37, Track C ← Track A): this was
+            // repeatWhileHeld: true, which Track A removed in favour of the
+            // kind. ONE BEHAVIOUR CHANGED and it is worth knowing at the bench:
+            // repeatWhileHeld spoke an identical repeat, Value DROPS it. So
+            // holding an arrow against a rail now announces the rail ONCE and
+            // then goes quiet, rather than restating it. That is the same
+            // answer the tuning-step ladder arrived at independently (#302),
+            // and the anti-clip gap is what makes a held key a cadence rather
+            // than a stutter either way. If a rail should keep speaking, the
+            // fix is a rail-specific sentence, not a coalescing exemption.
             EmitMove = (text, key) => ScreenReaderOutput.Speak(
                 text,
                 Speech.SpeechIntent.Latest,
                 VerbosityLevel.Terse,
                 coalesceKey: key,
-                repeatWhileHeld: true);
+                kind: Speech.SpeechCoalesceKind.Value);
             EmitSay = text => ScreenReaderOutput.Speak(text, VerbosityLevel.Terse, true);
             VerbosityNow = () => ScreenReaderOutput.CurrentVerbosity;
         }

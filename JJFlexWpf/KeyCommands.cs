@@ -4228,7 +4228,7 @@ public class KeyCommands
                 _leaderKeyActive = true;
                 EarconPlayer.LeaderEnterTone();
                 Radios.ScreenReaderOutput.Speak(
-                    Radios.Lexicon.Get("settings.leader.armed"),
+                    Radios.Lexicon.Get("leader.armed"),
                     Radios.VerbosityLevel.Terse, true);
                 return Radios.ValueLayerKeyResult.Handled;
         }
