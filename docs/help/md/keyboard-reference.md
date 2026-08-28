@@ -177,6 +177,12 @@ The two histories are kept apart on purpose. If you're running with speech off a
 
 Two things worth knowing. The prosigns — AS, BT, SK — stay out of the history. They're punctuation, not information, and re-sending "closing" out of the blue tells you nothing you can act on. And "press again to step back" gives you the same generous window the speech version does, but measured from the moment the CW *finishes* rather than from when you pressed. That matters if you run slow code: at 10 words per minute "SL A USB" takes nearly nine seconds to send, and a window that started ticking at the keypress would have expired before you'd finished listening to it.
 
+### Silencing CW — Ctrl, the key you already press
+
+Ctrl has silenced your screen reader since forever — you press it without thinking. It now silences CW notifications too, in the same press. No new key to learn, no separate reflex: one tap of either Ctrl and both channels go quiet, whatever window you're in. Your screen reader still gets the key and still stops its own speech, exactly as before.
+
+While we were at it, CW notifications stopped piling up. Arrow across four slices quickly and you hear the slice you *landed on*, not a recital of everywhere you passed through — a newer message replaces the one still waiting, finishing the character in flight first so you never hear a mangled half-letter. The connect and disconnect prosigns are the exception: BT and the 73 sign-off always play out in full. Some things you don't cut off.
+
 ### What is still running — Ctrl+J, then O
 
 O for "what's on". Press `Ctrl+J` then `O` and JJ Flexible tells you every expensive thing it currently has switched on, and what each one has cost so far: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." If nothing is running, it says that too.

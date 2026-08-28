@@ -202,25 +202,32 @@ namespace JJFlexWpf
 
         // --- Public API ---
 
+        // The session prosigns are PROTECTED (#182): they are punctuation for
+        // session state transitions, and a slice notification must not be able
+        // to drop a pending "connected" — or worse, the farewell — on the
+        // floor. Mechanically each is a single run-together character, so the
+        // character-boundary close could never cut one mid-play anyway; the
+        // flag is what keeps them safe while still QUEUED.
+
         /// <summary>Play the AS prosign (wait / connection in progress).</summary>
         public Task PlayAS(CancellationToken ct = default)
         {
             RecordCw("<AS>");
-            return PlayCharacter(ProsignAS, ct);
+            return PlayCharacter(ProsignAS, ct, protectedFromClose: true);
         }
 
         /// <summary>Play the BT prosign (break / connected).</summary>
         public Task PlayBT(CancellationToken ct = default)
         {
             RecordCw("<BT>");
-            return PlayCharacter(ProsignBT, ct);
+            return PlayCharacter(ProsignBT, ct, protectedFromClose: true);
         }
 
         /// <summary>Play the SK prosign (end of contact / app closing).</summary>
         public Task PlaySK(CancellationToken ct = default)
         {
             RecordCw("<SK>");
-            return PlayCharacter(ProsignSK, ct);
+            return PlayCharacter(ProsignSK, ct, protectedFromClose: true);
         }
 
         /// <summary>
@@ -234,7 +241,9 @@ namespace JJFlexWpf
         public Task PlayPause(int dits, CancellationToken ct = default)
         {
             if (dits <= 0) return Task.CompletedTask;
-            var elements = new List<CwElement> { CwElement.Gap(DitMs * dits) };
+            // A boundary gap: an inter-utterance pause never sits inside a
+            // character, so a supersede may stop here freely.
+            var elements = new List<CwElement> { CwElement.BoundaryGap(DitMs * dits) };
             return _output.PlayElementsAsync(
                 elements, EffectiveSidetoneHz, Volume, RiseFallMs, MarkVoice, ct);
         }
@@ -266,11 +275,35 @@ namespace JJFlexWpf
             {
                 var elements = BuildStringElements(text);
                 if (elements.Count == 0) return;
+                // The farewell is on #182's short, named exempt list: SK is
+                // the last thing the channel ever says, so any SK-bearing
+                // string plays to completion rather than being closed by a
+                // later notification. Everything else sent as a string is a
+                // notification and is closeable.
+                bool isFarewell = text.Contains("<SK>", StringComparison.OrdinalIgnoreCase);
                 await _output.PlayElementsAsync(
-                    elements, EffectiveSidetoneHz, Volume, RiseFallMs, MarkVoice, ct)
+                    elements, EffectiveSidetoneHz, Volume, RiseFallMs, MarkVoice, ct,
+                    protectedFromClose: isFarewell)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException) { /* normal cancel path */ }
+        }
+
+        /// <summary>
+        /// #182: a new notification supersedes the pending one. Drops every
+        /// unprotected queued sequence and asks the in-flight one to yield at
+        /// its next character boundary. Call BEFORE enqueuing the new message.
+        /// </summary>
+        public void CloseForNewMessage()
+        {
+            // Recorded only when something was actually superseded — this runs
+            // before EVERY notification send, and an idle channel closing
+            // nothing must not write phantom cancels into the transcript. When
+            // it did close something, the transcript reads cw then cw-cancel:
+            // the message was cut (at a character boundary), not completed.
+            bool closedSomething = _output.CloseForNewMessage();
+            if (closedSomething && Radios.OutputChannelRecorder.RecordEnabled)
+                Radios.OutputChannelRecorder.RecordCwCancel();
         }
 
         /// <summary>
@@ -360,14 +393,16 @@ namespace JJFlexWpf
                 RiseFallMs, Volume, rendered);
         }
 
-        private async Task PlayCharacter(byte[] encodedChar, CancellationToken ct)
+        private async Task PlayCharacter(byte[] encodedChar, CancellationToken ct,
+            bool protectedFromClose = false)
         {
             try
             {
                 var elements = BuildCharacterElements(encodedChar);
                 if (elements.Count == 0) return;
                 await _output.PlayElementsAsync(
-                    elements, EffectiveSidetoneHz, Volume, RiseFallMs, MarkVoice, ct)
+                    elements, EffectiveSidetoneHz, Volume, RiseFallMs, MarkVoice, ct,
+                    protectedFromClose)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException) { /* normal */ }
@@ -401,8 +436,15 @@ namespace JJFlexWpf
         /// inter-character gaps, words separated by inter-word gaps. Supports
         /// prosign bracket syntax <c>&lt;AS&gt;</c>, <c>&lt;BT&gt;</c>,
         /// <c>&lt;SK&gt;</c>, <c>&lt;AR&gt;</c>, <c>&lt;KN&gt;</c>.
+        ///
+        /// The inter-character and inter-word gaps are emitted as BOUNDARY
+        /// gaps (#182): each one follows a complete character, so it is a
+        /// place a superseded sequence may honestly stop. The gaps inside
+        /// <see cref="BuildCharacterElements"/> are not — stopping there
+        /// leaves a half-sent character, which decodes as a different
+        /// character (#88).
         /// </summary>
-        private List<CwElement> BuildStringElements(string text)
+        internal List<CwElement> BuildStringElements(string text)
         {
             int interChar = InterCharMs;
             int interWord = InterWordMs;
@@ -417,7 +459,7 @@ namespace JJFlexWpf
 
                 if (c == ' ')
                 {
-                    if (!firstChar) elements.Add(CwElement.Gap(interWord));
+                    if (!firstChar) elements.Add(CwElement.BoundaryGap(interWord));
                     firstChar = true;
                     i++;
                     continue;
@@ -435,7 +477,7 @@ namespace JJFlexWpf
                         string name = text.Substring(i + 1, closeIdx - i - 1);
                         if (ProsignsByName.TryGetValue(name, out byte[]? prosign))
                         {
-                            if (!firstChar) elements.Add(CwElement.Gap(interChar));
+                            if (!firstChar) elements.Add(CwElement.BoundaryGap(interChar));
                             elements.AddRange(BuildCharacterElements(prosign));
                             firstChar = false;
                         }
@@ -456,7 +498,7 @@ namespace JJFlexWpf
                     continue;
                 }
 
-                if (!firstChar) elements.Add(CwElement.Gap(interChar));
+                if (!firstChar) elements.Add(CwElement.BoundaryGap(interChar));
                 var charElements = BuildCharacterElements(encoded);
                 elements.AddRange(charElements);
                 firstChar = false;

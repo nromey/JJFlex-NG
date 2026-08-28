@@ -2547,6 +2547,15 @@ namespace Radios
                 ScreenReaderOutput.SkAlreadyPlayedThisSession = true;
             }
 
+            // #161's trigger rule compares each CW send against what was last
+            // sent and drops repeats. That comparison ends with the session:
+            // reconnecting deserves its opening census even when the numbers
+            // happen to match last session's, so forget the last send here.
+            // Outside the CwNotificationsEnabled guard on purpose — the
+            // setting can be toggled between sessions, and a stale "last
+            // sent" must not survive into a session where CW is newly on.
+            ScreenReaderOutput.ResetCwLastSent();
+
             try
             {
                 if ((mainThread != null) && mainThread.IsAlive)
