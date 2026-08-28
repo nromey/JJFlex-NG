@@ -38,7 +38,7 @@ public static class ContextHelpCue
     /// Noel's proposal — long enough that moving between controls stays
     /// silent and the focus announcement has gone first.
     /// </summary>
-    internal const int SettleMs = 1500;
+    internal const int SettleMs = 2500;   // 1500 was too eager in the field (Noel, 2026-08-27) — the cue fired while he was still moving
 
     private static bool _installed;
     private static readonly Radios.ContextHelpCueDecider Decider = new();

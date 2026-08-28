@@ -901,6 +901,27 @@ namespace Radios
         /// </summary>
         private static void OnChannelChanged(Speech.SpeechTier tier, string? reader)
         {
+            // THE FLUSH BELONGS HERE AND CANNOT GO HERE AS WRITTEN.
+            //
+            // Prism changes the channel on its own initiative whenever the
+            // operator starts a different reader, and that is the COMMON
+            // route — the watchdog only fires when Prism did not get there
+            // first. So this handler needs the same arbiter flush the
+            // watchdog's re-bind does, and today it has none: the salvage
+            // ledger, the last-spoken map and the reader-busy lease all
+            // survive into a reader they do not describe.
+            //
+            // A DiscardAll() call was added at this point on 2026-08-27 and
+            // REVERTED THE SAME HOUR: it hung the application. This event is
+            // hooked inside lock (_backendLock), and the arbiter's own sink
+            // and silence paths take _backendLock in turn — so flushing from
+            // here inverts the two locks against every ordinary utterance.
+            // That is the hazard the re-bind path's own comment warns about;
+            // it was read, applied to that path, and not checked against
+            // this one.
+            //
+            // Whatever lands here must run OUTSIDE the backend lock.
+
             _available = _backend?.HasSpeech == true;
             _screenReaderName = _backend?.DetectedReader;
 
