@@ -92,6 +92,25 @@ namespace Radios
             public string Name;
             public string ModelName;
             public string Serial;
+
+            /// <summary>
+            /// The home this ROW was discovered through — true when the radio
+            /// object behind it was a WAN one.
+            /// </summary>
+            /// <remarks>
+            /// <para><b>Not "is the current connection remote", and reading it
+            /// that way cost a day (task #288).</b> A dual-homed radio picked
+            /// from a row that local discovery built carries
+            /// <c>Remote = false</c> however the connect actually travels, so
+            /// <c>CurrentRig.Remote</c> reported false for a live SmartLink
+            /// connection and the retry ladder concluded there was no remote
+            /// path to retry. The field trace said "no retry path available
+            /// (local or no serial)" during a failure where a local path plainly
+            /// existed.</para>
+            /// <para>For the LIVE connection's own answer, ask
+            /// <see cref="FlexBase.RemoteRig"/> (<c>theRadio.IsWan</c>). This
+            /// property describes a picker row and nothing else.</para>
+            /// </remarks>
             public bool Remote { get; internal set; }
 
             /// <summary>
@@ -1782,9 +1801,41 @@ namespace Radios
                     var legSw = System.Diagnostics.Stopwatch.StartNew();
                     bool connected = Connect(config.RadioSerial, config.LowBandwidth, preferWanPath: wantWan && foundRadio.IsWan);
                     legSw.Stop();
-                    ConnectionHistory.Record(config.RadioSerial, path.ToString(),
-                        connected ? "connected" : (LastConnectFailureReport?.Class.ToString() ?? "failed"),
-                        legSw.ElapsedMilliseconds);
+
+                    // A LEG THAT CONNECTS IS NOT A LEG THAT WORKED (tasks #284,
+                    // #286). Connect() returning true means the SESSION came up;
+                    // the radio has not opened yet and will not for up to another
+                    // minute. Writing "connected" here is the loop that fed
+                    // itself: on 2026-08-26 four SmartLink attempts that all died
+                    // in the station-name wait were written into the ring as four
+                    // successes — 341, 1334, 350 and 913 ms — and three in a row
+                    // is a trend, so the path policy then steered the NEXT connect
+                    // down the path that had just failed four times. Every failure
+                    // made the next one more likely and the store showed an
+                    // unbroken run of success.
+                    //
+                    // The manual path was fixed in Sprint 36; this one was missed
+                    // because it walks its own legs instead of going through the
+                    // selector. So: ARM here, and let whoever learns the open's
+                    // fate commit it. openTheRadio calls CommitPendingOutcome with
+                    // the result of Start(), which is the moment the outcome is
+                    // actually known.
+                    //
+                    // A connect FAILURE is knowable now, so it still records
+                    // immediately. Auto-connect is never a forced path — a force
+                    // comes from the picker's context menu (#287) — so these
+                    // records are ordinary evidence.
+                    if (connected)
+                    {
+                        ConnectionHistory.ArmPendingOutcome(config.RadioSerial, path.ToString(),
+                            legSw.ElapsedMilliseconds);
+                    }
+                    else
+                    {
+                        ConnectionHistory.Record(config.RadioSerial, path.ToString(),
+                            LastConnectFailureReport?.Class.ToString() ?? "failed",
+                            legSw.ElapsedMilliseconds);
+                    }
 
                     if (connected)
                     {
@@ -2251,7 +2302,31 @@ namespace Radios
                 int removalGraceMs = 15000;  // 15s grace after client removal (Don's 6300 over WAN needs 10s+)
                 int earlyAbortMs = 1000;     // 1s: if removed without ever being added, abort fast for retry
                 int interval = 25;
-                int iterations = maxWaitMs / interval;
+                // A DEADLINE, not a count of sleeps (task #293).
+                //
+                // This used to be `iterations = maxWaitMs / interval` and a
+                // `while (iterations-- > 0)` loop that slept 25 ms per turn. The
+                // loop then ran the right NUMBER of times, but every turn cost
+                // 25 ms of sleep PLUS whatever the work in it cost — so the
+                // declared 45,000 ms budget elapsed in about 56 seconds of wall
+                // clock, measured at 55.7 s in the 2026-08-26 field trace. The
+                // error is not a constant offset either: it scales with how busy
+                // the machine and the radio are, which means it grows exactly
+                // when a connect is already struggling and the number matters
+                // most.
+                //
+                // It had already misled a caller. ConnectNarrator needed a
+                // ceiling for the #212 heartbeat, read maxWaitMs as a duration,
+                // and would have gone silent with ten seconds of this wait still
+                // to run — recreating the silence it exists to remove, at the
+                // worst possible moment. It was covered with a 1.5 margin, which
+                // is a fudge factor over an arithmetic error that the next caller
+                // has no way to know about.
+                //
+                // So the budget is now the budget: read the clock, compare
+                // against a deadline. maxWaitMs means 45 seconds to anyone
+                // reading it here, in the profiler payload, or in a trace.
+                long stationWaitDeadline = Environment.TickCount64 + maxWaitMs;
                 _clientRemovedDuringStart = false;
                 _clientAddedDuringStart = false;
                 _startBeginTickCount = Environment.TickCount64;
@@ -2263,7 +2338,7 @@ namespace Radios
                     { "removalGraceMs", removalGraceMs }
                 });
 
-                while (iterations-- > 0)
+                while (Environment.TickCount64 < stationWaitDeadline)
                 {
                     if (_cancelRequested)
                     {
@@ -6166,14 +6241,23 @@ namespace Radios
         /// <param name="ms">milliseconds to wait.</param>
         /// <param name="interval">optional interval to check</param>
         /// <returns>true if condition met.</returns>
+        /// <remarks>
+        /// <paramref name="ms"/> is a DEADLINE, not a count of sleeps — see
+        /// <c>JJTrace.Tracing.await</c>, which carries the reasoning (task
+        /// #293). This is the copy behind the antenna-list wait in
+        /// <c>Start()</c>, whose own comment already noted it shares a timing
+        /// profile with the station-name wait; it shared the arithmetic error
+        /// too.
+        /// </remarks>
         internal static bool await(awaitExp exp, int ms, int interval)
         {
-            int sanity = ms / interval;
-            bool rv = false;
-            while (sanity-- > 0)
+            long deadline = Environment.TickCount64 + ms;
+            bool rv;
+            while (true)
             {
                 rv = exp();
                 if (rv) break;
+                if (Environment.TickCount64 >= deadline) break;
                 Thread.Sleep(interval);
             }
             return rv;

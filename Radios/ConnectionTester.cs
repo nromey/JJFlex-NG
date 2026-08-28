@@ -252,6 +252,15 @@ namespace Radios
                 { "success", ok }
             });
 
+            // The tester measures the CONNECT and never opens the radio, so the
+            // leg TryAutoConnect just armed has an outcome nobody here can know
+            // (task #286). Throw it away rather than leave it for the next real
+            // connect to commit — and note this is already an improvement on
+            // what it replaced: a test run used to write a "connected" record
+            // into the operator's ring, so measuring the path taught the path
+            // policy about it.
+            ConnectionHistory.DiscardPendingOutcome();
+
             return ok;
         }
 
