@@ -82,13 +82,77 @@ namespace JJFlexWpf.Dialogs
         private Devices.EnumerationStatus _status = Devices.EnumerationStatus.Ok;
         private string _statusMessage = "";
 
-        // What each list is actually showing, row for row. Not the same as
-        // Devices.InputDevices / OutputDevices: those are every endpoint (the
-        // engine's view, and what saved selections resolve against), while
-        // these are the folded picker view plus, when it applies, a row for a
-        // saved device that is not plugged in.
+        // What each ADVANCED list is actually showing, row for row. Not the
+        // same as Devices.InputDevices / OutputDevices: those are every
+        // endpoint (the engine's view, and what saved selections resolve
+        // against), while these are the picker view plus, when it applies, a
+        // row for a saved device that is not plugged in.
         private List<Devices.DeviceInfo> _inputRows = new();
         private List<Devices.DeviceInfo> _outputRows = new();
+
+        // ── The three-level basic view (#207, Sprint 37 Track H) ──
+        //
+        // HARDWARE → ENDPOINT → TRANSPORT. The device combos hold hardware,
+        // the endpoint combos hold that hardware's endpoints, and the audio
+        // system combo below them holds the transport the chosen endpoints
+        // are reached through. Selection state is a pending pick per
+        // direction, committed on OK — never live.
+
+        /// <summary>What kind of thing a direction's pending pick is.</summary>
+        private enum PickKind
+        {
+            /// <summary>Follow the Windows default — a mode, not a device.</summary>
+            FollowDefault,
+            /// <summary>A named endpoint, reached through the pending audio
+            /// system (or its own, when chosen from the advanced list).</summary>
+            Endpoint,
+            /// <summary>The saved device, which is not connected right now.
+            /// Kept saved; commits nothing.</summary>
+            MissingSaved
+        }
+
+        private sealed class DirectionPick
+        {
+            public PickKind Kind = PickKind.FollowDefault;
+            /// <summary>Any member of the chosen endpoint's group, for
+            /// <see cref="PickKind.Endpoint"/>. Resolved through the pending
+            /// audio system at commit time.</summary>
+            public Devices.DeviceInfo? Endpoint;
+            /// <summary>The stand-in row for <see cref="PickKind.MissingSaved"/>.</summary>
+            public Devices.DeviceInfo? MissingRow;
+            /// <summary>True once the operator changed this direction in this
+            /// dialog session. An untouched direction is never rewritten by
+            /// OK, whatever the transport combo says — silently repointing a
+            /// saved device is the bug class this design exists to end.</summary>
+            public bool Touched;
+        }
+
+        private readonly DirectionPick _outPick = new();
+        private readonly DirectionPick _inPick = new();
+
+        // The hardware trees the basic combos are showing.
+        private List<Devices.HardwareGroup> _outTree = new();
+        private List<Devices.HardwareGroup> _inTree = new();
+
+        // Row bookkeeping for the device combos: what each combo row MEANS.
+        private sealed class DeviceComboRow
+        {
+            public PickKind Kind;
+            public Devices.HardwareGroup? Hardware;   // Endpoint rows
+            public Devices.DeviceInfo? MissingRow;    // MissingSaved rows
+        }
+        private List<DeviceComboRow> _outDeviceRows = new();
+        private List<DeviceComboRow> _inDeviceRows = new();
+
+        // What each endpoint combo is showing, row for row.
+        private List<Devices.HardwareEndpoint> _outEndpointRows = new();
+        private List<Devices.HardwareEndpoint> _inEndpointRows = new();
+
+        // The transport the dialog is pending — NOT applied to
+        // Devices.SelectedHostApiTypeId until OK, so Cancel needs no undo and
+        // nothing outside this window sees a choice that was never committed.
+        private int _pendingApi = -1;
+        private bool _transportTouched;
 
         private List<(int deviceNumber, string name)> _naudioDevices = new();
 
@@ -98,12 +162,11 @@ namespace JJFlexWpf.Dialogs
         // The Opus transmit rates the quality combo is showing, row for row.
         private static readonly uint[] TxRates = JJAudioStream.OpusTxRates;
 
-        // Both the audio system and the transmit rate take effect the moment
-        // they are chosen — the audio system because the lists below it have to
-        // show what it offers, the transmit rate because the note under it has
-        // to describe the new value. Cancel discards, so what they were on the
-        // way in is remembered here and put back on any exit that is not OK.
-        private readonly int _hostApiOnEntry = Devices.SelectedHostApiTypeId;
+        // The transmit rate takes effect the moment it is chosen, because the
+        // note under it has to describe the new value. Cancel discards, so
+        // what it was on the way in is remembered here and put back on any
+        // exit that is not OK. (The audio system no longer needs this: it is
+        // pending state, applied only on OK.)
         private readonly uint _txRateOnEntry = Radios.FlexBase.OpusTxSampleRateSetting;
 
         // True while a list is being repopulated, so SelectionChanged doesn't
@@ -211,13 +274,12 @@ namespace JJFlexWpf.Dialogs
                 DisposeMicLevel();
 
                 // Escape, Cancel, the title-bar close, an owner teardown — every
-                // way out that is not OK. Both settings were applied live so the
-                // dialog could describe what they do; leaving them applied after
-                // Cancel would make Cancel a lie.
+                // way out that is not OK. The transmit rate was applied live so
+                // the note could describe it; leaving it applied after Cancel
+                // would make Cancel a lie. The audio system needs no undo — it
+                // is pending state (#207), applied only on OK.
                 if (DialogResult == true) return;
                 Radios.FlexBase.OpusTxSampleRateSetting = _txRateOnEntry;
-                if (Devices.SelectedHostApiTypeId != _hostApiOnEntry)
-                    Devices.ApplyHostApiSelection(_hostApiOnEntry);
             };
 
             LoadNAudioDevices();
@@ -261,7 +323,13 @@ namespace JJFlexWpf.Dialogs
         {
             JJFlexHelp.SetNoteFor(StatusText, RefreshButton);
             JJFlexHelp.SetNoteFor(HostApiNote, HostApiCombo);
+            // Each direction's note answers for every control that expresses
+            // that direction: the basic combos and the advanced list alike.
+            JJFlexHelp.SetNoteFor(RadioOutputNote, RadioOutputDeviceCombo);
+            JJFlexHelp.SetNoteFor(RadioOutputNote, RadioOutputEndpointCombo);
             JJFlexHelp.SetNoteFor(RadioOutputNote, RadioOutputList);
+            JJFlexHelp.SetNoteFor(RadioInputNote, RadioInputDeviceCombo);
+            JJFlexHelp.SetNoteFor(RadioInputNote, RadioInputEndpointCombo);
             JJFlexHelp.SetNoteFor(RadioInputNote, RadioInputList);
             JJFlexHelp.SetNoteFor(TxRateNote, TxRateCombo);
             JJFlexHelp.SetNoteFor(MicLevelNote, MicLevelSlider);
@@ -269,8 +337,8 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Land on the audio-system selector rather than the first control in
-        /// tab order.
+        /// Land on the receive-audio device selector — the first choice of the
+        /// page's own order.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -279,27 +347,12 @@ namespace JJFlexWpf.Dialogs
         /// perfectly good button and completely the wrong place to start.
         /// </para>
         /// <para>
-        /// It landed on the RADIO OUTPUT LIST until 2026-08-24, on the
-        /// reasoning that receive audio is what almost everyone opens this
-        /// dialog to set. True, and it put focus PAST the one control that
-        /// decides what those lists can contain — with two focusable notes
-        /// between, so getting back to it meant Shift+Tab twice through prose.
-        /// Noel could not find the selector at all that evening and reasonably
-        /// concluded it did not exist.
-        /// </para>
-        /// <para>
-        /// The section is deliberately ordered audio-system-first because the
-        /// choice governs both lists; focus now agrees with that order instead
-        /// of contradicting it.
-        /// </para>
-        /// <para>
-        /// <b>The trade, stated because it is real:</b> a closed WPF combo
-        /// changes selection on Up/Down without opening, so an operator who
-        /// arrows the moment they arrive changes the audio system and rebuilds
-        /// both lists. That is recoverable — Cancel restores the entry value,
-        /// and the note under the combo says what changed — but it is a
-        /// louder first keystroke than arrowing a device list was. If that
-        /// turns out to bite, this is the one place to change back.
+        /// Focus went to the AUDIO SYSTEM combo from 2026-08-24 until Sprint
+        /// 37 (#207), and that was right while the audio system decided what
+        /// the lists below could contain. It no longer does: devices are named
+        /// by hardware, transport-independently, and the audio system sits
+        /// BELOW them saying how the chosen ones are reached. Focus follows
+        /// the page's order again — first control, first decision.
         /// </para>
         /// </remarks>
         protected override void FocusFirstControl()
@@ -311,25 +364,23 @@ namespace JJFlexWpf.Dialogs
             if (_startCheckOnOpen)
             {
                 _startCheckOnOpen = false;
-                if (RadioInputList != null && RadioInputList.Items.Count > 0)
+                if (SelectedInputRow() != null)
                 {
-                    if (RadioInputList.SelectedIndex < 0) RadioInputList.SelectedIndex = 0;
                     StartMicCheck();
                     if (MicCheckReading != null && MicCheckReading.Focus()) return;
                 }
             }
 
-            // The audio system first — it decides what both lists below can
-            // contain. Skipped when the machine offers only one driver model,
-            // because LoadHostApis disables the combo in that case and the
-            // house rule keeps dead controls out of the operator's way.
-            if (HostApiCombo != null && HostApiCombo.IsEnabled && HostApiCombo.Items.Count > 1)
+            if (!Devices.ShowAdvancedDevices
+                && RadioOutputDeviceCombo != null && RadioOutputDeviceCombo.IsEnabled
+                && RadioOutputDeviceCombo.Items.Count > 0)
             {
-                HostApiCombo.Focus();
+                RadioOutputDeviceCombo.Focus();
                 return;
             }
 
-            if (RadioOutputList != null && RadioOutputList.IsEnabled)
+            if (RadioOutputList != null && RadioOutputList.IsEnabled
+                && RadioOutputList.Visibility == Visibility.Visible)
             {
                 RadioOutputList.Focus();
                 return;
@@ -410,8 +461,13 @@ namespace JJFlexWpf.Dialogs
             HostApiCombo.Items.Clear();
             foreach (var api in _hostApis) HostApiCombo.Items.Add(api.Display);
 
-            int idx = _hostApis.FindIndex(a => a.TypeId == Devices.SelectedHostApiTypeId);
-            if (idx < 0 && _hostApis.Count > 0) idx = 0;
+            int idx = _hostApis.FindIndex(a => a.TypeId == _pendingApi);
+            if (idx < 0 && _hostApis.Count > 0)
+            {
+                idx = _hostApis.FindIndex(a => a.TypeId == Devices.SelectedHostApiTypeId);
+                if (idx < 0) idx = 0;
+                _pendingApi = _hostApis[idx].TypeId;
+            }
             HostApiCombo.SelectedIndex = idx;
 
             if (_hostApis.Count == 0)
@@ -449,13 +505,13 @@ namespace JJFlexWpf.Dialogs
         /// </remarks>
         private string HostApiNoteText()
         {
-            int selected = Devices.SelectedHostApiTypeId;
+            int selected = _pendingApi;
             if (Devices.ShowAdvancedDevices)
             {
-                return "Showing every sound endpoint, so this choice is not filtering the lists "
-                    + "right now. Each row names its own audio system, and the microphone and the "
-                    + "receive audio can be set to different ones. It still applies again when you "
-                    + "turn that off.";
+                return "Showing every sound endpoint, so this choice is not deciding anything "
+                    + "right now. Each row above names its own audio system, and choosing a row "
+                    + "chooses its audio system with it. This control applies again when you turn "
+                    + "the advanced view off.";
             }
 
             switch (selected)
@@ -572,57 +628,126 @@ namespace JJFlexWpf.Dialogs
                 // lists are read below.
                 _devices.LoadSavedSelection();
 
+                _pendingApi = InitialTransport();
+                _transportTouched = false;
+
                 LoadHostApis();
-                PopulateBothLists();
+                PopulateDeviceSurfaces();
             }
             finally
             {
                 _loading = false;
             }
 
-            // Rebind the Windows level control to whatever the input list now
-            // selects. SelectionChanged skipped it — _loading was true — and a
+            // Rebind the Windows level control to whatever the input selection
+            // now is. SelectionChanged skipped it — _loading was true — and a
             // control left bound to a device from before the refresh would be
             // adjusting something no longer on screen.
             UpdateMicLevelControl();
 
             if (announce)
             {
+                (int outCount, int inCount) = ShownDeviceCounts();
                 string msg = _status == Devices.EnumerationStatus.Ok
                     ? Lexicon.Get("audio.device.list_refreshed",
-                        ("outputs", CountReal(_outputRows)), ("inputs", CountReal(_inputRows)))
+                        ("outputs", outCount), ("inputs", inCount))
                     : _statusMessage;
                 ScreenReaderOutput.Speak(msg, VerbosityLevel.Terse, true);
             }
         }
 
         /// <summary>
-        /// Rebuild both device lists from the picker view currently in force,
-        /// WITHOUT re-enumerating. What the audio-system selector needs:
-        /// every endpoint is already in hand, and only the filter over them
-        /// changed. A Pa_Initialize/Pa_Terminate cycle per selector move would
-        /// be a real cost on a live audio machine for an answer we hold.
+        /// The device counts as the current view presents them: hardware
+        /// groups in the basic view (what a person would call "a device"),
+        /// endpoints in the advanced view (where the endpoint IS the row).
         /// </summary>
-        private void RebuildDeviceLists()
+        private (int outputs, int inputs) ShownDeviceCounts() =>
+            Devices.ShowAdvancedDevices
+                ? (CountReal(_outputRows), CountReal(_inputRows))
+                : (_outTree.Count, _inTree.Count);
+
+        /// <summary>
+        /// The transport the combo should open on. The explicit saved choice
+        /// wins; failing that, the audio system the saved devices actually
+        /// use — so a configuration written before the selector existed opens
+        /// showing the truth about itself rather than the default the file
+        /// never chose; failing that, the resolved default.
+        /// </summary>
+        /// <remarks>
+        /// The middle tier is the migration case (#207): an operator whose
+        /// devices were saved under MME by the old folding rule, with
+        /// selectedHostApiTypeId still -1, used to open this dialog to a
+        /// combo reading WASAPI above two MME devices — the selector
+        /// disagreeing with the file on the day they met. Nothing is
+        /// repointed by any of this: it only decides what the combo SHOWS,
+        /// and commits still require the operator to touch something.
+        /// </remarks>
+        private int InitialTransport()
         {
-            _loading = true;
-            try
-            {
-                PopulateBothLists();
-            }
-            finally
-            {
-                _loading = false;
-            }
-            // SelectionChanged skipped the rebind while _loading was true, and
-            // a level control left pointed at a device from the previous view
-            // would be adjusting something no longer on screen.
-            UpdateMicLevelControl();
+            int explicitChoice = _devices?.SavedHostApiTypeId ?? -1;
+            if (explicitChoice >= 0 && HostApiOffered(explicitChoice)) return explicitChoice;
+
+            int inApi = SavedConcreteApi(_devices?.InputDevice);
+            int outApi = SavedConcreteApi(_devices?.OutputDevice);
+            int agreed = -1;
+            if (inApi >= 0 && (outApi < 0 || outApi == inApi)) agreed = inApi;
+            else if (outApi >= 0 && inApi < 0) agreed = outApi;
+            if (agreed >= 0 && HostApiOffered(agreed)) return agreed;
+
+            return Devices.SelectedHostApiTypeId;
+        }
+
+        private static int SavedConcreteApi(Devices.Device? saved) =>
+            (saved != null && !saved.followWindowsDefault && !string.IsNullOrEmpty(saved.Name))
+                ? saved.hostApiTypeId : -1;
+
+        private bool HostApiOffered(int typeId)
+        {
+            foreach (var a in Devices.HostApis) if (a.TypeId == typeId) return true;
+            return false;
         }
 
         /// <summary>
-        /// Fill the two radio-audio lists and the note beneath them. Caller
-        /// holds <c>_loading</c>.
+        /// Build whichever device surface the view mode calls for — the
+        /// three-level combos, or the advanced flat lists — and show only it.
+        /// Caller holds <c>_loading</c>.
+        /// </summary>
+        private void PopulateDeviceSurfaces()
+        {
+            bool advanced = Devices.ShowAdvancedDevices;
+            SetBasicVisibility(!advanced);
+            if (advanced)
+            {
+                PopulateBothLists();
+            }
+            else
+            {
+                PopulateBasicPickers();
+            }
+            UpdateStatusText();
+        }
+
+        private void SetBasicVisibility(bool basic)
+        {
+            Visibility basicVis = basic ? Visibility.Visible : Visibility.Collapsed;
+            Visibility advVis = basic ? Visibility.Collapsed : Visibility.Visible;
+            RadioOutputDeviceLabel.Visibility = basicVis;
+            RadioOutputDeviceCombo.Visibility = basicVis;
+            RadioOutputEndpointLabel.Visibility = basicVis;
+            RadioOutputEndpointCombo.Visibility = basicVis;
+            RadioInputDeviceLabel.Visibility = basicVis;
+            RadioInputDeviceCombo.Visibility = basicVis;
+            RadioInputEndpointLabel.Visibility = basicVis;
+            RadioInputEndpointCombo.Visibility = basicVis;
+            RadioOutputListLabel.Visibility = advVis;
+            RadioOutputList.Visibility = advVis;
+            RadioInputListLabel.Visibility = advVis;
+            RadioInputList.Visibility = advVis;
+        }
+
+        /// <summary>
+        /// Fill the two ADVANCED radio-audio lists and the note beneath them.
+        /// Caller holds <c>_loading</c>.
         /// </summary>
         private void PopulateBothLists()
         {
@@ -654,8 +779,380 @@ namespace JJFlexWpf.Dialogs
                     + "system above, which converts the rate for you.";
             SetStatusLine(FilterNoteText, filterNote);
             FilterNoteText.Visibility = filterNote.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
 
-            UpdateStatusText();
+        // ---------------------------------------- basic three-level pickers
+
+        private DirectionPick Pick(Devices.DeviceTypes type) =>
+            (type == Devices.DeviceTypes.input) ? _inPick : _outPick;
+
+        private List<Devices.HardwareGroup> Tree(Devices.DeviceTypes type) =>
+            (type == Devices.DeviceTypes.input) ? _inTree : _outTree;
+
+        private ComboBox DeviceCombo(Devices.DeviceTypes type) =>
+            (type == Devices.DeviceTypes.input) ? RadioInputDeviceCombo : RadioOutputDeviceCombo;
+
+        private ComboBox EndpointCombo(Devices.DeviceTypes type) =>
+            (type == Devices.DeviceTypes.input) ? RadioInputEndpointCombo : RadioOutputEndpointCombo;
+
+        private TextBlock DirectionNote(Devices.DeviceTypes type) =>
+            (type == Devices.DeviceTypes.input) ? RadioInputNote : RadioOutputNote;
+
+        private List<DeviceComboRow> DeviceRows(Devices.DeviceTypes type) =>
+            (type == Devices.DeviceTypes.input) ? _inDeviceRows : _outDeviceRows;
+
+        private Devices.Device? Saved(Devices.DeviceTypes type) =>
+            (type == Devices.DeviceTypes.input) ? _devices?.InputDevice : _devices?.OutputDevice;
+
+        private string Role(Devices.DeviceTypes type) =>
+            Lexicon.Get(type == Devices.DeviceTypes.input
+                ? "audio.device.role_input_note" : "audio.device.role_output_note");
+
+        /// <summary>
+        /// Build both directions' hardware/endpoint combos from the current
+        /// enumeration and the saved selection. Caller holds <c>_loading</c>.
+        /// </summary>
+        private void PopulateBasicPickers()
+        {
+            _outTree = Devices.HardwareTree(Devices.DeviceTypes.output);
+            _inTree = Devices.HardwareTree(Devices.DeviceTypes.input);
+            InjectSavedHardware(_outTree, Saved(Devices.DeviceTypes.output));
+            InjectSavedHardware(_inTree, Saved(Devices.DeviceTypes.input));
+
+            InitPickFromSaved(Devices.DeviceTypes.output);
+            InitPickFromSaved(Devices.DeviceTypes.input);
+
+            BuildDeviceCombo(Devices.DeviceTypes.output);
+            BuildDeviceCombo(Devices.DeviceTypes.input);
+
+            // The mono/rate coaching lives in the per-direction notes here,
+            // about the devices actually chosen; the blanket note is the
+            // advanced view's.
+            SetStatusLine(FilterNoteText, "");
+            FilterNoteText.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// A saved device whose kind the basic tree hides (a loopback or a
+        /// virtual cable, or one of the follow-default alias rows) still gets
+        /// its hardware shelved — the operator's own choice outranks the
+        /// filter, same rule the flat picker has always applied.
+        /// </summary>
+        private static void InjectSavedHardware(List<Devices.HardwareGroup> tree, Devices.Device? saved)
+        {
+            if (saved == null || saved.followWindowsDefault || string.IsNullOrEmpty(saved.Name)) return;
+            var live = Devices.FindLive(saved);
+            if (live == null) return;
+            var owner = live.GroupOwner ?? live;
+
+            foreach (var g in tree)
+            {
+                foreach (var ep in g.Endpoints)
+                {
+                    if (ReferenceEquals(ep.Endpoint, owner)) return;
+                }
+            }
+
+            Devices.SplitDeviceName(owner.Name, out string label, out string hardware);
+            var injected = new Devices.HardwareGroup
+            {
+                Name = hardware,
+                IsSystemDefault = owner.IsDefault || owner.GroupIsSystemDefault
+            };
+            injected.Endpoints.Add(new Devices.HardwareEndpoint { Label = label, Endpoint = owner });
+
+            int at = tree.Count;
+            for (int i = 0; i < tree.Count; i++)
+            {
+                if (Devices.CompareDeviceNames(injected.Name, tree[i].Name) < 0) { at = i; break; }
+            }
+            tree.Insert(at, injected);
+        }
+
+        /// <summary>
+        /// Derive a direction's pending pick from what is saved. Follow the
+        /// Windows default is also the starting point when nothing was ever
+        /// chosen — it is the answer that cannot go stale.
+        /// </summary>
+        private void InitPickFromSaved(Devices.DeviceTypes type)
+        {
+            var pick = Pick(type);
+            pick.Touched = false;
+            pick.Endpoint = null;
+            pick.MissingRow = null;
+
+            var saved = Saved(type);
+            if (saved == null || (!saved.followWindowsDefault && string.IsNullOrEmpty(saved.Name)))
+            {
+                pick.Kind = PickKind.FollowDefault;
+                return;
+            }
+            if (saved.followWindowsDefault)
+            {
+                pick.Kind = PickKind.FollowDefault;
+                return;
+            }
+
+            var live = Devices.FindLive(saved);
+            if (live == null)
+            {
+                pick.Kind = PickKind.MissingSaved;
+                pick.MissingRow = Devices.MissingSavedRow(saved);
+                return;
+            }
+            pick.Kind = PickKind.Endpoint;
+            pick.Endpoint = live.GroupOwner ?? live;
+        }
+
+        /// <summary>
+        /// Fill one direction's device combo, select the pending pick, then
+        /// build the endpoint combo and the note under both.
+        /// </summary>
+        private void BuildDeviceCombo(Devices.DeviceTypes type)
+        {
+            var combo = DeviceCombo(type);
+            var pick = Pick(type);
+            var rows = DeviceRows(type);
+            rows.Clear();
+            combo.Items.Clear();
+
+            if (pick.Kind == PickKind.MissingSaved && pick.MissingRow != null)
+            {
+                // First, because "the thing you chose is not plugged in" is
+                // the most important sentence on the page for the person it
+                // applies to.
+                rows.Add(new DeviceComboRow { Kind = PickKind.MissingSaved, MissingRow = pick.MissingRow });
+                combo.Items.Add(pick.MissingRow.Display);
+            }
+
+            rows.Add(new DeviceComboRow { Kind = PickKind.FollowDefault });
+            combo.Items.Add(Lexicon.Get(type == Devices.DeviceTypes.input
+                ? "audio.device.follow_default_input_item"
+                : "audio.device.follow_default_output_item"));
+
+            foreach (var g in Tree(type))
+            {
+                rows.Add(new DeviceComboRow { Kind = PickKind.Endpoint, Hardware = g });
+                combo.Items.Add(HardwareRowText(type, g));
+            }
+
+            combo.SelectedIndex = DeviceRowIndexOfPick(type);
+            combo.IsEnabled = combo.Items.Count > 0;
+
+            BuildEndpointCombo(type);
+            UpdateDirectionNote(type);
+        }
+
+        private string HardwareRowText(Devices.DeviceTypes type, Devices.HardwareGroup g)
+        {
+            var sb = new System.Text.StringBuilder(g.Name);
+            // Same convention as the flat rows: name first, the
+            // decision-relevant qualifier after it.
+            if (g.IsSystemDefault) sb.Append(", system default");
+            if (g.Endpoints.Count > 1)
+            {
+                sb.Append(", ").Append(g.Endpoints.Count)
+                  .Append(type == Devices.DeviceTypes.input ? " inputs" : " outputs");
+            }
+            return sb.ToString();
+        }
+
+        private int DeviceRowIndexOfPick(Devices.DeviceTypes type)
+        {
+            var pick = Pick(type);
+            var rows = DeviceRows(type);
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                if (row.Kind != pick.Kind) continue;
+                if (row.Kind != PickKind.Endpoint) return i;
+                if (row.Hardware == null || pick.Endpoint == null) continue;
+                var owner = pick.Endpoint.GroupOwner ?? pick.Endpoint;
+                foreach (var ep in row.Hardware.Endpoints)
+                {
+                    if (ReferenceEquals(ep.Endpoint, owner)) return i;
+                }
+            }
+            // The pick's hardware is not in the combo (should not happen —
+            // InjectSavedHardware exists so it cannot). Follow the default
+            // rather than selecting nothing.
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].Kind == PickKind.FollowDefault) return i;
+            }
+            return rows.Count > 0 ? 0 : -1;
+        }
+
+        /// <summary>
+        /// Fill one direction's endpoint combo for the current device pick.
+        /// Disabled — and so out of the tab order — whenever there is nothing
+        /// to choose: follow-the-default and not-connected states, and
+        /// hardware with exactly one endpoint, where it still SHOWS the one
+        /// answer so the operator can read what will be used.
+        /// </summary>
+        private void BuildEndpointCombo(Devices.DeviceTypes type)
+        {
+            var combo = EndpointCombo(type);
+            var pick = Pick(type);
+            var rows = (type == Devices.DeviceTypes.input) ? _inEndpointRows : _outEndpointRows;
+            rows.Clear();
+            combo.Items.Clear();
+
+            switch (pick.Kind)
+            {
+                case PickKind.FollowDefault:
+                {
+                    var resolved = Devices.PickSystemDefault(type, _pendingApi);
+                    combo.Items.Add(resolved != null
+                        ? Lexicon.Get("audio.device.endpoint_follow_now",
+                            ("device", resolved.Name),
+                            ("system", Devices.NameOfHostApi(resolved.HostApiTypeId)))
+                        : Lexicon.Get("audio.device.endpoint_follow_none", ("role", Role(type))));
+                    combo.SelectedIndex = 0;
+                    combo.IsEnabled = false;
+                    return;
+                }
+                case PickKind.MissingSaved:
+                {
+                    combo.Items.Add(Lexicon.Get("audio.device.endpoint_not_connected"));
+                    combo.SelectedIndex = 0;
+                    combo.IsEnabled = false;
+                    return;
+                }
+            }
+
+            var owner = pick.Endpoint?.GroupOwner ?? pick.Endpoint;
+            Devices.HardwareGroup? group = null;
+            foreach (var g in Tree(type))
+            {
+                foreach (var ep in g.Endpoints)
+                {
+                    if (ReferenceEquals(ep.Endpoint, owner)) { group = g; break; }
+                }
+                if (group != null) break;
+            }
+
+            if (group == null || owner == null)
+            {
+                combo.Items.Add(owner?.Name ?? "");
+                combo.SelectedIndex = combo.Items.Count > 0 ? 0 : -1;
+                combo.IsEnabled = false;
+                return;
+            }
+
+            int selected = 0;
+            for (int i = 0; i < group.Endpoints.Count; i++)
+            {
+                var ep = group.Endpoints[i];
+                rows.Add(ep);
+                combo.Items.Add(EndpointRowText(ep));
+                if (ReferenceEquals(ep.Endpoint, owner)) selected = i;
+            }
+            combo.SelectedIndex = selected;
+            pick.Endpoint = group.Endpoints[selected].Endpoint;
+            combo.IsEnabled = group.Endpoints.Count > 1;
+        }
+
+        /// <summary>
+        /// An endpoint row: its own words first, then the qualifiers that
+        /// decide a choice — the Windows default, whether the pending audio
+        /// system offers it, and what its channels and rate mean for radio
+        /// audio, in the one vocabulary every other surface uses.
+        /// </summary>
+        private string EndpointRowText(Devices.HardwareEndpoint ep)
+        {
+            var member = Devices.EndpointUnder(ep.Endpoint, _pendingApi);
+            var speaks = member ?? ep.Endpoint;
+            var sb = new System.Text.StringBuilder(ep.Label);
+            if (speaks.IsDefault || speaks.GroupIsSystemDefault) sb.Append(", system default");
+            if (member == null)
+            {
+                sb.Append(", not offered on ").Append(Devices.NameOfHostApi(_pendingApi))
+                  .Append(" — would use ").Append(speaks.HostApiName);
+            }
+            string channels = Devices.DescribeChannels(speaks);
+            if (channels.Length > 0) sb.Append(", ").Append(channels);
+            string rate = Devices.DescribeRate(speaks);
+            if (rate.Length > 0) sb.Append(", ").Append(rate);
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// The always-current sentence under a direction's controls: what will
+        /// actually be used, through what, and what that means. One sentence
+        /// per state, so the note and the combos can never disagree.
+        /// </summary>
+        private void UpdateDirectionNote(Devices.DeviceTypes type)
+        {
+            var pick = Pick(type);
+            var note = DirectionNote(type);
+
+            switch (pick.Kind)
+            {
+                case PickKind.MissingSaved:
+                    SetStatusLine(note, Lexicon.Get("audio.device.note_missing_saved",
+                        ("device", pick.MissingRow?.Name ?? "")));
+                    return;
+
+                case PickKind.FollowDefault:
+                {
+                    var resolved = Devices.PickSystemDefault(type, _pendingApi);
+                    if (resolved == null)
+                    {
+                        SetStatusLine(note, Lexicon.Get("audio.device.note_follow_none",
+                            ("role", Role(type))));
+                        return;
+                    }
+                    SetStatusLine(note, Lexicon.Get("audio.device.note_follow",
+                            ("device", resolved.Name),
+                            ("system", Devices.NameOfHostApi(resolved.HostApiTypeId)))
+                        + EndpointExtras(resolved));
+                    return;
+                }
+
+                default:
+                {
+                    var owner = pick.Endpoint?.GroupOwner ?? pick.Endpoint;
+                    if (owner == null) { SetStatusLine(note, " "); return; }
+                    Devices.SplitDeviceName(owner.Name, out string label, out string hardware);
+                    var member = Devices.EndpointUnder(owner, _pendingApi);
+                    if (member != null)
+                    {
+                        SetStatusLine(note, Lexicon.Get("audio.device.note_using",
+                                ("endpoint", label), ("hardware", hardware),
+                                ("system", Devices.NameOfHostApi(member.HostApiTypeId)))
+                            + EndpointExtras(member));
+                        return;
+                    }
+                    var best = Devices.EndpointUnderOrBest(owner, _pendingApi);
+                    SetStatusLine(note, Lexicon.Get("audio.device.note_using_other_system",
+                            ("endpoint", label), ("hardware", hardware),
+                            ("selected", Devices.NameOfHostApi(_pendingApi)),
+                            ("actual", best.HostApiName))
+                        + EndpointExtras(best));
+                    return;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The channel and rate sentences a note carries about the row that
+        /// will actually open — same helpers the rows themselves use, so the
+        /// two cannot drift apart.
+        /// </summary>
+        private static string EndpointExtras(Devices.DeviceInfo member)
+        {
+            string extras = "";
+            string channels = Devices.DescribeChannels(member);
+            if (channels.Length > 0) extras += $" It is {channels}.";
+            string rate = Devices.DescribeRate(member);
+            if (rate.Length > 0)
+            {
+                extras += $" {char.ToUpperInvariant(rate[0])}{rate.Substring(1)}. "
+                    + "Set it to 48000 hertz in Windows Sound settings, or choose MME as the "
+                    + "audio system below, which converts the rate for you.";
+            }
+            return extras;
         }
 
         private static int CountReal(List<Devices.DeviceInfo> rows) => rows.Count(d => !d.IsMissingSaved);
@@ -917,8 +1414,7 @@ namespace JJFlexWpf.Dialogs
                 return;
             }
 
-            int outCount = CountReal(_outputRows);
-            int inCount = CountReal(_inputRows);
+            (int outCount, int inCount) = ShownDeviceCounts();
             bool haveOut = outCount > 0;
             bool haveIn = inCount > 0;
 
@@ -954,7 +1450,8 @@ namespace JJFlexWpf.Dialogs
             if (_loading) return;
             // A running check belongs to the device it was started on. Moving
             // the selection makes the reading a lie, so the stream closes.
-            StopMicCheck(speak: true, reason: "Microphone check stopped — you chose a different microphone.");
+            StopMicCheck(speak: true,
+                reason: Lexicon.Get("audio.device.mic_check_stopped_new_device"));
             // The Windows level control follows the selection for the same
             // reason: it must never be left pointed at the previous device.
             UpdateMicLevelControl();
@@ -966,20 +1463,17 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
-        /// Switch the audio system and rebuild both lists around it.
+        /// Choose the audio system the chosen devices are reached through
+        /// (#207). A SELECTION, not a filter: the device combos above keep
+        /// their contents, and what changes is which copy of each chosen
+        /// endpoint will be opened — written on OK, never live.
         /// </summary>
         /// <remarks>
-        /// Takes effect immediately rather than on OK, because the whole point
-        /// of the control is what the lists then contain — an operator has to
-        /// see the devices an audio system offers before they can choose one
-        /// of them. The choice is only PERSISTED on OK, with the devices.
-        ///
         /// <para>
         /// This speaks, and that is not a violation of speak-only-when-the-UI-
-        /// does-not-convey: the change happens two controls away from the one
-        /// with focus, and how many devices survived the change is exactly what
-        /// the operator needs and cannot hear from the combo they are standing
-        /// on.
+        /// does-not-convey: whether the devices chosen two controls away are
+        /// offered on the new audio system is exactly what the operator needs
+        /// to know and cannot hear from the combo they are standing on.
         /// </para>
         /// </remarks>
         private void HostApiCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -989,20 +1483,172 @@ namespace JJFlexWpf.Dialogs
             if (idx < 0 || idx >= _hostApis.Count) return;
 
             int wanted = _hostApis[idx].TypeId;
-            if (wanted == Devices.SelectedHostApiTypeId) return;
+            if (wanted == _pendingApi) return;
 
-            // A running check belongs to the device it was started on, and the
-            // row it was started from is about to be replaced.
+            _pendingApi = wanted;
+            _transportTouched = true;
+            SetStatusLine(HostApiNote, HostApiNoteText());
+
+            if (Devices.ShowAdvancedDevices)
+            {
+                // The advanced rows each carry their own audio system; this
+                // control decides nothing until the basic view returns, and
+                // the note above just said so.
+                return;
+            }
+
+            // A running check belongs to the transport it was started on.
             StopMicCheck(speak: false, reason: "");
 
-            Devices.ApplyHostApiSelection(wanted);
-            RebuildDeviceLists();
+            // The endpoint rows and both notes qualify themselves against the
+            // pending audio system, so they re-render around it.
+            _loading = true;
+            try
+            {
+                BuildEndpointCombo(Devices.DeviceTypes.output);
+                BuildEndpointCombo(Devices.DeviceTypes.input);
+                UpdateDirectionNote(Devices.DeviceTypes.output);
+                UpdateDirectionNote(Devices.DeviceTypes.input);
+            }
+            finally
+            {
+                _loading = false;
+            }
+            UpdateMicLevelControl();
 
-            SetStatusLine(HostApiNote, HostApiNoteText());
-            Announce(Lexicon.Get("audio.device.audio_system_chosen",
-                ("system", _hostApis[idx].Name),
-                ("outputs", CountReal(_outputRows)), ("inputs", CountReal(_inputRows))));
+            Announce(TransportConsequence(_hostApis[idx].Name));
         }
+
+        /// <summary>
+        /// What choosing this audio system means for the devices already
+        /// chosen — the sentence the combo itself cannot say.
+        /// </summary>
+        private string TransportConsequence(string systemName)
+        {
+            var kept = new List<string>();
+            foreach (var type in new[] { Devices.DeviceTypes.output, Devices.DeviceTypes.input })
+            {
+                var pick = Pick(type);
+                if (pick.Kind != PickKind.Endpoint || pick.Endpoint == null) continue;
+                if (Devices.OfferedUnder(pick.Endpoint, _pendingApi)) continue;
+                var owner = pick.Endpoint.GroupOwner ?? pick.Endpoint;
+                kept.Add(Lexicon.Get("audio.device.transport_keeps",
+                    ("role", Role(type)), ("device", owner.Name), ("system", owner.HostApiName)));
+            }
+            if (kept.Count == 0)
+                return Lexicon.Get("audio.device.transport_ok", ("system", systemName));
+            return Lexicon.Get("audio.device.transport_partial",
+                ("system", systemName), ("kept", string.Join(" ", kept)));
+        }
+
+        /// <summary>
+        /// A device combo changed: map the row to a pending pick, rebuild the
+        /// endpoint combo under it, and say the consequences the combo itself
+        /// cannot — what following the default resolves to right now, or that
+        /// a multi-endpoint device put a real choice in the next control.
+        /// </summary>
+        private void DeviceCombo_Changed(Devices.DeviceTypes type)
+        {
+            if (_loading) return;
+            var combo = DeviceCombo(type);
+            var rows = DeviceRows(type);
+            int idx = combo.SelectedIndex;
+            if (idx < 0 || idx >= rows.Count) return;
+
+            var pick = Pick(type);
+            var row = rows[idx];
+            pick.Kind = row.Kind;
+            pick.MissingRow = row.MissingRow;
+            pick.Endpoint = null;
+            pick.Touched = true;
+
+            if (row.Kind == PickKind.Endpoint && row.Hardware != null && row.Hardware.Endpoints.Count > 0)
+            {
+                // Pre-pick the endpoint the way the never-chosen fallback
+                // always has: the Windows default by name, else the first.
+                int def = 0;
+                for (int i = 0; i < row.Hardware.Endpoints.Count; i++)
+                {
+                    var d = row.Hardware.Endpoints[i].Endpoint;
+                    if (d.IsDefault || d.GroupIsSystemDefault) { def = i; break; }
+                }
+                pick.Endpoint = row.Hardware.Endpoints[def].Endpoint;
+            }
+
+            if (type == Devices.DeviceTypes.input)
+            {
+                // A running check belongs to the device it was started on.
+                StopMicCheck(speak: true,
+                    reason: Lexicon.Get("audio.device.mic_check_stopped_new_device"));
+            }
+
+            _loading = true;
+            try
+            {
+                BuildEndpointCombo(type);
+                UpdateDirectionNote(type);
+            }
+            finally
+            {
+                _loading = false;
+            }
+            if (type == Devices.DeviceTypes.input) UpdateMicLevelControl();
+
+            if (row.Kind == PickKind.FollowDefault)
+            {
+                var resolved = Devices.PickSystemDefault(type, _pendingApi);
+                Announce(resolved != null
+                    ? Lexicon.Get("audio.device.follow_default_chosen",
+                        ("role", Role(type)), ("device", resolved.Name))
+                    : Lexicon.Get("audio.device.follow_default_chosen_none", ("role", Role(type))));
+            }
+            else if (row.Kind == PickKind.Endpoint && row.Hardware != null
+                     && row.Hardware.Endpoints.Count > 1 && pick.Endpoint != null)
+            {
+                Devices.SplitDeviceName((pick.Endpoint.GroupOwner ?? pick.Endpoint).Name,
+                    out string label, out _);
+                Announce(Lexicon.Get("audio.device.hardware_endpoints",
+                    ("count", row.Hardware.Endpoints.Count),
+                    ("role", Role(type)), ("endpoint", label)));
+            }
+        }
+
+        private void RadioOutputDeviceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+            => DeviceCombo_Changed(Devices.DeviceTypes.output);
+
+        private void RadioInputDeviceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+            => DeviceCombo_Changed(Devices.DeviceTypes.input);
+
+        /// <summary>
+        /// An endpoint combo changed. No app speech: the combo announces its
+        /// new row natively, and the row already carries the qualifiers.
+        /// </summary>
+        private void EndpointCombo_Changed(Devices.DeviceTypes type)
+        {
+            if (_loading) return;
+            var combo = EndpointCombo(type);
+            var rows = (type == Devices.DeviceTypes.input) ? _inEndpointRows : _outEndpointRows;
+            int idx = combo.SelectedIndex;
+            if (idx < 0 || idx >= rows.Count) return;
+
+            var pick = Pick(type);
+            pick.Endpoint = rows[idx].Endpoint;
+            pick.Touched = true;
+
+            if (type == Devices.DeviceTypes.input)
+            {
+                StopMicCheck(speak: true,
+                    reason: Lexicon.Get("audio.device.mic_check_stopped_new_device"));
+            }
+            UpdateDirectionNote(type);
+            if (type == Devices.DeviceTypes.input) UpdateMicLevelControl();
+        }
+
+        private void RadioOutputEndpointCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+            => EndpointCombo_Changed(Devices.DeviceTypes.output);
+
+        private void RadioInputEndpointCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+            => EndpointCombo_Changed(Devices.DeviceTypes.input);
 
         /// <summary>
         /// Change the transmit rate. Applied to the static immediately so the
@@ -1031,32 +1677,69 @@ namespace JJFlexWpf.Dialogs
             Devices.ShowAdvancedDevices = on;
             // #128 sweep audit (2026-08-21): operator-facing boolean answers
             // back — and this one triggers a device re-enumeration whose only
-            // other evidence is combo contents quietly changing.
+            // other evidence is control contents quietly changing.
             EarconPlayer.ToggleTone(on);
             // A full re-enumeration, not just a picker rebuild: WDM-KS devices
             // are skipped at enumeration time, so they are not in InputDevices
             // to be filtered back in. LoadHostApis runs inside, which is how
             // kernel streaming appears in and disappears from the audio-system
-            // combo along with its devices.
+            // combo along with its devices. The reload also swaps the device
+            // surface — combos in basic, flat lists in advanced — and rebuilds
+            // both from what is SAVED, same as Refresh always has.
             ReloadPortAudioDevices(announce: false);
             SetStatusLine(HostApiNote, HostApiNoteText());
+            (int outCount, int inCount) = ShownDeviceCounts();
             ScreenReaderOutput.Speak(
                 on
                     ? Lexicon.Get("audio.device.showing_every_endpoint",
-                        ("outputs", CountReal(_outputRows)), ("inputs", CountReal(_inputRows)))
-                    : Lexicon.Get("audio.device.showing_one_audio_system",
-                        ("system", Devices.NameOfHostApi(Devices.SelectedHostApiTypeId)),
-                        ("outputs", CountReal(_outputRows)), ("inputs", CountReal(_inputRows))),
+                        ("outputs", outCount), ("inputs", inCount))
+                    : Lexicon.Get("audio.device.showing_grouped",
+                        ("outputs", outCount), ("inputs", inCount)),
                 VerbosityLevel.Terse, true);
         }
 
         // ------------------------------------------------- microphone check
 
+        /// <summary>
+        /// The input the dialog currently expresses, as the row the check and
+        /// the Windows level control should bind: the advanced list's selected
+        /// row, or the basic pick resolved through the pending audio system —
+        /// including what following the Windows default resolves to right now.
+        /// </summary>
         private Devices.DeviceInfo? SelectedInputRow()
         {
-            int idx = RadioInputList.SelectedIndex;
-            if (idx < 0 || idx >= _inputRows.Count) return null;
-            return _inputRows[idx];
+            if (Devices.ShowAdvancedDevices)
+            {
+                int idx = RadioInputList.SelectedIndex;
+                if (idx < 0 || idx >= _inputRows.Count) return null;
+                return _inputRows[idx];
+            }
+
+            var pick = _inPick;
+            switch (pick.Kind)
+            {
+                case PickKind.MissingSaved:
+                    return pick.MissingRow;
+                case PickKind.FollowDefault:
+                    return Devices.PickSystemDefault(Devices.DeviceTypes.input, _pendingApi);
+                default:
+                    return Devices.EndpointUnderOrBest(pick.Endpoint, _pendingApi);
+            }
+        }
+
+        /// <summary>
+        /// The control that chooses the microphone in the current view — where
+        /// focus goes when the check needs the operator to pick one.
+        /// </summary>
+        private void FocusInputSelector()
+        {
+            if (!Devices.ShowAdvancedDevices && RadioInputDeviceCombo != null
+                && RadioInputDeviceCombo.IsEnabled)
+            {
+                RadioInputDeviceCombo.Focus();
+                return;
+            }
+            RadioInputList?.Focus();
         }
 
         private void MicCheckButton_Click(object sender, RoutedEventArgs e)
@@ -1086,7 +1769,7 @@ namespace JJFlexWpf.Dialogs
             if (row == null)
             {
                 Announce(Lexicon.Get("audio.device.choose_a_microphone_first"), VerbosityLevel.Critical);
-                RadioInputList.Focus();
+                FocusInputSelector();
                 return;
             }
 
@@ -1094,7 +1777,7 @@ namespace JJFlexWpf.Dialogs
             {
                 Announce(Lexicon.Get("audio.device.microphone_not_connected", ("device", row.Name)),
                     VerbosityLevel.Critical);
-                RadioInputList.Focus();
+                FocusInputSelector();
                 return;
             }
 
@@ -1682,7 +2365,7 @@ namespace JJFlexWpf.Dialogs
             // Focus must not be standing on a control about to be disabled —
             // WPF would strand it on a dead element.
             if (MicLevelSlider.IsKeyboardFocused || MicBoostSlider.IsKeyboardFocused)
-                RadioInputList.Focus();
+                FocusInputSelector();
 
             _micLevelUpdatingUi = true;
             try
@@ -1918,42 +2601,68 @@ namespace JJFlexWpf.Dialogs
             if (_devices != null)
             {
                 // Refuse — out loud, with the dialog still open — a selection
-                // the audio engine cannot open. Saving a mono device would
-                // produce a configuration that fails at connect time on a
-                // background thread, which is a silent dead microphone.
+                // the audio engine cannot open. Saving a device with no
+                // channels would produce a configuration that fails at connect
+                // time on a background thread, which is a silent dead
+                // microphone.
                 // NOT normalised, deliberately: these two roles are also named
                 // in audio.device.role_output_note / role_input_note and in
                 // audio.device.role_output_receipt / role_input_receipt, and
                 // the three spellings of the output role differ today. Which
                 // wording survives is the owner's call, not the extractor's.
-                if (!ConfirmSelectionUsable(RadioOutputList, _outputRows,
-                        Lexicon.Get("audio.device.role_output_refusal"))
-                    || !ConfirmSelectionUsable(RadioInputList, _inputRows,
-                        Lexicon.Get("audio.device.role_input_refusal")))
+                if (Devices.ShowAdvancedDevices)
                 {
-                    return;
+                    if (!ConfirmSelectionUsable(RadioOutputList, _outputRows,
+                            Lexicon.Get("audio.device.role_output_refusal"))
+                        || !ConfirmSelectionUsable(RadioInputList, _inputRows,
+                            Lexicon.Get("audio.device.role_input_refusal")))
+                    {
+                        return;
+                    }
+                }
+                else
+                {
+                    if (!ConfirmBasicPickUsable(Devices.DeviceTypes.output,
+                            Lexicon.Get("audio.device.role_output_refusal"))
+                        || !ConfirmBasicPickUsable(Devices.DeviceTypes.input,
+                            Lexicon.Get("audio.device.role_input_refusal")))
+                    {
+                        return;
+                    }
                 }
 
                 StopMicCheck(speak: false, reason: "");
 
-                // The audio system first, so the two device writes below record
-                // the selection that was in force when they were chosen. It is
-                // saved even when neither device changed — an operator who
-                // switched from MME to WASAPI and kept the same hardware made a
-                // real choice, and losing it on OK would make the selector look
-                // broken in exactly the case it exists for.
+                // The audio system first, so the device writes below record
+                // the selection in force when they resolve. Pending until this
+                // moment (#207): this is where the transport choice becomes
+                // real, and it is saved even when neither device changed — an
+                // operator who switched from MME to WASAPI and kept the same
+                // hardware made a real choice, and losing it on OK would make
+                // the selector look broken in exactly the case it exists for.
+                Devices.ApplyHostApiSelection(_pendingApi);
                 bool apiChanged = _devices.SavedHostApiTypeId != Devices.SelectedHostApiTypeId;
                 _devices.SaveHostApiSelection();
-                if (apiChanged)
+                if (apiChanged && _transportTouched)
                     saved.Add(Lexicon.Get("audio.device.commit_audio_system",
                         ("system", Devices.NameOfHostApi(Devices.SelectedHostApiTypeId))));
 
-                saved.AddRange(CommitRadioDevice(
-                    RadioOutputList, _outputRows, Devices.DeviceTypes.output,
-                    Lexicon.Get("audio.device.role_output_receipt")));
-                saved.AddRange(CommitRadioDevice(
-                    RadioInputList, _inputRows, Devices.DeviceTypes.input,
-                    Lexicon.Get("audio.device.role_input_receipt")));
+                if (Devices.ShowAdvancedDevices)
+                {
+                    saved.AddRange(CommitRadioDevice(
+                        RadioOutputList, _outputRows, Devices.DeviceTypes.output,
+                        Lexicon.Get("audio.device.role_output_receipt")));
+                    saved.AddRange(CommitRadioDevice(
+                        RadioInputList, _inputRows, Devices.DeviceTypes.input,
+                        Lexicon.Get("audio.device.role_input_receipt")));
+                }
+                else
+                {
+                    saved.AddRange(CommitBasicPick(Devices.DeviceTypes.output,
+                        Lexicon.Get("audio.device.role_output_receipt")));
+                    saved.AddRange(CommitBasicPick(Devices.DeviceTypes.input,
+                        Lexicon.Get("audio.device.role_input_receipt")));
+                }
 
                 RadioAudioConfigured =
                     _devices.GetConfiguredDevice(Devices.DeviceTypes.output) != null
@@ -2034,6 +2743,121 @@ namespace JJFlexWpf.Dialogs
         /// again.
         /// </para>
         /// </remarks>
+        /// <summary>
+        /// The basic view's usability gate: the endpoint the pending pick
+        /// resolves to must be one the engine can open. Follow-the-default
+        /// passes — it names no endpoint to refuse, and if nothing usable
+        /// exists the engine says so at start — and the not-connected state
+        /// passes for the reason on <see cref="ConfirmSelectionUsable"/>.
+        /// </summary>
+        private bool ConfirmBasicPickUsable(Devices.DeviceTypes type, string role)
+        {
+            var pick = Pick(type);
+            if (pick.Kind != PickKind.Endpoint || pick.Endpoint == null) return true;
+            var exact = Devices.EndpointUnderOrBest(pick.Endpoint, _pendingApi);
+            if (exact == null || exact.UsableForRadioAudio) return true;
+
+            ScreenReaderOutput.Speak(
+                Lexicon.Get("audio.device.no_audio_channels",
+                    ("device", exact.Name), ("role", role)),
+                VerbosityLevel.Critical, true);
+            DeviceCombo(type).Focus();
+            return false;
+        }
+
+        /// <summary>
+        /// Commit one direction of the basic view, and say what was written.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The prime directive here: <b>an untouched direction under an
+        /// untouched audio system is never rewritten.</b> A configuration that
+        /// works keeps working until someone chooses otherwise — the exact
+        /// guarantee the flat picker's SameDevice guard gave, extended to the
+        /// case where the combo's initial rendering resolves differently than
+        /// what is saved.
+        /// </para>
+        /// <para>
+        /// A touched audio system DOES move untouched devices onto it — that
+        /// is the selector's entire meaning now, it happens out loud in the
+        /// receipt, and an endpoint the new audio system does not offer stays
+        /// on its own, with the receipt saying so rather than anything
+        /// changing silently.
+        /// </para>
+        /// </remarks>
+        private IEnumerable<string> CommitBasicPick(Devices.DeviceTypes type, string role)
+        {
+            var pick = Pick(type);
+            var current = Saved(type);
+
+            switch (pick.Kind)
+            {
+                case PickKind.MissingSaved:
+                {
+                    // Keeping a saved device you intend to plug back in is a
+                    // legitimate answer; what it must not do is pass silently.
+                    yield return Lexicon.Get("audio.device.commit_not_connected",
+                        ("role", role), ("device", pick.MissingRow?.Name ?? current?.Name ?? ""));
+                    yield break;
+                }
+
+                case PickKind.FollowDefault:
+                {
+                    if (current != null && current.followWindowsDefault)
+                    {
+                        yield return Lexicon.Get("audio.device.commit_follow_unchanged",
+                            ("role", role));
+                        yield break;
+                    }
+                    _devices!.SetFollowWindowsDefault(type);
+                    var resolved = Devices.PickSystemDefault(type, Devices.SelectedHostApiTypeId);
+                    yield return resolved != null
+                        ? Lexicon.Get("audio.device.commit_follow",
+                            ("role", role), ("device", resolved.Name))
+                        : Lexicon.Get("audio.device.commit_follow_none", ("role", role));
+                    yield break;
+                }
+
+                default:
+                {
+                    if (pick.Endpoint == null) yield break;
+
+                    if (!pick.Touched && !_transportTouched)
+                    {
+                        if (current != null && !string.IsNullOrEmpty(current.Name))
+                            yield return Lexicon.Get("audio.device.commit_unchanged",
+                                ("role", role), ("device", current.Name));
+                        yield break;
+                    }
+
+                    var exact = Devices.EndpointUnderOrBest(pick.Endpoint, Devices.SelectedHostApiTypeId);
+                    if (exact == null) yield break;
+
+                    if (Devices.SameDevice(current, exact))
+                    {
+                        yield return Lexicon.Get("audio.device.commit_unchanged",
+                            ("role", role), ("device", exact.Name));
+                        yield break;
+                    }
+
+                    _devices!.SetConfiguredDevice(type, exact);
+                    if (exact.HostApiTypeId != Devices.SelectedHostApiTypeId)
+                    {
+                        yield return Lexicon.Get("audio.device.commit_kept_api",
+                            ("role", role), ("device", exact.Name),
+                            ("selected", Devices.NameOfHostApi(Devices.SelectedHostApiTypeId)),
+                            ("actual", exact.HostApiName));
+                    }
+                    else
+                    {
+                        yield return Lexicon.Get("audio.device.commit_chosen",
+                            ("role", role), ("device", exact.Name));
+                    }
+                    yield break;
+                }
+            }
+        }
+
         private bool ConfirmSelectionUsable(
             ListBox list,
             List<Devices.DeviceInfo> rows,
