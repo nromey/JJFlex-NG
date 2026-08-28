@@ -92,19 +92,20 @@ namespace JJFlexWpf.Dialogs
         public int FineTuneStep { get; private set; }
         public bool BandMemoryEnabled { get; private set; }
 
-        private static readonly (int hz, string label)[] CoarseStepOptions =
-        {
-            (1000, Lexicon.Get("settings.tuning.coarse_step_1_khz")),
-            (2000, Lexicon.Get("settings.tuning.coarse_step_2_khz")),
-            (5000, Lexicon.Get("settings.tuning.coarse_step_5_khz"))
-        };
-
-        private static readonly (int hz, string label)[] FineStepOptions =
-        {
-            (5, Lexicon.Get("settings.tuning.fine_step_5_hz")),
-            (10, Lexicon.Get("settings.tuning.fine_step_10_hz")),
-            (100, Lexicon.Get("settings.tuning.fine_step_100_hz"))
-        };
+        // The step options this dialog shows.
+        //
+        // THEY ARE NO LONGER THIS DIALOG'S OWN LIST (#302, 2026-08-27). They
+        // used to be two private static arrays holding 1/2/5 kHz and
+        // 5/10/100 Hz. The moment a key could size the step from the Home
+        // surface, that private list became a second vocabulary with a real
+        // bite: an operator who set 10 kHz with the arrows, then opened
+        // Settings, would have seen a combo with no matching item — which
+        // falls back to index 0 — and pressing OK would have silently reset
+        // their step to 1 kHz. Same table as the ladder keys and the picker,
+        // widened to hold the current value even if it came from somewhere
+        // else entirely.
+        private readonly IReadOnlyList<TuningSteps.Choice> _coarseStepOptions;
+        private readonly IReadOnlyList<TuningSteps.Choice> _fineStepOptions;
 
         private static readonly (string label, HamBands.Bands.Licenses value)[] LicenseClassMap =
         {
@@ -131,6 +132,8 @@ namespace JJFlexWpf.Dialogs
             _audioConfig = audioConfig ?? new AudioOutputConfig();
             CoarseTuneStep = currentCoarseStep;
             FineTuneStep = currentFineStep;
+            _coarseStepOptions = TuningSteps.ChoicesIncluding(TuningSteps.Coarse, currentCoarseStep);
+            _fineStepOptions = TuningSteps.ChoicesIncluding(TuningSteps.Fine, currentFineStep);
             BandMemoryEnabled = pttConfig.BandMemoryEnabled;
 
             InitializeComponent();
@@ -228,21 +231,21 @@ namespace JJFlexWpf.Dialogs
             ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
 
             // Tuning tab
-            foreach (var (hz, label) in CoarseStepOptions)
+            foreach (var choice in _coarseStepOptions)
             {
-                CoarseStepCombo.Items.Add(label);
-                if (hz == CoarseTuneStep)
+                CoarseStepCombo.Items.Add(TuningSteps.LabelFor(choice));
+                if (choice.Hz == CoarseTuneStep)
                     CoarseStepCombo.SelectedIndex = CoarseStepCombo.Items.Count - 1;
             }
             if (CoarseStepCombo.SelectedIndex < 0) CoarseStepCombo.SelectedIndex = 0;
 
-            foreach (var (hz, label) in FineStepOptions)
+            foreach (var choice in _fineStepOptions)
             {
-                FineStepCombo.Items.Add(label);
-                if (hz == FineTuneStep)
+                FineStepCombo.Items.Add(TuningSteps.LabelFor(choice));
+                if (choice.Hz == FineTuneStep)
                     FineStepCombo.SelectedIndex = FineStepCombo.Items.Count - 1;
             }
-            if (FineStepCombo.SelectedIndex < 0) FineStepCombo.SelectedIndex = 1; // 10 Hz default
+            if (FineStepCombo.SelectedIndex < 0) FineStepCombo.SelectedIndex = 0;
 
             BandMemoryCheckbox.IsChecked = BandMemoryEnabled;
 
@@ -1304,10 +1307,10 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.Validate();
 
             // Tuning tab
-            if (CoarseStepCombo.SelectedIndex >= 0 && CoarseStepCombo.SelectedIndex < CoarseStepOptions.Length)
-                CoarseTuneStep = CoarseStepOptions[CoarseStepCombo.SelectedIndex].hz;
-            if (FineStepCombo.SelectedIndex >= 0 && FineStepCombo.SelectedIndex < FineStepOptions.Length)
-                FineTuneStep = FineStepOptions[FineStepCombo.SelectedIndex].hz;
+            if (CoarseStepCombo.SelectedIndex >= 0 && CoarseStepCombo.SelectedIndex < _coarseStepOptions.Count)
+                CoarseTuneStep = _coarseStepOptions[CoarseStepCombo.SelectedIndex].Hz;
+            if (FineStepCombo.SelectedIndex >= 0 && FineStepCombo.SelectedIndex < _fineStepOptions.Count)
+                FineTuneStep = _fineStepOptions[FineStepCombo.SelectedIndex].Hz;
             BandMemoryEnabled = BandMemoryCheckbox.IsChecked == true;
             _pttConfig.BandMemoryEnabled = BandMemoryEnabled;
             if (FreqUnitsCombo.SelectedIndex >= 0)

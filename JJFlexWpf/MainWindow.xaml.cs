@@ -71,8 +71,9 @@ public partial class MainWindow : UserControl
         // at the moment the key is pressed.
         JJFlexHelp.SetProvider(FreqOut, ComposeFreqOutContextHelp);
 
-        // The context-help availability cue (#275) — two rising taps behind a
-        // focus landing when Ctrl+F1 has something new to say there.
+        // The context-help availability cue (#275) — a flick and a soft note an
+        // octave above it, behind a focus landing, when Ctrl+F1 has something
+        // new to say there.
         ContextHelpCue.Install();
 
         // Focus-return: when any JJFlexDialog closes, put keyboard focus back
@@ -266,6 +267,19 @@ public partial class MainWindow : UserControl
         // the ATU progress tone is a separate input on the alert mixer and
         // keeps running, which was verified rather than assumed.
         Radios.ScreenReaderOutput.CancelCw = () => _morseNotifier.Cancel();
+        // #182 (Noel's ruling): notifications CLOSE, they do not queue. Each
+        // new SendCwText message supersedes the pending one — dropped from
+        // the queue if unstarted, closed at the next CHARACTER boundary if
+        // keying (#88: a half-sent character is a different character). The
+        // session prosigns and the SK farewell are exempt and play out.
+        Radios.ScreenReaderOutput.SupersedePendingCw = () => _morseNotifier.CloseForNewMessage();
+        // #182's other half: Ctrl silences CW the way it already silences
+        // speech. The hook OBSERVES the key — the reader still receives it
+        // and still silences itself — and the busy check is one volatile
+        // read, so the hook thread never does real work. The cancel is the
+        // same one the repeat key uses: CW output only, continuous earcons
+        // untouched.
+        CwCtrlInterrupt.Install(() => _cwOutput.IsBusy, () => _morseNotifier.Cancel());
         // (#146) The radio announces its CW sidetone pitch on connect, on every
         // change, and as null on disconnect. Whether the notifier USES it is the
         // operator's setting; the notifier holds both numbers and picks.
@@ -607,10 +621,21 @@ public partial class MainWindow : UserControl
 
         Tracing.TraceLine("MainWindow.RequestShutdown: starting shutdown", System.Diagnostics.TraceLevel.Info);
 
+        // Disarm the context-help cue BEFORE the exit sequence, not after
+        // (#275). The exit sequence puts prompts up; focus lands on one; the
+        // operator reads it, which takes longer than the settle interval — and
+        // the cue then offers help on a surface that is disappearing. Noel
+        // heard exactly that on 2026-08-27: a tone, no speech, just before the
+        // application closed.
+        ContextHelpCue.SuspendForShutdown();
+
         // Run VB-side exit sequence (prompts, cleanup, radio close)
         if (AppExitCallback != null && !AppExitCallback())
         {
             Tracing.TraceLine("MainWindow.RequestShutdown: exit cancelled by user", System.Diagnostics.TraceLevel.Info);
+            // He is staying. Give the cue back — a latch that only ever closes
+            // would leave the rest of the session silently without it.
+            ContextHelpCue.ResumeAfterCancelledShutdown();
             return false;
         }
 
@@ -908,11 +933,15 @@ public partial class MainWindow : UserControl
         // Apply tuning steps and band memory setting
         if (_freqOutHandlers != null)
         {
-            _freqOutHandlers.CoarseTuneStep = coarseStep;
-            _freqOutHandlers.FineTuneStep = fineStep;
+            // Through ApplyStepSizes rather than assigning the two properties
+            // and invoking the save callback here: #302 gave the steps a
+            // picker and a pair of ladder keys, and three surfaces writing the
+            // same two fields is how one of them quietly grows a different
+            // idea of what "apply" means. Settings does not speak — the dialog
+            // just closed and the operator knows what they chose.
+            _freqOutHandlers.ApplyStepSizes(coarseStep, fineStep, speak: false);
             _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig?.BandMemoryEnabled ?? true;
             _freqOutHandlers.FrequencyUnits = CurrentPttConfig?.FrequencyDisplayUnits ?? Radios.FrequencyUnits.Hz;
-            _freqOutHandlers.SaveStepSizes?.Invoke(coarseStep, fineStep);
         }
 
         // Save PttConfig to disk
@@ -4374,6 +4403,26 @@ public partial class MainWindow : UserControl
             : Dialogs.RadioInfoTab.General;
         var dialog = new Dialogs.RadioInfoDialog(callbacks, tab);
         dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// The coarse-and-fine step picker (#302), opened with S from the
+    /// Frequency field in Modern tuning.
+    /// </summary>
+    /// <remarks>
+    /// Applies through <c>FreqOutHandlers.ApplyStepSizes</c>, the one place
+    /// the two step sizes change, and speaks both on the way out so the
+    /// operator hears the result without pressing Shift+S to check.
+    /// </remarks>
+    public void ShowTuningStepsDialog()
+    {
+        if (_freqOutHandlers == null) return;
+
+        var dialog = new Dialogs.TuningStepsDialog(
+            _freqOutHandlers.CoarseTuneStep, _freqOutHandlers.FineTuneStep);
+
+        if (dialog.ShowDialog() == true)
+            _freqOutHandlers.ApplyStepSizes(dialog.CoarseStepHz, dialog.FineStepHz, speak: true);
     }
 
     #endregion

@@ -275,8 +275,8 @@ namespace Radios.Speech
             public string Message = string.Empty;
             public VerbosityLevel Level;
 
-            /// <summary>See the repeatWhileHeld parameter on ScreenReaderOutput.Speak.</summary>
-            public bool RepeatWhileHeld;
+            /// <summary>Sweeping a value, or asking a question. See <see cref="SpeechCoalesceKind"/>.</summary>
+            public SpeechCoalesceKind Kind;
             /// <summary>Call site of the newest value, for the transcript.</summary>
             public string? Origin;
             public ISpeechTimer? Timer;
@@ -419,28 +419,31 @@ namespace Radios.Speech
         /// Coalescing has to happen before emission: once text reaches a screen
         /// reader we cannot take it back.
         ///
-        /// **On <paramref name="repeatWhileHeld"/> — #264, and where it stands.**
-        /// The backlog records this guard as "built, documented and never wired
-        /// by any caller". That was true when written and is not true now:
-        /// Sprint 35 Track M wired it at Ctrl+S (KeyCommands, coalesceKey
-        /// "smeter"), which is a QUERY key — the operator is asking again, and
-        /// asking again deserves an answer rather than a deferral.
+        /// **On <paramref name="kind"/> — #264, and the rule it encodes.**
+        /// A key that asks a question is not a value that sweeps. The lead-then-
+        /// settle policy below is right for a value in flight and wrong for a
+        /// re-request, and until 2026-08-27 nothing here could tell them apart —
+        /// so a second Ctrl+S inside <see cref="SweepWindowMs"/> was treated as
+        /// sweeping and made to wait out a settle it had no reason to wait for.
+        /// Measured at the radio: about half a second, on the one key whose job
+        /// is to answer now.
         ///
-        /// Re-verified across every <c>coalesceKey</c> call site on 2026-08-27:
-        /// Ctrl+S is still the only one that should pass it, and the other four
-        /// are SWEPT values where the settle policy is correct — gain, volume,
-        /// slice volume, and the value field. Wiring the flag there would give a
-        /// held key an utterance every gap for as long as it is held, which is
-        /// exactly the periodic feedback removed on 2026-08-18 for being heard
-        /// as clicks and ticks. ValueFieldControl reached the same conclusion at
-        /// its own call site and answers the end-of-range case with a tone.
+        /// The classification lives at the CALL SITE because that is the only
+        /// place that knows: a query key and a value-adjust key are different
+        /// commands. Surveyed across every <c>coalesceKey</c> site on
+        /// 2026-08-27 and re-checked here — the S-meter is the only
+        /// <see cref="SpeechCoalesceKind.Query"/>; gain, volume, slice volume
+        /// and the value field are all swept values that keep the settle,
+        /// because the tail is genuinely the right answer there. If a new query
+        /// key appears, it belongs on this side of the line.
         ///
-        /// So the finding is: not "nobody wired it" but "one caller wired it and
-        /// that is the complete set". Recorded here rather than in the backlog
-        /// because this is where the next person will look.
+        /// **This is a classification change and NOT a constant change.**
+        /// Shortening <see cref="SweepWindowMs"/> would have produced the same
+        /// measurement on Ctrl+S and degraded every sweep that constant exists
+        /// for. The window is untouched.
         /// </summary>
         public void Latest(string key, string message, VerbosityLevel level,
-            bool repeatWhileHeld, string? origin)
+            SpeechCoalesceKind kind, string? origin)
         {
             lock (_lock)
             {
@@ -448,14 +451,15 @@ namespace Radios.Speech
                 {
                     existing.Message = message;
                     existing.Level = level;
-                    existing.RepeatWhileHeld = repeatWhileHeld;
+                    existing.Kind = kind;
                     existing.Origin = origin;
 
-                    // A repeating entry must NOT have its timer pushed out by
-                    // each new keypress: the operator is holding the key, so
-                    // restarting the wait would defer the announcement for
-                    // exactly as long as they need to hear it.
-                    if (repeatWhileHeld) return;
+                    // A query must NOT have its timer pushed out by the next
+                    // press: the operator is asking again, so restarting the
+                    // wait defers the answer for exactly as long as they keep
+                    // asking for it. For a swept value the push-out is the
+                    // point — it is what makes a hold speak once, at the end.
+                    if (kind == SpeechCoalesceKind.Query) return;
 
                     try
                     {
@@ -474,10 +478,13 @@ namespace Radios.Speech
                 // answers and one that feels sticky.
                 var now = _clock.UtcNow;
                 bool sweeping =
-                    _lastByKey.TryGetValue(key, out var last)
+                    kind == SpeechCoalesceKind.Value
+                    && _lastByKey.TryGetValue(key, out var last)
                     && (now - last.At).TotalMilliseconds < SweepWindowMs;
 
-                if (!sweeping && RemainingGapMsLocked(key) == 0)
+                int gapWait = RemainingGapMsLocked(key);
+
+                if (!sweeping && gapWait == 0)
                 {
                     _lastByKey[key] = (message, now, AntiClipGapMs(message));
                     EmitLocked(message, interrupt: true, SpeechIntent.Latest, level, origin);
@@ -486,16 +493,23 @@ namespace Radios.Speech
 
                 // Either mid-sweep, or too soon after our own last utterance to
                 // lead without clipping it. Both cases coalesce.
+                //
+                // A QUERY only ever reaches here for the second reason, and its
+                // wait is therefore the anti-clip gap itself — not the settle.
+                // Arming the settle first and re-arming for the gap afterwards
+                // (which is what a value does, in FlushCoalesced) would charge
+                // an answer up to CoalesceMs it has no reason to pay.
+                int dueMs = sweeping ? CoalesceMs : (kind == SpeechCoalesceKind.Query ? gapWait : CoalesceMs);
 
                 var entry = new PendingUtterance
                 {
                     Message = message,
                     Level = level,
-                    RepeatWhileHeld = repeatWhileHeld,
+                    Kind = kind,
                     Origin = origin,
                 };
                 _pending[key] = entry;
-                entry.Timer = _clock.StartTimer(CoalesceMs, () => FlushCoalesced(key));
+                entry.Timer = _clock.StartTimer(dueMs, () => FlushCoalesced(key));
             }
         }
 
@@ -681,7 +695,14 @@ namespace Radios.Speech
                 // sweep the settle would otherwise arrive while the lead
                 // utterance is still speaking and cut it off to repeat a value
                 // the operator has already heard.
-                if (!entry.RepeatWhileHeld
+                //
+                // A QUERY is exempt, and this is the other half of #264's rule:
+                // press Ctrl+S twice on a steady signal and the second press
+                // must say "S 7" again. The repetition IS the information —
+                // it is how the operator learns the signal has not moved.
+                // Dropping it meant a deliberate second press said nothing at
+                // all, which is indistinguishable from the key being broken.
+                if (entry.Kind != SpeechCoalesceKind.Query
                     && _lastByKey.TryGetValue(key, out var last)
                     && string.Equals(last.Message, entry.Message, StringComparison.Ordinal))
                 {

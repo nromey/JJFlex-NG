@@ -26,9 +26,20 @@ namespace Radios.Speech
         public bool HasBraille => false;
 
         public bool Initialize() => true;
-        public void Speak(string message, bool interrupt) { }
-        public void Output(string message, bool interrupt) { }
-        public void Braille(string message) { }
+
+        // Accepted, deliberately — the whole point of this backend is that
+        // every policy layer above it behaves exactly as in production, and
+        // the ledger, the salvage rule and the anti-clip gap all key on
+        // delivery. Reporting NotAttempted here would quietly disable the
+        // protections a silent test run exists to exercise. Whether anything
+        // SOUNDED is a different question, answered by the transcript's
+        // rendered flag.
+        public SpeechDelivery Speak(string message, bool interrupt) => SpeechDelivery.Accepted;
+        public SpeechDelivery Output(string message, bool interrupt) => SpeechDelivery.Accepted;
+
+        // Braille is the exception: HasBraille is false, so claiming delivery
+        // would assert a display that is not there.
+        public SpeechDelivery Braille(string message) => SpeechDelivery.NotAttempted;
         public void Silence() { }
         public void Dispose() { }
     }

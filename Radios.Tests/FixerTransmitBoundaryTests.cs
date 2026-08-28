@@ -203,6 +203,83 @@ namespace Radios.Tests
                     .AudioTestingHasStanding);
         }
 
+        // ---- the cues (#255): stage 2 announces its own transmit ----
+        //
+        // Everything here runs against a null radio, the file's standing
+        // convention: every refusal path must be provable without a
+        // transmitter in the room, and the granted path — countdown, key,
+        // speak on MOX confirmation — rides the same Witness/callback shape
+        // stage 4 uses and cannot honestly be tested without a rig.
+
+        [Fact]
+        public void No_cue_ever_sounds_for_a_refused_transmit()
+        {
+            // The countdown is a promise that RF is imminent, and "transmitting"
+            // is a claim about the radio. A refusal must produce neither — a
+            // blind operator hearing the count for a transmit that never keys
+            // learns to distrust the count, which costs every stage that
+            // depends on it.
+            bool counted = false, spokeNow = false, spokeDone = false;
+
+            var gate = new FixerTransmitGate();
+            gate.BeginRun(Run);            // deliberately no load declared
+
+            TxTuneProbe.Result r = FixerTransmitBoundary.ProbeTransmitter(
+                gate, () => null, Stage,
+                speakNow: () => spokeNow = true,
+                speakDone: () => spokeDone = true,
+                countdown: () => counted = true)();
+
+            Assert.Equal(TxTuneProbe.Verdict.NotRun, r.Verdict);
+            Assert.False(counted, "the countdown sounded for a refused transmit");
+            Assert.False(spokeNow, "\"transmitting\" was spoken for a refused transmit");
+            Assert.False(spokeDone, "\"finished\" was spoken for a transmit that never began");
+            Assert.Equal(0, gate.TransmitCount);
+        }
+
+        [Fact]
+        public void A_stop_during_the_countdown_keys_nothing_and_says_so()
+        {
+            // The countdown only runs after a grant, and a grant needs a
+            // reachable radio — so the full path cannot run here. The shared
+            // pacing helper is the half that exists without a rig, and its
+            // contract is the one that matters: a stop asked during the count
+            // must answer "do not key".
+            bool counted = false;
+            bool ready = FixerTransmitAudioBoundary.CountUnkeyedThenReadyToKey(
+                () => counted = true, stopRequested: () => true);
+
+            Assert.True(counted, "the countdown itself should still have been started");
+            Assert.False(ready, "a stop during the count still said it was fine to key");
+        }
+
+        [Fact]
+        public void With_no_stop_hook_the_count_paces_the_key_up_and_allows_it()
+        {
+            // A missing hook counts silently and still paces the key-up, so
+            // the timing an operator learns does not change with the wiring.
+            var w = System.Diagnostics.Stopwatch.StartNew();
+            bool ready = FixerTransmitAudioBoundary.CountUnkeyedThenReadyToKey(
+                countdown: null, stopRequested: null);
+            w.Stop();
+
+            Assert.True(ready);
+            Assert.True(w.ElapsedMilliseconds
+                            >= FixerTransmitAudioBoundary.CountdownKeyUpAtMs - 30,
+                "the key-up was not paced to the count: " + w.ElapsedMilliseconds + " ms");
+        }
+
+        [Fact]
+        public void A_stop_hook_that_throws_reads_as_stop()
+        {
+            // Carrying on past a broken stop path is the one direction this
+            // must not fail in.
+            bool ready = FixerTransmitAudioBoundary.CountUnkeyedThenReadyToKey(
+                countdown: null,
+                stopRequested: () => throw new InvalidOperationException("broken"));
+            Assert.False(ready);
+        }
+
         // ---- helpers ----
 
         private static System.Collections.Generic.IEnumerable<FixerTransmitGate.Decision>

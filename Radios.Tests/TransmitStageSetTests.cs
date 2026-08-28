@@ -142,10 +142,72 @@ namespace Radios.Tests
                 TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadAmplifier));
             Assert.Equal(FixerLoadKind.NothingOrUnsure,
                 TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadNothingUnsure));
+            // The remote session's honest answer (#247) keeps the gate shut
+            // the same way — mapped explicitly, never left to the fallback,
+            // because the fallback is for ids nobody wrote.
+            Assert.Equal(FixerLoadKind.NothingOrUnsure,
+                TransmitStageSet.LoadKindFromChoice(TransmitStageSet.LoadRemoteNotConfirmed));
             Assert.Equal(FixerLoadKind.NothingOrUnsure,
                 TransmitStageSet.LoadKindFromChoice("never-heard-of-it"));
             Assert.Equal(FixerLoadKind.NothingOrUnsure,
                 TransmitStageSet.LoadKindFromChoice(null));
+        }
+
+        [Fact]
+        public void Remote_answers_state_whose_word_they_carry()
+        {
+            // #247: remotely, "A dummy load" is a claim about a socket the
+            // operator cannot see. The honest remote claim is that someone at
+            // the station confirmed it — so remotely, the ANSWERS say so, and
+            // the honest escape is "I have not confirmed". The ids still map
+            // to the same kinds; only the words change, and the words are the
+            // record.
+            FixerRunDeclaration decl = TransmitStageSet.Build(new TransmitStageSet.Hosts
+            {
+                ReadStation = () => new TransmitStageSet.StationNow { RemoteRadio = true },
+            }).RunDeclarations[0];
+
+            var remote = decl.ChoicesNow();
+            Assert.Equal(4, remote.Count);
+
+            Assert.Equal(TransmitStageSet.LoadDummy, remote[0].Id);
+            Assert.Equal("A dummy load — someone at the station has confirmed it is "
+                         + "connected", remote[0].Label);
+            Assert.Equal(TransmitStageSet.LoadAntenna, remote[1].Id);
+            Assert.Equal("An antenna — someone at the station has confirmed it, and a "
+                         + "short low-power test into it is fine", remote[1].Label);
+            Assert.Equal(TransmitStageSet.LoadAmplifier, remote[2].Id);
+            Assert.Equal("An amplifier the radio feeds — someone at the station has "
+                         + "confirmed it", remote[2].Label);
+            Assert.Equal(TransmitStageSet.LoadRemoteNotConfirmed, remote[3].Id);
+            Assert.Equal("I have not confirmed what is connected", remote[3].Label);
+
+            // And the why-text warns that the answer goes in the record with
+            // its provenance, and that everything runs at the ceiling.
+            string why = decl.WhyItMattersNow();
+            Assert.Contains("You are not at that station", why);
+            Assert.Contains("over a remote session, on someone else's word", why);
+            Assert.Contains("10 watts or less", why);
+            Assert.Contains("Answering that you have not confirmed keeps them parked",
+                            why);
+        }
+
+        [Fact]
+        public void In_the_room_the_static_answers_stand()
+        {
+            // Local, or no station to read at all: the live hooks stand down
+            // and the page falls back to the static answers and why-text.
+            FixerRunDeclaration local = TransmitStageSet.Build(new TransmitStageSet.Hosts
+            {
+                ReadStation = () => new TransmitStageSet.StationNow { RemoteRadio = false },
+            }).RunDeclarations[0];
+            Assert.Null(local.ChoicesNow());
+            Assert.Null(local.WhyItMattersNow());
+
+            FixerRunDeclaration unknown =
+                TransmitStageSet.Build(new TransmitStageSet.Hosts()).RunDeclarations[0];
+            Assert.Null(unknown.ChoicesNow());
+            Assert.Null(unknown.WhyItMattersNow());
         }
 
         [Fact]
@@ -269,6 +331,37 @@ namespace Radios.Tests
 
             FixerStageResult r = run.RunStage(TransmitStageSet.TransmitterCheck);
             Assert.Contains("as stated by the operator: the bench dummy load", r.Evidence);
+        }
+
+        [Fact]
+        public void The_stated_load_travels_with_every_stage_that_keys_the_transmitter()
+        {
+            // #247: stages 3 and 4 key the transmitter exactly as stage 2
+            // does, and until this test their evidence never said what the RF
+            // went into. One phrasing across all three — a report that says
+            // it three ways invites a reader to think they are three facts.
+            var hosts = new TransmitStageSet.Hosts
+            {
+                RunInjectedTransmit = () => new InjectedTransmitFacts(),
+                RunSpokenTransmit = () => new SpokenTransmitFacts { Attempted = true },
+                ReadLoadDeclaration = () => "the bench dummy load",
+            };
+            var run = new FixerRun(TransmitStageSet.Build(hosts));
+
+            FixerStageResult injected = run.RunStage(TransmitStageSet.InjectedTransmit);
+            Assert.Contains("Antenna socket, as stated by the operator: the bench dummy load",
+                            injected.Evidence);
+
+            FixerStageResult spoken = run.RunStage(TransmitStageSet.SpokenTransmit);
+            Assert.Contains("Antenna socket, as stated by the operator: the bench dummy load",
+                            spoken.Evidence);
+
+            // And nothing at all when nothing was said — an empty line would
+            // read as a value.
+            Assert.DoesNotContain("as stated by the operator",
+                TransmitStages.Injected(new InjectedTransmitFacts()).Evidence);
+            Assert.DoesNotContain("as stated by the operator",
+                TransmitStages.Spoken(new SpokenTransmitFacts(), micBaseline: null).Evidence);
         }
 
         [Fact]
@@ -556,6 +649,40 @@ namespace Radios.Tests
                 set.Find(TransmitStageSet.AudioSetup).DescribeRunAction());
             Assert.Contains("Nothing transmits.",
                 set.Find(TransmitStageSet.MicrophoneCheck).DescribeRunAction());
+        }
+
+        [Fact]
+        public void Every_transmitting_stage_offers_the_power_hand_off()
+        {
+            // The other half of #250: the stage names the power it will use,
+            // so it must also offer the way to change it — WITHOUT leaving
+            // the modal Fixer, because leaving used to abandon the run. The
+            // hand-off goes to the host's own power surface; the page never
+            // grows a number box of its own.
+            var set = TransmitStageSet.Build(new TransmitStageSet.Hosts());
+
+            foreach (FixerStage s in set.Stages)
+            {
+                bool offers = s.HostActions.Any(
+                    a => a.MessageKind == "open-power-dialog");
+                Assert.True(s.Transmits == offers,
+                    "stage " + s.Number + " (" + s.Title + ") "
+                    + (s.Transmits
+                        ? "transmits and does not offer the power hand-off"
+                        : "does not transmit and offers the power hand-off anyway"));
+            }
+
+            // Stage 2 transmits the tune carrier, so its label names TUNE
+            // power; the audio stages transmit at the RF power and say so.
+            Assert.Equal("Change the tune power",
+                set.Find(TransmitStageSet.TransmitterCheck).HostActions
+                   .Single(a => a.MessageKind == "open-power-dialog").Label);
+            Assert.Equal("Change the transmit power",
+                set.Find(TransmitStageSet.InjectedTransmit).HostActions
+                   .Single(a => a.MessageKind == "open-power-dialog").Label);
+            Assert.Equal("Change the transmit power",
+                set.Find(TransmitStageSet.SpokenTransmit).HostActions
+                   .Single(a => a.MessageKind == "open-power-dialog").Label);
         }
     }
 }

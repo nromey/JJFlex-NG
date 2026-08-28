@@ -128,9 +128,10 @@ namespace Radios.Fixer
             /// are not sure — the one case where refusing is plainly correct
             /// rather than timid (#180).</summary>
             LoadForbidsTransmit,
-            /// <summary>A real antenna (or an amplifier) is declared and the
-            /// radio's power is above the low-power ceiling — or could not be
-            /// read at all (#180, #244).</summary>
+            /// <summary>A real antenna (or an amplifier — or any load declared
+            /// over a remote session, #247) is declared and the radio's power
+            /// is above the low-power ceiling — or could not be read at all
+            /// (#180, #244).</summary>
             PowerTooHighForLoad,
         }
 
@@ -159,8 +160,9 @@ namespace Radios.Fixer
 
         /// <summary>
         /// Watts at or below which a transmit into a DECLARED ANTENNA (or an
-        /// amplifier) is allowed (#180). Ten: the same boundary #224 draws
-        /// between "worth telling you" and "worth stopping for", and the
+        /// amplifier — or ANY load declared over a remote session, #247) is
+        /// allowed (#180). Ten: the same boundary #224 draws between "worth
+        /// telling you" and "worth stopping for", and the
         /// AudioCheckLowPowerWatts default. Enough for every meter to read;
         /// not enough to be a bad neighbour on a live band.
         /// </summary>
@@ -172,6 +174,7 @@ namespace Radios.Fixer
         private string _loadDeclaration = "";
         private FixerLoadKind _loadKind = FixerLoadKind.None;
         private bool _loadDeclaredRemotely;
+        private DateTime? _loadDeclaredAtUtc;
         private double _keyDownSeconds;
         private int _transmitCount;
         private DateTime _keyedAt;
@@ -194,25 +197,49 @@ namespace Radios.Fixer
 
         /// <summary>
         /// True when the declaration was made over a remote session (#247) —
-        /// by someone who cannot see the socket. Recorded so the report can
-        /// weight it, never used to refuse: a remote operator's declaration
+        /// by someone who cannot see the socket. Recorded for the report, and
+        /// consulted for exactly one rule: a remote declaration keeps every
+        /// transmit at the low-power ceiling, a dummy load included, because
+        /// the whole declaration rests on someone else's word. It never
+        /// refuses a declared run outright — a remote operator's declaration
         /// is still a declaration.
         /// </summary>
         public bool LoadDeclaredRemotely => _loadDeclaredRemotely;
 
         /// <summary>
+        /// When the load was declared, from this gate's own clock, or null
+        /// when nothing is declared. Recorded because a declaration is a
+        /// statement about one moment at one station: without the WHEN it
+        /// cannot be re-evaluated later, by us or by a Flex support reader
+        /// trying to line the measurement up with what the station log says
+        /// was connected (#247).
+        /// </summary>
+        public DateTime? LoadDeclaredAtUtc => _loadDeclaredAtUtc;
+
+        /// <summary>
         /// The declaration as the REPORT should carry it: the operator's own
-        /// words, with the remote provenance appended when it applies. One
-        /// home for the phrasing, because a Flex support reader needs to
-        /// weight a declaration made a thousand miles from the socket
-        /// differently from one made in the room (#247).
+        /// words, then when it was declared, then the remote provenance when
+        /// it applies. One home for the phrasing, because a Flex support
+        /// reader needs to weight a declaration made a thousand miles from
+        /// the socket differently from one made in the room (#247) — and
+        /// needs the timestamp to re-evaluate either kind later.
         /// </summary>
         public string LoadDeclarationForReport
-            => _loadDeclaration.Length == 0
-                ? ""
-                : _loadDeclaration + (_loadDeclaredRemotely
-                    ? " (declared over a remote session, by an operator not at the station)"
-                    : "");
+        {
+            get
+            {
+                if (_loadDeclaration.Length == 0) return "";
+                string when = _loadDeclaredAtUtc.HasValue
+                    ? "declared " + _loadDeclaredAtUtc.Value.ToString(
+                        "yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)
+                    : "declared";
+                return _loadDeclaration + " (" + when
+                     + (_loadDeclaredRemotely
+                         ? ", over a remote session, by an operator not at the station"
+                         : "")
+                     + ")";
+            }
+        }
 
         /// <summary>Cumulative key-down this run, in seconds.</summary>
         public double KeyDownSeconds => _keyDownSeconds;
@@ -256,6 +283,7 @@ namespace Radios.Fixer
             _loadDeclaration = "";
             _loadKind = FixerLoadKind.None;
             _loadDeclaredRemotely = false;
+            _loadDeclaredAtUtc = null;
             _keyDownSeconds = 0;
             _transmitCount = 0;
             _window.Clear();
@@ -276,12 +304,18 @@ namespace Radios.Fixer
         /// answer fails closed, never open.</param>
         /// <param name="declaredRemotely">True when the declaring operator is
         /// on a remote session and cannot see the socket (#247). Recorded for
-        /// the report; never a refusal.</param>
+        /// the report, and it caps every transmit at the low-power ceiling —
+        /// a dummy load included — because the declaration is on someone
+        /// else's word. It never refuses a declared run outright.</param>
         public void DeclareLoad(string what, FixerLoadKind kind, bool declaredRemotely = false)
         {
             _loadDeclaration = string.IsNullOrWhiteSpace(what) ? "" : what.Trim();
             _loadKind = _loadDeclaration.Length == 0 ? FixerLoadKind.None : kind;
             _loadDeclaredRemotely = _loadDeclaration.Length > 0 && declaredRemotely;
+            // The WHEN, from this gate's own clock — the same clock the burst
+            // window trusts. A declaration with no timestamp cannot be
+            // re-evaluated later, and later is exactly when it will matter.
+            _loadDeclaredAtUtc = _loadDeclaration.Length == 0 ? (DateTime?)null : _clock();
         }
 
         /// <summary>Abandon the run. No further transmit until a new one opens.</summary>
@@ -367,12 +401,22 @@ namespace Radios.Fixer
             // "Nothing, or I am not sure" is an EXPLICIT answer and gets an
             // explicit refusal — an unattended transmit into an unknown load
             // is the one case where refusing is plainly correct (#180, #244).
+            // The remote wording differs on purpose (#247): "connect a dummy
+            // load" is an instruction a remote operator cannot follow, and a
+            // refusal that tells someone to do the impossible reads as broken.
             if (_loadKind == FixerLoadKind.NothingOrUnsure)
                 return Decision.Refuse(Refusal.LoadForbidsTransmit,
-                    "Nothing was transmitted. You said nothing is connected, or that you "
-                    + "are not sure — and this tool never transmits into an unknown load. "
-                    + "Connect a dummy load or an antenna, answer the antenna question "
-                    + "again, and this step will run.");
+                    _loadDeclaredRemotely
+                        ? "Nothing was transmitted. You said you have not confirmed what "
+                          + "the antenna socket at that station is connected to — and this "
+                          + "tool never transmits into an unknown load, least of all at a "
+                          + "station you are not at. Ask someone at the station what is "
+                          + "connected, answer the antenna question again, and this step "
+                          + "will run."
+                        : "Nothing was transmitted. You said nothing is connected, or that you "
+                          + "are not sure — and this tool never transmits into an unknown load. "
+                          + "Connect a dummy load or an antenna, answer the antenna question "
+                          + "again, and this step will run.");
 
             // A real antenna, or an amplifier, caps the power (#180): every
             // transmit there is an on-air emission, or drive into a stage
@@ -401,6 +445,35 @@ namespace Radios.Fixer
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts or less — turn the power down, or declare a dummy "
                         + "load, and this step will run.");
+            }
+            // A dummy load declared over a REMOTE session is capped the same
+            // way (#247). Locally the operator can see the load; remotely the
+            // declaration is on someone else's word, and if that word is
+            // stale — the dummy load from last week is no longer connected —
+            // the cost lands at a station the operator is not at. Low power
+            // bounds the cost of the word being wrong, and every meter the
+            // checks need reads fine at the ceiling. The provenance alone is
+            // a note, and notes do not stop transmitters.
+            else if (_loadKind == FixerLoadKind.DummyLoad && _loadDeclaredRemotely)
+            {
+                if (transmitPowerWatts < 0)
+                    return Decision.Refuse(Refusal.PowerTooHighForLoad,
+                        "Nothing was transmitted. The dummy load was declared over a "
+                        + "remote session, and the radio's power for this step could "
+                        + "not be read — on a declaration made from a distance these "
+                        + "checks only transmit when the power is known to be "
+                        + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
+                        + " watts or less.");
+
+                if (transmitPowerWatts > LowPowerCeilingWatts)
+                    return Decision.Refuse(Refusal.PowerTooHighForLoad,
+                        "Nothing was transmitted. The radio's power for this step is "
+                        + transmitPowerWatts.ToString(CultureInfo.InvariantCulture)
+                        + " watts, and the dummy load was declared over a remote "
+                        + "session — on the word of someone at the station, not your "
+                        + "own eyes. On a remote declaration these checks transmit at "
+                        + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
+                        + " watts or less; turn the power down and this step will run.");
             }
 
             if (_transmitted.Contains(stageId ?? ""))

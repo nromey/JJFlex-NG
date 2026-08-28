@@ -271,8 +271,22 @@ namespace Radios
         /// live — one shipped defect was controls speaking on focus and cutting
         /// off the group announcement, purely an ordering problem.
         /// </summary>
+        /// <param name="reader">
+        /// WHICH screen reader this utterance was handed to, or null when none
+        /// is named. #277: a capture that says what it was bound to explains
+        /// itself; one that does not leaves a reader inferring the channel from
+        /// a startup line no mid-session capture contains.
+        /// </param>
+        /// <param name="deliveryFailure">
+        /// Why the backend refused this utterance, or null when it accepted it.
+        /// The distinction the transcript could not previously draw: before
+        /// #277 an utterance the backend REFUSED and an utterance diverted with
+        /// render off both appeared as <c>rendered: false</c>, and the first of
+        /// those is a fault while the second is the harness working correctly.
+        /// </param>
         public static void RecordSpeech(string text, string level, string intent, bool interrupt,
-            bool gated, bool suppressed, bool rendered, string origin)
+            bool gated, bool suppressed, bool rendered, string origin,
+            string reader = null, string deliveryFailure = null)
         {
             Write("speech", w =>
             {
@@ -298,6 +312,12 @@ namespace Radios
                 w.WriteBoolean("suppressed", suppressed);
                 w.WriteBoolean("rendered", rendered);
                 if (origin != null) w.WriteString("origin", origin); else w.WriteNull("origin");
+                // Same three-state rule as level/intent/origin above: always
+                // emitted, explicitly null when unknown, absent only in
+                // transcripts written before 2026-08-27.
+                if (reader != null) w.WriteString("reader", reader); else w.WriteNull("reader");
+                if (deliveryFailure != null) w.WriteString("deliveryFailure", deliveryFailure);
+                else w.WriteNull("deliveryFailure");
             });
         }
 

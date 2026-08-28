@@ -338,50 +338,131 @@ namespace Radios.Speech
             }
             if (label == null) return;
 
-            if (!available)
+            // The decision itself lives in ReaderAvailabilityEdge, as pure
+            // policy with its own tests (#291). It used to live here, as a
+            // comment describing one rule sitting above a line implementing a
+            // different one — "never displace a working reader" against code
+            // that refused to NOTICE a new reader — and nothing could tell
+            // them apart, because there was no seam between the policy and the
+            // P/Invoke carrying it out. Read that class before changing this.
+            var action = ReaderAvailabilityEdge.Decide(
+                holdingControllerReader: Tier == SpeechTier.ScreenReader,
+                heldReaderLost: _readerLost,
+                isHeldReader: backendId == _activeReaderId,
+                nowAvailable: available);
+
+            switch (action)
             {
-                // Only the loss of the reader WE hold matters. The handle
-                // stays: calls to a dead reader fail harmlessly, and tearing
-                // the channel down here would race every Speak in flight. The
-                // flag is what lets the reader's RETURN displace what is now a
-                // dead binding even though Tier still reads ScreenReader.
-                if (Tier == SpeechTier.ScreenReader && backendId == _activeReaderId)
-                {
+                case ReaderAvailabilityAction.Ignore:
+                    return;
+
+                case ReaderAvailabilityAction.HoldAndSweep:
+                    // The handle stays: calls to a dead reader fail harmlessly,
+                    // and tearing the channel down here would race every Speak
+                    // in flight. The flag is what tells everything downstream
+                    // that the binding is dead even though Tier still reads
+                    // ScreenReader.
                     _readerLost = true;
                     Tracing.TraceLine(
                         $"Prism: {label} went away - holding the dead channel and "
-                        + "waiting for a reader to come back.",
+                        + $"looking for another reader in {LostReaderSettleMs} ms, "
+                        + "in case this one is only restarting.",
                         TraceLevel.Warning);
-                }
-                return;
+
+                    // THE #291 FIX. Waiting for a RISE was the bug: a reader
+                    // that is already running cannot rise again, so this sweep
+                    // is the only thing that can ever find it.
+                    Task.Run(SweepAfterLoss);
+                    return;
+
+                case ReaderAvailabilityAction.Reacquire:
+                    // Worker task, not the enumerator thread: creating and
+                    // initialising a backend does RPC to the reader, and doing
+                    // that inside the poll loop would stall availability
+                    // detection itself.
+                    Task.Run(() => TryReacquire(
+                        new[] { (backendId, label) }, $"{label} became available"));
+                    return;
             }
-
-            // A working controller reader is never displaced: if JAWS starts
-            // while NVDA is speaking for us, the operator's channel stands.
-            if (Tier == SpeechTier.ScreenReader && !_readerLost) return;
-
-            // Worker task, not the enumerator thread: creating and
-            // initialising a backend does RPC to the reader, and doing that
-            // inside the poll loop would stall availability detection itself.
-            Task.Run(() => TryReacquireReader(backendId, label));
         }
 
         /// <summary>
-        /// Attempt to move the channel onto a controller reader that just
-        /// became available. The retry loop covers the announce-to-accept gap:
-        /// availability means the reader process exists, and its controller
-        /// RPC endpoint can lag that by a moment — NVDA announces itself
-        /// before its API is up. Five attempts a second apart is enough for
-        /// any observed reader startup; a reader that still refuses gets
-        /// caught by the NEXT availability cycle rather than polled forever.
+        /// How long to wait, after the held reader disappears, before adopting
+        /// a DIFFERENT reader that is already running.
+        ///
+        /// <b>The wait is the policy, not a delay for its own sake.</b> A
+        /// reader that has gone away is very often a reader that is coming
+        /// back — NVDA restarts are routine for the people who use it — and a
+        /// restart must not cause a rebind. That is the same intent the
+        /// watchdog encodes as its longer no-reader settle
+        /// (<c>ScreenReaderWatch.NoReaderSettleTicks</c>), and it is preserved
+        /// here rather than deleted along with the edge bug.
+        ///
+        /// If the lost reader returns inside this window it raises its own
+        /// availability rise, that path re-acquires it, <c>_readerLost</c>
+        /// clears, and the sweep below finds nothing to do and stands down —
+        /// which is the correct outcome and costs the operator nothing.
         /// </summary>
-        private void TryReacquireReader(ulong backendId, string label)
+        private const int LostReaderSettleMs = 3000;
+
+        /// <summary>
+        /// The reader we were bound to has gone. Look for one that is ALREADY
+        /// running, in preference order.
+        ///
+        /// This is the whole of #291: the walk is the same one
+        /// <see cref="SelectBackend"/> performs at startup, and that walk is
+        /// known to work — launching with JAWS already up has always bound to
+        /// JAWS correctly. The fault was never that we could not find a
+        /// running reader; it was that after startup we only ever looked when
+        /// one APPEARED.
+        /// </summary>
+        private void SweepAfterLoss()
+        {
+            try
+            {
+                System.Threading.Thread.Sleep(LostReaderSettleMs);
+
+                // The lost reader came back on its own, or the app is exiting.
+                if (!_readerLost || _ctx == IntPtr.Zero) return;
+
+                TryReacquire(PrismNative.ControllerReaders,
+                    "the reader we were bound to went away");
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"Prism: sweep after reader loss threw: {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Attempt to move the channel onto the first of
+        /// <paramref name="candidates"/> that comes up. The retry loop covers
+        /// the announce-to-accept gap: availability means the reader process
+        /// exists, and its controller RPC endpoint can lag that by a moment —
+        /// NVDA announces itself before its API is up. Five attempts a second
+        /// apart is enough for any observed reader startup; a reader that
+        /// still refuses gets caught by the NEXT availability cycle rather
+        /// than polled forever.
+        /// </summary>
+        /// <param name="candidates">
+        /// Readers to try, in preference order. One entry for the rising-edge
+        /// path; the whole controller list for the after-loss sweep, where a
+        /// candidate that is not running simply fails to create and the walk
+        /// moves on — including the lost reader itself, which is adopted again
+        /// if it turns out to be back.
+        /// </param>
+        /// <param name="reason">Why we are looking, for the trace.</param>
+        private void TryReacquire(
+            System.Collections.Generic.IReadOnlyList<(ulong Id, string Name)> candidates,
+            string reason)
         {
             for (int attempt = 0; attempt < 5; attempt++)
             {
                 if (attempt > 0) System.Threading.Thread.Sleep(1000);
                 try
                 {
+                    string adopted;
                     lock (_reacquireLock)
                     {
                         // The context died (app exiting) or another recovery
@@ -389,16 +470,12 @@ namespace Radios.Speech
                         if (_ctx == IntPtr.Zero) return;
                         if (Tier == SpeechTier.ScreenReader && !_readerLost) return;
 
-                        var b = TryCreate(backendId, label);
-                        if (b == IntPtr.Zero) continue;
-                        if (!SwapBackend(b)) continue;
+                        adopted = TryAdoptFirstLocked(candidates);
+                        if (adopted.Length == 0) continue;
 
-                        Tier = SpeechTier.ScreenReader;
-                        _activeReaderId = backendId;
-                        _readerLost = false;
                         Tracing.TraceLine(
-                            $"Prism: re-acquired {label} - speech now goes through "
-                            + "the operator's own screen reader.",
+                            $"Prism: re-acquired {adopted} ({reason}) - speech now goes "
+                            + "through the operator's own screen reader.",
                             TraceLevel.Info);
                     }
                     RaiseChannelChanged();
@@ -407,15 +484,38 @@ namespace Radios.Speech
                 catch (Exception ex)
                 {
                     Tracing.TraceLine(
-                        $"Prism: re-acquire of {label} threw: {ex.Message}", TraceLevel.Warning);
+                        $"Prism: re-acquire threw ({reason}): {ex.Message}", TraceLevel.Warning);
                     return;
                 }
             }
             Tracing.TraceLine(
-                $"Prism: {label} became available but would not initialise after "
-                + "5 attempts - staying on the current channel until the next "
-                + "availability change.",
+                $"Prism: no controller reader would initialise after 5 attempts ({reason}) - "
+                + "staying on the current channel until the next availability change. "
+                + "Speech is still going to a reader that may have gone; the delivery "
+                + "check on every utterance (#277) will say so if it has.",
                 TraceLevel.Warning);
+        }
+
+        /// <summary>
+        /// Adopt the first candidate that initialises and swaps in cleanly.
+        /// Returns its name, or an empty string when none would come up.
+        /// Caller holds <see cref="_reacquireLock"/>.
+        /// </summary>
+        private string TryAdoptFirstLocked(
+            System.Collections.Generic.IReadOnlyList<(ulong Id, string Name)> candidates)
+        {
+            foreach (var (id, name) in candidates)
+            {
+                var b = TryCreate(id, name);
+                if (b == IntPtr.Zero) continue;
+                if (!SwapBackend(b)) continue;
+
+                Tier = SpeechTier.ScreenReader;
+                _activeReaderId = id;
+                _readerLost = false;
+                return name;
+            }
+            return string.Empty;
         }
 
         /// <summary>Create and initialise one specific backend, or IntPtr.Zero.</summary>
@@ -470,49 +570,127 @@ namespace Radios.Speech
             }
         }
 
-        public void Speak(string message, bool interrupt)
+        // ── Delivery (#277) ───────────────────────────────────────────────
+        //
+        // prism_backend_speak RETURNS A PrismError AND WE THREW IT AWAY. So
+        // speaking into a reader that had left returned an error nobody read,
+        // Speak returned normally, EmitCore set reachedBackend = true, and the
+        // trace wrote "Spoke" for a sentence no human could have heard.
+        //
+        // Note the C header marks every one of these PRISM_NODISCARD. The
+        // compiler was telling C callers not to do what our binding did.
+        //
+        // WHAT PRISM ACTUALLY RETURNS, established at the pinned source before
+        // any of this was written rather than assumed — the task's own warning
+        // is that a fix which reports failure on healthy utterances would be
+        // worse than the silence it replaces. Read at
+        // d2998e9 (v0.18.1, the shipped pin), source/prism.cpp:356:
+        //
+        //     const auto r = backend->impl->speak(text, interrupt);
+        //     return r ? PRISM_OK : to_prism_error(r.error());
+        //
+        // So PRISM_OK (0) is the ONLY success value, from every backend, on
+        // every successful call; there is no second healthy code to
+        // accommodate. And to_prism_error is a raw static_cast from
+        // BackendError, whose enum in source/backend.h matches
+        // PrismError in include/prism.h index for index — checked, all 24
+        // values — so PrismNative's enum names the right error and not a
+        // neighbour.
+        //
+        // The two failures that matter here, both from the backends we
+        // actually meet:
+        //   - NVDA (source/backends/nvda.cpp): nvdaController_speakText
+        //     returning anything but ERROR_SUCCESS becomes
+        //     InternalBackendError. That is exactly the RPC to a reader that
+        //     has gone, which is the fault this instrument was built for.
+        //   - JAWS (source/backends/jaws.cpp): SayString returns an HRESULT
+        //     AND a VARIANT_BOOL, and Prism fails the call unless BOTH say
+        //     yes. A JAWS that accepts the call and refuses the utterance is
+        //     therefore reportable — which is the discriminator #298 needs,
+        //     and could not have while this value was discarded.
+
+        /// <summary>
+        /// Turn one native return code into a delivery result. Ok is the only
+        /// success; everything else names the call, the reader and the error
+        /// so the phrase can go straight into a trace line.
+        /// </summary>
+        private SpeechDelivery Report(PrismError rc, string call) =>
+            Classify(rc, call, DetectedReader);
+
+        /// <summary>
+        /// The classification, separated from the P/Invoke so it can be tested
+        /// without a screen reader on the desk.
+        ///
+        /// <b>Ok is the only success</b>, and that is a fact about Prism rather
+        /// than an assumption about it — see the block comment above for the
+        /// source that was read to establish it. Everything else is a refusal,
+        /// including codes that look benign: a backend that reports
+        /// NotImplemented for speak is a backend that did not speak.
+        /// </summary>
+        internal static SpeechDelivery Classify(PrismError rc, string call, string? reader)
         {
-            if (_backend == IntPtr.Zero || string.IsNullOrEmpty(message)) return;
+            if (rc == PrismError.Ok) return SpeechDelivery.Accepted;
+            return SpeechDelivery.Failed(
+                $"prism_backend_{call} to {reader ?? "an unnamed reader"} returned "
+                + $"{rc} ({PrismNative.ErrorString(rc)})");
+        }
+
+        public SpeechDelivery Speak(string message, bool interrupt)
+        {
+            if (_backend == IntPtr.Zero || string.IsNullOrEmpty(message))
+                return SpeechDelivery.NotAttempted;
             try
             {
-                if (_supportsSpeak) PrismNative.prism_backend_speak(_backend, message, interrupt);
-                else if (_supportsOutput) PrismNative.prism_backend_output(_backend, message, interrupt);
+                if (_supportsSpeak)
+                    return Report(PrismNative.prism_backend_speak(_backend, message, interrupt), "speak");
+                if (_supportsOutput)
+                    return Report(PrismNative.prism_backend_output(_backend, message, interrupt), "output");
+                return SpeechDelivery.NotAttempted;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"Prism: Speak threw: {ex.Message}", TraceLevel.Error);
+                return SpeechDelivery.Failed($"prism_backend_speak threw: {ex.Message}");
             }
         }
 
         /// <summary>Speech plus braille in one call.</summary>
-        public void Output(string message, bool interrupt)
+        public SpeechDelivery Output(string message, bool interrupt)
         {
-            if (_backend == IntPtr.Zero || string.IsNullOrEmpty(message)) return;
+            if (_backend == IntPtr.Zero || string.IsNullOrEmpty(message))
+                return SpeechDelivery.NotAttempted;
             try
             {
                 if (_supportsOutput)
                 {
                     var rc = PrismNative.prism_backend_output(_backend, message, interrupt);
-                    // A backend may advertise output and still not implement it.
+                    // A backend may advertise output and still not implement
+                    // it. That is a capability answer, not a delivery failure,
+                    // so it falls through to speak rather than being reported.
                     if (rc == PrismError.NotImplemented && _supportsSpeak)
-                        PrismNative.prism_backend_speak(_backend, message, interrupt);
-                    return;
+                        return Report(PrismNative.prism_backend_speak(_backend, message, interrupt), "speak");
+                    return Report(rc, "output");
                 }
-                if (_supportsSpeak) PrismNative.prism_backend_speak(_backend, message, interrupt);
+                if (_supportsSpeak)
+                    return Report(PrismNative.prism_backend_speak(_backend, message, interrupt), "speak");
+                return SpeechDelivery.NotAttempted;
             }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"Prism: Output threw: {ex.Message}", TraceLevel.Error);
+                return SpeechDelivery.Failed($"prism_backend_output threw: {ex.Message}");
             }
         }
 
-        public void Braille(string message)
+        public SpeechDelivery Braille(string message)
         {
-            if (_backend == IntPtr.Zero || !_supportsBraille || string.IsNullOrEmpty(message)) return;
-            try { PrismNative.prism_backend_braille(_backend, message); }
+            if (_backend == IntPtr.Zero || !_supportsBraille || string.IsNullOrEmpty(message))
+                return SpeechDelivery.NotAttempted;
+            try { return Report(PrismNative.prism_backend_braille(_backend, message), "braille"); }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"Prism: Braille threw: {ex.Message}", TraceLevel.Error);
+                return SpeechDelivery.Failed($"prism_backend_braille threw: {ex.Message}");
             }
         }
 

@@ -55,6 +55,15 @@ namespace JJFlexWpf
         private readonly Task _consumerLoop;
 
         private IDisposable? _currentHandle;
+
+        /// <summary>
+        /// Whether the sequence behind <see cref="_currentHandle"/> is on
+        /// #182's exempt list. Read and written under <see cref="_lock"/>,
+        /// always alongside the handle, so a supersede sees one consistent
+        /// pair rather than the new handle with the old flag.
+        /// </summary>
+        private bool _currentProtected;
+
         private readonly object _lock = new();
         private int _outstanding;
 
@@ -98,13 +107,15 @@ namespace JJFlexWpf
             float volume,
             int riseFallMs,
             MeterVoice? markVoice,
-            CancellationToken ct)
+            CancellationToken ct,
+            bool protectedFromClose = false)
         {
             if (elements == null) throw new ArgumentNullException(nameof(elements));
             if (elements.Count == 0) return Task.CompletedTask;
 
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var item = new QueuedSequence(elements, sidetoneHz, volume, riseFallMs, markVoice, ct, tcs);
+            var item = new QueuedSequence(elements, sidetoneHz, volume, riseFallMs, markVoice, ct, tcs,
+                protectedFromClose);
 
             System.Threading.Interlocked.Increment(ref _outstanding);
             if (!_queue.Writer.TryWrite(item))
@@ -136,8 +147,78 @@ namespace JJFlexWpf
 
             while (_queue.Reader.TryRead(out var pending))
             {
+                // The decrement matters: a flushed item never reaches the
+                // consumer loop, so the loop's own decrement never runs for
+                // it. Without this, every queued-but-unstarted sequence a
+                // Cancel flushed inflated _outstanding permanently — IsBusy
+                // stuck true, WaitForIdle burning its full deadline on every
+                // exit, and the Ctrl interrupt's busy check always armed.
+                // Found during #182, present since the queue was built.
+                System.Threading.Interlocked.Decrement(ref _outstanding);
                 pending.Completion.TrySetCanceled();
             }
+        }
+
+        /// <summary>
+        /// #182: a new notification supersedes the pending one — see
+        /// <see cref="ICwNotificationOutput.CloseForNewMessage"/>. Unprotected
+        /// queued sequences are dropped; protected ones (session prosigns, the
+        /// SK farewell) are kept in arrival order; the in-flight sequence, if
+        /// unprotected, is asked to yield at its next character boundary so no
+        /// character is ever half-sent (#88).
+        /// </summary>
+        /// <remarks>
+        /// There is a small honest race: a sequence that has been dequeued by
+        /// the consumer loop but has not yet had its handle stored cannot be
+        /// closed by this call. The miss is benign — that sequence simply
+        /// plays, and the NEXT supersede closes it. Converges instead of
+        /// corrupting, which is the right failure shape for a channel whose
+        /// job is carrying the latest thing.
+        /// </remarks>
+        public bool CloseForNewMessage()
+        {
+            bool closed = false;
+
+            List<QueuedSequence>? keep = null;
+            while (_queue.Reader.TryRead(out var pending))
+            {
+                if (pending.Protected)
+                {
+                    (keep ??= new List<QueuedSequence>()).Add(pending);
+                }
+                else
+                {
+                    // Same accounting as Cancel: this item will never reach
+                    // the consumer loop, so its count is settled here.
+                    System.Threading.Interlocked.Decrement(ref _outstanding);
+                    pending.Completion.TrySetCanceled();
+                    closed = true;
+                }
+            }
+            if (keep != null)
+            {
+                foreach (var kept in keep)
+                {
+                    if (!_queue.Writer.TryWrite(kept))
+                    {
+                        // Writer completed underneath us (disposal) — settle
+                        // the item the same way PlayElementsAsync would have.
+                        System.Threading.Interlocked.Decrement(ref _outstanding);
+                        kept.Completion.TrySetCanceled();
+                    }
+                }
+            }
+
+            CancellableCwProvider? inFlight = null;
+            lock (_lock)
+            {
+                if (!_currentProtected)
+                    inFlight = _currentHandle as CancellableCwProvider;
+            }
+            if (inFlight != null && inFlight.CloseAtNextBoundary())
+                closed = true;
+
+            return closed;
         }
 
         public void Dispose()
@@ -200,10 +281,23 @@ namespace JJFlexWpf
             var providers = new List<ISampleProvider>(item.Elements.Count);
             int sr = EarconPlayer.MixerSampleRate;
 
+            // #182: the sample positions at which the sequence may honestly
+            // stop — the start AND end of every boundary gap, so a soft close
+            // that lands INSIDE a boundary gap stops at the gap's end (before
+            // the next character starts) instead of playing one more whole
+            // character. Positions are computed with the same
+            // samples-per-millisecond arithmetic the providers use; any
+            // rounding drift is a handful of samples against gaps thousands
+            // of samples long, so a close point always lands well inside its
+            // gap.
+            List<long>? closePoints = null;
+            long cumulativeSamples = 0;
+
             foreach (var el in item.Elements)
             {
                 if (el.DurationMs <= 0) continue;
                 totalMs += el.DurationMs;
+                long elementSamples = (long)sr * el.DurationMs / 1000;
                 if (el.Type == CwElementType.Mark)
                 {
                     providers.Add(new CwToneSampleProvider(
@@ -212,10 +306,17 @@ namespace JJFlexWpf
                 }
                 else
                 {
+                    if (el.IsCharBoundary)
+                    {
+                        closePoints ??= new List<long>();
+                        closePoints.Add(cumulativeSamples);
+                        closePoints.Add(cumulativeSamples + elementSamples);
+                    }
                     providers.Add(new SilenceProvider(new WaveFormat(sr, 1))
                         .ToSampleProvider()
                         .Take(TimeSpan.FromMilliseconds(el.DurationMs)));
                 }
+                cumulativeSamples += elementSamples;
             }
 
             if (providers.Count == 0)
@@ -228,7 +329,7 @@ namespace JJFlexWpf
             IDisposable handle;
             try
             {
-                handle = EarconPlayer.SubmitCwSequence(concat);
+                handle = EarconPlayer.SubmitCwSequence(concat, closePoints);
             }
             catch (Exception ex)
             {
@@ -237,7 +338,7 @@ namespace JJFlexWpf
                 return;
             }
 
-            lock (_lock) { _currentHandle = handle; }
+            lock (_lock) { _currentHandle = handle; _currentProtected = item.Protected; }
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(
                 item.CallerToken, _shutdown.Token);
@@ -257,7 +358,10 @@ namespace JJFlexWpf
                 lock (_lock)
                 {
                     if (ReferenceEquals(_currentHandle, handle))
+                    {
                         _currentHandle = null;
+                        _currentProtected = false;
+                    }
                 }
             }
         }
@@ -386,7 +490,8 @@ namespace JJFlexWpf
                 int sidetoneHz, float volume, int riseFallMs,
                 MeterVoice? markVoice,
                 CancellationToken callerToken,
-                TaskCompletionSource completion)
+                TaskCompletionSource completion,
+                bool isProtected)
             {
                 Elements = elements;
                 SidetoneHz = sidetoneHz;
@@ -395,7 +500,17 @@ namespace JJFlexWpf
                 MarkVoice = markVoice;
                 CallerToken = callerToken;
                 Completion = completion;
+                Protected = isProtected;
             }
+
+            /// <summary>
+            /// #182's exempt list: true for the session prosigns and the SK
+            /// farewell. A protected sequence survives
+            /// <see cref="CloseForNewMessage"/> both in the queue and in
+            /// flight. <see cref="Cancel"/> — the operator's own interrupt —
+            /// still stops it.
+            /// </summary>
+            public bool Protected { get; }
 
             public IReadOnlyList<CwElement> Elements { get; }
             public int SidetoneHz { get; }
@@ -426,6 +541,27 @@ namespace JJFlexWpf
         private readonly ISampleProvider _source;
         private volatile bool _cancelled;
 
+        // ── #182: the graceful half of stopping ──
+        //
+        // Dispose() cuts mid-element: right for the operator's own Ctrl
+        // interrupt, wrong for a supersede, where the listener is still
+        // READING and a half-sent character decodes as a different character
+        // (#88). So a supersede requests a close instead, and Read stops the
+        // stream at the next recorded character boundary: playback continues
+        // to the end of the character in progress, then ends as if the
+        // sequence were over, and the mixer drops the input normally.
+        //
+        // _boundaries holds sample positions at the start AND end of every
+        // boundary gap, sorted (they are recorded in stream order). Enforcing
+        // against the CURRENT position on every Read — rather than latching a
+        // target when the close is requested — makes the race with an
+        // advancing read position harmless: each Read clips to the first
+        // boundary at or past where it stands, so the stop point can never
+        // land inside a character.
+        private readonly long[]? _boundaries;
+        private volatile bool _closeRequested;
+        private long _position;
+
         // Set once, the first time the inner provider cannot fill the request —
         // which is exactly the moment MixingSampleProvider stops asking and drops
         // this input. See WaitForEndOfSource.
@@ -433,8 +569,34 @@ namespace JJFlexWpf
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public CancellableCwProvider(ISampleProvider source)
+            : this(source, null)
+        {
+        }
+
+        public CancellableCwProvider(ISampleProvider source, IReadOnlyList<long>? boundarySamplePositions)
         {
             _source = source ?? throw new ArgumentNullException(nameof(source));
+            if (boundarySamplePositions is { Count: > 0 })
+            {
+                var b = new long[boundarySamplePositions.Count];
+                for (int i = 0; i < b.Length; i++) b[i] = boundarySamplePositions[i];
+                Array.Sort(b);
+                _boundaries = b;
+            }
+        }
+
+        /// <summary>
+        /// Ask the stream to end at the next character boundary (#182). True
+        /// when the request took hold; false when the sequence has already
+        /// ended, was already cancelled, or has no boundaries to stop at (a
+        /// single character, which is atomic and simply plays out).
+        /// </summary>
+        public bool CloseAtNextBoundary()
+        {
+            if (_cancelled || _endOfSource.Task.IsCompleted) return false;
+            if (_boundaries == null) return false;
+            _closeRequested = true;
+            return true;
         }
 
         public WaveFormat WaveFormat => _source.WaveFormat;
@@ -477,12 +639,54 @@ namespace JJFlexWpf
                 _endOfSource.TrySetResult();
                 return 0;
             }
+
+            // A requested close clips this read at the first boundary at or
+            // past the current position. Clipping (rather than latching a
+            // target up front) means consecutive reads walk position exactly
+            // TO the boundary and then stop — never past it, never inside a
+            // character. Mono stream, so samples equal frames and _position
+            // needs no channel arithmetic.
+            if (_closeRequested && _boundaries != null)
+            {
+                long stopAt = NextBoundaryAtOrAfter(_position);
+                if (stopAt >= 0)
+                {
+                    long remaining = stopAt - _position;
+                    if (remaining <= 0)
+                    {
+                        _endOfSource.TrySetResult();
+                        return 0;
+                    }
+                    if (remaining < count) count = (int)remaining;
+                }
+                // stopAt < 0: no boundary ahead — the sequence is in its final
+                // character and plays to its natural end.
+            }
+
             int read = _source.Read(buffer.Slice(offset, count));
-            // A short read means the concatenated sequence is exhausted. The
-            // mixer treats it the same way and removes us, so there is no later
+            _position += read;
+            // Anything short of the CALLER's request ends this input: the
+            // mixer drops a source on any short read, so there is no later
             // call in which to notice — this is the one chance to record it.
-            if (read < count) _endOfSource.TrySetResult();
+            // Compared against buffer.Length rather than the possibly-clipped
+            // count on purpose: a read clipped to a close boundary fills the
+            // clipped count exactly, is still short of the mixer's request,
+            // and is still the end of this stream. Comparing against count
+            // would leave the end unsignalled and the drain wait burning its
+            // full budget for a sequence that was closed precisely to free
+            // the channel quickly.
+            if (read < buffer.Length) _endOfSource.TrySetResult();
             return read;
+        }
+
+        /// <summary>First recorded boundary at or after <paramref name="position"/>, or -1.</summary>
+        private long NextBoundaryAtOrAfter(long position)
+        {
+            var b = _boundaries!;
+            int idx = Array.BinarySearch(b, position);
+            if (idx >= 0) return b[idx];
+            idx = ~idx;
+            return idx < b.Length ? b[idx] : -1;
         }
 
         public void Dispose()

@@ -10,24 +10,22 @@ JJ Flexible Radio Access has three operating scopes: some keys work everywhere (
 
 These keys work no matter where you are in the application — and "no matter where" now honestly includes dialogs. For a long while a Global key pressed inside a dialog quietly did nothing, or worse, landed on a dialog button that happened to share the keystroke (Alt+Shift+S inside the Audio Workshop used to save a preset instead of speaking your transmit status). That's fixed: press a Global key anywhere and its real command answers. A dialog's own keys still come first, so nothing a dialog needs is taken away from it.
 
-| Key | Action |
-|-----|--------|
-| F1 | Open this help file |
-| Ctrl+F1 | Explain the control you are sitting on — the longer story its short name leaves out, plus whatever the note beneath it currently says. If there's nothing extra, it says so honestly |
-| Ctrl+/ | Open Command Finder (search all commands) |
-| Ctrl+J | The JJ key (press, release, then press a second key) |
-| Ctrl+Shift+M | Switch between Classic and Modern tuning mode |
-| Ctrl+Shift+L | Enter or exit Logging mode |
-| Ctrl+M | Show or hide the meters panel. This opens and closes the panel and nothing else — it no longer starts or stops your meter tones. The tone switch is Ctrl+J then T |
-| Ctrl+Shift+W | Open the Audio Workshop |
-| Ctrl+Shift+S | Speak full status (multi-slice aware) |
-| Ctrl+Alt+S | Open the status dialog |
-| Alt+Shift+S | Speak your current transmit (TX) status |
-| Ctrl+F4 | Repeat what was just spoken — and keep pressing it. Within about six seconds each further press steps back through the last ten messages, wrapping round at the oldest. Leave it longer and the next press starts again from the most recent |
-| Ctrl+Shift+V | Cycle speech verbosity (Chatty, Terse, Off) |
-| Ctrl+Shift+B | Toggle the braille status line |
-| F12 | Stop CW transmission immediately |
-| Ctrl+L | Open the Callbook / station lookup utility |
+- **F1** — Open this help file
+- **Ctrl+F1** — Explain the control you are sitting on — the longer story its short name leaves out, plus whatever the note beneath it currently says. If there's nothing extra, it says so honestly
+- **Ctrl+/** — Open Command Finder (search all commands)
+- **Ctrl+J** — The JJ key (press, release, then press a second key)
+- **Ctrl+Shift+M** — Switch between Classic and Modern tuning mode
+- **Ctrl+Shift+L** — Enter or exit Logging mode
+- **Ctrl+M** — Show or hide the meters panel. This opens and closes the panel and nothing else — it no longer starts or stops your meter tones. The tone switch is Ctrl+J then T
+- **Ctrl+Shift+W** — Open the Audio Workshop
+- **Ctrl+Shift+S** — Speak full status (multi-slice aware)
+- **Ctrl+Alt+S** — Open the status dialog
+- **Alt+Shift+S** — Speak your current transmit (TX) status
+- **Ctrl+F4** — Repeat what was just spoken — and keep pressing it. Within about six seconds each further press steps back through the last ten messages, wrapping round at the oldest. Leave it longer and the next press starts again from the most recent
+- **Ctrl+Shift+V** — Cycle speech verbosity (Chatty, Terse, Off)
+- **Ctrl+Shift+B** — Toggle the braille status line
+- **F12** — Stop CW transmission immediately
+- **Ctrl+L** — Open the Callbook / station lookup utility
 
 ## The JJ Key Commands
 
@@ -37,50 +35,81 @@ The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate variou
 
 Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
 
-<!-- LEADER-KEY-TABLE: every row here is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this table fails until it has a row; delete a chord and a leftover row fails too. The wording is yours — only the set of keys is checked. -->
+<!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The six groups below, and their order, match leader-key.md on purpose: it is the same list twice, so it should be the same walk twice.
 
-| Key | Action |
-|-----|--------|
-| N | Toggle legacy Noise Reduction |
-| B | Toggle Noise Blanker |
-| W | Toggle Wideband Noise Blanker |
-| R | Toggle On-Radio Neural Noise Reduction (the radio's own DSP) |
-| S | Toggle On-Radio Spectral Noise Reduction (the radio's own DSP) |
-| Shift+N | Toggle NR Filter |
-| Shift+R | Toggle PC Neural Noise Reduction (runs on your computer, works on every radio) |
-| Shift+S | Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio) |
-| Q | Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below) |
-| Ctrl+Q | Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below) |
-| A | Toggle Auto Notch |
-| P | Toggle Audio Peak Filter (APF, CW only) |
-| V | Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below) |
-| K | Mic check — speak your mic-audio verdict and level, nothing else (see below) |
-| G | Arm or disarm the TX test tone (it replaces your microphone while transmitting) |
-| C | Toggle Compander |
-| Ctrl+A | Turn PC audio on or off — whether radio audio plays through this computer at all. (`Ctrl+J`, `V`, `P` rides how *loud* it plays; this is the switch, and it tells you which way it went) |
-| Shift+P | Toggle Speech Processor |
-| F | Speak the TX filter width |
-| Shift+F | Speak the RX filter width |
-| Ctrl+F | Enter a frequency |
-| D | Toggle tuning speech debounce |
-| Ctrl+D | Start or stop a detailed capture of what the app is doing — works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs |
-| Ctrl+R | Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement |
-| Alt+V | Speak the version, the build type and the date this copy was built (see "Which build am I on" below) |
-| O | Say what is still running and what it is costing — recording, captures, meter tones (see "What is still running" below) |
-| L | Speak log statistics |
-| M | Open the memories dialog |
-| T | Toggle meter tones on/off |
-| Shift+T | Toggle alert sounds (earcons) on/off |
-| E | Echo the CW notifications you just heard — press again to step further back (see "CW echo" below) |
-| Shift+A through Shift+H | Jump to that slice from anywhere (Shift+F is reserved for the RX filter readout) |
-| ? or H | List all JJ Command layer commands |
-| Escape | Close the JJ Command layer |
+     ONE LINE PER CHORD, and the shape is load-bearing, not a style: a hyphen, a
+     space, the chord in bold, a space, an em dash, a space, then the meaning.
+
+         - **Shift+N** — Toggle NR Filter
+
+     The chord is the KeyDisplay string with the "Ctrl+J, " prefix dropped. Write
+     it any other way — a hyphen instead of the em dash, no bold, a markdown
+     table — and the reader will not see the line at all; the chord then reads as
+     undocumented and the build goes red naming it. That is deliberate. A reader
+     that quietly accepts several shapes is one that eventually accepts none and
+     reports perfect agreement about an empty set. -->
+
+### DSP toggles
+
+- **N** — Toggle legacy Noise Reduction
+- **Shift+N** — Toggle NR Filter
+- **B** — Toggle Noise Blanker
+- **W** — Toggle Wideband Noise Blanker
+- **R** — Toggle On-Radio Neural Noise Reduction (the radio's own DSP)
+- **S** — Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)
+- **Shift+R** — Toggle PC Neural Noise Reduction (runs on your computer, works on every radio)
+- **Shift+S** — Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio)
+- **Q** — Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below)
+- **A** — Toggle Auto Notch
+- **P** — Toggle Audio Peak Filter (APF, CW only)
+
+### Audio and transmit
+
+- **V** — Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below)
+- **Alt+P** — Enter pan mode — Left and Right place the slice you're on in the stereo field, Shift moves by one, Home or C centers, Enter keeps it, Escape puts it back. Speaks positions in words at chatty verbosity and numbers at terse
+- **K** — Mic check — speak your mic-audio verdict and level, nothing else (see below)
+- **G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
+- **C** — Toggle Compander
+- **Ctrl+A** — Turn PC audio on or off — whether radio audio plays through this computer at all. (`Ctrl+J`, `V`, `P` rides how *loud* it plays; this is the switch, and it tells you which way it went)
+- **Shift+P** — Toggle Speech Processor
+- **E** — Echo the CW notifications you just heard — press again to step further back (see "CW echo" below)
+
+### Filter information
+
+- **F** — Speak the TX filter width
+- **Shift+F** — Speak the RX filter width
+- **Ctrl+F** — Enter a frequency
+
+### Meter and tuning
+
+- **T** — Toggle meter tones on/off
+- **Shift+T** — Toggle alert sounds (earcons) on/off
+- **D** — Toggle tuning speech debounce
+- **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)
+- **Ctrl+S** — Speak the signal strength in dBm — the same meter `Ctrl+S` reads in S-units, only finer. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is the reading to take when you want to know whether that antenna change actually helped
+
+### Status, information, and slices
+
+- **O** — Say what is still running and what it is costing — recording, captures, meter tones (see "What is still running" below)
+- **Ctrl+D** — Start or stop a detailed capture of what the app is doing — works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs
+- **Ctrl+R** — Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement
+- **Alt+V** — Speak the version, the build type and the date this copy was built (see "Which build am I on" below)
+- **L** — Speak log statistics
+- **M** — Open the memories dialog
+- **Shift+A through Shift+H** — Jump to that slice from anywhere (Shift+F is reserved for the RX filter readout)
+
+### Help
+
+- **? or H** — List all JJ Command layer commands
+- **Escape** — Close the JJ Command layer
 
 <!-- END LEADER-KEY-TABLE -->
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
-One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `?`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
+Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for those three keys only: `H` and `Shift slash` read you the command list, `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. The full story is on the JJ Key Commands page.
+
+One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `Shift slash`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
 
 ### Volume mode — Ctrl+J, then V
 
@@ -96,6 +125,26 @@ The targets:
 - **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
 
 Press `?` inside volume mode to hear the target list again. Escape exits and announces it. A quick word on "on-radio": those two targets move the radio's own jacks — if you're listening over PC audio from across town, they won't change what you hear, and now they say so right in their names.
+
+### Pan mode — Ctrl+J, then Alt+P
+
+Stereo placement is how you keep two signals apart: slice A a little left, slice B a little right, and a pileup turns into two conversations instead of one mush. Hard left and hard right aren't separation, they're exile — what you usually want is *slightly* off center, and that's exactly what this mode is for.
+
+Press `Ctrl+J`, then `Alt+P`, and you're in pan mode for the slice you're on. The keys:
+
+- **Left and Right arrows** — nudge the slice through the stereo field. Hold an arrow and it sweeps.
+- **Shift with an arrow** — move by one, for placing it exactly.
+- **Home or C** — snap to center. It's the value you come back to, so it's one key away.
+- **Enter** — keep the new pan and leave the mode.
+- **Escape** — put the pan back where it was when you entered, out loud, and leave. Overshot? This is the way back.
+- **?** — hear where you are, where Escape would take you, and the keys.
+- Any other key keeps the pan, announces the mode closed, and then does its normal job — you can't get stuck in here.
+
+What it speaks follows your speech verbosity. At chatty it talks in positions — "slightly left", "center", "hard right" — the words you want when you're placing a signal by ear. At terse it gives you the number — "Pan 40" on a 0-to-100 scale where 0 is hard left, 50 is center, and 100 is hard right — precise and repeatable, for jotting down an arrangement you like and dialing it in again tomorrow. Cycle verbosity with `Ctrl+Shift+V` right inside the mode and the very next nudge speaks in the other form.
+
+The coarse keys you already know are untouched: on the Slice field, Page Up still slams hard right, Home centers, and Page Down slams hard left, and the Slice Operations field still nudges with Page Up and Page Down. Pan mode is the fine control beside them — reachable from anywhere, not just those two fields.
+
+Pan is per slice, and it lives in the radio, not in this app. Like the rest of your slice layout, "Save Station Setup to Radio" on the Slice menu is what makes an arrangement survive.
 
 ### Mic check — Ctrl+J, then K
 
@@ -150,6 +199,12 @@ The two histories are kept apart on purpose. If you're running with speech off a
 
 Two things worth knowing. The prosigns — AS, BT, SK — stay out of the history. They're punctuation, not information, and re-sending "closing" out of the blue tells you nothing you can act on. And "press again to step back" gives you the same generous window the speech version does, but measured from the moment the CW *finishes* rather than from when you pressed. That matters if you run slow code: at 10 words per minute "SL A USB" takes nearly nine seconds to send, and a window that started ticking at the keypress would have expired before you'd finished listening to it.
 
+### Silencing CW — Ctrl, the key you already press
+
+Ctrl has silenced your screen reader since forever — you press it without thinking. It now silences CW notifications too, in the same press. No new key to learn, no separate reflex: one tap of either Ctrl and both channels go quiet, whatever window you're in. Your screen reader still gets the key and still stops its own speech, exactly as before.
+
+While we were at it, CW notifications stopped piling up. Arrow across four slices quickly and you hear the slice you *landed on*, not a recital of everywhere you passed through — a newer message replaces the one still waiting, finishing the character in flight first so you never hear a mangled half-letter. The connect and disconnect prosigns are the exception: BT and the 73 sign-off always play out in full. Some things you don't cut off.
+
 ### What is still running — Ctrl+J, then O
 
 O for "what's on". Press `Ctrl+J` then `O` and JJ Flexible tells you every expensive thing it currently has switched on, and what each one has cost so far: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." If nothing is running, it says that too.
@@ -176,94 +231,82 @@ One more thing about the JJ layer: it works inside dialogs now. Press `Ctrl+J` i
 
 These keys let you switch bands on your radio instantly. They work in both Classic and Modern tuning. Something that may help you remember which keys do what when it comes to band switches is that you can switch to standard amateur radio bands by pressing F-keys without any modifiers. WARC bands like 30, 17, and 12 meters — plus 60 meters — are accessed by pressing F-keys with the Shift modifier.
 
-| Key | Band |
-|-----|------|
-| F3 | 160 meters |
-| F4 | 80 meters |
-| F5 | 40 meters |
-| F6 | 20 meters |
-| F7 | 15 meters |
-| F8 | 10 meters |
-| F9 | 6 meters |
-| Shift+F3 | 60 meters |
-| Shift+F4 | 30 meters |
-| Shift+F5 | 17 meters |
-| Shift+F6 | 12 meters |
-| Alt+Up | Next band up |
-| Alt+Down | Next band down |
-| Alt+Shift+Up | 60m channel up (when on 60 meters) |
-| Alt+Shift+Down | 60m channel down (when on 60 meters) |
+- **F3** — 160 meters
+- **F4** — 80 meters
+- **F5** — 40 meters
+- **F6** — 20 meters
+- **F7** — 15 meters
+- **F8** — 10 meters
+- **F9** — 6 meters
+- **Shift+F3** — 60 meters
+- **Shift+F4** — 30 meters
+- **Shift+F5** — 17 meters
+- **Shift+F6** — 12 meters
+- **Alt+Up** — Next band up
+- **Alt+Down** — Next band down
+- **Alt+Shift+Up** — 60m channel up (when on 60 meters)
+- **Alt+Shift+Down** — 60m channel down (when on 60 meters)
 
 ## Radio Control (Classic and Modern Tuning Modes)
 
 These keys work when you're in either Classic or Modern tuning mode:
 
-| Key | Action |
-|-----|--------|
-| F2 | Go to Home (this is where you adjust frequencies or other radio options — see more information about the JJ Flexible Home below) |
-| Ctrl+F | Set frequency (direct entry) |
-| Ctrl+S | Read the S meter, or forward power in watts while transmitting |
-| Ctrl+Shift+F | Toggle the frequency speech readout on/off |
-| Ctrl+Alt+F | Speak the RX filter values |
-| Ctrl+Shift+C | Clear RIT offset |
-| Alt+Z | Activate the CW zero beat option (requires an SDR-Plus subscription) |
-| Ctrl+P | Adjust audio panning |
-| Ctrl+Shift+T | Toggle the tune carrier on/off |
-| Ctrl+T | Start an automatic tuning unit (ATU) tune cycle |
-| Ctrl+Alt+M | Toggle meter tones on or off. The same switch as Ctrl+J then T, and it now says the same thing either way |
-| Ctrl+Alt+P | Cycle the meter tone preset (RX, TX, Full Monitor) |
-| Ctrl+Alt+V | Speak the current meter values |
-| Shift+M | Mute or unmute every slice at once |
-| Shift+Comma | Release every slice except the first |
-| Escape | Collapse the field group you're in, or return to Home |
-| Double tap Escape (quickly) | Collapse all open field groups and return to Home |
+- **F2** — Go to Home (this is where you adjust frequencies or other radio options — see more information about the JJ Flexible Home below)
+- **Ctrl+F** — Set frequency (direct entry)
+- **Ctrl+S** — Read the S meter, or forward power in watts while transmitting
+- **Ctrl+Shift+F** — Toggle the frequency speech readout on/off
+- **Ctrl+Alt+F** — Speak the RX filter values
+- **Ctrl+Shift+C** — Clear RIT offset
+- **Alt+Z** — Activate the CW zero beat option (requires an SDR-Plus subscription)
+- **Ctrl+P** — Adjust audio panning
+- **Ctrl+Shift+T** — Toggle the tune carrier on/off
+- **Ctrl+T** — Start an automatic tuning unit (ATU) tune cycle
+- **Ctrl+Alt+M** — Toggle meter tones on or off. The same switch as Ctrl+J then T, and it now says the same thing either way
+- **Ctrl+Alt+P** — Cycle the meter tone preset (RX, TX, Full Monitor)
+- **Ctrl+Alt+V** — Speak the current meter values
+- **Shift+M** — Mute or unmute every slice at once
+- **Shift+Comma** — Release every slice except the first
+- **Escape** — Collapse the field group you're in, or return to Home
+- **Double tap Escape (quickly)** — Collapse all open field groups and return to Home
 
 ### TX Filter Sculpting
 
-| Key | Action |
-|-----|--------|
-| Ctrl+Shift+[ | Move the TX filter low edge down |
-| Ctrl+Shift+] | Move the TX filter low edge up |
-| Ctrl+Alt+[ | Move the TX filter high edge down |
-| Ctrl+Alt+] | Move the TX filter high edge up |
+- **Ctrl+Shift+[** — Move the TX filter low edge down
+- **Ctrl+Shift+]** — Move the TX filter low edge up
+- **Ctrl+Alt+[** — Move the TX filter high edge down
+- **Ctrl+Alt+]** — Move the TX filter high edge up
 
 ### Push to Talk
 
 These work while your focus is in the JJ Flexible Home or in Home's field groups (the DSP, Audio, Receiver, Transmission, and Antenna expanders) — so you can key up while you're riding Mic Level without tabbing back to Home first:
 
-| Key | Action |
-|-----|--------|
-| Ctrl+Space | Push to talk — transmit while held |
-| Shift+Space | Toggle a transmit lock on or off |
-| Escape | Stop transmitting (while a transmit lock is on) |
+- **Ctrl+Space** — Push to talk — transmit while held
+- **Shift+Space** — Toggle a transmit lock on or off
+- **Escape** — Stop transmitting (while a transmit lock is on)
 
 ### RX Filter Adjustment
 
 The bracket keys shape your receive filter from anywhere in the radio modes:
 
-| Key | Action |
-|-----|--------|
-| [ or ] | Widen the filter: [ moves the lower edge down, ] moves the upper edge up |
-| Shift+[ or Shift+] | Slide the passband left or right |
-| Ctrl+[ or Ctrl+] | Squeeze or pull both filter edges |
-| Alt+[ or Alt+] | Cycle filter presets |
-| [[ or ]] (double-tap) | Enter single-edge adjust mode — brackets then move just that edge, Escape exits |
+- **[ or ]** — Widen the filter: [ moves the lower edge down, ] moves the upper edge up
+- **Shift+[ or Shift+]** — Slide the passband left or right
+- **Ctrl+[ or Ctrl+]** — Squeeze or pull both filter edges
+- **Alt+[ or Alt+]** — Cycle filter presets
+- **[[ or ]] (double-tap)** — Enter single-edge adjust mode — brackets then move just that edge, Escape exits
 
 ## Notes on the JJ Flexible Home
 
 These keys work from ANY field within your JJ Flexible Home. First, remember to press F2 to access your radio interface home. Press the key and you will activate the following actions:
 
-| Key | Action |
-|-----|--------|
-| M | Toggle mute on the active slice |
-| V | Cycle to the next slice |
-| R | Toggle RIT on/off |
-| X | Toggle XIT on/off |
-| Q | Toggle squelch on/off |
-| = | Transceive current slice (set both RX and TX to this slice) |
-| Shift+M | Mute or unmute every slice at once |
-| Shift+Comma | Release every slice except the first |
-| ? | Speak the keys for the field you're on |
+- **M** — Toggle mute on the active slice
+- **V** — Cycle to the next slice
+- **R** — Toggle RIT on/off
+- **X** — Toggle XIT on/off
+- **Q** — Toggle squelch on/off
+- **=** — Transceive current slice (set both RX and TX to this slice)
+- **Shift+M** — Mute or unmute every slice at once
+- **Shift+Comma** — Release every slice except the first
+- **?** — Speak the keys for the field you're on
 
 Navigation inside the Home: Left and Right arrows move one character at a time, Home jumps to the first field (except on the Slice field, where it pans center), End jumps to the last field, and Page Down jumps straight to the Frequency field from fields that don't use Page Down themselves.
 
@@ -271,56 +314,48 @@ Navigation inside the Home: Left and Right arrows move one character at a time, 
 
 When focused on the Slice field specifically:
 
-| Key | Action |
-|-----|--------|
-| Space | Cycle to the next slice (wraps around) |
-| Up / Down | Next or previous slice |
-| 0-7 or A-H | Jump directly to the desired slice by number or letter (you'll hear "not created" if it doesn't exist yet) |
-| T | Make this slice the TX slice |
-| . (period) | Create a new slice |
-| , (comma) | Release the current slice |
-| Page Up | Pan hard right |
-| Home | Pan center |
-| Page Down | Pan hard left |
+- **Space** — Cycle to the next slice (wraps around)
+- **Up / Down** — Next or previous slice
+- **0-7 or A-H** — Jump directly to the desired slice by number or letter (you'll hear "not created" if it doesn't exist yet)
+- **T** — Make this slice the TX slice
+- **. (period)** — Create a new slice
+- **, (comma)** — Release the current slice
+- **Page Up** — Pan hard right
+- **Home** — Pan center
+- **Page Down** — Pan hard left
 
 ## JJ Flexible Home — Slice Operations Field Keys
 
 When focused on the Slice Operations field (per-slice audio controls):
 
-| Key | Action |
-|-----|--------|
-| Up / Down | Adjust volume up/down |
-| Page Up / Page Down | Pan right / left |
-| Space | Toggle mute |
-| M | Mute |
-| S | Sound (unmute) |
-| A-H | Jump directly to that slice |
-| T | Set the currently selected slice to transmit (TX) |
-| = | Transceive the currently selected slice |
+- **Up / Down** — Adjust volume up/down
+- **Page Up / Page Down** — Pan right / left
+- **Space** — Toggle mute
+- **M** — Mute
+- **S** — Sound (unmute)
+- **A-H** — Jump directly to that slice
+- **T** — Set the currently selected slice to transmit (TX)
+- **=** — Transceive the currently selected slice
 
 ## JJ Flexible Home — Squelch and Squelch Level Field Keys
 
 On the Squelch field, Space, Up, Down, or Q all toggle squelch on and off. On the Squelch Level field:
 
-| Key | Action |
-|-----|--------|
-| Up / Down | Raise or lower the squelch level |
-| Q | Toggle squelch on/off |
+- **Up / Down** — Raise or lower the squelch level
+- **Q** — Toggle squelch on/off
 
 ## JJ Flexible Home — Frequency Field Keys (Classic tuning mode)
 
 When focused on the Frequency field in Classic tuning mode:
 
-| Key | Action |
-|-----|--------|
-| Up / Down | Tune by the digit under the cursor |
-| U / D | Same as Up and Down |
-| Digits | Type a frequency, then Enter to apply |
-| K | Round to the nearest kilohertz |
-| + then digits | Set a step multiplier (for example, + then 25 at the 1 kHz position tunes by 25 kHz) |
-| F | Speak the current frequency |
-| S | Turn split on |
-| T | Toggle showing the transmit frequency |
+- **Up / Down** — Tune by the digit under the cursor
+- **U / D** — Same as Up and Down
+- **Digits** — Type a frequency, then Enter to apply
+- **K** — Round to the nearest kilohertz
+- **+ then digits** — Set a step multiplier (for example, + then 25 at the 1 kHz position tunes by 25 kHz)
+- **F** — Speak the current frequency
+- **S** — Turn split on
+- **T** — Toggle showing the transmit frequency
 
 Press Ctrl+F1 on the Frequency field for the live picture: it confirms Classic mode is active, names the digit your cursor is sitting on, reads this key map, and names the key that switches to Modern tuning.
 
@@ -328,17 +363,26 @@ Press Ctrl+F1 on the Frequency field for the live picture: it confirms Classic m
 
 When focused on the Frequency field in Modern tuning mode:
 
-| Key | Action |
-|-----|--------|
-| Up | Tune up by your coarse step |
-| Down | Tune down by your coarse step |
-| Shift+Up | Tune up by your fine step |
-| Shift+Down | Tune down by your fine step |
-| Digits | Type a frequency, then Enter to apply |
-| F | Speak the current frequency |
-| Shift+S | Speak both your coarse and fine step sizes |
+- **Up** — Tune up by your coarse step
+- **Down** — Tune down by your coarse step
+- **Shift+Up** — Tune up by your fine step
+- **Shift+Down** — Tune down by your fine step
+- **Alt+Left** — Make your coarse step smaller
+- **Alt+Right** — Make your coarse step larger
+- **Shift+Left** — Make your fine step smaller
+- **Shift+Right** — Make your fine step larger
+- **Digits** — Type a frequency, then Enter to apply
+- **F** — Speak the current frequency
+- **S** — Choose both step sizes from a list
+- **Shift+S** — Speak both your coarse and fine step sizes
 
-The coarse and fine step values are configured in Settings → Tuning. Coarse and fine each have a single step value, so there's no mode to switch and no list to cycle through.
+There's one rule under all four arrow pairs, and it's worth learning once: **up and down tune, left and right size, and adding Shift makes it fine instead of coarse.** Up and Down move the frequency by your coarse step; Shift with them moves by your fine step. Left and Right change the step sizes themselves — Shift for the fine step, Alt for the coarse one. Left is always smaller, Right is always larger.
+
+Alt is on the coarse pair rather than Shift because plain Left and Right already move your cursor across the Home fields, in both tuning modes, and that isn't going anywhere.
+
+The sizes walk a short list of the values people actually use — 500 Hz, 1, 2, 5 and 10 kHz for coarse, and 1, 5, 10, 50 and 100 Hz for fine. The list doesn't wrap round: when you reach either end you'll hear the size followed by "smallest" or "largest", so you always know where you are rather than being dumped at the other end mid-QSO.
+
+Press S to see the whole list and set both at once. Those are the same values Settings → Tuning offers, so wherever you set them you're choosing from the same list.
 
 Press Ctrl+F1 on the Frequency field for the live picture: it confirms Modern mode is active, speaks your actual coarse and fine step values, reads this key map, and names the key that switches to Classic tuning.
 
@@ -346,20 +390,18 @@ Press Ctrl+F1 on the Frequency field for the live picture: it confirms Modern mo
 
 When focused on the RIT or XIT field, the digits 1, 2, 3, and 4 enter a quick scale-adjust mode for offset tuning. This is the Don-driven workflow for chasing a drifting correspondent without having to navigate through decade fields:
 
-| Key | Action |
-|-----|--------|
-| 1 | Enter scale-adjust mode at 1 Hz |
-| 2 | Enter scale-adjust mode at 10 Hz |
-| 3 | Enter scale-adjust mode at 100 Hz |
-| 4 | Enter scale-adjust mode at 1 kHz |
-| Up / Down | Apply the chosen scale to the offset — or, outside scale-adjust mode, adjust by the digit under the cursor |
-| 5–9 | Type a digit at the cursor position (legacy field behaviour) |
-| Space | Toggle RIT or XIT on/off |
-| + / - | Make the offset positive or negative |
-| = | On the RIT field only: copy RIT to XIT |
-| 0 | Exit scale-adjust mode |
-| Escape | Exit scale-adjust mode |
-| R or X | Toggle RIT or XIT off — also exits scale-adjust mode |
+- **1** — Enter scale-adjust mode at 1 Hz
+- **2** — Enter scale-adjust mode at 10 Hz
+- **3** — Enter scale-adjust mode at 100 Hz
+- **4** — Enter scale-adjust mode at 1 kHz
+- **Up / Down** — Apply the chosen scale to the offset — or, outside scale-adjust mode, adjust by the digit under the cursor
+- **5–9** — Type a digit at the cursor position (legacy field behaviour)
+- **Space** — Toggle RIT or XIT on/off
+- **+ / -** — Make the offset positive or negative
+- **=** — On the RIT field only: copy RIT to XIT
+- **0** — Exit scale-adjust mode
+- **Escape** — Exit scale-adjust mode
+- **R or X** — Toggle RIT or XIT off — also exits scale-adjust mode
 
 You'll hear a rising mode-enter tone when scale-adjust starts and a descending mode-exit tone when it ends. The mode is also exited automatically when you navigate to a different field — there's no inactivity timeout to surprise you mid-QSO.
 
@@ -367,12 +409,10 @@ You'll hear a rising mode-enter tone when scale-adjust starts and a descending m
 
 The Transmit slice field sits after VOX and shows which slice keys the radio ("-" when none does). These keys work while it has focus:
 
-| Key | Action |
-|-----|--------|
-| Space | Set transmit to the active slice |
-| Up / Down | Move transmit to another slice |
-| A–H | Set the transmit slice by letter |
-| Delete or Backspace | Clear the transmit slice (no slice keys the radio — a soft transmit lockout) |
+- **Space** — Set transmit to the active slice
+- **Up / Down** — Move transmit to another slice
+- **A–H** — Set the transmit slice by letter
+- **Delete or Backspace** — Clear the transmit slice (no slice keys the radio — a soft transmit lockout)
 
 On a receive-only connection these keys speak a refusal instead of acting silently. The same controls live in the Slice menu under Transmit Slice.
 
@@ -382,17 +422,15 @@ On the Mute field, Space or M toggles mute. On the Volume field, Up and Down adj
 
 ## Mode Switching
 
-| Key | Action |
-|-----|--------|
-| Alt+M | Next mode (cycles through available modes) |
-| Alt+Shift+M | Previous mode |
-| Alt+U | Switch to Upper Side Band (USB) |
-| Alt+L | Switch to Lower Side Band (LSB) |
-| Alt+C | Switch to CW mode |
-| Alt+A | Switch to AM mode |
-| Alt+F | Switch to FM mode |
-| Alt+D | Switch to DIGU (digital upper) mode |
-| Alt+Shift+D | Switch to DIGL (digital lower) mode |
+- **Alt+M** — Next mode (cycles through available modes)
+- **Alt+Shift+M** — Previous mode
+- **Alt+U** — Switch to Upper Side Band (USB)
+- **Alt+L** — Switch to Lower Side Band (LSB)
+- **Alt+C** — Switch to CW mode
+- **Alt+A** — Switch to AM mode
+- **Alt+F** — Switch to FM mode
+- **Alt+D** — Switch to DIGU (digital upper) mode
+- **Alt+Shift+D** — Switch to DIGL (digital lower) mode
 
 ## Audio Controls
 
@@ -402,41 +440,45 @@ The Audio menu's **PC Audio Levels** and **On-Radio Levels** items each open a d
 
 The previous `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) no longer adjust audio. The slots are reserved on purpose so a future feature can claim them deliberately.
 
+Two rows on the Audio menu start with "Audio", which is one row too many for a single letter to sort out. So Audio Workshop now has a mnemonic of its own: with the Audio menu open, `A` goes to **Audio Devices** and `W` goes to **Audio Workshop**. Nothing is renamed, and `Ctrl+Shift+W` still opens the workshop from anywhere without visiting the menu at all.
+
 ## Audio Workshop
 
 These keys are active anywhere inside the Audio Workshop window (`Ctrl+Shift+W` opens it). They are workshop-local accelerators, not global hotkeys.
 
-| Key | Action |
-|-----|--------|
-| Ctrl+Enter | Start the Audio Check, or stop the one that's running |
-| Ctrl+S | Save an audio preset |
-| Ctrl+O | Load an audio preset |
-| Alt+E | Export a preset to a file you can share |
-| Alt+I | Import a preset from a file (it joins your saved presets — nothing changes on the radio until you load it) |
-| Alt+R | Reset the TX audio chain to defaults |
-| Escape | Two-stage while a check is transmitting: first press unkeys and stays in the workshop, second press closes it. Escape never leaves you transmitting |
+- **Ctrl+Enter** — Start the Audio Check, or stop the one that's running
+- **Ctrl+S** — Save an audio preset
+- **Ctrl+O** — Load an audio preset
+- **Alt+E** — Export a preset to a file you can share
+- **Alt+I** — Import a preset from a file (it joins your saved presets — nothing changes on the radio until you load it)
+- **Alt+R** — Reset the TX audio chain to defaults
+- **Escape** — Two-stage while a check is transmitting: first press unkeys and stays in the workshop, second press closes it. Escape never leaves you transmitting
 
 Inside the Load Preset picker, the `Delete` key (or the Delete button) deletes the preset you're on — it asks before doing anything, and deleting never touches the radio.
 
 A note for anyone whose fingers learned the old way: Save Preset used to respond to its `Alt+S` button mnemonic, which also swallowed `Alt+Shift+S` — the global Speak Transmit Status key — while the workshop was focused. That mnemonic is gone; `Ctrl+S` is the Save key now, and the transmit status query is no longer blocked by the workshop.
 
+## Transmit checks
+
+The transmit checks (Tools, then Fix) key your radio on purpose, so the way out matters more here than anywhere else in the app.
+
+**Escape** stops the check. While the carrier is up it drops it first and asks questions afterwards — no confirmation stands between you and stopping your own transmission. The Stop button on the page does the same thing.
+
+Escape reaches the transmitter even while a check is mid-measurement and the window is busy, and it tells you what happened: an alert tone the moment you press, then either "Transmit stopped" or — if the radio didn't obey — that it still says it's transmitting and you should switch it off at the front panel. Those two are deliberately different sentences, because a stop that failed must never sound like one that worked.
+
 ## Scanning
 
 Scanning commands mostly live in the Command Finder these days — only stopping and resuming have keys out of the box (you can give the others keys in the Hotkey Editor):
 
-| Key | Action |
-|-----|--------|
-| Ctrl+Z | Stop scan |
-| Ctrl+Shift+F2 | Resume scan |
+- **Ctrl+Z** — Stop scan
+- **Ctrl+Shift+F2** — Resume scan
 
 Start scan, saved scan, and memory scan have no default keys — find them in the Command Finder (`Ctrl+/`), or bind your own keys in Tools → Hotkey Editor.
 
 ## DX and Spotting
 
-| Key | Action |
-|-----|--------|
-| Alt+Shift+X | Open DX Cluster |
-| Ctrl+Alt+R | Open Reverse Beacon Network |
+- **Alt+Shift+X** — Open DX Cluster
+- **Ctrl+Alt+R** — Open Reverse Beacon Network
 
 ## CW Messages
 
@@ -446,23 +488,21 @@ If you have CW messages configured, you can send them with `Ctrl+1` through `Ctr
 
 When you're in the logging pane, these keys help you fill in QSO details quickly. Some keys that do something different in Radio mode (like Alt+C and Alt+D) switch to logging functions here.
 
-| Key | Action |
-|-----|--------|
-| Alt+C | Jump to Call field |
-| Alt+T | Jump to His RST field |
-| Alt+R | Jump to My RST field |
-| Alt+N | Jump to Name/Handle field |
-| Alt+Q | Jump to QTH field |
-| Alt+S | Jump to State field |
-| Alt+G | Jump to Grid field |
-| Alt+E | Jump to Comments field |
-| Alt+D | Set date/time to now |
-| Ctrl+W | Save/finalize QSO |
-| Ctrl+N | New log entry |
-| Ctrl+Shift+F | Search log |
-| F6 | Switch between log panes |
-| Ctrl+Shift+N | Log characteristics dialog |
-| Ctrl+Alt+L | Open full log entry form |
+- **Alt+C** — Jump to Call field
+- **Alt+T** — Jump to His RST field
+- **Alt+R** — Jump to My RST field
+- **Alt+N** — Jump to Name/Handle field
+- **Alt+Q** — Jump to QTH field
+- **Alt+S** — Jump to State field
+- **Alt+G** — Jump to Grid field
+- **Alt+E** — Jump to Comments field
+- **Alt+D** — Set date/time to now
+- **Ctrl+W** — Save/finalize QSO
+- **Ctrl+N** — New log entry
+- **Ctrl+Shift+F** — Search log
+- **F6** — Switch between log panes
+- **Ctrl+Shift+N** — Log characteristics dialog
+- **Ctrl+Alt+L** — Open full log entry form
 
 Log statistics has no default key — press `Ctrl+J` then `L` to hear your stats, or bind a key in the Hotkey Editor.
 
@@ -472,43 +512,37 @@ The radio pane inside the logging view has its own tuning keys: Up and Down tune
 
 The ScreenFields panel has five expandable categories you can toggle open and closed instantly:
 
-| Key | Category |
-|-----|----------|
-| Ctrl+Shift+R | Receiver |
-| Ctrl+Shift+N | DSP |
-| Ctrl+Shift+U | Audio |
-| Ctrl+Shift+X | Transmission |
-| Ctrl+Shift+A | Antenna |
+- **Ctrl+Shift+R** — Receiver
+- **Ctrl+Shift+N** — DSP
+- **Ctrl+Shift+U** — Audio
+- **Ctrl+Shift+X** — Transmission
+- **Ctrl+Shift+A** — Antenna
 
 **Tip:** Each category expands to show its controls. Press the hotkey again to collapse it. Remember that you can also collapse any field group by pressing Escape. Press Escape twice quickly to close all field categories. `Ctrl+Tab` and `Ctrl+Shift+Tab` move between categories.
 
 ## View Controls
 
-| Key | Action |
-|-----|--------|
-| Ctrl+Shift+F3 | Move focus to the received text box |
-| Ctrl+Shift+F4 | Move focus to the CW send text box |
-| Ctrl+Shift+F5 | Move focus to the CW send text box (currently the same as Ctrl+Shift+F4 — a distinct direct-keying mode is planned for a future release) |
+- **Ctrl+Shift+F3** — Move focus to the received text box
+- **Ctrl+Shift+F4** — Move focus to the CW send text box
+- **Ctrl+Shift+F5** — Move focus to the CW send text box (currently the same as Ctrl+Shift+F4 — a distinct direct-keying mode is planned for a future release)
 
 ## Radio Selector
 
 These keys are active in the Select Radio dialog — the window that opens at startup and whenever you connect to a radio. They are dialog accelerators, not global hotkeys: they work only while the selector is open.
 
-| Key | Action |
-|-----|--------|
-| Enter | Connect to the selected radio along its preferred connection path, announcing the account for a SmartLink connect. If the path needs SmartLink and this session has not looked yet, one Enter signs in, finds the radio, and connects — no second press. On a radio that uses a different SmartLink account, it switches to that account and refreshes the list |
-| F2 | Speak which halves of the list have loaded — local and remote — and how many radios are online right now |
-| Up / Down arrow | Move through the radio list. Arrows stay inside the list at both ends |
-| Tab | Leave the radio list. Shift+Tab returns you to the row you left |
-| Applications key, or Shift+F10 | Open the radio's context menu: Connect, Connect Locally, Connect over SmartLink, Default Connection Path, Add or Remove Favorite, Auto-Connect Settings, Preferred Account, and Show Remote Radios (Refresh Remote List once they are listed) |
-| Alt+N | Connect |
-| Alt+L | Low bandwidth for the selected radio |
-| Alt+P | Connection path for the selected radio — Automatic, Local network first, or SmartLink first. Saved with the radio; Connect tries the chosen path first and falls back to the other, saying so |
-| Alt+S | SmartLink account. The label follows what you have saved: Sign in to SmartLink, SmartLink Account, or Switch Account |
-| Alt+T | Test the connection to the selected radio |
-| Alt+A | Auto-connect settings for the selected radio |
-| Delete | Take the selected radio off your list. It always asks first, and the choice it offers you starts on the one that deletes nothing — see below |
-| Alt+C, or Escape | Cancel and close the selector |
+- **Enter** — Connect to the selected radio along its preferred connection path, announcing the account for a SmartLink connect. If the path needs SmartLink and this session has not looked yet, one Enter signs in, finds the radio, and connects — no second press. On a radio that uses a different SmartLink account, it switches to that account and refreshes the list
+- **F2** — Speak which halves of the list have loaded — local and remote — and how many radios are online right now
+- **Up / Down arrow** — Move through the radio list. Arrows stay inside the list at both ends
+- **Tab** — Leave the radio list. Shift+Tab returns you to the row you left
+- **Applications key, or Shift+F10** — Open the radio's context menu: Connect, Connect Locally, Connect over SmartLink, Default Connection Path, Add or Remove Favorite, Auto-Connect Settings, Preferred Account, and Show Remote Radios (Refresh Remote List once they are listed)
+- **Alt+N** — Connect
+- **Alt+L** — Low bandwidth for the selected radio
+- **Alt+P** — Connection path for the selected radio — Automatic, Local network first, or SmartLink first. Saved with the radio; Connect tries the chosen path first and falls back to the other, saying so
+- **Alt+S** — SmartLink account. The label follows what you have saved: Sign in to SmartLink, SmartLink Account, or Switch Account
+- **Alt+T** — Test the connection to the selected radio
+- **Alt+A** — Auto-connect settings for the selected radio
+- **Delete** — Take the selected radio off your list. It always asks first, and the choice it offers you starts on the one that deletes nothing — see below
+- **Alt+C, or Escape** — Cancel and close the selector
 
 **About the Delete key and what it asks you.** Delete opens a confirmation with
 two choices: remove the radio from the list only, which keeps every setting you
@@ -601,9 +635,7 @@ These work only while the Audio Devices window is open.
 
 These keys are active when focus is on the row list inside the Archive Browser tab of the Tracing dialog (Help → Tracing → Archive Browser).
 
-| Key | Action |
-|-----|--------|
-| Enter | Open the selected trace in your default text viewer |
-| Ctrl+C | Copy the selected trace's full file path to the clipboard |
-| Delete | Delete the selected trace(s), with a confirmation prompt |
-| Ctrl+A | Select every row in the current filter |
+- **Enter** — Open the selected trace in your default text viewer
+- **Ctrl+C** — Copy the selected trace's full file path to the clipboard
+- **Delete** — Delete the selected trace(s), with a confirmation prompt
+- **Ctrl+A** — Select every row in the current filter

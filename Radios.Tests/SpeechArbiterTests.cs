@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Radios;
@@ -33,77 +33,9 @@ namespace Radios.Tests
     public class SpeechArbiterTests
     {
         // ── Test doubles ──
-
-        private sealed class FakeSpeechClock : ISpeechClock
-        {
-            private DateTime _now = new DateTime(2026, 8, 26, 0, 0, 0, DateTimeKind.Utc);
-            private readonly List<FakeTimer> _timers = new();
-            private long _seq;
-
-            public DateTime UtcNow => _now;
-            public DateTime Epoch { get; } = new DateTime(2026, 8, 26, 0, 0, 0, DateTimeKind.Utc);
-
-            public ISpeechTimer StartTimer(int dueMs, Action callback)
-            {
-                var t = new FakeTimer(this, callback, _now.AddMilliseconds(dueMs), _seq++);
-                _timers.Add(t);
-                return t;
-            }
-
-            /// <summary>
-            /// Move time forward, firing due timers in due order. A callback
-            /// that re-arms its own timer (the MinGap deferral path does) is
-            /// honoured within the same advance when the new due time still
-            /// falls inside it — exactly as a real timer would fire.
-            /// </summary>
-            public void Advance(int ms)
-            {
-                var target = _now.AddMilliseconds(ms);
-                while (true)
-                {
-                    FakeTimer? next = _timers
-                        .Where(t => !t.Disposed && t.DueAt.HasValue && t.DueAt.Value <= target)
-                        .OrderBy(t => t.DueAt!.Value).ThenBy(t => t.Seq)
-                        .FirstOrDefault();
-                    if (next == null) break;
-                    if (next.DueAt!.Value > _now) _now = next.DueAt.Value;
-                    next.DueAt = null; // one-shot: consumed unless re-armed
-                    next.Callback();
-                }
-                _now = target;
-            }
-
-            private sealed class FakeTimer : ISpeechTimer
-            {
-                private readonly FakeSpeechClock _clock;
-                public Action Callback { get; }
-                public DateTime? DueAt { get; set; }
-                public long Seq { get; }
-                public bool Disposed { get; private set; }
-
-                public FakeTimer(FakeSpeechClock clock, Action callback, DateTime dueAt, long seq)
-                {
-                    _clock = clock;
-                    Callback = callback;
-                    DueAt = dueAt;
-                    Seq = seq;
-                }
-
-                public void Change(int dueMs)
-                {
-                    // Matches System.Threading.Timer: a disposed timer's Change
-                    // throws, and the arbiter's race handling keys on that.
-                    if (Disposed) throw new ObjectDisposedException(nameof(FakeTimer));
-                    DueAt = _clock._now.AddMilliseconds(dueMs);
-                }
-
-                public void Dispose()
-                {
-                    Disposed = true;
-                    DueAt = null;
-                }
-            }
-        }
+        //
+        // The virtual clock moved to FakeSpeechClock.cs on 2026-08-27 (#285)
+        // so SpeechCoalescerTimingTests could stop sleeping and share it.
 
         private sealed record SinkCall(
             string Message, bool Interrupt, SpeechIntent? Intent,
@@ -135,7 +67,7 @@ namespace Radios.Tests
         {
             var a = NewArbiter();
 
-            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, false, "t");
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
 
             var call = Assert.Single(_calls);
             Assert.Equal("RF gain 5", call.Message);
@@ -151,10 +83,10 @@ namespace Radios.Tests
         public void Latest_SecondValueDuringSweep_SettlesExactlyAtTheGapTheLeadEarned()
         {
             var a = NewArbiter();
-            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, false, "t");   // lead at 0
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");   // lead at 0
 
             _clock.Advance(400);
-            a.Latest("rf", "RF gain 6", VerbosityLevel.Terse, false, "t");   // coalesces
+            a.Latest("rf", "RF gain 6", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");   // coalesces
 
             // CoalesceMs would flush at 700, but the lead is still speaking:
             // "RF gain 5" is nine characters, so the anti-clip gap is 990 ms
@@ -189,10 +121,10 @@ namespace Radios.Tests
             // therefore speak the moment the coalesce timer's own deferral is
             // satisfied, 500 ms earlier than the old flat 1200.
             var a = NewArbiter();
-            a.Latest("smeter", "S 3", VerbosityLevel.Terse, false, "t");     // lead at 0
+            a.Latest("smeter", "S 3", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");     // lead at 0
 
             _clock.Advance(400);
-            a.Latest("smeter", "S 2", VerbosityLevel.Terse, false, "t");     // coalesces
+            a.Latest("smeter", "S 2", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");     // coalesces
 
             Assert.Equal(700, Radios.Speech.SpeechArbiter.AntiClipGapMs("S 3"));
 
@@ -213,10 +145,10 @@ namespace Radios.Tests
             // clamped to the 1200 ms ceiling — so this case is UNCHANGED by
             // #282. The gap may only ever get shorter than it used to be.
             var a = NewArbiter();
-            a.Latest("tx", "TX Power 87", VerbosityLevel.Terse, false, "t"); // lead at 0
+            a.Latest("tx", "TX Power 87", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t"); // lead at 0
 
             _clock.Advance(400);
-            a.Latest("tx", "TX Power 86", VerbosityLevel.Terse, false, "t"); // coalesces
+            a.Latest("tx", "TX Power 86", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t"); // coalesces
 
             Assert.Equal(1200, Radios.Speech.SpeechArbiter.AntiClipGapMs("TX Power 87"));
 
@@ -231,16 +163,16 @@ namespace Radios.Tests
         public void Latest_EveryNewValueRestartsTheCoalesceTimer()
         {
             var a = NewArbiter();
-            a.Latest("tx", "TX Power 5", VerbosityLevel.Terse, false, "t");  // lead at 0
+            a.Latest("tx", "TX Power 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");  // lead at 0
 
             // A debounce, not a throttle: each new value pushes the flush out
             // by CoalesceMs, so the sweep speaks once when the operator stops.
             _clock.Advance(400);
-            a.Latest("tx", "TX Power 6", VerbosityLevel.Terse, false, "t");  // due 700
+            a.Latest("tx", "TX Power 6", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");  // due 700
             _clock.Advance(200);
-            a.Latest("tx", "TX Power 7", VerbosityLevel.Terse, false, "t");  // due 900
+            a.Latest("tx", "TX Power 7", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");  // due 900
             _clock.Advance(200);
-            a.Latest("tx", "TX Power 8", VerbosityLevel.Terse, false, "t");  // due 1100
+            a.Latest("tx", "TX Power 8", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");  // due 1100
 
             // "TX Power 5" is ten characters, so the lead's anti-clip gap is
             // 1100 ms — exactly when the pushed-out flush comes due, so the
@@ -262,9 +194,9 @@ namespace Radios.Tests
         public void Latest_SettleWithUnchangedValue_IsDropped()
         {
             var a = NewArbiter();
-            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, false, "t");
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
             _clock.Advance(400);
-            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, false, "t");   // same text
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");   // same text
 
             // The settle would only repeat what the lead already said.
             _clock.Advance(10_000);
@@ -275,43 +207,52 @@ namespace Radios.Tests
         public void Latest_AfterSweepWindowExpires_LeadsAgainImmediately()
         {
             var a = NewArbiter();
-            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, false, "t");
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
 
             // 1300 ms later the key is no longer sweeping (SweepWindowMs 1200)
             // and MinGap has elapsed: a deliberate press answers instantly.
             _clock.Advance(1300);
-            a.Latest("rf", "RF gain 6", VerbosityLevel.Terse, false, "t");
+            a.Latest("rf", "RF gain 6", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
 
             Assert.Equal(2, _calls.Count);
             Assert.Equal(1300, _calls[1].AtMs);
         }
 
         [Fact]
-        public void Latest_RepeatWhileHeld_TimerIsNotPushedOut_AndRepeatsAreSpacedByTheGap()
+        public void Latest_HeldQueryKey_TimerIsNotPushedOut_AndRepeatsAreSpacedByTheGap()
         {
-            // The #264 flag, pinned. Its documented contract: a repeating
-            // entry must NOT have its flush deferred by each keypress (the
-            // operator is holding the key), the identical value IS re-spoken
-            // (the repetition is the information — "still at minimum" is how
-            // you learn to stop pressing), and repeats are spaced by the
-            // anti-clip gap so they cannot chop each other.
+            // A HELD query key, pinned. Its contract: a query entry must NOT
+            // have its flush deferred by each keypress (the operator is asking,
+            // and deferring their own answer for as long as they keep asking is
+            // the bug), the identical value IS re-spoken (the repetition is the
+            // information — "still at minimum" is how you learn to stop
+            // pressing), and repeats are spaced by the anti-clip gap so they
+            // cannot chop each other.
             //
-            // This said "no production caller sets repeatWhileHeld yet" until
-            // 2026-08-27, and it had been false since Sprint 35 Track M wired
-            // Ctrl+S (KeyCommands.cs, coalesceKey "smeter"). That call site is
-            // still the ONLY one, deliberately — see the #264 note there.
+            // **That gap spacing is the reason Query does not simply bypass the
+            // gap.** Under a genuine key repeat this is what turns a held query
+            // into a readable cadence; without it the same hold would produce
+            // an interrupting utterance per repeat, each cut off after about a
+            // phoneme — the "r r r r r RF gain 5" defect of 2026-08-18, rebuilt
+            // on the one key most likely to be hammered.
+            //
+            // This was expressed as a repeatWhileHeld flag until 2026-08-27 and
+            // is now SpeechCoalesceKind.Query (#264). The timings below are
+            // UNCHANGED by that: the flag and the kind produce the same flush
+            // instants here, which is the evidence that Query subsumes it
+            // rather than merely resembling it.
             //
             // "Volume minimum" is fourteen characters, so its derived gap hits
             // the 1200 ms ceiling and the cadence below is unchanged by #282.
             var a = NewArbiter();
-            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, true, "t"); // lead at 0
+            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t"); // lead at 0
 
             _clock.Advance(400);
-            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, true, "t"); // entry, due 700
+            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t"); // entry, due 700
             _clock.Advance(100);
-            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, true, "t"); // must NOT push to 800
+            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t"); // must NOT push to 800
             _clock.Advance(100);
-            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, true, "t"); // must NOT push to 900
+            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t"); // must NOT push to 900
 
             // Flush stays due at 700; the gap defers the actual utterance to
             // exactly 1200 from the lead.
@@ -325,7 +266,7 @@ namespace Radios.Tests
             // Still holding: the next repeat coalesces at 1300 and speaks at
             // 2400 — a full gap from the previous utterance, never sooner.
             _clock.Advance(100);            // t = 1300
-            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, true, "t");
+            a.Latest("vol", "Volume minimum", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
             _clock.Advance(1099);           // t = 2399
             Assert.Equal(2, _calls.Count);
             _clock.Advance(1);              // t = 2400
@@ -333,13 +274,141 @@ namespace Radios.Tests
             Assert.Equal(2400, _calls[2].AtMs);
         }
 
+        // ── #264: a key that asks a question is not a value that sweeps ──
+        //
+        //  Measured at the radio 2026-08-27: a second Ctrl+S was still about
+        //  half a second late after the anti-clip gap had already been fixed,
+        //  because SweepWindowMs classified ANY second press inside 1.2 s as
+        //  sweeping a value and gave it the settle treatment. Hammering Ctrl+S
+        //  is not sweeping anything — it is asking the same question again,
+        //  and a sweep wants the tail while a re-request wants an answer now.
+        //
+        //  Each test below is PAIRED with its Value control at identical
+        //  timings. That pairing is the point: it shows the change is a
+        //  classification and not a tuning, because the Value figures are the
+        //  ones the sweep tests above already pin and they do not move.
+
+        [Fact]
+        public void Latest_QueryRePressPastTheGap_AnswersAtOnce_WhereAValueWouldSettle()
+        {
+            // "S 3" is three characters, so the gap it earns is the 700 ms
+            // floor. A re-press at 800 ms is therefore past the gap but well
+            // inside the 1200 ms sweep window — the exact window in which the
+            // operator's second press used to be misread as a sweep.
+            var a = NewArbiter();
+            a.Latest("smeter", "S 3", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
+            Assert.Equal(700, Radios.Speech.SpeechArbiter.AntiClipGapMs("S 3"));
+
+            _clock.Advance(800);
+            a.Latest("smeter", "S 5", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
+
+            // Synchronously, inside the call — no timer involved at all.
+            Assert.Equal(2, _calls.Count);
+            Assert.Equal("S 5", _calls[1].Message);
+            Assert.Equal(800, _calls[1].AtMs);
+        }
+
+        [Fact]
+        public void Latest_ValueRePressPastTheGap_StillSettles_TheControlForTheQueryCase()
+        {
+            // THE CONTROL, at timings identical to the test above. A swept
+            // value inside the sweep window keeps the settle: nothing at 800,
+            // and the coalesce timer speaks at 1100. That 300 ms is the settle
+            // #264 removed from queries and deliberately left here, because a
+            // value in flight genuinely wants its tail.
+            var a = NewArbiter();
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
+
+            _clock.Advance(800);
+            a.Latest("rf", "RF gain 6", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
+            Assert.Single(_calls);          // still just the lead
+
+            _clock.Advance(299);            // t = 1099
+            Assert.Single(_calls);
+            _clock.Advance(1);              // t = 1100
+            Assert.Equal(2, _calls.Count);
+            Assert.Equal(1100, _calls[1].AtMs);
+        }
+
+        [Fact]
+        public void Latest_QueryRePressInsideTheGap_WaitsTheGapOnly_NotTheSettleAsWell()
+        {
+            // A query CAN still be deferred, by the anti-clip gap — that is
+            // physical, not policy, and it is what keeps a hammered query from
+            // cutting itself into clicks. What it must not do is pay the settle
+            // on top: pressing at 550 ms into a 700 ms gap should be answered
+            // at 700, when the previous reading is out of the way, and not at
+            // 850 (550 + CoalesceMs), which is what arming the settle first
+            // would cost.
+            var a = NewArbiter();
+            a.Latest("smeter", "S 3", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
+
+            _clock.Advance(550);
+            a.Latest("smeter", "S 5", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
+
+            _clock.Advance(149);            // t = 699
+            Assert.Single(_calls);
+            _clock.Advance(1);              // t = 700 — exactly the gap
+            Assert.Equal(2, _calls.Count);
+            Assert.Equal("S 5", _calls[1].Message);
+            Assert.Equal(700, _calls[1].AtMs);
+        }
+
+        [Fact]
+        public void Latest_QueryRepeatedIdenticalReading_IsSpokenAgain()
+        {
+            // The other half of the report: on a steady signal the second press
+            // said NOTHING AT ALL, because the settle's duplicate-drop treated
+            // an unchanged reading as nothing new. On a meter the repetition is
+            // the whole answer — it is how the operator learns the signal has
+            // not moved — and a key that answers with silence is
+            // indistinguishable from a key that is broken.
+            var a = NewArbiter();
+            a.Latest("smeter", "S 7", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
+
+            _clock.Advance(800);
+            a.Latest("smeter", "S 7", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
+
+            Assert.Equal(2, _calls.Count);
+            Assert.Equal("S 7", _calls[1].Message);
+            Assert.Equal(800, _calls[1].AtMs);
+        }
+
+        [Fact]
+        public void Latest_ValueRepeatedIdenticalValue_IsStillDropped_TheControl()
+        {
+            // THE CONTROL for the drop. A swept value that settles on the same
+            // reading the lead already announced still says nothing, and must:
+            // repeating it would cut the lead off to tell the operator
+            // something they have just been told.
+            var a = NewArbiter();
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
+
+            _clock.Advance(800);
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
+
+            _clock.Advance(10_000);
+            Assert.Single(_calls);
+        }
+
+        [Fact]
+        public void Latest_SweepWindowIsUntouched_ByTheQueryClassification()
+        {
+            // #264 said explicitly: do NOT fix this by tuning SweepWindowMs,
+            // which would degrade the sweeps that constant exists for. This
+            // pins the constant so a later "just shorten the window" edit
+            // fails here rather than quietly making every sweep chatter.
+            Assert.Equal(1200, Radios.Speech.SpeechArbiter.SweepWindowMs);
+            Assert.Equal(300, Radios.Speech.SpeechArbiter.CoalesceMs);
+        }
+
         [Fact]
         public void Latest_VerbosityDroppedWhilePending_IsRecordedGatedNotSpoken()
         {
             var a = NewArbiter();
-            a.Latest("rf", "RF gain 5", VerbosityLevel.Chatty, false, "t");
+            a.Latest("rf", "RF gain 5", VerbosityLevel.Chatty, SpeechCoalesceKind.Value, "t");
             _clock.Advance(400);
-            a.Latest("rf", "RF gain 6", VerbosityLevel.Chatty, false, "t");
+            a.Latest("rf", "RF gain 6", VerbosityLevel.Chatty, SpeechCoalesceKind.Value, "t");
 
             // The operator turns speech down while the settle is pending.
             _verbosity = VerbosityLevel.Critical;
@@ -538,7 +607,7 @@ namespace Radios.Tests
             var a = NewArbiter();
             a.Emit("Session closed", false, null, VerbosityLevel.Terse, "t");
             _clock.Advance(100);
-            a.Latest("tx", "TX Power 50", VerbosityLevel.Terse, false, "t");
+            a.Latest("tx", "TX Power 50", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
 
             Assert.Equal(3, _calls.Count);
             Assert.Equal("TX Power 50", _calls[1].Message);
@@ -573,9 +642,9 @@ namespace Radios.Tests
         public void Urgent_DiscardsPendingLatest_AndClearsDedupState()
         {
             var a = NewArbiter();
-            a.Latest("tx", "TX Power 5", VerbosityLevel.Terse, false, "t");   // lead at 0
+            a.Latest("tx", "TX Power 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");   // lead at 0
             _clock.Advance(400);
-            a.Latest("tx", "TX Power 6", VerbosityLevel.Terse, false, "t");   // pending
+            a.Latest("tx", "TX Power 6", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");   // pending
             _clock.Advance(100);
             a.Urgent("Warning", VerbosityLevel.Critical, "t");
 
@@ -585,7 +654,7 @@ namespace Radios.Tests
 
             // ...and the dedup state died with it, so the next value speaks
             // instead of being suppressed as a duplicate of discarded speech.
-            a.Latest("tx", "TX Power 5", VerbosityLevel.Terse, false, "t");
+            a.Latest("tx", "TX Power 5", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
             Assert.Equal("TX Power 5", _calls[^1].Message);
             Assert.False(_calls[^1].Salvaged);
         }

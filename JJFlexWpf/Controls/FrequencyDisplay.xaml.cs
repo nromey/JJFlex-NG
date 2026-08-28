@@ -338,9 +338,32 @@ public partial class FrequencyDisplay : UserControl
     /// </summary>
     private void DisplayBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Left/Right: character-by-character cursor movement
+        // Left/Right: character-by-character cursor movement.
+        //
+        // Shift+Left / Shift+Right go to the field handler FIRST — Modern
+        // tuning sizes its fine step with them (#302) — and fall back to
+        // navigating when nothing claims the chord. Same shape as Home and
+        // Page Down below, and for the same reason.
+        //
+        // Until 2026-08-27 this branch tested the key and ignored modifiers
+        // entirely, so Shift+Left and Shift+Right were not bound anywhere and
+        // not rejected anywhere: they navigated, silently, exactly as the bare
+        // keys do. That is a modifier doing nothing, which from the chair is
+        // indistinguishable from a modifier that is unsupported — an operator
+        // cannot tell which they are in. Reading this handler is the only way
+        // to tell "ignored" from "bound", because pressing them cannot.
         if (e.Key == Key.Left || e.Key == Key.Right)
         {
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                var shiftField = PositionToField(DisplayBox.SelectionStart);
+                if (shiftField != null)
+                {
+                    FieldKeyDown?.Invoke(shiftField, e);
+                    if (e.Handled) return;
+                }
+            }
+
             NavigateCharacter(e.Key == Key.Right ? 1 : -1);
             e.Handled = true;
             return;

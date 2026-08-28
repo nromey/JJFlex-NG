@@ -24,9 +24,14 @@ namespace Radios.Speech
         public bool HasBraille => false;
 
         public bool Initialize() => false;
-        public void Speak(string message, bool interrupt) { }
-        public void Output(string message, bool interrupt) { }
-        public void Braille(string message) { }
+
+        // NotAttempted, not Failed: there is no backend here to refuse
+        // anything, and the deployment fault is already reported once and
+        // loudly by the factory. Reporting a delivery failure per utterance as
+        // well would bury that one line under thousands of duplicates.
+        public SpeechDelivery Speak(string message, bool interrupt) => SpeechDelivery.NotAttempted;
+        public SpeechDelivery Output(string message, bool interrupt) => SpeechDelivery.NotAttempted;
+        public SpeechDelivery Braille(string message) => SpeechDelivery.NotAttempted;
         public void Silence() { }
         public void Dispose() { }
     }

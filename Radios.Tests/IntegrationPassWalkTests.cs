@@ -174,34 +174,34 @@ namespace Radios.Tests
         [Fact]
         public void No_stage_offers_to_discard_a_measurement_it_has_already_taken()
         {
-            var findings = new List<Finding>();
-
-            foreach (FixerReviewState state in FixerStates.All())
-            {
-                IReadOnlyList<Control> controls = ControlsIn(state.Html);
-
-                foreach (FixerStage stage in state.Run.Set.Stages)
-                {
-                    FixerStageResult? result = state.Run.ResultFor(stage.Id);
-                    if (result?.Status != FixerStageStatus.Ran) continue;
-
-                    bool offered = controls.Any(
-                        c => c.Attr("data-action") == "skip"
-                          && string.Equals(c.Attr("data-arg"), stage.Id, StringComparison.OrdinalIgnoreCase));
-                    if (!offered) continue;
-
-                    findings.Add(new Finding(Rules.SkipAfterResult, state.Name + "/" + stage.Id,
-                        "Stage " + stage.Number + " (" + stage.Title + ") has a result and still "
-                        + "renders a skip control. Pressing it replaces the measurement with a "
-                        + "skip record and says nothing"
-                        + (stage.Transmits ? ", and this stage keys the radio, so what it "
-                                           + "discards cost a transmission." : ".")));
-                }
-            }
-
             Gate(Rules.SkipAfterResult,
                  "A finished step must not still offer the control that throws its result away.",
-                 findings);
+                 FixerStates.All().SelectMany(
+                     s => SkipAfterResultFindings(s.Name, s.Html, s.Run)));
+        }
+
+        private static IEnumerable<Finding> SkipAfterResultFindings(
+            string stateName, string html, FixerRun run)
+        {
+            IReadOnlyList<Control> controls = ControlsIn(html);
+
+            foreach (FixerStage stage in run.Set.Stages)
+            {
+                FixerStageResult? result = run.ResultFor(stage.Id);
+                if (result?.Status != FixerStageStatus.Ran) continue;
+
+                bool offered = controls.Any(
+                    c => c.Attr("data-action") == "skip"
+                      && string.Equals(c.Attr("data-arg"), stage.Id, StringComparison.OrdinalIgnoreCase));
+                if (!offered) continue;
+
+                yield return new Finding(Rules.SkipAfterResult, stateName + "/" + stage.Id,
+                    "Stage " + stage.Number + " (" + stage.Title + ") has a result and still "
+                    + "renders a skip control. Pressing it replaces the measurement with a "
+                    + "skip record and says nothing"
+                    + (stage.Transmits ? ", and this stage keys the radio, so what it "
+                                       + "discards cost a transmission." : "."));
+            }
         }
 
         /// <summary>
@@ -400,23 +400,28 @@ namespace Radios.Tests
         // ═══════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Four of the rules above found nothing on the real page. This is what
+        /// Every rule above now finds nothing on the real page. This is what
         /// makes that silence worth anything.
         /// </summary>
         /// <remarks>
         /// <para>
         /// <b>A detector that never fires and a clean page produce identical
-        /// output.</b> The skip rule needs no control of this kind — it reports
-        /// six real findings every run, which is the strongest control there
-        /// is. The other four are pure negative results, and a negative result
-        /// also claims the instrument WOULD have seen it.
+        /// output.</b> Until #249 closed in the Sprint 35 merge, the skip rule
+        /// carried its own control — six real findings, every run. The fix
+        /// took them away, which is the point of a fix, and quietly demoted
+        /// that rule to the same standing as the other four: a pure negative
+        /// result, which also claims the instrument WOULD have seen it. This
+        /// remark said the skip rule "needs no control of this kind" for a
+        /// day after that stopped being true — drift in the file about drift —
+        /// so the skip rule is now handed a broken page like everybody else.
         /// </para>
         /// <para>
-        /// So they are handed a page built to be wrong in exactly four ways:
-        /// an h2 followed by an h4, a paragraph holding a tab stop, a button
-        /// with no text, an input with no label, and no route from the first
-        /// stage to the second. Each rule must report its own fault and, just
-        /// as importantly, must not report anybody else's.
+        /// So they are handed pages built to be wrong in exactly the ways
+        /// each rule exists to catch: an h2 followed by an h4, a paragraph
+        /// holding a tab stop, a button with no text, an input with no label,
+        /// no route from the first stage to the second, and a skip control on
+        /// a stage that has already measured. Each rule must report its own
+        /// fault and, just as importantly, must not report anybody else's.
         /// </para>
         /// </remarks>
         [Fact]
@@ -500,6 +505,41 @@ namespace Radios.Tests
             Assert.Empty(HeadingLevelFindings("sound", sound));
             Assert.Empty(UnnamedControlFindings("sound", sound));
             Assert.Empty(FocusableProseFindings("sound", sound));
+
+            // THE SKIP RULE'S CONTROL, added when #249's fix took away the six
+            // real findings that used to prove it could see. A run whose first
+            // stage has genuinely measured, rendered by a page that still
+            // offers to skip that stage — the exact composition the real page
+            // produced until the Sprint 35 merge, and the rule must still be
+            // able to say so.
+            FixerRun measured = new FixerRun(
+                FixerTestKit.Kettle(FixerTestKit.Answering("Yes — wet.")));
+            measured.RunStage("fill");
+
+            const string skipAfterResult = @"<!doctype html><html><body>
+<h1>Kettle checks</h1>
+<h2>Stage 0: Fill</h2>
+<p>Yes — wet.</p>
+<fieldset class=""skip""><legend>Why are you skipping this stage?</legend>
+<p><input type=""radio"" name=""skipwhy-fill"" id=""k1"" value=""later"">
+ <label for=""k1"">I'll do it later.</label></p>
+<button type=""button"" data-action=""skip"" data-arg=""fill"">Skip this stage</button>
+</fieldset>
+<h2>Stage 1: Boil</h2>
+</body></html>";
+
+            Finding[] discarding =
+                SkipAfterResultFindings("broken", skipAfterResult, measured).ToArray();
+            Assert.True(discarding.Length == 1,
+                "the skip rule reported " + discarding.Length + " finding(s) on a page that "
+                + "offers to skip a stage with a recorded measurement. Its silence on the "
+                + "real page means nothing until it can say this.");
+            Assert.Equal("broken/fill", discarding[0].Where);
+
+            // And the other half: the REAL renderer, on the same run, no
+            // longer offers that control — which is #249's fix, seen by the
+            // same instrument that would catch its return.
+            Assert.Empty(SkipAfterResultFindings("sound", FixerPage.Render(measured), measured));
         }
     }
 }

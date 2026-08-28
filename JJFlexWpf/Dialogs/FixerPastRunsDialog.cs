@@ -57,8 +57,10 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
         var intro = new TextBlock
         {
             Text = "Every check run saves itself as it happens, named by its test ID. "
-                 + "Open one to read its report, export it to send to someone, or "
-                 + "delete it.",
+                 + "Open one to read its report, rename it so you can find it again, "
+                 + "continue one you stopped part-way, export it to send to someone, or "
+                 + "delete it. JJ Flexible keeps the newest " + FixerRunStore.MaxRunsKept
+                 + " runs; export anything you want to keep forever.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 8),
         };
@@ -79,6 +81,8 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
         DockPanel.SetDock(buttons, Dock.Bottom);
         buttons.Children.Add(MakeButton("_View report", "View report", ViewSelected,
             isDefault: true));
+        buttons.Children.Add(MakeButton("_Continue...", "Continue this run", ResumeSelected));
+        buttons.Children.Add(MakeButton("_Rename...", "Rename", RenameSelected));
         buttons.Children.Add(MakeButton("_Export...", "Export", ExportSelected));
         buttons.Children.Add(MakeButton("_Delete...", "Delete", DeleteSelected));
         var close = MakeButton("_Close", "Close", () => CloseWithResult(true));
@@ -88,9 +92,9 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
 
         AutomationProperties.SetName(_list, "Saved check runs");
         JJFlexHelp.SetText(_list,
-            "One line per saved run: its test ID, when it started, how many stages "
-            + "have results, and whether it finished. Newest first. Enter opens the "
-            + "report.");
+            "One line per saved run: its name or test ID, when it started, how many "
+            + "stages have results, and whether it finished. Newest first. Enter opens "
+            + "the report.");
         _list.MouseDoubleClick += (_, _) => ViewSelected();
         _list.KeyDown += (_, e) =>
         {
@@ -243,7 +247,12 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
     {
         try
         {
-            Clipboard.SetText(run.ReportText);
+            // The whole exported document, not the bare report: the radio's
+            // identity and the conditions each measurement was taken under
+            // wrapped around it (#217). This button's destination is an email
+            // to a support desk, and the report alone does not survive a
+            // reader who distrusts our software.
+            Clipboard.SetText(FixerRunExport.PlainText(run));
             Say(Radios.Fixer.Evidence.EvidenceStrings.CopiedToClipboard);
         }
         catch (Exception ex)
@@ -255,6 +264,98 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
         }
     }
 
+    // ---------------- rename ----------------
+
+    /// <summary>
+    /// Give a run the operator's own name. The Test ID never changes — it is
+    /// what a support thread quotes, and what joins the run to its diagnostic
+    /// trace — so renaming adds a name rather than replacing an identifier.
+    /// </summary>
+    private void RenameSelected()
+    {
+        FixerRunRecord? run = Selected();
+        if (run == null || _store == null) return;
+
+        string? name = EvidenceRenameDialog.Ask(this, "run", run.RunId, run.Label);
+        if (name == null) return;   // cancelled
+
+        string previous = run.Label;
+        run.Label = name.Trim();
+        if (_store.Save(run))
+        {
+            Say(run.Label.Length == 0
+                ? "Name cleared. The run goes back to its test ID, " + run.RunId + "."
+                : "Renamed to " + run.Label + ". It keeps its test ID, " + run.RunId + ".");
+            Refresh(selectFirst: false);
+        }
+        else
+        {
+            // Put the record back the way it is on disk. Leaving the new name
+            // on the in-memory copy would show a rename in the list that no
+            // file carries, and it would vanish on the next refresh with no
+            // explanation.
+            run.Label = previous;
+            Say("The new name could not be saved.");
+        }
+    }
+
+    // ---------------- continue ----------------
+
+    /// <summary>
+    /// Reopen a stopped run and carry on where it left off.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What continuing DOES claim: the measurements belong to one
+    /// investigation, under one Test ID, and the ones already taken are kept
+    /// exactly as they were recorded.
+    /// </para>
+    /// <para>
+    /// What it does NOT claim: that they were all taken in one sitting. Each
+    /// keeps its own timestamp and the settings it ran under, the record
+    /// counts the sittings, and the exported document states them. The
+    /// staleness lead below is the other half of the honesty — a run continued
+    /// after the tune power changed says which stages that spoiled, by name,
+    /// before the operator decides anything.
+    /// </para>
+    /// <para>
+    /// A finished run is not offered for continuation; there is nothing left
+    /// to do in it and re-measuring is the re-run path inside the checks
+    /// themselves.
+    /// </para>
+    /// </remarks>
+    private void ResumeSelected()
+    {
+        FixerRunRecord? run = Selected();
+        if (run == null) return;
+
+        if (run.IsComplete())
+        {
+            Say("Run " + run.RunId + " has a result for every check, so there is nothing "
+                + "left to continue. Open it to read the report.");
+            return;
+        }
+
+        string refusal = FixerDialog.WhyItCannotBeResumed(run);
+        if (refusal.Length > 0) { Say(refusal); return; }
+
+        int remaining = run.Stages.Count - run.ResolvedStageCount();
+        MessageBoxResult answer = MessageBox.Show(this,
+            "Continue run " + run.DisplayName + "? Its " + run.ResolvedStageCount()
+            + " recorded results are kept and the remaining " + remaining
+            + " checks are yours to run. This is recorded as a second sitting, so the "
+            + "report will say the checks were not all done at one go.",
+            "Saved check runs — JJ Flexible",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.Yes) return;
+
+        // This list closes first. Leaving it open behind a live run would let
+        // the operator delete or rename the very record the run is writing to.
+        Window? owner = Owner;
+        CloseWithResult(true);
+        FixerDialog.Show(_radio, owner, run);
+    }
+
     // ---------------- export ----------------
 
     private void ExportSelected()
@@ -264,7 +365,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
 
         var picker = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Export check run " + run.RunId,
+            Title = "Export check run " + run.DisplayName,
             FileName = FixerRunExport.FileBaseName(run),
             DefaultExt = ".html",
             Filter = Radios.Fixer.Evidence.EvidenceStrings.ExportFilter,
@@ -292,8 +393,8 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
         if (run == null) return;
 
         MessageBoxResult answer = MessageBox.Show(this,
-            "Delete run " + run.RunId + "? Its report and measurements will be gone "
-            + "for good — there is no undo.",
+            "Delete run " + run.DisplayName + " (test ID " + run.RunId + ")? Its report "
+            + "and measurements will be gone for good — there is no undo.",
             "Saved check runs — JJ Flexible",
             MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.Yes) return;

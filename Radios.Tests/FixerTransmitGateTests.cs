@@ -228,25 +228,100 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void A_remote_declaration_carries_its_provenance_for_the_report()
+        public void A_remote_declaration_carries_who_and_when_for_the_report()
         {
             // #247: the load was once accepted from an operator a thousand
             // miles from the socket with nothing recorded. The report form
-            // says so; the gate never refuses over it — a remote operator's
-            // declaration is still a declaration.
-            var g = new FixerTransmitGate();
+            // now carries the WHEN, from the gate's own clock, and the
+            // remote provenance — a declaration with neither cannot be
+            // re-evaluated later, and later is when a support conversation
+            // will need it.
+            var clock = new Clock();
+            var g = new FixerTransmitGate(clock.Read);
             g.BeginRun(Run);
-            g.DeclareLoad("A dummy load", FixerLoadKind.DummyLoad, declaredRemotely: true);
+            g.DeclareLoad("A dummy load — someone at the station has confirmed "
+                          + "it is connected",
+                          FixerLoadKind.DummyLoad, declaredRemotely: true);
 
             Assert.True(g.LoadDeclaredRemotely);
-            Assert.Contains("declared over a remote session", g.LoadDeclarationForReport);
-            Assert.StartsWith("A dummy load", g.LoadDeclarationForReport);
-            Assert.True(Ask(g, power: 100).Allowed);
+            Assert.Equal(clock.Now, g.LoadDeclaredAtUtc);
+            Assert.Equal(
+                "A dummy load — someone at the station has confirmed it is connected "
+                + "(declared 2026-08-25 07:00 UTC, over a remote session, by an "
+                + "operator not at the station)",
+                g.LoadDeclarationForReport);
 
             // And it resets with the run, like every declared fact.
             g.BeginRun("TX-NEW1");
             Assert.False(g.LoadDeclaredRemotely);
+            Assert.Null(g.LoadDeclaredAtUtc);
             Assert.Equal("", g.LoadDeclarationForReport);
+        }
+
+        [Fact]
+        public void A_local_declaration_records_when_it_was_made_too()
+        {
+            // The WHEN is not a remote nicety: a local declaration is also a
+            // statement about one moment, and the station can be re-cabled an
+            // hour after the report is written.
+            var clock = new Clock();
+            var g = Ready(clock);
+            Assert.Equal(clock.Now, g.LoadDeclaredAtUtc);
+            Assert.Equal("50 ohm dummy load on ANT1 (declared 2026-08-25 07:00 UTC)",
+                         g.LoadDeclarationForReport);
+        }
+
+        [Fact]
+        public void A_remote_dummy_load_is_capped_like_an_antenna()
+        {
+            // #247: locally the operator can SEE the dummy load; remotely the
+            // declaration is on someone else's word, and if that word is
+            // stale the cost lands at a station the operator is not at. So a
+            // remote declaration keeps every transmit at the ceiling, a dummy
+            // load included — the provenance alone is a note, and notes do
+            // not stop transmitters.
+            var g = new FixerTransmitGate();
+            g.BeginRun(Run);
+            g.DeclareLoad("A dummy load — someone at the station has confirmed "
+                          + "it is connected",
+                          FixerLoadKind.DummyLoad, declaredRemotely: true);
+
+            // At or under the ceiling: the checks run, low and useful.
+            Assert.True(Ask(g, power: FixerTransmitGate.LowPowerCeilingWatts).Allowed);
+
+            // Over it: refused, and the sentence says whose word the load is on.
+            Decision high = Ask(g, "another-stage", power: 100);
+            Assert.Equal(Refusal.PowerTooHighForLoad, high.Why);
+            Assert.Contains("100 watts", high.Explanation);
+            Assert.Contains("remote session", high.Explanation);
+            Assert.Contains("turn the power down", high.Explanation);
+
+            // Unreadable power refuses rather than hopes, exactly as it does
+            // into a declared antenna.
+            Assert.Equal(Refusal.PowerTooHighForLoad,
+                         Ask(g, "yet-another-stage", power: -1).Why);
+        }
+
+        [Fact]
+        public void Not_confirmed_from_a_remote_operator_is_refused_with_the_distance_named()
+        {
+            // #247: the honest remote answer is "I have not confirmed", and
+            // its refusal must not tell the operator to go and connect a
+            // dummy load — an instruction a remote operator cannot follow
+            // reads as the tool being broken. It names the station's
+            // distance and the one thing that WILL open the gate: asking
+            // someone who is there.
+            var g = new FixerTransmitGate();
+            g.BeginRun(Run);
+            g.DeclareLoad("I have not confirmed what is connected",
+                          FixerLoadKind.NothingOrUnsure, declaredRemotely: true);
+
+            Decision d = Ask(g);
+            Assert.Equal(Refusal.LoadForbidsTransmit, d.Why);
+            Assert.Contains("unknown load", d.Explanation);
+            Assert.Contains("a station you are not at", d.Explanation);
+            Assert.Contains("Ask someone at the station", d.Explanation);
+            Assert.DoesNotContain("Connect a dummy load", d.Explanation);
         }
 
         // ---- the radio's own state beats anything the caller claims ----

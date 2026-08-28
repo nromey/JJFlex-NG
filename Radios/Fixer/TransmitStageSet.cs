@@ -60,6 +60,15 @@ namespace Radios.Fixer
         public const string LoadNothingUnsure = "nothing-unsure";
 
         /// <summary>
+        /// The remote session's honest fourth answer (#247): "I have not
+        /// confirmed what is connected." Its own id, distinct from
+        /// <see cref="LoadNothingUnsure"/>, so a trace or report reader can
+        /// tell "nothing is on the socket" from "nobody I asked has looked" —
+        /// they read the same to the gate and differently to a person.
+        /// </summary>
+        public const string LoadRemoteNotConfirmed = "remote-not-confirmed";
+
+        /// <summary>
         /// Map a load choice id from the wire to what it means to the gate.
         /// An unknown or missing id maps to
         /// <see cref="FixerLoadKind.NothingOrUnsure"/> — an answer the gate
@@ -72,6 +81,10 @@ namespace Radios.Fixer
                 case LoadDummy: return FixerLoadKind.DummyLoad;
                 case LoadAntenna: return FixerLoadKind.Antenna;
                 case LoadAmplifier: return FixerLoadKind.Amplifier;
+                // Explicit, not left to the default: the fallback below is
+                // for FAULTS — ids nobody wrote — and a known answer must
+                // never depend on it for its meaning.
+                case LoadRemoteNotConfirmed: return FixerLoadKind.NothingOrUnsure;
                 default: return FixerLoadKind.NothingOrUnsure;
             }
         }
@@ -332,12 +345,28 @@ namespace Radios.Fixer
                     // into ANT1" — both live facts were already read for the
                     // record and shown to nobody (#250). The duration derives
                     // from the probe's own constant so it cannot drift.
+                    // The count-in is part of what pressing Run does (#255), so
+                    // the sentence says so — stage 1's already did, and a cue
+                    // the operator was not told about reads as a malfunction.
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this keys the radio's own tune carrier"
+                        return "Running this counts down with three tones, then keys "
+                             + "the radio's own tune carrier"
                              + AtInto(s?.TunePowerWatts ?? -1, s?.AntennaPort ?? "")
                              + " for about " + SecondsPhrase(TxTuneProbe.TuneMs) + ".";
+                    },
+                    // The other half of #250: once the stage names the power
+                    // it will use, the next thing an operator wants is to
+                    // change it — and the Fixer is modal, so "go to the main
+                    // window" used to cost the whole run. The page hands off
+                    // to the host's own power surface rather than growing a
+                    // number box of its own, the same rule as the device
+                    // picker: one home for power, and it is not here.
+                    HostActions = new[]
+                    {
+                        new FixerHostAction("open-power-dialog",
+                                            "Change the tune power"),
                     },
                     SkipChoices = new[] { operatorSkip },
                     Execute = hosts.ProbeTransmitter == null ? (Func<FixerStageContext, FixerOutcome>)null
@@ -365,14 +394,27 @@ namespace Radios.Fixer
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this keys the transmitter"
+                        return "Running this counts down with three tones, then keys "
+                             + "the transmitter"
                              + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
                              + " for several seconds and sends tones and a recorded voice "
                              + "through it. Your microphone stays out of the path.";
                     },
+                    // Same hand-off as stage 2 (#250); this stage transmits at
+                    // the RF power, so that is the number an operator here
+                    // wants to move.
+                    HostActions = new[]
+                    {
+                        new FixerHostAction("open-power-dialog",
+                                            "Change the transmit power"),
+                    },
                     SkipChoices = new[] { operatorSkip },
+                    // The stated load travels with THIS stage's evidence too:
+                    // it keys the transmitter, and a transmission whose load
+                    // is unrecorded cannot be read afterwards (#247).
                     Execute = hosts.RunInjectedTransmit == null ? (Func<FixerStageContext, FixerOutcome>)null
-                        : ctx => TransmitStages.Injected(hosts.RunInjectedTransmit()),
+                        : ctx => TransmitStages.Injected(hosts.RunInjectedTransmit(),
+                                                         hosts.ReadLoadDeclaration?.Invoke()),
                 },
 
                 new FixerStage
@@ -391,19 +433,32 @@ namespace Radios.Fixer
                         + "points somewhere quite specific.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/spoken-transmit",
+                    // "Counts you in", not "counts down" — this is the one
+                    // keying stage where the operator performs, and the count
+                    // is their cue as well as the RF warning.
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this keys the transmitter"
+                        return "Running this counts you in with three tones, then keys "
+                             + "the transmitter"
                              + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
                              + " for about " + SecondsPhrase(TxAudioProbe.SpokenListenMs)
                              + " while you speak into your microphone.";
                     },
+                    // Same hand-off as stage 2 (#250).
+                    HostActions = new[]
+                    {
+                        new FixerHostAction("open-power-dialog",
+                                            "Change the transmit power"),
+                    },
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
+                    // Keys the transmitter, so the stated load rides with the
+                    // evidence here as well (#247).
                     Execute = hosts.RunSpokenTransmit == null ? (Func<FixerStageContext, FixerOutcome>)null
                         : ctx => TransmitStages.Spoken(
                             hosts.RunSpokenTransmit(),
-                            ctx.ResultFor(MicrophoneCheck)?.Payload as MicCheckFacts),
+                            ctx.ResultFor(MicrophoneCheck)?.Payload as MicCheckFacts,
+                            hosts.ReadLoadDeclaration?.Invoke()),
                 },
             };
 
@@ -479,6 +534,69 @@ namespace Radios.Fixer
                                 ? "The radio will transmit on " + port
                                   + ". What is connected to " + port + " right now?"
                                 : "";   // fall back to the static question
+                        },
+
+                        // Remotely, the ANSWERS change too (#247), because the
+                        // honest answers change. "A dummy load" is a claim
+                        // about a socket the operator can see; a remote
+                        // operator can only claim what someone at the station
+                        // told them, and a required question whose answers
+                        // nobody can give honestly gets answered anyway — so
+                        // the answers are phrased as the claim a remote
+                        // operator CAN make. "Someone at the station", not
+                        // "the station owner", on purpose: the owner can be a
+                        // thousand miles from their own radio too, and the
+                        // word that counts belongs to whoever has eyes on the
+                        // socket. The honest escape — "I have not confirmed" —
+                        // costs only the transmitting stages, exactly like
+                        // "Nothing, or I am not sure" does in the room, so
+                        // honesty is never punished into a lie. Labels lead
+                        // with the load itself: a screen reader arrowing
+                        // through four answers must hear the difference
+                        // first, not a shared preamble.
+                        ChoicesNow = () =>
+                        {
+                            StationNow s = Station();
+                            if (s?.RemoteRadio != true) return null;   // in the room: the static answers stand
+
+                            return new[]
+                            {
+                                new FixerDeclarationChoice(LoadDummy,
+                                    "A dummy load — someone at the station has confirmed "
+                                    + "it is connected"),
+                                new FixerDeclarationChoice(LoadAntenna,
+                                    "An antenna — someone at the station has confirmed "
+                                    + "it, and a short low-power test into it is fine"),
+                                new FixerDeclarationChoice(LoadAmplifier,
+                                    "An amplifier the radio feeds — someone at the "
+                                    + "station has confirmed it"),
+                                new FixerDeclarationChoice(LoadRemoteNotConfirmed,
+                                    "I have not confirmed what is connected"),
+                            };
+                        },
+
+                        // And the why-text tells the remote operator, before
+                        // they answer, that the answer is recorded with its
+                        // provenance and that everything runs cool (#247). A
+                        // person who knows their word is going in the record
+                        // weighs it before giving it.
+                        WhyItMattersNow = () =>
+                        {
+                            StationNow s = Station();
+                            if (s?.RemoteRadio != true) return null;   // in the room: the static text stands
+
+                            return "Nothing transmits until you answer this question. You "
+                                 + "are not at that station, so every answer here states "
+                                 + "what someone there has confirmed with you — the report "
+                                 + "will say your answer came over a remote session, on "
+                                 + "someone else's word. Whatever is connected, the checks "
+                                 + "that transmit keep the power at "
+                                 + FixerTransmitGate.LowPowerCeilingWatts
+                                   .ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                 + " watts or less, because a confirmation relayed from a "
+                                 + "distance is not the same as seeing the socket. Answering "
+                                 + "that you have not confirmed keeps them parked — "
+                                 + "everything else still runs.";
                         },
                     },
                 });

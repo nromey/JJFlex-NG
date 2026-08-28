@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -40,7 +40,8 @@ namespace Radios.SignalCapture
             record.ReportText = EvidenceReportDocument.PlainText(sections);
             record.ReportHtml = EvidenceReportDocument.HtmlFragment(sections, headingLevel: 2);
             record.PeakDisplay = analysis.HasStats
-                ? SMeterReading.Display(SMeterReading.FromDbm(analysis.PeakDbm))
+                ? SMeterReading.Display(SMeterReading.FromDbm(
+                      analysis.PeakDbm, SMeterReading.BandFor(record.FrequencyHz)))
                 : "";
         }
 
@@ -52,13 +53,14 @@ namespace Radios.SignalCapture
             if (record == null) throw new ArgumentNullException(nameof(record));
             if (analysis == null) throw new ArgumentNullException(nameof(analysis));
 
+            SMeterReading.Band band = SMeterReading.BandFor(record.FrequencyHz);
             var sections = new List<EvidenceSection>
             {
                 Header(record),
-                SignalSection(analysis),
+                SignalSection(analysis, band),
                 TransmitSection(analysis),
                 ContextSection(record, analysis),
-                MethodSection(analysis),
+                MethodSection(analysis, band, record.FrequencyHz > 0),
             };
             return sections;
         }
@@ -81,7 +83,8 @@ namespace Radios.SignalCapture
             return s;
         }
 
-        private static EvidenceSection SignalSection(QsoSignalAnalysisResult a)
+        private static EvidenceSection SignalSection(
+            QsoSignalAnalysisResult a, SMeterReading.Band band)
         {
             var s = new EvidenceSection { Title = "What the signal did" };
 
@@ -113,9 +116,9 @@ namespace Radios.SignalCapture
                 return s;
             }
 
-            s.Bullet("Peaked at " + Display(a.PeakDbm) + " — the highest single reading.");
-            s.Bullet("Fell to " + Display(a.TroughDbm) + " — the lowest two-second average.");
-            s.Bullet("Averaged " + Display(a.MeanDbm) + " across "
+            s.Bullet("Peaked at " + Display(a.PeakDbm, band) + " — the highest single reading.");
+            s.Bullet("Fell to " + Display(a.TroughDbm, band) + " — the lowest two-second average.");
+            s.Bullet("Averaged " + Display(a.MeanDbm, band) + " across "
                    + SpokenDuration.English(a.AnalyzedSpanSeconds) + " of receive time.");
             s.Bullet(a.SwingSUnits < 1
                 ? "Total swing under one S-unit (" + WholeDb(a.SwingDb) + " dB)."
@@ -250,18 +253,41 @@ namespace Radios.SignalCapture
                 ? name + ": could not be read when the capture started."
                 : name + ": " + value;
 
-        private static EvidenceSection MethodSection(QsoSignalAnalysisResult a)
+        private static EvidenceSection MethodSection(
+            QsoSignalAnalysisResult a, SMeterReading.Band band, bool frequencyKnown)
         {
             var s = new EvidenceSection { Title = "How these numbers were taken" };
             s.Para(Count(a.SampleCount) + " readings over "
                  + SpokenDuration.English(a.CaptureSeconds)
                  + ", from the radio's own S-meter stream for the receive slice, "
                  + "recorded in dBm at the stream's full rate.");
-            s.Para("S-units follow this application's meter calibration: S0 at minus "
-                 + "124 dBm, 6 dB per S-unit, S9 at minus 70 dBm, and readings above "
-                 + "S9 given as dB over S9 — the same arithmetic as the live S-meter "
-                 + "readout, so a reading here matches what pressing Control S at that "
-                 + "moment would have spoken.");
+
+            // The numbers are computed from the same constants the arithmetic
+            // uses, never retyped beside it. The previous version of this
+            // paragraph stated minus 124 and minus 70 as literal text; when
+            // the calibration moved to the IARU values it would have gone on
+            // saying so, and a self-describing report that describes itself
+            // wrongly is worse than one that says nothing.
+            int s9 = SMeterReading.S9Dbm(band);
+            int s0 = s9 - (SMeterReading.TopSUnit * SMeterReading.DbPerSUnit);
+            s.Para("S-units follow the IARU standard: S0 at minus " + Positive(s0)
+                 + " dBm, " + SMeterReading.DbPerSUnit + " dB per S-unit, S9 at minus "
+                 + Positive(s9) + " dBm, and readings above S9 given as dB over S9 — "
+                 + "the same arithmetic as the live S-meter readout, so a reading here "
+                 + "matches what pressing Control S at that moment would have spoken.");
+            s.Para(band == SMeterReading.Band.VhfAndAbove
+                ? "That is the above-30-MHz reference. The standard sets S9 twenty "
+                + "decibels weaker above 30 MHz than below it, so the same signal is "
+                + "more than three S-units stronger on 6 metres than the HF scale "
+                + "would call it."
+                : "That is the below-30-MHz reference. Above 30 MHz the standard sets "
+                + "S9 twenty decibels weaker, and captures taken there use that scale "
+                + "instead.");
+            if (!frequencyKnown)
+                s.Para("The receive frequency could not be read when this capture "
+                     + "started, so the HF scale was used. If this capture was taken "
+                     + "above 30 MHz, every S-unit above is more than three S-units "
+                     + "too low; the dBm readings are unaffected.");
             s.Para("The peak is the highest single reading. The trough and all fading "
                  + "measurements use a two-second moving average, so a pause between "
                  + "words does not count as a fade.");
@@ -278,8 +304,13 @@ namespace Radios.SignalCapture
         private static string Stamp(DateTime utc)
             => utc.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
 
-        private static string Display(double dbm)
-            => SMeterReading.Display(SMeterReading.FromDbm(dbm));
+        private static string Display(double dbm, SMeterReading.Band band)
+            => SMeterReading.Display(SMeterReading.FromDbm(dbm, band));
+
+        /// <summary>The magnitude of a negative reference, for prose that has
+        /// already said the word "minus".</summary>
+        private static string Positive(int dbm)
+            => Math.Abs(dbm).ToString(CultureInfo.InvariantCulture);
 
         private static string SUnits(int n)
             => n == 1 ? "1 S-unit" : n.ToString(CultureInfo.InvariantCulture) + " S-units";

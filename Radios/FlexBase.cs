@@ -1,4 +1,4 @@
-//#define KeepAlive
+﻿//#define KeepAlive
 //#define feedback // for testing mic input
 //#define TwoSlices
 //#define NoATU
@@ -92,6 +92,25 @@ namespace Radios
             public string Name;
             public string ModelName;
             public string Serial;
+
+            /// <summary>
+            /// The home this ROW was discovered through — true when the radio
+            /// object behind it was a WAN one.
+            /// </summary>
+            /// <remarks>
+            /// <para><b>Not "is the current connection remote", and reading it
+            /// that way cost a day (task #288).</b> A dual-homed radio picked
+            /// from a row that local discovery built carries
+            /// <c>Remote = false</c> however the connect actually travels, so
+            /// <c>CurrentRig.Remote</c> reported false for a live SmartLink
+            /// connection and the retry ladder concluded there was no remote
+            /// path to retry. The field trace said "no retry path available
+            /// (local or no serial)" during a failure where a local path plainly
+            /// existed.</para>
+            /// <para>For the LIVE connection's own answer, ask
+            /// <see cref="FlexBase.RemoteRig"/> (<c>theRadio.IsWan</c>). This
+            /// property describes a picker row and nothing else.</para>
+            /// </remarks>
             public bool Remote { get; internal set; }
 
             /// <summary>
@@ -1782,9 +1801,41 @@ namespace Radios
                     var legSw = System.Diagnostics.Stopwatch.StartNew();
                     bool connected = Connect(config.RadioSerial, config.LowBandwidth, preferWanPath: wantWan && foundRadio.IsWan);
                     legSw.Stop();
-                    ConnectionHistory.Record(config.RadioSerial, path.ToString(),
-                        connected ? "connected" : (LastConnectFailureReport?.Class.ToString() ?? "failed"),
-                        legSw.ElapsedMilliseconds);
+
+                    // A LEG THAT CONNECTS IS NOT A LEG THAT WORKED (tasks #284,
+                    // #286). Connect() returning true means the SESSION came up;
+                    // the radio has not opened yet and will not for up to another
+                    // minute. Writing "connected" here is the loop that fed
+                    // itself: on 2026-08-26 four SmartLink attempts that all died
+                    // in the station-name wait were written into the ring as four
+                    // successes — 341, 1334, 350 and 913 ms — and three in a row
+                    // is a trend, so the path policy then steered the NEXT connect
+                    // down the path that had just failed four times. Every failure
+                    // made the next one more likely and the store showed an
+                    // unbroken run of success.
+                    //
+                    // The manual path was fixed in Sprint 36; this one was missed
+                    // because it walks its own legs instead of going through the
+                    // selector. So: ARM here, and let whoever learns the open's
+                    // fate commit it. openTheRadio calls CommitPendingOutcome with
+                    // the result of Start(), which is the moment the outcome is
+                    // actually known.
+                    //
+                    // A connect FAILURE is knowable now, so it still records
+                    // immediately. Auto-connect is never a forced path — a force
+                    // comes from the picker's context menu (#287) — so these
+                    // records are ordinary evidence.
+                    if (connected)
+                    {
+                        ConnectionHistory.ArmPendingOutcome(config.RadioSerial, path.ToString(),
+                            legSw.ElapsedMilliseconds);
+                    }
+                    else
+                    {
+                        ConnectionHistory.Record(config.RadioSerial, path.ToString(),
+                            LastConnectFailureReport?.Class.ToString() ?? "failed",
+                            legSw.ElapsedMilliseconds);
+                    }
 
                     if (connected)
                     {
@@ -2251,7 +2302,31 @@ namespace Radios
                 int removalGraceMs = 15000;  // 15s grace after client removal (Don's 6300 over WAN needs 10s+)
                 int earlyAbortMs = 1000;     // 1s: if removed without ever being added, abort fast for retry
                 int interval = 25;
-                int iterations = maxWaitMs / interval;
+                // A DEADLINE, not a count of sleeps (task #293).
+                //
+                // This used to be `iterations = maxWaitMs / interval` and a
+                // `while (iterations-- > 0)` loop that slept 25 ms per turn. The
+                // loop then ran the right NUMBER of times, but every turn cost
+                // 25 ms of sleep PLUS whatever the work in it cost — so the
+                // declared 45,000 ms budget elapsed in about 56 seconds of wall
+                // clock, measured at 55.7 s in the 2026-08-26 field trace. The
+                // error is not a constant offset either: it scales with how busy
+                // the machine and the radio are, which means it grows exactly
+                // when a connect is already struggling and the number matters
+                // most.
+                //
+                // It had already misled a caller. ConnectNarrator needed a
+                // ceiling for the #212 heartbeat, read maxWaitMs as a duration,
+                // and would have gone silent with ten seconds of this wait still
+                // to run — recreating the silence it exists to remove, at the
+                // worst possible moment. It was covered with a 1.5 margin, which
+                // is a fudge factor over an arithmetic error that the next caller
+                // has no way to know about.
+                //
+                // So the budget is now the budget: read the clock, compare
+                // against a deadline. maxWaitMs means 45 seconds to anyone
+                // reading it here, in the profiler payload, or in a trace.
+                long stationWaitDeadline = Environment.TickCount64 + maxWaitMs;
                 _clientRemovedDuringStart = false;
                 _clientAddedDuringStart = false;
                 _startBeginTickCount = Environment.TickCount64;
@@ -2263,7 +2338,7 @@ namespace Radios
                     { "removalGraceMs", removalGraceMs }
                 });
 
-                while (iterations-- > 0)
+                while (Environment.TickCount64 < stationWaitDeadline)
                 {
                     if (_cancelRequested)
                     {
@@ -2471,6 +2546,15 @@ namespace Radios
                 // they disconnect via menu and then close the app.
                 ScreenReaderOutput.SkAlreadyPlayedThisSession = true;
             }
+
+            // #161's trigger rule compares each CW send against what was last
+            // sent and drops repeats. That comparison ends with the session:
+            // reconnecting deserves its opening census even when the numbers
+            // happen to match last session's, so forget the last send here.
+            // Outside the CwNotificationsEnabled guard on purpose — the
+            // setting can be toggled between sessions, and a stale "last
+            // sent" must not survive into a session where CW is newly on.
+            ScreenReaderOutput.ResetCwLastSent();
 
             try
             {
@@ -6166,14 +6250,23 @@ namespace Radios
         /// <param name="ms">milliseconds to wait.</param>
         /// <param name="interval">optional interval to check</param>
         /// <returns>true if condition met.</returns>
+        /// <remarks>
+        /// <paramref name="ms"/> is a DEADLINE, not a count of sleeps — see
+        /// <c>JJTrace.Tracing.await</c>, which carries the reasoning (task
+        /// #293). This is the copy behind the antenna-list wait in
+        /// <c>Start()</c>, whose own comment already noted it shares a timing
+        /// profile with the station-name wait; it shared the arithmetic error
+        /// too.
+        /// </remarks>
         internal static bool await(awaitExp exp, int ms, int interval)
         {
-            int sanity = ms / interval;
-            bool rv = false;
-            while (sanity-- > 0)
+            long deadline = Environment.TickCount64 + ms;
+            bool rv;
+            while (true)
             {
                 rv = exp();
                 if (rv) break;
+                if (Environment.TickCount64 >= deadline) break;
                 Thread.Sleep(interval);
             }
             return rv;
@@ -8809,8 +8902,14 @@ namespace Radios
         /// <see cref="FormatForwardPowerSpoken"/>. The branch is kept only so
         /// existing integer callers keep compiling.</para>
         /// </remarks>
-        private int _SMeter;
-        public int SMeter
+        // NO private _SMeter field here, and that absence is load-bearing
+        // (#295). FlexBase used to declare one, which SHADOWED
+        // AllRadios._SMeter without `new` or `override`. The meter handler
+        // wrote the shadow; AllRadios.RawSMeter read the base field, which
+        // nothing on a Flex ever wrote; and RawSMeter was therefore
+        // permanently zero on every radio this application supports. Writing
+        // the base field is what makes one value serve every reader.
+        public override int SMeter
         {
             get
             {
@@ -8829,7 +8928,14 @@ namespace Radios
                     // lives in SMeterReading.FromDbm — one home, shared with
                     // the QSO signal analyzer, so a recorded dBm and this
                     // live reading can never disagree by a constant.
-                    return SMeterReading.FromDbm(_SMeter);
+                    //
+                    // The frequency is an argument because the calibration
+                    // depends on it: IARU R.1 puts S9 twenty decibels lower
+                    // above 30 MHz, so 6 m, 2 m and 70 cm need the other
+                    // reference (#296). RXFrequency is the right one to pass —
+                    // the meter stream this reads is the ACTIVE slice's, and
+                    // RXFrequency tracks that same slice.
+                    return SMeterReading.FromDbm(_SMeter, RXFrequency);
                 }
             }
         }
@@ -16655,8 +16761,12 @@ namespace Radios
         // sonification subscribes to MeterData instead, which carries the Meter
         // itself; see the meter-inventory section above.
 
-        /// <summary>Raw S-meter value in dBm (before S-unit conversion).</summary>
-        public int SMeterRaw => _SMeter;
+        // SMeterRaw removed in Sprint 37 Track G (#295). It was a second name
+        // for AllRadios.RawSMeter on the same object, it had no callers, and
+        // it existed only because the base property was broken: RawSMeter read
+        // a field FlexBase shadowed and never wrote, so it always answered
+        // zero, and a working duplicate got built beside it. With the shadow
+        // gone, RawSMeter is the one name — do not reintroduce this.
 
         private string importDir;
         private bool wasPCAudio;

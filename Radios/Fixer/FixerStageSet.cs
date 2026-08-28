@@ -327,7 +327,27 @@ namespace Radios.Fixer
         /// question.</summary>
         public string WhyItMatters { get; }
 
+        /// <summary>
+        /// Optional live override for <see cref="WhyItMatters"/>, read at
+        /// render time like <see cref="QuestionNow"/>. The transmit set uses
+        /// it so a remote operator is told their answer will be recorded as
+        /// coming over a remote session, on someone else's word (#247). Null,
+        /// or a null or blank return, falls back to the static text.
+        /// </summary>
+        public Func<string> WhyItMattersNow { get; set; }
+
         public IReadOnlyList<FixerDeclarationChoice> Choices { get; }
+
+        /// <summary>
+        /// Optional live override for <see cref="Choices"/>, read at render
+        /// time. The transmit set uses it because the honest ANSWERS change
+        /// with the operator's distance from the socket (#247): in the room,
+        /// "A dummy load" is something they can see; remotely it is at best
+        /// something someone at the station confirmed, and the choices must
+        /// say so rather than invite a claim nobody can make. Null, a null
+        /// return, or an empty return falls back to <see cref="Choices"/>.
+        /// </summary>
+        public Func<IReadOnlyList<FixerDeclarationChoice>> ChoicesNow { get; set; }
 
         /// <summary>The wire kind the page sends the answer under — see
         /// <see cref="FixerPageMessage"/>. The transmit set's load declaration

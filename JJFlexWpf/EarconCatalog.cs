@@ -209,8 +209,9 @@ namespace JJFlexWpf
             EarconPlayer.EarconCategory.Warnings =>
                 "Something is wrong. The one family worth thinking twice about switching off.",
             EarconPlayer.EarconCategory.ContextHelp =>
-                "The soft rising pair that says context help is available where you landed. "
-                + "Rare by construction: it sounds only when the help content changes.",
+                "The flick and soft rising note that says context help is available where "
+                + "you landed. Rare by construction: it sounds only when the help content "
+                + "changes.",
             _ =>
                 "Calibration and bench sounds. These answer to the master earcon switch only, "
                 + "on purpose — they are not part of any family an operator would turn off.",

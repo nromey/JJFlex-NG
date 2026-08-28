@@ -588,6 +588,55 @@ namespace Radios.Tests
             Assert.DoesNotContain("What is the kettle plugged into right now?", html);
         }
 
+        [Fact]
+        public void Live_choices_override_the_static_ones_when_supplied()
+        {
+            // Remotely the honest ANSWERS change, not just the question
+            // (#247): the transmit set swaps in choices that say whose word
+            // the answer carries. Read at render time, like the question.
+            var set = Kettle(Answering("wet"), Answering("hot"));
+            set.RunDeclarations[0].ChoicesNow = () => new[]
+            {
+                new FixerDeclarationChoice("mains",
+                    "The mains — someone at the house has confirmed it"),
+            };
+
+            string html = FixerPage.Render(new FixerRun(set));
+            Assert.Contains("The mains — someone at the house has confirmed it", html);
+            Assert.DoesNotContain("data-what=\"A generator\"", html);
+        }
+
+        [Fact]
+        public void Choices_that_cannot_be_read_fall_back_to_the_static_ones()
+        {
+            // A question with no answers is a shut gate with no handle — the
+            // declaration must never render answerless because a live read
+            // threw or came back empty.
+            var set = Kettle(Answering("wet"), Answering("hot"));
+            set.RunDeclarations[0].ChoicesNow =
+                () => throw new InvalidOperationException("radio gone");
+            Assert.Contains("data-what=\"A generator\"",
+                            FixerPage.Render(new FixerRun(set)));
+
+            set.RunDeclarations[0].ChoicesNow = () => Array.Empty<FixerDeclarationChoice>();
+            Assert.Contains("data-what=\"A generator\"",
+                            FixerPage.Render(new FixerRun(set)));
+        }
+
+        [Fact]
+        public void Live_why_text_overrides_the_static_one_when_supplied()
+        {
+            // The remote why-text tells the operator their answer goes in the
+            // record with its provenance, before they give it (#247).
+            var set = Kettle(Answering("wet"), Answering("hot"));
+            set.RunDeclarations[0].WhyItMattersNow =
+                () => "Your answer goes in the record, with whose word it is on.";
+
+            string html = FixerPage.Render(new FixerRun(set));
+            Assert.Contains("Your answer goes in the record, with whose word it is on.",
+                            html);
+        }
+
         // -------- host notices and run-versus-run-again --------
 
         [Fact]

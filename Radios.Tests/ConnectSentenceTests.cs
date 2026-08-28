@@ -115,6 +115,77 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // A SmartLink account pass is not a connect (task #294)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The picker's SmartLink passes get their own words, about the ACCOUNT.
+        /// </summary>
+        /// <remarks>
+        /// <para>They ran in SILENCE until this task. The window they borrowed
+        /// worked out its own subject by scraping "Connecting to SmartLink..."
+        /// for a "Connecting to " prefix, so it believed it was connecting to a
+        /// radio named "SmartLink" — and the #212 heartbeat therefore had to be
+        /// gated off there rather than announce "Still connecting to radio."
+        /// about an account refresh.</para>
+        /// <para>So the operator pressed something, an account refresh ran for
+        /// seconds, and nothing said it was happening. A blind operator has no
+        /// spinner: that is indistinguishable from a keypress that did
+        /// nothing.</para>
+        /// </remarks>
+        [Fact]
+        public void An_account_pass_names_the_account_and_not_a_radio()
+        {
+            Assert.Equal("Refreshing the radio list for noel@example.com.",
+                Lexicon.Get("connect.selector.refreshing_for_account", ("email", "noel@example.com")));
+            Assert.Equal("Connecting to SmartLink as noel@example.com.",
+                Lexicon.Get("connect.selector.connecting_as_account", ("email", "noel@example.com")));
+        }
+
+        /// <summary>
+        /// The heartbeat that covers an account pass, in the same shape as every
+        /// other one: Terse bare, Chatty adding the object — which here is the
+        /// account, because that is what is being waited on.
+        /// </summary>
+        [Fact]
+        public void The_account_pass_heartbeats_say_the_operation_then_the_account()
+        {
+            Assert.Equal("Still refreshing.",
+                Lexicon.Get("connect.selector.still_refreshing_terse"));
+            Assert.Equal("Still refreshing the radio list for noel@example.com.",
+                Lexicon.Get("connect.selector.still_refreshing_chatty", ("email", "noel@example.com")));
+
+            Assert.Equal("Still reaching SmartLink.",
+                Lexicon.Get("connect.selector.still_reaching_smartlink_terse"));
+            Assert.Equal("Still reaching SmartLink as noel@example.com.",
+                Lexicon.Get("connect.selector.still_reaching_smartlink_chatty", ("email", "noel@example.com")));
+        }
+
+        /// <summary>
+        /// None of them may say "radio" in the singular subject position — the
+        /// exact sentence the borrowed window would have produced was "Still
+        /// connecting to radio.", and that word appearing here would mean the
+        /// borrowing had crept back in under new keys.
+        /// </summary>
+        [Fact]
+        public void No_account_pass_line_claims_to_be_connecting_to_a_radio()
+        {
+            string[] lines =
+            {
+                Lexicon.Get("connect.selector.still_refreshing_terse"),
+                Lexicon.Get("connect.selector.still_refreshing_chatty", ("email", "noel@example.com")),
+                Lexicon.Get("connect.selector.still_reaching_smartlink_terse"),
+                Lexicon.Get("connect.selector.still_reaching_smartlink_chatty", ("email", "noel@example.com")),
+            };
+
+            foreach (var line in lines)
+            {
+                Assert.DoesNotContain("to radio", line, System.StringComparison.OrdinalIgnoreCase);
+                Assert.EndsWith(".", line, System.StringComparison.Ordinal);
+            }
+        }
+
+        // ------------------------------------------------------------------
         // Failing, and stopping, are different things
         // ------------------------------------------------------------------
 

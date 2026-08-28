@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Windows;
@@ -12,6 +13,7 @@ using Microsoft.Web.WebView2.Wpf;
 using Radios;
 using Radios.ChainChecks;
 using Radios.Fixer;
+using Radios.Fixer.Evidence;
 
 namespace JJFlexWpf.Dialogs;
 
@@ -57,6 +59,22 @@ public sealed class FixerDialog : JJFlexDialog
     private readonly FixerPageState _state = new();
     private readonly Func<FlexBase?> _radio;
 
+    /// <summary>
+    /// The evidence layer: the run writes itself to disk as it goes (#251).
+    /// </summary>
+    /// <remarks>
+    /// <b>The whole of the dialog's side of persistence is these six calls</b>
+    /// — one at construction, one after each of the four things the engine
+    /// records, and <c>End</c> on every close path. Nothing here can throw and
+    /// nothing here can change what the run does; the kit swallows its own
+    /// failures because a diagnostic must never be taken down by the machinery
+    /// that files it. Until Sprint 37 this field did not exist and
+    /// <c>FixerEvidenceKit.Begin</c> had no callers anywhere, so every store,
+    /// journal, fingerprint and viewer downstream of it was working perfectly
+    /// on nothing at all.
+    /// </remarks>
+    private readonly FixerEvidenceKit _evidence;
+
     private readonly System.Collections.Generic.Dictionary<string, string> _declarations =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Collections.Generic.Dictionary<string, string> _notices =
@@ -81,10 +99,17 @@ public sealed class FixerDialog : JJFlexDialog
     /// <summary>True when this dialog believes a stage is running right now.</summary>
     private bool RunInProgress => _stageCancel != null;
 
-    private FixerDialog(Func<FlexBase?> radio)
+    private FixerDialog(Func<FlexBase?> radio, FixerRunRecord? resumeFrom)
     {
         _radio = radio;
         _gate = new FixerTransmitGate();
+
+        // The kill switch's alarm earcon lives in this assembly and the switch
+        // lives in Radios, so somebody has to hand it over. Done here as well
+        // as in the PTT controller's own constructor because this dialog can
+        // open when no controller was ever built — and a kill that cannot make
+        // a sound is half a kill. Idempotent.
+        PttSafetyController.EnsureKillWiring();
 
         // #236's middle option: every gate-keyed transmit arms the PTT safety
         // controller's LIVE reflected-power watch for its duration. The gate
@@ -123,21 +148,14 @@ public sealed class FixerDialog : JJFlexDialog
             // The dialog's stage-timeout token, polled — the host delegate
             // signatures carry no CancellationToken, and this is the only
             // road the 120-second ceiling has into a keyed stage.
-            stopRequested: () =>
-            {
-                CancellationTokenSource? c = _stageCancel;
-                try { return c != null && c.IsCancellationRequested; }
-                catch (ObjectDisposedException) { return true; }
-            },
+            stopRequested: StageStopRequested,
             // Spoken while the UI thread is blocked inside the stage, which
             // is exactly why it is speech: the page cannot render a notice
-            // until the stage is over, and the moment to speak is now.
-            speakNow: () => ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.fixer.speak_now"),
-                VerbosityLevel.Critical, interrupt: true),
-            speakDone: () => ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.fixer.speak_done"),
-                VerbosityLevel.Critical, interrupt: true),
+            // until the stage is over, and the moment to speak is now. Every
+            // stage cue goes through Cue() — one helper, so a new stage
+            // cannot grow its own wiring beside it (#255).
+            speakNow: Cue("audio.fixer.speak_now"),
+            speakDone: Cue("audio.fixer.speak_done"),
             // The transmit countdown (#261): tones, not speech, so the count
             // cannot be flushed by the spoken cue's interrupt. The sound is
             // Track G's; FixerCountdown is the seam.
@@ -147,10 +165,23 @@ public sealed class FixerDialog : JJFlexDialog
         {
             // WIRED. The transmit boundary, consulting the gate before anything
             // keys. This is the stage Don needs today.
+            //
+            // With the same cues as the other keying stages (#255): stage 2
+            // used to key in total silence while blocking the UI thread — the
+            // speak pair was built for stage 4, the countdown for stages 3
+            // and 4, and this stage got neither. The countdown is the warning
+            // that RF is imminent (Noel's ruling for stage 3 applies with the
+            // same force here: the operator does nothing, and the count is
+            // the only cue before a live transmitter); the spoken pair says
+            // it is a tune carrier and that nothing is wanted of them.
             ProbeTransmitter = FixerTransmitBoundary.ProbeTransmitter(
                 _gate,
                 () => _radio() ?? null!,
-                TransmitStageSet.TransmitterCheck),
+                TransmitStageSet.TransmitterCheck,
+                speakNow: Cue("audio.fixer.tune_now"),
+                speakDone: Cue("audio.fixer.speak_done"),
+                countdown: FixerCountdown.TransmitTone,
+                stopRequested: StageStopRequested),
 
             // WIRED. What the operator said the antenna socket is connected to.
             // Read from the gate rather than from our own copy, so the value in
@@ -189,12 +220,8 @@ public sealed class FixerDialog : JJFlexDialog
                 new FixerHostWiring.MicCueHooks
                 {
                     Countdown = FixerCountdown.RecordTone,
-                    SpeakListenNow = () => ScreenReaderOutput.Speak(
-                        Lexicon.Get("audio.fixer.listen_now"),
-                        VerbosityLevel.Critical, interrupt: true),
-                    SpeakListenDone = () => ScreenReaderOutput.Speak(
-                        Lexicon.Get("audio.fixer.listen_done"),
-                        VerbosityLevel.Critical, interrupt: true),
+                    SpeakListenNow = Cue("audio.fixer.listen_now"),
+                    SpeakListenDone = Cue("audio.fixer.listen_done"),
                 })),
 
             // WIRED. The five fixes stage 0 offers at the point of detection.
@@ -225,7 +252,23 @@ public sealed class FixerDialog : JJFlexDialog
             // any of them ever goes missing again.
         };
 
-        _run = new FixerRun(TransmitStageSet.Build(hosts));
+        FixerStageSet set = TransmitStageSet.Build(hosts);
+
+        // A resumed run keeps its Test ID, its start time and every result it
+        // already had; a fresh one gets a new ID. Either way the evidence layer
+        // opens around it here, and from this point the run is writing itself
+        // to disk on every recording rather than living only in memory until
+        // the window closes.
+        if (resumeFrom == null)
+        {
+            _run = new FixerRun(set);
+            _evidence = FixerEvidenceKit.Begin(_run, _radio);
+        }
+        else
+        {
+            _run = FixerRun.Resume(set, FixerRunRehydrator.Rehydrate(resumeFrom));
+            _evidence = FixerEvidenceKit.Resume(_run, _radio, resumeFrom);
+        }
         _gate.BeginRun(_run.RunId);
 
         // NAMED BY THE CHECK, NOT BY THE TOOL. Noel, 2026-08-25: the operator
@@ -244,6 +287,34 @@ public sealed class FixerDialog : JJFlexDialog
 
         Loaded += OnLoaded;
         Closing += OnClosing;
+    }
+
+    /// <summary>
+    /// One spoken cue for a blocking stage, from the lexicon, at Critical with
+    /// interrupt — the register every stage cue uses.
+    /// </summary>
+    /// <remarks>
+    /// The one shared helper #255 asked for. The speak pair was invented for
+    /// stage 4, then re-wired by hand for stage 1, and stage 2 got nothing —
+    /// the fifth instance in one session of "the machinery exists and the next
+    /// author built beside it". A stage cue that is not a <c>Cue(key)</c> call
+    /// is now visibly odd in a diff, which is the point.
+    /// </remarks>
+    private static Action Cue(string lexiconKey)
+        => () => ScreenReaderOutput.Speak(Lexicon.Get(lexiconKey),
+                                          VerbosityLevel.Critical, interrupt: true);
+
+    /// <summary>
+    /// Has this stage's cancellation fired? Polled by the boundaries — the
+    /// host delegate signatures carry no CancellationToken, and this is the
+    /// only road the 120-second ceiling has into a keyed stage. One method,
+    /// shared by every boundary, so their answers cannot differ.
+    /// </summary>
+    private bool StageStopRequested()
+    {
+        CancellationTokenSource? c = _stageCancel;
+        try { return c != null && c.IsCancellationRequested; }
+        catch (ObjectDisposedException) { return true; }
     }
 
     /// <summary>
@@ -472,7 +543,10 @@ public sealed class FixerDialog : JJFlexDialog
     /// an operator whose transmit is broken must not also be told their browser
     /// runtime is missing and left with nothing.
     /// </summary>
-    public static void Show(Func<FlexBase?> radio, Window? owner = null)
+    /// <param name="resumeFrom">A saved run to continue, from the saved check
+    /// runs list. Null starts a fresh run.</param>
+    public static void Show(Func<FlexBase?> radio, Window? owner = null,
+                            FixerRunRecord? resumeFrom = null)
     {
         if (!HtmlInfoDialog.IsAvailable)
         {
@@ -483,9 +557,60 @@ public sealed class FixerDialog : JJFlexDialog
             return;
         }
 
-        var dialog = new FixerDialog(radio);
+        // Refused BEFORE anything opens, not part-way through. A run recorded
+        // against a different set of checks cannot be continued honestly, and
+        // discovering that after the window is up would leave the operator in a
+        // live run that is quietly not being recorded.
+        if (resumeFrom != null && WhyItCannotBeResumed(resumeFrom) is { Length: > 0 } refusal)
+        {
+            AdvisoryDialog.Show("Transmit checks — JJ Flexible", refusal);
+            return;
+        }
+
+        var dialog = new FixerDialog(radio, resumeFrom);
         if (owner != null) dialog.Owner = owner;
         dialog.ShowModalDialog();
+    }
+
+    /// <summary>
+    /// Why a saved run cannot be continued, in words for the operator, or
+    /// empty when it can.
+    /// </summary>
+    /// <remarks>
+    /// The stage set is built with no hosts to read its shape — that
+    /// construction is pure data and touches no radio and no audio device.
+    /// </remarks>
+    internal static string WhyItCannotBeResumed(FixerRunRecord record)
+    {
+        if (record == null) return "There is no saved run to continue.";
+
+        try
+        {
+            FixerStageSet set = TransmitStageSet.Build(null);
+
+            if (!string.Equals(record.StageSetId, set.Id, StringComparison.OrdinalIgnoreCase))
+                return "Run " + record.RunId + " is a set of " + record.StageSetName
+                     + " checks, and this is the " + set.Name + " checks. It can still be "
+                     + "read and exported from the saved check runs list.";
+
+            string was = string.Join(", ", record.Stages.Select(s => s.Id));
+            string now = string.Join(", ", set.Stages.Select(s => s.Id));
+            if (!string.Equals(was, now, StringComparison.OrdinalIgnoreCase))
+                return "Run " + record.RunId + " was recorded with a different set of checks "
+                     + "from the ones this version of JJ Flexible offers, so continuing it "
+                     + "would mix measurements from two different tests. It can still be read "
+                     + "and exported from the saved check runs list.";
+
+            return "";
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: could not decide whether run " + record.RunId
+                              + " is resumable — " + ex.Message, TraceLevel.Warning);
+            return "Whether run " + record.RunId + " can be continued could not be worked "
+                 + "out, so it has not been opened. It can still be read and exported from "
+                 + "the saved check runs list.";
+        }
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -657,6 +782,8 @@ document.addEventListener('keydown', function (e) {
                                   TransmitStageSet.LoadKindFromChoice(m.Choice),
                                   declaredRemotely: RigIsRemote());
                 _declarations[TransmitStageSet.LoadDeclaration] = m.Value;
+                _evidence.DeclarationRecorded(TransmitStageSet.LoadDeclaration,
+                                              m.Choice, m.Value);
                 Tracing.TraceLine("FixerDialog: load declared as \"" + m.Value + "\" ("
                                   + _gate.LoadKind
                                   + (_gate.LoadDeclaredRemotely ? ", remote" : "") + ")",
@@ -670,6 +797,8 @@ document.addEventListener('keydown', function (e) {
                 // into the report. Fed into stage 0's facts on its next run.
                 _hearing = TransmitStageSet.HearingFromChoice(m.Choice);
                 _declarations[TransmitStageSet.HearingDeclaration] = m.Value;
+                _evidence.DeclarationRecorded(TransmitStageSet.HearingDeclaration,
+                                              m.Choice, m.Value);
                 Tracing.TraceLine("FixerDialog: hearing declared as \"" + m.Value + "\" ("
                                   + _hearing + ")", TraceLevel.Info);
                 Render();
@@ -700,7 +829,11 @@ document.addEventListener('keydown', function (e) {
                                     + "kept. To measure again, choose Run this check again.");
                     return;
                 }
-                _run.SkipStage(m.StageId, m.Value);
+                // Recorded to disk like any other result. A skip carries its
+                // reason and the reason is evidence — the report says what was
+                // not done and why, and that half must survive the window
+                // closing as much as a measurement does.
+                _evidence.StageRecorded(_run.SkipStage(m.StageId, m.Value));
                 // Skipping is a decision about this stage; the operator's next
                 // question is the following stage, so the current-stage marker
                 // moves forward with them.
@@ -717,7 +850,7 @@ document.addEventListener('keydown', function (e) {
 
             case FixerPageMessage.Kind.ApplyFix:
                 // The wire carries the FINDING id, which is what ApplyFix takes.
-                _run.ApplyFix(m.StageId, m.Value);
+                _evidence.FixRecorded(_run.ApplyFix(m.StageId, m.Value));
                 _state.SelectedStageId = m.StageId;
                 Render();
                 return;
@@ -739,6 +872,12 @@ document.addEventListener('keydown', function (e) {
                 // does not grow one of its own.
                 Notice("", "Opening the audio device list.");
                 OpenDevicePicker();
+                return;
+
+            case FixerPageMessage.Kind.OpenPowerDialog:
+                // Power belongs to PowerDialog. The page asks; it does not
+                // grow a number box of its own (#250).
+                OpenPowerDialog();
                 return;
         }
     }
@@ -821,6 +960,12 @@ document.addEventListener('keydown', function (e) {
 
         if (r != null)
         {
+            // Persisted HERE, the moment the engine returns the result — not
+            // on close. The close path is also the abandon path, and a crash
+            // loses everything either way; on the transmitting stages the
+            // measurement was paid for with RF.
+            _evidence.StageRecorded(r);
+
             Tracing.TraceLine("FixerDialog: stage " + stageId + " -> " + r.Status
                               + (again ? " (re-run)" : ""), TraceLevel.Info);
 
@@ -888,7 +1033,20 @@ document.addEventListener('keydown', function (e) {
     private void Stop(FixerAbort.Source source)
     {
         bool keyed = _gate.InFlight || RigIsKeyed();
-        FixerAbort.Plan plan = FixerAbort.Decide(keyed, source, RunInProgress);
+        // The result count is what makes the question honest (#250): a stop
+        // between stages used to end the run and every recorded measurement
+        // silently.
+        //
+        // MERGE NOTE (Sprint 37): resultsAreKept is FALSE on this branch
+        // because nothing here persists the run. The persistence track wires
+        // FixerEvidenceKit into this dialog in the same sprint; once its
+        // field lands, pass the kit's own signal (its Record property is
+        // non-null exactly when the journal is live) so the question stops
+        // threatening a discard that will not happen — and never a constant
+        // true, because the journal can fail to set up.
+        FixerAbort.Plan plan = FixerAbort.Decide(keyed, source, RunInProgress,
+                                                 _run.ResultsInRunOrder.Count,
+                                                 resultsAreKept: false);
 
         Tracing.TraceLine("FixerDialog: stop from " + source + ", keyed=" + keyed
                           + ", run=" + RunInProgress, TraceLevel.Info);
@@ -920,10 +1078,24 @@ document.addEventListener('keydown', function (e) {
     /// Drop the carrier by every route we have, and never throw.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Cancelling the stage is what normally stops it, because the runner
     /// unkeys in its own finally. The direct writes are the backstop for a
     /// runner that is wedged, and they are attempted independently: a
     /// transmitter left keyed is worse than any exception this could raise.
+    /// </para>
+    /// <para>
+    /// <b>Every route into here needs the dispatcher, so none of them can
+    /// arrive while a keying stage is running.</b> The page's Stop and its
+    /// Escape are WebView2 messages; <c>OnPreviewKeyDown</c> is a WPF event;
+    /// the closing handler is a window event. All of them queue behind the
+    /// synchronous stage. That is why the kill also has a route that does not
+    /// come through here at all — see <see cref="TransmitKillSwitch"/> — and
+    /// why this hands the request to it rather than keeping a second unkey of
+    /// its own. When a check is armed the switch owns the confirmation and the
+    /// words; when nothing is armed it is a no-op and the direct writes below
+    /// are all that happen, silently, which is right.
+    /// </para>
     /// </remarks>
     private void UnkeyNow()
     {
@@ -932,11 +1104,9 @@ document.addEventListener('keydown', function (e) {
         FlexBase? rig = null;
         try { rig = _radio(); } catch { }
 
-        if (rig != null)
-        {
-            try { rig.TxTune = false; } catch { }
-            try { rig.Transmit = false; } catch { }
-        }
+        TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Tune);
+        TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Mox);
+        TransmitKillSwitch.Request(TransmitKillSwitch.Source.HostRequest);
 
         _gate.NoteUnkeyed();
     }
@@ -973,6 +1143,10 @@ document.addEventListener('keydown', function (e) {
     private void Abandon()
     {
         _gate.AbortRun();
+        // Stamped as abandoned, and the word matters: the saved-runs list
+        // offers an abandoned run for resumption, which is what stops walking
+        // away to look something up from destroying the sitting (#250).
+        _evidence.End("abandoned");
         _closing = true;
         if (DialogResult == null) CloseWithResult(false);
         else Close();
@@ -980,11 +1154,19 @@ document.addEventListener('keydown', function (e) {
 
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        if (_closing || _initFailed) return;
+        // End is idempotent and the first caller's word wins, so every close
+        // path can call it without knowing about the others — including the
+        // failed-init path, and the one where Abandon has already stamped its
+        // own reason.
+        if (_closing || _initFailed) { _evidence.End("closed"); return; }
 
         bool keyed = _gate.InFlight || RigIsKeyed();
+        // MERGE NOTE (Sprint 37): resultsAreKept false for the same reason as
+        // in Stop() — see the note there.
         FixerAbort.Plan plan = FixerAbort.Decide(keyed, FixerAbort.Source.WindowClosing,
-                                                 RunInProgress);
+                                                 RunInProgress,
+                                                 _run.ResultsInRunOrder.Count,
+                                                 resultsAreKept: false);
 
         // Whatever else the plan says, if the carrier is up it comes down —
         // and it comes down here rather than after the window has gone.
@@ -992,11 +1174,16 @@ document.addEventListener('keydown', function (e) {
 
         if (plan.Asks && !AskAbandon(plan.Announcement))
         {
+            // The operator chose to stay. NOTHING is stamped: a run marked
+            // ended while it is still live would put a false close time on a
+            // sitting that is still going, which is the one thing a record of
+            // when measurements happened must never do.
             e.Cancel = true;
             return;
         }
 
         _gate.AbortRun();
+        _evidence.End("closed");
     }
 
     /// <summary>
@@ -1079,9 +1266,21 @@ document.addEventListener('keydown', function (e) {
     {
         // Plain text, because the destination is an email to FlexRadio. Nobody
         // should have to paste rendered HTML into a mail client and hope.
+        //
+        // And the SAME document the saved-runs list exports, once there is a
+        // saved run to build it from: the radio's identity and the conditions
+        // each measurement was taken under wrapped around the report (#217).
+        // Two buttons called Copy that produce two different documents is how
+        // an operator ends up sending the thin one to a support desk. Before
+        // anything has been recorded there is no record to wrap, and the
+        // report alone is the honest answer.
         try
         {
-            Clipboard.SetText(FixerReport.PlainText(_run));
+            FixerRunRecord? saved = _evidence.Record;
+            string text = saved != null && saved.ReportText.Length > 0
+                ? FixerRunExport.PlainText(saved)
+                : FixerReport.PlainText(_run);
+            Clipboard.SetText(text);
             ToPage("status", "The report is on the clipboard, as plain text, "
                            + "ready to paste into an email.");
         }
@@ -1111,6 +1310,44 @@ document.addEventListener('keydown', function (e) {
                               TraceLevel.Warning);
             ToPage("status", "That help page could not be opened.");
         }
+    }
+
+    private void OpenPowerDialog()
+    {
+        // #250: the transmitting stages name the power they will use, and the
+        // next thing an operator wants is to change it. The Fixer is modal, so
+        // "go to the main window" used to cost the whole run. PowerDialog is
+        // the app's one home for power — XVTR-aware, limit-checked, and it
+        // applies live and speaks each change — so the page hands off to it
+        // exactly as it hands off to the device picker.
+        //
+        // Nothing is spoken before it opens: a screen reader flushes its
+        // queue on a window change, so the arriving window carries its own
+        // announcement.
+        FlexBase? rig;
+        try { rig = _radio(); } catch { rig = null; }
+        if (rig == null)
+        {
+            ToPage("status", "No radio is connected, so there is no power to change.");
+            return;
+        }
+
+        try
+        {
+            var dlg = new PowerDialog(rig) { Owner = this };
+            dlg.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: power dialog failed — " + ex.Message,
+                              TraceLevel.Warning);
+            ToPage("status", "The power window could not be opened.");
+        }
+
+        // The stage sentences carry tune and RF power, and either may just
+        // have moved — re-render so the page tells the truth, and focus
+        // returns to the current stage's heading.
+        Render();
     }
 
     private void OpenDevicePicker()

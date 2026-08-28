@@ -274,6 +274,15 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_power_dialog_is_asked_for_not_built()
+        {
+            // Power belongs to PowerDialog — XVTR-aware and limit-checked. The
+            // page asks the host to open it rather than growing a number box
+            // of its own (#250).
+            Assert.Equal(Kind.OpenPowerDialog, Parse("{\"kind\":\"open-power-dialog\"}").What);
+        }
+
+        [Fact]
         public void Every_kind_can_be_produced_by_some_message()
         {
             // A kind nothing can produce is one that will drift out of step with
@@ -328,6 +337,7 @@ namespace Radios.Tests
             yield return "{\"kind\":\"copy-report\"}";
             yield return "{\"kind\":\"open-help\",\"topic\":\"t\"}";
             yield return "{\"kind\":\"open-device-picker\"}";
+            yield return "{\"kind\":\"open-power-dialog\"}";
         }
 
         private static FixerPageMessage ProduceFault(Fault f)

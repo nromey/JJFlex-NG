@@ -38,6 +38,47 @@ public static class KeyInventory
         public string Context { get; init; } = "";
         public string ContextLabel { get; init; } = "";
         public string KeyDisplay { get; init; } = "";
+
+        /// <summary>
+        /// How this key is SPOKEN, when that cannot be the same string as how
+        /// it is written. Empty means the two are the same, which is the case
+        /// for all but a handful of rows.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why a second string exists at all (#303).</b> KeyDisplay is both
+        /// shown and read aloud, and two rows carry a bare "?". A literal
+        /// question mark may not be voiced AT ALL when a screen reader's
+        /// punctuation level is set low — so the row that tells an operator
+        /// which key to press is exactly the row that can lose the key.
+        /// </para>
+        /// <para>
+        /// <b>The convention this serves, which outlives the two rows:</b>
+        /// anywhere the app tells somebody to PRESS a punctuation key, name
+        /// the KEYSTROKE, not the glyph. "Shift slash", never "?" and never
+        /// "question mark". It is the better wording even at high punctuation,
+        /// because it is what the hands do; "question mark" names a character
+        /// and leaves the operator to work out how to produce it.
+        /// </para>
+        /// <para>
+        /// <b>Why the display form cannot simply be replaced.</b> The leader
+        /// row's KeyDisplay is PARSED — <see cref="Radios.LeaderChordParser"/>
+        /// turns "Ctrl+J, H or ?" into the chords the dispatcher switches on,
+        /// and the consistency test compares both directions against the
+        /// switch. Rewriting the glyph out of it would silently un-advertise
+        /// Oem2 and break the very check that caught the dead "?" (#183). So
+        /// the display form stays machine-readable and this one is what an
+        /// operator hears.
+        /// </para>
+        /// </remarks>
+        public string KeySpoken { get; init; } = "";
+
+        /// <summary>
+        /// The form to put in front of a screen reader: <see cref="KeySpoken"/>
+        /// where a row defines one, otherwise <see cref="KeyDisplay"/>.
+        /// </summary>
+        public string SpokenKey => KeySpoken.Length > 0 ? KeySpoken : KeyDisplay;
+
         public string Description { get; init; } = "";
         public string[] Keywords { get; init; } = Array.Empty<string>();
         public string Scope { get; init; } = "Radio";
@@ -155,14 +196,33 @@ public static class KeyInventory
             new[] { "transmit", "frequency", "show", "tx" }),
 
         // ── Frequency field, Modern tuning ──
+        //
+        // One rule holds the four arrow rows together (#302): VERTICAL TUNES,
+        // HORIZONTAL SIZES; PLAIN IS COARSE, MODIFIED IS FINE. Learning either
+        // half teaches the other. The coarse SIZING pair carries Alt because
+        // bare Left / Right is the HomeNav cursor row and belongs to the whole
+        // Home surface in both tuning modes; the fine sizing pair keeps plain
+        // Shift so it mirrors Shift+Up / Shift+Down exactly.
+        //
+        // Order matters here — these rows are read out in sequence by Ctrl+F1.
+        // Tune first, then size, then the ways to type, hear and set.
         new("Freq.Modern", "Frequency field (Modern tuning)", "Up / Down", "Tune by your coarse step",
             new[] { "tune", "coarse", "step" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+Up / Shift+Down", "Tune by your fine step",
             new[] { "tune", "fine", "step" }),
+        new("Freq.Modern", "Frequency field (Modern tuning)", "Alt+Left / Alt+Right", "Make your coarse step smaller or larger",
+            new[] { "step", "coarse", "size", "smaller", "larger", "bigger", "change", "set",
+                    "increment", "tuning", "alt" }),
+        new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+Left / Shift+Right", "Make your fine step smaller or larger",
+            new[] { "step", "fine", "size", "smaller", "larger", "bigger", "change", "set",
+                    "increment", "tuning", "shift" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Digits", "Type a frequency, then Enter to apply",
             new[] { "frequency", "enter", "type", "digits" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "F", "Speak the current frequency",
             new[] { "frequency", "speak", "read" }),
+        new("Freq.Modern", "Frequency field (Modern tuning)", "S", "Choose both step sizes from a list",
+            new[] { "step", "steps", "size", "sizes", "coarse", "fine", "choose", "pick", "set",
+                    "list", "picker", "tuning" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+S", "Speak the coarse and fine step sizes",
             new[] { "step", "speak", "coarse", "fine" }),
 
@@ -259,7 +319,8 @@ public static class KeyInventory
         new("HomeNav", "JJ Flexible Home", "Page Down", "Jump to the Frequency field (where the field itself doesn't use Page Down)",
             new[] { "navigate", "frequency", "jump" }),
         new("HomeNav", "JJ Flexible Home", "?", "Speak the keys for the field you're on",
-            new[] { "help", "keys", "question", "field", "speak" }),
+            new[] { "help", "keys", "question", "shift slash", "field", "speak" })
+            { KeySpoken = "Shift slash" },
         new("HomeNav", "JJ Flexible Home", "Shift+M", "Mute or unmute every slice at once",
             new[] { "mute", "all", "slices" }),
         new("HomeNav", "JJ Flexible Home", "Shift+Comma", "Release every slice except the first",
@@ -340,6 +401,17 @@ public static class KeyInventory
                     "qsb", "fade", "fading", "fades", "flutter", "swing", "strength",
                     "smeter", "meter", "report", "peak", "trough", "average", "trend",
                     "rising", "falling", "coming", "up", "down", "leader" }, "Radio", "General"),
+        // Sprint 37 Track G (#306) — the same meter, read in dBm, with no mode
+        // to be in the wrong one of. Ctrl+S because the chord echoes the flat
+        // key it relates to: Ctrl+S reads S-units, this reads dBm. Sits beside
+        // the S-family DSP toggles on purpose; the description says "signal
+        // strength" so a search for either idea finds it.
+        new("Leader", "Leader key", "Ctrl+J, Ctrl+S",
+            "Speak the signal strength in dBm — the same meter as Ctrl+S, finer, and no mode to leave",
+            new[] { "dbm", "db", "signal", "strength", "smeter", "meter", "s-meter", "level",
+                    "precise", "precision", "fine", "exact", "units", "s", "reading",
+                    "antenna", "compare", "comparison", "weak", "strong", "leader" },
+            "Radio", "General"),
         new("Leader", "Leader key", "Ctrl+J, A", "Toggle Auto Notch",
             new[] { "anf", "auto", "notch", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
@@ -347,6 +419,16 @@ public static class KeyInventory
         // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
         new("Leader", "Leader key", "Ctrl+J, V", "Enter volume mode: pick a target letter, arrows adjust, Escape exits",
             new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "adjust", "mode", "leader" }, "Radio", "Audio"),
+        // Sprint 37 Track C (#304) — the fine stereo-pan control, as a value
+        // sub-layer (#305). Alt+P: plain P is APF, Shift+P the Speech
+        // Processor, and Ctrl+P is skipped on purpose — flat Ctrl+P is the
+        // FREQUENCY panning field, which shares a word with stereo pan and
+        // nothing else.
+        new("Leader", "Leader key", "Ctrl+J, Alt+P",
+            "Enter pan mode: left and right arrows place the slice in the stereo field, Enter keeps it, Escape puts it back",
+            new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
+                    "placement", "position", "field", "audio", "slice", "separate", "separation",
+                    "apart", "ear", "mode", "leader" }, "Radio", "Audio"),
         // Audio Arc Keys Track (2026-08-11) — the mic check and the tone generator.
         new("Leader", "Leader key", "Ctrl+J, K", "Mic check: speak your mic-audio verdict and level, nothing else",
             new[] { "mic", "check", "microphone", "audio", "level", "verdict", "gain", "query",
@@ -435,8 +517,13 @@ public static class KeyInventory
         new("Leader", "Leader key", "Ctrl+J, Shift+A through Shift+H", "Jump to that slice from anywhere (Shift+F is reserved)",
             new[] { "slice", "jump", "leader", "letter" }, "Radio", "General")
             { ExcludedKeys = new[] { "Ctrl+J, Shift+F" } },
+        // ONE command, two keys — never two rows and never two descriptions,
+        // or an operator presses one expecting something other than the other.
+        // KeyDisplay keeps the glyph because LeaderChordParser reads it; the
+        // spoken form names the keystroke (#303).
         new("Leader", "Leader key", "Ctrl+J, H or ?", "List the leader key commands",
-            new[] { "leader", "help", "list" }, "Global", "help"),
+            new[] { "leader", "help", "list", "question", "shift slash" }, "Global", "help")
+            { KeySpoken = "Ctrl+J, H or Shift slash" },
         new("Leader", "Leader key", "Ctrl+J, Escape", "Cancel leader mode",
             new[] { "leader", "cancel", "escape" }, "Global", "help"),
     };
@@ -536,6 +623,25 @@ public static class KeyInventory
             new[] { "speech", "processor", "proc", "mode", "dx", "transmit" }, "Radio", "Transmit"),
         new("VolumeMode", "Volume mode", "Escape", "Leave volume mode",
             new[] { "volume", "mode", "escape", "exit", "cancel" }, "Radio", "Audio"),
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Pan mode keys (Ctrl+J, Alt+P, then these; the layer persists until
+    //  a closing key). Truth source: Radios.ValueSubLayer.HandleKey plus
+    //  the pan definition in KeyCommands.EnterPanMode — and the engine's
+    //  behaviour is unit-tested directly in Radios.Tests, which the
+    //  DoVolumeModeKey switch never was. Sprint 37 Track C, #304/#305.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] PanModeCommands =
+    {
+        new("PanMode", "Pan mode", "Left / Right", "Nudge the slice through the stereo field; Shift moves by one",
+            new[] { "pan", "stereo", "nudge", "left", "right", "fine", "place", "position" }, "Radio", "Audio"),
+        new("PanMode", "Pan mode", "Home or C", "Center the pan",
+            new[] { "pan", "center", "centre", "middle", "home" }, "Radio", "Audio"),
+        new("PanMode", "Pan mode", "Enter", "Keep the new pan and leave pan mode",
+            new[] { "pan", "keep", "confirm", "enter", "exit" }, "Radio", "Audio"),
+        new("PanMode", "Pan mode", "Escape", "Put the pan back where it was and leave pan mode",
+            new[] { "pan", "cancel", "restore", "undo", "back", "escape", "exit" }, "Radio", "Audio"),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -765,6 +871,7 @@ public static class KeyInventory
         foreach (var e in FilterChords) yield return e;
         foreach (var e in LeaderCommands) yield return e;
         foreach (var e in VolumeModeCommands) yield return e;
+        foreach (var e in PanModeCommands) yield return e;
         foreach (var e in AudioWorkshopKeys) yield return e;
         foreach (var e in CategoryNavigationKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;
@@ -783,9 +890,12 @@ public static class KeyInventory
         bool first = true;
         foreach (var e in LeaderCommands)
         {
-            string key = e.KeyDisplay.StartsWith("Ctrl+J, ", StringComparison.Ordinal)
-                ? e.KeyDisplay.Substring("Ctrl+J, ".Length)
-                : e.KeyDisplay;
+            // SpokenKey, not KeyDisplay: this string goes straight to a screen
+            // reader, and the help row's display form carries a bare "?" that
+            // low punctuation drops on the floor (#303).
+            string key = e.SpokenKey.StartsWith("Ctrl+J, ", StringComparison.Ordinal)
+                ? e.SpokenKey.Substring("Ctrl+J, ".Length)
+                : e.SpokenKey;
             if (!first) sb.Append("; ");
             sb.Append(key).Append(", ").Append(e.Description);
             first = false;
@@ -811,15 +921,21 @@ public static class KeyInventory
     public static List<(string key, string description)> HelpItemsFor(string fieldKey, bool modern)
     {
         var context = ContextFor(fieldKey, modern);
+        // SpokenKey throughout: ShowHelpDialog renders each row as ONE string
+        // that is both drawn and read aloud, so whatever goes in the key column
+        // has to survive a screen reader with punctuation set low (#303).
         var items = FieldKeys
             .Where(e => e.Context == context)
-            .Select(e => (e.KeyDisplay, e.Description))
+            .Select(e => (e.SpokenKey, e.Description))
             .ToList();
         if (items.Count == 0)
             items.Add(("This field is read-only", "no field-specific keys"));
         foreach (var u in UniversalHome)
-            items.Add((u.KeyDisplay, u.Description));
-        items.Add(("?", "speak this list"));
+            items.Add((u.SpokenKey, u.Description));
+        // Pulled from the row rather than retyped, so the key this list ends
+        // with and the key the inventory advertises cannot drift apart.
+        var speakList = HomeNavigation.FirstOrDefault(e => e.KeyDisplay == "?");
+        items.Add((speakList?.SpokenKey ?? "Shift slash", "speak this list"));
         return items;
     }
 
@@ -870,11 +986,11 @@ public static class KeyInventory
         }
         else
         {
-            sb.Append(string.Join(", ", specific.Select(e => $"{e.KeyDisplay} {e.Description}")));
+            sb.Append(string.Join(", ", specific.Select(e => $"{e.SpokenKey} {e.Description}")));
             sb.Append(". ");
         }
         sb.Append("Anywhere in Home: ");
-        sb.Append(string.Join(", ", UniversalHome.Select(e => $"{e.KeyDisplay} {e.Description}")));
+        sb.Append(string.Join(", ", UniversalHome.Select(e => $"{e.SpokenKey} {e.Description}")));
         sb.Append(", Shift+M mute all slices, Shift+Comma release extra slices.");
         return sb.ToString();
     }
@@ -896,7 +1012,10 @@ public static class KeyInventory
             result.Add(new Dialogs.CommandFinderItem
             {
                 Description = $"{e.Description} (on {e.ContextLabel})",
-                KeyDisplay = e.KeyDisplay,
+                // The Command Finder's key column is a rendered cell that a
+                // screen reader reads verbatim — one string serving eyes and
+                // ears, so it has to be the pronounceable one (#303).
+                KeyDisplay = e.SpokenKey,
                 Scope = e.Scope,
                 Group = e.Group,
                 Keywords = e.Keywords,

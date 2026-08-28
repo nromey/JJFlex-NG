@@ -1,256 +1,205 @@
+#nullable enable
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
-using System.Threading;
 using Radios;
+using Radios.Speech;
 using Xunit;
 
 namespace Radios.Tests
 {
-    /// <summary>
-    /// Test classes that drive the process-wide speech statics —
-    /// <c>ScreenReaderOutput</c>'s coalescer state and verbosity, and
-    /// <c>OutputChannelRecorder</c>'s global configuration.
-    ///
-    /// <para>Same mechanism, same reason as
-    /// <see cref="RadioConfigStaticsCollection"/>: xUnit runs test classes in
-    /// parallel, and two classes each calling
-    /// <c>OutputChannelRecorder.Configure</c> would repoint the one global
-    /// transcript out from under each other mid-test.
-    /// OutputChannelRecorderTests carried this constraint the way
-    /// KnownRadioRosterTests once did — "all tests live in this one class" —
-    /// a rule that holds only until somebody adds a second class. Sprint 35
-    /// Track M added one, so the comment becomes a mechanism now rather than
-    /// after the predicted failure.</para>
-    /// </summary>
-    [CollectionDefinition(Name)]
-    public sealed class SpeechOutputStaticsCollection
-    {
-        public const string Name = "Speech output statics";
-    }
-
     // ────────────────────────────────────────────────────────────────
-    //  Timing behaviour of the Latest-intent coalescer (Sprint 35 Track M).
+    //  Coalescer timing under a HELD or HAMMERED key — the multi-press
+    //  behaviours, as opposed to SpeechArbiterTests' boundary arithmetic.
     //
-    //  These tests run against WALL CLOCK, because that is all the coalescer
-    //  offers: its constants (CoalesceMs, SweepWindowMs, and the derived
-    //  anti-clip gap) feed System.Threading.Timer and DateTime.UtcNow
-    //  directly, so lead, settle and push-out cannot be exercised without
-    //  actually waiting. That gap is
-    //  itself a Track M finding, handed to Track L as a design: inject a
-    //  clock and timer factory into ScreenReaderOutput and these tests can be
-    //  rewritten on virtual time, exact and instant. Until then, every sleep
-    //  below carries a margin of at least 3x against the constant it races
-    //  (presses at 100 ms against a 300 ms timer), and no assertion depends
-    //  on a sleep being accurate — only on it being shorter or longer than a
-    //  constant by that margin.
+    //  PORTED TO THE INJECTED CLOCK 2026-08-27 (#285). This file ran on the
+    //  wall clock and took about twelve seconds, and its own header said it
+    //  should be rewritten once the clock seam existed. It was the last speech
+    //  test that slept; every neighbour in this directory had already moved.
     //
-    //  Why these are worth their ~12 seconds: on 2026-08-26 Don reported
-    //  Ctrl+S "just lags" when pressed repeatedly, and the mechanism was the
-    //  coalescer's push-out — each press within the sweep window restarts the
-    //  300 ms settle timer, so a hammered key is silent until released. That
-    //  is CORRECT for a swept value (the settle policy is documented and
-    //  deliberate) and wrong for an on-demand query key, which is what
-    //  repeatWhileHeld exists to express. These tests pin both halves: the
-    //  sweep contract stays as designed, and the repeatWhileHeld contract
-    //  actually delivers what its comment promises.
+    //  Why that mattered more than the twelve seconds. A wall-clock timing test
+    //  passes or fails partly on what else the machine was doing, which makes
+    //  it the natural candidate to become a test that fails only in the full
+    //  suite and teaches people to re-run rather than look — an instrument that
+    //  lies occasionally, in a sprint about instruments that lie. The sleeps
+    //  also could not assert what these tests actually claim: "silent until
+    //  released" was asserted by reading the transcript quickly enough, which
+    //  is a race dressed as an assertion. On virtual time it is a fact — advance
+    //  to one millisecond before the flush, assert silence, advance one more.
     //
-    //  Ctrl+S is the one production caller that passes the flag, and as of
-    //  2026-08-27 it is still the only one — verified across every
-    //  coalesceKey site. The other four (gain, volume, slice volume, value
-    //  field) are SWEPT values, where the settle policy is right and the
-    //  flag would reintroduce the periodic chatter removed on 2026-08-18.
-    //  ValueFieldControl says so at its own call site and answers the
-    //  end-of-range case with a tone instead.
+    //  The port also drops the transcript plumbing. These tests asserted
+    //  through a recorded JSONL file and a GUID message prefix, because they
+    //  drove the process-wide statics and could not reset what they could not
+    //  reach. Driving the arbiter directly, each test owns its own instance and
+    //  its own clock, so the collection serialisation, the temp files and the
+    //  prefix filtering are all gone with the sleeps.
     //
-    //  Each test uses its own coalesce key and a GUID message prefix, and
-    //  filters the transcript on that prefix — so a straggler timer from an
-    //  earlier test flushing into a later test's transcript is invisible, and
-    //  no test needs to reset coalescer state it cannot reach.
+    //  WHAT THEY PIN, unchanged in meaning by the port:
+    //  a swept value starves under a hammer and settles once on the final
+    //  value, and a QUERY key answers instead — which is #264's rule seen from
+    //  the hammering end. Ctrl+S is the one production Query call site.
     // ────────────────────────────────────────────────────────────────
-    [Collection(SpeechOutputStaticsCollection.Name)]
-    public class SpeechCoalescerTimingTests : IDisposable
+    public class SpeechCoalescerTimingTests
     {
-        private readonly string _path;
-        private readonly string _prefix;
+        private readonly FakeSpeechClock _clock = new();
+        private readonly List<(string Message, double AtMs)> _spoken = new();
+        private VerbosityLevel _verbosity = VerbosityLevel.Chatty;
 
-        // Mirrors of the arbiter's constants. If they change, these tests fail
-        // honestly (a settle arriving early or late) rather than silently
-        // testing stale timing.
-        //
-        // GapCeilingMs replaced a flat MinGapMs on 2026-08-27 (#282): the
-        // anti-clip gap is now derived per message and this is its upper
-        // bound, so it remains the right worst-case drain margin below —
-        // every real gap is this or shorter.
-        private const int CoalesceMs = 300;
-        private const int SweepWindowMs = 1200;
-        private const int GapCeilingMs = 1200;
+        private SpeechArbiter NewArbiter() => new SpeechArbiter(
+            _clock,
+            () => _verbosity,
+            (message, interrupt, intent, level, origin, salvaged) =>
+            {
+                _spoken.Add((message, _clock.ElapsedMs));
+                return true;
+            },
+            () => { },
+            (message, level, intent, origin) => { });
 
-        public SpeechCoalescerTimingTests()
+        /// <summary>
+        /// Press a key n times at <paramref name="everyMs"/> intervals, texts
+        /// numbered from 1. Mirrors a real key repeat: press, then let time
+        /// pass, so a timer coming due between presses fires between them.
+        /// </summary>
+        private void Hammer(SpeechArbiter a, string key, string stem,
+            SpeechCoalesceKind kind, int presses, int everyMs)
         {
-            string dir = Path.Combine(Path.GetTempPath(), "jjflex-coalescer-tests");
-            Directory.CreateDirectory(dir);
-            _path = Path.Combine(dir, Guid.NewGuid().ToString("N") + ".jsonl");
-            _prefix = Guid.NewGuid().ToString("N").Substring(0, 8) + " ";
-
-            OutputChannelRecorder.Configure(render: false, record: true, explicitPath: _path);
-            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
-        }
-
-        public void Dispose()
-        {
-            OutputChannelRecorder.Configure(render: false, record: false);
-            ScreenReaderOutput.CurrentVerbosity = VerbosityLevel.Chatty;
-            try { File.Delete(_path); } catch { }
-        }
-
-        /// <summary>Speech texts recorded so far that belong to THIS test.</summary>
-        private List<string> SpokenTexts()
-        {
-            using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var reader = new StreamReader(stream);
-            return reader.ReadToEnd()
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-                .Select(l => JsonDocument.Parse(l))
-                .Where(d => d.RootElement.GetProperty("event").GetString() == "speech")
-                .Select(d => d.RootElement.GetProperty("text").GetString() ?? "")
-                .Where(t => t.StartsWith(_prefix, StringComparison.Ordinal))
-                .ToList();
-        }
-
-        private void Press(string key, string text, bool repeatWhileHeld = false)
-        {
-            ScreenReaderOutput.Speak(
-                _prefix + text,
-                Speech.SpeechIntent.Latest,
-                VerbosityLevel.Terse,
-                coalesceKey: key,
-                repeatWhileHeld: repeatWhileHeld);
+            for (int i = 1; i <= presses; i++)
+            {
+                a.Latest(key, $"{stem} {i}", VerbosityLevel.Terse, kind, "t");
+                _clock.Advance(everyMs);
+            }
         }
 
         [Fact]
         public void DeliberatePresses_OutsideSweepWindow_EachSpeakImmediately()
         {
-            // The cheap confirmation from the Track M brief, in executable
-            // form: presses spaced wider than the sweep window never enter
-            // the pending path — the lead Emit happens synchronously inside
-            // Speak, so the transcript line exists before Speak returns.
-            // No timer, no sleep-dependent assertion.
-            string key = "test:" + _prefix + "slow";
+            // Presses spaced wider than the sweep window never enter the
+            // pending path at all: the lead emits synchronously inside Latest,
+            // so the utterance exists before the call returns. No timer.
+            var a = NewArbiter();
 
-            Press(key, "S9");
-            Assert.Single(SpokenTexts());
+            a.Latest("slow", "S9", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
+            Assert.Single(_spoken);
 
-            Thread.Sleep(SweepWindowMs + 400); // comfortably past the window
+            // Past BOTH the 1200 ms sweep window and the gap "S9" earned.
+            _clock.Advance(SpeechArbiter.SweepWindowMs + 400);
 
-            Press(key, "S9 plus 10");
-            Assert.Equal(2, SpokenTexts().Count);
+            a.Latest("slow", "S9 plus 10", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
+            Assert.Equal(2, _spoken.Count);
+            Assert.Equal(1600, _spoken[1].AtMs);
         }
 
         [Fact]
         public void HammeredSweepKey_PushOutStarves_ThenSettlesOnFinalValue()
         {
-            // The sweep contract, as designed and documented: a hammered key
-            // without repeatWhileHeld speaks its lead, then every further
-            // press pushes the settle timer out, so the hold is SILENT and
-            // exactly one settle lands after release, carrying the final
-            // value. For a swept gain this is the right policy. Applied to an
-            // on-demand query key it is the "Ctrl+S just lags" report — which
-            // is why this test exists: it is the diagnosis, executable.
-            string key = "test:" + _prefix + "sweep";
+            // The sweep contract, as designed and documented: a hammered VALUE
+            // key speaks its lead, then every further press pushes the settle
+            // timer out, so the hold is SILENT and exactly one settle lands
+            // after release carrying the final value. For a swept gain this is
+            // right — it is what stops a hold being heard as clicks and ticks.
+            //
+            // Applied to an on-demand query key it is Don's "I hit ctrl+s and
+            // it just lags", which is why this test sits beside the query one:
+            // the two are the same mechanism meeting opposite intents.
+            var a = NewArbiter();
 
-            // 16 presses at ~100 ms — the press interval races the 300 ms
-            // settle timer with a 3x margin, so a scheduling hiccup does not
-            // let the timer fire mid-hammer.
-            for (int i = 1; i <= 16; i++)
-            {
-                Press(key, "value " + i);
-                Thread.Sleep(100);
-            }
+            // "value 1" is seven characters, so the lead's anti-clip gap is
+            // 770 ms — irrelevant here, because the push-out carries the flush
+            // far past it.
+            Assert.Equal(770, SpeechArbiter.AntiClipGapMs("value 1"));
 
-            // Read IMMEDIATELY after the last press, before its 300 ms timer
-            // can fire: the lead must be the only thing spoken so far.
-            var during = SpokenTexts();
-            Assert.Single(during);
-            Assert.EndsWith("value 1", during[0], StringComparison.Ordinal);
+            // 16 presses at 100 ms. Each one restarts the 300 ms settle, so the
+            // flush never comes due while a finger is still moving.
+            Hammer(a, "sweep", "value", SpeechCoalesceKind.Value, presses: 16, everyMs: 100);
 
-            // Drain: settle timer (300 ms) plus a full gap at its ceiling,
-            // in case the
-            // flush has to wait out the gap, plus margin.
-            Thread.Sleep(CoalesceMs + GapCeilingMs + 500);
+            // t = 1600, immediately after the last press: the lead is still the
+            // only thing spoken. On the wall clock this was a race against the
+            // settle timer; here it is a fact.
+            Assert.Single(_spoken);
+            Assert.Equal("value 1", _spoken[0].Message);
 
-            var after = SpokenTexts();
-            Assert.Equal(2, after.Count);
-            Assert.EndsWith("value 16", after[1], StringComparison.Ordinal);
-            // Nothing in between ever sounded — values 2 through 15 were
-            // coalesced away. That is the sweep policy's promise.
+            // Release. The last press was at 1500, so the settle is due at
+            // 1800 and the gap is long gone.
+            _clock.Advance(199);            // t = 1799
+            Assert.Single(_spoken);
+            _clock.Advance(1);              // t = 1800
+            Assert.Equal(2, _spoken.Count);
+            Assert.Equal("value 16", _spoken[1].Message);
+            Assert.Equal(1800, _spoken[1].AtMs);
+
+            // Values 2 through 15 were coalesced away and never sounded. That
+            // is the sweep policy's promise, and the reason it is wrong for a
+            // key that asks a question.
+            Assert.DoesNotContain(_spoken, s => s.Message == "value 8");
         }
 
         [Fact]
-        public void HammeredQueryKey_WithRepeatWhileHeld_SpeaksAtCadenceAndLandsOnFinalValue()
+        public void HammeredQueryKey_SpeaksAtTheGapCadence_AndLandsOnTheFinalReading()
         {
-            // The repeatWhileHeld contract: new presses update the pending
-            // value but do NOT push the timer out, so a hammered key speaks
-            // its lead and then a fresh reading roughly every gap, and the
-            // final value always lands. This is what the Ctrl+S call site now
-            // passes (Sprint 35 Track M) — a meter query where "still S9" is
-            // information and silence-until-release is a bug.
-            string key = "test:" + _prefix + "query";
+            // The query contract under a hammer: presses update the pending
+            // reading but never push the flush out, so the key answers at the
+            // anti-clip cadence instead of going silent — and the final reading
+            // always lands.
+            //
+            // The cadence is the GAP, not the settle: "reading 1" is nine
+            // characters (990 ms) and "reading 10" is ten (1100 ms), so each
+            // utterance waits only as long as the previous one needs to finish.
+            // That spacing is exactly why Query does not bypass the gap: it is
+            // what makes a held query readable rather than a stutter.
+            var a = NewArbiter();
+            Assert.Equal(990, SpeechArbiter.AntiClipGapMs("reading 1"));
+            Assert.Equal(1100, SpeechArbiter.AntiClipGapMs("reading 10"));
 
-            // Hammer for ~2.6 s: lead at ~0, first cadence utterance at
-            // ~one gap (1200 ms at the ceiling), second at ~two.
-            for (int i = 1; i <= 26; i++)
-            {
-                Press(key, "reading " + i, repeatWhileHeld: true);
-                Thread.Sleep(100);
-            }
+            Hammer(a, "query", "reading", SpeechCoalesceKind.Query, presses: 26, everyMs: 100);
 
-            // Read right after the last press: the lead plus at least one
-            // mid-hammer cadence utterance must already be out. (Expected is
-            // three by now — asserting two leaves margin for late timers.)
-            var during = SpokenTexts();
-            Assert.True(during.Count >= 2,
-                $"expected the lead plus at least one cadence utterance during the hammer, got {during.Count}");
-            Assert.EndsWith("reading 1", during[0], StringComparison.Ordinal);
+            // t = 2600. Three utterances are already out — the lead at 0, then
+            // one per gap — while a swept key would still be silent.
+            Assert.Equal(3, _spoken.Count);
+            Assert.Equal(("reading 1", 0d), _spoken[0]);
+            Assert.Equal(("reading 10", 990d), _spoken[1]);
+            Assert.Equal(("reading 21", 2090d), _spoken[2]);
 
-            // Drain and confirm the final reading was spoken last.
-            Thread.Sleep(CoalesceMs + GapCeilingMs + 500);
-            var after = SpokenTexts();
-            Assert.EndsWith("reading 26", after[after.Count - 1], StringComparison.Ordinal);
+            // Release: the final reading lands one gap after the last
+            // utterance, and it is the newest one, not a stale mid-hammer value.
+            _clock.Advance(589);            // t = 3189
+            Assert.Equal(3, _spoken.Count);
+            _clock.Advance(1);              // t = 3190
+            Assert.Equal(4, _spoken.Count);
+            Assert.Equal("reading 26", _spoken[3].Message);
         }
 
         [Fact]
-        public void RepeatedIdenticalValue_WithoutFlag_SecondPressIsSwallowed()
+        public void RepeatedIdenticalValue_OnASweptKey_SecondPressIsSwallowed()
         {
             // The duplicate drop, as designed for sweeps: a settle that would
-            // repeat what was just said is skipped. For a query key this is
-            // the other half of the Ctrl+S report — press twice on a steady
-            // signal and the second press says nothing at all.
-            string key = "test:" + _prefix + "dup";
+            // only repeat what the lead already said is skipped, because
+            // repeating it cuts the lead off to say nothing new.
+            var a = NewArbiter();
 
-            Press(key, "S7");
-            Thread.Sleep(800); // inside the sweep window: second press coalesces
-            Press(key, "S7");
+            a.Latest("dup", "S7", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
+            _clock.Advance(800);            // inside the sweep window
+            a.Latest("dup", "S7", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
 
-            Thread.Sleep(CoalesceMs + GapCeilingMs + 500);
-            Assert.Single(SpokenTexts());
+            _clock.Advance(10_000);
+            Assert.Single(_spoken);
         }
 
         [Fact]
-        public void RepeatedIdenticalValue_WithFlag_SecondPressIsSpoken()
+        public void RepeatedIdenticalValue_OnAQueryKey_SecondPressIsSpokenAtOnce()
         {
-            // With repeatWhileHeld the repetition IS the information —
-            // "still S7" is how the operator learns the signal is steady.
-            string key = "test:" + _prefix + "dup-flag";
+            // The same two presses on a query key, and the whole of #264 in one
+            // assertion. The operator asked twice and must be answered twice —
+            // "still S7" is how a steady signal is reported — and the answer
+            // arrives at the moment of the press, not a settle later.
+            var a = NewArbiter();
 
-            Press(key, "S7", repeatWhileHeld: true);
-            Thread.Sleep(800);
-            Press(key, "S7", repeatWhileHeld: true);
+            a.Latest("dup", "S7", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
+            _clock.Advance(800);            // past the 700 ms gap "S7" earned
+            a.Latest("dup", "S7", VerbosityLevel.Terse, SpeechCoalesceKind.Query, "t");
 
-            Thread.Sleep(CoalesceMs + GapCeilingMs + 500);
-            Assert.Equal(2, SpokenTexts().Count);
+            Assert.Equal(2, _spoken.Count);
+            Assert.Equal("S7", _spoken[1].Message);
+            Assert.Equal(800, _spoken[1].AtMs);
         }
     }
 }

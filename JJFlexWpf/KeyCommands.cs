@@ -30,6 +30,24 @@ public class KeyCommands
     // ── Leader key state (Ctrl+J → second key). No timeout — cancel with Escape only. ──
     private bool _leaderKeyActive;
 
+    // ── Narrow stickiness after an unknown leader key (#303, Sprint 37). ──
+    // The layer stays armed for H, Shift slash and Escape ONLY. Every other
+    // key releases it and travels on untouched, exactly as if the layer had
+    // already closed — which, before this, it had.
+    //
+    // Why the message needed it. "Unknown command. Press H for help." was
+    // true one keystroke earlier: by the time it finished speaking the layer
+    // had exited, so H did whatever H does in the scope the operator was now
+    // standing in. Keeping the layer alive for the three keys that LEAD OUT
+    // of it makes plain "H" correct again — which is why the fix makes the
+    // sentence SHORTER, not longer.
+    //
+    // Why narrow and not general: a modal layer you did not ask to stay in is
+    // a trap, and for a blind operator "am I still in the layer?" is invisible
+    // unless something says so. Two of these keys open help and the third
+    // cancels, so there is no way to be held.
+    private bool _leaderHelpArmed;
+
     // ── Volume mode state (Ctrl+J, V — Audio Arc Track A, 2026-08-11). ──
     // A mode WITHIN the leader: pick a target letter, ride Up/Down, switch
     // targets freely, Escape exits. It persists across adjustments —
@@ -39,6 +57,13 @@ public class KeyCommands
     // True once a PC-volume adjustment happened this volume-mode session, so
     // exit persists the app-level setting exactly once.
     private bool _volumeModePcDirty;
+
+    // ── Value sub-layer state (Sprint 37 Track C, #305 — pan is the first
+    // consumer, #304). The ENGINE (Radios.ValueSubLayer) owns the pattern's
+    // decisions — exits, cancel-restores, words-or-numbers under verbosity,
+    // the coalesced move speech; this class only routes keys to it and wires
+    // the earcons. Null when no layer is live. ──
+    private Radios.ValueSubLayer? _valueLayer;
 
     private enum VolumeTarget
     {
@@ -836,7 +861,47 @@ public class KeyCommands
             Radios.VerbosityLevel.Terse, true);
     }
 
-    private void ReadSMeterHandler()
+    private void ReadSMeterHandler() => SpeakSMeter(forceDbm: false);
+
+    /// <summary>
+    /// Ctrl+J, Ctrl+S — the same meter, read in dBm, without entering a mode
+    /// (#306).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// dBm was already reachable, shaped as a MODE: <c>SmeterInDBM</c> is a
+    /// toggle, and with it on, Ctrl+S reads dBm. <b>A mode is a state a blind
+    /// operator can be in the wrong one of</b> — toggle it, get distracted,
+    /// come back, press Ctrl+S, and the units have to be recalled from memory
+    /// of a toggle. Two keys means never needing to know which mode you are
+    /// in, and it lets both readings be taken of the SAME signal without
+    /// changing anything between them.
+    /// </para>
+    /// <para>
+    /// <b>The toggle stays.</b> Someone who works in dBm all the time is well
+    /// served by a mode; this chord serves the person who wants one reading
+    /// now. They coexist, and this handler is what the mode's own branch calls
+    /// too, so the two routes can never say it differently.
+    /// </para>
+    /// <para>
+    /// In the leader layer rather than as a flat chord because a precision
+    /// reading is taken occasionally, not routinely (Noel, 2026-08-27). Ctrl+S
+    /// because THE CHORD ECHOES THE KEY IT RELATES TO — Ctrl+S reads the
+    /// S-meter in S-units, Ctrl+J then Ctrl+S reads the same meter in dBm.
+    /// Ctrl+Shift+S was the first suggestion and is taken (SpeakStatus), as is
+    /// most of the S family.
+    /// </para>
+    /// </remarks>
+    private void ReadSMeterInDbmHandler() => SpeakSMeter(forceDbm: true);
+
+    /// <summary>
+    /// The S-meter readout both Ctrl+S and Ctrl+J, Ctrl+S go through.
+    /// </summary>
+    /// <param name="forceDbm">
+    /// True for the dBm chord, which reads dBm whatever the mode says. False
+    /// for Ctrl+S, which follows the mode.
+    /// </param>
+    private void SpeakSMeter(bool forceDbm)
     {
         var rig = _context.GetRigControl();
         if (rig == null)
@@ -844,6 +909,12 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical);
             return;
         }
+        // Transmit is checked FIRST, and the dBm chord does not change that:
+        // while keyed, the S-meter is not describing anyone's signal, so both
+        // routes answer with real forward power exactly as Ctrl+S always has.
+        // That is also what "Ctrl+S with the mode temporarily on" does, which
+        // is the whole specification of this chord.
+        bool dbm = forceDbm || rig.SmeterInDBM;
         int smeter = (int)rig.SMeter;
         string msg;
         if (rig.Transmit)
@@ -851,8 +922,12 @@ public class KeyCommands
             // measured RF, and never named a unit at all.
             msg = Radios.Lexicon.Get("audio.smeter.power",
                 ("power", Radios.FlexBase.FormatForwardPowerSpoken(rig.ForwardPowerWatts)));
-        else if (rig.SmeterInDBM)
-            msg = Radios.Lexicon.Get("audio.smeter.dbm", ("smeter", smeter));
+        else if (dbm)
+            // RawSMeter, not SMeter: SMeter only returns dBm when the MODE is
+            // on, and this chord must read dBm without it. RawSMeter is the
+            // meter as the radio sent it, and it answered a permanent zero
+            // until #295 was fixed in this same sprint.
+            msg = Radios.SMeterReading.SpokenDbm(rig.RawSMeter);
         else if (Radios.SMeterReading.IsOverS9(smeter))
             // The excess comes from the one place that knows the rule. It was
             // computed inline here and inline again in the status builder, and
@@ -867,24 +942,37 @@ public class KeyCommands
         // LATEST: an S-meter reading superseded by a newer one has no value -
         // the operator wants the signal now, not a recital of the last five.
         //
-        // repeatWhileHeld, because this is a QUERY key, not a swept value
-        // (Sprint 35 Track M, from Don's "I hit ctrl+s and it just lags",
-        // 2026-08-26). Without it the coalescer classes a quick second press
-        // as a sweep: each press pushes the settle timer out, so hammering
-        // the key was SILENT until released - and a repeat of the same
-        // reading was then dropped as a duplicate, so on a steady signal the
-        // second press said nothing at all. The flag's name says "held", but
-        // its two effects are exactly what a deliberate re-press needs: new
-        // presses never defer the pending announcement, and "still S9" is
-        // spoken rather than swallowed - on a meter, the repetition IS the
-        // information. Presses spaced past the sweep window never coalesce
-        // at all and stay instant, same as before.
+        // QUERY, because this key asks a question - it does not sweep a value
+        // (#264, from Don's "I hit ctrl+s and it just lags", 2026-08-26, and
+        // measured again at the radio 2026-08-27). Classed as a value, a quick
+        // second press was read as sweeping: each press pushed the settle timer
+        // out, so hammering the key was SILENT until released, and a repeat of
+        // the same reading was then dropped as a duplicate, so on a steady
+        // signal the second press said nothing at all.
+        //
+        // Query says the three things this key needs in one word. A re-press is
+        // never a sweep, so it answers straight away instead of waiting out a
+        // settle. A newer press never defers the pending answer. And "still S9"
+        // is spoken rather than swallowed - on a meter, the repetition IS the
+        // information.
+        //
+        // This carried a repeatWhileHeld flag until 2026-08-27. It was the only
+        // caller of it, and Query replaces it outright rather than sitting
+        // beside it.
+        //
+        // THE TWO UNITS COALESCE SEPARATELY, and that is deliberate (#306): the
+        // point of the dBm chord is that both readings can be taken of one
+        // signal, and a shared coalesce key would let the second answer silence
+        // the first. Ctrl+S and Ctrl+J, Ctrl+S are otherwise ONE readout - this
+        // is the only place either key speaks a meter reading - so the kind set
+        // here governs both. Both are queries asking the same meter a different
+        // question, and both must answer instantly on a deliberate re-press.
         Radios.ScreenReaderOutput.Speak(
             msg,
             Radios.Speech.SpeechIntent.Latest,
             Radios.VerbosityLevel.Terse,
-            coalesceKey: "smeter",
-            repeatWhileHeld: true);
+            coalesceKey: dbm ? "smeter-dbm" : "smeter",
+            kind: Radios.Speech.SpeechCoalesceKind.Query);
     }
 
     /// <summary>
@@ -2679,7 +2767,17 @@ public class KeyCommands
     /// Perform the command for this key.
     /// </summary>
     /// <returns>true if we handled the command</returns>
-    public bool DoCommand(Keys k)
+    public bool DoCommand(Keys k) => DoCommand(k, fromDialog: false);
+
+    /// <summary>
+    /// The dispatch core. <paramref name="fromDialog"/> is true when the call
+    /// arrived through the WPF dialog routing (preview/bubble class handlers)
+    /// rather than the main window's ProcessCmdKey — the value sub-layer's
+    /// confirm-and-pass-through needs to know, because a key released from
+    /// the layer must reach the DIALOG pipeline there (scope discipline) and
+    /// be re-dispatched here on the main path.
+    /// </summary>
+    internal bool DoCommand(Keys k, bool fromDialog)
     {
         _context.Trace("DoCommand:" + ((int)k).ToString("x8"));
         bool rv = false;
@@ -2689,6 +2787,34 @@ public class KeyCommands
         if (theKey == (int)Keys.Menu || theKey == (int)Keys.ControlKey ||
             theKey == (int)Keys.ShiftKey || theKey == 0)
             return rv;
+
+        // === VALUE SUB-LAYER DISPATCH (#305 pattern — pan today) ===
+        // Ahead of the one-shot leader, like volume mode: the layer stays
+        // live across keys. The engine decides; this block only routes.
+        if (_valueLayer != null)
+        {
+            switch (DoValueLayerKey(k))
+            {
+                case Radios.ValueLayerKeyResult.PassThrough:
+                    // Alt chords, F1, the verbosity cycle: fall through to
+                    // the rest of this dispatch with the layer still live, so
+                    // a whitelisted chord does its normal job (and the next
+                    // nudge speaks in the other form).
+                    break;
+
+                case Radios.ValueLayerKeyResult.ClosedPassThrough:
+                    // The layer confirmed and closed; the key now means what
+                    // it always means. From a dialog, returning false lets
+                    // the dialog and then the bubble handler take it (Global
+                    // scope discipline intact). On the main path, re-dispatch
+                    // so a registry chord fires exactly as if the layer had
+                    // already been closed.
+                    return fromDialog ? false : DoCommand(k, fromDialog);
+
+                default:
+                    return true; // consumed — handled, closed, or handed off
+            }
+        }
 
         // === VOLUME MODE DISPATCH (Ctrl+J, V sub-mode) ===
         // Checked before the one-shot leader dispatch: unlike the leader, this
@@ -2704,11 +2830,35 @@ public class KeyCommands
             _leaderKeyActive = false;
             if (k == Keys.Escape)
             {
-                EarconPlayer.LeaderCancelTone();
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.cancelled"), Radios.VerbosityLevel.Terse, true);
+                LeaderCancel();
                 return true;
             }
             return DoLeaderCommand(k);
+        }
+
+        // === LEADER HELP-ARMED DISPATCH (#303) ===
+        // Reached only after the unknown-key message, which is the message
+        // that TELLS the operator H and Escape are still live. The layer is
+        // never silently sticky: it stays armed exactly when it has just said
+        // so, and for nothing but the keys it named.
+        if (_leaderHelpArmed)
+        {
+            _leaderHelpArmed = false;
+            if (k == Keys.Escape)
+            {
+                LeaderCancel();
+                return true;
+            }
+            if (IsLeaderHelpKey(k))
+            {
+                LeaderKeyHelp();
+                return true;
+            }
+            // Anything else: the layer has let go, and this key is NOT
+            // consumed. It goes on to do exactly what it would have done had
+            // the layer never lingered — which is what "exits exactly as
+            // today" has to mean, or a keystroke the operator meant for the
+            // field would vanish into a mode they did not ask for.
         }
 
         // Check for leader key trigger (Ctrl+J).
@@ -2716,7 +2866,7 @@ public class KeyCommands
         {
             _leaderKeyActive = true;
             EarconPlayer.LeaderEnterTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.armed"), Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("leader.armed"), Radios.VerbosityLevel.Terse, true);
             return true;
         }
 
@@ -2875,7 +3025,29 @@ public class KeyCommands
     {
         var kc = _globalRoutingOwner;
         if (kc == null || e.Handled) return;
-        if (!kc._leaderKeyActive && !kc._volumeModeActive) return;
+        if (!kc._leaderKeyActive && !kc._volumeModeActive && kc._valueLayer == null)
+        {
+            // THREE live modes now, not two: the leader itself, volume mode, and
+            // a value sub-layer (#305 — pan and whatever follows it). Any of the
+            // three falls through to be handled; only when NONE is live do we
+            // reach the help-armed question below. Sprint 37 merged Track C's
+            // value-layer condition with Track D's help-armed block — each was
+            // correct alone and neither was sufficient.
+            //
+            // Help-armed (#303) is a much thinner claim on the keyboard than a
+            // fully armed leader: only the three keys that lead OUT of the
+            // layer are ours. Everything else releases the state HERE and is
+            // left completely alone — it never enters DoCommand, so a dialog's
+            // own key cannot be re-routed through the main-window registry on
+            // its way past a mode the operator did not ask for.
+            if (!kc._leaderHelpArmed) return;
+            var pressed = WpfKeyConverter.ToWinFormsKeys(e);
+            if (pressed != Keys.Escape && !IsLeaderHelpKey(pressed))
+            {
+                kc._leaderHelpArmed = false;
+                return;
+            }
+        }
         var raw = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
 
         // PTT safety wins over mode cancel: while transmitting, let Escape
@@ -2887,7 +3059,12 @@ public class KeyCommands
             if (rig != null && rig.Transmit)
             {
                 kc._leaderKeyActive = false;
+                kc._leaderHelpArmed = false;
                 if (kc._volumeModeActive) kc.ExitVolumeMode(speak: false);
+                // A forced drop KEEPS the value, never restores: a restore is
+                // a write, and mid-transmit is no time to write (the same
+                // rule #187's power layer will lean on).
+                if (kc._valueLayer != null) { kc._valueLayer.Drop(); kc._valueLayer = null; }
                 return;
             }
         }
@@ -2897,7 +3074,7 @@ public class KeyCommands
         _dispatchOriginalSource = e.OriginalSource as System.Windows.DependencyObject;
         try
         {
-            if (kc.DoCommand(WpfKeyConverter.ToWinFormsKeys(e)))
+            if (kc.DoCommand(WpfKeyConverter.ToWinFormsKeys(e), fromDialog: true))
                 e.Handled = true;
         }
         finally
@@ -2947,8 +3124,19 @@ public class KeyCommands
         // Armed modes own their follow-on keys wherever focus lives —
         // this is what makes the Ctrl+J mic check usable from inside the
         // Audio Workshop, precisely where an operator rides mic gain.
-        if (_volumeModeActive || _leaderKeyActive)
-            return DoCommand(k);
+        if (_volumeModeActive || _leaderKeyActive || _valueLayer != null)
+            return DoCommand(k, fromDialog: true);
+
+        // Help-armed (#303) claims only the three keys that lead out of the
+        // layer. The preview handler above normally gets there first and
+        // releases the state on anything else; this is the same rule stated
+        // again for the bubble path, so a dialog that swallowed the preview
+        // cannot leave the layer armed behind it.
+        if (_leaderHelpArmed)
+        {
+            if (k == Keys.Escape || IsLeaderHelpKey(k)) return DoCommand(k);
+            _leaderHelpArmed = false;
+        }
 
         // The leader trigger itself.
         if (k == (Keys.J | Keys.Control))
@@ -3308,6 +3496,25 @@ public class KeyCommands
                 ToggleQsoSignalCaptureFromChord();
                 break;
 
+            // Sprint 37 Track G (#306): the same S-meter, read in dBm, without
+            // entering a mode. Ctrl+S because the chord ECHOES the key it
+            // relates to — Ctrl+S reads S-units, Ctrl+J then Ctrl+S reads dBm
+            // — and because Ctrl+Shift+S, the obvious flat alternative, is
+            // SpeakStatus. Ruled by Noel 2026-08-27.
+            //
+            // KNOWN ADJACENCY, recorded rather than discovered: plain S is the
+            // radio's own Spectral NR and Shift+S is the PC one, so this sits
+            // one modifier from two unrelated DSP toggles. Both are toggles and
+            // a second press undoes either, so a slip is recoverable — and both
+            // announce themselves by name, so a slip is audible.
+            //
+            // No rig gate at the case: the handler speaks the no-radio message
+            // itself, the same one Ctrl+S gives, rather than the generic
+            // leader one.
+            case Keys.S | Keys.Control:
+                ReadSMeterInDbmHandler();
+                break;
+
             case Keys.A:
                 if (rig == null) LeaderNoRadio();
                 else ToggleLeaderDSP("Auto Notch",
@@ -3337,6 +3544,20 @@ public class KeyCommands
             case Keys.V:
                 if (rig == null) LeaderNoRadio();
                 else EnterVolumeMode();
+                break;
+
+            // Sprint 37 Track C (#304): Alt+P enters pan mode — the value
+            // sub-layer pattern (#305), proven on pan. Plain P is the Audio
+            // Peak Filter and Shift+P the Speech Processor; Ctrl+P is skipped
+            // ON PURPOSE even though it is free in the layer, because flat
+            // Ctrl+P is already "go to the panning field" — FREQUENCY
+            // panning, which shares a word with stereo pan and nothing else,
+            // and giving the two the same second key would teach exactly that
+            // confusion. Alt+V is the in-layer precedent for an Alt-modified
+            // follow-on, and WpfKeyConverter resolves Key.System before this
+            // switch sees the press.
+            case Keys.P | Keys.Alt:
+                EnterPanMode();
                 break;
 
             // Audio Arc Keys Track (2026-08-11): K = mic check ("mic check,
@@ -3567,14 +3788,30 @@ public class KeyCommands
                 if (KeyInventory.TryFindLeaderNearMiss(k, out string nearKey, out string nearWhat))
                 {
                     Radios.ScreenReaderOutput.Speak(
-                        Radios.Lexicon.Get("settings.leader.near_miss",
+                        Radios.Lexicon.Get("leader.near_miss",
                             ("pressed", KeyManifest.FormatKey(k)),
                             ("alt", nearKey),
                             ("what", nearWhat)), true);
                 }
                 else
                 {
-                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.unknown_command"), true);
+                    // #303. The layer stays armed for H, Shift slash and
+                    // Escape — but ONLY on this branch, because this is the
+                    // branch that says so. The near-miss above names a chord
+                    // to retry and says nothing about help, so leaving the
+                    // layer armed there would be a mode the operator was never
+                    // told they were in. Two situations, two vocabularies, and
+                    // stickiness follows the sentence that earns it.
+                    _leaderHelpArmed = true;
+
+                    // Verbosity picks the wording. Terse: "H for the list."
+                    // Chatty spells out Shift slash and what the list is. Both
+                    // name the KEYSTROKE and never the glyph — a literal "?"
+                    // may not be voiced at all with punctuation set low, which
+                    // would silently drop the very key being recommended.
+                    Radios.ScreenReaderOutput.Speak(
+                        Radios.Lexicon.Get("leader.unknown_key",
+                            Radios.ScreenReaderOutput.CurrentVerbosity), true);
                 }
                 break;
         }
@@ -3713,7 +3950,7 @@ public class KeyCommands
             ExitVolumeMode(speak: false);
             _leaderKeyActive = true;
             EarconPlayer.LeaderEnterTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.armed"), Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("leader.armed"), Radios.VerbosityLevel.Terse, true);
             return true;
         }
 
@@ -3874,6 +4111,129 @@ public class KeyCommands
         2 => Radios.Lexicon.Get("audio.processor.name_dx_plus"),
         _ => Radios.Lexicon.Get("audio.processor.name_normal"),
     };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Pan mode (Ctrl+J, Alt+P) — Sprint 37 Track C, #304, the first
+    //  consumer of the value sub-layer pattern (#305). The engine
+    //  (Radios.ValueSubLayer) owns every pattern decision; this class
+    //  builds pan's definition and routes keys. #187 (transmit power)
+    //  and #200 (the knob) extend the same engine — build a definition,
+    //  do not build a second mechanism.
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Enter pan mode for the active slice: left and right arrows walk the
+    /// slice through the stereo field (Shift moves by one), Home or C
+    /// centres, Enter keeps the new pan, Escape puts the entry value back.
+    /// At Chatty verbosity it speaks positions in words ("slightly left");
+    /// at Terse it speaks the number ("Pan 40") — Noel's words-or-numbers
+    /// ruling, 2026-08-27. The layer binds to the slice that is active at
+    /// entry; the coarse Slice-field keys (Page Up / Home / Page Down) are
+    /// untouched — this is the fine control beside them, not a replacement.
+    /// </summary>
+    private void EnterPanMode()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) { LeaderNoRadio(); return; }
+
+        int vfo = rig.RXVFO;
+        if (!rig.ValidVFO(vfo))
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("audio.pan_mode.no_slice"),
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        string letter = rig.VFOToLetter(vfo);
+
+        var def = new Radios.ValueSubLayerDefinition
+        {
+            Id = "pan",
+            Read = () => rig.GetVFOPan(vfo),
+            Apply = v => rig.SetVFOPan(vfo, v),
+            Min = FlexBase.MinPan,
+            Max = FlexBase.MaxPan,
+            Step = 5,
+            FineStep = 1,
+            Axis = Radios.ValueLayerAxis.LeftRight,
+            Anchor = (FlexBase.MaxPan - FlexBase.MinPan) / 2,
+            AnchorKeys = new[] { Keys.C },
+            // The number form is the SAME string the Slice Operations field
+            // already speaks for its incremental pan — one vocabulary.
+            Number = v => Radios.Lexicon.Get("settings.pan.level", ("level", v)),
+            Words = Radios.PanPhrase.Words,
+            DescribeEntry = (cur, entry) => Radios.Lexicon.Get(
+                "audio.pan_mode.entered", Radios.ScreenReaderOutput.CurrentVerbosity,
+                ("letter", letter), ("level", cur),
+                ("position", Radios.PanPhrase.Words(cur))),
+            DescribeHelp = (cur, entry) => Radios.Lexicon.Get(
+                "audio.pan_mode.help", Radios.ScreenReaderOutput.CurrentVerbosity,
+                ("letter", letter), ("level", cur),
+                ("position", Radios.PanPhrase.Words(cur)),
+                ("entryLevel", entry),
+                ("entryPosition", Radios.PanPhrase.Words(entry))),
+            DescribeClosed = () => Radios.Lexicon.Get("audio.pan_mode.closed"),
+            DescribeRestored = v => Radios.Lexicon.Get(
+                "audio.pan_mode.restored", Radios.ScreenReaderOutput.CurrentVerbosity,
+                ("level", v), ("position", Radios.PanPhrase.Words(v))),
+            WrongAxisHint = () => Radios.Lexicon.Get("audio.pan_mode.wrong_axis"),
+            // The verbosity cycle travels through the live layer, looked up
+            // from the registry so a remapped chord is still honoured — an
+            // operator can flip words-versus-numbers mid-hunt.
+            PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
+            Cues = new Radios.ValueLayerCues
+            {
+                Entered = EarconPlayer.LeaderEnterTone,
+                Closed = EarconPlayer.LeaderCancelTone,
+                Invalid = EarconPlayer.LeaderInvalidTone,
+                Help = EarconPlayer.LeaderHelpTone,
+            },
+        };
+
+        _valueLayer = Radios.ValueSubLayer.Enter(def);
+    }
+
+    /// <summary>
+    /// Route one key to the live value sub-layer, handling what only the
+    /// host can: a vanished radio, and the Ctrl+J hand-off to a fresh
+    /// leader chord (volume mode's precedent).
+    /// </summary>
+    private Radios.ValueLayerKeyResult DoValueLayerKey(Keys k)
+    {
+        var layer = _valueLayer!;
+
+        // Radio gone under the layer — close it out loud, write nothing.
+        if (_context.GetRigControl() == null)
+        {
+            _valueLayer = null;
+            layer.Drop();
+            LeaderNoRadio();
+            return Radios.ValueLayerKeyResult.Handled;
+        }
+
+        var result = layer.HandleKey(k);
+        switch (result)
+        {
+            case Radios.ValueLayerKeyResult.Closed:
+            case Radios.ValueLayerKeyResult.ClosedPassThrough:
+                _valueLayer = null;
+                break;
+
+            case Radios.ValueLayerKeyResult.ClosedHandOff:
+                // Ctrl+J: the layer confirmed silently; arm the leader
+                // exactly as if pressed from anywhere else.
+                _valueLayer = null;
+                _leaderKeyActive = true;
+                EarconPlayer.LeaderEnterTone();
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("leader.armed"),
+                    Radios.VerbosityLevel.Terse, true);
+                return Radios.ValueLayerKeyResult.Handled;
+        }
+        return result;
+    }
 
     private void LeaderNoRadio()
     {
@@ -4204,7 +4564,10 @@ public class KeyCommands
                 if (result == null) return;
                 Radios.ScreenReaderOutput.Speak(
                     Radios.SignalCapture.QsoSignalHeadline.Compose(
-                        result.Analysis, result.Record.CaptureId, saved),
+                        result.Analysis, result.Record.CaptureId, saved,
+                        // The capture's own band, so the headline and the saved
+                        // report can never name different S-units for it (#296).
+                        Radios.SMeterReading.BandFor(result.Record.FrequencyHz)),
                     Radios.VerbosityLevel.Critical, true);
                 return;
             }
@@ -4228,6 +4591,34 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.qso.failed"),
                 Radios.VerbosityLevel.Critical);
         }
+    }
+
+    /// <summary>
+    /// The two keys that open the leader's own command list. ONE COMMAND, not
+    /// two: the inventory row reads "Ctrl+J, H or ?", and both keys do the
+    /// same thing, so nothing may offer them as alternatives with different
+    /// descriptions.
+    /// </summary>
+    /// <remarks>
+    /// Both arrival forms of the glyph, deliberately. "?" is Shift+/ on a US
+    /// layout and arrives as <c>Oem2 | Shift</c>; the bare <c>Oem2</c> twin is
+    /// carried for the same reason <see cref="DoLeaderCommand"/> carries it —
+    /// a bare Oem case alone never fires, which is exactly how the advertised
+    /// "?" sat dead for months (#183).
+    /// </remarks>
+    private static bool IsLeaderHelpKey(Keys k) =>
+        k == Keys.H || k == Keys.Oem2 || k == (Keys.Oem2 | Keys.Shift);
+
+    /// <summary>
+    /// Close the leader layer the way Escape closes it: descending tone, then
+    /// "Cancelled". One place, so the help-armed exit and the ordinary exit
+    /// can never start sounding different from each other.
+    /// </summary>
+    private void LeaderCancel()
+    {
+        EarconPlayer.LeaderCancelTone();
+        Radios.ScreenReaderOutput.Speak(
+            Radios.Lexicon.Get("leader.cancelled"), Radios.VerbosityLevel.Terse, true);
     }
 
     private void LeaderKeyHelp()

@@ -399,8 +399,24 @@ namespace JJFlexWpf.Dialogs
         /// <summary>OpenParms for creating test FlexBase instances.</summary>
         public FlexBase.OpenParms? OpenParms { get; init; }
 
-        /// <summary>Show a WinForms connecting window (message). Returns an action to close it.</summary>
-        public Func<string, Action>? ShowConnecting { get; init; }
+        /// <summary>
+        /// Show a WinForms progress window for a SmartLink account pass, and
+        /// return an action that closes it.
+        /// </summary>
+        /// <remarks>
+        /// <para>Both arguments come from HERE because this dialog is the only
+        /// thing that knows what the pass is: the finished status line, and the
+        /// heartbeat to run while it works.</para>
+        /// <para><b>The heartbeat argument is task #294.</b> The window used to
+        /// take a message alone and work out its own subject by scraping the
+        /// string for a "Connecting to " prefix — which made it believe it was
+        /// connecting to a radio called "SmartLink". The progress heartbeat had
+        /// to be gated off there rather than announce "Still connecting to
+        /// radio." during an account refresh, so these passes ran for seconds in
+        /// total silence, which to a blind operator is indistinguishable from a
+        /// keypress that did nothing.</para>
+        /// </remarks>
+        public Func<string, ConnectWaitVoice?, Action>? ShowConnecting { get; init; }
 
         /// <summary>Open the SmartLink account manager to switch accounts.</summary>
         public Action? ShowSmartLinkAccountManager { get; init; }
@@ -2918,7 +2934,8 @@ namespace JJFlexWpf.Dialogs
             // background task is doing". Gated, not deleted: a tester chasing
             // an account problem still hears it.
             var state = CurrentAccountState();
-            if (!string.IsNullOrWhiteSpace(state.Email))
+            bool named = !string.IsNullOrWhiteSpace(state.Email);
+            if (named)
             {
                 string accountLine = (refreshing ? Lexicon.Get("connect.selector.refreshing_for_account",
                     ("email", state.Email)) : Lexicon.Get("connect.selector.connecting_as_account",
@@ -2940,9 +2957,31 @@ namespace JJFlexWpf.Dialogs
             // the next room. Background work does not get the foreground. If
             // the pass needs interactive sign-in, that flow brings its own
             // window and owns its own announcement.
+            //
+            // AND IT SAYS WHAT IT IS DOING WHILE IT DOES IT (task #294).
+            //
+            // This pass used to run in total silence: the window borrowed a
+            // constructor that scraped its subject out of the status string, so
+            // the #212 heartbeat had to be gated off there rather than announce
+            // "Still connecting to radio." about an account refresh. The
+            // operator pressed something, seconds went by, and nothing said it
+            // was happening — #212's own defect in a smaller box, and the reason
+            // Enter-then-Enter feels like the first press was ignored.
+            //
+            // The words are composed HERE, where what is happening is known.
+            // A refresh is an operation on an ACCOUNT, not a radio, so the
+            // account is what the operator hears. The window's opening line is
+            // the same finished sentence the pass just spoke — the #93 pattern:
+            // an utterance made across a window change may be flushed, and this
+            // window is the surface that ends up with focus.
+            //
+            // Progress, not commentary. The heartbeat's first line arrives one
+            // repeat interval in, so a pass that finishes quickly — most of them
+            // — still says nothing beyond its opening and its result.
             _closeConnecting = operatorInitiated
                 ? _callbacks.ShowConnecting?.Invoke(
-                    (refreshing ? Lexicon.Get("connect.selector.connecting_window_refresh") : Lexicon.Get("connect.selector.connecting_window")))
+                    AccountPassLine(refreshing, named ? state.Email : null),
+                    AccountPassVoice(refreshing, named ? state.Email : null))
                 : null;
 
             var liveBefore = LiveSerialSet();
@@ -3010,6 +3049,64 @@ namespace JJFlexWpf.Dialogs
                     if (DialogResult != true) FocusRadioList();
                 });
             });
+        }
+
+        /// <summary>
+        /// What the account-pass window says when it appears: which operation,
+        /// and which account it is for.
+        /// </summary>
+        /// <remarks>
+        /// A refresh and a first connect are different operations and get
+        /// different sentences. When no account is named — no SmartLink login
+        /// yet — the wording drops the account rather than inventing one; a
+        /// window that guesses its subject is exactly what task #294 removed.
+        /// </remarks>
+        internal static string AccountPassLine(bool refreshing, string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                return refreshing
+                    ? Lexicon.Get("connect.selector.connecting_window_refresh")
+                    : Lexicon.Get("connect.selector.connecting_window");
+            }
+            return refreshing
+                ? Lexicon.Get("connect.selector.refreshing_for_account", ("email", email))
+                : Lexicon.Get("connect.selector.connecting_as_account", ("email", email));
+        }
+
+        /// <summary>
+        /// The heartbeat that runs while an account pass does — the answer to
+        /// "is this still happening", which is the only question an operator
+        /// with no spinner can be asking.
+        /// </summary>
+        /// <remarks>
+        /// Terse says the operation; Chatty adds the account, because an
+        /// operator who asked for detail is the one who wants to know WHICH
+        /// login is being waited on. Never a radio name: no radio is being
+        /// connected to here.
+        /// </remarks>
+        internal static ConnectWaitVoice AccountPassVoice(bool refreshing, string? email)
+        {
+            bool named = !string.IsNullOrWhiteSpace(email);
+            if (refreshing)
+            {
+                return new ConnectWaitVoice
+                {
+                    What = "smartlink: refreshing the account's radio list",
+                    StillTerse = Lexicon.Get("connect.selector.still_refreshing_terse"),
+                    StillChatty = named
+                        ? Lexicon.Get("connect.selector.still_refreshing_chatty", ("email", email))
+                        : Lexicon.Get("connect.selector.still_refreshing_terse"),
+                };
+            }
+            return new ConnectWaitVoice
+            {
+                What = "smartlink: reaching the account",
+                StillTerse = Lexicon.Get("connect.selector.still_reaching_smartlink_terse"),
+                StillChatty = named
+                    ? Lexicon.Get("connect.selector.still_reaching_smartlink_chatty", ("email", email))
+                    : Lexicon.Get("connect.selector.still_reaching_smartlink_terse"),
+            };
         }
 
         private HashSet<string> LiveSerialSet()

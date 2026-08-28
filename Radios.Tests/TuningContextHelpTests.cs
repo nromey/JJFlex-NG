@@ -84,11 +84,49 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_modern_map_holds_its_five_rows()
+        public void The_modern_map_holds_its_eight_rows()
         {
             var rows = RowsFor("Freq.Modern");
-            Assert.Equal(5, rows.Count);
+            Assert.Equal(8, rows.Count);
             Assert.Contains(rows, r => r.Key == "Shift+Up / Shift+Down");
+        }
+
+        /// <summary>
+        /// The one rule #302 exists to teach: vertical tunes, horizontal
+        /// sizes; plain is coarse, modified is fine. Four rows carry it, and
+        /// they only teach it while all four are present and say what they
+        /// say — a map missing the horizontal half teaches an operator that
+        /// the step sizes are a Settings trip, which is what they were.
+        /// </summary>
+        [Fact]
+        public void The_modern_map_teaches_both_halves_of_the_one_rule()
+        {
+            var rows = RowsFor("Freq.Modern");
+
+            Assert.Contains(rows, r => r.Key == "Up / Down"
+                && r.Description == "Tune by your coarse step");
+            Assert.Contains(rows, r => r.Key == "Shift+Up / Shift+Down"
+                && r.Description == "Tune by your fine step");
+            Assert.Contains(rows, r => r.Key == "Alt+Left / Alt+Right"
+                && r.Description == "Make your coarse step smaller or larger");
+            Assert.Contains(rows, r => r.Key == "Shift+Left / Shift+Right"
+                && r.Description == "Make your fine step smaller or larger");
+            Assert.Contains(rows, r => r.Key == "S"
+                && r.Description == "Choose both step sizes from a list");
+        }
+
+        /// <summary>
+        /// Bare Left / Right must NOT appear in the Modern map. It is a
+        /// HomeNav row — cursor movement across the whole Home surface, in
+        /// both tuning modes — and Modern's sizing pairs deliberately carry a
+        /// modifier to leave it alone. A bare row here would tell an operator
+        /// the cursor keys resize their step, which they do not.
+        /// </summary>
+        [Fact]
+        public void The_modern_map_leaves_the_bare_cursor_pair_to_home_navigation()
+        {
+            Assert.DoesNotContain(RowsFor("Freq.Modern"), r => r.Key == "Left / Right");
+            Assert.Contains(RowsFor("HomeNav"), r => r.Key == "Left / Right");
         }
 
         [Fact]
@@ -149,7 +187,7 @@ namespace Radios.Tests
                 "S, Turn split on. " +
                 "T, Toggle showing the transmit frequency. " +
                 "Ctrl+Shift+M switches to Modern tuning. " +
-                "Press question mark for every key on this field.",
+                "Press Shift slash for every key on this field.",
                 text);
         }
 
@@ -188,11 +226,14 @@ namespace Radios.Tests
                 "Modern tuning mode. Coarse step 5 kilohertz, fine step 100 hertz. " +
                 "Up / Down, Tune by your coarse step. " +
                 "Shift+Up / Shift+Down, Tune by your fine step. " +
+                "Alt+Left / Alt+Right, Make your coarse step smaller or larger. " +
+                "Shift+Left / Shift+Right, Make your fine step smaller or larger. " +
                 "Digits, Type a frequency, then Enter to apply. " +
                 "F, Speak the current frequency. " +
+                "S, Choose both step sizes from a list. " +
                 "Shift+S, Speak the coarse and fine step sizes. " +
                 "Ctrl+Shift+M switches to Classic tuning. " +
-                "Press question mark for every key on this field.",
+                "Press Shift slash for every key on this field.",
                 text);
         }
 
@@ -208,8 +249,11 @@ namespace Radios.Tests
                 "Modern tuning. Coarse 5 kilohertz, fine 100 hertz. " +
                 "Up / Down, Tune by your coarse step. " +
                 "Shift+Up / Shift+Down, Tune by your fine step. " +
+                "Alt+Left / Alt+Right, Make your coarse step smaller or larger. " +
+                "Shift+Left / Shift+Right, Make your fine step smaller or larger. " +
                 "Digits, Type a frequency, then Enter to apply. " +
                 "F, Speak the current frequency. " +
+                "S, Choose both step sizes from a list. " +
                 "Shift+S, Speak the coarse and fine step sizes. " +
                 "Ctrl+Shift+M for Classic tuning.",
                 text);

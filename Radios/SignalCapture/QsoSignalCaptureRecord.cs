@@ -65,6 +65,22 @@ namespace Radios.SignalCapture
         // -------- context observations; empty means could-not-be-read --------
 
         public string FrequencyText { get; set; } = "";
+
+        /// <summary>
+        /// The receive frequency in hertz when the capture started; 0 when it
+        /// could not be read.
+        /// </summary>
+        /// <remarks>
+        /// <b>Not a duplicate of <see cref="FrequencyText"/>.</b> The text is
+        /// for the reader; this is the number the S-unit calibration is chosen
+        /// from, because IARU R.1 puts S9 twenty decibels lower at and above
+        /// 30 MHz (#296). Added at schema 1 rather than by bumping the schema:
+        /// an older record simply arrives with 0, and a build that predates
+        /// the field ignores it. The report says outright when it is 0, since
+        /// an unstated HF assumption is the defect #296 existed to end.
+        /// </remarks>
+        public ulong FrequencyHz { get; set; }
+
         public string ModeText { get; set; } = "";
         public string SliceLetter { get; set; } = "";
         public string RadioModelText { get; set; } = "";
