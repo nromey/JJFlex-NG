@@ -1,9 +1,27 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using JJTrace;
 
 namespace Radios.Fixer.Evidence
 {
+    /// <summary>
+    /// The radio's identity and the software's, as display lines, read by the
+    /// host — because <c>Radios.Fixer</c> may never name the radio type in a
+    /// signature (<c>FixerFrameworkTests</c> enforces it by reflection).
+    /// </summary>
+    /// <remarks>
+    /// Both lists come from the readers the chain-check evidence block already
+    /// uses, deliberately: two assemblers is how two documents about one radio
+    /// end up disagreeing about its firmware.
+    /// </remarks>
+    public sealed class FixerRunIdentity
+    {
+        public IReadOnlyList<string> Station = Array.Empty<string>();
+        public IReadOnlyList<string> Software = Array.Empty<string>();
+    }
+
     /// <summary>
     /// Writes a run to disk as it happens, one recording at a time (#251).
     /// </summary>
@@ -37,6 +55,7 @@ namespace Radios.Fixer.Evidence
         private readonly FixerRunStore _store;
         private readonly FixerSettingProbeSet _probes;
         private readonly FixerRunRecord _record;
+        private readonly Func<FixerRunIdentity> _identity;
         private bool _anythingRecorded;
         private bool _ended;
 
@@ -47,11 +66,17 @@ namespace Radios.Fixer.Evidence
         /// <param name="probes">May be null — runs still persist, with empty
         /// fingerprints, and the staleness check reports them honestly as
         /// unverifiable rather than fresh.</param>
-        public FixerRunJournal(FixerRun run, FixerRunStore store, FixerSettingProbeSet probes)
+        /// <param name="identity">May be null — the record then carries no
+        /// radio or software lines, and the exported document names the
+        /// absence rather than leaving a reader to assume they were read and
+        /// came back empty.</param>
+        public FixerRunJournal(FixerRun run, FixerRunStore store, FixerSettingProbeSet probes,
+                               Func<FixerRunIdentity> identity = null)
         {
             _run = run ?? throw new ArgumentNullException(nameof(run));
             _store = store ?? throw new ArgumentNullException(nameof(store));
             _probes = probes;
+            _identity = identity;
             _record = FixerRunRecord.NewFor(run);
         }
 
@@ -65,7 +90,8 @@ namespace Radios.Fixer.Evidence
         /// </summary>
         public static FixerRunJournal Resume(FixerRun run, FixerRunStore store,
                                              FixerSettingProbeSet probes,
-                                             FixerRunRecord record)
+                                             FixerRunRecord record,
+                                             Func<FixerRunIdentity> identity = null)
         {
             if (record == null) throw new ArgumentNullException(nameof(record));
             if (run == null) throw new ArgumentNullException(nameof(run));
@@ -73,19 +99,39 @@ namespace Radios.Fixer.Evidence
                 throw new ArgumentException("run " + run.RunId + " cannot continue record "
                     + record.RunId + " — they are different runs", nameof(record));
 
-            var journal = new FixerRunJournal(run, store, probes, record);
+            // A record whose checks no longer match the ones this build offers
+            // cannot be continued honestly: new results would land beside old
+            // ones under a stage list that describes neither sitting. Refused
+            // rather than reconciled — the run stays readable and exportable,
+            // which is what it is for.
+            string was = StageShape(record.Stages.Select(s => s.Id));
+            string now = StageShape(run.Set.Stages.Select(s => s.Id));
+            if (!string.Equals(was, now, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("run " + record.RunId + " was recorded with a "
+                    + "different set of checks (" + was + ") than this version offers ("
+                    + now + "), so it cannot be continued", nameof(record));
+
+            var journal = new FixerRunJournal(run, store, probes, record, identity);
             record.EndedUtc = null;
             record.EndReason = "";
+            // A NEW sitting, never an extension of the old one. The stages
+            // already recorded were measured in a window that closed; saying so
+            // is the whole difference between resuming and pretending.
+            record.Sittings.Add(new RecordedSitting { StartedUtc = run.NowUtc });
             return journal;
         }
 
+        private static string StageShape(IEnumerable<string> ids)
+            => string.Join(", ", ids.Select(id => (id ?? "").Trim()));
+
         private FixerRunJournal(FixerRun run, FixerRunStore store, FixerSettingProbeSet probes,
-                                FixerRunRecord adopt)
+                                FixerRunRecord adopt, Func<FixerRunIdentity> identity)
         {
             _run = run;
             _store = store;
             _probes = probes;
             _record = adopt;
+            _identity = identity;
             // The adopted record already holds evidence, so from the first
             // new recording onward every persist keeps the whole history.
             _anythingRecorded = adopt.Results.Count > 0 || adopt.Fixes.Count > 0
@@ -179,6 +225,17 @@ namespace Radios.Fixer.Evidence
             {
                 _record.EndedUtc = _run.NowUtc;
                 _record.EndReason = string.IsNullOrWhiteSpace(reason) ? "ended" : reason.Trim();
+
+                // Close the sitting this journal opened, and only that one. A
+                // sitting left open belonged to a window that never closed
+                // properly, which the document is entitled to say.
+                RecordedSitting sitting = _record.Sittings.LastOrDefault();
+                if (sitting != null && sitting.EndedUtc == null)
+                {
+                    sitting.EndedUtc = _record.EndedUtc;
+                    sitting.EndReason = _record.EndReason;
+                }
+
                 if (_anythingRecorded) Persist();
             }
             catch (Exception ex)
@@ -212,6 +269,7 @@ namespace Radios.Fixer.Evidence
         {
             _anythingRecorded = true;
             _record.LastRecordedUtc = _run.NowUtc;
+            CaptureIdentityOnce();
 
             // The same renderer as the live page, at the moment of recording.
             // "This copy of the report was written ..." inside it is now a true
@@ -223,6 +281,37 @@ namespace Radios.Fixer.Evidence
             {
                 Tracing.TraceLine("FixerRunJournal " + _record.RunId + ": run is continuing "
                     + "UNRECORDED — the store could not save it", TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Read the radio's identity and the software's, once, at the first
+        /// recording.
+        /// </summary>
+        /// <remarks>
+        /// <b>At the first recording, not when the window opened.</b> The Fixer
+        /// is frequently opened before the operator connects, and identity read
+        /// from nothing would put "not reported" against a radio that was
+        /// perfectly readable by the time anything was measured. The first
+        /// recording is the earliest moment a measurement exists to attach it
+        /// to, which is the moment it describes.
+        /// </remarks>
+        private void CaptureIdentityOnce()
+        {
+            if (_identity == null) return;
+            if (_record.Station.Count > 0 || _record.Software.Count > 0) return;
+            try
+            {
+                FixerRunIdentity read = _identity();
+                if (read == null) return;
+                _record.Station.AddRange(read.Station ?? Array.Empty<string>());
+                _record.Software.AddRange(read.Software ?? Array.Empty<string>());
+            }
+            catch (Exception ex)
+            {
+                // An unreadable identity costs the identity lines, never the
+                // measurement being recorded.
+                Trouble("reading the radio and software identity", ex);
             }
         }
 

@@ -48,6 +48,20 @@ namespace Radios.Fixer.Evidence
         public int Schema { get; set; } = 1;
 
         public string RunId { get; set; } = "";
+
+        /// <summary>
+        /// The operator's own name for this run. Empty until they rename it.
+        /// </summary>
+        /// <remarks>
+        /// The Test ID is what a support thread quotes and never changes; the
+        /// label is what makes the run findable a week later, when "the one
+        /// from 9:14" tells nobody anything. Same reasoning, same shape and the
+        /// same rename prompt as <c>QsoSignalCaptureRecord.Label</c> — the file
+        /// path derives from the start stamp and the id only, so relabelling
+        /// and re-saving overwrites the same file in place.
+        /// </remarks>
+        public string Label { get; set; } = "";
+
         public string StageSetId { get; set; } = "";
         public string StageSetName { get; set; } = "";
         public DateTime StartedUtc { get; set; }
@@ -99,7 +113,51 @@ namespace Radios.Fixer.Evidence
         /// shell supplies the h1.</summary>
         public string ReportHtml { get; set; } = "";
 
+        /// <summary>
+        /// The radio's own identity, as display lines ("Model: FLEX-6300",
+        /// "Serial number: ...", "Firmware version: ..."), read once at the
+        /// first recording.
+        /// </summary>
+        /// <remarks>
+        /// <b>#217's second section, and the first thing any support desk
+        /// asks.</b> These are the radio's data, not ours: a reader who
+        /// distrusts our software entirely can still use them to identify the
+        /// unit and reproduce the conditions with their own client. Read once
+        /// rather than per stage because none of it moves during a run — the
+        /// values that DO move (power, antenna, frequency, mode) live in each
+        /// stage's settings fingerprint, which is where a per-measurement
+        /// condition belongs. Empty means it was never recorded, which the
+        /// exported document says out loud rather than omitting.
+        /// </remarks>
+        public List<string> Station { get; set; } = new List<string>();
+
+        /// <summary>What produced this document: app version, build identity,
+        /// FlexLib, Opus, PortAudio, Windows. #217's provenance footer.</summary>
+        public List<string> Software { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Each separate window this run was worked on in — one per sitting,
+        /// appended on resume.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is what stops a resumed run from claiming to be something it
+        /// was not.</b> A run's measurements are discrete, each with its own
+        /// timestamp and its own settings fingerprint, so resuming one is
+        /// legitimate in a way resuming a QSO signal capture is not — that is
+        /// a single continuous window of readings, and #271 rules it may never
+        /// be resumed for exactly that reason. What the two share is the rule
+        /// underneath: a stored report is a record of a window that genuinely
+        /// happened. So the sittings are recorded and the document states them,
+        /// rather than presenting a run assembled over two days as one sitting.
+        /// </remarks>
+        public List<RecordedSitting> Sittings { get; set; } = new List<RecordedSitting>();
+
         // -------- derived state --------
+
+        /// <summary>What to call this run in a list: the operator's name for
+        /// it when they gave it one, else the Test ID.</summary>
+        public string DisplayName
+            => string.IsNullOrWhiteSpace(Label) ? RunId : Label.Trim();
 
         /// <summary>The latest result per stage — the live run's view.</summary>
         public IReadOnlyDictionary<string, RecordedStage> LatestResultsPerStage()
@@ -123,8 +181,9 @@ namespace Radios.Fixer.Evidence
             => Stages.Count > 0 && ResolvedStageCount() == Stages.Count;
 
         /// <summary>
-        /// One line for a list of saved runs, leading with the Test ID because
-        /// that is the thing a support thread quotes.
+        /// One line for a list of saved runs. The operator's name leads when
+        /// there is one, because that is what they are scanning for; the Test
+        /// ID is always present, because that is what a support thread quotes.
         /// </summary>
         public string Summary()
         {
@@ -140,8 +199,16 @@ namespace Radios.Fixer.Evidence
                 ? (IsComplete() ? "" : ", not finished")
                 : IsComplete() ? ", finished" : ", stopped part-way";
 
-            return RunId + " — " + StageSetName + " checks, " + when + ", "
-                 + progress + state + ".";
+            string sittings = Sittings.Count > 1
+                ? ", worked on in " + Sittings.Count + " sittings"
+                : "";
+
+            string name = string.IsNullOrWhiteSpace(Label)
+                ? RunId
+                : Label.Trim() + " (" + RunId + ")";
+
+            return name + " — " + StageSetName + " checks, " + when + ", "
+                 + progress + state + sittings + ".";
         }
 
         // -------- construction from a live run --------
@@ -170,6 +237,10 @@ namespace Radios.Fixer.Evidence
                     Transmits = s.Transmits,
                 });
             }
+            // The first sitting opens with the run. It closes when the run
+            // ends; a sitting still open on disk belonged to a window that
+            // crashed or is live, which is exactly what the record survives.
+            record.Sittings.Add(new RecordedSitting { StartedUtc = run.StartedUtc });
             return record;
         }
 
@@ -203,6 +274,21 @@ namespace Radios.Fixer.Evidence
                 return null;
             }
         }
+    }
+
+    /// <summary>One window the run was worked on in: opened when the Fixer
+    /// opened on this run, closed when it ended. A second entry means the run
+    /// was resumed, and the exported document says so.</summary>
+    public sealed class RecordedSitting
+    {
+        public DateTime StartedUtc { get; set; }
+
+        /// <summary>Null while the sitting is open — which on disk means it
+        /// ended without an orderly close.</summary>
+        public DateTime? EndedUtc { get; set; }
+
+        /// <summary>"closed", "abandoned". Empty until the sitting ends.</summary>
+        public string EndReason { get; set; } = "";
     }
 
     /// <summary>A stage as the set described it when the run started.</summary>
