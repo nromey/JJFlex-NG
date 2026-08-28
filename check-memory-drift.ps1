@@ -538,9 +538,7 @@ if ($symRows.Count) {
     Write-Host "the document or stamp it RESOLVED/SHIPPED/SUPERSEDED." -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "DO NOT CHASE THE COUNT TO ZERO. The number to watch is a NEW entry" -ForegroundColor DarkGray
-    Write-Host "appearing, not the total. A stale symbol in a TASK is the expensive" -ForegroundColor DarkGray
-    Write-Host "one: fix it in tasks.md, which IS the register now - there is" -ForegroundColor DarkGray
-    Write-Host "nothing to regenerate." -ForegroundColor DarkGray
+    Write-Host "appearing, not the total." -ForegroundColor DarkGray
 } else {
     Write-Host "No live document names a symbol the code does not define." -ForegroundColor Green
 }
