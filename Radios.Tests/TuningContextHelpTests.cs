@@ -84,11 +84,14 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_modern_map_holds_its_eight_rows()
+        public void The_modern_map_holds_its_nine_rows()
         {
+            // Eight until #344 gave Modern the split toggle on P — the same
+            // letter, and the same toggle, as Classic.
             var rows = RowsFor("Freq.Modern");
-            Assert.Equal(8, rows.Count);
+            Assert.Equal(9, rows.Count);
             Assert.Contains(rows, r => r.Key == "Shift+Up / Shift+Down");
+            Assert.Contains(rows, r => r.Key == "P");
         }
 
         /// <summary>
@@ -184,7 +187,7 @@ namespace Radios.Tests
                 "K, Round to the nearest kilohertz. " +
                 "Plus then digits, Set a step multiplier for Up and Down. " +
                 "F, Speak the current frequency. " +
-                "S, Turn split on. " +
+                "P, Toggle split on or off. " +
                 "T, Toggle showing the transmit frequency. " +
                 "Ctrl+Shift+M switches to Modern tuning. " +
                 "Press Shift slash for every key on this field.",
@@ -208,7 +211,7 @@ namespace Radios.Tests
                 "K, Round to the nearest kilohertz. " +
                 "Plus then digits, Set a step multiplier for Up and Down. " +
                 "F, Speak the current frequency. " +
-                "S, Turn split on. " +
+                "P, Toggle split on or off. " +
                 "T, Toggle showing the transmit frequency. " +
                 "Ctrl+Shift+M for Modern tuning.",
                 text);
@@ -232,6 +235,7 @@ namespace Radios.Tests
                 "F, Speak the current frequency. " +
                 "S, Choose both step sizes from a list. " +
                 "Shift+S, Speak the coarse and fine step sizes. " +
+                "P, Toggle split on or off. " +
                 "Ctrl+Shift+M switches to Classic tuning. " +
                 "Press Shift slash for every key on this field.",
                 text);
@@ -255,6 +259,7 @@ namespace Radios.Tests
                 "F, Speak the current frequency. " +
                 "S, Choose both step sizes from a list. " +
                 "Shift+S, Speak the coarse and fine step sizes. " +
+                "P, Toggle split on or off. " +
                 "Ctrl+Shift+M for Classic tuning.",
                 text);
         }
