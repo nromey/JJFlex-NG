@@ -7,8 +7,8 @@ using Xunit;
 namespace Radios.Tests
 {
     /// <summary>
-    /// Ctrl+J, Ctrl+S — the dBm reading (#306) — and the S-family adjacency it
-    /// lives inside.
+    /// Ctrl+J, Ctrl+S — the S-meter unit toggle (#337) — and the S-family
+    /// adjacency it lives inside.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -20,11 +20,17 @@ namespace Radios.Tests
     /// unrelated DSP switches.
     /// </para>
     /// <para>
-    /// A slip is recoverable — both neighbours are toggles that announce
-    /// themselves by name — but only while all three tiers stay bound. If one
-    /// were ever unbound, a slip onto it would fall through to the unknown
-    /// arm, and the near-miss would have to answer instead. This pins the
-    /// arrangement down so the reasoning stays true.
+    /// A slip is recoverable — all three are toggles that announce themselves
+    /// by name — but only while all three tiers stay bound. If one were ever
+    /// unbound, a slip onto it would fall through to the unknown arm, and the
+    /// near-miss would have to answer instead. This pins the arrangement down
+    /// so the reasoning stays true.
+    /// </para>
+    /// <para>
+    /// The chord took a one-shot dBm READING for one day (#306, Sprint 37
+    /// Track G) before #337 made it the unit toggle. Nothing here depended on
+    /// which of the two it was — the chord is bound either way, and that is
+    /// all these checks are about.
     /// </para>
     /// </remarks>
     public sealed class SMeterLeaderChordTests
@@ -45,7 +51,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void TheDbmChordIsAdvertisedAndHandled()
+        public void TheUnitToggleChordIsAdvertisedAndHandled()
         {
             Assert.Contains(Keys.S | Keys.Control, Advertised());
             Assert.Contains(Keys.S | Keys.Control, LeaderSourceScan.RealHandled());
@@ -57,7 +63,7 @@ namespace Radios.Tests
             HashSet<Keys> chords = Advertised();
             Assert.Contains(Keys.S, chords);                 // radio's spectral NR
             Assert.Contains(Keys.S | Keys.Shift, chords);    // PC spectral NR
-            Assert.Contains(Keys.S | Keys.Control, chords);  // the dBm reading
+            Assert.Contains(Keys.S | Keys.Control, chords);  // the S-meter unit toggle
         }
 
         [Fact]
@@ -79,12 +85,12 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void TheDbmChordItselfNeverFallsThroughToTheNearMiss()
+        public void TheUnitToggleChordItselfNeverFallsThroughToTheNearMiss()
         {
             // Bound chords are not the near-miss's business. This is the
-            // direction that changed: before #306, pressing Ctrl+J, Ctrl+S got
-            // a near-miss pointing at the noise-reduction toggle. Now it takes
-            // a reading.
+            // direction that changed: before #306 bound it, pressing Ctrl+J,
+            // Ctrl+S got a near-miss pointing at the noise-reduction toggle.
+            // Now it switches the S-meter's unit.
             Assert.Contains(Keys.S | Keys.Control, Advertised());
         }
     }

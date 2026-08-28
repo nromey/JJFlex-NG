@@ -37,6 +37,13 @@ Public Class ShellForm
         ' (native HMENU lives in the non-client area, doesn't need DockPanel space)
         _elementHost = New ElementHost()
         _elementHost.Dock = DockStyle.Fill
+        ' The host had no accessible name, so whenever focus rested on it — a
+        ' dialog closing with nothing inside the WPF surface taking focus —
+        ' screen readers announced a bare "pane" (#349). The focus-return path
+        ' now lands somewhere named and says so; this is the backstop for any
+        ' moment focus still passes through the host itself.
+        _elementHost.AccessibleName = "JJ Flexible Radio Access"
+        _elementHost.AccessibleRole = AccessibleRole.Client
         Me.Controls.Add(_elementHost)
 
         ' Create WPF content and host it

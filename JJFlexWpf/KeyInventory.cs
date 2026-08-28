@@ -170,8 +170,10 @@ public static class KeyInventory
             new[] { "mute", "unmute", "toggle" }),
         new("SliceOps", "Slice operations field", "M", "Mute (explicit)",
             new[] { "mute", "silence" }),
-        new("SliceOps", "Slice operations field", "S", "Sound — unmute (explicit)",
-            new[] { "sound", "unmute" }),
+        // No explicit-unmute row. Jim's "S — sound" leg was deleted on
+        // Noel's ruling (#345): on an already-unmuted slice it did nothing
+        // but announce, so it read as a dead key. Space toggles; the
+        // asymmetry (fast mute, no explicit unmute) is deliberate.
         new("SliceOps", "Slice operations field", "A-H", "Jump straight to that slice",
             new[] { "slice", "jump", "letter", "active" }),
         new("SliceOps", "Slice operations field", "T", "Make this slice the transmit slice",
@@ -190,8 +192,11 @@ public static class KeyInventory
             new[] { "step", "multiplier", "plus" }),
         new("Freq.Classic", "Frequency field (Classic tuning)", "F", "Speak the current frequency",
             new[] { "frequency", "speak", "read" }),
-        new("Freq.Classic", "Frequency field (Classic tuning)", "S", "Turn split on",
-            new[] { "split", "on" }),
+        // P carries split in BOTH tuning modes (#344) — the Jim-era S only
+        // turned split on, and S means the step picker in Modern, so one
+        // letter taught two lessons across a mode boundary.
+        new("Freq.Classic", "Frequency field (Classic tuning)", "P", "Toggle split on or off",
+            new[] { "split", "toggle", "on", "off" }),
         new("Freq.Classic", "Frequency field (Classic tuning)", "T", "Toggle showing the transmit frequency",
             new[] { "transmit", "frequency", "show", "tx" }),
 
@@ -225,6 +230,10 @@ public static class KeyInventory
                     "list", "picker", "tuning" }),
         new("Freq.Modern", "Frequency field (Modern tuning)", "Shift+S", "Speak the coarse and fine step sizes",
             new[] { "step", "speak", "coarse", "fine" }),
+        // Same letter, same toggle, as Classic (#344) — split must not change
+        // meaning across a mode boundary that is only about how you tune.
+        new("Freq.Modern", "Frequency field (Modern tuning)", "P", "Toggle split on or off",
+            new[] { "split", "toggle", "on", "off" }),
 
         // ── S Meter field ──
         new("SMeter", "S Meter field", "Space", "Speak the current S meter reading, or forward power while transmitting",
@@ -401,15 +410,20 @@ public static class KeyInventory
                     "qsb", "fade", "fading", "fades", "flutter", "swing", "strength",
                     "smeter", "meter", "report", "peak", "trough", "average", "trend",
                     "rising", "falling", "coming", "up", "down", "leader" }, "Radio", "General"),
-        // Sprint 37 Track G (#306) — the same meter, read in dBm, with no mode
-        // to be in the wrong one of. Ctrl+S because the chord echoes the flat
-        // key it relates to: Ctrl+S reads S-units, this reads dBm. Sits beside
-        // the S-family DSP toggles on purpose; the description says "signal
-        // strength" so a search for either idea finds it.
+        // Sprint 38 Track C (#337) — switch the S-meter's unit and keep it.
+        // Ctrl+S because the chord echoes the flat key it CHANGES: Ctrl+S
+        // reads the meter, this decides what it reads in. Sits beside the
+        // S-family DSP toggles on purpose; the description names both units so
+        // a search for either idea finds it.
+        //
+        // For one day (#306, Sprint 37 Track G) this chord took a one-shot dBm
+        // reading instead. Noel ruled the second reading out of scope on
+        // 2026-08-28 — one unit is live at a time.
         new("Leader", "Leader key", "Ctrl+J, Ctrl+S",
-            "Speak the signal strength in dBm — the same meter as Ctrl+S, finer, and no mode to leave",
+            "Switch the S-meter between S-units and dBm — remembered for this radio",
             new[] { "dbm", "db", "signal", "strength", "smeter", "meter", "s-meter", "level",
-                    "precise", "precision", "fine", "exact", "units", "s", "reading",
+                    "units", "unit", "toggle", "switch", "change", "s", "reading",
+                    "precise", "precision", "fine", "exact",
                     "antenna", "compare", "comparison", "weak", "strong", "leader" },
             "Radio", "General"),
         new("Leader", "Leader key", "Ctrl+J, A", "Toggle Auto Notch",

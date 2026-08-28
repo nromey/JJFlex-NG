@@ -941,6 +941,38 @@
                                        Text="Being able to reach a radio is not the same as owning it — you can be signed in with its owner's account and still be a guest, and a radio on your own network may have no account behind it at all. So JJ Flex asks instead of guessing. Settings you have already bound to a radio keep working whichever answer you give; this only decides whether new things may be created on it."/>
                         </StackPanel>
                     </GroupBox>
+                    <!-- Sprint 38 Track C (#337): what unit this radio's
+                         S-meter reads in. Sits with identity rather than with
+                         the networking groups below because it is about
+                         operating the radio, not reaching it. Per radio
+                         because the answer follows the station — a rig used
+                         for antenna comparison earns dBm, a casual second
+                         radio reads more naturally in S-units. The same one
+                         setting is what Ctrl+J, Ctrl+S and the Operations
+                         menu flip; this is the surface that lets an operator
+                         SEE which way it is set without pressing anything,
+                         which is the half a toggle alone cannot give. -->
+                    <GroupBox Header="Signal strength" Margin="0,4,0,8"
+                              AutomationProperties.Name="Signal strength">
+                        <StackPanel Margin="4">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                <controls:DecorativeText Text="Read the S-meter in:"
+                                           VerticalAlignment="Center"
+                                           Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="RadioProfileSmeterUnitsCombo" MinWidth="220"
+                                          Style="{StaticResource DialogComboBox}"
+                                          AutomationProperties.Name="Unit the S-meter is read in for this radio"
+                   local:JJFlexHelp.Text="Saved for this radio and used every time you connect to it. Ctrl+J then Ctrl+S switches it from anywhere, and the Operations menu has it too."
+                                          SelectionChanged="RadioProfileSmeterUnitsCombo_SelectionChanged">
+                                    <ComboBoxItem Content="S-units"/>
+                                    <ComboBoxItem Content="dBm"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="One S-unit is 6 dB — a factor of four in power hiding inside a single reading. S-units are the comfortable everyday scale; dBm is the one to pick when you are comparing antennas, or asking whether a signal really did get stronger. Ctrl+S reads the meter in whichever you choose here, and says the unit either way."/>
+                        </StackPanel>
+                    </GroupBox>
                     <GroupBox Header="Connection over SmartLink" Margin="0,4,0,8"
                               AutomationProperties.Name="Connection over SmartLink">
                         <StackPanel Margin="4">
@@ -1415,10 +1447,6 @@
                                   Content="Warning sounds" Margin="0,0,0,4"
                                   AutomationProperties.Name="Warning sounds"
                    local:JJFlexHelp.Text="The warning alarm — a long 800 hertz tone with harmonics, deliberately unlike anything else the app plays — and the quieter two-note tone that says a problem was recorded. This is the one worth leaving on. Every other sound here answers a key you just pressed; these two fire when the app has something to tell you that you did not ask about, such as transmit audio that would not have gone out."/>
-                        <CheckBox x:Name="EarconContextHelpCheck"
-                                  Content="Context help cue" Margin="0,0,0,4"
-                                  AutomationProperties.Name="Context help cue"
-                   local:JJFlexHelp.Text="A quick low flick and a soft note an octave above it, fading away, a moment after you land on a control — meaning Control F1 has something to say there. It only sounds when that help is different from the last help it announced, so moving between controls stays quiet. It is the quietest sound in the app on purpose: it is an offer, not an event."/>
                     </StackPanel>
 
                     <Separator Margin="0,4,0,8"/>

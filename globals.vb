@@ -3711,9 +3711,20 @@ Module globals
 
     ''' <summary>
     ''' Session-scoped SmartLink account override, set by "Use Now" in the
-    ''' account manager. ShowAccountSelector honors it AHEAD of the saved
-    ''' default; it is never persisted, so an app restart is back to the
-    ''' default. Empty = no override.
+    ''' account manager and by picking a row that belongs to another account.
+    ''' ShowAccountSelector and <see cref="ResolveSmartLinkAccount"/> honor it
+    ''' AHEAD of the saved default. Empty = no override.
+    '''
+    ''' <para><b>The session is the CONNECTION, not the process (#342).</b>
+    ''' This was written in three places and cleared in none, so borrowing an
+    ''' account for one radio quietly became a mode that outlived it. On
+    ''' 2026-08-28 Noel connected to Don's 6300, disconnected, connected locally
+    ''' to his own 8600, and was told the 8600 is not registered under Don's
+    ''' address — every word of that true, and the answer to a question nobody
+    ''' asked. <see cref="CloseTheRadio"/> now clears it, and every transition
+    ''' is traced: nothing announced the state that was silently steering the
+    ''' account resolver, which is why it survived from 2026-08-05 to
+    ''' 2026-08-28.</para>
     ''' </summary>
     Private SessionSmartLinkEmail As String = ""
 
@@ -3734,7 +3745,17 @@ Module globals
 
         If Not String.IsNullOrEmpty(SessionSmartLinkEmail) Then
             Dim sessAcct = slAccounts.FirstOrDefault(Function(a) a.Email.Equals(SessionSmartLinkEmail, StringComparison.OrdinalIgnoreCase))
-            If sessAcct IsNot Nothing Then Return sessAcct
+            If sessAcct IsNot Nothing Then
+                ' Say so. This is the one line that makes the override visible:
+                ' it is the hinge every SmartLink question in the app turns on
+                ' (FlexBase.ResolveCurrentAccountHook points here), and until
+                ' #342 it steered the registration advisory, the radio list and
+                ' the account button without ever appearing in a trace. Traced
+                ' only when the override actually WINS, so an ordinary run
+                ' carries no extra noise.
+                Tracing.TraceLine($"ResolveSmartLinkAccount: session override '{sessAcct.Email}' is steering this resolve, ahead of the saved default", TraceLevel.Info)
+                Return sessAcct
+            End If
         End If
 
         Dim opName = PersonalData.UniqueOpName(CurrentOp)
@@ -4819,6 +4840,36 @@ RadioConnected:
         Catch ex As Exception
             Tracing.TraceLine($"CloseTheRadio: WAN session teardown threw: {ex.Message}", TraceLevel.Warning)
         End Try
+
+        ' The borrowed account goes back when the connection it was borrowed for
+        ' ends (#342).
+        '
+        ' SessionSmartLinkEmail had three writers and no reader ever cleared it,
+        ' so "use Don's account to reach Don's radio" became "use Don's account
+        ' for the rest of this process". The next LOCAL connect — to the
+        ' operator's OWN radio, on his own network — then had its SmartLink
+        ' registration checked against Don's account, got a truthful "no", and
+        ' offered to settle a question about a radio that had never been asked
+        ' about under its owner's account. That offer writes a permanent
+        ' per-radio answer, so the cost of the wrong question was never just a
+        ' confusing dialog.
+        '
+        ' This is the single teardown point: Radio ▸ Disconnect calls it through
+        ' CloseRadioCallback, SelectRadio calls it before reopening the picker,
+        ' the failed-open path calls it on Abort, and ExitApplication calls it
+        ' last. Clearing here means the picker always reopens resolving to the
+        ' operator's own default, and a foreign row sets the override again the
+        ' moment it is chosen — which is what an override is supposed to mean.
+        '
+        ' Traced unconditionally, including the boring case: a state that steers
+        ' account resolution and never appears in a capture is exactly how this
+        ' hid for three weeks.
+        Tracing.TraceLine(
+            If(String.IsNullOrEmpty(SessionSmartLinkEmail),
+               "CloseTheRadio: no session SmartLink account override was in effect",
+               $"CloseTheRadio: clearing session SmartLink account override '{SessionSmartLinkEmail}' — it belonged to the connection that just ended"),
+            TraceLevel.Info)
+        SessionSmartLinkEmail = ""
     End Sub
 
     ''' <summary>

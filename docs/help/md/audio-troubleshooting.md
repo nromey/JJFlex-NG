@@ -6,8 +6,10 @@ with the one that catches almost everybody the first time.
 
 If you would rather have JJ Flexible Radio Access check for you, open the Audio
 Workshop, go to **Diagnostics**, and press **Check My Receive Audio**. It walks
-the same ladder against your radio right now and speaks the first thing it
-finds wrong.
+the same ladder against your radio right now, speaks the first thing it finds
+wrong, and finishes by telling you whether sound is actually arriving from the
+radio — measured from what the radio has been sending, not read back from a
+setting. See "Is Sound Actually Arriving From the Radio?" below.
 
 The same page answers the opposite question. **Check My Transmit Chain** walks
 your transmit path from the microphone to the antenna and reports the first
@@ -88,6 +90,51 @@ connect is announced out loud, so the switch is never flipped silently.
 
 If the checkbox is off on a remote connection, turn it on. JJ Flex will say
 what it did.
+
+## Is Sound Actually Arriving From the Radio?
+
+Everything above this point is a setting. Settings can all be correct while no
+sound has ever reached your computer, and no amount of checking them will tell
+you that — which is why the receive check now ends with a measurement instead
+of only a verdict.
+
+Press **Check My Receive Audio** in the Audio Workshop's Diagnostics page and
+the last thing it tells you is what actually arrived, in words like this:
+
+"Audio arriving from the radio: up to 42 kilobits per second, in 10 of 10
+readings taken about a second apart. All data arriving from the radio over the
+same readings: up to 61 kilobits per second, of which meter readings were up to
+5."
+
+That is counted from packets the radio sent that crossed your network, so it is
+a fact about your radio rather than a claim about this application. It is also
+the first thing Flex support will ask you about, and it is now in the evidence
+block you can copy to them.
+
+Three answers are worth knowing how to read.
+
+**Sound is arriving.** Any figure above zero, present in most of the readings,
+means the audio stream is alive and doing its job. If you still hear nothing,
+the problem is on your computer — your sound device, your Windows volume, or
+the wrong output chosen — and not between you and the radio.
+
+**None is arriving, and none is expected.** If **Play radio audio through this
+computer** is off, no sound is meant to come across the network at all, and the
+check says so in as many words. You are listening at the radio, nothing is
+wrong, and a zero here is the correct answer.
+
+**None is arriving while it should be.** If that setting is on and nothing is
+coming through, the check says what else was arriving, because that is what
+narrows it down. Meter readings arriving without sound means the radio is
+talking to your computer perfectly well and only the audio stream is empty —
+switch **Play radio audio through this computer** off and on again, which asks
+the radio for a fresh audio stream, and disconnect and reconnect if that does
+not do it. Nothing arriving at all, of any kind, points at the connection
+between your computer and the radio rather than at anything to do with audio.
+
+One honest note about timing: the readings start when you connect, so for the
+first second or two after connecting there is nothing to report yet, and the
+check says that rather than reporting a zero. Run it again a few seconds later.
 
 ## Then: Are the Right Sound Devices Chosen?
 

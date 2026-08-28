@@ -354,7 +354,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustFreq(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
@@ -465,11 +465,17 @@ public class FreqOutHandlers
                     }
                     e.Handled = true;
                 }
-                else if (ch == 'S')
+                else if (ch == 'P' && Keyboard.Modifiers == ModifierKeys.None)
                 {
-                    // Delegate to Split handler
-                    var splitField = GetField("Split");
-                    if (splitField != null) AdjustSplit(splitField, e);
+                    // P toggles split — same letter in both tuning modes, and
+                    // a real toggle, not just "on" (#344). This was Jim-era S,
+                    // which only turned split ON and meant something entirely
+                    // different in Modern (the step picker), so one letter
+                    // taught two lessons across a mode boundary. Noel's
+                    // ruling: steps keep S, split gets one letter that works
+                    // the same everywhere, both directions.
+                    ToggleSplitAndAnnounce();
+                    e.Handled = true;
                 }
                 else if (ch == 'T')
                 {
@@ -559,6 +565,9 @@ public class FreqOutHandlers
                 }
                 break;
         }
+
+        // A letter nothing above claimed must not vanish in silence (#338).
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     private void TuneFreq(ulong delta)
@@ -1138,7 +1147,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSlice(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
         int vfo = Rig.RXVFO;
@@ -1383,6 +1392,7 @@ public class FreqOutHandlers
         // Slice field handled M/R/X/Q/= inline but was missing V (cycle
         // slice), breaking the "works from ANY Home field" promise.
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     private void AdjustGain(int vfo, int delta)
@@ -1419,15 +1429,26 @@ public class FreqOutHandlers
     ///
     /// <para>
     /// Sprint 26 Phase 8 Jim-parity: letter shortcuts match Jim's original
-    /// slice-status-row vocabulary. <c>S</c> sets sound (unmute), <c>M</c>
-    /// sets mute (explicit), <c>Space</c> toggles. Setting is idempotent
-    /// — pressing <c>S</c> when already sounding re-announces the state
-    /// for confirmation.
+    /// slice-status-row vocabulary. <c>M</c> sets mute (explicit, idempotent
+    /// — pressing it when already muted re-announces the state), <c>Space</c>
+    /// toggles.
+    /// </para>
+    /// <para>
+    /// <b>There is deliberately no explicit-unmute key, and the asymmetry is
+    /// the point (#345, ruled by Noel 2026-08-28).</b> Jim's triple had a
+    /// third leg — <c>S</c> for "sound", the explicit unmute — and on a slice
+    /// that is already unmuted, which is the normal state, setting the flag
+    /// false was a no-op and the announcement was the whole effect, so the
+    /// key read as dead. Silencing a slice fast, without having to know its
+    /// current state, is a real operating need during a pileup; unmuting is
+    /// not urgent in the same way, and Space covers it. Anyone tempted to
+    /// restore the symmetry should know it was removed on purpose, symptom
+    /// and ruling recorded in #345.
     /// </para>
     /// </summary>
     public void AdjustSliceOps(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
         int vfo = Rig.RXVFO;
@@ -1492,17 +1513,6 @@ public class FreqOutHandlers
                     string letter = Rig.VFOToLetter(vfo);
                     Radios.ScreenReaderOutput.Speak(
                         Lexicon.Get("settings.slice.muted_named", ("letter", letter)),
-                        VerbosityLevel.Terse, true);
-                    e.Handled = true;
-                }
-                else if (ch == 'S')
-                {
-                    // Jim parity: explicit sound / unmute (idempotent).
-                    Rig.SliceMute = false;
-                    EarconPlayer.FeatureOffTone();
-                    string letter = Rig.VFOToLetter(vfo);
-                    Radios.ScreenReaderOutput.Speak(
-                        Lexicon.Get("settings.slice.sounding", ("letter", letter)),
                         VerbosityLevel.Terse, true);
                     e.Handled = true;
                 }
@@ -1578,8 +1588,9 @@ public class FreqOutHandlers
 
         // Universal Home keys fall-through — QB Track H (2026-08-07): the
         // Slice operations field was missing V (cycle slice) from the
-        // universal set. Its own M/S/T/=/X/R/Q claims above win first.
+        // universal set. Its own M/T/=/X/R/Q claims above win first.
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     #endregion
@@ -1587,11 +1598,29 @@ public class FreqOutHandlers
     #region AdjustSplit
 
     /// <summary>
+    /// The one split toggle. Flips split and says which way it went — used by
+    /// the Split field's Space/Up/Down and by <c>P</c> on the frequency field
+    /// in both tuning modes (#344). One implementation on purpose: two homes
+    /// for one idea is this project's dominant defect, and split's wording
+    /// lives in settings.split.on / settings.split.off and nowhere else.
+    /// </summary>
+    private void ToggleSplitAndAnnounce()
+    {
+        if (GetSplitVFOs == null || SetSplitVFOs == null) return;
+        SetSplitVFOs(!GetSplitVFOs());
+        Radios.ScreenReaderOutput.Speak(
+            GetSplitVFOs()
+                ? Lexicon.Get("settings.split.on")
+                : Lexicon.Get("settings.split.off"),
+            VerbosityLevel.Terse);
+    }
+
+    /// <summary>
     /// Split field handler — toggle split mode.
     /// </summary>
     public void AdjustSplit(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
@@ -1600,15 +1629,7 @@ public class FreqOutHandlers
             case Key.Space:
             case Key.Up:
             case Key.Down:
-                if (GetSplitVFOs != null && SetSplitVFOs != null)
-                {
-                    SetSplitVFOs(!GetSplitVFOs());
-                    Radios.ScreenReaderOutput.Speak(
-                        GetSplitVFOs()
-                            ? Lexicon.Get("settings.split.on")
-                            : Lexicon.Get("settings.split.off"),
-                        VerbosityLevel.Terse);
-                }
+                ToggleSplitAndAnnounce();
                 e.Handled = true;
                 break;
             default:
@@ -1631,6 +1652,7 @@ public class FreqOutHandlers
 
         // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     #endregion
@@ -1639,13 +1661,13 @@ public class FreqOutHandlers
 
     public void AdjustRit(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         AdjustRITXIT(Rig.RIT, true, field, e);
     }
 
     public void AdjustXit(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         AdjustRITXIT(Rig.XIT, false, field, e);
     }
 
@@ -1832,6 +1854,7 @@ public class FreqOutHandlers
         // but safe — they always toggle Rig.RIT / Rig.XIT regardless of which
         // field has focus, which is the universal-keys promise.
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     private void AdjustRITXITValue(FlexBase.RITData data, bool isRIT, int delta)
@@ -1882,7 +1905,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustVox(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
 
         if (key == Key.Space || key == Key.Up || key == Key.Down)
@@ -1899,6 +1922,7 @@ public class FreqOutHandlers
 
         // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     #endregion
@@ -1914,7 +1938,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustTxSlice(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
         bool unmodified = Keyboard.Modifiers == ModifierKeys.None;
@@ -2002,6 +2026,7 @@ public class FreqOutHandlers
 
         // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     /// <summary>
@@ -2051,7 +2076,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSquelch(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
@@ -2063,6 +2088,7 @@ public class FreqOutHandlers
 
         // Universal Home keys fall-through — QB Track H (2026-08-07).
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     /// <summary>
@@ -2074,7 +2100,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSquelchLevel(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
@@ -2096,6 +2122,7 @@ public class FreqOutHandlers
 
         // Universal Home keys fall-through — QB Track H (2026-08-07).
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     /// <summary>
@@ -2220,6 +2247,93 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// The last stop for a Home key nothing claimed — a key that does nothing
+    /// must SAY so, because from the chair it is indistinguishable from a key
+    /// that is broken (#338, and the project's founding accessibility rule).
+    ///
+    /// <para><b>Two causes, one vocabulary.</b> With no rig, every field
+    /// handler used to open with a silent <c>return</c>, so a disconnected
+    /// Home surface was a wall of dead keys; any action key now answers with
+    /// the missing connection — the honest subject — in the same words the
+    /// registry commands already use. With a rig, a letter with no entry in
+    /// this field's map names itself and points at the instrument that
+    /// already exists: Shift slash speaks the field's keys from KeyInventory,
+    /// so the recovery can never drift from the real map.</para>
+    ///
+    /// <para><b>What it deliberately does NOT claim.</b> Anything carrying
+    /// Ctrl or Alt (menu accelerators and registry chords), navigation keys
+    /// (Left/Right/Home/End/PageDown belong to FrequencyDisplay's cursor
+    /// movement, and claiming PageDown here would break jump-to-Frequency
+    /// while disconnected), Escape, Tab, Enter, function keys — and any chord
+    /// the KeyCommands registry has bound in the current scope, which must
+    /// keep bubbling up to window-level dispatch. A user keymap can bind
+    /// Shift+letter chords, so the registry is asked, not assumed.</para>
+    ///
+    /// <para>Connected, the claim is LETTERS only (bare or Shift): that is
+    /// the class Noel hit — "s and shift s in the vfo do nothing ... this
+    /// shows the keys aren't actually working" — and widening it to every
+    /// unclaimed key would swallow keys that legitimately belong to other
+    /// layers. Disconnected, the claim widens to the whole action-key set
+    /// the fields would otherwise use (letters, digits, Space, Up/Down, and
+    /// the field punctuation), because with no rig none of them can mean
+    /// anything and all of them were silent.</para>
+    /// </summary>
+    private void AnnounceDeadHomeKey(FrequencyDisplay.DisplayField field, KeyEventArgs e)
+    {
+        if (e.Handled) return;
+        var key = RawKey(e);
+        char ch = KeyToChar(e);
+        var mods = Keyboard.Modifiers;
+
+        // Only bare and Shift-only presses can belong to a field map.
+        if ((mods & ~ModifierKeys.Shift) != 0) return;
+
+        bool isLetter = ch >= 'A' && ch <= 'Z';
+        bool isActionKey = isLetter
+            || (ch >= '0' && ch <= '9')
+            || ch == ' ' || ch == '+' || ch == '-' || ch == '.' || ch == ',' || ch == '='
+            || key == Key.Up || key == Key.Down;
+
+        if (Rig == null)
+        {
+            if (!isActionKey) return;
+            if (IsRegistryBound(e)) return;
+            // Same sentence, same key, as every registry command that needs a
+            // radio and has none — one vocabulary for one situation.
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("connect.command_needs_radio"),
+                VerbosityLevel.Critical, true);
+            e.Handled = true;
+            return;
+        }
+
+        if (!isLetter) return;
+        if (IsRegistryBound(e)) return;
+
+        // "Shift S", not "Shift+S": this goes straight to a screen reader,
+        // and the keystroke-naming convention (#303) says name what the
+        // hands do, in words that survive a low punctuation setting.
+        string keyName = mods == ModifierKeys.Shift ? "Shift " + ch : ch.ToString();
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get("settings.home.key_unbound",
+                ("key", keyName), ("field", field.Label ?? field.Key)),
+            VerbosityLevel.Terse, true);
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// True when the pressed chord is bound in the KeyCommands registry for
+    /// the current scope — in which case the Home surface must let it bubble
+    /// to window-level dispatch rather than declare it dead.
+    /// </summary>
+    private bool IsRegistryBound(KeyEventArgs e)
+    {
+        var commands = _window.KeyCommandsRef;
+        if (commands == null) return false;
+        return commands.Lookup(WpfKeyConverter.ToWinFormsKeys(e)) != null;
+    }
+
+    /// <summary>
     /// Shared Shift+M handler — toggle mute across every slice this client
     /// owns. If any of my slices is currently unmuted, the action is
     /// mute-all; if all my slices are already muted, the action is
@@ -2293,6 +2407,11 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustSMeter(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
+        // Disconnected, the displayed reading is a leftover from the last
+        // connection — speaking it as current would be a stale value in a
+        // fresh sentence, so the honest answer is the missing radio (#338).
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
+
         // S-meter is display only — announce current reading
         var key = RawKey(e);
         if (key == Key.Space)
@@ -2314,6 +2433,7 @@ public class FreqOutHandlers
         // S Meter field had NO universal keys at all, breaking the
         // "works from ANY Home field" promise.
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     #endregion
@@ -2325,7 +2445,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustMute(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
@@ -2345,6 +2465,7 @@ public class FreqOutHandlers
         // as the universal helper would do; the explicit handler is kept so
         // the field's "primary action" is obvious in code review).
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     #endregion
@@ -2357,7 +2478,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustVolume(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         int vfo = Rig.RXVFO;
 
@@ -2377,6 +2498,7 @@ public class FreqOutHandlers
 
         // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     #endregion
@@ -2388,7 +2510,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustOffset(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
@@ -2424,6 +2546,7 @@ public class FreqOutHandlers
 
         // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
         if (!e.Handled) TryHandleUniversalHomeKey(e);
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     #endregion
@@ -2471,6 +2594,7 @@ public class FreqOutHandlers
     /// PageUp/PageDown is intentionally unbound here (was step cycling, which
     /// became meaningless once the lists collapsed to single values).
     /// F = one-shot read frequency. Shift+S = announce both step sizes.
+    /// P = toggle split, the same letter Classic uses (#344).
     ///
     /// <para><b>The step sizes are no longer Settings-only (#302).</b> One
     /// rule covers the whole field: <b>vertical tunes, horizontal sizes;
@@ -2483,7 +2607,7 @@ public class FreqOutHandlers
     /// </summary>
     public void AdjustFreqModern(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
-        if (Rig == null) return;
+        if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
         char ch = KeyToChar(e);
 
@@ -2569,10 +2693,19 @@ public class FreqOutHandlers
                 {
                     // S — set both steps deliberately, instead of walking the
                     // ladder to them (#302). Paired with Shift+S on purpose:
-                    // S sets your steps, Shift+S speaks them. Plain S is
-                    // Classic's "turn split on"; in Modern it was free and
-                    // silent, which is the same small defect one level down.
+                    // S sets your steps, Shift+S speaks them. Split, which was
+                    // Classic's S, now rides P in both tuning modes (#344).
                     _window.ShowTuningStepsDialog();
+                    e.Handled = true;
+                }
+                else if (ch == 'P' && Keyboard.Modifiers == ModifierKeys.None)
+                {
+                    // P toggles split — the same letter, the same toggle, in
+                    // both tuning modes (#344). Split was never reachable
+                    // from the Modern frequency field at all; S was already
+                    // spoken for by the steps, so split gets its own letter
+                    // rather than a different meaning per mode.
+                    ToggleSplitAndAnnounce();
                     e.Handled = true;
                 }
                 else if (ch == 'F' && Keyboard.Modifiers == ModifierKeys.None)
@@ -2645,6 +2778,9 @@ public class FreqOutHandlers
                 }
                 break;
         }
+
+        // A letter nothing above claimed must not vanish in silence (#338).
+        if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
 
     // Menu caller for "Speak Current Step" — announces both coarse and fine
@@ -3529,13 +3665,4 @@ public class FreqOutHandlers
 
     #endregion
 
-    #region Helpers
-
-    private FrequencyDisplay.DisplayField? GetField(string key)
-    {
-        int pos = _window.FreqOut.GetFieldPosition(key);
-        return _window.FreqOut.PositionToField(pos);
-    }
-
-    #endregion
 }

@@ -86,7 +86,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 - **Shift+T** — Toggle alert sounds (earcons) on/off
 - **D** — Toggle tuning speech debounce
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)
-- **Ctrl+S** — Speak the signal strength in dBm — the same meter `Ctrl+S` reads in S-units, only finer. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is the reading to take when you want to know whether that antenna change actually helped
+- **Ctrl+S** — Switch the S-meter between S-units and dBm. It tells you which one you landed on, and it stays that way for this radio until you change it back — so `Ctrl+S` on its own reads the meter in whichever unit you chose. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is what you want when you're asking whether that antenna change actually helped. It's also on the Radios tab in Settings, if you'd rather see where it stands than press a key to find out
 
 ### Status, information, and slices
 
@@ -310,6 +310,8 @@ These keys work from ANY field within your JJ Flexible Home. First, remember to 
 
 Navigation inside the Home: Left and Right arrows move one character at a time, Home jumps to the first field (except on the Slice field, where it pans center), End jumps to the last field, and Page Down jumps straight to the Frequency field from fields that don't use Page Down themselves.
 
+No letter on the Home surface is ever silent. Press a letter that isn't bound on the field you're on and JJ Flexible says so — "S does nothing on the Volume field" — and points you at Shift slash, which speaks the keys that do work right there. With no radio connected, these keys answer "No radio connected" instead of pretending to be broken.
+
 ## JJ Flexible Home — Slice Field Keys
 
 When focused on the Slice field specifically:
@@ -332,10 +334,11 @@ When focused on the Slice Operations field (per-slice audio controls):
 - **Page Up / Page Down** — Pan right / left
 - **Space** — Toggle mute
 - **M** — Mute
-- **S** — Sound (unmute)
 - **A-H** — Jump directly to that slice
 - **T** — Set the currently selected slice to transmit (TX)
 - **=** — Transceive the currently selected slice
+
+There is deliberately no explicit "unmute" key here any more — the old S for "sound" mostly announced a state the slice was already in, so it read as a dead key and it's gone. M silences a slice fast without you having to know its current state, and Space toggles, which covers unmuting.
 
 ## JJ Flexible Home — Squelch and Squelch Level Field Keys
 
@@ -354,8 +357,10 @@ When focused on the Frequency field in Classic tuning mode:
 - **K** — Round to the nearest kilohertz
 - **+ then digits** — Set a step multiplier (for example, + then 25 at the 1 kHz position tunes by 25 kHz)
 - **F** — Speak the current frequency
-- **S** — Turn split on
+- **P** — Toggle split on or off
 - **T** — Toggle showing the transmit frequency
+
+Heads-up for long-time users: split used to be S here, and S only turned it on. Split is P now, it toggles both ways, and it's the same P on this field in Modern tuning — S belongs to the step-size keys there, and one letter meaning two different things depending on your tuning mode was a trap.
 
 Press Ctrl+F1 on the Frequency field for the live picture: it confirms Classic mode is active, names the digit your cursor is sitting on, reads this key map, and names the key that switches to Modern tuning.
 
@@ -375,6 +380,7 @@ When focused on the Frequency field in Modern tuning mode:
 - **F** — Speak the current frequency
 - **S** — Choose both step sizes from a list
 - **Shift+S** — Speak both your coarse and fine step sizes
+- **P** — Toggle split on or off
 
 There's one rule under all four arrow pairs, and it's worth learning once: **up and down tune, left and right size, and adding Shift makes it fine instead of coarse.** Up and Down move the frequency by your coarse step; Shift with them moves by your fine step. Left and Right change the step sizes themselves — Shift for the fine step, Alt for the coarse one. Left is always smaller, Right is always larger.
 

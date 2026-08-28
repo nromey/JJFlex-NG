@@ -25,7 +25,7 @@ Some settings describe a radio that is not connected right now — a radio name,
 - **License** — license class, country selection, and transmit rule enforcement (see below).
 - **Audio** — the radio's own outputs, radio audio through this computer, alert sounds, meter tones, and the braille status line.
 - **Network** — SmartLink port forwarding, connection tiers, and network diagnostics.
-- **Radios** — per-radio settings remembered by serial number: how to reach each radio, its name, remote administration allowances, the REM ON power jack, and whether the radio is somewhere you can physically get to. Works with no radio connected — that is the point.
+- **Radios** — per-radio settings remembered by serial number: how to reach each radio, its name, whether its S-meter reads in S-units or dBm, remote administration allowances, the REM ON power jack, and whether the radio is somewhere you can physically get to. Works with no radio connected — that is the point.
 - **Radio Setup** — the ordered checklist for bringing a new radio up, especially one that will live somewhere you cannot walk to.
 - **Notifications** — speech verbosity, alert sounds, and connection progress announcements.
 - **Accessibility** — the Double-Tap Tolerance setting and other accessibility controls live here.

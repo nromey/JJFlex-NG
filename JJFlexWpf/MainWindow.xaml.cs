@@ -71,11 +71,6 @@ public partial class MainWindow : UserControl
         // at the moment the key is pressed.
         JJFlexHelp.SetProvider(FreqOut, ComposeFreqOutContextHelp);
 
-        // The context-help availability cue (#275) — a flick and a soft note an
-        // octave above it, behind a focus landing, when Ctrl+F1 has something
-        // new to say there.
-        ContextHelpCue.Install();
-
         // Focus-return: when any JJFlexDialog closes, put keyboard focus back
         // inside the application and then speak compact status.
         //
@@ -93,6 +88,26 @@ public partial class MainWindow : UserControl
         {
             try
             {
+                // A dialog can close in the MIDDLE of a flow that still owns
+                // the operator: the rig selector closes while the Connecting
+                // window — its own thread, its own narration — is still up, or
+                // a nested dialog closes back into its parent. Grabbing focus
+                // at those moments dragged the operator to Home between every
+                // window of a connect; each landing announced "JJ Flexible
+                // Home…" with an interrupt, and every interrupt re-queued
+                // whatever the speech arbiter still held unspoken (#348: three
+                // such landings in one connect, two of them 129 ms apart).
+                // When any other window of ours holds the foreground, the
+                // return is not ours to handle yet — and the status narration
+                // below would talk over that window too, so leave entirely.
+                if (AnotherOwnWindowHasForeground())
+                {
+                    Tracing.TraceLine(
+                        "FocusReturnCallback: another window of ours holds the foreground - standing down",
+                        System.Diagnostics.TraceLevel.Info);
+                    return;
+                }
+
                 // Only intervene when focus actually escaped. A dialog opened
                 // from a field should return to that field, and WPF manages
                 // that correctly whenever it can - overriding it every time
@@ -111,10 +126,38 @@ public partial class MainWindow : UserControl
                     System.Diagnostics.TraceLevel.Warning);
             }
 
-            if (RigControl != null)
+            var rig = RigControl;
+            if (rig != null && rig.MyNumSlices > 0)
             {
-                string status = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl);
+                // Compact status on return — but only once the radio's slice
+                // census has arrived. This is the same MyNumSlices test
+                // SpeakConnectStatus applies, and it was missing here: the
+                // connecting flow's dialogs close before slices populate, so
+                // this path spoke "Connected to FLEX-8600, no active slice" —
+                // false within two seconds — 77 ms after the Connecting window
+                // had already said "Connected… waiting for slice" (#348).
+                // While slices are absent the connect flow owns the narration;
+                // once they exist, this is real information about where the
+                // operator returned to.
+                string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
                 Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
+            }
+            else if (rig == null)
+            {
+                // #349: with no radio, nothing announces the return. The Home
+                // display carries no populated fields on a cold start, so the
+                // landing announcement that rides GotKeyboardFocus can stay
+                // silent, and the interop layer may restore focus without
+                // raising anything a screen reader voices — the only thing
+                // Noel heard was the unnamed host pane, as "Pane". Say where
+                // they came back to. Queued, not interrupting, so it lands
+                // behind whatever the close itself announced; Critical, since
+                // connection state is the always-spoken class.
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("connect.no_radio.plain",
+                        Radios.ScreenReaderOutput.CurrentVerbosity),
+                    Radios.Speech.SpeechIntent.Queue,
+                    Radios.VerbosityLevel.Critical);
             }
         };
 
@@ -578,11 +621,13 @@ public partial class MainWindow : UserControl
                     ? "connect.home.link_smartlink" : "connect.home.link_local");
 
                 // Slices may not have populated yet even after the 1.5s delay;
-                // when that's true, BuildFullSliceStatus returns its
-                // "Connected to X, no active slice" fallback which is both
-                // duplicate-prefixed and untrue. Speak the connection portion
-                // alone in that case and trust subsequent operations to reveal
-                // slice state as the user navigates.
+                // when that's true, BuildFullSliceStatus falls back to a bare
+                // "Connected to X", which through this path would come out
+                // duplicate-prefixed. (Until #348 that fallback also said "no
+                // active slice" — untrue within two seconds; the builder now
+                // applies this same MyNumSlices test itself.) Speak the
+                // connection portion alone in that case and trust subsequent
+                // operations to reveal slice state as the user navigates.
                 string message;
                 if (RigControl.MyNumSlices > 0)
                 {
@@ -621,21 +666,10 @@ public partial class MainWindow : UserControl
 
         Tracing.TraceLine("MainWindow.RequestShutdown: starting shutdown", System.Diagnostics.TraceLevel.Info);
 
-        // Disarm the context-help cue BEFORE the exit sequence, not after
-        // (#275). The exit sequence puts prompts up; focus lands on one; the
-        // operator reads it, which takes longer than the settle interval — and
-        // the cue then offers help on a surface that is disappearing. Noel
-        // heard exactly that on 2026-08-27: a tone, no speech, just before the
-        // application closed.
-        ContextHelpCue.SuspendForShutdown();
-
         // Run VB-side exit sequence (prompts, cleanup, radio close)
         if (AppExitCallback != null && !AppExitCallback())
         {
             Tracing.TraceLine("MainWindow.RequestShutdown: exit cancelled by user", System.Diagnostics.TraceLevel.Info);
-            // He is staying. Give the cue back — a latch that only ever closes
-            // would leave the rest of the session silently without it.
-            ContextHelpCue.ResumeAfterCancelledShutdown();
             return false;
         }
 
@@ -1435,6 +1469,46 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
+    /// True when a window of THIS process other than our own shell currently
+    /// holds the foreground — a chained dialog, or the Connecting window on
+    /// its own thread. Used by the focus-return callback (#348): a dialog
+    /// closing back into a flow that still owns the operator is not a return
+    /// to Home, and treating it as one dragged focus (and an interrupting
+    /// landing announcement) into the middle of every connect.
+    /// </summary>
+    private bool AnotherOwnWindowHasForeground()
+    {
+        var fg = ForegroundProbe.GetForegroundWindow();
+        if (fg == IntPtr.Zero) return false;
+
+        ForegroundProbe.GetWindowThreadProcessId(fg, out uint pid);
+        if (pid != (uint)Environment.ProcessId) return false;
+
+        // Our shell is the root window above the HwndSource hosting this
+        // control. Not Process.MainWindowHandle: that property guesses from
+        // z-order and can return whichever of our windows happens to be on
+        // top — including the very window being tested.
+        if (PresentationSource.FromVisual(this)
+            is not System.Windows.Interop.HwndSource source) return true;
+        var shell = ForegroundProbe.GetAncestor(source.Handle, ForegroundProbe.GA_ROOT);
+        return fg != shell;
+    }
+
+    private static class ForegroundProbe
+    {
+        internal const uint GA_ROOT = 2;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern IntPtr GetForegroundWindow();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    }
+
+    /// <summary>
     /// Land keyboard focus wherever Home currently keeps it: the rescue page's
     /// first button when the page is up, the frequency display otherwise.
     ///
@@ -2094,11 +2168,17 @@ public partial class MainWindow : UserControl
     public Func<string>? GetDefaultSmartLinkEmail { get; set; }
 
     /// <summary>
-    /// Use a SmartLink account for the rest of this app session WITHOUT
-    /// changing the saved default (the "Use Now" button). Wired by globals.vb,
-    /// which keeps the session-scoped override and honors it in
-    /// ShowAccountSelector ahead of the saved default. Clears itself by
-    /// existing only in memory — an app restart is back to the default.
+    /// Use a SmartLink account for THIS CONNECTION without changing the saved
+    /// default (the "Use Now" button). Wired by globals.vb, which keeps the
+    /// override and honors it in ShowAccountSelector and
+    /// ResolveSmartLinkAccount ahead of the saved default.
+    ///
+    /// <para>Cleared by globals.CloseTheRadio, so disconnecting returns the
+    /// borrowed account (#342). This line used to say the override "clears
+    /// itself by existing only in memory — an app restart is back to the
+    /// default", which was true and was the whole bug: nothing shorter than an
+    /// app restart ended it, so an account borrowed for one radio judged every
+    /// radio that followed.</para>
     /// </summary>
     public Action<string>? SetSessionSmartLinkAccount { get; set; }
 
@@ -2375,10 +2455,55 @@ public partial class MainWindow : UserControl
             if (result != FlexBase.SmartLinkRegistrationQuery.NotRegistered) return;
 
             string serial = rig.SelectedRadioSerial ?? string.Empty;
-            if (serial.Length == 0 || !_registrationSuggestedSerials.Add(serial)) return;
-            if (!rig.IsConnected) return;
+            if (serial.Length == 0) return;
 
             string account = rig.CurrentSmartLinkAccountEmail;
+
+            // Sprint 38 Track D (#342) — DO NOT ANSWER A QUESTION NOBODY ASKED.
+            //
+            // The server was asked about whichever account happened to be in
+            // play. On a LOCAL connect that account can be one the operator
+            // borrowed for a DIFFERENT radio: connect to Don's 6300 over
+            // SmartLink, disconnect, connect to your own 8600 across the room,
+            // and the honest answer "the 8600 is not registered to Don" comes
+            // back and gets rendered as advice about your own radio.
+            //
+            // globals.CloseTheRadio now returns the borrowed account at
+            // disconnect, which fixes the reported sequence at its source. This
+            // is the second guard and it is the cheap one: whatever route left
+            // a non-default account in play — a "Use Now" that is still
+            // standing, a picker switch, a future writer nobody has thought of
+            // yet — a local connect judged against an account the operator did
+            // not choose as theirs is not evidence about this radio, so it says
+            // nothing at all.
+            //
+            // Deliberately narrow. It only fires when a default account exists
+            // AND the account asked is a different one; a single-account
+            // install, or one that has never nominated a default, resolves
+            // exactly as before. And it runs BEFORE the once-per-run serial
+            // guard below, so a suppressed question does not spend the one
+            // chance the real question gets later.
+            //
+            // Remote connects are exempt by construction: over SmartLink the
+            // query returns Registered, because arriving that way IS proof.
+            bool localConnect = !rig.RemoteRig;
+            string defaultAccount = GetDefaultSmartLinkEmail?.Invoke() ?? string.Empty;
+            if (localConnect
+                && account.Length > 0
+                && defaultAccount.Length > 0
+                && !account.Equals(defaultAccount, StringComparison.OrdinalIgnoreCase))
+            {
+                Tracing.TraceLine(
+                    $"SuggestRegistration: local connect to {serial} was judged against '{account}', "
+                    + $"which is not this operator's account '{defaultAccount}' — saying nothing, "
+                    + "the answer is about the wrong account (#342)",
+                    TraceLevel.Info);
+                return;
+            }
+
+            if (!_registrationSuggestedSerials.Add(serial)) return;
+            if (!rig.IsConnected) return;
+
             Tracing.TraceLine($"SuggestRegistration: {serial} not registered to {account}", TraceLevel.Info);
 
             // Registered-elsewhere awareness (live incident 2026-08-05: Noel was
@@ -2406,7 +2531,8 @@ public partial class MainWindow : UserControl
             // A REMOTE connect keeps the original advisory: the operator is
             // already using SmartLink, so registration is not hypothetical and
             // "I only use this radio here" is not on the table.
-            bool localConnect = !rig.RemoteRig;
+            // (localConnect is resolved above, where the borrowed-account guard
+            // needs it.)
             bool undecided = SmartLinkIntentFor(rig) == Radios.SmartLinkIntents.Undecided;
 
             await Dispatcher.BeginInvoke(() =>
