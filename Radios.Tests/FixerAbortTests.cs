@@ -129,6 +129,114 @@ namespace Radios.Tests
             Assert.True(p.Asks);
         }
 
+        // ---- recorded results are never discarded silently (#250) ----
+
+        [Fact]
+        public void Closing_with_recorded_results_asks_and_names_what_it_discards()
+        {
+            // The quiet moment between stages: no stage running, no carrier,
+            // three measurements in the run. Closing here used to discard all
+            // three without a word — and on the transmitting stages each one
+            // was paid for with RF.
+            Plan p = Decide(keyed: false, Source.WindowClosing, runInProgress: false,
+                            resultsCollected: 3);
+
+            Assert.Equal(new[] { Step.AskAbandonOrContinue }, p.Steps);
+            Assert.Equal("This test has recorded three results. Ending it now discards "
+                       + "them. Abandon the test?", p.Announcement);
+        }
+
+        [Fact]
+        public void Stopping_with_recorded_results_asks_and_names_what_it_discards()
+        {
+            Plan p = Decide(keyed: false, Source.StopButton, runInProgress: false,
+                            resultsCollected: 1);
+
+            Assert.Equal(new[] { Step.AskAbandonOrContinue }, p.Steps);
+            Assert.Equal("This test has recorded one result. Ending it now discards "
+                       + "it. Do you want to stop the test?", p.Announcement);
+        }
+
+        [Fact]
+        public void A_stop_mid_stage_still_names_the_results_already_recorded()
+        {
+            Plan viaButton = Decide(keyed: false, Source.EscapeKey, runInProgress: true,
+                                    resultsCollected: 2);
+            Assert.Equal("This test has recorded two results. Ending it now discards "
+                       + "them. Do you want to stop the test?", viaButton.Announcement);
+
+            Plan viaClose = Decide(keyed: false, Source.WindowClosing, runInProgress: true,
+                                   resultsCollected: 2);
+            Assert.Equal("The test has not finished, and it has recorded two results. "
+                       + "Ending it now discards them. Abandon it?", viaClose.Announcement);
+        }
+
+        [Fact]
+        public void When_results_are_kept_the_question_says_saved_and_never_discarded()
+        {
+            // The fate claim rides the fact. The persistence layer journals
+            // runs as they go WHEN it set up — so a caller whose journal is
+            // live passes true and the question stops threatening data loss
+            // that will not happen. It still asks: ending a run mid-way ends
+            // the session either way.
+            Plan p = Decide(keyed: false, Source.WindowClosing, runInProgress: false,
+                            resultsCollected: 3, resultsAreKept: true);
+            Assert.Equal("This test has recorded three results. What it recorded is "
+                       + "saved under its test ID. Abandon the test?", p.Announcement);
+
+            foreach (Source s in AllSources)
+            foreach (bool running in new[] { true, false })
+            {
+                Plan kept = Decide(false, s, running, resultsCollected: 2,
+                                   resultsAreKept: true);
+                Assert.DoesNotContain("discard", kept.Announcement,
+                                      StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        [Fact]
+        public void A_promise_of_keeping_is_never_made_unless_the_caller_asserts_it()
+        {
+            // The inverse: with nothing persisting, no wording may claim the
+            // results are saved — a reassuring voice over silent data loss is
+            // worse than the loss.
+            foreach (Source s in AllSources)
+            foreach (bool running in new[] { true, false })
+            {
+                Plan p = Decide(false, s, running, resultsCollected: 2);
+                Assert.DoesNotContain("saved", p.Announcement,
+                                      StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        [Fact]
+        public void A_run_with_nothing_recorded_still_closes_without_ceremony()
+        {
+            // The other half of the rule: a fresh run holds nothing, and a
+            // question with one sensible answer trains the operator to stop
+            // reading questions.
+            Plan p = Decide(keyed: false, Source.WindowClosing, runInProgress: false,
+                            resultsCollected: 0);
+            Assert.Equal(new[] { Step.AbandonNow }, p.Steps);
+            Assert.Equal("", p.Announcement);
+        }
+
+        [Fact]
+        public void Recorded_results_never_weaken_the_keyed_invariant()
+        {
+            // Whatever the run holds, RF comes down first and no question
+            // comes before the unkey.
+            foreach (Source s in AllSources)
+            foreach (bool running in new[] { true, false })
+            foreach (int results in new[] { 0, 1, 5 })
+            {
+                Plan p = Decide(true, s, running, results);
+                Assert.True(p.UnkeysFirst,
+                    s + " run=" + running + " results=" + results
+                    + " did not unkey first");
+            }
+        }
+
         // ---- every source is equal in authority ----
 
         [Fact]

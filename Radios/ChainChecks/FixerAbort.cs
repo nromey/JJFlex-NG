@@ -68,8 +68,28 @@ namespace Radios.ChainChecks
         /// </summary>
         /// <param name="keyed">Is the transmitter keyed RIGHT NOW?</param>
         /// <param name="source">Where the request came from.</param>
-        /// <param name="runInProgress">Is there a run to abandon at all?</param>
-        public static Plan Decide(bool keyed, Source source, bool runInProgress)
+        /// <param name="runInProgress">Is a stage executing RIGHT NOW? This is
+        /// about the moment, not the run as a whole — a run with recorded
+        /// results and no stage running answers false here and says what it
+        /// holds through <paramref name="resultsCollected"/>.</param>
+        /// <param name="resultsCollected">
+        /// How many stage results the run holds. Zero closes without ceremony;
+        /// anything more means the question must name the count (#250) — until
+        /// now a close between stages ended the run silently, and on the
+        /// transmitting stages a measurement is paid for with RF.
+        /// </param>
+        /// <param name="resultsAreKept">
+        /// Is something actually persisting this run's results as it goes?
+        /// The FATE CLAIM in the question rides this fact: false says the
+        /// results are discarded, true says they are saved under the test ID.
+        /// A parameter rather than an assumption, because the evidence layer
+        /// can fail to set up on a given machine — and a question that
+        /// promises "saved" over a journal that never opened is silent data
+        /// loss with a reassuring voice. The caller passes the evidence
+        /// layer's own signal, never a constant true.
+        /// </param>
+        public static Plan Decide(bool keyed, Source source, bool runInProgress,
+                                  int resultsCollected = 0, bool resultsAreKept = false)
         {
             // Keyed: stop the RF first, ALWAYS, whatever asked and whatever
             // else is true. Only then is there time to ask anything.
@@ -94,16 +114,64 @@ namespace Radios.ChainChecks
             }
 
             // Not keyed. Nothing urgent, and abandoning a run represents real
-            // work, so a stray keypress must not throw it away.
-            if (!runInProgress)
+            // work, so a stray keypress must not throw it away — and a run
+            // holding results must never end silently, because the results
+            // die with it and the operator was not told (#250).
+            if (!runInProgress && resultsCollected <= 0)
                 return new Plan(new[] { Step.AbandonNow }, "");
+
+            if (!runInProgress)
+            {
+                // Results and no stage running: the quiet moment between
+                // stages, which is exactly when closing used to end the run
+                // without a word.
+                string fate = resultsAreKept
+                    ? " What it recorded is saved under its test ID."
+                    : " Ending it now discards "
+                      + (resultsCollected == 1 ? "it" : "them") + ".";
+
+                return source == Source.WindowClosing
+                    ? new Plan(new[] { Step.AskAbandonOrContinue },
+                        "This test has recorded " + ResultsPhrase(resultsCollected)
+                        + "." + fate + " Abandon the test?")
+                    : new Plan(new[] { Step.AskAbandonOrContinue },
+                        "This test has recorded " + ResultsPhrase(resultsCollected)
+                        + "." + fate + " Do you want to stop the test?");
+            }
 
             if (source == Source.WindowClosing)
                 return new Plan(new[] { Step.AskAbandonOrContinue },
-                    "The test has not finished. Abandon it?");
+                    resultsCollected > 0
+                        ? "The test has not finished, and it has recorded "
+                          + ResultsPhrase(resultsCollected) + "."
+                          + (resultsAreKept
+                              ? " What it recorded is saved under its test ID."
+                              : " Ending it now discards "
+                                + (resultsCollected == 1 ? "it" : "them") + ".")
+                          + " Abandon it?"
+                        : "The test has not finished. Abandon it?");
 
             return new Plan(new[] { Step.AskAbandonOrContinue },
-                "Do you want to stop the test?");
+                resultsCollected > 0
+                    ? "This test has recorded " + ResultsPhrase(resultsCollected) + "."
+                      + (resultsAreKept
+                          ? " What it recorded is saved under its test ID."
+                          : " Ending it now discards "
+                            + (resultsCollected == 1 ? "it" : "them") + ".")
+                      + " Do you want to stop the test?"
+                    : "Do you want to stop the test?");
+        }
+
+        /// <summary>"one result", "three results" — words for the counts a
+        /// person says as words, numerals past twelve.</summary>
+        private static string ResultsPhrase(int n)
+        {
+            string[] small = { "zero", "one", "two", "three", "four", "five", "six",
+                               "seven", "eight", "nine", "ten", "eleven", "twelve" };
+            string count = n >= 0 && n < small.Length
+                ? small[n]
+                : n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return count + (n == 1 ? " result" : " results");
         }
 
         /// <summary>

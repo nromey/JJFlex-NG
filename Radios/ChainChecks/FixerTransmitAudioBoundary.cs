@@ -298,8 +298,7 @@ namespace Radios.ChainChecks
                     // transmitter. Key-up is issued on the third tone.
                     if (!CountdownThenReadyToKey())
                     {
-                        facts.Detail = "The check was stopped during the countdown, before "
-                                     + "the radio was keyed. Nothing was transmitted.";
+                        facts.Detail = StoppedDuringCountdownText;
                         return facts;
                     }
 
@@ -531,8 +530,7 @@ namespace Radios.ChainChecks
                 // honest MOX latency.
                 if (!CountdownThenReadyToKey())
                 {
-                    facts.Detail = "The check was stopped during the countdown, before the "
-                                 + "radio was keyed. Nothing was transmitted.";
+                    facts.Detail = StoppedDuringCountdownText;
                     return facts;
                 }
 
@@ -609,11 +607,7 @@ namespace Radios.ChainChecks
         /// so the timing an operator learns does not change with the sound.
         /// </summary>
         private bool CountdownThenReadyToKey()
-        {
-            Witness(_countdown, "countdown");
-            SleepUnlessStopped(CountdownKeyUpAtMs);
-            return !StopRequested();
-        }
+            => CountUnkeyedThenReadyToKey(_countdown, _stopRequested);
 
         /// <summary>
         /// Wait for the radio to confirm the transmit state. Mox is queued
@@ -747,11 +741,7 @@ namespace Radios.ChainChecks
             }
         }
 
-        private bool StopRequested()
-        {
-            try { return _stopRequested != null && _stopRequested(); }
-            catch { return true; }
-        }
+        private bool StopRequested() => StopAsked(_stopRequested);
 
         /// <summary>
         /// Tell a witness something happened, and never let it break the run —
@@ -759,16 +749,63 @@ namespace Radios.ChainChecks
         /// exception would replace what actually went wrong with a failure to
         /// keep a note.
         /// </summary>
-        private static void Witness(Action a, string which)
+        /// <remarks>
+        /// Internal since Sprint 37: the tune-probe boundary
+        /// (<see cref="FixerTransmitBoundary"/>) carries the same cues for
+        /// stage 2 (#255), and two implementations of "a cue must never take
+        /// the run down" is one more than is safe — the same reasoning that
+        /// made <c>Safely</c> and <c>ReadKeyed</c> internal.
+        /// </remarks>
+        internal static void Witness(Action a, string which)
         {
             if (a == null) return;
             try { a(); }
             catch (Exception ex)
             {
-                Tracing.TraceLine("FixerTransmitAudioBoundary: " + which
+                Tracing.TraceLine("FixerTransmitBoundaries: " + which
                                   + " threw and was ignored — " + ex.Message,
                                   TraceLevel.Warning);
             }
+        }
+
+        /// <summary>
+        /// The one sentence for a stage stopped during its countdown, before
+        /// anything keyed. One home: it is said by both audio stages and by
+        /// the tune probe, and a reader comparing reports must be able to see
+        /// they describe the same event.
+        /// </summary>
+        internal const string StoppedDuringCountdownText =
+            "The check was stopped during the countdown, before the radio was "
+            + "keyed. Nothing was transmitted.";
+
+        /// <summary>
+        /// The countdown-then-key pacing, shared by every keying stage: start
+        /// the tones, wait unkeyed until <see cref="CountdownKeyUpAtMs"/>, and
+        /// answer whether the caller may key. False means a stop arrived —
+        /// the caller must then not key. A missing hook counts silently and
+        /// still paces the key-up, so the timing an operator learns does not
+        /// change with the sound.
+        /// </summary>
+        internal static bool CountUnkeyedThenReadyToKey(Action countdown,
+                                                        Func<bool> stopRequested)
+        {
+            Witness(countdown, "countdown");
+            var w = Stopwatch.StartNew();
+            while (w.ElapsedMilliseconds < CountdownKeyUpAtMs)
+            {
+                if (StopAsked(stopRequested)) return false;
+                Thread.Sleep(25);
+            }
+            return !StopAsked(stopRequested);
+        }
+
+        /// <summary>A stop hook read defensively: a hook that throws reads as
+        /// "stop", because carrying on past a broken stop path is the one
+        /// direction this must not fail in.</summary>
+        internal static bool StopAsked(Func<bool> stopRequested)
+        {
+            try { return stopRequested != null && stopRequested(); }
+            catch { return true; }
         }
 
         // ================================================================

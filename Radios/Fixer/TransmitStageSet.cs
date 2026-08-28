@@ -332,12 +332,28 @@ namespace Radios.Fixer
                     // into ANT1" — both live facts were already read for the
                     // record and shown to nobody (#250). The duration derives
                     // from the probe's own constant so it cannot drift.
+                    // The count-in is part of what pressing Run does (#255), so
+                    // the sentence says so — stage 1's already did, and a cue
+                    // the operator was not told about reads as a malfunction.
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this keys the radio's own tune carrier"
+                        return "Running this counts down with three tones, then keys "
+                             + "the radio's own tune carrier"
                              + AtInto(s?.TunePowerWatts ?? -1, s?.AntennaPort ?? "")
                              + " for about " + SecondsPhrase(TxTuneProbe.TuneMs) + ".";
+                    },
+                    // The other half of #250: once the stage names the power
+                    // it will use, the next thing an operator wants is to
+                    // change it — and the Fixer is modal, so "go to the main
+                    // window" used to cost the whole run. The page hands off
+                    // to the host's own power surface rather than growing a
+                    // number box of its own, the same rule as the device
+                    // picker: one home for power, and it is not here.
+                    HostActions = new[]
+                    {
+                        new FixerHostAction("open-power-dialog",
+                                            "Change the tune power"),
                     },
                     SkipChoices = new[] { operatorSkip },
                     Execute = hosts.ProbeTransmitter == null ? (Func<FixerStageContext, FixerOutcome>)null
@@ -365,10 +381,19 @@ namespace Radios.Fixer
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this keys the transmitter"
+                        return "Running this counts down with three tones, then keys "
+                             + "the transmitter"
                              + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
                              + " for several seconds and sends tones and a recorded voice "
                              + "through it. Your microphone stays out of the path.";
+                    },
+                    // Same hand-off as stage 2 (#250); this stage transmits at
+                    // the RF power, so that is the number an operator here
+                    // wants to move.
+                    HostActions = new[]
+                    {
+                        new FixerHostAction("open-power-dialog",
+                                            "Change the transmit power"),
                     },
                     SkipChoices = new[] { operatorSkip },
                     Execute = hosts.RunInjectedTransmit == null ? (Func<FixerStageContext, FixerOutcome>)null
@@ -391,13 +416,23 @@ namespace Radios.Fixer
                         + "points somewhere quite specific.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/spoken-transmit",
+                    // "Counts you in", not "counts down" — this is the one
+                    // keying stage where the operator performs, and the count
+                    // is their cue as well as the RF warning.
                     DescribeRunAction = () =>
                     {
                         StationNow s = Station();
-                        return "Running this keys the transmitter"
+                        return "Running this counts you in with three tones, then keys "
+                             + "the transmitter"
                              + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
                              + " for about " + SecondsPhrase(TxAudioProbe.SpokenListenMs)
                              + " while you speak into your microphone.";
+                    },
+                    // Same hand-off as stage 2 (#250).
+                    HostActions = new[]
+                    {
+                        new FixerHostAction("open-power-dialog",
+                                            "Change the transmit power"),
                     },
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
                     Execute = hosts.RunSpokenTransmit == null ? (Func<FixerStageContext, FixerOutcome>)null
