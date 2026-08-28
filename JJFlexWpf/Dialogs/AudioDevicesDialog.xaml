@@ -46,43 +46,64 @@
                            Style="{StaticResource DialogLabel}"
                            Margin="0,0,0,2"/>
 
-                <!-- ===== Audio system (Track E, 2026-08-16) =====
-                     First, because it decides what the two lists below can
-                     contain. Windows offers the same sound card through
-                     several driver models, and every device used to appear
-                     once per model — so the lists folded the duplicates and,
-                     in folding them, chose a driver model on the operator's
-                     behalf. Choosing it here means there are no duplicates
-                     left to fold, which is why this control makes the lists
-                     shorter rather than longer. One selector governs both
-                     directions, the DAW convention; the advanced toggle at
-                     the bottom is where they can be set apart. -->
-                <Label Content="_Audio system:"
-                       Target="{Binding ElementName=HostApiCombo}"
+                <!-- ===== Three levels, not one filter (#207, Sprint 37 H) =====
+                     Hardware, then endpoint, then transport — because that is
+                     what audio actually is. The flat lists put all three in
+                     one long row list plus one filter, which is why 26 rows
+                     described four devices. Each combo below is short and its
+                     meaning obvious: "Audient EVO8", then "Main Output 1/2",
+                     then WASAPI. The audio-system selector moved BELOW the
+                     devices because it no longer decides what the device
+                     combos contain — devices are named by hardware, and the
+                     audio system says how the chosen ones are reached.
+
+                     "Follow the Windows default" is the first row of each
+                     device combo and a real, persisted choice — not a label on
+                     a row. It survives renames, hot-plugs and driver updates,
+                     because it names no hardware to go stale.
+
+                     The advanced toggle at the bottom swaps these combos for
+                     the flat every-endpoint lists, which is also where the
+                     microphone and receive audio can be put on different
+                     audio systems. -->
+                <Label x:Name="RadioOutputDeviceLabel"
+                       Content="Radio receive audio _plays through:"
+                       Target="{Binding ElementName=RadioOutputDeviceCombo}"
                        Style="{StaticResource DialogFieldLabel}"
                        Margin="0,0,0,2"/>
-                <ComboBox x:Name="HostApiCombo"
+                <ComboBox x:Name="RadioOutputDeviceCombo"
                           Style="{StaticResource DialogComboBox}"
                           Margin="0,0,0,4"
-                          AutomationProperties.Name="Audio system"
-                          local:JJFlexHelp.Text="The Windows driver model JJ Flexible reaches your sound devices through. It applies to both the microphone and the receive audio, and the two lists below show the devices it offers."
-                          SelectionChanged="HostApiCombo_SelectionChanged"/>
-                <TextBlock x:Name="HostApiNote"
-                           Style="{StaticResource DialogLabel}"
-                           TextWrapping="Wrap"
-                           Margin="0,0,0,10"
-                           AutomationProperties.Name="Audio system note"/>
-
-                <Label Content="Radio receive audio _plays through:"
-                       Target="{Binding ElementName=RadioOutputList}"
+                          AutomationProperties.Name="Radio receive audio device"
+                          local:JJFlexHelp.Text="The device your radio's receive audio plays through. Pick hardware by name, or choose Follow the Windows default and JJ Flexible always uses whatever Windows is playing through. On a remote connection this is the only way to hear the radio at all."
+                          SelectionChanged="RadioOutputDeviceCombo_SelectionChanged"/>
+                <Label x:Name="RadioOutputEndpointLabel"
+                       Content="Output on that de_vice:"
+                       Target="{Binding ElementName=RadioOutputEndpointCombo}"
                        Style="{StaticResource DialogFieldLabel}"
                        Margin="0,0,0,2"/>
+                <ComboBox x:Name="RadioOutputEndpointCombo"
+                          Style="{StaticResource DialogComboBox}"
+                          Margin="0,0,0,4"
+                          AutomationProperties.Name="Output on that device"
+                          local:JJFlexHelp.Text="Which output on the chosen device carries the radio. Choosable only when the device has more than one."
+                          SelectionChanged="RadioOutputEndpointCombo_SelectionChanged"/>
+
+                <!-- Advanced view of the same choice: every endpoint of every
+                     audio system, flat, each row naming its own. -->
+                <Label x:Name="RadioOutputListLabel"
+                       Content="Every receive audio endpoint:"
+                       Target="{Binding ElementName=RadioOutputList}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"
+                       Visibility="Collapsed"/>
                 <ListBox x:Name="RadioOutputList"
                          Height="110"
                          Margin="0,0,0,4"
                          KeyboardNavigation.DirectionalNavigation="Contained"
+                         Visibility="Collapsed"
                          AutomationProperties.Name="Radio receive audio output device"
-                         local:JJFlexHelp.Text="How the radio reaches your ears. On a remote connection it is the only way to hear it at all."/>
+                         local:JJFlexHelp.Text="How the radio reaches your ears. On a remote connection it is the only way to hear it at all. Every endpoint of every audio system is listed, and each row names its own."/>
                 <TextBlock x:Name="RadioOutputNote"
                            Style="{StaticResource DialogLabel}"
                            TextWrapping="Wrap"
@@ -90,16 +111,42 @@
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Radio receive audio device note"/>
 
-                <Label Content="M_icrophone sent to the radio:"
-                       Target="{Binding ElementName=RadioInputList}"
+                <Label x:Name="RadioInputDeviceLabel"
+                       Content="M_icrophone sent to the radio:"
+                       Target="{Binding ElementName=RadioInputDeviceCombo}"
                        Style="{StaticResource DialogFieldLabel}"
                        Margin="0,0,0,2"/>
+                <ComboBox x:Name="RadioInputDeviceCombo"
+                          Style="{StaticResource DialogComboBox}"
+                          Margin="0,0,0,4"
+                          AutomationProperties.Name="Microphone device sent to the radio"
+                          local:JJFlexHelp.Text="The device the radio hears you through. Pick hardware by name, or choose Follow the Windows default and JJ Flexible always uses whatever Windows is recording from. On a remote connection this is the only way the radio can hear you."
+                          SelectionChanged="RadioInputDeviceCombo_SelectionChanged"/>
+                <Label x:Name="RadioInputEndpointLabel"
+                       Content="Input on that d_evice:"
+                       Target="{Binding ElementName=RadioInputEndpointCombo}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"/>
+                <ComboBox x:Name="RadioInputEndpointCombo"
+                          Style="{StaticResource DialogComboBox}"
+                          Margin="0,0,0,4"
+                          AutomationProperties.Name="Input on that device"
+                          local:JJFlexHelp.Text="Which input on the chosen device the radio listens to. Choosable only when the device has more than one."
+                          SelectionChanged="RadioInputEndpointCombo_SelectionChanged"/>
+
+                <Label x:Name="RadioInputListLabel"
+                       Content="Every microphone endpoint:"
+                       Target="{Binding ElementName=RadioInputList}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"
+                       Visibility="Collapsed"/>
                 <ListBox x:Name="RadioInputList"
                          Height="110"
                          Margin="0,0,0,4"
                          KeyboardNavigation.DirectionalNavigation="Contained"
+                         Visibility="Collapsed"
                          AutomationProperties.Name="Microphone input device sent to the radio"
-                         local:JJFlexHelp.Text="How the radio hears you. On a remote connection it is the only way it can."
+                         local:JJFlexHelp.Text="How the radio hears you. On a remote connection it is the only way it can. Every endpoint of every audio system is listed, and each row names its own."
                          SelectionChanged="RadioInputList_SelectionChanged"/>
                 <TextBlock x:Name="RadioInputNote"
                            Style="{StaticResource DialogLabel}"
@@ -107,6 +154,30 @@
                            Margin="0,0,0,10"
                            AutomationProperties.LiveSetting="Polite"
                            AutomationProperties.Name="Microphone device note"/>
+
+                <!-- ===== Audio system — the TRANSPORT level =====
+                     Below the devices since Sprint 37 (#207), because it now
+                     SELECTS rather than filters: it decides how the chosen
+                     devices above are reached, and changing it moves them —
+                     out loud, on OK — rather than changing what the combos
+                     contain. One selector governs both directions, the DAW
+                     convention; the advanced toggle is where they can be set
+                     apart. -->
+                <Label Content="_Audio system the devices are reached through:"
+                       Target="{Binding ElementName=HostApiCombo}"
+                       Style="{StaticResource DialogFieldLabel}"
+                       Margin="0,0,0,2"/>
+                <ComboBox x:Name="HostApiCombo"
+                          Style="{StaticResource DialogComboBox}"
+                          Margin="0,0,0,4"
+                          AutomationProperties.Name="Audio system the devices are reached through"
+                          local:JJFlexHelp.Text="The Windows driver model JJ Flexible reaches your chosen devices through. It applies to both the microphone and the receive audio; your device choices above stay the same when you change it."
+                          SelectionChanged="HostApiCombo_SelectionChanged"/>
+                <TextBlock x:Name="HostApiNote"
+                           Style="{StaticResource DialogLabel}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"
+                           AutomationProperties.Name="Audio system note"/>
 
                 <!-- ===== Transmit quality (Track E, 2026-08-16) =====
                      Which device, at what rate, is one decision, so the rate
@@ -263,19 +334,20 @@
 
                 <Separator Margin="0,4,0,8"/>
 
-                <!-- The lists normally hold one audio system at a time. This
-                     drops that filter and shows every endpoint Windows offers,
-                     across every audio system at once, including the kernel
-                     pins that were hidden on 2026-08-11 after two operators
-                     picked one and transmitted into a dead jack. It is also
-                     the way to put the microphone on one audio system and the
-                     receive audio on another, which the single selector above
+                <!-- The device combos above group endpoints by hardware and
+                     collapse the audio-system dimension. This swaps them for
+                     flat lists holding every endpoint Windows offers, across
+                     every audio system at once, including the kernel pins
+                     that were hidden on 2026-08-11 after two operators picked
+                     one and transmitted into a dead jack. It is also the way
+                     to put the microphone on one audio system and the receive
+                     audio on another, which the single selector above
                      deliberately does not offer. -->
                 <CheckBox x:Name="AdvancedDevicesCheck"
                           Content="_Show every sound endpoint, every audio system at once (advanced)"
                           Margin="0,0,0,6"
                           AutomationProperties.Name="Show every sound endpoint, every audio system at once, advanced"
-                          local:JJFlexHelp.Text="Drops the audio-system filter: every endpoint Windows offers, across every audio system at once, with the system named on each row, kernel streaming included. It is also the way to put the microphone on one audio system and the receive audio on another, which the single selector above deliberately does not offer."
+                          local:JJFlexHelp.Text="Swaps the device combos for flat lists: every endpoint Windows offers, across every audio system at once, with the system named on each row, kernel streaming included. Choosing a row chooses its audio system with it, so this is also the way to put the microphone on one audio system and the receive audio on another."
                           AutomationProperties.AcceleratorKey="Alt+S"
                           Checked="AdvancedDevicesCheck_Changed"
                           Unchecked="AdvancedDevicesCheck_Changed"/>

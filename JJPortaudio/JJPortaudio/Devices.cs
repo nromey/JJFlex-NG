@@ -93,6 +93,26 @@ namespace JJPortaudio
             public int hostApiTypeId = -1;
             public string hostApiName;
 
+            // --- Added Sprint 37 Track H (#207) --------------------------------
+            // When true, this entry does not name hardware at all: it means
+            // "whatever Windows' default device for this direction is, now and
+            // whenever it changes". Resolution happens at every
+            // GetConfiguredDevice call, so a renamed device, a driver update,
+            // or a new default set in Windows Sound settings is followed
+            // without the operator ever coming back here — the whole class of
+            // silently-repointed-device bugs this file fights simply has no
+            // name to go stale.
+            //
+            // The other fields are still written when this is true, as an
+            // ADVISORY snapshot of what the default resolved to at save time.
+            // That is deliberate forward-compatibility: a build older than
+            // this field ignores the unknown XML element (XmlSerializer's
+            // documented behaviour) and reads the entry as a concrete device —
+            // frozen at the snapshot, but working. Files older than this field
+            // deserialize with false, so nothing about an existing
+            // audioDevices.xml changes meaning.
+            public bool followWindowsDefault;
+
             [XmlIgnore]
             public string ConfigFile;
         }
@@ -458,10 +478,7 @@ namespace JJPortaudio
             // The host-API default aliases. Fixed names from PortAudio's MME
             // and DirectSound backends, so this is a fact, not a guess: they
             // do not name a device, they follow whatever Windows is set to.
-            if (lower == "microsoft sound mapper - input"
-                || lower == "microsoft sound mapper - output"
-                || lower == "primary sound capture driver"
-                || lower == "primary sound driver")
+            if (IsFollowDefaultAlias(name))
             {
                 return "follows your Windows default, whatever that is";
             }
@@ -471,6 +488,26 @@ namespace JJPortaudio
             if (lower.Contains("displayport")) return "DisplayPort";
             if (HasWord(lower, "usb")) return "USB";
             return "";
+        }
+
+        /// <summary>
+        /// True of the MME and DirectSound backend rows that are not devices at
+        /// all — fixed alias names from PortAudio's own backends that follow
+        /// whatever Windows' default is. The basic hardware tree hides them
+        /// (#207): "Follow the Windows default" is now a real, transport-neutral
+        /// choice of its own, and offering the same idea again as a pseudo-device
+        /// under two different names would be two vocabularies for one thing.
+        /// They stay enumerated and stay in the advanced view, and a saved
+        /// selection pointing at one keeps resolving.
+        /// </summary>
+        public static bool IsFollowDefaultAlias(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string lower = name.Trim().ToLowerInvariant();
+            return lower == "microsoft sound mapper - input"
+                || lower == "microsoft sound mapper - output"
+                || lower == "primary sound capture driver"
+                || lower == "primary sound driver";
         }
 
         /// <summary>Whole-word match, so "usb" does not fire inside "busbar".</summary>
@@ -848,7 +885,27 @@ namespace JJPortaudio
         public Device GetConfiguredDevice(DeviceTypes type)
         {
             Device dev = (type == DeviceTypes.input) ? InputDevice : OutputDevice;
-            if ((dev == null) || !FindDevice(dev)) return null;
+            if (dev == null) return null;
+
+            // Follow-the-Windows-default mode (#207): the entry names no
+            // hardware, so resolution is "whatever the default is right now",
+            // preferring the operator's selected host API. Resolved on every
+            // call on purpose — that is the entire meaning of the mode.
+            if (dev.followWindowsDefault)
+            {
+                DeviceInfo live = PickSystemDefault(type, SelectedHostApiTypeId);
+                if (live == null) return null;
+                if (dev.Name != live.Name || dev.hostApiTypeId != live.HostApiTypeId)
+                {
+                    Tracing.TraceLine("Devices.GetConfiguredDevice: " + type
+                        + " follows the Windows default, currently \"" + live.Name + "\" ("
+                        + live.HostApiName + ")", TraceLevel.Info);
+                }
+                RefreshFromLive(dev, live);
+                return dev;
+            }
+
+            if (!FindDevice(dev)) return null;
             return dev;
         }
 
@@ -862,6 +919,11 @@ namespace JJPortaudio
             Device dev = (type == DeviceTypes.input) ? InputDevice : OutputDevice;
             savedName = dev?.Name;
             if (dev == null) return false;
+            // A follow-the-default entry cannot be "missing": it names no
+            // hardware, so there is nothing to unplug. When no usable device
+            // exists at all, GetConfiguredDevice returns null and the caller's
+            // no-device-at-all message is the right one.
+            if (dev.followWindowsDefault) return false;
             return !FindDevice(dev);
         }
 
@@ -895,6 +957,52 @@ namespace JJPortaudio
             configured.selectedHostApiTypeId = SelectedHostApiTypeId;
             writeCFG();
             return configured.devs[id];
+        }
+
+        /// <summary>
+        /// Save "follow the Windows default" as the choice for this direction
+        /// (#207). Writes through immediately, like any other selection.
+        /// </summary>
+        /// <returns>the persisted entry — its device fields hold an advisory
+        /// snapshot of what the default resolves to right now, or the previous
+        /// entry's values when nothing usable exists at this moment.</returns>
+        public Device SetFollowWindowsDefault(DeviceTypes type)
+        {
+            int id = (type == DeviceTypes.input) ? 0 : 1;
+            var entry = new Device
+            {
+                Type = type,
+                followWindowsDefault = true,
+                ConfigFile = cfgFile
+            };
+
+            // Snapshot the current resolution into the concrete fields, for
+            // the reason on the field: a build older than this mode reads the
+            // entry as an ordinary device and gets the snapshot — frozen, but
+            // working. When nothing is usable right now the snapshot is
+            // simply absent, and an old build would announce no-device, which
+            // is also the truth.
+            DeviceInfo live = PickSystemDefault(type, SelectedHostApiTypeId);
+            if (live != null) RefreshFromLive(entry, live);
+
+            configured.devs[id] = entry;
+            configured.selectedHostApiTypeId = SelectedHostApiTypeId;
+            writeCFG();
+            Tracing.TraceLine("Devices.SetFollowWindowsDefault: " + type
+                + (live != null
+                    ? " — currently \"" + live.Name + "\" (" + live.HostApiName + ")"
+                    : " — no usable device present right now"), TraceLevel.Info);
+            return entry;
+        }
+
+        /// <summary>
+        /// True when this direction is saved as "follow the Windows default"
+        /// rather than as named hardware.
+        /// </summary>
+        public bool IsFollowingWindowsDefault(DeviceTypes type)
+        {
+            Device dev = (type == DeviceTypes.input) ? InputDevice : OutputDevice;
+            return dev != null && dev.followWindowsDefault;
         }
 
         /// <summary>
@@ -937,24 +1045,65 @@ namespace JJPortaudio
         /// </remarks>
         public Device AdoptSystemDefault(DeviceTypes type)
         {
-            var list = (type == DeviceTypes.input) ? InputDevices : OutputDevices;
-            DeviceInfo pick = null;        // best so far on the selected host API
+            DeviceInfo pick = PickSystemDefault(type, SelectedHostApiTypeId);
+            if (pick == null) return null;
+            Tracing.TraceLine("Devices.AdoptSystemDefault: " + type + " falling back to \""
+                + pick.Name + "\" (" + pick.HostApiName + ", " + pick.NativeChannels
+                + " channel(s), " + pick.Info.defaultSampleRate + " Hz)", TraceLevel.Info);
+            return SetConfiguredDevice(type, pick);
+        }
+
+        /// <summary>
+        /// The live row that best answers "the system default for this
+        /// direction, on this host API": the exact endpoint PortAudio flagged
+        /// if it is on the API, else the default HARDWARE's endpoint on the
+        /// API, else the first usable endpoint on the API, else the best
+        /// answer on any API. Null only when nothing usable exists at all.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Factored out of <see cref="AdoptSystemDefault"/> (Sprint 37 Track H,
+        /// #207) because follow-the-default resolution needs the same answer on
+        /// every call WITHOUT saving anything.
+        /// </para>
+        /// <para>
+        /// <b>The <see cref="DeviceInfo.GroupIsSystemDefault"/> tier is a fix,
+        /// not a preservation.</b> AdoptSystemDefault's own remarks promised
+        /// "the Windows default still wins among the endpoints of the selected
+        /// API", but its loop tested only <see cref="DeviceInfo.IsDefault"/> —
+        /// the flag PortAudio puts on ONE endpoint of the hardware, on the
+        /// development machine the MME one. Filtered to WASAPI, the promised
+        /// preference never fired and the fallback quietly took the first
+        /// usable WASAPI row instead. The group flag is the fact about the
+        /// hardware, and it is exactly what the picker's own
+        /// DefaultOrFirstUsableIndex already reads.
+        /// </para>
+        /// </remarks>
+        public static DeviceInfo PickSystemDefault(DeviceTypes type, int hostApiTypeId) =>
+            PickSystemDefault((type == DeviceTypes.input) ? InputDevices : OutputDevices,
+                hostApiTypeId);
+
+        /// <summary>
+        /// Same selection over an explicit list — the testable form, since the
+        /// static lists only exist after enumerating real hardware.
+        /// </summary>
+        public static DeviceInfo PickSystemDefault(IReadOnlyList<DeviceInfo> list, int hostApiTypeId)
+        {
+            if (list == null) return null;
+            DeviceInfo pick = null;        // best so far on the requested host API
+            DeviceInfo groupPick = null;   // default hardware's endpoint on the API
             DeviceInfo anyApi = null;      // best so far anywhere
             for (int i = 0; i < list.Count; i++)
             {
                 DeviceInfo d = list[i];
                 if (!d.UsableForRadioAudio) continue;
                 if (anyApi == null || (d.IsDefault && !anyApi.IsDefault)) anyApi = d;
-                if (SelectedHostApiTypeId >= 0 && d.HostApiTypeId != SelectedHostApiTypeId) continue;
+                if (hostApiTypeId >= 0 && d.HostApiTypeId != hostApiTypeId) continue;
                 if (pick == null) pick = d;
-                if (d.IsDefault) { pick = d; break; }
+                if (d.IsDefault) return d;
+                if (groupPick == null && d.GroupIsSystemDefault) groupPick = d;
             }
-            pick ??= anyApi;
-            if (pick == null) return null;
-            Tracing.TraceLine("Devices.AdoptSystemDefault: " + type + " falling back to \""
-                + pick.Name + "\" (" + pick.HostApiName + ", " + pick.NativeChannels
-                + " channel(s), " + pick.Info.defaultSampleRate + " Hz)", TraceLevel.Info);
-            return SetConfiguredDevice(type, pick);
+            return groupPick ?? pick ?? anyApi;
         }
 
         /// <summary>
@@ -1734,6 +1883,232 @@ namespace JJPortaudio
             return sb.ToString();
         }
 
+        // ------------------------- three-level model (#207, Sprint 37 Track H)
+        //
+        // What audio actually is, per Noel's design: HARDWARE (Audient EVO8)
+        // → ENDPOINT (Main Output 1/2, Mic/Line 1/2) → TRANSPORT (WASAPI /
+        // MME / DirectSound). The flat picker put all three in one list plus
+        // one filter, which is why 26 rows described four devices.
+        //
+        // Two different groupings meet here and must not be confused:
+        //   - BuildGroups (above) groups ONE ENDPOINT across TRANSPORTS —
+        //     "Speakers (Realtek)" under MME, DirectSound and WASAPI is one
+        //     group, MME's 31-character truncation already allowed for. That
+        //     is DeviceInfo.GroupOwner, and it is the ONLY machinery that can
+        //     match a device across host APIs, because MME truncates names.
+        //   - BuildHardwareTree (below) groups ENDPOINTS into HARDWARE —
+        //     "Main Output 1/2 (Audient EVO8)" and "Line Output 3/4 (Audient
+        //     EVO8)" both belong to the EVO8. It works over group OWNERS, so
+        //     the transport dimension is already collapsed before it starts.
+        //
+        // The hardware level is a NAVIGATION aid, never an identity: nothing
+        // derived from SplitDeviceName is ever persisted. The saved identity
+        // stays name + hostApiTypeId, exactly as before — a wrong parse can
+        // only mis-shelve a row in a combo, never repoint a stream. (That is
+        // the lesson of #174, #34 and this task's own filing: pressing a
+        // display string into service as an identifier is how things break
+        // quietly. This code reads the string and stores nothing of it.)
+
+        /// <summary>One physical device, as the basic picker presents it.</summary>
+        public sealed class HardwareGroup
+        {
+            /// <summary>What the operator hears first: "Audient EVO8",
+            /// "Realtek(R) Audio" — or the whole device name when Windows
+            /// supplied no parenthetical to lift a hardware name from.</summary>
+            public string Name = "";
+
+            /// <summary>This hardware's endpoints in this direction, sorted
+            /// for type-ahead. Never empty.</summary>
+            public List<HardwareEndpoint> Endpoints = new List<HardwareEndpoint>();
+
+            /// <summary>True when any endpoint of this hardware is the
+            /// Windows default for the direction.</summary>
+            public bool IsSystemDefault;
+        }
+
+        /// <summary>One endpoint of a hardware group.</summary>
+        public sealed class HardwareEndpoint
+        {
+            /// <summary>The endpoint's own words: "Main Output 1/2",
+            /// "Mic | Line | Instrument 1" — the device name minus the
+            /// hardware parenthetical, or the full name when there was none.</summary>
+            public string Label = "";
+
+            /// <summary>The endpoint's group owner — its identity across
+            /// transports. <see cref="EndpointUnder"/> turns this plus a host
+            /// API into the exact row to open.</summary>
+            public DeviceInfo Endpoint;
+        }
+
+        /// <summary>
+        /// Split a Windows device name into its endpoint and hardware parts:
+        /// "Main Output 1/2 (Audient EVO8)" → "Main Output 1/2" + "Audient
+        /// EVO8". False — with both outs set to the whole name — when the
+        /// name has no trailing parenthetical to split on.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The trailing parenthetical is Windows' own convention for "endpoint
+        /// (adapter)", but it is a convention, not a contract — which is why
+        /// this result is only ever used to SHELVE rows in the picker, never
+        /// as identity (see the section comment above). "Microphone (USB
+        /// Audio Device)" carries a placeholder where the product name should
+        /// be; two distinct interfaces with that exact name would shelve
+        /// together, and they are exactly as indistinguishable in this combo
+        /// as they were in the flat list. Telling them apart needs the Core
+        /// Audio endpoint id, which is its own task.
+        /// </para>
+        /// <para>
+        /// The scan balances parentheses from the END, because real names nest
+        /// them: "Line In (Realtek(R) Audio)" must yield "Realtek(R) Audio",
+        /// and a first-'(' split would hand back "Realtek(R" — see the test
+        /// that proves the naive split wrong before trusting this one.
+        /// </para>
+        /// <para>
+        /// An MME-truncated name that lost its closing parenthesis ("Mic |
+        /// Line | Instrument 1 (Audi") does not end in ')' and returns false —
+        /// its own name whole, nothing guessed. In practice such a row is not
+        /// asked: the tree is built over group owners, and a truncated MME row
+        /// only OWNS its group when the endpoint exists under no other
+        /// transport.
+        /// </para>
+        /// </remarks>
+        public static bool SplitDeviceName(string name, out string endpointLabel, out string hardwareName)
+        {
+            string whole = (name ?? "").Trim();
+            endpointLabel = whole;
+            hardwareName = whole;
+            if (whole.Length < 3 || whole[whole.Length - 1] != ')') return false;
+
+            int depth = 0;
+            int open = -1;
+            for (int i = whole.Length - 1; i >= 0; i--)
+            {
+                if (whole[i] == ')') depth++;
+                else if (whole[i] == '(')
+                {
+                    depth--;
+                    if (depth == 0) { open = i; break; }
+                }
+            }
+            if (open <= 0) return false; // unbalanced, or nothing before the '('
+
+            string inside = whole.Substring(open + 1, whole.Length - open - 2).Trim();
+            string before = whole.Substring(0, open).Trim();
+            if (inside.Length == 0 || before.Length == 0) return false;
+
+            endpointLabel = before;
+            hardwareName = inside;
+            return true;
+        }
+
+        /// <summary>
+        /// The basic picker's view of one direction: hardware, each with its
+        /// endpoints, transport already collapsed. Built fresh from the last
+        /// enumeration on every call.
+        /// </summary>
+        public static List<HardwareGroup> HardwareTree(DeviceTypes type) =>
+            BuildHardwareTree((type == DeviceTypes.input) ? InputDevices : OutputDevices);
+
+        /// <summary>
+        /// Group a direction's rows into hardware. Public over an explicit
+        /// list so it is testable without enumerating real sound devices;
+        /// rows must already carry group identity (<see cref="DeviceInfo.GroupOwner"/>).
+        /// </summary>
+        /// <remarks>
+        /// Same visibility rules as the flat basic picker, one level up:
+        /// loopbacks and virtual cables stay off unless they are the Windows
+        /// default (<see cref="HiddenFromBasicPicker"/>), and the MME /
+        /// DirectSound follow-the-default alias rows stay off because the
+        /// picker now offers "Follow the Windows default" as a real choice
+        /// (<see cref="IsFollowDefaultAlias"/>). And the same filter-loses
+        /// rule: on a machine whose devices are ALL hidden kinds, the hidden
+        /// ones come back rather than presenting an empty tree as "no audio
+        /// devices" — a lie, and the exact silent disappearance this file
+        /// exists to never produce.
+        /// </remarks>
+        public static List<HardwareGroup> BuildHardwareTree(IReadOnlyList<DeviceInfo> all)
+        {
+            var groups = BuildHardwareTreeFiltered(all, includeHiddenKinds: false);
+            if (groups.Count == 0)
+            {
+                var unfiltered = BuildHardwareTreeFiltered(all, includeHiddenKinds: true);
+                if (unfiltered.Count > 0)
+                {
+                    Tracing.TraceLine("Devices.BuildHardwareTree: the basic-mode filter hid every "
+                        + "device; showing all " + unfiltered.Count + " rather than an empty tree",
+                        TraceLevel.Info);
+                }
+                return unfiltered;
+            }
+            return groups;
+        }
+
+        private static List<HardwareGroup> BuildHardwareTreeFiltered(
+            IReadOnlyList<DeviceInfo> all, bool includeHiddenKinds)
+        {
+            var byHardware = new Dictionary<string, HardwareGroup>(StringComparer.Ordinal);
+            var groups = new List<HardwareGroup>();
+            if (all == null) return groups;
+
+            foreach (DeviceInfo d in all)
+            {
+                if (d == null || !d.IsGroupOwner) continue;
+                if (IsFollowDefaultAlias(d.Name)) continue;
+                if (!includeHiddenKinds && HiddenFromBasicPicker(d)) continue;
+
+                SplitDeviceName(d.Name, out string label, out string hardware);
+                string key = NormalizeName(hardware);
+                if (!byHardware.TryGetValue(key, out HardwareGroup g))
+                {
+                    g = new HardwareGroup { Name = hardware };
+                    byHardware[key] = g;
+                    groups.Add(g);
+                }
+                g.Endpoints.Add(new HardwareEndpoint { Label = label, Endpoint = d });
+                if (d.IsDefault || d.GroupIsSystemDefault) g.IsSystemDefault = true;
+            }
+
+            foreach (HardwareGroup g in groups)
+                g.Endpoints.Sort((a, b) => CompareDeviceNames(a.Label, b.Label));
+            groups.Sort((a, b) => CompareDeviceNames(a.Name, b.Name));
+            return groups;
+        }
+
+        /// <summary>
+        /// The exact row that reaches this endpoint through the given host
+        /// API, or null when the endpoint is not offered there. Any member of
+        /// the endpoint's group may be passed in.
+        /// </summary>
+        public static DeviceInfo EndpointUnder(DeviceInfo member, int hostApiTypeId)
+        {
+            if (member == null) return null;
+            DeviceInfo owner = member.GroupOwner ?? member;
+            if (owner.HostApiTypeId == hostApiTypeId) return owner;
+            foreach (DeviceInfo a in owner.Alternates)
+            {
+                if (a.HostApiTypeId == hostApiTypeId) return a;
+            }
+            return null;
+        }
+
+        /// <summary>True when the endpoint's group has a row under this host API.</summary>
+        public static bool OfferedUnder(DeviceInfo member, int hostApiTypeId) =>
+            EndpointUnder(member, hostApiTypeId) != null;
+
+        /// <summary>
+        /// The row to actually use for an endpoint on a host API: the exact
+        /// member when the API offers it, otherwise the group's best member —
+        /// with the caller, not this method, responsible for SAYING that the
+        /// requested transport was not available. Never silently null for a
+        /// live endpoint.
+        /// </summary>
+        public static DeviceInfo EndpointUnderOrBest(DeviceInfo member, int hostApiTypeId)
+        {
+            if (member == null) return null;
+            return EndpointUnder(member, hostApiTypeId) ?? member.GroupOwner ?? member;
+        }
+
         /// <summary>
         /// The saved device's own row in the picker, or null when the picker's
         /// current view does not contain it (a different host API is selected,
@@ -1861,27 +2236,39 @@ namespace JJPortaudio
         {
             DeviceInfo hit = FindLive(arg);
             if (hit == null) return false;
+            RefreshFromLive(arg, hit);
+            return true;
+        }
+
+        /// <summary>
+        /// Copy a live row's facts into a saved entry — identity, index, and
+        /// the hardware figures the stream open reads.
+        /// </summary>
+        /// <remarks>
+        /// Track E, 2026-08-16 (factored out for #207's follow-default mode,
+        /// which refreshes from a different live row every resolution).
+        /// Identity is name plus host API, and channel counts are deliberately
+        /// NOT part of it — a driver update that turns a 2-channel mic into a
+        /// 4-channel one should keep the operator's device, not discard their
+        /// choice. That is right, and it means a saved record can carry a
+        /// channel count the hardware no longer reports. The engine opens at
+        /// the saved count, so a device that dropped from two channels to one
+        /// would still be asked for two and PortAudio would refuse — putting
+        /// the mono failure back through the side door on exactly the devices
+        /// that release fixed. The rate and latency figures go stale the same
+        /// way, and both feed rate negotiation and the stream parameters.
+        ///
+        /// The file is not rewritten here. These values only reach disk if
+        /// the operator saves for some other reason, at which point they are
+        /// the correct ones to store anyway.
+        /// </remarks>
+        private static void RefreshFromLive(Device arg, DeviceInfo hit)
+        {
+            arg.Name = hit.Info.name;
             arg.DevinfoID = hit.DeviceID;
             arg.hostApi = hit.Info.hostApi;
-
-            // Refresh the hardware facts from the live device rather than
-            // carrying the ones that were true when the file was written.
-            //
-            // Track E, 2026-08-16. Identity is name plus host API, and channel
-            // counts are deliberately NOT part of it — a driver update that
-            // turns a 2-channel mic into a 4-channel one should keep the
-            // operator's device, not discard their choice. That is right, and
-            // it means a saved record can carry a channel count the hardware no
-            // longer reports. The engine opens at the saved count, so a device
-            // that dropped from two channels to one would still be asked for
-            // two and PortAudio would refuse — putting the mono failure back
-            // through the side door on exactly the devices this release fixed.
-            // The rate and latency figures go stale the same way, and both feed
-            // rate negotiation and the stream parameters.
-            //
-            // The file is not rewritten here. These values only reach disk if
-            // the operator saves for some other reason, at which point they are
-            // the correct ones to store anyway.
+            arg.hostApiTypeId = hit.HostApiTypeId;
+            arg.hostApiName = hit.HostApiName;
             arg.maxInputChannels = hit.Info.maxInputChannels;
             arg.maxOutputChannels = hit.Info.maxOutputChannels;
             arg.defaultSampleRate = hit.Info.defaultSampleRate;
@@ -1889,7 +2276,6 @@ namespace JJPortaudio
             arg.defaultLowOutputLatency = hit.Info.defaultLowOutputLatency;
             arg.defaultHighInputLatency = hit.Info.defaultHighInputLatency;
             arg.defaultHighOutputLatency = hit.Info.defaultHighOutputLatency;
-            return true;
         }
 
         /// <summary>
