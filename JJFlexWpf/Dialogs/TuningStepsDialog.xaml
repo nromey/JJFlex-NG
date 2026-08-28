@@ -1,0 +1,63 @@
+﻿<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.TuningStepsDialog"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="clr-namespace:JJFlexWpf"
+                    xmlns:controls="clr-namespace:JJFlexWpf.Controls"
+                    Title="Tuning Steps"
+                    Width="380"
+                    SizeToContent="Height"
+                    ShowInTaskbar="False"
+                    ResizeMode="NoResize">
+    <!-- The picker half of #302. The arrow ladder (Alt+Left/Right for coarse,
+         Shift+Left/Right for fine) walks one rung at a time without leaving
+         the frequency field; this sets BOTH values outright, and shows what
+         the choices actually are — which a ladder cannot do.
+
+         Two lists, not two combo boxes, and that is the whole design decision
+         here: there are five options each, every one fits on screen, and a
+         list answers "what can I have?" by being arrowed through, with no
+         expand step in the way. A combo box makes the same five options
+         something you have to open first.
+
+         The options come from Radios.TuningSteps, the same table the ladder
+         keys walk and the same one the Settings dialog now shows. One list,
+         three surfaces — before #302 the Settings dialog held its own private
+         arrays, and the first key that walked past their ends would have made
+         Settings silently reset the operator's step on OK. -->
+    <StackPanel Margin="16">
+        <controls:DecorativeText Text="Coarse step — Up and Down tune by this:"
+                                 Style="{StaticResource DialogLabel}"
+                                 Margin="0,0,0,4"/>
+        <ListBox x:Name="CoarseList"
+                 Height="120"
+                 Margin="0,0,0,12"
+                 AutomationProperties.Name="Coarse tuning step"
+                 local:JJFlexHelp.Text="The step Up and Down move the frequency by. From the frequency field you can also walk this list with Alt and the left and right arrows, without opening this window."/>
+
+        <controls:DecorativeText Text="Fine step — Shift plus Up and Down tune by this:"
+                                 Style="{StaticResource DialogLabel}"
+                                 Margin="0,0,0,4"/>
+        <ListBox x:Name="FineList"
+                 Height="120"
+                 Margin="0,0,0,12"
+                 AutomationProperties.Name="Fine tuning step"
+                 local:JJFlexHelp.Text="The step Shift plus Up and Down move the frequency by. From the frequency field you can also walk this list with Shift and the left and right arrows, without opening this window."/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="OkButton"
+                    Content="_OK"
+                    MinWidth="90" Height="28" Margin="0,0,8,0"
+                    IsDefault="True"
+                    AutomationProperties.Name="OK"
+                    AutomationProperties.AcceleratorKey="Alt+O"
+                    Click="OkButton_Click"/>
+            <Button x:Name="CancelButton"
+                    Content="_Cancel"
+                    MinWidth="90" Height="28"
+                    IsCancel="True"
+                    AutomationProperties.Name="Cancel"
+                    AutomationProperties.AcceleratorKey="Alt+C"
+                    Click="CancelButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</local:JJFlexDialog>

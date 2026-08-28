@@ -908,11 +908,15 @@ public partial class MainWindow : UserControl
         // Apply tuning steps and band memory setting
         if (_freqOutHandlers != null)
         {
-            _freqOutHandlers.CoarseTuneStep = coarseStep;
-            _freqOutHandlers.FineTuneStep = fineStep;
+            // Through ApplyStepSizes rather than assigning the two properties
+            // and invoking the save callback here: #302 gave the steps a
+            // picker and a pair of ladder keys, and three surfaces writing the
+            // same two fields is how one of them quietly grows a different
+            // idea of what "apply" means. Settings does not speak — the dialog
+            // just closed and the operator knows what they chose.
+            _freqOutHandlers.ApplyStepSizes(coarseStep, fineStep, speak: false);
             _freqOutHandlers.BandMemoryEnabled = CurrentPttConfig?.BandMemoryEnabled ?? true;
             _freqOutHandlers.FrequencyUnits = CurrentPttConfig?.FrequencyDisplayUnits ?? Radios.FrequencyUnits.Hz;
-            _freqOutHandlers.SaveStepSizes?.Invoke(coarseStep, fineStep);
         }
 
         // Save PttConfig to disk
@@ -4374,6 +4378,26 @@ public partial class MainWindow : UserControl
             : Dialogs.RadioInfoTab.General;
         var dialog = new Dialogs.RadioInfoDialog(callbacks, tab);
         dialog.ShowDialog();
+    }
+
+    /// <summary>
+    /// The coarse-and-fine step picker (#302), opened with S from the
+    /// Frequency field in Modern tuning.
+    /// </summary>
+    /// <remarks>
+    /// Applies through <c>FreqOutHandlers.ApplyStepSizes</c>, the one place
+    /// the two step sizes change, and speaks both on the way out so the
+    /// operator hears the result without pressing Shift+S to check.
+    /// </remarks>
+    public void ShowTuningStepsDialog()
+    {
+        if (_freqOutHandlers == null) return;
+
+        var dialog = new Dialogs.TuningStepsDialog(
+            _freqOutHandlers.CoarseTuneStep, _freqOutHandlers.FineTuneStep);
+
+        if (dialog.ShowDialog() == true)
+            _freqOutHandlers.ApplyStepSizes(dialog.CoarseStepHz, dialog.FineStepHz, speak: true);
     }
 
     #endregion

@@ -158,8 +158,28 @@ public class FreqOutHandlers
     // steps with a coarse/fine mode toggle on `C`; that silent-modal shape
     // is what tuning unity replaces. Defaults match the prior coarse/fine
     // defaults so muscle memory survives.
+    //
+    // #302 (2026-08-27) gave both values keys of their own — Alt+Left/Right
+    // sizes coarse, Shift+Left/Right sizes fine, S opens a picker for both.
+    // Every route in and out of these two fields goes through ApplyStepSizes,
+    // so there is exactly one place that writes them and exactly one place
+    // that persists them.
+    //
+    // THESE ARE THE OPERATOR'S CHOICE. #199's flywheel wants an ADAPTIVE step
+    // that scales with how fast the knob is turning, because the radio will
+    // not accept an unbounded command rate. That is the machine choosing a
+    // step, and it must not silently overwrite these — an operator whose
+    // deliberate choice vanishes mid-spin will report it as a bug and be
+    // right. Whichever of the two lands second decides precedence out loud.
     private int _coarseStep = 5000;  // 5 kHz coarse default
     private int _fineStep = 100;     // 100 Hz fine default
+
+    // How long the end of a step ladder stays quiet after saying so. Long
+    // enough to swallow a held key under any screen reader, short enough that
+    // a deliberate second press still answers — a person re-pressing a key on
+    // purpose is a good three or four times slower than this. See WalkStep.
+    private const int StepLimitQuietMs = 400;
+    private long _lastStepLimitTicks = -StepLimitQuietMs;
 
     /// <summary>Current coarse tuning step in Hz (Up / Down).</summary>
     public int CoarseTuneStep
@@ -176,10 +196,110 @@ public class FreqOutHandlers
     }
 
     /// <summary>
-    /// Callback to persist step sizes to operator profile.
-    /// Set by ApplicationEvents.vb.
+    /// Callback to persist step sizes to the operator profile.
     /// </summary>
+    /// <remarks>
+    /// <b>NOTHING ASSIGNS THIS.</b> Verified 2026-08-27: the property is
+    /// declared here, invoked from <c>MainWindow.ApplySettingsChanges</c> and
+    /// from <see cref="ApplyStepSizes"/>, and set nowhere in any .cs, .vb or
+    /// .xaml file. <c>PersonalData.CoarseTuneStep</c> and
+    /// <c>FineTuneStep</c> exist on the operator record and are likewise read
+    /// and written by nothing. So a step size chosen in Settings — and now a
+    /// step size chosen with a key — lives for the session and is gone at
+    /// exit. The doc comment here used to say "Set by ApplicationEvents.vb",
+    /// which was description drift.
+    /// <para>Left as found rather than wired, because connecting it is a
+    /// decision, not a repair: a ladder key can fire many times a second
+    /// under key repeat, and <c>PersonalData.Write</c> serialises the whole
+    /// operator record synchronously. Whoever connects it needs a save policy
+    /// (debounce, or save on exit) and needs Noel's ruling on whether a
+    /// mid-QSO step change should become the permanent default. Reported as
+    /// an out-of-scope finding of #302.</para>
+    /// </remarks>
     public Action<int, int>? SaveStepSizes { get; set; }
+
+    /// <summary>
+    /// The one place the two step sizes change. Applies both, persists them
+    /// through <see cref="SaveStepSizes"/>, and optionally says what they are
+    /// now.
+    /// </summary>
+    /// <remarks>
+    /// Single entry point on purpose. Three surfaces set these values — the
+    /// Settings dialog, the step picker, and the ladder keys — and this
+    /// project's dominant defect is two homes for one idea. A fourth surface
+    /// should call this too rather than assigning the properties.
+    /// </remarks>
+    public void ApplyStepSizes(int coarseHz, int fineHz, bool speak)
+    {
+        CoarseTuneStep = coarseHz;
+        FineTuneStep = fineHz;
+        SaveStepSizes?.Invoke(_coarseStep, _fineStep);
+        if (speak)
+        {
+            Radios.ScreenReaderOutput.Speak(
+                Lexicon.Get("settings.tuning.steps_coarse_fine",
+                    ("coarse", FormatStepForSpeech(_coarseStep)),
+                    ("fine", FormatStepForSpeech(_fineStep))),
+                VerbosityLevel.Terse, true);
+        }
+    }
+
+    /// <summary>
+    /// Walk the coarse or fine step one rung and say where it landed (#302).
+    /// </summary>
+    /// <param name="coarse">True for the coarse step, false for the fine one.</param>
+    /// <param name="direction">Above zero for a larger step, below for smaller.</param>
+    /// <param name="isRepeat">True when Windows generated this press by
+    /// auto-repeat rather than the operator pressing the key again.</param>
+    /// <remarks>
+    /// <para>The end of the ladder SPEAKS. It does not wrap, and it does not
+    /// go quiet: a key that leaves the value where it was is indistinguishable
+    /// from a key that is not bound at all, which is the exact defect #302 was
+    /// raised about one level up.</para>
+    /// <para>It says so ONCE, though. A held key walks five rungs in about a
+    /// second and then sits at the wall generating presses several times a
+    /// second, and repeating "largest" at that rate is noise standing where
+    /// band audio should be. The first arrival at the end announces; the
+    /// stream behind it is silent, and the next deliberate press announces
+    /// again.</para>
+    /// <para><b>Two guards, because one of them is screen-reader dependent.</b>
+    /// <paramref name="isRepeat"/> is the precise signal and costs nothing —
+    /// but a reader that SYNTHESISES key pairs rather than passing a real hold
+    /// delivers a stream of first presses, and every one of them reports
+    /// IsRepeat false. JAWS does exactly that, roughly four times a second
+    /// (see project_jaws_does_not_deliver_held_keys). So the wall is also
+    /// gated on a short quiet window, which does not care how the keystrokes
+    /// were manufactured. Anything a person could call a deliberate second
+    /// press is well outside it.</para>
+    /// </remarks>
+    public void WalkStep(bool coarse, int direction, bool isRepeat = false)
+    {
+        var ladder = coarse ? Radios.TuningSteps.Coarse : Radios.TuningSteps.Fine;
+        int current = coarse ? _coarseStep : _fineStep;
+        var move = Radios.TuningSteps.Step(ladder, current, direction);
+
+        if (move.AtLimit)
+        {
+            long now = Environment.TickCount64;
+            if (isRepeat || now - _lastStepLimitTicks < StepLimitQuietMs) return;
+            _lastStepLimitTicks = now;
+        }
+
+        ApplyStepSizes(
+            coarse ? move.Hz : _coarseStep,
+            coarse ? _fineStep : move.Hz,
+            speak: false);
+
+        string key = move.AtLimit
+            ? (direction > 0
+                ? (coarse ? "settings.tuning.coarse_step_largest" : "settings.tuning.fine_step_largest")
+                : (coarse ? "settings.tuning.coarse_step_smallest" : "settings.tuning.fine_step_smallest"))
+            : (coarse ? "settings.tuning.coarse_step_now" : "settings.tuning.fine_step_now");
+
+        Radios.ScreenReaderOutput.Speak(
+            Lexicon.Get(key, ("step", FormatStepForSpeech(move.Hz))),
+            VerbosityLevel.Terse, true);
+    }
 
     /// <summary>
     /// Filter presets for the current operator. Set by ApplicationEvents.vb during radio connect.
@@ -2358,9 +2478,17 @@ public class FreqOutHandlers
     /// step (single value). The pre-Sprint-29 silent-modal `C` toggle is gone
     /// — there's no mode to switch any more, so there's nothing to toggle.
     /// PageUp/PageDown is intentionally unbound here (was step cycling, which
-    /// became meaningless once the lists collapsed to single values). Steps
-    /// are configured in Settings → Tuning, not at runtime.
+    /// became meaningless once the lists collapsed to single values).
     /// F = one-shot read frequency. Shift+S = announce both step sizes.
+    ///
+    /// <para><b>The step sizes are no longer Settings-only (#302).</b> One
+    /// rule covers the whole field: <b>vertical tunes, horizontal sizes;
+    /// plain is coarse, modified is fine.</b> Up/Down tune by the coarse step
+    /// and Shift+Up/Down by the fine one; Alt+Left/Right size the coarse step
+    /// and Shift+Left/Right size the fine one; S opens a picker that sets both
+    /// at once. Bare Left/Right stays cursor movement across the Home fields,
+    /// which is why the coarse pair carries Alt — the plain horizontal pair
+    /// was already spoken for in both tuning modes.</para>
     /// </summary>
     public void AdjustFreqModern(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
@@ -2403,6 +2531,37 @@ public class FreqOutHandlers
                 e.Handled = true;
                 break;
 
+            // Sizing the steps, the horizontal half of the rule (#302).
+            //
+            // BARE Left/Right never arrives here: FrequencyDisplay consumes it
+            // for cursor movement across the Home fields, in both tuning
+            // modes. Alt+Left/Right reaches us because WPF reports Alt chords
+            // as Key.System (RawKey unwraps them) and that navigation branch
+            // tests e.Key. Shift+Left/Right reaches us because
+            // FrequencyDisplay now OFFERS the shifted pair to the field first
+            // and falls back to navigating when nothing claims it — the same
+            // shape it already used for Home and Page Down.
+            //
+            // Exact-modifier tests, not bit checks: Ctrl+Left and
+            // Ctrl+Alt+Left must keep falling through rather than quietly
+            // resizing a step the operator did not ask about.
+            case Key.Left:
+            case Key.Right:
+            {
+                int direction = key == Key.Right ? 1 : -1;
+                if (Keyboard.Modifiers == ModifierKeys.Alt)
+                {
+                    WalkStep(coarse: true, direction, e.IsRepeat);
+                    e.Handled = true;
+                }
+                else if (Keyboard.Modifiers == ModifierKeys.Shift)
+                {
+                    WalkStep(coarse: false, direction, e.IsRepeat);
+                    e.Handled = true;
+                }
+                break;
+            }
+
             default:
                 if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.Shift)
                 {
@@ -2413,6 +2572,16 @@ public class FreqOutHandlers
                             ("coarse", FormatStepForSpeech(_coarseStep)),
                             ("fine", FormatStepForSpeech(_fineStep))),
                         VerbosityLevel.Terse, true);
+                    e.Handled = true;
+                }
+                else if (ch == 'S' && Keyboard.Modifiers == ModifierKeys.None)
+                {
+                    // S — set both steps deliberately, instead of walking the
+                    // ladder to them (#302). Paired with Shift+S on purpose:
+                    // S sets your steps, Shift+S speaks them. Plain S is
+                    // Classic's "turn split on"; in Modern it was free and
+                    // silent, which is the same small defect one level down.
+                    _window.ShowTuningStepsDialog();
                     e.Handled = true;
                 }
                 else if (ch == 'F' && Keyboard.Modifiers == ModifierKeys.None)
@@ -2501,12 +2670,13 @@ public class FreqOutHandlers
     /// <summary>
     /// Format a step size in Hz to a spoken string like "5 kilohertz" or "100 hertz".
     /// </summary>
-    internal static string FormatStepForSpeech(int hz)
-    {
-        if (hz >= 1000000) return Lexicon.Get("settings.tuning.step_megahertz", ("value", hz / 1000000));
-        if (hz >= 1000) return Lexicon.Get("settings.tuning.step_kilohertz", ("value", hz / 1000));
-        return Lexicon.Get("settings.tuning.step_hertz", ("value", hz));
-    }
+    /// <remarks>
+    /// The implementation moved to <see cref="Radios.TuningSteps.FormatForSpeech"/>
+    /// with #302, so the ladder, the picker and Settings all say a step size
+    /// the same way and Radios.Tests can read the sentence without a window.
+    /// This stays as the name five call sites already use.
+    /// </remarks>
+    internal static string FormatStepForSpeech(int hz) => Radios.TuningSteps.FormatForSpeech(hz);
 
     /// <summary>
     /// Adaptive filter step: 10 Hz below 200 Hz bandwidth, 25 Hz below 500 Hz, 50 Hz default.

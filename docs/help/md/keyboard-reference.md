@@ -334,11 +334,22 @@ When focused on the Frequency field in Modern tuning mode:
 | Down | Tune down by your coarse step |
 | Shift+Up | Tune up by your fine step |
 | Shift+Down | Tune down by your fine step |
+| Alt+Left | Make your coarse step smaller |
+| Alt+Right | Make your coarse step larger |
+| Shift+Left | Make your fine step smaller |
+| Shift+Right | Make your fine step larger |
 | Digits | Type a frequency, then Enter to apply |
 | F | Speak the current frequency |
+| S | Choose both step sizes from a list |
 | Shift+S | Speak both your coarse and fine step sizes |
 
-The coarse and fine step values are configured in Settings → Tuning. Coarse and fine each have a single step value, so there's no mode to switch and no list to cycle through.
+There's one rule under all four arrow pairs, and it's worth learning once: **up and down tune, left and right size, and adding Shift makes it fine instead of coarse.** Up and Down move the frequency by your coarse step; Shift with them moves by your fine step. Left and Right change the step sizes themselves — Shift for the fine step, Alt for the coarse one. Left is always smaller, Right is always larger.
+
+Alt is on the coarse pair rather than Shift because plain Left and Right already move your cursor across the Home fields, in both tuning modes, and that isn't going anywhere.
+
+The sizes walk a short list of the values people actually use — 500 Hz, 1, 2, 5 and 10 kHz for coarse, and 1, 5, 10, 50 and 100 Hz for fine. The list doesn't wrap round: when you reach either end you'll hear the size followed by "smallest" or "largest", so you always know where you are rather than being dumped at the other end mid-QSO.
+
+Press S to see the whole list and set both at once. Those are the same values Settings → Tuning offers, so wherever you set them you're choosing from the same list.
 
 Press Ctrl+F1 on the Frequency field for the live picture: it confirms Modern mode is active, speaks your actual coarse and fine step values, reads this key map, and names the key that switches to Classic tuning.
 
