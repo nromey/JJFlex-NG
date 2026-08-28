@@ -88,6 +88,26 @@ public partial class MainWindow : UserControl
         {
             try
             {
+                // A dialog can close in the MIDDLE of a flow that still owns
+                // the operator: the rig selector closes while the Connecting
+                // window — its own thread, its own narration — is still up, or
+                // a nested dialog closes back into its parent. Grabbing focus
+                // at those moments dragged the operator to Home between every
+                // window of a connect; each landing announced "JJ Flexible
+                // Home…" with an interrupt, and every interrupt re-queued
+                // whatever the speech arbiter still held unspoken (#348: three
+                // such landings in one connect, two of them 129 ms apart).
+                // When any other window of ours holds the foreground, the
+                // return is not ours to handle yet — and the status narration
+                // below would talk over that window too, so leave entirely.
+                if (AnotherOwnWindowHasForeground())
+                {
+                    Tracing.TraceLine(
+                        "FocusReturnCallback: another window of ours holds the foreground - standing down",
+                        System.Diagnostics.TraceLevel.Info);
+                    return;
+                }
+
                 // Only intervene when focus actually escaped. A dialog opened
                 // from a field should return to that field, and WPF manages
                 // that correctly whenever it can - overriding it every time
@@ -106,10 +126,38 @@ public partial class MainWindow : UserControl
                     System.Diagnostics.TraceLevel.Warning);
             }
 
-            if (RigControl != null)
+            var rig = RigControl;
+            if (rig != null && rig.MyNumSlices > 0)
             {
-                string status = Radios.RadioStatusBuilder.BuildSpokenStatus(RigControl);
+                // Compact status on return — but only once the radio's slice
+                // census has arrived. This is the same MyNumSlices test
+                // SpeakConnectStatus applies, and it was missing here: the
+                // connecting flow's dialogs close before slices populate, so
+                // this path spoke "Connected to FLEX-8600, no active slice" —
+                // false within two seconds — 77 ms after the Connecting window
+                // had already said "Connected… waiting for slice" (#348).
+                // While slices are absent the connect flow owns the narration;
+                // once they exist, this is real information about where the
+                // operator returned to.
+                string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
                 Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
+            }
+            else if (rig == null)
+            {
+                // #349: with no radio, nothing announces the return. The Home
+                // display carries no populated fields on a cold start, so the
+                // landing announcement that rides GotKeyboardFocus can stay
+                // silent, and the interop layer may restore focus without
+                // raising anything a screen reader voices — the only thing
+                // Noel heard was the unnamed host pane, as "Pane". Say where
+                // they came back to. Queued, not interrupting, so it lands
+                // behind whatever the close itself announced; Critical, since
+                // connection state is the always-spoken class.
+                Radios.ScreenReaderOutput.Speak(
+                    Radios.Lexicon.Get("connect.no_radio.plain",
+                        Radios.ScreenReaderOutput.CurrentVerbosity),
+                    Radios.Speech.SpeechIntent.Queue,
+                    Radios.VerbosityLevel.Critical);
             }
         };
 
@@ -573,11 +621,13 @@ public partial class MainWindow : UserControl
                     ? "connect.home.link_smartlink" : "connect.home.link_local");
 
                 // Slices may not have populated yet even after the 1.5s delay;
-                // when that's true, BuildFullSliceStatus returns its
-                // "Connected to X, no active slice" fallback which is both
-                // duplicate-prefixed and untrue. Speak the connection portion
-                // alone in that case and trust subsequent operations to reveal
-                // slice state as the user navigates.
+                // when that's true, BuildFullSliceStatus falls back to a bare
+                // "Connected to X", which through this path would come out
+                // duplicate-prefixed. (Until #348 that fallback also said "no
+                // active slice" — untrue within two seconds; the builder now
+                // applies this same MyNumSlices test itself.) Speak the
+                // connection portion alone in that case and trust subsequent
+                // operations to reveal slice state as the user navigates.
                 string message;
                 if (RigControl.MyNumSlices > 0)
                 {
@@ -1416,6 +1466,46 @@ public partial class MainWindow : UserControl
     {
         if (!_rescueMode || RescuePanel.Visibility != Visibility.Visible) return false;
         return RescueConnectButton.Focus();
+    }
+
+    /// <summary>
+    /// True when a window of THIS process other than our own shell currently
+    /// holds the foreground — a chained dialog, or the Connecting window on
+    /// its own thread. Used by the focus-return callback (#348): a dialog
+    /// closing back into a flow that still owns the operator is not a return
+    /// to Home, and treating it as one dragged focus (and an interrupting
+    /// landing announcement) into the middle of every connect.
+    /// </summary>
+    private bool AnotherOwnWindowHasForeground()
+    {
+        var fg = ForegroundProbe.GetForegroundWindow();
+        if (fg == IntPtr.Zero) return false;
+
+        ForegroundProbe.GetWindowThreadProcessId(fg, out uint pid);
+        if (pid != (uint)Environment.ProcessId) return false;
+
+        // Our shell is the root window above the HwndSource hosting this
+        // control. Not Process.MainWindowHandle: that property guesses from
+        // z-order and can return whichever of our windows happens to be on
+        // top — including the very window being tested.
+        if (PresentationSource.FromVisual(this)
+            is not System.Windows.Interop.HwndSource source) return true;
+        var shell = ForegroundProbe.GetAncestor(source.Handle, ForegroundProbe.GA_ROOT);
+        return fg != shell;
+    }
+
+    private static class ForegroundProbe
+    {
+        internal const uint GA_ROOT = 2;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern IntPtr GetForegroundWindow();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
     }
 
     /// <summary>
