@@ -43,6 +43,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 ## Audio and Transmit
 
 - **V** — Enter volume mode — pick a target with one letter, ride Up and Down, Escape exits
+- **Alt+P** — Enter pan mode — Left and Right place the slice you're on in the stereo field, Shift moves by one, Home or C centers, Enter keeps it, Escape puts it back. Speaks positions in words at chatty verbosity and numbers at terse
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else
 - **G** — Arm or disarm the TX test tone (replaces your microphone while transmitting)
 - **C** — Toggle Compander on or off

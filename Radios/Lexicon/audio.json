@@ -432,6 +432,33 @@
   "audio.nr.filter_unsupported": "NR Filter not available on this radio",
   "audio.nr.neural_unsupported": "On-Radio Neural NR not available on this radio",
   "audio.nr.spectral_unsupported": "On-Radio Spectral NR not available on this radio",
+  "audio.pan.position_center": "center",
+  "audio.pan.position_far_left": "far left",
+  "audio.pan.position_far_right": "far right",
+  "audio.pan.position_hard_left": "hard left",
+  "audio.pan.position_hard_right": "hard right",
+  "audio.pan.position_left": "left",
+  "audio.pan.position_right": "right",
+  "audio.pan.position_slightly_left": "slightly left",
+  "audio.pan.position_slightly_right": "slightly right",
+  "audio.pan_mode.closed": "Pan mode closed",
+  "audio.pan_mode.entered": {
+    "critical": "Pan mode. Slice {letter}, pan {level}.",
+    "terse": "Pan mode. Slice {letter}, pan {level}.",
+    "chatty": "Pan mode. Slice {letter}, {position}. Left and right arrows adjust, Shift moves by one, Home or C centers. Enter keeps it, Escape puts it back."
+  },
+  "audio.pan_mode.help": {
+    "critical": "Pan mode, slice {letter}: pan {level}. Left and right adjust, Shift by one, Home or C centers. Enter keeps it, Escape restores pan {entryLevel}.",
+    "terse": "Pan mode, slice {letter}: pan {level}. Left and right adjust, Shift by one, Home or C centers. Enter keeps it, Escape restores pan {entryLevel}.",
+    "chatty": "Pan mode, slice {letter}: {position}. Left and right arrows adjust, Shift moves by one, Home or C centers. Enter keeps the new pan. Escape puts it back to {entryPosition}. Any other key keeps the pan and does its normal job."
+  },
+  "audio.pan_mode.no_slice": "No slice to pan",
+  "audio.pan_mode.restored": {
+    "critical": "Back to pan {level}. Pan mode closed",
+    "terse": "Back to pan {level}. Pan mode closed",
+    "chatty": "Back to {position}. Pan mode closed"
+  },
+  "audio.pan_mode.wrong_axis": "Pan uses left and right",
   "audio.pc_audio.could_not_start": "PC audio could not start, still off",
   "audio.pc_audio.could_not_start_home": "PC audio could not start, still off.",
   "audio.pc_audio.off": "PC audio off",
