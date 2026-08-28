@@ -263,8 +263,9 @@ namespace Radios.Fixer
         {
             sb.AppendLine("<fieldset>");
             sb.Append("<legend>").Append(Esc(QuestionOf(decl))).AppendLine("</legend>");
-            if (decl.WhyItMatters.Length > 0)
-                sb.Append("<p>").Append(Esc(decl.WhyItMatters)).AppendLine("</p>");
+            string why = WhyOf(decl);
+            if (why.Length > 0)
+                sb.Append("<p>").Append(Esc(why)).AppendLine("</p>");
 
             // What was said THIS run, as prose. The radios below are never
             // pre-checked, even after an answer — a new render must never
@@ -277,7 +278,7 @@ namespace Radios.Fixer
               .Append(answered.Length > 0 ? "You said: " + Esc(answered) : "")
               .AppendLine("</p>");
 
-            foreach (FixerDeclarationChoice c in decl.Choices)
+            foreach (FixerDeclarationChoice c in ChoicesOf(decl))
             {
                 string id = "decl-" + Attr(decl.Id) + "-" + Attr(c.Id);
                 // data-what carries the answer in the operator's own words:
@@ -310,6 +311,40 @@ namespace Radios.Fixer
                 catch { /* fall back to the static question */ }
             }
             return decl.Question;
+        }
+
+        private static string WhyOf(FixerRunDeclaration decl)
+        {
+            if (decl.WhyItMattersNow != null)
+            {
+                try
+                {
+                    string live = decl.WhyItMattersNow();
+                    if (!string.IsNullOrWhiteSpace(live)) return live;
+                }
+                catch { /* fall back to the static text */ }
+            }
+            return decl.WhyItMatters;
+        }
+
+        /// <summary>
+        /// The choices as they stand right now. A live set that cannot be
+        /// read falls back to the static one — the declaration must never
+        /// render with no answers at all, because a question with no answers
+        /// is a shut gate with no handle.
+        /// </summary>
+        private static IReadOnlyList<FixerDeclarationChoice> ChoicesOf(FixerRunDeclaration decl)
+        {
+            if (decl.ChoicesNow != null)
+            {
+                try
+                {
+                    IReadOnlyList<FixerDeclarationChoice> live = decl.ChoicesNow();
+                    if (live != null && live.Count > 0) return live;
+                }
+                catch { /* fall back to the static choices */ }
+            }
+            return decl.Choices;
         }
 
         // -------- one stage's card --------
