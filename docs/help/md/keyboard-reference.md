@@ -51,6 +51,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | Shift+S | Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio) |
 | Q | Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below) |
 | Ctrl+Q | Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below) |
+| Ctrl+S | Speak the signal strength in dBm — the same meter `Ctrl+S` reads in S-units, only finer. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is the reading to take when you want to know whether that antenna change actually helped |
 | A | Toggle Auto Notch |
 | P | Toggle Audio Peak Filter (APF, CW only) |
 | V | Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below) |

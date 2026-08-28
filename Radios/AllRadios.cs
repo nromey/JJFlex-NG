@@ -385,6 +385,16 @@ namespace Radios
                 else RXFrequency = value;
             }
         }
+        /// <summary>
+        /// The uncalibrated meter value, as the radio reports it. On a Flex
+        /// that is dBm, written by the slice's S-meter stream.
+        /// </summary>
+        /// <remarks>
+        /// <b>Derived classes must WRITE this field, never redeclare it.</b>
+        /// FlexBase declared its own <c>_SMeter</c> until Sprint 37 (#295),
+        /// which shadowed this one; the meter handler filled the shadow and
+        /// every reader of <see cref="RawSMeter"/> got a permanent zero.
+        /// </remarks>
         protected int _SMeter;
         /// <summary>
         /// (readOnly) Calibrated SMeter/power value
@@ -398,7 +408,8 @@ namespace Radios
             get { return _SMeter; }
         }
         /// <summary>
-        /// (readOnly) Raw SMeter value.
+        /// (readOnly) The meter value before any S-unit conversion — dBm on a
+        /// Flex. <see cref="SMeter"/> is the calibrated reading.
         /// </summary>
         public int RawSMeter { get { return _SMeter; } }
 

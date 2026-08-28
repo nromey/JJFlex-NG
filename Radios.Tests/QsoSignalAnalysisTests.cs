@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Radios.SignalCapture;
 using Xunit;
@@ -35,16 +35,16 @@ namespace Radios.Tests
         [Fact]
         public void SteadySignalReportsNoFadingAndNoTrend()
         {
-            // -79 dBm with under a dB of ripple: S7 on this app's calibration.
+            // -79 dBm with under a dB of ripple: S8 on the IARU HF scale.
             var samples = Trace(60, t => -79.0 + 0.4 * Math.Sin(2 * Math.PI * t / 3.0));
             var a = QsoSignalAnalysis.Analyze(samples, 60);
 
             Assert.True(a.HasStats);
             Assert.Equal(QsbVerdict.NoSignificantFading, a.Qsb);
             Assert.Equal(TrendVerdict.Steady, a.Trend);
-            Assert.Equal(7, SMeterReading.FromDbm(a.PeakDbm));
-            Assert.Equal(7, SMeterReading.FromDbm(a.TroughDbm));
-            Assert.Equal(7, SMeterReading.FromDbm(a.MeanDbm));
+            Assert.Equal(8, SMeterReading.FromDbm(a.PeakDbm, SMeterReading.Band.Hf));
+            Assert.Equal(8, SMeterReading.FromDbm(a.TroughDbm, SMeterReading.Band.Hf));
+            Assert.Equal(8, SMeterReading.FromDbm(a.MeanDbm, SMeterReading.Band.Hf));
             Assert.True(a.SwingSUnits < 1);
         }
 
@@ -52,8 +52,8 @@ namespace Radios.Tests
         public void DeepPeriodicFadeReportsPeriodDepthAndBounds()
         {
             // 12-second QSB, 24 dB peak to trough, for 90 seconds: the shape
-            // Don's question describes. Peaks at -73 (S8 here), troughs near
-            // -97 (S4).
+            // Don's question describes. Peaks at -73, which is exactly S9 on
+            // the IARU HF scale; troughs near -97.
             var samples = Trace(90, t => -85.0 + 12.0 * Math.Sin(2 * Math.PI * t / 12.0));
             var a = QsoSignalAnalysis.Analyze(samples, 90);
 
@@ -63,8 +63,8 @@ namespace Radios.Tests
             Assert.True(a.QsbCycleCount >= 4);
             Assert.True(a.DeepFading, "24 dB fades are deep by any measure");
             Assert.InRange(a.FadeDepthDb, 18.0, 26.0);
-            Assert.Equal(8, SMeterReading.FromDbm(a.PeakDbm));
-            Assert.Equal(4, SMeterReading.FromDbm(a.TroughDbm));
+            Assert.Equal(9, SMeterReading.FromDbm(a.PeakDbm, SMeterReading.Band.Hf));
+            Assert.Equal(5, SMeterReading.FromDbm(a.TroughDbm, SMeterReading.Band.Hf));
             Assert.Equal(TrendVerdict.Steady, a.Trend);
         }
 
@@ -147,7 +147,7 @@ namespace Radios.Tests
             var a = QsoSignalAnalysis.Analyze(samples, 60);
 
             Assert.True(a.HasStats);
-            Assert.Equal(7, SMeterReading.FromDbm(a.PeakDbm));
+            Assert.Equal(7, SMeterReading.FromDbm(a.PeakDbm, SMeterReading.Band.Hf));
             Assert.True(a.PeakDbm < -70.0, "the -40 dBm transmit readings must not be the peak");
             Assert.InRange(a.TransmitSeconds, 18.0, 22.0);
         }

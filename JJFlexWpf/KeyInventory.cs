@@ -340,6 +340,17 @@ public static class KeyInventory
                     "qsb", "fade", "fading", "fades", "flutter", "swing", "strength",
                     "smeter", "meter", "report", "peak", "trough", "average", "trend",
                     "rising", "falling", "coming", "up", "down", "leader" }, "Radio", "General"),
+        // Sprint 37 Track G (#306) — the same meter, read in dBm, with no mode
+        // to be in the wrong one of. Ctrl+S because the chord echoes the flat
+        // key it relates to: Ctrl+S reads S-units, this reads dBm. Sits beside
+        // the S-family DSP toggles on purpose; the description says "signal
+        // strength" so a search for either idea finds it.
+        new("Leader", "Leader key", "Ctrl+J, Ctrl+S",
+            "Speak the signal strength in dBm — the same meter as Ctrl+S, finer, and no mode to leave",
+            new[] { "dbm", "db", "signal", "strength", "smeter", "meter", "s-meter", "level",
+                    "precise", "precision", "fine", "exact", "units", "s", "reading",
+                    "antenna", "compare", "comparison", "weak", "strong", "leader" },
+            "Radio", "General"),
         new("Leader", "Leader key", "Ctrl+J, A", "Toggle Auto Notch",
             new[] { "anf", "auto", "notch", "leader" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",

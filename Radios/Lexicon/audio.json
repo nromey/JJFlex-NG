@@ -569,6 +569,7 @@
     "chatty": "Heads up: this radio has no mic profile selected. Until one is loaded, audio from your computer will not be transmitted through your radio — you would key up and nobody would hear you. Nothing you did caused it, and receive is unaffected. The Audio Workshop has the details."
   },
   "audio.smeter.dbm": "S meter {smeter} dBm",
+  "audio.smeter.dbm_negative": "S meter minus {smeter} dBm",
   "audio.smeter.in_dbm": "S meter in dBm",
   "audio.smeter.in_s_units": "S meter in S units",
   "audio.smeter.over_s9": "S 9 plus {over} dB",
