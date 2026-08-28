@@ -202,6 +202,21 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_whole_assembled_sentence_reads_the_way_it_will_be_spoken()
+        {
+            // Asserted whole, not in pieces. Product copy here defaults to
+            // fragments that each look right on their own line and read badly
+            // when a screen reader says them end to end, so the thing under test
+            // is the finished sentence.
+            Assert.Equal(
+                "Audio arriving from the radio: up to 42 kilobits per second, in 10 of 10 "
+                + "readings taken about a second apart. All data arriving from the radio over "
+                + "the same readings: up to 61 kilobits per second, of which meter readings "
+                + "were up to 5.",
+                RxChainFacts.ArrivalSentence(Arriving(42, 10, 10, 61, 5, pcAudio: true)));
+        }
+
+        [Fact]
         public void A_correct_zero_on_the_radios_own_speaker_is_not_reported_as_a_fault()
         {
             // The commonest setup there is. The sentence has to carry its own
