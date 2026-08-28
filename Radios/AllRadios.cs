@@ -2610,14 +2610,20 @@ namespace Radios
         /// <param name="ms">milliseconds to wait.</param>
         /// <param name="interval">optional interval to check</param>
         /// <returns>true if condition met.</returns>
+        /// <remarks>
+        /// <paramref name="ms"/> is a DEADLINE, not a count of sleeps — see
+        /// <c>JJTrace.Tracing.await</c>, which carries the reasoning (task
+        /// #293). One of four copies of the same loop.
+        /// </remarks>
         internal static bool await(awaitExp exp, int ms, int interval)
         {
-            int sanity = ms / interval;
-            bool rv = false;
-            while (sanity-- > 0)
+            long deadline = Environment.TickCount64 + ms;
+            bool rv;
+            while (true)
             {
                 rv = exp();
                 if (rv) break;
+                if (Environment.TickCount64 >= deadline) break;
                 Thread.Sleep(interval);
             }
             return rv;

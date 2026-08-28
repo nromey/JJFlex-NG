@@ -28,6 +28,31 @@ namespace Radios
         public string Outcome { get; set; } = "";
 
         public long DurationMs { get; set; }
+
+        /// <summary>
+        /// True when the operator FORCED this path from the context menu.
+        ///
+        /// <para><b>A force is not a preference, and reading it as one turned
+        /// the instrument into the thing it was measuring (task #287).</b>
+        /// Forcing SmartLink is how a hole-punch test is run from inside your
+        /// own shack — Noel's own workflow. Three of those in a row is three
+        /// deliberate overrides, and the trend learner was counting them as
+        /// three pieces of evidence about what the operator prefers, so the next
+        /// ordinary connect went out to the internet unasked. The diagnostic act
+        /// of testing a path silently reconfigured the path.</para>
+        ///
+        /// <para>A force says "ignore what you think, do this once." It is the
+        /// OPPOSITE of a preference signal, so
+        /// <see cref="ConnectPathPolicy.LearnFrom"/> skips these entirely. They
+        /// are still RECORDED: the ring is a support tool as much as a policy
+        /// input, and "what happened when I forced it" is exactly the question a
+        /// hole-punch test asks.</para>
+        ///
+        /// <para>Absent from every history file written before this existed,
+        /// which deserialises as false — the right default, since nothing older
+        /// was forced through a mechanism that did not record it.</para>
+        /// </summary>
+        public bool Forced { get; set; }
     }
 
     /// <summary>
@@ -61,7 +86,13 @@ namespace Radios
         /// Record one attempt. Never throws; a declined write is traced and
         /// dropped.
         /// </summary>
-        public static void Record(string serial, string path, string outcome, long durationMs)
+        /// <param name="forced">
+        /// True when the operator forced this path from the context menu. The
+        /// attempt is still recorded; it is simply never taught from — see
+        /// <see cref="ConnectionAttemptRecord.Forced"/> (task #287).
+        /// </param>
+        public static void Record(string serial, string path, string outcome, long durationMs,
+                                  bool forced = false)
         {
             try
             {
@@ -77,6 +108,7 @@ namespace Radios
                         Path = path ?? "",
                         Outcome = outcome ?? "",
                         DurationMs = durationMs,
+                        Forced = forced,
                     });
                     while (entries.Count > MaxEntries) entries.RemoveAt(0);
 
@@ -101,7 +133,7 @@ namespace Radios
         /// whose OPEN has not yet resolved. At most one exists, because at
         /// most one connect is ever in flight.
         /// </summary>
-        private static (string serial, string path, long durationMs)? _pending;
+        private static (string serial, string path, long durationMs, bool forced)? _pending;
 
         /// <summary>True while a leg is connected but not yet opened.</summary>
         public static bool HasPendingOutcome
@@ -129,9 +161,14 @@ namespace Radios
         /// <see cref="CommitPendingOutcome"/> once the radio has actually
         /// opened or actually failed to.</para>
         /// </summary>
-        public static void ArmPendingOutcome(string serial, string path, long durationMs)
+        /// <param name="forced">
+        /// True when the operator forced this path from the context menu — see
+        /// <see cref="ConnectionAttemptRecord.Forced"/> (task #287).
+        /// </param>
+        public static void ArmPendingOutcome(string serial, string path, long durationMs,
+                                             bool forced = false)
         {
-            lock (_sync) { _pending = (serial ?? "", path ?? "", durationMs); }
+            lock (_sync) { _pending = (serial ?? "", path ?? "", durationMs, forced); }
         }
 
         /// <summary>
@@ -147,7 +184,7 @@ namespace Radios
         /// </summary>
         public static void CommitPendingOutcome(bool opened)
         {
-            (string serial, string path, long durationMs)? p;
+            (string serial, string path, long durationMs, bool forced)? p;
             lock (_sync)
             {
                 p = _pending;
@@ -156,7 +193,7 @@ namespace Radios
             if (p == null) return;
             Record(p.Value.serial, p.Value.path,
                 opened ? ConnectPathPolicy.ConnectedOutcome : ConnectPathPolicy.OpenFailedOutcome,
-                p.Value.durationMs);
+                p.Value.durationMs, p.Value.forced);
         }
 
         /// <summary>

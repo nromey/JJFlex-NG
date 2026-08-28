@@ -73,6 +73,18 @@ namespace Radios
         /// would learn nothing about exactly the radios with the strongest
         /// habit.</para>
         ///
+        /// <para><b>FORCED attempts are skipped too, and for the opposite
+        /// reason (task #287).</b> A failure is evidence that is merely
+        /// inconvenient to read; a force is not evidence at all. Forcing
+        /// SmartLink from the context menu is how a hole-punch test is run from
+        /// inside the operator's own shack, and counting three of those as three
+        /// preferences meant the diagnostic act reconfigured the thing being
+        /// tested — the next ordinary connect went out to the internet for a
+        /// radio one subnet away, for reasons visible nowhere. Skipped like a
+        /// failure rather than treated as trend-breaking, so a genuinely remote
+        /// operator who forces a path once does not lose the habit the app
+        /// legitimately learned.</para>
+        ///
         /// <para>Never throws, never reads a file — hand it the history.</para>
         /// </summary>
         public static ConnectPathKind? LearnFrom(
@@ -89,6 +101,11 @@ namespace Radios
                 if (record == null) continue;
                 if (!string.Equals(record.Outcome, ConnectedOutcome, StringComparison.OrdinalIgnoreCase))
                     continue;
+
+                // The operator overrode the app here. That is not the app
+                // learning what they prefer; it is the app being told to stop
+                // guessing for one connect (task #287).
+                if (record.Forced) continue;
 
                 if (!Enum.TryParse<ConnectPathKind>(record.Path, ignoreCase: true, out var path))
                 {

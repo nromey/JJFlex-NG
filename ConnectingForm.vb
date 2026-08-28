@@ -131,9 +131,9 @@ Public Class ConnectingForm
         ' events. User chooses Keep waiting (resets the timer for another 60 s)
         ' or Cancel (same as Escape).
         ' Only run escalation + auto-cancel if a real cancel callback is wired.
-        ' The legacy 1-arg constructor (used by the WPF dialog's brief SmartLink
-        ' "Connecting to SmartLink..." popup) doesn't have a meaningful cancel
-        ' path; running those timers there would surface a confusing dialog.
+        ' The account-pass constructor below passes none — the WPF picker's brief
+        ' SmartLink passes have no meaningful cancel path, and running those
+        ' timers there would surface a confusing dialog.
         _escalationTimer = New System.Windows.Forms.Timer() With {.Interval = EscalationIntervalMs}
         AddHandler _escalationTimer.Tick, AddressOf OnEscalationTick
 
@@ -160,13 +160,10 @@ Public Class ConnectingForm
         ' the radio first answers.
         '
         ' ONLY FOR A REAL RADIO CONNECT, which is what having a profiler means.
-        ' The legacy one-argument constructor puts this same window up for the
-        ' picker's brief SmartLink passes, where the "radio name" is whatever
-        ' ExtractRadioName could scrape out of a status string — so a refresh
-        ' pass would have started saying "Still connecting to radio." every four
-        ' seconds. Those passes are silent too and probably should not be, but
-        ' they need their own words rather than a borrowed sentence about a
-        ' radio that is not being connected to.
+        ' The picker's SmartLink account passes put this same window up, and they
+        ' are not connects — this narrator's lines are all about a radio and its
+        ' setup phases. They bring their OWN heartbeat instead, through the
+        ' account-pass constructor below (task #294).
         If _profiler IsNot Nothing Then
             _armedVoice = _narrator.OpeningVoice()
             ArmWaitVoice(_armedVoice)
@@ -174,11 +171,53 @@ Public Class ConnectingForm
     End Sub
 
     ''' <summary>
-    ''' Backwards-compatible single-arg constructor (no profiler, no cancel).
-    ''' Shouldn't be called by new code — keeps any stale call sites compiling.
+    ''' This window for a wait that is NOT a radio connect — the picker's
+    ''' SmartLink account passes.
     ''' </summary>
-    Public Sub New(initialMessage As String)
-        Me.New(ExtractRadioName(initialMessage), Nothing, Nothing)
+    ''' <param name="statusLine">
+    ''' The finished sentence describing the operation, composed by whoever
+    ''' started it. Same contract as <c>lead</c> above: the caller owns the
+    ''' wording because the caller is the only thing that knows what is
+    ''' happening.
+    ''' </param>
+    ''' <param name="waitVoice">
+    ''' The heartbeat to run while the pass does. Nothing for a wait that should
+    ''' stay silent.
+    ''' </param>
+    ''' <remarks>
+    ''' <para><b>This replaces a constructor that SCRAPED ITS SUBJECT out of a
+    ''' status string (task #294).</b> The old one-argument overload took
+    ''' "Connecting to SmartLink..." and ran a private <c>ExtractRadioName</c>
+    ''' over it looking for a "Connecting to " prefix, so the window believed
+    ''' the radio it was connecting to was called "SmartLink" — or, when the
+    ''' prefix did not match, "radio".</para>
+    ''' <para>That is why the picker's refresh passes were SILENT. The #212
+    ''' progress heartbeat had to be gated off wherever the scrape was in play,
+    ''' because it would have announced "Still connecting to radio." during an
+    ''' operation that is not a connect and has no radio — so the operator
+    ''' pressed something, an account refresh ran for seconds, and nothing said
+    ''' it was happening. A blind operator has no spinner: a refresh that takes
+    ''' several seconds and says nothing is indistinguishable from one that did
+    ''' nothing.</para>
+    ''' <para>The silence was the symptom; the borrowing was the defect. A
+    ''' window that gets its subject by parsing a sentence cannot be relied on
+    ''' to name anything, and every future reuse inherits that. So the subject
+    ''' is passed in, and there is no longer a constructor that can guess.</para>
+    ''' <para>Still ONE window rather than a second progress surface. What this
+    ''' window does here — hold the foreground while SmartLink auth may raise a
+    ''' browser, and give the wait a voice — is identical for both operations.
+    ''' Only the words differ, and words are what a caller supplies.</para>
+    ''' </remarks>
+    Public Sub New(statusLine As String, waitVoice As Radios.ConnectWaitVoice)
+        ' No radio name, no cancel callback and no profiler: this is not a
+        ' connect. Without a cancel callback the escalation and auto-cancel
+        ' timers stay parked, which is what the old overload relied on too —
+        ' there is nothing here for a "Connection slow — keep waiting?" prompt
+        ' to cancel.
+        Me.New(Nothing, Nothing, Nothing, statusLine)
+
+        _armedVoice = waitVoice
+        ArmWaitVoice(waitVoice)
     End Sub
 
     ''' <summary>
@@ -191,16 +230,6 @@ Public Class ConnectingForm
             Return Radios.WindowFocusForcer.SignInWindowOpen
         End Get
     End Property
-
-    Private Shared Function ExtractRadioName(msg As String) As String
-        If String.IsNullOrEmpty(msg) Then Return Radios.Lexicon.Get("connect.connecting.default_radio_name")
-        Const prefix = "Connecting to "
-        If msg.StartsWith(prefix) Then
-            Dim tail = msg.Substring(prefix.Length).TrimEnd("."c, " "c)
-            Return If(String.IsNullOrEmpty(tail), Radios.Lexicon.Get("connect.connecting.default_radio_name"), tail)
-        End If
-        Return Radios.Lexicon.Get("connect.connecting.default_radio_name")
-    End Function
 
     ''' <summary>
     ''' Update the status message (thread-safe).

@@ -416,16 +416,23 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// THE 55.7-SECOND FINDING. The station-name wait declares a 45,000 ms
-        /// budget and implements it as 1,800 turns of a loop that sleeps 25 ms
-        /// each, so the declared figure is a count of sleeps and the wall clock
-        /// always runs over it — measured at 55.7 seconds in the field trace of
-        /// the incident.
+        /// THE 55.7-SECOND FINDING, and what closing it changed. The
+        /// station-name wait declared a 45,000 ms budget and implemented it as
+        /// 1,800 turns of a loop that slept 25 ms each — a count of sleeps, so
+        /// the wall clock always ran over, measured at 55.7 seconds in the field
+        /// trace of the incident.
         ///
-        /// <para>A heartbeat that stopped at 45,000 would go quiet with ten
-        /// seconds still to run, which is the original defect reappearing at the
-        /// worst possible moment. The event has published its own budget since
-        /// it was written; this is the first thing to read it.</para>
+        /// <para>A heartbeat that stopped at 45,000 would have gone quiet with
+        /// ten seconds still to run, which is the original defect reappearing at
+        /// the worst possible moment. It was covered here with a 1.5 multiplier,
+        /// and task #293 then fixed the loop instead: it honours a deadline now,
+        /// so 45,000 means 45 seconds and the ceiling only has to outlast the
+        /// wait's last turn.</para>
+        ///
+        /// <para>The 55.7-second measurement is kept as the reason the ceiling
+        /// is not simply equal to the budget. It no longer has to be COVERED —
+        /// that wait cannot happen any more — but a ceiling that lands exactly
+        /// on the deadline would still fall silent a turn early.</para>
         /// </summary>
         [Fact]
         public void The_ceiling_outlasts_the_declared_budget()
@@ -435,9 +442,10 @@ namespace Radios.Tests
             var v = n.OnEvent("start_station_name_wait_begin",
                 new Dictionary<string, object> { ["maxWaitMs"] = 45_000 }).Arm;
 
-            Assert.Equal(67_500, v.MaxMs);
-            Assert.True(v.MaxMs > 55_700,
-                "the measured 55.7 s wait must still be covered when the ceiling is reached");
+            Assert.Equal(47_000, v.MaxMs);
+            Assert.True(v.MaxMs > 45_000,
+                "the ceiling must outlast the budget it covers, or the heartbeat "
+                + "stops a turn before the wait does");
         }
 
         /// <summary>
@@ -476,16 +484,43 @@ namespace Radios.Tests
         }
 
         /// <summary>
-        /// The margin is stated rather than hidden in an expression, because the
-        /// number it corrects for is a property of the connect loop rather than
-        /// of this class, and someone will one day want to know why it exists.
+        /// The cover is now the declared budget plus a small fixed allowance for
+        /// the last turn of the wait's loop — NOT a proportional correction.
+        /// </summary>
+        /// <remarks>
+        /// Task #293. The old contract multiplied every budget by 1.5 to cover a
+        /// loop that counted sleeps instead of reading a clock: 45,000 declared,
+        /// 55.7 seconds measured. The loops honour a deadline now, so the
+        /// remaining overshoot is one turn — additive, and the same size whether
+        /// the budget is one second or one minute.
+        /// </remarks>
+        [Fact]
+        public void The_cover_is_the_budget_plus_a_fixed_last_turn_allowance()
+        {
+            var n = new ConnectNarrator(Radio, new Clock().Read);
+
+            var v = n.OnEvent("start_station_name_wait_begin",
+                new Dictionary<string, object> { ["maxWaitMs"] = 45_000 }).Arm;
+
+            Assert.Equal(45_000 + ConnectNarrator.WaitCeilingSlackMs, v.MaxMs);
+        }
+
+        /// <summary>
+        /// The allowance does not scale with the budget. A multiplier would grow
+        /// the fudge in proportion to the number it was correcting, which is the
+        /// shape #293 removed.
         /// </summary>
         [Fact]
-        public void The_margin_covers_the_measured_overshoot()
+        public void The_allowance_is_the_same_size_at_every_budget()
         {
-            // 45,000 declared, 55,700 measured — a 24% overshoot.
-            const double measuredOvershoot = 55_700d / 45_000d;
-            Assert.True(ConnectNarrator.WaitCeilingMargin > measuredOvershoot);
+            var n = new ConnectNarrator(Radio, new Clock().Read);
+
+            var small = n.OnEvent("start_station_name_wait_begin",
+                new Dictionary<string, object> { ["maxWaitMs"] = 60_000 }).Arm;
+            var large = n.OnEvent("start_station_name_wait_begin",
+                new Dictionary<string, object> { ["maxWaitMs"] = 240_000 }).Arm;
+
+            Assert.Equal(60_000 - 240_000, small.MaxMs - large.MaxMs);
         }
     }
 }

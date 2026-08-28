@@ -3076,12 +3076,21 @@ Module globals
     Friend Function Await(func As awaitFuncDel, ms As Integer)
         Return Await(func, ms, 25)
     End Function
+    ''' <summary>
+    ''' Wait up to <paramref name="ms"/> milliseconds for a condition.
+    ''' </summary>
+    ''' <remarks>
+    ''' <paramref name="ms"/> is a DEADLINE, not a count of sleeps — see
+    ''' <c>JJTrace.Tracing.await</c>, which carries the reasoning (task #293).
+    ''' The fourth copy of that loop. It has no callers today, which is exactly
+    ''' why it was worth correcting rather than leaving: the next person to need
+    ''' a wait in VB would have copied it.
+    ''' </remarks>
     Friend Function Await(func As awaitFuncDel, ms As Integer, waitMS As Integer)
-        Dim iterations As Integer = ms / waitMS
+        Dim deadline As Long = Environment.TickCount64 + ms
         Dim rv As Boolean = func()
-        While (Not rv) And (iterations > 0)
+        While (Not rv) AndAlso (Environment.TickCount64 < deadline)
             Thread.Sleep(waitMS)
-            iterations -= 1
             rv = func()
         End While
         Return rv
@@ -3973,8 +3982,16 @@ Module globals
             .GlobalAutoConnectEnabled = autoConfig.GlobalAutoConnectEnabled,
             .CurrentSmartLinkEmail = RigControl.CurrentSmartLinkEmail,
             .OpenParms = OpenParms,
-            .ShowConnecting = Function(msg)
-                                  Dim frm = New ConnectingForm(msg)
+            .ShowConnecting = Function(msg, voice)
+                                  ' A SmartLink account pass — not a radio
+                                  ' connect. The picker composes both the
+                                  ' sentence and the heartbeat, because it is
+                                  ' the only thing that knows which operation
+                                  ' this is and which account it is for (task
+                                  ' #294). This used to hand over a bare message
+                                  ' and let the window guess its own subject by
+                                  ' scraping it.
+                                  Dim frm = New ConnectingForm(msg, voice)
                                   frm.Show()
                                   Return Sub() frm.CloseForm()
                               End Function,
@@ -4142,11 +4159,12 @@ Module globals
                 If connectOk Then
                     ' Armed, not recorded — the open still has to happen.
                     Radios.ConnectionHistory.ArmPendingOutcome(serial,
-                        Radios.ConnectPathKind.SmartLink.ToString(), retrySw.ElapsedMilliseconds)
+                        Radios.ConnectPathKind.SmartLink.ToString(), retrySw.ElapsedMilliseconds,
+                        pathForced)
                 Else
                     Radios.ConnectionHistory.Record(serial, Radios.ConnectPathKind.SmartLink.ToString(),
                         If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed"),
-                        retrySw.ElapsedMilliseconds)
+                        retrySw.ElapsedMilliseconds, pathForced)
                 End If
             End If
 
@@ -4326,12 +4344,17 @@ Module globals
         End If
 
         legSw.Stop()
+        ' A forced leg is recorded and never taught from (task #287). Forcing
+        ' SmartLink three times is how a hole punch gets tested from inside the
+        ' shack; counting those as three preferences is how the instrument
+        ' started reconfiguring the thing it was measuring.
         If connectOk Then
-            Radios.ConnectionHistory.ArmPendingOutcome(serial, legPath.ToString(), legSw.ElapsedMilliseconds)
+            Radios.ConnectionHistory.ArmPendingOutcome(serial, legPath.ToString(),
+                legSw.ElapsedMilliseconds, walk.Forced)
         Else
             Radios.ConnectionHistory.Record(serial, legPath.ToString(),
                 If(RigControl.LastConnectFailureReport?.Class.ToString(), "failed"),
-                legSw.ElapsedMilliseconds)
+                legSw.ElapsedMilliseconds, walk.Forced)
         End If
         Return connectOk
     End Function
@@ -4529,6 +4552,65 @@ RadioConnected:
                     {"failureReason", If(startingRig?.LastStartFailureReason, "")}
                 })
 
+                ' ══ THE OPEN HAS RESOLVED ═══════════════════════════════════
+                '
+                ' ONLY NOW is the leg's outcome actually known. Recording it at
+                ' the moment the session connected is what taught the path
+                ' policy that four failed SmartLink attempts were four
+                ' successes (#284).
+                '
+                ' Committed BEFORE the walk resumes, because a resumed leg arms
+                ' and commits a record of its own and this one must be closed
+                ' first.
+                Radios.ConnectionHistory.CommitPendingOutcome(rv)
+
+                ' ══ SOMEWHERE ELSE, THEN AGAIN HERE ═════════════════════════
+                '
+                ' Two mechanisms exist for a failed open, and the ORDER between
+                ' them is the whole of task #288:
+                '
+                '   * ConnectWalk answers "try SOMEWHERE ELSE" — it holds the
+                '     ordered itinerary and survives a failed open.
+                '   * The retry ladder below answers "try AGAIN, HERE" — a
+                '     lightweight RetryConnect on the same path, for the
+                '     documented GUIClient re-add race.
+                '
+                ' They are not duplicates; they answer different questions. But
+                ' until this task they ran in the wrong order, and the reason
+                ' nobody noticed is that the ladder could not see the truth:
+                ' CurrentRig.Remote reads a row built by LOCAL DISCOVERY, so it
+                ' was false for a radio genuinely connected over SmartLink, the
+                ' ladder never engaged, and the trace said "no retry path
+                ' available (local or no serial)" during a failure where a local
+                ' path plainly existed. RigControl.RemoteRig (theRadio.IsWan) is
+                ' the live connection's own answer and is now what the ladder
+                ' asks.
+                '
+                ' Making that value correct is what forces the ordering
+                ' decision. With the old order, a SmartLink open failure would
+                ' now burn two more RetryConnect attempts — each of which can
+                ' sit in the 45-second station-name wait — BEFORE anything tried
+                ' the LAN the radio is sitting on. That is strictly worse than
+                ' the wrong answer it replaces, and it is exactly the #284
+                ' failure shape.
+                '
+                ' So: prefer a different path over repeating the one that just
+                ' failed. The walk goes first. It costs a genuinely remote
+                ' operator almost nothing — a fallback local leg is skipped on a
+                ' single availability check when the radio is not on the LAN — and
+                ' it saves the shack case a minute and a half of doomed remote
+                ' retries.
+                '
+                ' The ladder is NOT retired into the walk. ConnectWalk removes
+                ' duplicate legs by construction, precisely so it never retries
+                ' the path that just failed; folding a same-path retry in would
+                ' fight its design. It keeps its own job and runs when the
+                ' itinerary has nowhere left to go.
+                If Not rv Then
+                    rv = ResumeWalkAfterFailedOpen()
+                End If
+                _pendingWalk = Nothing
+
                 ' If Start() failed because SmartLink connection was too slow or dropped
                 ' during the guiClient re-add cycle, retry with a fresh connection.
                 ' A fresh connection bypasses the slow re-add and usually succeeds quickly.
@@ -4540,8 +4622,9 @@ RadioConnected:
                    Not RigControl.CancelRequested Then
 
                     Dim retrySerial = RigControl.ConnectedSerial
-                    Dim retryLowBW = RigControl.ConnectedLowBW
-                    Dim isRemote = (CurrentRig IsNot Nothing AndAlso CurrentRig.Remote)
+                    ' The LIVE connection's own answer, not the picker row's.
+                    ' See the block comment above (#288).
+                    Dim isRemote = RigControl.RemoteRig
 
                     If Not String.IsNullOrEmpty(retrySerial) AndAlso isRemote Then
                         ' Remote retry: lightweight reconnect using existing WAN session.
@@ -4551,7 +4634,18 @@ RadioConnected:
                             Tracing.TraceLine($"OpenTheRadio:retry attempt {attempt}/{maxAttempts} (serial={retrySerial})", TraceLevel.Info)
                             TraceSessionContext.AddKeyEvent($"as_retry_attempt_{attempt}_remote")
 
+                            Dim retryLegSw = System.Diagnostics.Stopwatch.StartNew()
                             If RigControl.RetryConnect() Then
+                                retryLegSw.Stop()
+                                ' Armed, not recorded: this has not opened yet
+                                ' either. Committed after the ladder, so a retry
+                                ' that finally opens is written as the success it
+                                ' is — with its OWN duration, not the first
+                                ' attempt's — instead of leaving the ring saying
+                                ' the connect failed when it did not.
+                                Radios.ConnectionHistory.ArmPendingOutcome(retrySerial,
+                                    Radios.ConnectPathKind.SmartLink.ToString(),
+                                    retryLegSw.ElapsedMilliseconds)
                                 Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect succeeded, calling Start", TraceLevel.Info)
                                 rv = RigControl.Start()
                                 If rv Then
@@ -4561,6 +4655,13 @@ RadioConnected:
                                     Exit For
                                 End If
                             Else
+                                ' Deliberately NOT recorded. The ladder retries a
+                                ' leg the ring has already accounted for, and
+                                ' writing an entry per retry would turn one
+                                ' operator-visible connect attempt into four in a
+                                ' ten-entry store — crowding out the successes a
+                                ' trend is made of. Only an attempt that OPENS
+                                ' adds anything the ring did not already say.
                                 Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect failed", TraceLevel.Error)
                             End If
                         Next
@@ -4591,6 +4692,16 @@ RadioConnected:
 
                         Threading.Thread.Sleep(2000)
 
+                        ' Nothing should be armed by now — the commit above
+                        ' closed the first attempt's leg — but this FlexBase and
+                        ' its whole connection are about to be thrown away, so
+                        ' anything still pending belongs to a leg that
+                        ' demonstrably did not open. Say so rather than let the
+                        ' retry's own arm silently replace it (#286).
+                        If Radios.ConnectionHistory.HasPendingOutcome Then
+                            Radios.ConnectionHistory.CommitPendingOutcome(False)
+                        End If
+
                         WpfMainWindow?.UnwireRadioEvents()
                         RigControl.Dispose()
 
@@ -4615,24 +4726,18 @@ RadioConnected:
                             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.walk.failed"), VerbosityLevel.Critical)
                         End If
                     Else
-                        Tracing.TraceLine("OpenTheRadio:Start failed, no retry path available (local or no serial)", TraceLevel.Info)
+                        ' No ladder applies: a local connection has nothing to
+                        ' re-establish over, and no serial means nothing to
+                        ' re-establish TO. The walk has already had its turn
+                        ' above, so arriving here means every path was tried.
+                        Tracing.TraceLine($"OpenTheRadio:Start failed, no same-path retry available (remote={isRemote} serial='{retrySerial}')", TraceLevel.Info)
                     End If
                 End If
 
-                ' The open has resolved, one way or the other, and ONLY NOW is
-                ' the leg's outcome actually known. Recording it at the moment
-                ' the session connected is what taught the path policy that
-                ' four failed SmartLink attempts were four successes (#284).
+                ' Whatever the ladder armed — a RetryConnect that came up, or an
+                ' auto-connect retry's leg — resolves here. A no-op when nothing
+                ' is armed, which is the ordinary case.
                 Radios.ConnectionHistory.CommitPendingOutcome(rv)
-
-                ' Hand the failure back to the walk before handing it to the
-                ' operator. This runs BEFORE CloseTheRadio, which is the only
-                ' reason there is still discovery to find the radio with and a
-                ' FlexBase to connect it on.
-                If Not rv Then
-                    rv = ResumeWalkAfterFailedOpen()
-                End If
-                _pendingWalk = Nothing
 
                 If Not rv Then
                     radioSelected = DialogResult.Abort

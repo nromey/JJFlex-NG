@@ -113,30 +113,35 @@ namespace Radios
         public const int PhaseAnnounceThresholdMs = 500;
 
         /// <summary>
-        /// How much longer than its own declared budget a wait is assumed to be
-        /// able to run.
+        /// A small allowance on top of a wait's declared budget, covering the
+        /// last turn of its loop.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>Because a budget in this code is not a duration.</b> The
-        /// station-name wait declares 45,000 ms, and implements it as 1,800
-        /// turns of a loop that sleeps 25 ms each — so the advertised budget is
-        /// a COUNT OF SLEEPS, and every turn also costs whatever the work in it
-        /// costs. A field trace of the 2026-08-26 incident measured the same
-        /// wait running 55.7 seconds of wall clock: 24% over, and the overshoot
-        /// grows with anything that slows a turn down.
+        /// <b>This used to be a 1.5 MULTIPLIER, and that was a fudge factor over
+        /// an arithmetic error (task #293).</b> The station-name wait declared
+        /// 45,000 ms and implemented it as 1,800 turns of a loop that slept 25 ms
+        /// each — a COUNT OF SLEEPS, with every turn also costing whatever the
+        /// work in it cost. The 2026-08-26 field trace measured that wait running
+        /// 55.7 seconds: 24% over, and growing with anything that slowed a turn
+        /// down. Half again covered it, but only here — the next caller to read
+        /// 45,000 would have had no way to know a correction was needed at all.
         /// </para>
         /// <para>
-        /// A heartbeat that stops at the declared figure would therefore fall
-        /// silent with ten seconds of the wait still to run — recreating the
-        /// exact silence this exists to remove, at the latest and worst possible
-        /// moment, when the operator has already been waiting the longest. Half
-        /// again covers the measured overshoot twice over and still cannot run
-        /// away: the connecting window's own escalation prompt arrives at 60
-        /// seconds and its auto-cancel at five minutes.
+        /// The loops now honour a deadline, so a declared budget IS the budget
+        /// and no proportional correction is owed. What remains is additive and
+        /// bounded: a loop checks the clock, passes, then sleeps its interval and
+        /// does one more turn's work. Two seconds covers that many times over for
+        /// the 25 ms intervals this code uses, and it cannot run away — the
+        /// connecting window's own escalation prompt arrives at 60 seconds and
+        /// its auto-cancel at five minutes.
+        /// </para>
+        /// <para>
+        /// Additive rather than proportional on purpose: the overshoot is one
+        /// turn, which does not get larger because the budget did.
         /// </para>
         /// </remarks>
-        public const double WaitCeilingMargin = 1.5;
+        public const int WaitCeilingSlackMs = 2_000;
 
         private readonly string _radioName;
         private readonly Func<long> _nowMs;
@@ -341,7 +346,7 @@ namespace Radios
             }
 
             if (budget <= 0) return ProgressVoice.DefaultMaxMs;
-            return Math.Max(ProgressVoice.DefaultMaxMs, (int)(budget * WaitCeilingMargin));
+            return Math.Max(ProgressVoice.DefaultMaxMs, budget + WaitCeilingSlackMs);
         }
     }
 }
