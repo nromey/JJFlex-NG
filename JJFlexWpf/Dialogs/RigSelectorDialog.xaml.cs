@@ -159,6 +159,27 @@ namespace JJFlexWpf.Dialogs
         public bool RefreshInFlight { get; set; }
 
         /// <summary>
+        /// Whether the SmartLink account this row is bound to has a live
+        /// session right now — that is, whether anything is in a position to
+        /// hear from this radio at all.
+        ///
+        /// <para><b>The third "we have not asked yet" (#340).</b>
+        /// <see cref="DiscoverySettled"/> covers local discovery still warming
+        /// up and <see cref="RefreshInFlight"/> covers a pass we started
+        /// ourselves. Neither covers a radio that is only visible to an account
+        /// whose session is not up: there the row was saying "not heard from",
+        /// which asserts an absence nothing looked for. Noel heard exactly that
+        /// about Don's 6300 on 2026-08-28 — seconds before picking the same row
+        /// and connecting to it successfully.</para>
+        ///
+        /// <para>Stamped by the dialog on every refresh, beside
+        /// <see cref="DiscoverySettled"/>, because only the dialog can see the
+        /// session table. <b>Defaults to true</b> so a row built by any path
+        /// that does not stamp it reads exactly as it did before.</para>
+        /// </summary>
+        public bool BoundAccountHasLiveSession { get; set; } = true;
+
+        /// <summary>
         /// Whether connecting to this row travels the SmartLink path.
         /// Derived from <see cref="ChosenPath"/>, never stored — and unlike
         /// the old derivation, the operator's stored chain is consulted for
@@ -231,6 +252,32 @@ namespace JJFlexWpf.Dialogs
                 var age = string.IsNullOrEmpty(LastSeenText)
                     ? ""
                     : Lexicon.Get("connect.row.age_suffix", ("lastSeenText", LastSeenText));
+
+                // ...and one step further out than the two above (#340). Both
+                // sentences below name an account, which is the admission that
+                // this row's visibility runs through one. When that account has
+                // no live session, nothing has asked and nothing could have
+                // heard — so "not heard from" is a verdict on equipment we
+                // never listened to. Say what is actually true: we are not
+                // signed in there. That also tells the operator what Enter is
+                // about to do, since Enter on a foreign row switches accounts.
+                //
+                // Guarded on the two account-naming branches only. A radio last
+                // seen on the LAN and silent now WAS asked — discovery settled
+                // and it did not answer — and must keep saying so.
+                //
+                // And not while a pass is in flight: a session coming up is
+                // asking, and the cached branch below already says "refreshing"
+                // for it. Claiming we are not signed in DURING the sign-in
+                // would be the same error pointed the other way.
+                if (!BoundAccountHasLiveSession
+                    && !RefreshInFlight
+                    && !string.IsNullOrWhiteSpace(BoundAccount)
+                    && (ForeignAccount || FromAccountCache))
+                {
+                    return Lexicon.Get("connect.row.account_not_signed_in",
+                        ("account", BoundAccount), ("age", age));
+                }
 
                 // Another account's radio — the only case where naming the
                 // owner is load-bearing. Before this branch, a foreign radio
@@ -1570,6 +1617,44 @@ namespace JJFlexWpf.Dialogs
         }
 
         /// <summary>
+        /// The SmartLink accounts holding a live session at this instant.
+        ///
+        /// <para>This is the honest test behind #340. A saved account is not a
+        /// dialled one: the presence layer holds a session per silently-signable
+        /// account only once remote operation has been engaged, and an account
+        /// whose sign-in material has lapsed is skipped rather than churned. So
+        /// "we have an account for that radio" says nothing about whether we
+        /// have listened for it.</para>
+        ///
+        /// <para>Failure is answered with an EMPTY set, not with an exception
+        /// and not with a shrug: if the session table cannot be read, we
+        /// certainly cannot claim to have heard anything, and every affected row
+        /// falls back to saying we have not asked. Wrong in the safe direction.
+        /// </para>
+        /// </summary>
+        private static HashSet<string> LiveSessionAccounts()
+        {
+            var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var session in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
+                {
+                    if (session != null && session.IsConnected
+                        && !string.IsNullOrWhiteSpace(session.AccountId))
+                    {
+                        live.Add(session.AccountId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"RigSelector.LiveSessionAccounts: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+            return live;
+        }
+
+        /// <summary>
         /// Re-render the list from <see cref="_radiosList"/>.
         /// </summary>
         /// <param name="reorder">
@@ -1579,6 +1664,12 @@ namespace JJFlexWpf.Dialogs
         private void RefreshRadiosList(bool reorder = false)
         {
             ReconcileAvailability();
+
+            // Resolved BEFORE _radiosLock: it takes the session coordinator's
+            // own lock, and nothing that holds that lock ever wants the list
+            // lock. Cheap enough to redo per refresh — a saved-account-sized
+            // set built from a snapshot of at most a handful of sessions.
+            var liveAccounts = LiveSessionAccounts();
 
             // A LAN radio re-announces about once a second, and every
             // announcement used to tear the ListBox down and rebuild it —
@@ -1593,7 +1684,17 @@ namespace JJFlexWpf.Dialogs
                 // asserting "offline". DisplayText changes as a result, which
                 // is what makes the comparison below rebuild the list when the
                 // pass completes.
-                foreach (var r in _radiosList) r.DiscoverySettled = _localSettled;
+                // ...and, for the same reason one level out, whether the
+                // account a row is bound to is even reachable right now (#340).
+                // An account with no live session has not been asked, so a row
+                // that depends on it must not report an absence.
+                foreach (var r in _radiosList)
+                {
+                    r.DiscoverySettled = _localSettled;
+                    r.BoundAccountHasLiveSession =
+                        string.IsNullOrWhiteSpace(r.BoundAccount)
+                        || liveAccounts.Contains(r.BoundAccount);
+                }
 
                 StampModelAmbiguity();
 

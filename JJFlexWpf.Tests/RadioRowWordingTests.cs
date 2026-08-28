@@ -123,6 +123,61 @@ public sealed class RadioRowWordingTests
         Assert.Equal(Lexicon.Get("connect.row.rechecking"), r.WhereText);
     }
 
+    /// <summary>
+    /// The third "we have not asked yet" (#340), and the one that cost an
+    /// evening. Don's 6300 is visible only to Don's SmartLink account. With no
+    /// session held for that account, nothing has listened for it — so a row
+    /// saying "not heard from" is passing a verdict on equipment it never
+    /// dialled. Noel heard exactly that on 2026-08-28, seconds before picking
+    /// the same row and connecting to the radio successfully.
+    /// </summary>
+    [Fact]
+    public void ARowWhoseAccountIsNotSignedInSaysThatRatherThanReportingAnAbsence()
+    {
+        var r = Row();
+        r.LastSeenText = "last seen 2 hours ago";
+        r.LastSeenViaAccount = "dbreda@example.com";
+        r.ForeignAccount = true;
+        r.BoundAccountHasLiveSession = false;
+
+        Assert.DoesNotContain("not heard from", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+        // And it names the account, because that is both the reason and the
+        // thing Enter is about to switch to.
+        Assert.Contains("dbreda@example.com", r.WhereText);
+    }
+
+    /// <summary>
+    /// The positive control for the test above. A state that means "we have not
+    /// asked" must stop applying the moment we HAVE asked, or it becomes a
+    /// permanent excuse and the roster can never report a real absence again.
+    /// </summary>
+    [Fact]
+    public void OnceTheAccountIsSignedInTheSameRowReportsWhatWeHeard()
+    {
+        var r = Row();
+        r.LastSeenText = "last seen 2 hours ago";
+        r.LastSeenViaAccount = "dbreda@example.com";
+        r.ForeignAccount = true;
+        r.BoundAccountHasLiveSession = true;
+
+        Assert.Contains("not heard from", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// And it stays narrow. A radio last seen on the LAN with no account behind
+    /// it WAS asked — discovery settled and it did not answer — so an unsigned
+    /// SmartLink account is no excuse for it.
+    /// </summary>
+    [Fact]
+    public void ALanRowKeepsItsAbsenceWhenNoAccountIsInvolved()
+    {
+        var r = Row();
+        r.LastSeenText = "last seen 2 hours ago";
+        r.BoundAccountHasLiveSession = false;
+
+        Assert.Contains("last heard from 2 hours ago", r.WhereText);
+    }
+
     [Fact]
     public void ALiveRowSaysWhereItIs()
     {
