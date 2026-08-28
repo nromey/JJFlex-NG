@@ -71,11 +71,6 @@ public partial class MainWindow : UserControl
         // at the moment the key is pressed.
         JJFlexHelp.SetProvider(FreqOut, ComposeFreqOutContextHelp);
 
-        // The context-help availability cue (#275) — a flick and a soft note an
-        // octave above it, behind a focus landing, when Ctrl+F1 has something
-        // new to say there.
-        ContextHelpCue.Install();
-
         // Focus-return: when any JJFlexDialog closes, put keyboard focus back
         // inside the application and then speak compact status.
         //
@@ -621,21 +616,10 @@ public partial class MainWindow : UserControl
 
         Tracing.TraceLine("MainWindow.RequestShutdown: starting shutdown", System.Diagnostics.TraceLevel.Info);
 
-        // Disarm the context-help cue BEFORE the exit sequence, not after
-        // (#275). The exit sequence puts prompts up; focus lands on one; the
-        // operator reads it, which takes longer than the settle interval — and
-        // the cue then offers help on a surface that is disappearing. Noel
-        // heard exactly that on 2026-08-27: a tone, no speech, just before the
-        // application closed.
-        ContextHelpCue.SuspendForShutdown();
-
         // Run VB-side exit sequence (prompts, cleanup, radio close)
         if (AppExitCallback != null && !AppExitCallback())
         {
             Tracing.TraceLine("MainWindow.RequestShutdown: exit cancelled by user", System.Diagnostics.TraceLevel.Info);
-            // He is staying. Give the cue back — a latch that only ever closes
-            // would leave the rest of the session silently without it.
-            ContextHelpCue.ResumeAfterCancelledShutdown();
             return false;
         }
 

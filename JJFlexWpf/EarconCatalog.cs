@@ -189,7 +189,6 @@ namespace JJFlexWpf
             EarconPlayer.EarconCategory.TuningAndFilters => "Tuning and filters",
             EarconPlayer.EarconCategory.CommandsAndConfirmations => "Commands and confirmations",
             EarconPlayer.EarconCategory.Warnings => "Warnings",
-            EarconPlayer.EarconCategory.ContextHelp => "Context help",
             _ => "Outside the family switches",
         };
 
@@ -208,10 +207,6 @@ namespace JJFlexWpf
                 "JJ-layer tones, feature on and off, mute all, and confirmations.",
             EarconPlayer.EarconCategory.Warnings =>
                 "Something is wrong. The one family worth thinking twice about switching off.",
-            EarconPlayer.EarconCategory.ContextHelp =>
-                "The flick and soft rising note that says context help is available where "
-                + "you landed. Rare by construction: it sounds only when the help content "
-                + "changes.",
             _ =>
                 "Calibration and bench sounds. These answer to the master earcon switch only, "
                 + "on purpose — they are not part of any family an operator would turn off.",
