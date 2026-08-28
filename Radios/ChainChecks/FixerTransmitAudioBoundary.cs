@@ -278,6 +278,13 @@ namespace Radios.ChainChecks
             // keeps the ladder honest. Its Dispose puts the mode back, and
             // runs after the finally below has unkeyed.
             using (TxToneLadderScope scope = TxToneLadderScope.Enter(rig))
+            // Armed BEFORE the countdown, not at key-down and certainly not at
+            // the gate's NoteKeyed — which fires only once the RADIO confirms,
+            // up to a second and a half later, and may never fire at all. A
+            // radio transmitting while reporting that it is not is exactly the
+            // transmit that most needs a way out. Arming here also means Escape
+            // during the count stops the check before any RF (#236).
+            using (TransmitKillSwitch.Arm(rig, "the injected transmit check"))
             {
                 try
                 {
@@ -305,7 +312,12 @@ namespace Radios.ChainChecks
 
                     Tracing.TraceLine("FixerTransmitAudioBoundary: keying for the injected "
                                       + "probes", TraceLevel.Info);
-                    rig.Transmit = true;
+                    if (!TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox))
+                    {
+                        facts.Detail = "Nothing was transmitted, because no way to stop the "
+                                     + "transmission was in place.";
+                        return facts;
+                    }
                     everKeyed = WaitForMox(rig, wantKeyed: true);
 
                     if (!everKeyed)
@@ -406,6 +418,16 @@ namespace Radios.ChainChecks
                 }
                 finally
                 {
+                    // READ THE STOP HERE, while the kill is still armed. The
+                    // kill flag is cleared on disarm — which is correct, the
+                    // next stage must not start pre-stopped — so asking after
+                    // the using block would always answer no, and a run cut
+                    // short during its FIRST measurement would set none of the
+                    // flags below and read as a complete one. Nothing could end
+                    // this stage early before the operator had a real abort
+                    // (#236); now something can.
+                    if (StopRequested()) stopped = true;
+
                     // Every path out lands here. Unkey FIRST and confirm it
                     // took; then disarm both sources, unconditionally, so
                     // nothing armed by this stage rides the operator's own
@@ -519,8 +541,13 @@ namespace Radios.ChainChecks
             bool cuedToSpeak = false;
             double peakDb = double.NaN;
             bool meterRead = false;
+            bool stoppedShort = false;
             TxDifferential.TxRunSample spokenSample = null;
 
+            // Armed before the count-in, for the same reasons as the injected
+            // stage: the operator's Escape has to reach the transmitter while
+            // this stage blocks the UI thread for its whole eight-second listen.
+            using (TransmitKillSwitch.Arm(rig, "the spoken transmit check"))
             try
             {
                 // Count the operator in, UNKEYED (#261): three tones, key-up
@@ -538,7 +565,12 @@ namespace Radios.ChainChecks
 
                 Tracing.TraceLine("FixerTransmitAudioBoundary: keying for the spoken check",
                                   TraceLevel.Info);
-                rig.Transmit = true;
+                if (!TransmitKillSwitch.RaiseCarrier(rig, TransmitKillSwitch.Carrier.Mox))
+                {
+                    facts.Detail = "Nothing was transmitted, because no way to stop the "
+                                 + "transmission was in place.";
+                    return facts;
+                }
                 everKeyed = WaitForMox(rig, wantKeyed: true);
 
                 if (!everKeyed)
@@ -568,6 +600,9 @@ namespace Radios.ChainChecks
             }
             finally
             {
+                // Read while the kill is still armed — see the injected stage.
+                stoppedShort = StopRequested();
+
                 UnkeyMox(rig);
                 _gate.NoteUnkeyed();
 
@@ -581,10 +616,23 @@ namespace Radios.ChainChecks
             facts.ReachedRadio = meterRead && TxAudioProbe.Reached(peakDb);
 
             var detail = new StringBuilder();
-            detail.Append("Listened for ")
-                  .Append((TxAudioProbe.SpokenListenMs / 1000.0)
-                          .ToString("0.#", CultureInfo.InvariantCulture))
-                  .AppendLine(" seconds while keyed.");
+
+            // The listen is a CEILING, not a duration — the sampling loop
+            // breaks the moment a stop arrives, so a stopped run measured for
+            // less than this and must not report the full window. It could not
+            // happen before the operator had a real abort (#236); now it can,
+            // and a peak read over two seconds described as an eight-second
+            // listen is a measurement of the wrong thing wearing the right
+            // number.
+            if (stoppedShort)
+                detail.AppendLine("The check was stopped before the listen finished, so "
+                                + "anything below was measured over less than the full "
+                                + "window.");
+            else
+                detail.Append("Listened for ")
+                      .Append((TxAudioProbe.SpokenListenMs / 1000.0)
+                              .ToString("0.#", CultureInfo.InvariantCulture))
+                      .AppendLine(" seconds while keyed.");
             detail.AppendLine(meterRead
                 ? "SC_MIC peaked at " + peakDb.ToString("0.#", CultureInfo.InvariantCulture)
                   + " dBFS over the listen."
@@ -643,13 +691,9 @@ namespace Radios.ChainChecks
         {
             if (rig == null) return;
 
-            try { rig.Transmit = false; }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine("FixerTransmitAudioBoundary: COULD NOT UNKEY — "
-                                  + ex.Message, TraceLevel.Error);
-                return;
-            }
+            // Through the switch, which never refuses and never throws — the
+            // same drop the kill uses, so there is one unkey and not two.
+            TransmitKillSwitch.DropCarrier(rig, TransmitKillSwitch.Carrier.Mox);
 
             if (!WaitForMox(rig, wantKeyed: false))
             {
@@ -747,8 +791,20 @@ namespace Radios.ChainChecks
             }
         }
 
+        /// <summary>
+        /// Should this stage stop now?
+        /// </summary>
+        /// <remarks>
+        /// TWO SOURCES, and only one of them is an operator. The host hook is
+        /// the dialog's stage TIMEOUT — a token cancelled by a timer, which is
+        /// why it can fire at all while these stages block the UI thread. The
+        /// kill switch is the operator's own stop, raised on a thread that does
+        /// not need the dispatcher (#236). Before that existed, every sampling
+        /// loop in this file could only be ended by a clock.
+        /// </remarks>
         private bool StopRequested()
         {
+            if (TransmitKillSwitch.KillRequested) return true;
             try { return _stopRequested != null && _stopRequested(); }
             catch { return true; }
         }
