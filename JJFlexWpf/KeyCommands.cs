@@ -867,24 +867,29 @@ public class KeyCommands
         // LATEST: an S-meter reading superseded by a newer one has no value -
         // the operator wants the signal now, not a recital of the last five.
         //
-        // repeatWhileHeld, because this is a QUERY key, not a swept value
-        // (Sprint 35 Track M, from Don's "I hit ctrl+s and it just lags",
-        // 2026-08-26). Without it the coalescer classes a quick second press
-        // as a sweep: each press pushes the settle timer out, so hammering
-        // the key was SILENT until released - and a repeat of the same
-        // reading was then dropped as a duplicate, so on a steady signal the
-        // second press said nothing at all. The flag's name says "held", but
-        // its two effects are exactly what a deliberate re-press needs: new
-        // presses never defer the pending announcement, and "still S9" is
-        // spoken rather than swallowed - on a meter, the repetition IS the
-        // information. Presses spaced past the sweep window never coalesce
-        // at all and stay instant, same as before.
+        // QUERY, because this key asks a question - it does not sweep a value
+        // (#264, from Don's "I hit ctrl+s and it just lags", 2026-08-26, and
+        // measured again at the radio 2026-08-27). Classed as a value, a quick
+        // second press was read as sweeping: each press pushed the settle timer
+        // out, so hammering the key was SILENT until released, and a repeat of
+        // the same reading was then dropped as a duplicate, so on a steady
+        // signal the second press said nothing at all.
+        //
+        // Query says the three things this key needs in one word. A re-press is
+        // never a sweep, so it answers straight away instead of waiting out a
+        // settle. A newer press never defers the pending answer. And "still S9"
+        // is spoken rather than swallowed - on a meter, the repetition IS the
+        // information.
+        //
+        // This carried a repeatWhileHeld flag until 2026-08-27. It was the only
+        // caller of it, and Query replaces it outright rather than sitting
+        // beside it.
         Radios.ScreenReaderOutput.Speak(
             msg,
             Radios.Speech.SpeechIntent.Latest,
             Radios.VerbosityLevel.Terse,
             coalesceKey: "smeter",
-            repeatWhileHeld: true);
+            kind: Radios.Speech.SpeechCoalesceKind.Query);
     }
 
     /// <summary>

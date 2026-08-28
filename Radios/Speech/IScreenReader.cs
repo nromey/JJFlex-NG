@@ -28,22 +28,33 @@
         /// </summary>
         bool Initialize();
 
-        /// <summary>Speak text. interrupt=true cuts off speech in progress.</summary>
-        void Speak(string message, bool interrupt);
+        /// <summary>
+        /// Speak text. interrupt=true cuts off speech in progress.
+        ///
+        /// <para><b>Returns what the backend actually did (#277).</b> This was
+        /// <c>void</c> until 2026-08-27, and the void is what let the trace
+        /// lie: a backend can refuse an utterance — most importantly when the
+        /// reader we are bound to has gone — and with nothing coming back, the
+        /// layer above recorded "Spoke" for a sentence nobody could have
+        /// heard. Callers must treat <see cref="SpeechDelivery.Delivered"/> as
+        /// the truth about whether the words left the building.</para>
+        /// </summary>
+        SpeechDelivery Speak(string message, bool interrupt);
 
         /// <summary>
         /// Speak AND push to a braille display in one call, where the backend
         /// supports it. Falls back to <see cref="Speak"/> when it does not, so
         /// callers never need to ask.
         /// </summary>
-        void Output(string message, bool interrupt);
+        SpeechDelivery Output(string message, bool interrupt);
 
         /// <summary>
         /// Push text to a connected braille display WITHOUT speaking it. Used
         /// by the status line, which updates far too often to be spoken.
-        /// No-op when the backend or the machine has no braille.
+        /// Reports <see cref="SpeechDelivery.NotAttempted"/> — not a failure —
+        /// when the backend or the machine has no braille.
         /// </summary>
-        void Braille(string message);
+        SpeechDelivery Braille(string message);
 
         /// <summary>Stop speech immediately. Best-effort.</summary>
         void Silence();

@@ -242,20 +242,25 @@ namespace Radios
         /// A Latest call with no key cannot coalesce against anything, so it
         /// degrades to Interrupt rather than silently pretending to work.
         /// </param>
-        /// <param name="repeatWhileHeld">
-        /// Latest only. Normally an identical repeated value is dropped, since
-        /// saying the same thing twice tells the operator nothing. Set this
-        /// when the repetition IS the information - holding a key against the
-        /// end of a range, where "still at minimum" is how you learn you can
-        /// stop pressing. Repeats are still spaced by the minimum gap, so they
-        /// cannot chop each other.
+        /// <param name="kind">
+        /// Latest only. Whether this key sweeps a VALUE or asks a QUESTION —
+        /// see <see cref="Speech.SpeechCoalesceKind"/>. The two want opposite
+        /// things from the coalescer and the call site is the only place that
+        /// knows which this is. Defaults to Value, which is what almost every
+        /// Latest key is.
+        ///
+        /// This replaced a <c>repeatWhileHeld</c> flag on 2026-08-27 (#264).
+        /// The flag said "an identical repeat is information"; that is true of
+        /// a query and of nothing else, and it had exactly one caller — the
+        /// query key. Query does everything the flag did and also carries the
+        /// part it could not express: that the press was never a sweep.
         /// </param>
         public static void Speak(
             string message,
             Speech.SpeechIntent intent,
             VerbosityLevel level = VerbosityLevel.Terse,
             string? coalesceKey = null,
-            bool repeatWhileHeld = false,
+            Speech.SpeechCoalesceKind kind = Speech.SpeechCoalesceKind.Value,
             [CallerFilePath] string callerFile = "",
             [CallerLineNumber] int callerLine = 0,
             [CallerMemberName] string callerMember = "")
@@ -289,7 +294,7 @@ namespace Radios
                         _arbiter.Emit(message, interrupt: true, intent, level, origin);
                         return;
                     }
-                    _arbiter.Latest(coalesceKey!, message, level, repeatWhileHeld, origin);
+                    _arbiter.Latest(coalesceKey!, message, level, kind, origin);
                     return;
 
                 case Speech.SpeechIntent.Queue:
@@ -328,6 +333,7 @@ namespace Radios
             bool suppressed = SuppressSpeech;
             bool rendered = false;
             bool reachedBackend = false;
+            string? deliveryFailure = null;
 
             if (!suppressed)
             {
@@ -336,17 +342,34 @@ namespace Radios
                     if (!_initialized) Initialize();
                     if (_available)
                     {
-                        lock (_backendLock) { _backend?.Speak(message, interrupt); }
-                        reachedBackend = true;
-                        if (!salvaged) Remember(message);
-                        // rendered means "actually sounded": with render off the
-                        // diverted backend accepted the text and discarded it,
-                        // and the transcript must not claim otherwise.
-                        rendered = OutputChannelRecorder.RenderEnabled;
-                        Tracing.TraceLine(
-                            $"ScreenReaderOutput: Spoke '{message}' (interrupt={interrupt}"
-                            + $"{(salvaged ? ", salvaged" : string.Empty)})",
-                            TraceLevel.Verbose);
+                        Speech.SpeechDelivery delivery;
+                        lock (_backendLock)
+                        {
+                            delivery = _backend?.Speak(message, interrupt)
+                                       ?? Speech.SpeechDelivery.NotAttempted;
+                        }
+
+                        // #277: this used to be an unconditional
+                        // reachedBackend = true, and that one assumption is
+                        // what let every instrument we own claim the words
+                        // went out when the backend had refused them.
+                        reachedBackend = delivery.Delivered;
+                        deliveryFailure = delivery.Failure;
+
+                        if (reachedBackend)
+                        {
+                            if (!salvaged) Remember(message);
+                            // rendered means "actually sounded": with render off the
+                            // diverted backend accepted the text and discarded it,
+                            // and the transcript must not claim otherwise.
+                            rendered = OutputChannelRecorder.RenderEnabled;
+                            Tracing.TraceLine(
+                                $"ScreenReaderOutput: Spoke '{message}' via "
+                                + $"{_screenReaderName ?? "no named reader"} (interrupt={interrupt}"
+                                + $"{(salvaged ? ", salvaged" : string.Empty)})",
+                                TraceLevel.Verbose);
+                        }
+                        NoteDelivery(delivery, message);
                     }
                 }
                 catch (Exception ex)
@@ -364,10 +387,75 @@ namespace Radios
                     ? (string.IsNullOrEmpty(origin) ? "(salvaged)" : origin + " (salvaged)")
                     : origin;
                 OutputChannelRecorder.RecordSpeech(message, level?.ToString(), intent?.ToString(),
-                    interrupt, gated: false, suppressed, rendered, recordOrigin);
+                    interrupt, gated: false, suppressed, rendered, recordOrigin,
+                    reader: _screenReaderName, deliveryFailure: deliveryFailure);
             }
 
             return reachedBackend;
+        }
+
+        /// <summary>
+        /// Whether the speech backend is currently refusing what we hand it.
+        /// 0 = healthy, 1 = failing. Only the TRANSITIONS are traced loudly.
+        /// </summary>
+        private static int _deliveryFailing;
+
+        /// <summary>
+        /// Say — once, loudly — when the speech layer starts refusing
+        /// utterances, and say when it starts working again.
+        ///
+        /// <b>This is the whole point of #277.</b> A dead binding silently
+        /// disabled every downstream announcement while every downstream trace
+        /// claimed success, so the fault presented as an independent bug in
+        /// whichever subsystem the operator happened to be using — a JAWS
+        /// ancestor recital, a capture-stop that announced nothing, an
+        /// every-other-press tuning stutter. Three findings in two days, all
+        /// the same fault in a different disguise, each one costing a reader
+        /// switch and a manual listen to eliminate. With the return code read,
+        /// the class becomes self-reporting: one line saying the speech layer
+        /// cannot deliver, instead of an unbounded family of mysteries.
+        ///
+        /// <b>Transitions, not every utterance, and that is deliberate.</b>
+        /// A dead binding refuses everything, so per-utterance Error lines
+        /// would produce thousands of them and bury the first — the same
+        /// mechanism that made a real signal invisible in a haystack of benign
+        /// build warnings. The first refusal is loud; the rest are Warnings
+        /// carrying the same detail for anyone reading a capture; recovery is
+        /// stated explicitly, because "the errors stopped" and "the last
+        /// utterance happened to be one nobody sent" look identical otherwise.
+        /// </summary>
+        private static void NoteDelivery(in Speech.SpeechDelivery delivery, string message)
+        {
+            if (delivery.Refused)
+            {
+                bool first = System.Threading.Interlocked.Exchange(ref _deliveryFailing, 1) == 0;
+                if (first)
+                {
+                    Tracing.TraceLine(
+                        "ScreenReaderOutput: THE SPEECH LAYER CANNOT DELIVER. The backend "
+                        + $"refused an utterance: {delivery.Failure}. Everything spoken from "
+                        + "here on is going nowhere until this clears, so any missing "
+                        + "announcement anywhere in the application is THIS, not a fault in "
+                        + $"whatever was being used at the time. First refused: '{message}'",
+                        TraceLevel.Error);
+                }
+                else
+                {
+                    Tracing.TraceLine(
+                        $"ScreenReaderOutput: NOT spoken - {delivery.Failure}: '{message}'",
+                        TraceLevel.Warning);
+                }
+                return;
+            }
+
+            if (delivery.Delivered
+                && System.Threading.Interlocked.Exchange(ref _deliveryFailing, 0) == 1)
+            {
+                Tracing.TraceLine(
+                    "ScreenReaderOutput: speech delivery recovered - the backend is accepting "
+                    + $"utterances again (reader {_screenReaderName ?? "unnamed"}).",
+                    TraceLevel.Info);
+            }
         }
 
         /// <summary>
@@ -565,9 +653,24 @@ namespace Radios
 
                 if (_available)
                 {
-                    lock (_backendLock) { _backend?.Output(message, interrupt); }
-                    rendered = OutputChannelRecorder.RenderEnabled;
-                    Tracing.TraceLine($"ScreenReaderOutput: Output '{message}'", TraceLevel.Verbose);
+                    Speech.SpeechDelivery delivery;
+                    lock (_backendLock)
+                    {
+                        delivery = _backend?.Output(message, interrupt)
+                                   ?? Speech.SpeechDelivery.NotAttempted;
+                    }
+                    if (delivery.Delivered)
+                    {
+                        rendered = OutputChannelRecorder.RenderEnabled;
+                        Tracing.TraceLine(
+                            $"ScreenReaderOutput: Output '{message}' via "
+                            + $"{_screenReaderName ?? "no named reader"}",
+                            TraceLevel.Verbose);
+                    }
+                    // #277: same instrument as the speech path. This one
+                    // carries braille as well, so a refusal here is the only
+                    // signal we have that a braille display stopped receiving.
+                    NoteDelivery(delivery, message);
                 }
             }
             catch (Exception ex)
@@ -901,26 +1004,41 @@ namespace Radios
         /// </summary>
         private static void OnChannelChanged(Speech.SpeechTier tier, string? reader)
         {
-            // THE FLUSH BELONGS HERE AND CANNOT GO HERE AS WRITTEN.
+            // THE FLUSH BELONGS HERE, AND IT IS NOW OFF THIS THREAD.
             //
             // Prism changes the channel on its own initiative whenever the
             // operator starts a different reader, and that is the COMMON
             // route — the watchdog only fires when Prism did not get there
             // first. So this handler needs the same arbiter flush the
-            // watchdog's re-bind does, and today it has none: the salvage
-            // ledger, the last-spoken map and the reader-busy lease all
-            // survive into a reader they do not describe.
+            // watchdog's re-bind does, and it had none: the salvage ledger,
+            // the last-spoken map and the reader-busy lease all survived into
+            // a reader they did not describe.
             //
             // A DiscardAll() call was added at this point on 2026-08-27 and
             // REVERTED THE SAME HOUR: it hung the application. This event is
             // hooked inside lock (_backendLock), and the arbiter's own sink
-            // and silence paths take _backendLock in turn — so flushing from
-            // here inverts the two locks against every ordinary utterance.
+            // and silence paths take _backendLock in turn — so flushing
+            // INLINE inverts the two locks against every ordinary utterance.
             // That is the hazard the re-bind path's own comment warns about;
             // it was read, applied to that path, and not checked against
             // this one.
             //
-            // Whatever lands here must run OUTSIDE the backend lock.
+            // WHY A WORKER TASK IS THE ANSWER RATHER THAN CAREFUL PLACEMENT.
+            // The inversion is a property of what the CALLER already holds,
+            // and this handler cannot know that — it is raised by Prism, from
+            // whichever thread noticed the change, through a subscription that
+            // is itself established under the backend lock. No position within
+            // this method is provably safe. A task takes no caller-held lock at
+            // all: it acquires the arbiter's lock and then the backend lock, in
+            // that order, exactly as every ordinary utterance does, so there is
+            // no pair left to invert. The announcement moves into the same task
+            // so it still lands AFTER the flush rather than racing it.
+            //
+            // #291 is why this could not wait. Fixing the re-acquire edge means
+            // Prism now re-binds after losing a reader instead of standing on a
+            // dead channel, so this handler fires in cases where it previously
+            // never ran at all — and each of those is a reader swap carrying
+            // another reader's backlog into the new one.
 
             _available = _backend?.HasSpeech == true;
             _screenReaderName = _backend?.DetectedReader;
@@ -947,21 +1065,42 @@ namespace Radios
             // nothing.
             _watch.NoteBound(_screenReaderName, tier == Speech.SpeechTier.ScreenReader);
 
-            // Announce ONLY the climb onto the operator's own reader, once and
-            // quietly (queued, Terse). Until this moment they were hearing a
-            // strange voice with no explanation; this line is spoken by the
-            // reader they configured, in their own voice, which is itself most
-            // of the message. The UIA upgrade stays silent - it happens at
-            // startup before anything worth interrupting, and "your reader now
-            // speaks our text" is not something an operator needs narrated.
-            if (tier == Speech.SpeechTier.ScreenReader)
+            // The flush, and then the announcement, both off this thread — see
+            // the lock-inversion note at the top of this method.
+            System.Threading.Tasks.Task.Run(() =>
             {
-                string name = string.IsNullOrEmpty(_screenReaderName)
-                    ? Lexicon.Get("connect.session.screen_reader_unnamed")
-                    : _screenReaderName;
-                Speak(Lexicon.Get("connect.session.speech_channel_changed", ("name", name)),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
-            }
+                // Nothing queued may survive into the new reader. DiscardAll
+                // clears the pending set, the believed-pending ledger and the
+                // per-key dedup (so the next value speaks rather than being
+                // suppressed as a duplicate of something spoken to a reader
+                // that has gone). Same call the watchdog's re-bind makes, and
+                // never given a second implementation.
+                try { _arbiter.DiscardAll(); } catch { /* best effort */ }
+
+                // Announce ONLY the climb onto the operator's own reader, once
+                // and quietly (queued, Terse). Until this moment they were
+                // hearing a strange voice with no explanation; this line is
+                // spoken by the reader they configured, in their own voice,
+                // which is itself most of the message. The UIA upgrade stays
+                // silent - it happens at startup before anything worth
+                // interrupting, and "your reader now speaks our text" is not
+                // something an operator needs narrated.
+                if (tier != Speech.SpeechTier.ScreenReader) return;
+                try
+                {
+                    string name = string.IsNullOrEmpty(_screenReaderName)
+                        ? Lexicon.Get("connect.session.screen_reader_unnamed")
+                        : _screenReaderName;
+                    Speak(Lexicon.Get("connect.session.speech_channel_changed", ("name", name)),
+                        Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine(
+                        $"ScreenReaderOutput: channel-change announcement threw - {ex.Message}",
+                        TraceLevel.Warning);
+                }
+            });
         }
 
         /// <summary>
@@ -1261,7 +1400,22 @@ namespace Radios
             try
             {
                 if (!_initialized) Initialize();
-                lock (_backendLock) { _backend?.Braille(message); }
+                Speech.SpeechDelivery delivery;
+                lock (_backendLock)
+                {
+                    delivery = _backend?.Braille(message) ?? Speech.SpeechDelivery.NotAttempted;
+                }
+                // #277 reaches braille too, and this is the only instrument
+                // braille has: a display that stops receiving is invisible to
+                // every other check we own, which is part of why the braille
+                // half of #280 is hard to reason about. NotAttempted (no
+                // display on this machine) stays silent - it is not a fault.
+                if (delivery.Refused)
+                {
+                    Tracing.TraceLine(
+                        $"ScreenReaderOutput: braille NOT written - {delivery.Failure}: '{message}'",
+                        TraceLevel.Warning);
+                }
             }
             catch (Exception ex)
             {

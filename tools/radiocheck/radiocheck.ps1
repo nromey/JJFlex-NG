@@ -667,6 +667,55 @@ if ($SkipSmoke) {
     }
 }
 
+# ── Tier: speech queue depth (#197, over THIS run's transcript) ──────────
+#
+# The transcript proves an utterance was EMITTED, not that it was HEARD.
+# On 2026-08-22 the reflected-power warning fired correctly into an open
+# antenna port and every automated check said the feature worked —
+# rendered, not gated, not suppressed, Critical, correct text. The
+# operator missed it entirely and had to key a second time, because
+# key-down two seconds earlier had queued three utterances and the
+# warning took its place at the back of that queue. A warning emitted
+# into a full queue is recorded identically to one emitted into silence.
+#
+# SpeechQueueDepthRule replays the transcript's own monotonic clock
+# against a model of the reader's queue and flags any Critical utterance
+# landing behind more than one utterance's worth of pending speech
+# WITHOUT an interrupting intent. It needs no radio, no desk and no audio
+# device, which is why it sits here in the unattended tiers rather than
+# behind the foreground gate — unusual for something that is fundamentally
+# about what a person hears.
+#
+# It runs as a real test in Radios.Tests rather than being reimplemented
+# here. One rule, one implementation: a PowerShell copy would drift from
+# the C# one and the drift would be invisible, since both would keep
+# reporting clean runs. The test also re-proves itself on the known-bad
+# fixture before judging this run, so "found nothing" is a measurement
+# rather than an assumption.
+
+$qdTier = New-Tier 'speech queue depth (#197 rule over this run''s transcript)'
+if ($SkipSmoke) {
+    $qdTier.status = 'skipped'
+    $qdTier.detail.Add('SKIPPED: -SkipSmoke was passed, so no transcript was recorded for the rule to read.')
+} elseif (-not $transcriptStats -or -not (Test-Path $transcriptStats.path)) {
+    # No transcript is not "no findings". The smoke tier has already
+    # reported why it produced none; saying nothing here would let a
+    # missing recording read as a clean speech-timing result.
+    $qdTier.status = 'skipped'
+    $qdTier.detail.Add('SKIPPED: the smoke tier produced no readable transcript, so the rule had ' +
+        'nothing to analyse. This is NOT a clean result — see the smoke tier for why.')
+} else {
+    Write-Host 'Tier: speech queue depth (#197) ...'
+    $env:JJFLEX_TRANSCRIPT_UNDER_TEST = $transcriptStats.path
+    try {
+        Invoke-DotnetTestTier $qdTier (Join-Path $RepoRoot 'Radios.Tests\Radios.Tests.csproj') `
+            'speech-queue-depth' 'FullyQualifiedName~SpeechQueueDepthHarness' $state 'queuedepth'
+    } finally {
+        Remove-Item Env:\JJFLEX_TRANSCRIPT_UNDER_TEST -ErrorAction SilentlyContinue
+    }
+    $qdTier.detail.Add("analysed $($transcriptStats.path)")
+}
+
 # ── Tier: foreground (gated — JJFlexWpf.Tests needs the desktop) ─────────
 
 $fgTier = New-Tier 'foreground (JJFlexWpf.Tests — takes the desktop)'
