@@ -248,10 +248,7 @@ namespace Radios.Fixer
                     break;
             }
 
-            string evidence = TxTuneProbe.EvidenceSection(probe);
-            if (!string.IsNullOrWhiteSpace(loadDeclaration))
-                evidence += "Antenna socket, as stated by the operator: "
-                          + loadDeclaration.Trim() + Environment.NewLine;
+            string evidence = TxTuneProbe.EvidenceSection(probe) + LoadLine(loadDeclaration);
 
             return new FixerOutcome
             {
@@ -264,7 +261,15 @@ namespace Radios.Fixer
 
         // ---- stage 3: injected transmit ----
 
-        public static FixerOutcome Injected(InjectedTransmitFacts facts)
+        /// <param name="loadDeclaration">
+        /// What the operator said the antenna socket is connected to, from the
+        /// host's gate — same as stage 2's. This stage KEYS the transmitter,
+        /// so its evidence needs the stated load for the same reason: a
+        /// transmission whose load is unrecorded cannot be read afterwards by
+        /// anyone (#247).
+        /// </param>
+        public static FixerOutcome Injected(InjectedTransmitFacts facts,
+                                            string loadDeclaration = null)
         {
             if (facts == null) throw new ArgumentNullException(nameof(facts));
 
@@ -281,6 +286,7 @@ namespace Radios.Fixer
                 ? "could not be read"
                 : facts.ConditioningActive.Value ? "on" : "off"));
             if (facts.Detail.Length > 0) sb.AppendLine(facts.Detail.TrimEnd());
+            sb.Append(LoadLine(loadDeclaration));
 
             return new FixerOutcome
             {
@@ -299,7 +305,13 @@ namespace Radios.Fixer
         /// whether that microphone measured well earlier. So the baseline is
         /// not a gate; it is half of the conclusion.
         /// </summary>
-        public static FixerOutcome Spoken(SpokenTransmitFacts facts, MicCheckFacts micBaseline)
+        /// <param name="loadDeclaration">
+        /// What the operator said the antenna socket is connected to — this
+        /// stage keys the transmitter, so its evidence carries the stated
+        /// load like stage 2's and stage 3's do (#247).
+        /// </param>
+        public static FixerOutcome Spoken(SpokenTransmitFacts facts, MicCheckFacts micBaseline,
+                                          string loadDeclaration = null)
         {
             if (facts == null) throw new ArgumentNullException(nameof(facts));
 
@@ -353,6 +365,7 @@ namespace Radios.Fixer
                         : "measured, and nothing arrived")
                     : "attempted, but nothing was measured"));
             if (facts.Detail.Length > 0) sb.AppendLine(facts.Detail.TrimEnd());
+            sb.Append(LoadLine(loadDeclaration));
 
             return new FixerOutcome
             {
@@ -363,6 +376,20 @@ namespace Radios.Fixer
         }
 
         // ---- helpers ----
+
+        /// <summary>
+        /// The stated-load evidence line, in its ONE phrasing. Every stage
+        /// that keys the transmitter carries it — stages 2, 3 and 4 — because
+        /// a transmission whose load is unrecorded cannot be read afterwards
+        /// by anyone (#188, #247). One home for the words, so three stages
+        /// cannot drift into saying it three ways. Empty when nothing was
+        /// declared: an empty line would read as a value.
+        /// </summary>
+        private static string LoadLine(string loadDeclaration)
+            => string.IsNullOrWhiteSpace(loadDeclaration)
+                ? ""
+                : "Antenna socket, as stated by the operator: "
+                  + loadDeclaration.Trim() + Environment.NewLine;
 
         private static string NameOr(string name, string fallback)
             => string.IsNullOrWhiteSpace(name) ? fallback : name;
