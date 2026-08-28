@@ -21,8 +21,27 @@
              Declared first so it docks across the FULL width, under both the
              category list and the settings — the layout everyone expects. Tab
              order is set explicitly below rather than inherited from
-             declaration order, because the two no longer want to agree. -->
+             declaration order, because the two no longer want to agree.
+
+             TabNavigation="Local" IS WHAT MAKES TabIndex="3" MEAN ANYTHING, and
+             without it this panel had a TabIndex that WPF never read (#301).
+             KeyboardNavigation.TabIndex is not an inheritable property and it is
+             consulted only on elements that are a tab stop OR a navigation
+             group. A bare StackPanel is neither: Focusable is False on every
+             Panel, and TabNavigation defaults to Continue (both verified against
+             the .NET 10 property metadata on this machine, 2026-08-27). So the
+             3 was inert, these three Buttons sat at the default Int32.MaxValue
+             alongside every control in every category, and equal indexes fall
+             back to TREE order — where this panel is declared FIRST. Tab from
+             the category list therefore reached OK, Apply and Cancel BEFORE the
+             settings, which is exactly what Noel reported.
+
+             Local, not Cycle or Contained: those two trap Tab inside the group.
+             Local orders the subtree and then lets Tab walk out the far end,
+             which is the only mode that both fixes the index and leaves the
+             dialog's window-level Cycle in charge of wrapping. -->
         <StackPanel DockPanel.Dock="Bottom" Style="{StaticResource ButtonPanel}"
+                    KeyboardNavigation.TabNavigation="Local"
                     KeyboardNavigation.TabIndex="3">
             <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" Style="{StaticResource OkButton}"
                     AutomationProperties.Name="OK"
@@ -53,9 +72,24 @@
                  local:JJFlexHelp.Text="Every group of settings, in one list. Arrow through it to move between them, or use Control plus Tab and Control plus Shift plus Tab from anywhere in this dialog. Tab moves from here into the settings themselves."/>
 
         <!-- The categories. Styled headerless: the list above IS the tab
-             strip now. -->
+             strip now.
+
+             TabNavigation="Local" for the same reason as the button panel
+             (#301), and it is needed independently: the CategoryTabControl
+             style sets IsTabStop="False" and Focusable="False" so this host is
+             not a tab stop, and TabControl's own TabNavigation default is
+             Continue — NOT Local, which is the easy thing to assume and was
+             checked rather than assumed. Not a tab stop and not a group means
+             TabIndex="2" was read by nobody, and every setting inside fell to
+             the default Int32.MaxValue.
+
+             The AudioWorkshopDialog comment warning that TabNavigation here
+             once "caged" Tab is about Cycle, which wraps forever inside the
+             categories. Local does not: it orders this subtree and hands Tab
+             on to the button panel at the end. -->
         <local:CategoryTabHost x:Name="SettingsTabs"
                     Style="{StaticResource CategoryTabControl}"
+                    KeyboardNavigation.TabNavigation="Local"
                     KeyboardNavigation.TabIndex="2"
                     AutomationProperties.Name="Settings categories">
             <!-- PTT Tab -->
@@ -1384,7 +1418,7 @@
                         <CheckBox x:Name="EarconContextHelpCheck"
                                   Content="Context help cue" Margin="0,0,0,4"
                                   AutomationProperties.Name="Context help cue"
-                   local:JJFlexHelp.Text="Two quick rising taps a moment after you land on a control, meaning Control F1 has something to say there. It only sounds when that help is different from the last help it announced, so moving between controls stays quiet."/>
+                   local:JJFlexHelp.Text="A quick low flick and a soft note an octave above it, fading away, a moment after you land on a control — meaning Control F1 has something to say there. It only sounds when that help is different from the last help it announced, so moving between controls stays quiet. It is the quietest sound in the app on purpose: it is an offer, not an event."/>
                     </StackPanel>
 
                     <Separator Margin="0,4,0,8"/>
