@@ -8887,7 +8887,67 @@ namespace Radios
             if (firstCharID == -1) firstCharID = id;
         }
 
-        public bool SmeterInDBM = false;
+        // ── S-meter units: one switch, remembered per radio (#337) ──
+        //
+        // This was a BARE PUBLIC FIELD until Sprint 38 Track C — written by
+        // one handler, read by four places, saved by nothing. Flip it,
+        // restart, and it was gone; Noel remembered a toggle that really
+        // existed and could not find his way back to it, because nothing kept
+        // the answer and nothing but pressing the key would tell him which
+        // unit he was in.
+        //
+        // A property rather than a field so that EVERY route through it
+        // persists — the leader chord, the Operations menu and the Settings
+        // control all assign this one member, and none of them has to
+        // remember to save. The store is the per-radio config, keyed by
+        // serial, so the answer follows the station rather than the operator.
+        //
+        // The read is cached against the serial it was loaded for: SMeter's
+        // getter runs at meter rate, and going to disk there would be absurd.
+        // A changed serial (a different radio this session) reloads exactly
+        // once. Locked because meter data arrives on background threads while
+        // the toggle runs on the UI one, and a half-updated cache would hand
+        // out one reading in the wrong unit.
+        private bool _smeterInDbm;
+        private string _smeterInDbmSerial = " never loaded";
+        private readonly object _smeterUnitLock = new object();
+
+        /// <summary>
+        /// True when this radio's S-meter reads in dBm rather than S-units.
+        /// Persisted per radio; assigning it here is what remembers it.
+        /// </summary>
+        /// <remarks>
+        /// With no radio selected there is no config to key on, so the value
+        /// lives for the session only. That is the honest answer rather than
+        /// writing a preference to a radio nobody named.
+        /// </remarks>
+        public bool SmeterInDBM
+        {
+            get
+            {
+                string serial = SelectedRadioSerial ?? string.Empty;
+                lock (_smeterUnitLock)
+                {
+                    if (!string.Equals(_smeterInDbmSerial, serial, StringComparison.Ordinal))
+                    {
+                        _smeterInDbm = RadioConfig.SmeterInDbmOf(serial);
+                        _smeterInDbmSerial = serial;
+                    }
+                    return _smeterInDbm;
+                }
+            }
+            set
+            {
+                string serial = SelectedRadioSerial ?? string.Empty;
+                lock (_smeterUnitLock)
+                {
+                    _smeterInDbm = value;
+                    _smeterInDbmSerial = serial;
+                }
+                RadioConfig.RecordSmeterInDbm(serial, value);
+            }
+        }
+
         /// <summary>
         /// Calibrated S-Meter/power
         /// </summary>

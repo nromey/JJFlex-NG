@@ -650,6 +650,76 @@ namespace Radios
         [XmlIgnore]
         public bool OwnershipAnswered => Ownership != RadioOwnership.Unset;
 
+        // ---------------------------------------------------------------
+        // What unit the S-meter is read in (Sprint 38 Track C, #337).
+        //
+        // The mode itself is old and was correct; what it never had was a
+        // memory. FlexBase.SmeterInDBM was a bare field, flipped by one
+        // handler and saved by nothing, so an operator who chose dBm chose it
+        // again after every restart — and a blind operator has no readout to
+        // tell them which unit they are in until they press the key and hear
+        // the answer. Persisting it is what turns "a mode you can be in the
+        // wrong one of" into a preference.
+        //
+        // PER RADIO, not per operator: the answer follows the station. A big
+        // rig used for antenna comparison earns dBm; a casual second radio
+        // reads more naturally in S-units.
+        //
+        // APPEND-ONLY like the blocks around it: an absent element
+        // deserialises to false, which is S-units, which is what every
+        // config written before this shipped meant.
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// True when this radio's S-meter is read in dBm rather than S-units.
+        /// Default false (S-units), the historical behaviour.
+        /// </summary>
+        public bool SmeterInDbm { get; set; }
+
+        /// <summary>
+        /// Remember which unit this radio's S-meter is read in. Called from
+        /// every surface that flips it — the leader chord, the Operations
+        /// menu, Settings — through <see cref="FlexBase.SmeterInDBM"/>, so
+        /// the three can never disagree about what was stored. No-ops on an
+        /// unknown radio id, skips the disk write when nothing changed, and
+        /// never throws: losing one unit preference must not be able to hurt
+        /// anything else.
+        /// </summary>
+        public static void RecordSmeterInDbm(string radioId, bool inDbm)
+        {
+            if (string.IsNullOrEmpty(radioId)) return;
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                if (cfg.SmeterInDbm == inDbm) return;
+                cfg.SmeterInDbm = inDbm;
+                cfg.SaveForRadio(radioId);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.RecordSmeterInDbm: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// The stored S-meter unit for a radio id, without the caller loading
+        /// a whole config. Unknown ids read as false — S-units, the default.
+        /// </summary>
+        public static bool SmeterInDbmOf(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            try { return LoadForRadio(radioId).SmeterInDbm; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.SmeterInDbmOf: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
         /// <summary>Ownership for a radio id, without the caller loading a
         /// whole config. Unknown ids read as Unset, which is the safe
         /// answer.</summary>
