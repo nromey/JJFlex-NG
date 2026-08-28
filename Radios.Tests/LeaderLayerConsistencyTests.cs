@@ -201,7 +201,7 @@ namespace Radios.Tests
             // "Ctrl+J, Escape" becomes a lie this catches.
             string src = ReadSource(Path.Combine("JJFlexWpf", "KeyCommands.cs"));
             Assert.Contains("EarconPlayer.LeaderCancelTone()", src);
-            Assert.Contains("settings.leader.cancelled", src);
+            Assert.Contains("leader.cancelled", src);
         }
 
         [Fact]

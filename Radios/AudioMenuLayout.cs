@@ -79,13 +79,16 @@ namespace Radios
     /// discover the same thing — or never learns the command exists.
     /// </para>
     /// <para>
-    /// <b>What this does NOT fix, stated plainly.</b> Two rows here begin with
-    /// A — Audio Devices and Audio Workshop. While that is true, ONE press of A
-    /// cannot be deterministic under the skip-the-highlighted-item rule above;
-    /// stable positions make the cycle learnable, not single-press. Making it
-    /// single-press means giving the two rows distinct first letters, which is
-    /// a rename of a menu entry the help pages and years of muscle memory point
-    /// at, and that is Noel's call rather than a side effect of fixing a menu.
+    /// <b>What this did NOT fix, and what closed it afterwards.</b> Two rows
+    /// here begin with A — Audio Devices and Audio Workshop — so under the
+    /// skip-the-highlighted-item rule above, stable positions made the cycle
+    /// learnable rather than single-press. The obvious answer was to rename one
+    /// row, which meant changing a menu entry the help pages and years of
+    /// muscle memory point at. Noel proposed a smaller one on 2026-08-27
+    /// (#297): give Audio Workshop an explicit mnemonic of W instead. Nothing
+    /// is renamed, W is the natural letter for Workshop, and Audio Devices
+    /// keeps A. See the ampersand on that row below, and the class-wide
+    /// carve-out at the top of <c>NativeMenuBar</c> that permits it.
     /// </para>
     /// <para>
     /// Held as data so the invariant is testable without constructing a window:
@@ -148,7 +151,34 @@ namespace Radios
             // assumption about Windows.
             new("earcon-scratchpad", "Earcon Scratchpad", AudioMenuEntryKind.Command, false),
             new("audio-devices", "Audio Devices", AudioMenuEntryKind.Command, false),
-            new("audio-workshop", "Audio Workshop", AudioMenuEntryKind.Command, false, "Ctrl+Shift+W"),
+
+            // THE AMPERSAND IS DELIBERATE — DO NOT REMOVE IT ON AN
+            // ACCESSIBILITY SWEEP (#297, 2026-08-27).
+            //
+            // Two rows here begin with "Audio", so first-letter exploration
+            // cannot reach both in one press. An explicit mnemonic of W gives
+            // the workshop its own letter and leaves Audio Devices holding A.
+            // Nothing is renamed; W is simply the natural letter for Workshop.
+            //
+            // It is allowed under the CLASS-WIDE AMPERSAND CARVE-OUT documented
+            // at the top of JJFlexWpf/NativeMenuBar.cs (#40): Win32 renders "&"
+            // as an underlined access key rather than exposing the character,
+            // so a screen reader reads the label cleanly. CLAUDE.md's general
+            // "remove & from menu labels" rule is about WinForms labels, where
+            // the character IS read aloud. Read that carve-out before touching
+            // this line.
+            //
+            // Safe because this label is NOT SHARED: the only runtime consumer
+            // of AudioMenuLayout is NativeMenuBar.BuildAudioItems, which hands
+            // the string straight to AppendMenuW. No speech path, no Command
+            // Finder row, no exported key list is built from it — which is
+            // exactly what would turn this ampersand into "audio ampersand
+            // workshop" in someone's ear. AudioMenuStabilityTests pins that:
+            // see The_layout_label_is_read_by_nothing_but_the_native_menu.
+            //
+            // The in-file precedent is "A&ntenna" (NativeMenuBar.cs), same
+            // collision, same fix, already shipping.
+            new("audio-workshop", "Audio &Workshop", AudioMenuEntryKind.Command, false, "Ctrl+Shift+W"),
         };
 
         /// <summary>

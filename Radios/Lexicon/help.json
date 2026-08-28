@@ -13,7 +13,7 @@
   "help.tuning.switch_chatty": "{key} switches to {mode} tuning.",
   "help.tuning.switch_terse": "{key} for {mode} tuning.",
   "help.tuning.switch_unbound": "The tuning mode switch is not bound to a key; the Slice menu switches to {mode} tuning.",
-  "help.tuning.more_keys": "Press question mark for every key on this field.",
+  "help.tuning.more_keys": "Press Shift slash for every key on this field.",
   "help.field.window_title": "{label} Help",
   "help.launch.not_found": "Help file not found.",
   "help.launch.open_failed": "Could not open help file.",

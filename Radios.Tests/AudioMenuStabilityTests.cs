@@ -268,6 +268,121 @@ namespace Radios.Tests
         }
 
         // ────────────────────────────────────────────────────────────────
+        //  The Audio Workshop mnemonic (#297)
+        // ────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void Audio_workshop_carries_an_explicit_W_mnemonic()
+        {
+            // Two rows begin with "Audio", so first-letter exploration cannot
+            // reach both in one press. W is the workshop's own letter.
+            var workshop = AudioMenuLayout.Entries.Single(e => e.Id == "audio-workshop");
+
+            Assert.Contains("&W", workshop.Label);
+            Assert.Equal("Audio &Workshop", workshop.Label);
+        }
+
+        [Fact]
+        public void The_mnemonic_reaches_the_menu_text_untouched()
+        {
+            // LabelFor is the only thing between the layout and AppendMenuW.
+            // If it ever learned to strip ampersands, the access key would
+            // vanish and the row would silently go back to needing two presses.
+            var workshop = AudioMenuLayout.Entries.Single(e => e.Id == "audio-workshop");
+
+            Assert.Contains("&W", AudioMenuLayout.LabelFor(workshop, radioConnected: true));
+            Assert.Contains("&W", AudioMenuLayout.LabelFor(workshop, radioConnected: false));
+        }
+
+        [Fact]
+        public void No_two_rows_claim_the_same_mnemonic()
+        {
+            // The carve-out's rule: give siblings UNIQUE mnemonics or none.
+            // Two rows underlining the same letter is worse than none at all —
+            // the key stops executing and starts cycling.
+            var claimed = new List<char>();
+            foreach (var entry in AudioMenuLayout.Entries)
+            {
+                int at = entry.Label.IndexOf('&');
+                if (at < 0 || at + 1 >= entry.Label.Length) continue;
+                claimed.Add(char.ToUpperInvariant(entry.Label[at + 1]));
+            }
+
+            Assert.Equal(claimed.Count, claimed.Distinct().Count());
+        }
+
+        [Fact]
+        public void The_layout_label_is_read_by_nothing_but_the_native_menu()
+        {
+            // THE GUARD THE AMPERSAND RESTS ON, and the reason #297 could place
+            // one at all. A Win32 menu renders "&" as an underlined access key;
+            // every other surface would render it as a character and speak it,
+            // so an operator would hear "audio ampersand workshop."
+            //
+            // Today AudioMenuLayout has exactly one runtime consumer. The day
+            // someone wires the layout into Command Finder rows, a spoken
+            // announcement or an exported key list, this fails — which is the
+            // moment the mnemonic has to move to a field of its own instead of
+            // living inside the display string.
+            //
+            // Whole-repo scan rather than a grep of the usual suspects: the
+            // point is to find the consumer nobody thought of.
+            var offenders = new List<string>();
+            int scanned = 0;
+
+            foreach (string path in SourceFiles())
+            {
+                string relative = Path.GetRelativePath(RepoRoot(), path);
+                scanned++;
+                if (!File.ReadAllText(path).Contains("AudioMenuLayout", StringComparison.Ordinal))
+                    continue;
+
+                bool allowed =
+                    relative.Replace('\\', '/').Equals("Radios/AudioMenuLayout.cs", StringComparison.OrdinalIgnoreCase) ||
+                    relative.Replace('\\', '/').Equals("JJFlexWpf/NativeMenuBar.cs", StringComparison.OrdinalIgnoreCase) ||
+                    relative.Replace('\\', '/').StartsWith("Radios.Tests/", StringComparison.OrdinalIgnoreCase);
+
+                if (!allowed) offenders.Add(relative);
+            }
+
+            // Positive control: a sweep that read nothing would report no
+            // offenders and look identical to a clean result.
+            Assert.True(scanned > 200,
+                $"only {scanned} source files scanned — the walk is broken, so its silence means nothing");
+
+            Assert.True(offenders.Count == 0,
+                "AudioMenuLayout is consumed outside the native menu builder, so its labels now reach a "
+                + "surface that renders '&' as a character. Move the mnemonic to a field on the entry: "
+                + string.Join(", ", offenders));
+        }
+
+        /// <summary>
+        /// Every hand-written C# and VB file in the repo — build output,
+        /// vendored FlexLib and the tools tree excluded.
+        /// </summary>
+        private static IEnumerable<string> SourceFiles()
+        {
+            string root = RepoRoot();
+            foreach (string path in Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories))
+            {
+                string ext = Path.GetExtension(path);
+                if (!ext.Equals(".cs", StringComparison.OrdinalIgnoreCase) &&
+                    !ext.Equals(".vb", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string relative = Path.GetRelativePath(root, path).Replace('\\', '/');
+                if (relative.Contains("/obj/", StringComparison.OrdinalIgnoreCase) ||
+                    relative.Contains("/bin/", StringComparison.OrdinalIgnoreCase) ||
+                    relative.StartsWith("obj/", StringComparison.OrdinalIgnoreCase) ||
+                    relative.StartsWith("bin/", StringComparison.OrdinalIgnoreCase) ||
+                    relative.StartsWith(".git/", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                yield return path;
+            }
+        }
+
+        // ────────────────────────────────────────────────────────────────
 
         /// <summary>
         /// The text of one method, from its signature to the brace that closes

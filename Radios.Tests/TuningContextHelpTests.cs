@@ -149,7 +149,7 @@ namespace Radios.Tests
                 "S, Turn split on. " +
                 "T, Toggle showing the transmit frequency. " +
                 "Ctrl+Shift+M switches to Modern tuning. " +
-                "Press question mark for every key on this field.",
+                "Press Shift slash for every key on this field.",
                 text);
         }
 
@@ -192,7 +192,7 @@ namespace Radios.Tests
                 "F, Speak the current frequency. " +
                 "Shift+S, Speak the coarse and fine step sizes. " +
                 "Ctrl+Shift+M switches to Classic tuning. " +
-                "Press question mark for every key on this field.",
+                "Press Shift slash for every key on this field.",
                 text);
         }
 

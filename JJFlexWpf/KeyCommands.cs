@@ -30,6 +30,24 @@ public class KeyCommands
     // ── Leader key state (Ctrl+J → second key). No timeout — cancel with Escape only. ──
     private bool _leaderKeyActive;
 
+    // ── Narrow stickiness after an unknown leader key (#303, Sprint 37). ──
+    // The layer stays armed for H, Shift slash and Escape ONLY. Every other
+    // key releases it and travels on untouched, exactly as if the layer had
+    // already closed — which, before this, it had.
+    //
+    // Why the message needed it. "Unknown command. Press H for help." was
+    // true one keystroke earlier: by the time it finished speaking the layer
+    // had exited, so H did whatever H does in the scope the operator was now
+    // standing in. Keeping the layer alive for the three keys that LEAD OUT
+    // of it makes plain "H" correct again — which is why the fix makes the
+    // sentence SHORTER, not longer.
+    //
+    // Why narrow and not general: a modal layer you did not ask to stay in is
+    // a trap, and for a blind operator "am I still in the layer?" is invisible
+    // unless something says so. Two of these keys open help and the third
+    // cancels, so there is no way to be held.
+    private bool _leaderHelpArmed;
+
     // ── Volume mode state (Ctrl+J, V — Audio Arc Track A, 2026-08-11). ──
     // A mode WITHIN the leader: pick a target letter, ride Up/Down, switch
     // targets freely, Escape exits. It persists across adjustments —
@@ -2709,11 +2727,35 @@ public class KeyCommands
             _leaderKeyActive = false;
             if (k == Keys.Escape)
             {
-                EarconPlayer.LeaderCancelTone();
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.cancelled"), Radios.VerbosityLevel.Terse, true);
+                LeaderCancel();
                 return true;
             }
             return DoLeaderCommand(k);
+        }
+
+        // === LEADER HELP-ARMED DISPATCH (#303) ===
+        // Reached only after the unknown-key message, which is the message
+        // that TELLS the operator H and Escape are still live. The layer is
+        // never silently sticky: it stays armed exactly when it has just said
+        // so, and for nothing but the keys it named.
+        if (_leaderHelpArmed)
+        {
+            _leaderHelpArmed = false;
+            if (k == Keys.Escape)
+            {
+                LeaderCancel();
+                return true;
+            }
+            if (IsLeaderHelpKey(k))
+            {
+                LeaderKeyHelp();
+                return true;
+            }
+            // Anything else: the layer has let go, and this key is NOT
+            // consumed. It goes on to do exactly what it would have done had
+            // the layer never lingered — which is what "exits exactly as
+            // today" has to mean, or a keystroke the operator meant for the
+            // field would vanish into a mode they did not ask for.
         }
 
         // Check for leader key trigger (Ctrl+J).
@@ -2721,7 +2763,7 @@ public class KeyCommands
         {
             _leaderKeyActive = true;
             EarconPlayer.LeaderEnterTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.armed"), Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("leader.armed"), Radios.VerbosityLevel.Terse, true);
             return true;
         }
 
@@ -2880,7 +2922,22 @@ public class KeyCommands
     {
         var kc = _globalRoutingOwner;
         if (kc == null || e.Handled) return;
-        if (!kc._leaderKeyActive && !kc._volumeModeActive) return;
+        if (!kc._leaderKeyActive && !kc._volumeModeActive)
+        {
+            // Help-armed (#303) is a much thinner claim on the keyboard than a
+            // fully armed leader: only the three keys that lead OUT of the
+            // layer are ours. Everything else releases the state HERE and is
+            // left completely alone — it never enters DoCommand, so a dialog's
+            // own key cannot be re-routed through the main-window registry on
+            // its way past a mode the operator did not ask for.
+            if (!kc._leaderHelpArmed) return;
+            var pressed = WpfKeyConverter.ToWinFormsKeys(e);
+            if (pressed != Keys.Escape && !IsLeaderHelpKey(pressed))
+            {
+                kc._leaderHelpArmed = false;
+                return;
+            }
+        }
         var raw = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
 
         // PTT safety wins over mode cancel: while transmitting, let Escape
@@ -2892,6 +2949,7 @@ public class KeyCommands
             if (rig != null && rig.Transmit)
             {
                 kc._leaderKeyActive = false;
+                kc._leaderHelpArmed = false;
                 if (kc._volumeModeActive) kc.ExitVolumeMode(speak: false);
                 return;
             }
@@ -2954,6 +3012,17 @@ public class KeyCommands
         // Audio Workshop, precisely where an operator rides mic gain.
         if (_volumeModeActive || _leaderKeyActive)
             return DoCommand(k);
+
+        // Help-armed (#303) claims only the three keys that lead out of the
+        // layer. The preview handler above normally gets there first and
+        // releases the state on anything else; this is the same rule stated
+        // again for the bubble path, so a dialog that swallowed the preview
+        // cannot leave the layer armed behind it.
+        if (_leaderHelpArmed)
+        {
+            if (k == Keys.Escape || IsLeaderHelpKey(k)) return DoCommand(k);
+            _leaderHelpArmed = false;
+        }
 
         // The leader trigger itself.
         if (k == (Keys.J | Keys.Control))
@@ -3572,14 +3641,30 @@ public class KeyCommands
                 if (KeyInventory.TryFindLeaderNearMiss(k, out string nearKey, out string nearWhat))
                 {
                     Radios.ScreenReaderOutput.Speak(
-                        Radios.Lexicon.Get("settings.leader.near_miss",
+                        Radios.Lexicon.Get("leader.near_miss",
                             ("pressed", KeyManifest.FormatKey(k)),
                             ("alt", nearKey),
                             ("what", nearWhat)), true);
                 }
                 else
                 {
-                    Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.unknown_command"), true);
+                    // #303. The layer stays armed for H, Shift slash and
+                    // Escape — but ONLY on this branch, because this is the
+                    // branch that says so. The near-miss above names a chord
+                    // to retry and says nothing about help, so leaving the
+                    // layer armed there would be a mode the operator was never
+                    // told they were in. Two situations, two vocabularies, and
+                    // stickiness follows the sentence that earns it.
+                    _leaderHelpArmed = true;
+
+                    // Verbosity picks the wording. Terse: "H for the list."
+                    // Chatty spells out Shift slash and what the list is. Both
+                    // name the KEYSTROKE and never the glyph — a literal "?"
+                    // may not be voiced at all with punctuation set low, which
+                    // would silently drop the very key being recommended.
+                    Radios.ScreenReaderOutput.Speak(
+                        Radios.Lexicon.Get("leader.unknown_key",
+                            Radios.ScreenReaderOutput.CurrentVerbosity), true);
                 }
                 break;
         }
@@ -3718,7 +3803,7 @@ public class KeyCommands
             ExitVolumeMode(speak: false);
             _leaderKeyActive = true;
             EarconPlayer.LeaderEnterTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.leader.armed"), Radios.VerbosityLevel.Terse, true);
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("leader.armed"), Radios.VerbosityLevel.Terse, true);
             return true;
         }
 
@@ -4233,6 +4318,34 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.qso.failed"),
                 Radios.VerbosityLevel.Critical);
         }
+    }
+
+    /// <summary>
+    /// The two keys that open the leader's own command list. ONE COMMAND, not
+    /// two: the inventory row reads "Ctrl+J, H or ?", and both keys do the
+    /// same thing, so nothing may offer them as alternatives with different
+    /// descriptions.
+    /// </summary>
+    /// <remarks>
+    /// Both arrival forms of the glyph, deliberately. "?" is Shift+/ on a US
+    /// layout and arrives as <c>Oem2 | Shift</c>; the bare <c>Oem2</c> twin is
+    /// carried for the same reason <see cref="DoLeaderCommand"/> carries it —
+    /// a bare Oem case alone never fires, which is exactly how the advertised
+    /// "?" sat dead for months (#183).
+    /// </remarks>
+    private static bool IsLeaderHelpKey(Keys k) =>
+        k == Keys.H || k == Keys.Oem2 || k == (Keys.Oem2 | Keys.Shift);
+
+    /// <summary>
+    /// Close the leader layer the way Escape closes it: descending tone, then
+    /// "Cancelled". One place, so the help-armed exit and the ordinary exit
+    /// can never start sounding different from each other.
+    /// </summary>
+    private void LeaderCancel()
+    {
+        EarconPlayer.LeaderCancelTone();
+        Radios.ScreenReaderOutput.Speak(
+            Radios.Lexicon.Get("leader.cancelled"), Radios.VerbosityLevel.Terse, true);
     }
 
     private void LeaderKeyHelp()
