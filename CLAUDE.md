@@ -556,8 +556,8 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    identifiers in memory entries **and in the task register**, against every
    identifier in the code. Same discipline, same "candidates, not errors", same
    "do not chase the count to zero". A stale symbol in a TASK is the expensive
-   one, because tasks are read by agents about to write code: fix the task,
-   then re-run `export-task-register.ps1`.
+   one, because tasks are read by agents about to write code: **fix the task in
+   `tasks.md` directly.** There is no regeneration step any more — see 3c-bis.
 
    Its header claimed symbol extraction from the day it was written and had
    none for six days — the tool's own defect class, in the tool. Anyone relying
@@ -583,23 +583,47 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    (Blind Hams data, rarbox triage) or planning docs that were archived on
    purpose. The number to watch is a NEW entry appearing, not the total.
 
-3c-bis. **Task register check:** run
-   `& "C:\dev\JJFlex-NG\export-task-register.ps1"` to regenerate
-   `C:/dev/jjf-private/planning/active/task-register.md`, or `-Check` to verify it without
-   writing. Seconds, and it is the only thing keeping the backlog readable by a
-   session that did not create it — the task store lives under the user profile,
-   is not in git, and vanishes with the terminal.
+3c-bis. **The task register is a FILE now, and it is the source of truth.**
 
-   **Added 2026-08-23, after finding the hand-maintained version of exactly this
-   had rotted.** `research-queue.md` carried an OPEN WORK REGISTER created
-   2026-08-14 for this precise reason, carrying the instruction "keep this
-   current." Nine days later it said 34 open while the store held 77. Nothing
-   flagged it, because a drifted mirror looks identical to a correct one — which
-   is why the check exists rather than a reminder.
+   - `C:/dev/jjf-private/planning/active/tasks.md` — open tasks.
+   - `C:/dev/jjf-private/planning/active/tasks-archive.md` — closed ones, plus
+     the old BUG- number mapping.
 
-   The same day's reconciliation found the drift also runs the *other* way: a
-   section headed "Not yet in the task store" turned out to be 11 of 15 already
-   done. **A stale list understates progress as readily as it overstates it.**
+   Migrated 2026-08-27. Both are git-tracked in JJFlex-private (**no remote, and
+   a `pre-push` hook refuses outright** — it is a private estate, not a repo
+   waiting to be published). `C:\dev\jjf-private` is a junction to the same
+   tree, so either path reaches it.
+
+   **Edit them by hand. There is nothing to regenerate and nothing to sync.**
+   Every task carries a status line of the form
+   `> #264 · OPEN · opened 2026-08-26`, and all 327 of them are substring-unique
+   within their file — the middle dot right after the number is what makes `#10`
+   not match inside `#100`. Closing a task is one literal replacement.
+
+   `export-task-register.ps1` is **SUPERSEDED**; `task-register.md` is left in
+   place carrying that stamp so a stray run overwrites the dead file rather than
+   the live one. Retiring the script outright is Noel's call, not a sealing
+   session's.
+
+   **Why this replaced a generated mirror.** The old check existed because the
+   task store lived under the user profile, outside git, and vanished with the
+   terminal — so the file was a mirror, and *a drifted mirror looks identical to
+   a correct one*. That was not theoretical: `research-queue.md` carried an OPEN
+   WORK REGISTER created 2026-08-14 with the instruction "keep this current",
+   and nine days later it said 34 open while the store held 77. The same
+   reconciliation found the drift also runs the *other* way — a section headed
+   "Not yet in the task store" was 11 of 15 already done. **A stale list
+   understates progress as readily as it overstates it.**
+
+   **A hand-edited file cannot drift from itself**, which is why the mirror
+   check is gone rather than repointed. If a checker is ever wanted here, the
+   one with ongoing value validates `tasks.md`'s own invariants — unique status
+   lines, no duplicate numbers, heading and status in agreement.
+
+   **The migration read the STORE, not the previous export.** The generated file
+   had flattened all 168 closed tasks to one-line subjects; going back to the
+   store recovered **4,135 lines of decision record** that a file-to-file
+   migration would have dropped without anything noticing.
 
 3d. **AppData config backup:** run `& "C:\dev\JJFlex-NG\backup-appdata-to-nas.ps1"`.
    Snapshots the operator's CONFIGURATION out of `%AppData%\JJFlexRadio\` to

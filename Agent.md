@@ -3,11 +3,152 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `honest-tx-audio` — **this is where all current work lives**, 610 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
+**Branch:** `honest-tx-audio` — **this is where all current work lives**, 818 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
 
 *This header claimed work lived on `track/flexlib-4220` with main 305 commits behind until 2026-08-12 — a day after the merge made that false. It is the same drift documented in `memory/project_description_drift_pattern.md`; check `git rev-parse --abbrev-ref HEAD` rather than trusting this line.*
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-08-27 — THE CAPABILITY EXISTS AND THE SHAPE IS WRONG
+
+*Sealed 02:10 on 2026-08-28; the session crossed midnight. Measured from the
+2026-08-26 seal `29c8ec54`, because 2026-08-27 was never sealed — this entry
+covers that whole day.*
+
+**63 commits, `29c8ec54..54663c10`. 231 files.**
+**Work done, summed across every commit: +34,362 / -3,034, net +31,328.**
+**Repository size change over the same span: +33,875 / -2,534.**
+28,800 of the added lines are C#. All sixteen Sprint 37 branches pushed to
+origin and each verified equal to its remote.
+
+### Sprint 37 — sixteen tracks, and a theme nobody planned
+
+Merged into `honest-tx-audio` as `54663c10`. The sprint on its own:
+34 commits, 141 files, +18,182 / -1,775.
+
+**The theme emerged in report after report, unprompted: a thing was BUILT, was
+CORRECT, passed its tests, and was never joined to anything.**
+
+- `FixerEvidenceKit.Begin` had **zero callers**. Store, journal, fingerprints,
+  rehydrator, export and the past-runs viewer all worked perfectly, on nothing.
+  The viewer was permanently empty and always would have been. #251 turned out
+  to be six one-line calls.
+- `PttSafetyController`'s guards are all `DispatcherTimer`s while the keying
+  stages run synchronously on the UI thread — so Sprint 36's
+  `BeginExternalTransmitWatch` was armed and **structurally unable to fire**,
+  and so were the page's Stop, Escape, and `OnClosing`. All four queue behind
+  the carrier they exist to stop.
+- `EarconCwOutput.Cancel()` flushed its queue without decrementing
+  `_outstanding`, so `IsBusy` stuck true forever after the first cancel — every
+  exit burning its full CW deadline.
+- The QSO **export and report paths had no test at all.** Track P proved it by
+  gutting the shared `EvidenceExportWriter.PlainText` and watching 1487 tests
+  stay green. A neighbouring class being well covered had made the gap
+  invisible.
+- **`Radios.Tests` is not in `JJFlexRadio.sln`**, so the build gate every track
+  brief specified never compiled the unit test project. The sprint's own theme,
+  in the sprint's own tooling.
+
+Track N named the shape outright: **a specified handoff across a track boundary
+with no gate on the join.** The containment and wire-contract gates check
+artifacts; nothing checks that a promised join was made. Four instances in one
+sprint.
+
+### The merge, and what the integration pass caught
+
+Containment verified for all fifteen branches **against a negative control that
+genuinely fails** — `track/braille-research` reports NOT CONTAINED, so the sweep
+can actually distinguish. The first control tried was `sprint36/track-a`, which
+is an ancestor of Sprint 37's base and therefore proved nothing.
+
+Two defects survived to the merged tree, with opposite failure modes:
+
+- **Silent.** Track D moved the JJ-layer strings from `settings.json` into a new
+  `leader.json`, shortening `settings.leader.*` to `leader.*`. Track C, in a
+  different file, added a call site naming the OLD key. Different files, no
+  conflict, clean merge, working build. `LexiconKeyCoverageTests` caught it. The
+  operator would have heard the raw key name read aloud instead of "JJ".
+- **Loud.** Track C's value sub-layer still passed `repeatWhileHeld`, which
+  Track A replaced with `SpeechCoalesceKind`. Compile error, exactly as Track A
+  predicted. Resolved to `Value` per Track C's own merge note.
+
+**One resolution was something no track could have written alone.** Track Q
+added a kill-switch check to `StopRequested`; Track N factored that same method
+into a shared `StopAsked` helper with two further callers inside the count-in.
+Combining them at the one site Q touched would have left Escape-during-countdown
+listening only to the dispatcher-queued hook — silently dead, the exact defect
+#236 exists for. The check went into the helper instead.
+
+Final gate: solution 0 errors, `Radios.Tests` **1739 passed / 0 failed**, up
+from a 1454 baseline. `NetworkTestRunnerTests.RunAsync_ForceRefreshIgnoresCache`
+is confirmed intermittent — 3/3 isolated, green on re-run, flagged independently
+by Tracks H and Q.
+
+### The task register became files
+
+`C:/dev/jjf-private/planning/active/tasks.md` is now the source of truth: 159
+open, 168 closed in `tasks-archive.md`, git-tracked with a `pre-push` hook that
+refuses outright. The migration read **the store, not the previous export**,
+recovering 4,135 lines of decision record that a file-to-file migration would
+have dropped without anything noticing.
+
+The backlog audit found a **fourth** source nobody had listed — `docs/TODO.md`,
+in the public repo — and produced 23 new tasks (#310–#332), each verified in
+code first. **Drift ran both ways:** the entire frequency-entry sound section,
+DTMF and both easter eggs, had *shipped in full* while the document listed it
+open. A stale list understates progress as readily as it overstates it.
+
+CLAUDE.md steps 3c and 3c-bis were rewritten to match; `export-task-register.ps1`
+is stamped SUPERSEDED.
+
+### Cross-surface activity
+
+- **JJFlex-NG** — 63 commits: the sprint, the merge, and the integration pass.
+- **jjf-private** — 4 commits: the pre-migration snapshot, the migration, and
+  two audit passes. New local-only git repo, no remote by design.
+- **Memory** — three entries touched on 2026-08-27:
+  `project_background_agent_fleet_model.md`, `MEMORY.md` (now 11,670 bytes,
+  under the 12 KB seal threshold), and the new
+  `project_stale_reader_binding_disguises_other_bugs.md`.
+- **Freight Fate** — idle since the 27th, on `feat/career-1.9`, 1 file dirty,
+  **16 commits unpushed.** **Civ VI Access** — idle, on `main`, 2 dirty,
+  **45 commits unpushed.** Unchanged exposure; pushing is Noel's call, and the
+  NAS dev mirror covers durability.
+- **Dependency check** — clean. No `NU1902`/`NU1903` in any project.
+- **Rigmeter** — snapshot written to NAS as `2026-08-28-54663c10.json`. It
+  warned that `tokei` has no mapping for INI, so one file's lines are being
+  dropped silently; small, but it is a counter under-reporting without saying so.
+
+### Setup for tomorrow
+
+**Deliberately not done:** the CHM rebuild (#290), because it would bake in prose
+nobody has read yet. **No Dropbox publish** — that is always explicit, and was
+not asked for.
+
+**Owed a human read:** Track N's three new "what Run does" stage sentences and
+`audio.fixer.tune_now`; Track O's rulings on whether remote transmit should be
+permitted at all, "someone at the station" versus "the station owner", and
+callsign attribution; the new changelog entries from Tracks C, F, G and Q.
+
+**Bench list. Two items changed behaviour and must be heard:**
+
+- **S-meter readings now go UP** — about half an S-unit on HF, three to four
+  above 30 MHz. The brief for that track had the direction inverted and Track G
+  caught it: a high dBm anchor produces LOW S-numbers, so we had been reading
+  low. The values are as ruled; the described consequence was wrong.
+- **Holding an arrow against a rail in pan mode now announces once and goes
+  quiet** rather than restating it — a consequence of `Value` coalescing
+  replacing `repeatWhileHeld`.
+- Escape during a keyed transmit check, including during the count-in.
+- `Ctrl+J, Ctrl+S` for dBm, then `Ctrl+S` immediately after: both must speak,
+  neither silencing the other.
+- `Alt+Left`/`Alt+Right` and `Shift+Left`/`Shift+Right` on the Modern frequency
+  field, **held, under both NVDA and JAWS**.
+
+**Still open from the reader work:** the JAWS half of the reader-capture
+instrument is uncompiled — `scompile.exe` was blocked by the permission
+classifier, and installing it writes into the operator's live JAWS settings, so
+it needs a human at the keyboard.
 
 ## END-OF-DAY SEAL — 2026-08-26 — THE EVENING THE RADIO WROTE THE SPRINT
 
