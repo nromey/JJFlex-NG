@@ -80,7 +80,9 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
-One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `?`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
+Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for those three keys only: `H` and `Shift slash` read you the command list, `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. The full story is on the JJ Key Commands page.
+
+One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `Shift slash`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
 
 ### Volume mode — Ctrl+J, then V
 
@@ -401,6 +403,8 @@ Volume, headphone level, and line-out level live in the Audio expander. Press `C
 The Audio menu's **PC Audio Levels** and **On-Radio Levels** items each open a dialog with the same riding keys — Up / Down to nudge, Shift + Up / Down for steps of one, Page Up / Page Down for big jumps, Home / End for the ends, Escape to close. The dialog stays open while you adjust, which is the point.
 
 The previous `Alt+Page Up`, `Alt+Shift+Page Up`, and `Shift+Page Up` shortcuts (and their `Page Down` counterparts) no longer adjust audio. The slots are reserved on purpose so a future feature can claim them deliberately.
+
+Two rows on the Audio menu start with "Audio", which is one row too many for a single letter to sort out. So Audio Workshop now has a mnemonic of its own: with the Audio menu open, `A` goes to **Audio Devices** and `W` goes to **Audio Workshop**. Nothing is renamed, and `Ctrl+Shift+W` still opens the workshop from anywhere without visiting the menu at all.
 
 ## Audio Workshop
 

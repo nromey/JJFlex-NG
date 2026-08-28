@@ -80,6 +80,18 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 
 <!-- END LEADER-KEY-TABLE -->
 
+## When the JJ layer doesn't know the key you pressed
+
+Press `Ctrl+J` and then something the layer has no command for, and you'll hear a buzz followed by "Unknown key. H for the list, Escape to cancel." Turn verbosity up and it spells the whole thing out: "Unknown key. Press H, or Shift slash, for the list of JJ key commands. Escape to cancel."
+
+Here's the part that matters, because it used to be a small lie. That sentence tells you to press `H` — and until now, by the time it finished saying so, the layer had already closed behind you. `H` did whatever `H` does wherever you happened to be standing. You were told to do the one thing that couldn't work.
+
+Now the layer waits. After an unknown key it stays open for exactly three keys: `H` and `Shift slash`, which both read you the command list, and `Escape`, which closes it. Press any other key and the layer is already gone — that key does the ordinary thing it always does, nothing swallowed, nothing surprising.
+
+Three keys and no more, on purpose. A layer that keeps hold of your keyboard without saying so is a trap, and you can't see whether you're still in one. These three all lead *out*: two to the list, one to the door. There's no way to get stuck, and the layer only ever lingers right after it has told you it's doing so.
+
+A note on how these keys get spoken. You'll notice the app says "Shift slash" rather than "question mark" or the bare `?` character. That's deliberate. If your screen reader's punctuation level is set low, a lone `?` may not be spoken at all — so an instruction can quietly lose the very key it's naming. "Shift slash" also just describes what your hands do, which is the whole job of an instruction. You'll see the same wording anywhere the app asks you to press a punctuation key.
+
 ## Audio Feedback
 
 Every JJ key action has its own audio feedback:

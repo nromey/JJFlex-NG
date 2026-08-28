@@ -80,14 +80,26 @@ namespace Radios
         public const string Help = "help";
 
         /// <summary>
-        /// The six partitions, split for REVIEW rather than for speed. An
+        /// The Ctrl+J leader layer — what it says while it is armed, and what
+        /// it says when it does not know the key you pressed.
+        /// </summary>
+        /// <remarks>
+        /// Split out of <see cref="Settings"/> in Sprint 37 (#303). The leader
+        /// is a way of driving the whole application from any focus position,
+        /// not a Settings feature, and filing its vocabulary under settings
+        /// made it look like one to everybody who went looking.
+        /// </remarks>
+        public const string Leader = "leader";
+
+        /// <summary>
+        /// The seven partitions, split for REVIEW rather than for speed. An
         /// in-memory dictionary is the same speed whichever file it loaded
         /// from; saying so here stops someone splitting a hot set across files
         /// chasing a gain that does not exist.
         /// </summary>
         public static IReadOnlyList<string> Partitions { get; } = new[]
         {
-            Connect, Audio, Settings, Logging, Earcon, Help,
+            Connect, Audio, Settings, Logging, Earcon, Help, Leader,
         };
 
         /// <summary>
@@ -95,9 +107,15 @@ namespace Radios
         /// announcements fire many times a second and can never wait on a file.
         /// Help is the exception — it loads on first use.
         /// </summary>
+        /// <remarks>
+        /// Leader is eager on purpose even though it is small: it answers a
+        /// KEYPRESS, and the first thing the layer ever says is the word it
+        /// says while armed. A first-use file read there is a stall at exactly
+        /// the moment the operator is waiting to hear whether the chord took.
+        /// </remarks>
         public static IReadOnlyList<string> EagerPartitions { get; } = new[]
         {
-            Connect, Audio, Settings, Logging, Earcon,
+            Connect, Audio, Settings, Logging, Earcon, Leader,
         };
 
         private static readonly object Gate = new object();
