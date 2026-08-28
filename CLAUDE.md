@@ -600,6 +600,26 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
    within their file — the middle dot right after the number is what makes `#10`
    not match inside `#100`. Closing a task is one literal replacement.
 
+   **THE TASK TOOL IS NOT THE REGISTER, AND IT IS NOW EMPTY.** Emptied
+   2026-08-28: it still held all ~300 numbers with statuses frozen at the
+   migration, and it is injected into every session, so it read as live. That is
+   the drifted-mirror failure the migration existed to end — an agent consulting
+   it would have seen `#236` open after it shipped and would not have seen
+   `#310`–`#333` at all. One sentinel entry remains, pointing here.
+
+   **Its ids are a separate space and they collide.** The sentinel was
+   auto-assigned 310; `#310` in `tasks.md` is an unrelated task. Never read a
+   task-tool id as a register number. Use the tool freely for a session's own
+   throwaway checklist; **anything that must outlive the terminal goes in
+   `tasks.md`.**
+
+   **Numbering never restarted, and must not.** `#1`–`#309` came across from the
+   old store unchanged so that every reference in memory entries, `Agent.md`,
+   commit messages and code comments still resolves; `#310`+ are new. Renumbering
+   would strand all of them, which is exactly what the abandoned `BUG-` scheme
+   did — its only mapping now lives at the end of `tasks-archive.md`. **Never
+   assign a new `BUG-` number.**
+
    `export-task-register.ps1` is **SUPERSEDED**; `task-register.md` is left in
    place carrying that stamp so a stray run overwrites the dead file rather than
    the live one. Retiring the script outright is Noel's call, not a sealing
