@@ -377,6 +377,8 @@ The help pages and the app's own key list are checked against each other automat
 
 **A near miss in the JJ layer tells you what you nearly pressed.** Press `Ctrl+J` then a key that isn't bound, and instead of "Unknown command" you hear which key you probably meant: "Ctrl+G is not a command. G: Arm or disarm the TX test tone." One key and you're where you were going. The layer mixes plain letters, Shift and Ctrl on the same letters, so this is a slip it invites — and standing inside the layer being told to go read a list of thirty entries was never a real answer.
 
+**The key lists are lists now.** Both key reference pages — the big Keyboard Reference and the JJ Key Commands page — laid their keys out in tables, and a table is a rotten thing to read your way through: you land in a grid and have to work across columns to put a key back together with what it does. That's a bad deal on any page. On this one it's worse, because the keyboard reference is the page you open precisely when something has gone sideways and you want an answer now. Every key is one line now, the key first and its job right after it — the same shape the JJ key's spoken help has always used, and the same shape as the key list you can export from the Hotkey Editor. Arrow down, get one key per press. The JJ key list inside the Keyboard Reference also picked up the headings its own page uses, so you can jump straight to DSP toggles, or audio, or the filter readouts, instead of walking past thirty keys to reach the one you wanted.
+
 [Return to version headlines](#unreleased-headlines)
 
 ### The power readout tells the truth now {#honest-power-readout}
