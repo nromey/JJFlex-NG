@@ -567,15 +567,33 @@ namespace Radios
         /// runs on a thread that can.
         /// </para>
         /// <para>
-        /// <b>Note what the cut can and cannot reach at check powers.</b> The
-        /// cut's forward-power floor is ten watts, strictly above; the transmit
-        /// gate caps a check into a declared antenna or amplifier at ten watts
-        /// or below. So into a real antenna the cut is unreachable by
-        /// construction and the WARNING is the guard that acts — correctly,
-        /// since ten watts into a bad match is not damaging anything. Into a
-        /// declared dummy load the power is uncapped, and that is the case the
-        /// cut is for: the fault of 2026-08-22 was a dummy load on the port
-        /// that was not selected.
+        /// <b>Note what the cut can and cannot reach at check powers, and that
+        /// it is not this file's decision.</b> The cut's forward-power floor is
+        /// ten watts, strictly above (<see cref="TransmitSafety"/>), while
+        /// <c>FixerTransmitGate</c> holds a low-power ceiling of ten watts or
+        /// below for the loads it caps. Wherever the gate caps, the two meet
+        /// exactly and the cut is unreachable by construction — leaving the
+        /// WARNING as the guard that acts, which is right, since ten watts into
+        /// a bad match damages nothing. The cut can only ever fire where the
+        /// gate does NOT cap.
+        /// </para>
+        /// <para>
+        /// <b>WHICH loads those are is the gate's ruling and it moves.</b> It
+        /// has covered a declared antenna and a declared amplifier, and the
+        /// load-declaration work extends the cap to a declaration made over a
+        /// remote session — including a remote "dummy load", which previously
+        /// permitted full power into whatever is really on a distant station's
+        /// socket. Do not restate that list here; read the gate. What is stated
+        /// here is only the relationship, because the relationship is what
+        /// makes the two numbers meet, and a reader who knows it will notice
+        /// when a future ceiling stops meeting the floor.
+        /// </para>
+        /// <para>
+        /// <b>The precondition and this are two halves, not two copies.</b> The
+        /// gate decides whether a transmit may START, once, before any RF. This
+        /// covers the window afterwards — and that window has its own faults:
+        /// a load can be disconnected under a check that is already keyed, and
+        /// no precondition evaluated beforehand can see it.
         /// </para>
         /// </remarks>
         private static void WatchReflectedPower()

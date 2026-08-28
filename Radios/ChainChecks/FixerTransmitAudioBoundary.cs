@@ -418,6 +418,16 @@ namespace Radios.ChainChecks
                 }
                 finally
                 {
+                    // READ THE STOP HERE, while the kill is still armed. The
+                    // kill flag is cleared on disarm — which is correct, the
+                    // next stage must not start pre-stopped — so asking after
+                    // the using block would always answer no, and a run cut
+                    // short during its FIRST measurement would set none of the
+                    // flags below and read as a complete one. Nothing could end
+                    // this stage early before the operator had a real abort
+                    // (#236); now something can.
+                    if (StopRequested()) stopped = true;
+
                     // Every path out lands here. Unkey FIRST and confirm it
                     // took; then disarm both sources, unconditionally, so
                     // nothing armed by this stage rides the operator's own
@@ -531,6 +541,7 @@ namespace Radios.ChainChecks
             bool cuedToSpeak = false;
             double peakDb = double.NaN;
             bool meterRead = false;
+            bool stoppedShort = false;
             TxDifferential.TxRunSample spokenSample = null;
 
             // Armed before the count-in, for the same reasons as the injected
@@ -589,6 +600,9 @@ namespace Radios.ChainChecks
             }
             finally
             {
+                // Read while the kill is still armed — see the injected stage.
+                stoppedShort = StopRequested();
+
                 UnkeyMox(rig);
                 _gate.NoteUnkeyed();
 
@@ -602,10 +616,23 @@ namespace Radios.ChainChecks
             facts.ReachedRadio = meterRead && TxAudioProbe.Reached(peakDb);
 
             var detail = new StringBuilder();
-            detail.Append("Listened for ")
-                  .Append((TxAudioProbe.SpokenListenMs / 1000.0)
-                          .ToString("0.#", CultureInfo.InvariantCulture))
-                  .AppendLine(" seconds while keyed.");
+
+            // The listen is a CEILING, not a duration — the sampling loop
+            // breaks the moment a stop arrives, so a stopped run measured for
+            // less than this and must not report the full window. It could not
+            // happen before the operator had a real abort (#236); now it can,
+            // and a peak read over two seconds described as an eight-second
+            // listen is a measurement of the wrong thing wearing the right
+            // number.
+            if (stoppedShort)
+                detail.AppendLine("The check was stopped before the listen finished, so "
+                                + "anything below was measured over less than the full "
+                                + "window.");
+            else
+                detail.Append("Listened for ")
+                      .Append((TxAudioProbe.SpokenListenMs / 1000.0)
+                              .ToString("0.#", CultureInfo.InvariantCulture))
+                      .AppendLine(" seconds while keyed.");
             detail.AppendLine(meterRead
                 ? "SC_MIC peaked at " + peakDb.ToString("0.#", CultureInfo.InvariantCulture)
                   + " dBFS over the listen."
