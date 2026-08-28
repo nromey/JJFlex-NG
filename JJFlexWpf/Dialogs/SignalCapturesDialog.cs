@@ -227,7 +227,8 @@ public sealed class SignalCapturesDialog : JJFlexDialog
         QsoSignalCaptureRecord? capture = Selected();
         if (capture == null || _store == null) return;
 
-        string? name = RenameDialog.Ask(this, capture);
+        string? name = EvidenceRenameDialog.Ask(this, "capture", capture.CaptureId,
+                                                capture.Label);
         if (name == null) return; // cancelled
 
         capture.Label = name.Trim();
@@ -242,77 +243,6 @@ public sealed class SignalCapturesDialog : JJFlexDialog
         else
         {
             Say("The new name could not be saved.");
-        }
-    }
-
-    /// <summary>A one-field prompt: the capture's name. Empty clears the name,
-    /// Escape cancels.</summary>
-    private sealed class RenameDialog : JJFlexDialog
-    {
-        private readonly TextBox _name = new();
-        private bool _accepted;
-
-        private RenameDialog(QsoSignalCaptureRecord capture)
-        {
-            Title = "Rename capture " + capture.CaptureId + " — JJ Flexible";
-            Width = 420;
-            SizeToContent = SizeToContent.Height;
-            ResizeMode = ResizeMode.NoResize;
-
-            var panel = new StackPanel { Margin = new Thickness(12) };
-
-            var label = new Label
-            {
-                Content = "_Name for this capture:",
-                Target = _name,
-            };
-            panel.Children.Add(label);
-
-            _name.Text = capture.Label;
-            _name.Margin = new Thickness(0, 2, 0, 8);
-            AutomationProperties.SetName(_name, "Name for this capture");
-            JJFlexHelp.SetText(_name,
-                "A name you will recognize later, like the station's callsign. "
-                + "Leave it empty to go back to the capture's id.");
-            panel.Children.Add(_name);
-
-            var buttons = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-            };
-            var ok = new Button
-            {
-                Content = "_OK", MinWidth = 80, Height = 26,
-                Margin = new Thickness(0, 0, 8, 0), IsDefault = true,
-            };
-            AutomationProperties.SetName(ok, "OK");
-            ok.Click += (_, _) => { _accepted = true; CloseWithResult(true); };
-            var cancel = new Button
-            {
-                Content = "_Cancel", MinWidth = 80, Height = 26, IsCancel = true,
-            };
-            AutomationProperties.SetName(cancel, "Cancel");
-            cancel.Click += (_, _) => CloseWithResult(false);
-            buttons.Children.Add(ok);
-            buttons.Children.Add(cancel);
-            panel.Children.Add(buttons);
-
-            Content = panel;
-        }
-
-        protected override void FocusFirstControl()
-        {
-            _name.Focus();
-            _name.SelectAll();
-        }
-
-        /// <summary>The new name, or null when cancelled.</summary>
-        internal static string? Ask(Window owner, QsoSignalCaptureRecord capture)
-        {
-            var dialog = new RenameDialog(capture) { Owner = owner };
-            dialog.ShowModalDialog();
-            return dialog._accepted ? dialog._name.Text : null;
         }
     }
 

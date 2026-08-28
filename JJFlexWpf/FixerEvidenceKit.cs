@@ -51,6 +51,26 @@ public sealed class FixerEvidenceKit
     /// Never throws — a kit that could not set up still answers every call.
     /// </summary>
     public static FixerEvidenceKit Begin(FixerRun run, Func<FlexBase?> radio)
+        => Open(run, radio, resumeInto: null);
+
+    /// <summary>
+    /// Open the evidence layer around a RESUMED run: the same journal, writing
+    /// on into the record the run came from, with a new sitting opened on it.
+    /// Never throws.
+    /// </summary>
+    /// <remarks>
+    /// The record must be the one <paramref name="run"/> was rehydrated from;
+    /// the journal refuses any other, and refuses a record whose checks differ
+    /// from the ones this build offers. A refusal leaves the run live and
+    /// unrecorded rather than taking the diagnosis down — traced, so a
+    /// recording that silently is not happening cannot pass for one that is.
+    /// </remarks>
+    public static FixerEvidenceKit Resume(FixerRun run, Func<FlexBase?> radio,
+                                          FixerRunRecord resumeInto)
+        => Open(run, radio, resumeInto);
+
+    private static FixerEvidenceKit Open(FixerRun run, Func<FlexBase?> radio,
+                                         FixerRunRecord? resumeInto)
     {
         FixerRunJournal? journal = null;
         FixerCaptureScope? capture = null;
@@ -66,8 +86,12 @@ public sealed class FixerEvidenceKit
             }
             else
             {
-                journal = new FixerRunJournal(run, FixerRunStore.Default(),
-                    TransmitSettingProbes.Build(Readers(radio)));
+                FixerSettingProbeSet probes = TransmitSettingProbes.Build(Readers(radio));
+                journal = resumeInto == null
+                    ? new FixerRunJournal(run, FixerRunStore.Default(), probes,
+                                          () => Identity(radio))
+                    : FixerRunJournal.Resume(run, FixerRunStore.Default(), probes,
+                                             resumeInto, () => Identity(radio));
             }
 
             capture = FixerCaptureScope.Begin(run.RunId, run.Set.Name, new FixerCaptureScope.Plumbing
@@ -133,6 +157,43 @@ public sealed class FixerEvidenceKit
             Tracing.TraceLine("FixerEvidenceKit: end failed — " + ex.Message,
                               TraceLevel.Warning);
         }
+    }
+
+    /// <summary>
+    /// The radio's identity and the software's, for the exported document's
+    /// #217 sections — read through the SAME assemblers the chain-check
+    /// evidence block uses.
+    /// </summary>
+    /// <remarks>
+    /// Reusing them is the point, not a convenience. Two assemblers is how one
+    /// radio ends up with two documents disagreeing about its firmware, and
+    /// this document's second reader is a support desk that would be entitled
+    /// to notice. Each half is guarded on its own: a radio that cannot be read
+    /// must not cost the software lines, which need no radio at all.
+    /// </remarks>
+    private static FixerRunIdentity Identity(Func<FlexBase?> radio)
+    {
+        var identity = new FixerRunIdentity();
+        try
+        {
+            FlexBase? rig = null;
+            try { rig = radio?.Invoke(); } catch { rig = null; }
+            identity.Station = Radios.ChainChecks.TxChainFacts.StationLines(rig!);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerEvidenceKit: the radio's identity could not be read — "
+                              + ex.Message, TraceLevel.Warning);
+        }
+
+        try { identity.Software = TxChainPcFacts.BuildLines(); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerEvidenceKit: the software versions could not be read — "
+                              + ex.Message, TraceLevel.Warning);
+        }
+
+        return identity;
     }
 
     /// <summary>

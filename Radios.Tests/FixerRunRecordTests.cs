@@ -245,8 +245,12 @@ namespace Radios.Tests
             Assert.True(FixerRunExport.WriteHtml(record, htmlPath));
             Assert.True(FixerRunExport.WriteText(record, textPath));
 
+            // Both forms carry the recorded report verbatim. They are no longer
+            // ONLY the report — an exported run is the vendor-facing document
+            // and wraps it in the radio's identity, the conditions and the
+            // provenance (#217, and FixerRunDocumentTests owns that contract).
             Assert.Contains("<p>html form</p>", System.IO.File.ReadAllText(htmlPath));
-            Assert.Equal("plain form", System.IO.File.ReadAllText(textPath));
+            Assert.Contains("plain form", System.IO.File.ReadAllText(textPath));
         }
 
         [Fact]

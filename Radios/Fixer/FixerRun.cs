@@ -169,6 +169,81 @@ namespace Radios.Fixer
                               TraceLevel.Info);
         }
 
+        /// <summary>
+        /// Continue a saved run: the engine opens holding the run's original
+        /// ID, its original start time, and every result and fix it already
+        /// had.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The half of resume the engine owns; <c>FixerRunRehydrator</c> owns
+        /// turning a stored record back into these objects, and the two were
+        /// built a sprint apart because this file was being restructured when
+        /// the other landed.
+        /// </para>
+        /// <para>
+        /// <b>What a resumed run claims, and what it does not.</b> It keeps the
+        /// Test ID, because the measurements really do belong to one
+        /// investigation and a support thread is quoting that ID. It keeps
+        /// <see cref="StartedUtc"/>, because that is when the run started and
+        /// nothing later makes it untrue. It does NOT claim the stages were
+        /// measured in one sitting: every result keeps its own timestamp, the
+        /// sequence counter continues above the highest one seen so new work
+        /// can never interleave falsely with old, and the record's sittings
+        /// list — which the exported document states — says outright how many
+        /// separate windows the run was worked on in.
+        /// </para>
+        /// <para>
+        /// The settings fingerprint carried by each restored result is what
+        /// makes this safe rather than merely honest: the staleness check runs
+        /// on resume and names every stage whose conditions have changed since
+        /// it ran, so nothing stale is silently presented as current.
+        /// </para>
+        /// <para>
+        /// A result naming a stage this set does not have is dropped with a
+        /// trace rather than carried — it could never be re-run, re-read or
+        /// reported against. The caller is expected to have refused the resume
+        /// outright in that case (<c>FixerRunJournal.Resume</c> does), so this
+        /// is a backstop, not the guard.
+        /// </para>
+        /// </remarks>
+        public static FixerRun Resume(FixerStageSet set,
+                                      Radios.Fixer.Evidence.FixerRehydratedState prior,
+                                      Func<DateTime> clockUtc = null)
+        {
+            if (set == null) throw new ArgumentNullException(nameof(set));
+            if (prior == null) throw new ArgumentNullException(nameof(prior));
+
+            return new FixerRun(set, clockUtc ?? (() => DateTime.UtcNow), prior);
+        }
+
+        private FixerRun(FixerStageSet set, Func<DateTime> clock,
+                         Radios.Fixer.Evidence.FixerRehydratedState prior)
+        {
+            Set = set;
+            _clock = clock;
+            RunId = prior.RunId;
+            StartedUtc = prior.StartedUtc;
+
+            int dropped = 0;
+            foreach (FixerStageResult r in prior.Results.OrderBy(r => r.Sequence))
+            {
+                if (set.Find(r.StageId) == null) { dropped++; continue; }
+                // Replays in sequence order, so the latest-per-stage view the
+                // engine ends up holding is the one the original run held.
+                _results[r.StageId] = r;
+            }
+            _fixes.AddRange(prior.Fixes);
+            _sequence = prior.MaxSequence;
+
+            Tracing.TraceLine("FixerRun " + RunId + ": RESUMED on stage set '" + set.Id
+                + "' with " + _results.Count + " stage results and " + _fixes.Count
+                + " fixes, sequence continuing above " + _sequence
+                + (dropped > 0 ? ", " + dropped + " result(s) dropped for stages this set "
+                                 + "no longer has" : ""),
+                dropped > 0 ? TraceLevel.Warning : TraceLevel.Info);
+        }
+
         /// <summary>The report's "generated at" stamp comes from the same
         /// clock as every result, so tests can hold the whole timeline.</summary>
         public DateTime NowUtc => _clock();
