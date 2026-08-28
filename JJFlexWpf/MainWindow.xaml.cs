@@ -2168,11 +2168,17 @@ public partial class MainWindow : UserControl
     public Func<string>? GetDefaultSmartLinkEmail { get; set; }
 
     /// <summary>
-    /// Use a SmartLink account for the rest of this app session WITHOUT
-    /// changing the saved default (the "Use Now" button). Wired by globals.vb,
-    /// which keeps the session-scoped override and honors it in
-    /// ShowAccountSelector ahead of the saved default. Clears itself by
-    /// existing only in memory — an app restart is back to the default.
+    /// Use a SmartLink account for THIS CONNECTION without changing the saved
+    /// default (the "Use Now" button). Wired by globals.vb, which keeps the
+    /// override and honors it in ShowAccountSelector and
+    /// ResolveSmartLinkAccount ahead of the saved default.
+    ///
+    /// <para>Cleared by globals.CloseTheRadio, so disconnecting returns the
+    /// borrowed account (#342). This line used to say the override "clears
+    /// itself by existing only in memory — an app restart is back to the
+    /// default", which was true and was the whole bug: nothing shorter than an
+    /// app restart ended it, so an account borrowed for one radio judged every
+    /// radio that followed.</para>
     /// </summary>
     public Action<string>? SetSessionSmartLinkAccount { get; set; }
 
@@ -2449,10 +2455,55 @@ public partial class MainWindow : UserControl
             if (result != FlexBase.SmartLinkRegistrationQuery.NotRegistered) return;
 
             string serial = rig.SelectedRadioSerial ?? string.Empty;
-            if (serial.Length == 0 || !_registrationSuggestedSerials.Add(serial)) return;
-            if (!rig.IsConnected) return;
+            if (serial.Length == 0) return;
 
             string account = rig.CurrentSmartLinkAccountEmail;
+
+            // Sprint 38 Track D (#342) — DO NOT ANSWER A QUESTION NOBODY ASKED.
+            //
+            // The server was asked about whichever account happened to be in
+            // play. On a LOCAL connect that account can be one the operator
+            // borrowed for a DIFFERENT radio: connect to Don's 6300 over
+            // SmartLink, disconnect, connect to your own 8600 across the room,
+            // and the honest answer "the 8600 is not registered to Don" comes
+            // back and gets rendered as advice about your own radio.
+            //
+            // globals.CloseTheRadio now returns the borrowed account at
+            // disconnect, which fixes the reported sequence at its source. This
+            // is the second guard and it is the cheap one: whatever route left
+            // a non-default account in play — a "Use Now" that is still
+            // standing, a picker switch, a future writer nobody has thought of
+            // yet — a local connect judged against an account the operator did
+            // not choose as theirs is not evidence about this radio, so it says
+            // nothing at all.
+            //
+            // Deliberately narrow. It only fires when a default account exists
+            // AND the account asked is a different one; a single-account
+            // install, or one that has never nominated a default, resolves
+            // exactly as before. And it runs BEFORE the once-per-run serial
+            // guard below, so a suppressed question does not spend the one
+            // chance the real question gets later.
+            //
+            // Remote connects are exempt by construction: over SmartLink the
+            // query returns Registered, because arriving that way IS proof.
+            bool localConnect = !rig.RemoteRig;
+            string defaultAccount = GetDefaultSmartLinkEmail?.Invoke() ?? string.Empty;
+            if (localConnect
+                && account.Length > 0
+                && defaultAccount.Length > 0
+                && !account.Equals(defaultAccount, StringComparison.OrdinalIgnoreCase))
+            {
+                Tracing.TraceLine(
+                    $"SuggestRegistration: local connect to {serial} was judged against '{account}', "
+                    + $"which is not this operator's account '{defaultAccount}' — saying nothing, "
+                    + "the answer is about the wrong account (#342)",
+                    TraceLevel.Info);
+                return;
+            }
+
+            if (!_registrationSuggestedSerials.Add(serial)) return;
+            if (!rig.IsConnected) return;
+
             Tracing.TraceLine($"SuggestRegistration: {serial} not registered to {account}", TraceLevel.Info);
 
             // Registered-elsewhere awareness (live incident 2026-08-05: Noel was
@@ -2480,7 +2531,8 @@ public partial class MainWindow : UserControl
             // A REMOTE connect keeps the original advisory: the operator is
             // already using SmartLink, so registration is not hypothetical and
             // "I only use this radio here" is not on the table.
-            bool localConnect = !rig.RemoteRig;
+            // (localConnect is resolved above, where the borrowed-account guard
+            // needs it.)
             bool undecided = SmartLinkIntentFor(rig) == Radios.SmartLinkIntents.Undecided;
 
             await Dispatcher.BeginInvoke(() =>

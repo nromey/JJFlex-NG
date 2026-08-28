@@ -238,6 +238,7 @@
   "connect.rescue.entering": "Radio Rescue.",
   "connect.rescue.not_available_yet": "Radio Rescue is not available while a radio connection is still being set up. Try again in a moment.",
   "connect.rescue.your_radio_fallback": "your radio",
+  "connect.row.account_not_signed_in": "not checked, not signed in to {account}{age}",
   "connect.row.age_suffix": ", {lastSeenText}",
   "connect.row.autoconnect_marker": "[AutoConnect] ",
   "connect.row.checking": "checking",
