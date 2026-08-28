@@ -43,9 +43,38 @@ namespace Radios.Tests
     /// </para>
     /// <para>
     /// The checked region is delimited by HTML comments in each page, so the
-    /// test never has to guess where the leader table starts and a future
-    /// non-leader table on the same page cannot confuse it. The comments are
-    /// invisible in the built CHM.
+    /// test never has to guess where the leader list starts and a future list
+    /// on the same page cannot confuse it. The comments are invisible in the
+    /// built CHM.
+    /// </para>
+    /// <para>
+    /// <b>The pages stopped being tables in Sprint 37 Track K (#289), and this
+    /// reader changed with them.</b> Both pages presented their key lists as
+    /// markdown tables — the one document format this project's own convention
+    /// forbids, on the page a blind operator is most likely to be reading
+    /// BECAUSE they are stuck. They are now one bullet per chord, chord
+    /// leading:
+    /// </para>
+    /// <code>
+    /// - **Shift+N** — Toggle NR Filter
+    /// </code>
+    /// <para>
+    /// <b>The reader is deliberately strict about that shape, and refuses the
+    /// old one outright.</b> Accepting both would have been the softer change
+    /// and the wrong one: a reader that quietly takes several shapes is a
+    /// reader nobody notices going blind, and a scanner that sees nothing
+    /// reports PERFECT AGREEMENT — which reads exactly like success. So a row
+    /// written any other way is invisible here, its chord reads as
+    /// undocumented, and the build goes red naming it.
+    /// <see cref="Neither_keyboard_page_contains_a_markdown_table"/> closes the
+    /// same gap from the other side, so a re-added table is a red build with an
+    /// explanation rather than a silently unread region.
+    /// </para>
+    /// <para>
+    /// The marker text still says TABLE. That is now a slight misnomer and is
+    /// left alone on purpose — the name is quoted in the task register and in
+    /// several sprint briefs, and renaming a landmark two tests depend on, to
+    /// gain accuracy in a comment, is not a trade worth making mid-sprint.
     /// </para>
     /// </remarks>
     public class LeaderDocCoverageTests
@@ -56,6 +85,15 @@ namespace Radios.Tests
         private const string RegionStart = "<!-- LEADER-KEY-TABLE";
         private const string RegionEnd = "<!-- END LEADER-KEY-TABLE";
 
+        /// <summary>
+        /// One documented chord: a bullet, the chord in bold, an em dash, the
+        /// meaning. The chord itself never contains an asterisk, so the greedy
+        /// class stops at the closing marker and an em dash inside the MEANING
+        /// — of which there are many — cannot confuse it.
+        /// </summary>
+        private static readonly Regex EntryLine =
+            new(@"^[-*]\s+\*\*([^*]+)\*\*\s+—\s", RegexOptions.Compiled);
+
         public static IEnumerable<object[]> Pages =>
             new[] { new object[] { ReferencePage }, new object[] { LeaderPage } };
 
@@ -64,28 +102,69 @@ namespace Radios.Tests
         // ────────────────────────────────────────────────────────────────
 
         [Fact]
-        public void The_table_reader_takes_key_cells_and_skips_headers_and_rules()
+        public void The_entry_reader_takes_chords_and_skips_headings_prose_and_anything_outside()
         {
             const string sample = @"
 Some prose about the layer.
 
+<!-- LEADER-KEY-TABLE: the shape, shown so an author can copy it:
+
+         - **Shift+Q** — an EXAMPLE inside the marker comment, never a real entry
+-->
+
+### A group heading
+
+Some prose inside the region, which is allowed and must not be read.
+
+- **N** — Toggle a thing
+- **Shift+N** — Toggle another thing
+- **Ctrl+A** — Turn a thing on or off — with an em dash in the meaning too
+- A bullet with no bold chord, which is not an entry
+- **Bold prose** that never reaches an em dash, which is not an entry either
+
+<!-- END LEADER-KEY-TABLE -->
+
+- **Z** — A bullet OUTSIDE the region, which must not be read
+";
+            var entries = KeyEntries(sample);
+
+            Assert.Equal(new[] { "N", "Shift+N", "Ctrl+A" }, entries);
+        }
+
+        [Fact]
+        public void The_entry_reader_does_not_read_a_row_written_in_the_old_table_shape()
+        {
+            // Sprint 37 Track K converted both pages off markdown tables. This
+            // states the consequence out loud: a table row is now INVISIBLE
+            // here. That is the safe direction — the chord reads as
+            // undocumented and the build goes red naming it — but only because
+            // Neither_keyboard_page_contains_a_markdown_table catches the same
+            // mistake from the other side and says what the shape should be.
+            const string sample = @"
 <!-- LEADER-KEY-TABLE -->
 
 | Key | Action |
 |-----|--------|
 | N | Toggle a thing |
-| `Shift+N` | Toggle another thing |
-| Ctrl+A | Turn a thing on or off — with an em dash | in the middle |
+
+- **B** — Toggle a thing that IS written in the new shape
 
 <!-- END LEADER-KEY-TABLE -->
-
-| Key | Action |
-|-----|--------|
-| Z | A row OUTSIDE the region, which must not be read |
 ";
-            var cells = KeyCells(sample);
+            Assert.Equal(new[] { "B" }, KeyEntries(sample));
+        }
 
-            Assert.Equal(new[] { "N", "Shift+N", "Ctrl+A" }, cells);
+        [Fact]
+        public void The_entry_reader_reads_nothing_when_the_markers_are_missing()
+        {
+            // The failure this whole file is built around: a reader that goes
+            // blind reports perfect agreement. Prove it returns EMPTY rather
+            // than something plausible, so the >= 30 guard below is the thing
+            // standing between a renamed marker and a vacuous pass.
+            const string sample = @"
+- **N** — Toggle a thing, with no region markers anywhere on the page
+";
+            Assert.Empty(KeyEntries(sample));
         }
 
         [Fact]
@@ -135,9 +214,12 @@ Some prose about the layer.
             Assert.True(missing.Count == 0,
                 "Advertised in KeyInventory.LeaderCommands and absent from " + page + ": "
                 + string.Join(", ", missing)
-                + ". A chord with no row in the help is one the operator cannot discover, "
-                + "which is the whole reason this check exists. Add a row inside the "
-                + "LEADER-KEY-TABLE region, in that page's own voice.");
+                + ". A chord with no line in the help is one the operator cannot discover, "
+                + "which is the whole reason this check exists. Add a line inside the "
+                + "LEADER-KEY-TABLE region, in that page's own voice and in the page's "
+                + "shape — a hyphen, the chord in bold, an em dash, the meaning: "
+                + "`- **Shift+N** — Toggle NR Filter`. If you believe the line is already "
+                + "there, it is written in some other shape and the reader cannot see it.");
         }
 
         [Theory]
@@ -152,7 +234,7 @@ Some prose about the layer.
             Assert.True(phantom.Count == 0,
                 page + " documents chords KeyInventory.LeaderCommands does not advertise: "
                 + string.Join(", ", phantom)
-                + ". Either the row is stale and describes a chord that was removed, or the "
+                + ". Either the line is stale and describes a chord that was removed, or the "
                 + "chord is real and the inventory is the thing missing it — in which case "
                 + "the Keys dialog, the Command Finder and the Ctrl+J, H help are all missing "
                 + "it too.");
@@ -160,7 +242,7 @@ Some prose about the layer.
 
         [Theory]
         [MemberData(nameof(Pages))]
-        public void The_sweep_actually_found_the_table(string page)
+        public void The_sweep_actually_found_the_list(string page)
         {
             // Without this, a renamed marker or a moved file would empty both
             // sets and make every check above pass vacuously — silent success,
@@ -168,7 +250,39 @@ Some prose about the layer.
             var documented = DocumentedChords(page);
             Assert.True(documented.Count >= 30,
                 $"only {documented.Count} chords read out of {page} — the LEADER-KEY-TABLE "
-                + "region markers are missing, renamed, or no longer wrap the table");
+                + "region markers are missing, renamed, or no longer wrap the list, or the "
+                + "key lines have drifted off the shape the reader takes: a hyphen, the chord "
+                + "in bold, an em dash, the meaning — `- **Shift+N** — Toggle NR Filter`");
+        }
+
+        [Theory]
+        [MemberData(nameof(Pages))]
+        public void Neither_keyboard_page_contains_a_markdown_table(string page)
+        {
+            // #289. These two pages are the reference a blind operator reaches
+            // for BECAUSE they are stuck, and until Sprint 37 they presented
+            // every key list as a markdown table — the one document format this
+            // project's convention forbids, on the page that most needed to
+            // obey it. Converting them is only half the fix; without this, the
+            // next person adding a key adds a table row, because a table row is
+            // what the page used to look like and nothing would say otherwise.
+            //
+            // It is checked page-wide rather than inside the markers on
+            // purpose: the convention is about the whole document, and the
+            // reader above cannot see a table row at all, so inside the region
+            // this is the ONLY thing that can report one.
+            string text = File.ReadAllText(Path.Combine(LeaderSourceScan.RepoRoot(), page));
+            var tableLines = TableLines(text);
+
+            Assert.True(tableLines.Count == 0,
+                page + " has " + tableLines.Count + " markdown table line(s), starting with: "
+                + (tableLines.Count > 0 ? tableLines[0] : "")
+                + ". This project's help convention is prose or bullets, never tables — screen "
+                + "readers cannot navigate a table comfortably, and this is the page someone "
+                + "reads when they are already stuck. One line per key, chord leading: "
+                + "`- **Shift+N** — Toggle NR Filter`. Inside the LEADER-KEY-TABLE region a "
+                + "table row is worse than untidy: the coverage reader cannot see it, so the "
+                + "chord would read as undocumented.");
         }
 
         [Fact]
@@ -225,46 +339,62 @@ Some prose about the layer.
             string text = File.ReadAllText(Path.Combine(LeaderSourceScan.RepoRoot(), page));
             var chords = new HashSet<Keys>();
 
-            foreach (string cell in KeyCells(text))
+            foreach (string entry in KeyEntries(text))
             {
-                bool isRange = cell.Contains(" through ", StringComparison.Ordinal);
-                foreach (var c in LeaderChordParser.ParseDisplay(cell, isRange ? exclusions : null))
+                bool isRange = entry.Contains(" through ", StringComparison.Ordinal);
+                foreach (var c in LeaderChordParser.ParseDisplay(entry, isRange ? exclusions : null))
                     chords.Add(c);
             }
             return chords;
         }
 
         /// <summary>
-        /// The first column of every table row inside the page's
-        /// LEADER-KEY-TABLE region: header rows, separator rules and anything
-        /// outside the markers excluded.
+        /// The chord named by every key line inside the page's LEADER-KEY-TABLE
+        /// region. Group headings, prose and anything outside the markers are
+        /// excluded — and so is the text of the opening marker comment itself,
+        /// which carries a worked example of the shape and would otherwise be
+        /// read as a real entry.
         /// </summary>
-        private static List<string> KeyCells(string text)
+        private static List<string> KeyEntries(string text)
         {
-            var cells = new List<string>();
+            var entries = new List<string>();
 
-            int start = text.IndexOf(RegionStart, StringComparison.Ordinal);
-            int end = text.IndexOf(RegionEnd, StringComparison.Ordinal);
-            if (start < 0 || end < 0 || end < start) return cells;
+            int marker = text.IndexOf(RegionStart, StringComparison.Ordinal);
+            if (marker < 0) return entries;
+
+            // Start AFTER the opening comment closes, not at the marker. The
+            // comment documents the required shape by showing one, and a reader
+            // that started at the marker would count that example as a chord.
+            int commentEnd = text.IndexOf("-->", marker, StringComparison.Ordinal);
+            if (commentEnd < 0) return entries;
+
+            int start = commentEnd + 3;
+            int end = text.IndexOf(RegionEnd, start, StringComparison.Ordinal);
+            if (end < 0) return entries;
 
             string region = text.Substring(start, end - start);
 
             foreach (string raw in region.Split('\n'))
             {
-                string line = raw.Trim();
-                if (line.Length < 3 || line[0] != '|') continue;
+                var m = EntryLine.Match(raw.Trim());
+                if (!m.Success) continue;
 
-                var parts = line.Split('|');
-                if (parts.Length < 3) continue;
-
-                string cell = parts[1].Trim().Trim('`').Trim();
-                if (cell.Length == 0) continue;
-                if (string.Equals(cell, "Key", StringComparison.OrdinalIgnoreCase)) continue;
-                if (Regex.IsMatch(cell, @"^:?-{2,}:?$")) continue;
-
-                cells.Add(cell);
+                string chord = m.Groups[1].Value.Trim().Trim('`').Trim();
+                if (chord.Length > 0) entries.Add(chord);
             }
-            return cells;
+            return entries;
+        }
+
+        /// <summary>Every line of a page's checked region that looks like a markdown table.</summary>
+        private static List<string> TableLines(string text)
+        {
+            var lines = new List<string>();
+            foreach (string raw in text.Split('\n'))
+            {
+                string line = raw.Trim();
+                if (line.StartsWith("|", StringComparison.Ordinal)) lines.Add(line);
+            }
+            return lines;
         }
     }
 }
