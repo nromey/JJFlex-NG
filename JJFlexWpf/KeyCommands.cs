@@ -138,7 +138,9 @@ public class KeyCommands
             // ── General ──
             new(CommandValues.SmeterDBM, KeyTypes.Command, SmeterDisplayHandler,
                 "Display SMeter in DBM or S-units", _context.SMeterMenuString, false, FunctionGroups.General, KeyScope.Radio)
-                { Keywords = new[] { "s meter", "signal", "strength", "dbm", "s-units", "meter" }, ShortActionLabel = "switch S meter units" },
+                { Keywords = new[] { "s meter", "signal", "strength", "dbm", "s-units", "units",
+                                     "unit", "meter", "toggle", "switch", "change" },
+                  ShortActionLabel = "switch S meter units" },
             new(CommandValues.ReadSMeter, ReadSMeterHandler,
                 "Read the S-meter value aloud", null, FunctionGroups.General, KeyScope.Radio)
                 { Keywords = new[] { "s meter", "signal", "strength", "read", "speak", "announce" }, ShortActionLabel = "read S meter" },
@@ -835,10 +837,45 @@ public class KeyCommands
 
     #region S-Meter / Meter Handlers
 
+    /// <summary>
+    /// Ctrl+J, Ctrl+S (and the Operations menu, and Settings): switch the
+    /// S-meter between S-units and dBm, for this radio, for good.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A TOGGLE and not a second reading key (#337, replacing #306, ruled by
+    /// Noel 2026-08-28 after talking to Don: <i>"I don't think that in talking
+    /// to Don that we need to have both speakable, just add the toggle."</i>).
+    /// One unit is live at a time and there is no second route to the other —
+    /// two ways to ask one meter is duplication, and the deletion of the
+    /// forced-dBm reading is as much the point of this change as the binding.
+    /// </para>
+    /// <para>
+    /// The objection #306 was built on — that a mode is a state a blind
+    /// operator can be in the wrong one of — is answered rather than ignored:
+    /// the switch now says which way it went, it survives a restart, and
+    /// Settings, Radios shows it without anyone pressing a key to find out.
+    /// </para>
+    /// <para>
+    /// Ctrl+S because THE CHORD ECHOES THE KEY IT RELATES TO — Ctrl+S reads
+    /// the S-meter, Ctrl+J then Ctrl+S changes what Ctrl+S reads in. Ctrl+Shift+S
+    /// was the first suggestion and is taken (SpeakStatus), as is most of the
+    /// S family.
+    /// </para>
+    /// </remarks>
     private void SmeterDisplayHandler()
     {
         var rig = _context.GetRigControl();
-        if (rig == null) return;
+        if (rig == null)
+        {
+            // This handler returned SILENTLY on a null rig until #337 gave it
+            // a key. A key that does nothing is indistinguishable from a key
+            // that is broken, and the same message Ctrl+S gives is the honest
+            // one: the missing thing is the radio, not the command.
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"),
+                Radios.VerbosityLevel.Critical);
+            return;
+        }
         rig.SmeterInDBM = !rig.SmeterInDBM;
         _context.GetMainWindow()?.SetupOperationsMenu();
         // Sprint 32 Track E, #128. dBm is the "on" end of the switch by the
@@ -858,47 +895,20 @@ public class KeyCommands
             Radios.VerbosityLevel.Terse, true);
     }
 
-    private void ReadSMeterHandler() => SpeakSMeter(forceDbm: false);
+    private void ReadSMeterHandler() => SpeakSMeter();
 
     /// <summary>
-    /// Ctrl+J, Ctrl+S — the same meter, read in dBm, without entering a mode
-    /// (#306).
+    /// The S-meter readout. THE ONLY ONE — every route to a meter reading
+    /// comes through here, so no two of them can ever describe the meter
+    /// differently.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// dBm was already reachable, shaped as a MODE: <c>SmeterInDBM</c> is a
-    /// toggle, and with it on, Ctrl+S reads dBm. <b>A mode is a state a blind
-    /// operator can be in the wrong one of</b> — toggle it, get distracted,
-    /// come back, press Ctrl+S, and the units have to be recalled from memory
-    /// of a toggle. Two keys means never needing to know which mode you are
-    /// in, and it lets both readings be taken of the SAME signal without
-    /// changing anything between them.
-    /// </para>
-    /// <para>
-    /// <b>The toggle stays.</b> Someone who works in dBm all the time is well
-    /// served by a mode; this chord serves the person who wants one reading
-    /// now. They coexist, and this handler is what the mode's own branch calls
-    /// too, so the two routes can never say it differently.
-    /// </para>
-    /// <para>
-    /// In the leader layer rather than as a flat chord because a precision
-    /// reading is taken occasionally, not routinely (Noel, 2026-08-27). Ctrl+S
-    /// because THE CHORD ECHOES THE KEY IT RELATES TO — Ctrl+S reads the
-    /// S-meter in S-units, Ctrl+J then Ctrl+S reads the same meter in dBm.
-    /// Ctrl+Shift+S was the first suggestion and is taken (SpeakStatus), as is
-    /// most of the S family.
-    /// </para>
+    /// It took a <c>forceDbm</c> parameter until #337, for the one-shot dBm
+    /// chord of #306. With the chord turned into a toggle there is exactly one
+    /// live unit and no second way to ask for the other, so the parameter was
+    /// removed rather than left as a road nothing drives down.
     /// </remarks>
-    private void ReadSMeterInDbmHandler() => SpeakSMeter(forceDbm: true);
-
-    /// <summary>
-    /// The S-meter readout both Ctrl+S and Ctrl+J, Ctrl+S go through.
-    /// </summary>
-    /// <param name="forceDbm">
-    /// True for the dBm chord, which reads dBm whatever the mode says. False
-    /// for Ctrl+S, which follows the mode.
-    /// </param>
-    private void SpeakSMeter(bool forceDbm)
+    private void SpeakSMeter()
     {
         var rig = _context.GetRigControl();
         if (rig == null)
@@ -906,12 +916,10 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical);
             return;
         }
-        // Transmit is checked FIRST, and the dBm chord does not change that:
-        // while keyed, the S-meter is not describing anyone's signal, so both
-        // routes answer with real forward power exactly as Ctrl+S always has.
-        // That is also what "Ctrl+S with the mode temporarily on" does, which
-        // is the whole specification of this chord.
-        bool dbm = forceDbm || rig.SmeterInDBM;
+        // Transmit is checked FIRST, and the unit does not change that: while
+        // keyed, the S-meter is not describing anyone's signal, so either unit
+        // answers with real forward power exactly as Ctrl+S always has.
+        bool dbm = rig.SmeterInDBM;
         int smeter = (int)rig.SMeter;
         string msg;
         if (rig.Transmit)
@@ -920,10 +928,11 @@ public class KeyCommands
             msg = Radios.Lexicon.Get("audio.smeter.power",
                 ("power", Radios.FlexBase.FormatForwardPowerSpoken(rig.ForwardPowerWatts)));
         else if (dbm)
-            // RawSMeter, not SMeter: SMeter only returns dBm when the MODE is
-            // on, and this chord must read dBm without it. RawSMeter is the
-            // meter as the radio sent it, and it answered a permanent zero
-            // until #295 was fixed in this same sprint.
+            // RawSMeter, not SMeter: the meter as the radio sent it. SMeter
+            // returns dBm too when the mode is on, so the two agree here — but
+            // RawSMeter says what it means without depending on a mode being
+            // read twice, and it answered a permanent zero until #295 fixed
+            // the field that shadowed it.
             msg = Radios.SMeterReading.SpokenDbm(rig.RawSMeter);
         else if (Radios.SMeterReading.IsOverS9(smeter))
             // The excess comes from the one place that knows the rule. It was
@@ -957,18 +966,25 @@ public class KeyCommands
         // caller of it, and Query replaces it outright rather than sitting
         // beside it.
         //
-        // THE TWO UNITS COALESCE SEPARATELY, and that is deliberate (#306): the
-        // point of the dBm chord is that both readings can be taken of one
-        // signal, and a shared coalesce key would let the second answer silence
-        // the first. Ctrl+S and Ctrl+J, Ctrl+S are otherwise ONE readout - this
-        // is the only place either key speaks a meter reading - so the kind set
-        // here governs both. Both are queries asking the same meter a different
-        // question, and both must answer instantly on a deliberate re-press.
+        // ONE COALESCE KEY, and the collapse is a decision (#337). It used to
+        // split on the unit - "smeter-dbm" or "smeter" - because #306 let both
+        // readings be taken of one signal, and a shared key would have let the
+        // second answer silence the first. With one unit live at a time there
+        // is nothing to protect the other from, and the honest shape is the
+        // one key: this reading, whatever unit it is in.
+        //
+        // THE SEAM THAT NEEDED CHECKING: press the toggle, then Ctrl+S at
+        // once. Two readings in different units now share a key, so a
+        // duplicate-drop would swallow the second - which is #264's silence
+        // wearing a new coat. It does not, and Query is why: a query is exempt
+        // from the duplicate-drop and never has its timer pushed out, so a
+        // deliberate press always answers. SMeterUnitToggleTests pins that,
+        // including the case where BOTH readings render identically.
         Radios.ScreenReaderOutput.Speak(
             msg,
             Radios.Speech.SpeechIntent.Latest,
             Radios.VerbosityLevel.Terse,
-            coalesceKey: dbm ? "smeter-dbm" : "smeter",
+            coalesceKey: "smeter",
             kind: Radios.Speech.SpeechCoalesceKind.Query);
     }
 
@@ -1625,6 +1641,14 @@ public class KeyCommands
             "Ctrl+J, Ctrl+A turns PC audio on and off — added Sprint 32 Track G. Noel named "
             + "this one specifically: 'No hotkey for PC audio on and off available that I "
             + "know of, you have to do it in the menu.' Also on the Radio menu under Audio."),
+        [CommandValues.SmeterDBM] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+S switches the S-meter between S-units and dBm, and the choice is "
+            + "remembered for that radio (#337). The chord echoes the key it changes: Ctrl+S "
+            + "reads the meter, Ctrl+J then Ctrl+S changes what it reads in. Also on the "
+            + "Operations menu, and on the Radios tab in Settings, which is where the answer "
+            + "can be seen without pressing anything. Carried a flat Keys.None and a "
+            + "'Command Finder only' note until then, which is how a toggle Noel remembered "
+            + "having became one he could not reach."),
 
         // ── Menu or dialog, deliberately. These open something; the thing they
         //    open is where the operator already goes. ──
@@ -1659,9 +1683,6 @@ public class KeyCommands
             "Collects a debug snapshot. Settings, Diagnostics is the fuller route now — it "
             + "records sessions and builds problem-report bundles — so this stays available "
             + "without spending a chord."),
-        [CommandValues.SmeterDBM] = new(UnboundReason.CommandFinderOnly,
-            "Switches the S-meter between S-units and dBm. A preference you set once, not a "
-            + "thing you toggle; Ctrl+S reads the meter and that is the frequent act."),
         [CommandValues.StartScan] = new(UnboundReason.CommandFinderOnly,
             "Starts or stops a scan. Ctrl+Z stops one and Ctrl+Shift+F2 resumes, which are the "
             + "two an operator needs in a hurry."),
@@ -1746,7 +1767,7 @@ public class KeyCommands
         new(Keys.F | Keys.Control, CommandValues.SetFreq, KeyScope.Radio),
         new(Keys.None, CommandValues.ShowMemory, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, M
         new(Keys.None, CommandValues.MemoryScan, KeyScope.Radio), // unbound: Shadowed
-        new(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio), // unbound: CommandFinderOnly
+        new(Keys.None, CommandValues.SmeterDBM, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+S
         new(Keys.S | Keys.Control, CommandValues.ReadSMeter, KeyScope.Radio),
         new(Keys.M | Keys.Control | Keys.Alt, CommandValues.ToggleMeterTones, KeyScope.Radio),
         new(Keys.P | Keys.Control | Keys.Alt, CommandValues.CycleMeterPreset, KeyScope.Radio),
@@ -3493,23 +3514,29 @@ public class KeyCommands
                 ToggleQsoSignalCaptureFromChord();
                 break;
 
-            // Sprint 37 Track G (#306): the same S-meter, read in dBm, without
-            // entering a mode. Ctrl+S because the chord ECHOES the key it
-            // relates to — Ctrl+S reads S-units, Ctrl+J then Ctrl+S reads dBm
-            // — and because Ctrl+Shift+S, the obvious flat alternative, is
-            // SpeakStatus. Ruled by Noel 2026-08-27.
+            // Sprint 38 Track C (#337): switch the S-meter between S-units and
+            // dBm, for this radio, remembered. Ctrl+S because the chord ECHOES
+            // the key it relates to — Ctrl+S reads the S-meter, Ctrl+J then
+            // Ctrl+S changes what it reads in — and because Ctrl+Shift+S, the
+            // obvious flat alternative, is SpeakStatus.
+            //
+            // This chord took a ONE-SHOT dBm reading for one day (#306, Sprint
+            // 37 Track G). Noel ruled the second reading out of scope on
+            // 2026-08-28 after talking to Don, so the chord is now the toggle
+            // he remembered having and could not reach.
             //
             // KNOWN ADJACENCY, recorded rather than discovered: plain S is the
             // radio's own Spectral NR and Shift+S is the PC one, so this sits
-            // one modifier from two unrelated DSP toggles. Both are toggles and
-            // a second press undoes either, so a slip is recoverable — and both
-            // announce themselves by name, so a slip is audible.
+            // one modifier from two unrelated DSP toggles. All three are
+            // toggles and a second press undoes any of them, so a slip is
+            // recoverable — and all three announce themselves by name, so a
+            // slip is audible.
             //
             // No rig gate at the case: the handler speaks the no-radio message
             // itself, the same one Ctrl+S gives, rather than the generic
             // leader one.
             case Keys.S | Keys.Control:
-                ReadSMeterInDbmHandler();
+                SmeterDisplayHandler();
                 break;
 
             case Keys.A:

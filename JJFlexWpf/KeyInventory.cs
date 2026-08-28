@@ -410,15 +410,20 @@ public static class KeyInventory
                     "qsb", "fade", "fading", "fades", "flutter", "swing", "strength",
                     "smeter", "meter", "report", "peak", "trough", "average", "trend",
                     "rising", "falling", "coming", "up", "down", "leader" }, "Radio", "General"),
-        // Sprint 37 Track G (#306) — the same meter, read in dBm, with no mode
-        // to be in the wrong one of. Ctrl+S because the chord echoes the flat
-        // key it relates to: Ctrl+S reads S-units, this reads dBm. Sits beside
-        // the S-family DSP toggles on purpose; the description says "signal
-        // strength" so a search for either idea finds it.
+        // Sprint 38 Track C (#337) — switch the S-meter's unit and keep it.
+        // Ctrl+S because the chord echoes the flat key it CHANGES: Ctrl+S
+        // reads the meter, this decides what it reads in. Sits beside the
+        // S-family DSP toggles on purpose; the description names both units so
+        // a search for either idea finds it.
+        //
+        // For one day (#306, Sprint 37 Track G) this chord took a one-shot dBm
+        // reading instead. Noel ruled the second reading out of scope on
+        // 2026-08-28 — one unit is live at a time.
         new("Leader", "Leader key", "Ctrl+J, Ctrl+S",
-            "Speak the signal strength in dBm — the same meter as Ctrl+S, finer, and no mode to leave",
+            "Switch the S-meter between S-units and dBm — remembered for this radio",
             new[] { "dbm", "db", "signal", "strength", "smeter", "meter", "s-meter", "level",
-                    "precise", "precision", "fine", "exact", "units", "s", "reading",
+                    "units", "unit", "toggle", "switch", "change", "s", "reading",
+                    "precise", "precision", "fine", "exact",
                     "antenna", "compare", "comparison", "weak", "strong", "leader" },
             "Radio", "General"),
         new("Leader", "Leader key", "Ctrl+J, A", "Toggle Auto Notch",

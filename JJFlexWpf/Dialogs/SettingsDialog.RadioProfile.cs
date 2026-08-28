@@ -50,6 +50,9 @@ namespace JJFlexWpf.Dialogs
             public SmartLinkIntents SmartLinkIntent;
             /// <summary>Whose radio this is (Sprint 31 Track S, #94).</summary>
             public RadioOwnership Ownership;
+            /// <summary>Read this radio's S-meter in dBm rather than S-units
+            /// (Sprint 38 Track C, #337).</summary>
+            public bool SmeterInDbm;
             public string NicknameText = "";
             /// <summary>What the nickname box was loaded with, so "dirty" means
             /// "the user changed it", not "the stored mirror disagrees with the
@@ -204,6 +207,7 @@ namespace JJFlexWpf.Dialogs
                     (SmartLinkIntents)Math.Max(0, RadioProfileSmartLinkIntentCombo.SelectedIndex),
                 Ownership =
                     (RadioOwnership)Math.Max(0, RadioProfileOwnershipCombo.SelectedIndex),
+                SmeterInDbm = RadioProfileSmeterUnitsCombo.SelectedIndex == 1,
                 NicknameText = RadioProfileNicknameBox.Text?.Trim() ?? "",
                 LoadedNickname = _currentProfileLoadedNickname,
             };
@@ -241,6 +245,13 @@ namespace JJFlexWpf.Dialogs
                 // where it appears as a sentence saying it is a guess.
                 RadioProfileOwnershipCombo.SelectedIndex =
                     (int)(stashed?.Ownership ?? cfg.Ownership);
+
+                // S-meter unit (#337). Index 1 is dBm; the stored default,
+                // false, is S-units and index 0. Loaded from the SAME per-radio
+                // field the leader chord and the Operations menu write, so this
+                // control can never show a unit the meter is not reading in.
+                RadioProfileSmeterUnitsCombo.SelectedIndex =
+                    (stashed?.SmeterInDbm ?? cfg.SmeterInDbm) ? 1 : 0;
 
                 // No-physical-access: an explicit choice loads as saved (or as
                 // stashed). Before any explicit choice, pre-populate from the
@@ -357,9 +368,16 @@ namespace JJFlexWpf.Dialogs
                     Lexicon.Get("settings.profile.describe_owned_someone_elses"),
                 _ => "",
             };
+            // Same rule again: only the non-default speaks. S-units is what
+            // every radio reads in until somebody says otherwise, and saying
+            // so on each one would bury the radio that is set to dBm.
+            string smeterUnits = cfg.SmeterInDbm
+                ? Lexicon.Get("settings.profile.describe_smeter_dbm")
+                : "";
             return Lexicon.Get("settings.profile.describe",
                 ("mode", mode), ("port", port), ("waivers", waivers), ("reach", reach),
-                ("remOn", remOn), ("smartLink", smartLink), ("owned", owned));
+                ("remOn", remOn), ("smartLink", smartLink), ("owned", owned),
+                ("smeterUnits", smeterUnits));
         }
 
         private void RadioProfileMode_Checked(object sender, RoutedEventArgs e)
@@ -423,6 +441,24 @@ namespace JJFlexWpf.Dialogs
             };
             ScreenReaderOutput.Speak(
                 what + " " + Lexicon.Get("settings.profile.press_apply_or_ok"),
+                VerbosityLevel.Terse, interrupt: true);
+        }
+
+        /// <summary>
+        /// The S-meter's unit for this radio (#337). Says which unit was
+        /// chosen, in the same words the leader chord and the Operations menu
+        /// use, so the three surfaces cannot teach three vocabularies for one
+        /// switch.
+        /// </summary>
+        private void RadioProfileSmeterUnitsCombo_SelectionChanged(
+            object sender, SelectionChangedEventArgs e)
+        {
+            if (_suppressRadioProfileEvents) return;
+            string what = RadioProfileSmeterUnitsCombo.SelectedIndex == 1
+                ? Lexicon.Get("audio.smeter.in_dbm")
+                : Lexicon.Get("audio.smeter.in_s_units");
+            ScreenReaderOutput.Speak(
+                what + ". " + Lexicon.Get("settings.profile.press_apply_or_ok"),
                 VerbosityLevel.Terse, interrupt: true);
         }
 
@@ -863,6 +899,23 @@ namespace JJFlexWpf.Dialogs
                         _ =>
                             Lexicon.Get("settings.profile.saved_owned_unanswered", ("disp", disp)),
                     });
+                }
+
+                // S-meter unit (#337). Applies NOW when this is the radio in
+                // front of you — assigning the rig's property is what writes
+                // the same per-radio field, so the two cannot disagree — and
+                // is simply stored for a radio you are not on. Either way the
+                // next connect to that radio reads it back.
+                if (cfg.SmeterInDbm != edit.SmeterInDbm)
+                {
+                    cfg.SmeterInDbm = edit.SmeterInDbm;
+                    changed = true;
+                    if (connected) _rig!.SmeterInDBM = edit.SmeterInDbm;
+                    notesApplied.Add(Lexicon.Get("settings.profile.saved_smeter_units",
+                        ("disp", disp),
+                        ("units", edit.SmeterInDbm
+                            ? Lexicon.Get("settings.profile.smeter_unit_dbm")
+                            : Lexicon.Get("settings.profile.smeter_unit_s_units"))));
                 }
 
                 if (cfg.RemOnOnConnect != edit.RemOn)
