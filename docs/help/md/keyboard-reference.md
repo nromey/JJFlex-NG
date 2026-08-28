@@ -54,6 +54,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 | A | Toggle Auto Notch |
 | P | Toggle Audio Peak Filter (APF, CW only) |
 | V | Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below) |
+| Alt+P | Enter pan mode — place the slice you're on anywhere in the stereo field (see "Pan mode" below) |
 | K | Mic check — speak your mic-audio verdict and level, nothing else (see below) |
 | G | Arm or disarm the TX test tone (it replaces your microphone while transmitting) |
 | C | Toggle Compander |
@@ -96,6 +97,26 @@ The targets:
 - **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
 
 Press `?` inside volume mode to hear the target list again. Escape exits and announces it. A quick word on "on-radio": those two targets move the radio's own jacks — if you're listening over PC audio from across town, they won't change what you hear, and now they say so right in their names.
+
+### Pan mode — Ctrl+J, then Alt+P
+
+Stereo placement is how you keep two signals apart: slice A a little left, slice B a little right, and a pileup turns into two conversations instead of one mush. Hard left and hard right aren't separation, they're exile — what you usually want is *slightly* off center, and that's exactly what this mode is for.
+
+Press `Ctrl+J`, then `Alt+P`, and you're in pan mode for the slice you're on. The keys:
+
+- **Left and Right arrows** — nudge the slice through the stereo field. Hold an arrow and it sweeps.
+- **Shift with an arrow** — move by one, for placing it exactly.
+- **Home or C** — snap to center. It's the value you come back to, so it's one key away.
+- **Enter** — keep the new pan and leave the mode.
+- **Escape** — put the pan back where it was when you entered, out loud, and leave. Overshot? This is the way back.
+- **?** — hear where you are, where Escape would take you, and the keys.
+- Any other key keeps the pan, announces the mode closed, and then does its normal job — you can't get stuck in here.
+
+What it speaks follows your speech verbosity. At chatty it talks in positions — "slightly left", "center", "hard right" — the words you want when you're placing a signal by ear. At terse it gives you the number — "Pan 40" on a 0-to-100 scale where 0 is hard left, 50 is center, and 100 is hard right — precise and repeatable, for jotting down an arrangement you like and dialing it in again tomorrow. Cycle verbosity with `Ctrl+Shift+V` right inside the mode and the very next nudge speaks in the other form.
+
+The coarse keys you already know are untouched: on the Slice field, Page Up still slams hard right, Home centers, and Page Down slams hard left, and the Slice Operations field still nudges with Page Up and Page Down. Pan mode is the fine control beside them — reachable from anywhere, not just those two fields.
+
+Pan is per slice, and it lives in the radio, not in this app. Like the rest of your slice layout, "Save Station Setup to Radio" on the Slice menu is what makes an arrangement survive.
 
 ### Mic check — Ctrl+J, then K
 

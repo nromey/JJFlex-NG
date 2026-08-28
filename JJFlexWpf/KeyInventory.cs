@@ -347,6 +347,16 @@ public static class KeyInventory
         // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
         new("Leader", "Leader key", "Ctrl+J, V", "Enter volume mode: pick a target letter, arrows adjust, Escape exits",
             new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "adjust", "mode", "leader" }, "Radio", "Audio"),
+        // Sprint 37 Track C (#304) — the fine stereo-pan control, as a value
+        // sub-layer (#305). Alt+P: plain P is APF, Shift+P the Speech
+        // Processor, and Ctrl+P is skipped on purpose — flat Ctrl+P is the
+        // FREQUENCY panning field, which shares a word with stereo pan and
+        // nothing else.
+        new("Leader", "Leader key", "Ctrl+J, Alt+P",
+            "Enter pan mode: left and right arrows place the slice in the stereo field, Enter keeps it, Escape puts it back",
+            new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
+                    "placement", "position", "field", "audio", "slice", "separate", "separation",
+                    "apart", "ear", "mode", "leader" }, "Radio", "Audio"),
         // Audio Arc Keys Track (2026-08-11) — the mic check and the tone generator.
         new("Leader", "Leader key", "Ctrl+J, K", "Mic check: speak your mic-audio verdict and level, nothing else",
             new[] { "mic", "check", "microphone", "audio", "level", "verdict", "gain", "query",
@@ -536,6 +546,25 @@ public static class KeyInventory
             new[] { "speech", "processor", "proc", "mode", "dx", "transmit" }, "Radio", "Transmit"),
         new("VolumeMode", "Volume mode", "Escape", "Leave volume mode",
             new[] { "volume", "mode", "escape", "exit", "cancel" }, "Radio", "Audio"),
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Pan mode keys (Ctrl+J, Alt+P, then these; the layer persists until
+    //  a closing key). Truth source: Radios.ValueSubLayer.HandleKey plus
+    //  the pan definition in KeyCommands.EnterPanMode — and the engine's
+    //  behaviour is unit-tested directly in Radios.Tests, which the
+    //  DoVolumeModeKey switch never was. Sprint 37 Track C, #304/#305.
+    // ────────────────────────────────────────────────────────────────
+    private static readonly FixedKeyEntry[] PanModeCommands =
+    {
+        new("PanMode", "Pan mode", "Left / Right", "Nudge the slice through the stereo field; Shift moves by one",
+            new[] { "pan", "stereo", "nudge", "left", "right", "fine", "place", "position" }, "Radio", "Audio"),
+        new("PanMode", "Pan mode", "Home or C", "Center the pan",
+            new[] { "pan", "center", "centre", "middle", "home" }, "Radio", "Audio"),
+        new("PanMode", "Pan mode", "Enter", "Keep the new pan and leave pan mode",
+            new[] { "pan", "keep", "confirm", "enter", "exit" }, "Radio", "Audio"),
+        new("PanMode", "Pan mode", "Escape", "Put the pan back where it was and leave pan mode",
+            new[] { "pan", "cancel", "restore", "undo", "back", "escape", "exit" }, "Radio", "Audio"),
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -765,6 +794,7 @@ public static class KeyInventory
         foreach (var e in FilterChords) yield return e;
         foreach (var e in LeaderCommands) yield return e;
         foreach (var e in VolumeModeCommands) yield return e;
+        foreach (var e in PanModeCommands) yield return e;
         foreach (var e in AudioWorkshopKeys) yield return e;
         foreach (var e in CategoryNavigationKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;

@@ -60,13 +60,11 @@ namespace Radios
 
                 if (isMuted) sb.Append(", muted");
 
-                // Pan description: 0=full left, 50=center, 100=full right
-                string panDesc = pan <= 20 ? "pan left"
-                    : pan >= 80 ? "pan right"
-                    : pan >= 40 && pan <= 60 ? "pan center"
-                    : pan < 50 ? "pan slightly left"
-                    : "pan slightly right";
-                sb.Append($", {panDesc}");
+                // Pan in words, from the one shared scale (PanPhrase) — this
+                // held its own hardcoded copy of the bands until 2026-08-27,
+                // and the pan sub-layer's arrival made that two vocabularies
+                // for one value.
+                sb.Append($", pan {PanPhrase.Words(pan)}");
 
                 parts.Add(sb.ToString());
             }
