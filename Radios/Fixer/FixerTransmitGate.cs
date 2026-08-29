@@ -364,7 +364,7 @@ namespace Radios.Fixer
         {
             if (!stageTransmits)
                 return Decision.Refuse(Refusal.StageDoesNotTransmit,
-                    "That step is not meant to transmit, so nothing was sent.");
+                    "That stage is not meant to transmit, so nothing was sent.");
 
             if (_aborted)
                 return Decision.Refuse(Refusal.RunAborted,
@@ -395,8 +395,9 @@ namespace Radios.Fixer
 
             if (_loadDeclaration.Length == 0)
                 return Decision.Refuse(Refusal.LoadNotDeclared,
-                    "Nothing was transmitted, because you have not said yet what the antenna "
-                    + "socket is connected to. Say what is connected, and this step will run.");
+                    "Nothing was transmitted, because you have not yet said what "
+                    + "the antenna socket is connected to. Say what is connected, "
+                    + "and this stage will run.");
 
             // "Nothing, or I am not sure" is an EXPLICIT answer and gets an
             // explicit refusal — an unattended transmit into an unknown load
@@ -407,16 +408,18 @@ namespace Radios.Fixer
             if (_loadKind == FixerLoadKind.NothingOrUnsure)
                 return Decision.Refuse(Refusal.LoadForbidsTransmit,
                     _loadDeclaredRemotely
-                        ? "Nothing was transmitted. You said you have not confirmed what "
-                          + "the antenna socket at that station is connected to — and this "
-                          + "tool never transmits into an unknown load, least of all at a "
-                          + "station you are not at. Ask someone at the station what is "
-                          + "connected, answer the antenna question again, and this step "
+                        ? "Nothing was transmitted. You said you have not "
+                          + "confirmed what the antenna socket at that station is "
+                          + "connected to — and this tool never transmits into an "
+                          + "unknown load, least of all at a station you are not "
+                          + "at. Ask someone at the station what is connected, "
+                          + "answer the antenna question again, and this stage "
                           + "will run."
-                        : "Nothing was transmitted. You said nothing is connected, or that you "
-                          + "are not sure — and this tool never transmits into an unknown load. "
-                          + "Connect a dummy load or an antenna, answer the antenna question "
-                          + "again, and this step will run.");
+                        : "Nothing was transmitted. You said nothing is "
+                          + "connected, or that you are not sure — and this tool "
+                          + "never transmits into an unknown load. Connect a "
+                          + "dummy load or an antenna, answer the antenna "
+                          + "question again, and this stage will run.");
 
             // A real antenna, or an amplifier, caps the power (#180): every
             // transmit there is an on-air emission, or drive into a stage
@@ -430,21 +433,24 @@ namespace Radios.Fixer
 
                 if (transmitPowerWatts < 0)
                     return Decision.Refuse(Refusal.PowerTooHighForLoad,
-                        "Nothing was transmitted. You declared " + into + ", and the "
-                        + "radio's power for this step could not be read — into " + into
-                        + " these tests only transmit when the power is known to be "
+                        "Nothing was transmitted. You declared " + into + ", and "
+                        + "the radio's power for this stage could not be read — "
+                        + "into " + into
+                        + " these tests only transmit when the power is known to "
+                        + "be "
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts or less.");
 
                 if (transmitPowerWatts > LowPowerCeilingWatts)
                     return Decision.Refuse(Refusal.PowerTooHighForLoad,
-                        "Nothing was transmitted. The radio's power for this step is "
+                        "Nothing was transmitted. The radio's power for this "
+                      + "stage is "
                         + transmitPowerWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts, and you declared " + into + ". Into " + into
                         + " these tests transmit at "
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
-                        + " watts or less — turn the power down, or declare a dummy "
-                        + "load, and this step will run.");
+                        + " watts or less — turn the power down, or declare a "
+                        + "dummy load, and this stage will run.");
             }
             // A dummy load declared over a REMOTE session is capped the same
             // way (#247). Locally the operator can see the load; remotely the
@@ -458,36 +464,40 @@ namespace Radios.Fixer
             {
                 if (transmitPowerWatts < 0)
                     return Decision.Refuse(Refusal.PowerTooHighForLoad,
-                        "Nothing was transmitted. The dummy load was declared over a "
-                        + "remote session, and the radio's power for this step could "
-                        + "not be read — on a declaration made from a distance these "
-                        + "tests only transmit when the power is known to be "
+                        "Nothing was transmitted. The dummy load was declared "
+                        + "over a remote session, and the radio's power for this "
+                        + "stage could not be read — on a declaration made from a "
+                        + "distance these tests only transmit when the power is "
+                        + "known to be "
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts or less.");
 
                 if (transmitPowerWatts > LowPowerCeilingWatts)
                     return Decision.Refuse(Refusal.PowerTooHighForLoad,
-                        "Nothing was transmitted. The radio's power for this step is "
+                        "Nothing was transmitted. The radio's power for this "
+                      + "stage is "
                         + transmitPowerWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts, and the dummy load was declared over a remote "
-                        + "session — on the word of someone at the station, not your "
-                        + "own eyes. On a remote declaration these tests transmit at "
+                        + "session — on the word of someone at the station, not "
+                        + "your own eyes. On a remote declaration these tests "
+                        + "transmit at "
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
-                        + " watts or less; turn the power down and this step will run.");
+                        + " watts or less; turn the power down and this stage "
+                        + "will run.");
             }
 
             if (_transmitted.Contains(stageId ?? ""))
                 return Decision.Refuse(Refusal.StageAlreadyTransmitted,
-                    "That step has already transmitted once. "
-                    + "Choose Run again if you meant to repeat it.");
+                    "That stage has already transmitted once. Choose Run this "
+                    + "test again if you meant to repeat it.");
 
             DateTime now = _clock();
             TrimWindow(now);
             if (_window.Count >= BurstLimit)
                 return Decision.Refuse(Refusal.TooFast,
-                    "Transmit requests are arriving faster than they should be, so this one was "
-                    + "refused. That usually means something is repeating itself rather than "
-                    + "anything you did.");
+                    "Transmit requests are arriving faster than they should be, "
+                    + "so this one was refused. That usually means something is "
+                    + "repeating itself, not anything you did.");
 
             if (_keyDownSeconds >= RunKeyDownBudgetSeconds)
                 return Decision.Refuse(Refusal.BudgetSpent,

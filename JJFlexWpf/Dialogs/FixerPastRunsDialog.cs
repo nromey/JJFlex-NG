@@ -161,8 +161,9 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
 
         if (_runs.Count == 0)
         {
-            _status.Text = "No test runs have been saved yet. Runs save themselves as "
-                         + "they happen — run a test and it will appear here."
+            _status.Text = "There are no test runs to show yet. Runs save "
+                         + "themselves as they happen — run a test and it will "
+                         + "appear here."
                          + UnreadableNote(unreadable);
         }
         else

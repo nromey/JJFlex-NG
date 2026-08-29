@@ -188,22 +188,23 @@ namespace Radios.Fixer
                 if (facts.WasapiAvailable)
                 {
                     findings.Add(new FixerFinding(MmeInUse, FixOwner.Us,
-                        "Currently, you have selected the MME audio subsystem. It records "
-                        + "perfectly well, but it will not tell you the truth about your "
-                        + "hardware: Windows resamples behind it and reports its own "
-                        + "converted format back, so the 44.1 kHz shown above may be "
-                        + "48 kHz at the device itself. Every level measured in this run "
-                        + "would belong to that converter rather than to your microphone.",
+                        "You currently have the MME audio subsystem selected. It "
+                        + "records perfectly well, but it will not tell you the "
+                        + "truth about your hardware: Windows resamples behind it "
+                        + "and reports its own converted format back, so the 44.1 "
+                        + "kHz shown above may be 48 kHz at the device itself. "
+                        + "Every level measured in this run would belong to that "
+                        + "converter rather than to your microphone.",
                         "Switch to WASAPI",
                         FixSwitchToWasapi));
                 }
                 else
                 {
                     findings.Add(new FixerFinding(MmeInUse, FixOwner.NobodyHere,
-                        "Currently, you have selected the MME audio subsystem, and this "
-                        + "computer offers no WASAPI to move to. Recording works normally; "
-                        + "the format MME reports simply does not have to match what the "
-                        + "hardware is really doing.",
+                        "You currently have the MME audio subsystem selected, and "
+                        + "this computer offers no WASAPI to move to. Recording "
+                        + "works normally; the format MME reports simply does not "
+                        + "have to match what the hardware is really doing.",
                         "Nothing here can change that. Read every level in this run as "
                         + "approximate — they describe Windows' resampling as much as your "
                         + "microphone."));
@@ -553,10 +554,10 @@ namespace Radios.Fixer
                          + "silent transmit now points at the microphone side rather than "
                          + "at the connection.";
                 case HeardRadio.Hears:
-                    return " You can hear the radio. With the radio in the room that may "
-                         + "be its own speaker rather than this computer, so it says less "
-                         + "about the computer's audio path than it would over a remote "
-                         + "connection.";
+                    return " You can hear the radio. With the radio in the room, "
+                         + "what you hear may be its own speaker rather than this "
+                         + "computer, so it says less about the computer's audio "
+                         + "path than it would over a remote connection.";
                 case HeardRadio.NoRadio:
                     return " You said no radio is connected, so the tests that need one "
                          + "will wait until it is.";
