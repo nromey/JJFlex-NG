@@ -133,12 +133,8 @@ namespace Radios.Fixer
 
                 string line = where + ": " + f.WhatIsWrong + " ";
                 if (fixed_ != null)
-                    line += "FIXED during this run at " + Stamp(fixed_.AtUtc) + " "
-                                                                              + "— "
-                                                                              + "after "
-                                                                              + "the "
-                                                                              + "fix: "
-                          + fixed_.WhatItBecame;
+                    line += "FIXED during this run at " + Stamp(fixed_.AtUtc)
+                          + " — after the fix: " + fixed_.WhatItBecame;
                 else
                     line += f.Owner switch
                     {
