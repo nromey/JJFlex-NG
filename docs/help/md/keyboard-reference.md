@@ -299,7 +299,7 @@ The bracket keys shape your receive filter from anywhere in the radio modes:
 These keys work from ANY field within your JJ Flexible Home. First, remember to press F2 to access your radio interface home. Press the key and you will activate the following actions:
 
 - **M** — Toggle mute on the active slice
-- **V** — Cycle to the next slice
+- **V** — Cycle to the next slice (except on the VOX field, where V toggles VOX — the letter belongs to the field that owns it)
 - **R** — Toggle RIT on/off
 - **X** — Toggle XIT on/off
 - **Q** — Toggle squelch on/off
@@ -318,7 +318,7 @@ When focused on the Slice field specifically:
 
 - **Space** — Cycle to the next slice (wraps around)
 - **Up / Down** — Next or previous slice
-- **0-7 or A-H** — Jump directly to the desired slice by number or letter (you'll hear "not created" if it doesn't exist yet)
+- **0-9 or A-H** — Jump directly to the desired slice by number or letter (you'll hear "not created" if it doesn't exist yet, and "no such slice" for a number past what any radio holds)
 - **T** — Make this slice the TX slice
 - **. (period)** — Create a new slice
 - **, (comma)** — Release the current slice
@@ -347,6 +347,19 @@ On the Squelch field, Space, Up, Down, or Q all toggle squelch on and off. On th
 - **Up / Down** — Raise or lower the squelch level
 - **Q** — Toggle squelch on/off
 
+## JJ Flexible Home — Split and VOX Field Keys
+
+On the Split field:
+
+- **Space, Up, or Down** — Toggle split mode
+- **P** — Toggle split on or off (the same P that toggles split from the Frequency field, in both tuning modes)
+- **S** — Turn split on
+- **T** — Show the transmit frequency
+
+On the VOX field, Space, Up, Down, or V all toggle VOX on and off.
+
+Heads-up for long-time users: V used to cycle slices on the VOX field, like it does everywhere else in Home. It doesn't any more — standing on VOX and pressing V now toggles VOX, which is what your fingers meant. V still cycles slices from every other field, and the Slice field is always there for moving between slices.
+
 ## JJ Flexible Home — Frequency Field Keys (Classic tuning mode)
 
 When focused on the Frequency field in Classic tuning mode:
@@ -356,6 +369,7 @@ When focused on the Frequency field in Classic tuning mode:
 - **Digits** — Type a frequency, then Enter to apply
 - **K** — Round to the nearest kilohertz
 - **+ then digits** — Set a step multiplier (for example, + then 25 at the 1 kHz position tunes by 25 kHz)
+- **- (minus)** — Reminds you that step entry uses plus only (there is no minus step entry)
 - **F** — Speak the current frequency
 - **P** — Toggle split on or off
 - **T** — Toggle showing the transmit frequency
@@ -415,7 +429,7 @@ You'll hear a rising mode-enter tone when scale-adjust starts and a descending m
 
 The Transmit slice field sits after VOX and shows which slice keys the radio ("-" when none does). These keys work while it has focus:
 
-- **Space** — Set transmit to the active slice
+- **Space or T** — Set transmit to the active slice (the same T that does this on the Slice field)
 - **Up / Down** — Move transmit to another slice
 - **A–H** — Set the transmit slice by letter
 - **Delete or Backspace** — Clear the transmit slice (no slice keys the radio — a soft transmit lockout)

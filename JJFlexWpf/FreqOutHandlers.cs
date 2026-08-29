@@ -1647,6 +1647,17 @@ public class FreqOutHandlers
                         Lexicon.Get("settings.split.showing_tx_freq"), VerbosityLevel.Terse);
                     e.Handled = true;
                 }
+                else if (ch == 'P' && Keyboard.Modifiers == ModifierKeys.None)
+                {
+                    // P toggles split here too (#361, Noel's ruling: "Should
+                    // it not at least toggle split on the split field?"). P is
+                    // THE split letter — it toggles from the frequency field
+                    // in both tuning modes (#344) — and the field named Split
+                    // is the first place an operator who has learned it will
+                    // try it. Same toggle, same announcement, everywhere.
+                    ToggleSplitAndAnnounce();
+                    e.Handled = true;
+                }
                 break;
         }
 
@@ -1900,15 +1911,27 @@ public class FreqOutHandlers
     #region AdjustVox
 
     /// <summary>
-    /// VOX field handler — toggle VOX on/off.
+    /// VOX field handler — toggle VOX on/off. V toggles too (#361): it is the
+    /// field's own mnemonic, claimed here BEFORE the universal fall-through
+    /// can spend it on slice cycling.
     /// Uses FlexBase.Vox property (handles both SimpleVOX and CW break-in).
     /// </summary>
     public void AdjustVox(FrequencyDisplay.DisplayField field, KeyEventArgs e)
     {
         if (Rig == null) { AnnounceDeadHomeKey(field, e); return; }
         var key = RawKey(e);
+        char ch = KeyToChar(e);
 
-        if (key == Key.Space || key == Key.Up || key == Key.Down)
+        // V claims the field's own concept ahead of universal V (cycle slice),
+        // the same shape AdjustMute uses for plain M. Noel, from the chair:
+        // "I hit the letter v and it moved between slices, that's on the vox
+        // field cause I figured ... vox." Four of the five universal letters
+        // already agree with their own field (M/R/X/Q); this makes V the
+        // fifth. V still cycles slices from every other Home field. The
+        // modifier check keeps Shift+V and chorded V out — same reasoning as
+        // AdjustMute's M.
+        if (key == Key.Space || key == Key.Up || key == Key.Down
+            || (ch == 'V' && Keyboard.Modifiers == ModifierKeys.None))
         {
             var newState = Rig.ToggleOffOn(Rig.Vox);
             Rig.Vox = newState;
@@ -1920,7 +1943,9 @@ public class FreqOutHandlers
             e.Handled = true;
         }
 
-        // Universal Home keys fall-through (M/V/R/X/Q/=, Shift+M, Shift+,)
+        // Universal Home keys fall-through (M/R/X/Q/=, Shift+M, Shift+,).
+        // Plain V never reaches it here — the field's own toggle claims it
+        // above (#361).
         if (!e.Handled) TryHandleUniversalHomeKey(e);
         if (!e.Handled) AnnounceDeadHomeKey(field, e);
     }
@@ -1930,7 +1955,9 @@ public class FreqOutHandlers
     #region AdjustTxSlice — QB Track I
 
     /// <summary>
-    /// Transmit-slice field handler. Space sets transmit to the active slice,
+    /// Transmit-slice field handler. Space or T sets transmit to the active
+    /// slice (T is the transmit letter the Slice and Slice Operations fields
+    /// already teach — #361 makes it work on the field that owns the concept),
     /// Up/Down moves the transmit designation between our slices, A-H sets it
     /// by letter (matched against Slice.Letter via VFOToLetter — the radio's
     /// truth, never positional arithmetic), Delete/Backspace clears it
@@ -1949,7 +1976,8 @@ public class FreqOutHandlers
             // hears why nothing changed instead of silence.
             if (key == Key.Space || key == Key.Up || key == Key.Down
                 || key == Key.Delete || key == Key.Back
-                || (ch >= 'A' && ch <= 'H' && unmodified))
+                || (ch >= 'A' && ch <= 'H' && unmodified)
+                || (ch == 'T' && unmodified))
             {
                 Radios.ScreenReaderOutput.Speak(
                     Lexicon.Get("settings.txslice.transmit_unavailable"), VerbosityLevel.Terse, true);
@@ -1957,7 +1985,7 @@ public class FreqOutHandlers
                 return;
             }
         }
-        else if (key == Key.Space)
+        else if (key == Key.Space || (ch == 'T' && unmodified))
         {
             // Set transmit to the active (RX) slice — same semantics as the
             // T key on the Slice field.

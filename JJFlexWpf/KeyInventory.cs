@@ -146,8 +146,12 @@ public static class KeyInventory
             new[] { "slice", "next", "cycle" }),
         new("Slice", "Slice field", "Up / Down", "Next or previous slice",
             new[] { "slice", "next", "previous", "cycle" }),
-        new("Slice", "Slice field", "0-7 or A-H", "Jump straight to that slice",
-            new[] { "slice", "jump", "letter", "number" }),
+        // 0-9, not 0-7: the handler answers every digit, and a digit past
+        // your last slice says "no such slice" instead of going quiet (#358).
+        // No supported radio has more than 8 slices, so 8 and 9 only ever
+        // answer back — but a key that answers is a key worth declaring.
+        new("Slice", "Slice field", "0-9 or A-H", "Jump straight to that slice — a slice you don't have says so",
+            new[] { "slice", "jump", "letter", "number", "digit" }),
         new("Slice", "Slice field", "T", "Make this slice the transmit slice",
             new[] { "transmit", "tx", "slice" }),
         new("Slice", "Slice field", "Period", "Create a new slice",
@@ -190,6 +194,12 @@ public static class KeyInventory
             new[] { "round", "kilohertz", "khz" }),
         new("Freq.Classic", "Frequency field (Classic tuning)", "Plus then digits", "Set a step multiplier for Up and Down",
             new[] { "step", "multiplier", "plus" }),
+        // The key exists to answer, not to act: it speaks "Step entry uses
+        // plus only". Declared (#358) because the operator who reaches for
+        // Minus is exactly the one who needs to hear that sentence, and no
+        // surface mentioned the key at all.
+        new("Freq.Classic", "Frequency field (Classic tuning)", "Minus", "Reminds you that step entry uses Plus only",
+            new[] { "step", "minus", "plus", "multiplier" }),
         new("Freq.Classic", "Frequency field (Classic tuning)", "F", "Speak the current frequency",
             new[] { "frequency", "speak", "read" }),
         // P carries split in BOTH tuning modes (#344) — the Jim-era S only
@@ -256,13 +266,24 @@ public static class KeyInventory
             new[] { "split", "on" }),
         new("Split", "Split field", "T", "Show the transmit frequency",
             new[] { "transmit", "frequency", "show" }),
+        // Same letter, same toggle, as the frequency field in both tuning
+        // modes (#344, #361) — the split letter must not fail on the field
+        // named Split.
+        new("Split", "Split field", "P", "Toggle split on or off",
+            new[] { "split", "toggle", "on", "off" }),
 
         // ── VOX field ──
-        new("VOX", "VOX field", "Space, Up, or Down", "Toggle VOX on or off",
+        // V toggles VOX here rather than cycling slices (#361): the field's
+        // own mnemonic outranks the universal V on the one field that owns
+        // the concept. Everywhere else in Home, V still cycles slices.
+        new("VOX", "VOX field", "Space, Up, Down, or V", "Toggle VOX on or off",
             new[] { "vox", "toggle", "voice" }),
 
         // ── Transmit slice field (QB Track I; absorbed here by QB Track L) ──
-        new("TXSlice", "Transmit slice field", "Space", "Set transmit to the active slice",
+        // T here matches the T the Slice and Slice Operations fields already
+        // teach — the transmit letter works on the field that owns transmit
+        // (#361).
+        new("TXSlice", "Transmit slice field", "Space or T", "Set transmit to the active slice",
             new[] { "transmit", "tx", "slice", "set" }),
         new("TXSlice", "Transmit slice field", "Up / Down", "Move transmit to another slice",
             new[] { "transmit", "tx", "slice", "move" }),

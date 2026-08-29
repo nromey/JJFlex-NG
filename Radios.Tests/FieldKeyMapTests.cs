@@ -397,22 +397,12 @@ public static class KeyInventory
         /// </remarks>
         private static readonly string[] Baseline =
         {
-            // Slice, digits 8 and 9. `AdjustSlice` tests `ch >= '0' && ch <= '9'`
-            // and speaks "no such slice" for anything past the last slice; the
-            // inventory row says "0-7 or A-H". Both are defensible on their own
-            // — the handler is obeying no-silent-keystrokes, the row is naming
-            // the eight slices a 6700 can have — and they disagree. Nobody
-            // chose the disagreement; it is what the check exists to surface.
-            "HANDLED-NOT-DECLARED Slice 8",
-            "HANDLED-NOT-DECLARED Slice 9",
-
-            // Frequency field, Classic tuning, the minus key. `AdjustFreq`
-            // answers it with "step entry is plus only" and marks it handled.
-            // That is a good keystroke — it explains itself instead of going
-            // quiet — and it is the one no surface mentions, so the operator
-            // who would most benefit from hearing it is the one who never
-            // learns the key exists.
-            "HANDLED-NOT-DECLARED Freq.Classic -",
+            // Empty since Sprint 39 Track B (#358): the three findings the
+            // checker opened with — Slice digits 8 and 9, and Classic
+            // frequency's Minus — were closed by declaring the keys in
+            // KeyInventory, words not handlers, exactly as filed. The
+            // handlers already behaved well; it was the declaration that
+            // was short.
         };
 
         private void AssertAgainstBaseline(List<FieldKeyMapScan.Finding> findings, string direction)

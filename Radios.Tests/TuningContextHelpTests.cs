@@ -76,11 +76,15 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_classic_map_holds_its_eight_rows()
+        public void The_classic_map_holds_its_nine_rows()
         {
+            // Eight until #358 declared the Minus key — it answers "step entry
+            // uses plus only", and the operator who reaches for Minus is
+            // exactly the one who needs to hear that sentence.
             var rows = RowsFor("Freq.Classic");
-            Assert.Equal(8, rows.Count);
+            Assert.Equal(9, rows.Count);
             Assert.Equal("Up / Down", rows[0].Key);
+            Assert.Contains(rows, r => r.Key == "Minus");
         }
 
         [Fact]
@@ -186,6 +190,7 @@ namespace Radios.Tests
                 "Digits, Type a frequency, then Enter to apply. " +
                 "K, Round to the nearest kilohertz. " +
                 "Plus then digits, Set a step multiplier for Up and Down. " +
+                "Minus, Reminds you that step entry uses Plus only. " +
                 "F, Speak the current frequency. " +
                 "P, Toggle split on or off. " +
                 "T, Toggle showing the transmit frequency. " +
@@ -210,6 +215,7 @@ namespace Radios.Tests
                 "Digits, Type a frequency, then Enter to apply. " +
                 "K, Round to the nearest kilohertz. " +
                 "Plus then digits, Set a step multiplier for Up and Down. " +
+                "Minus, Reminds you that step entry uses Plus only. " +
                 "F, Speak the current frequency. " +
                 "P, Toggle split on or off. " +
                 "T, Toggle showing the transmit frequency. " +
