@@ -4024,7 +4024,21 @@ Module globals
             .SetSessionAccount = Sub(email)
                                      SessionSmartLinkEmail = If(email, "")
                                      Tracing.TraceLine($"RigSelector.SetSessionAccount: session override = '{SessionSmartLinkEmail}'", TraceLevel.Info)
-                                 End Sub
+                                 End Sub,
+            .EngageSmartLinkPresence = Sub()
+                                           ' #382. The picker decides WHETHER (its roster is
+                                           ' the condition); this only performs it. Routed
+                                           ' through the rig because presence engagement wires
+                                           ' that instance's radio-list intake as well as the
+                                           ' sessions - a session nobody is listening to would
+                                           ' hold a connection open and still leave every row
+                                           ' a guess.
+                                           If RigControl Is Nothing Then
+                                               Tracing.TraceLine("EngageSmartLinkPresence: no rig yet, presence not engaged", TraceLevel.Warning)
+                                               Return
+                                           End If
+                                           RigControl.EngageSmartLinkPresence()
+                                       End Sub
         }
 
         ' Wire the save-default delegate so ShowSmartLinkAccountManager can persist the selection

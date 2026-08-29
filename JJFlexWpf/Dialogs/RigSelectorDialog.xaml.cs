@@ -180,6 +180,30 @@ namespace JJFlexWpf.Dialogs
         public bool BoundAccountHasLiveSession { get; set; } = true;
 
         /// <summary>
+        /// Whether a session for this row's bound account is on its way up
+        /// right now — we have asked, and the answer has not arrived.
+        ///
+        /// <para><b>The state between the two states (#382).</b> Opening the
+        /// picker now engages presence for account-bound rows, which takes a
+        /// second or two of TLS and token work. Without a word for that window
+        /// the row would render as
+        /// <c>connect.row.account_not_signed_in</c> on its way to a verdict —
+        /// true of the instant, and a flicker through exactly the sentence
+        /// Noel read on 2026-08-29 and called wrong. Same shape as
+        /// <see cref="RefreshInFlight"/> one level out: a pass WE started is
+        /// not the radio going quiet, and a sign-in WE started is not an
+        /// absence of sign-in.</para>
+        ///
+        /// <para>Stamped by the dialog on every refresh, and bounded — it goes
+        /// false when the session comes up, and also when the settle window
+        /// expires, so a session that can never connect stops claiming to be
+        /// connecting and falls back to the honest "not signed in".
+        /// <b>Defaults to false</b> so a row built by any path that does not
+        /// stamp it reads exactly as it did before.</para>
+        /// </summary>
+        public bool BoundAccountSessionComingUp { get; set; }
+
+        /// <summary>
         /// Whether connecting to this row travels the SmartLink path.
         /// Derived from <see cref="ChosenPath"/>, never stored — and unlike
         /// the old derivation, the operator's stored chain is consulted for
@@ -270,6 +294,30 @@ namespace JJFlexWpf.Dialogs
                 // asking, and the cached branch below already says "refreshing"
                 // for it. Claiming we are not signed in DURING the sign-in
                 // would be the same error pointed the other way.
+                // ...and the state between those two (#382). Presence is now
+                // engaged when the picker OPENS onto an account-bound roster,
+                // so between the ask and the answer this row is neither signed
+                // in nor unasked. Saying "not signed in" here would be the same
+                // error #340 removed, arriving one state earlier and lasting a
+                // second or two — which is long enough for a screen reader to
+                // read the whole row.
+                //
+                // Ahead of the not-signed-in branch and sharing its guards, so
+                // there is exactly one place that decides between them.
+                if (BoundAccountSessionComingUp
+                    && !BoundAccountHasLiveSession
+                    && !RefreshInFlight
+                    && !string.IsNullOrWhiteSpace(BoundAccount)
+                    && (ForeignAccount || FromAccountCache))
+                {
+                    // No age here on purpose. The sentence is about what is
+                    // happening now and is about to be replaced; a stale
+                    // "last seen 3 days ago" hung off the end of it is one
+                    // clause the operator has to listen past twice.
+                    return Lexicon.Get("connect.row.account_signing_in",
+                        ("account", BoundAccount));
+                }
+
                 if (!BoundAccountHasLiveSession
                     && !RefreshInFlight
                     && !string.IsNullOrWhiteSpace(BoundAccount)
@@ -522,6 +570,21 @@ namespace JJFlexWpf.Dialogs
         /// per-radio answer is PreferredAccount, never the app default.
         /// </summary>
         public Action<string>? SetSessionAccount { get; init; }
+
+        /// <summary>
+        /// Hold a SmartLink presence session open for every saved account that
+        /// can sign in silently (#382). Idempotent and cheap to re-call.
+        ///
+        /// <para><b>The dialog decides WHETHER; this does the deed.</b> The
+        /// condition is the roster — at least one row whose visibility runs
+        /// through a SmartLink account — and it lives here rather than in the
+        /// radio layer because only the picker can see the painted list.</para>
+        ///
+        /// <para>Optional, so a host that has no presence layer (or a test)
+        /// simply never engages and every row reads exactly as it did
+        /// before.</para>
+        /// </summary>
+        public Action? EngageSmartLinkPresence { get; init; }
     }
 
     public partial class RigSelectorDialog : JJFlexDialog
@@ -868,6 +931,22 @@ namespace JJFlexWpf.Dialogs
                 AnnounceNothingLive();
             };
 
+            // #382: the roster is on screen and it contains rows whose
+            // visibility runs through a SmartLink account. Ask those accounts.
+            //
+            // Separate from the settle handler above, and deliberately NOT
+            // behind its 2.5-second local wait: the sessions take longer to come
+            // up than local discovery takes to settle, so anything spent waiting
+            // here is added straight onto how long a remote row reads as
+            // unknown. Background priority so the window paints and announces
+            // itself first — engaging is not worth a frame of the operator's
+            // arrival.
+            Loaded += (_, _) => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                EngagePresenceForAccountBoundRoster();
+                _ = WatchPresenceSettleAsync();
+            }), DispatcherPriority.Background);
+
             // Phase 1: on-demand loaded-state query. An announcement is a
             // one-shot — if the screen reader was mid-sentence or the operator
             // alt-tabbed, it is gone, and they are back to inferring state
@@ -1070,11 +1149,19 @@ namespace JJFlexWpf.Dialogs
         private void SpeakLoadedState()
         {
             string local = (_localSettled ? Lexicon.Get("connect.selector.f2_local_loaded") : Lexicon.Get("connect.selector.f2_local_loading"));
+            // The presence branch is #382's half of this answer. Without it F2
+            // says "Remote not loaded" during the very seconds the app is
+            // signing in to load it — a one-shot row reading is easy to miss,
+            // and F2 is where an operator goes when they did. Below the
+            // in-flight pass, above the settled answers: an explicit pass is
+            // the louder fact when both are true.
             string remote = _remoteDiscoveryInFlight
                 ? Lexicon.Get("connect.selector.f2_remote_loading")
-                : _remoteListLive
-                    ? Lexicon.Get("connect.selector.f2_remote_loaded")
-                    : Lexicon.Get("connect.selector.f2_remote_not_loaded");
+                : PresenceStillSettling() && !_remoteListLive
+                    ? Lexicon.Get("connect.selector.f2_remote_signing_in")
+                    : _remoteListLive
+                        ? Lexicon.Get("connect.selector.f2_remote_loaded")
+                        : Lexicon.Get("connect.selector.f2_remote_not_loaded");
             int live = LiveCount();
             string count = (live == 1 ? Lexicon.Get("connect.selector.f2_count_one",
                 ("live", live)) : Lexicon.Get("connect.selector.f2_count_many",
@@ -1350,10 +1437,43 @@ namespace JJFlexWpf.Dialogs
             }
             try
             {
+                // WHICH ACCOUNT SAW IT, not which account we are working with.
+                //
+                // Found walking #382's chain, and it is the seam that fix opens.
+                // A remote sighting used to reach this dialog only from a pass
+                // on the current account, so "current" and "the one that saw it"
+                // were the same address and nothing could tell them apart. Held
+                // presence sessions break that: Don's radio now arrives from
+                // Don's session while Noel's account is the one in play, and
+                // recording Noel's address here would REWRITE Don's radio's
+                // LastSeenViaAccount on disk, in radios\<serial>\config.xml.
+                //
+                // Nothing would report that. It reads as a working row for the
+                // rest of the session, and the damage lands on the NEXT launch:
+                // the row stops looking foreign, stops naming its real owner,
+                // and Enter offers to switch to an account that cannot list the
+                // radio — the wrong-account failure #342 closed, reintroduced
+                // from the other end.
+                //
+                // Empty means no session has listed it, which is exactly the
+                // pure-LAN case, and RecordSighting ignores the account for a
+                // LAN sighting anyway. Falling back to the current account
+                // there keeps the old behaviour for the path that was never
+                // wrong.
+                bool isRemote = radio.WanAvailable && !radio.LanAvailable;
+                var sawIt = Radios.FlexBase.WanAccountForSerial(radio.Serial);
+                if (string.IsNullOrWhiteSpace(sawIt)) sawIt = CurrentAccountEmail();
+                if (isRemote)
+                {
+                    Tracing.TraceLine(
+                        $"RigSelector.RecordSighting: {radio.Serial} attributed to {sawIt} "
+                        + $"(account in play: {CurrentAccountEmail()}) — #382",
+                        System.Diagnostics.TraceLevel.Info);
+                }
+
                 KnownRadioRoster.RecordSighting(
                     radio.Serial, radio.Name, radio.ModelName,
-                    radio.WanAvailable && !radio.LanAvailable,
-                    CurrentAccountEmail());
+                    isRemote, sawIt);
             }
             catch (Exception ex)
             {
@@ -1654,6 +1774,176 @@ namespace JJFlexWpf.Dialogs
             return live;
         }
 
+        // ------------------------------------------------------------------
+        // Presence engagement (#382) — the gate, and the window it opens
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// How long a row may say a session is coming up before it has to stop
+        /// claiming that.
+        ///
+        /// <para>Longer than the local settle window (2.5s) because this is a
+        /// TLS handshake and possibly a token refresh, not a UDP packet already
+        /// in flight. Shorter than an operator's patience: past this the row
+        /// falls back to "not signed in", which is a true statement about a
+        /// session that did not come up and, unlike a spinner that never stops,
+        /// tells them Enter has something to do.</para>
+        /// </summary>
+        private const int PresenceSettleMs = 12000;
+
+        /// <summary>When the coming-up window closes. Null until presence is
+        /// engaged from here, which is what makes the whole mechanism inert for
+        /// a LAN-only roster.</summary>
+        private DateTime? _presenceSettleDeadlineUtc;
+
+        private bool PresenceStillSettling() =>
+            _presenceSettleDeadlineUtc is { } deadline && DateTime.UtcNow < deadline;
+
+        /// <summary>
+        /// The accounts this roster's rows depend on — every distinct account a
+        /// painted row's visibility runs through.
+        /// </summary>
+        private List<string> RosterBoundAccounts()
+        {
+            lock (_radiosLock)
+            {
+                return _radiosList
+                    .Select(r => r.BoundAccount)
+                    .Where(a => !string.IsNullOrWhiteSpace(a))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+        }
+
+        /// <summary>
+        /// <b>Task #382 — the whole of it.</b> Opening the radio chooser onto a
+        /// list that contains at least one account-bound row IS the operator's
+        /// first remote action of the session, so hold presence sessions from
+        /// here instead of waiting for a completed remote pass.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The condition is the ROSTER, never a guess about intent.</b>
+        /// That distinction is what keeps the no-silent-phone-home guarantee
+        /// intact rather than merely mostly intact: an install that has only
+        /// ever met radios on the LAN paints no account-bound row, so this
+        /// returns having done nothing and the app never dials out. Nothing
+        /// here asks what the operator "probably wants".</para>
+        ///
+        /// <para><b>Why the picker and not startup.</b> Startup would engage for
+        /// an operator who opened the app to use the radio in front of them and
+        /// never went near the list. The picker is the moment the roster is the
+        /// thing being read, which is the moment its freshness is worth a
+        /// connection.</para>
+        ///
+        /// <para>Silent by construction — the presence layer never raises a
+        /// sign-in form (#85) and never reorders (#254). The operator learns
+        /// about it from the ROW, when they arrow onto it, and from F2.</para>
+        /// </remarks>
+        private void EngagePresenceForAccountBoundRoster()
+        {
+            var engage = _callbacks.EngageSmartLinkPresence;
+            if (engage == null)
+            {
+                Tracing.TraceLine(
+                    "RigSelector: presence engagement not wired by host — roster rows stay as painted (#382)",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+
+            var accounts = RosterBoundAccounts();
+            if (accounts.Count == 0)
+            {
+                // The LAN-only operator's path, and the guarantee in one line.
+                Tracing.TraceLine(
+                    "RigSelector: no account-bound rows on the roster — presence NOT engaged, nothing dials out (#382)",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+
+            Tracing.TraceLine(
+                $"RigSelector: roster has {accounts.Count} account-bound row account(s) "
+                + $"({string.Join(", ", accounts)}) — engaging SmartLink presence on open (#382)",
+                System.Diagnostics.TraceLevel.Info);
+
+            // Open the window BEFORE engaging. If Connect() were fast enough to
+            // land a list synchronously, a deadline set afterwards would open a
+            // coming-up window over a session that is already up.
+            _presenceSettleDeadlineUtc = DateTime.UtcNow.AddMilliseconds(PresenceSettleMs);
+            RefreshRadiosList();
+
+            try
+            {
+                engage();
+
+                // Repaint immediately: engaging is what makes IsHolding true,
+                // so this is the first moment a row can say it is being dialled
+                // rather than waiting for the watcher's first tick to say it.
+                RefreshRadiosList();
+            }
+            catch (Exception ex)
+            {
+                // A presence layer that will not start is a stale roster, never
+                // a picker that fails to open. Close the window at once so no
+                // row sits saying "signing in" against nothing.
+                _presenceSettleDeadlineUtc = null;
+                Tracing.TraceLine($"RigSelector.EngagePresence: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Error);
+                RefreshRadiosList();
+            }
+        }
+
+        /// <summary>
+        /// Re-render while the sessions we just asked for come up.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Nothing else would repaint these rows.</b> A radio that IS
+        /// reachable arrives as a RadioFound and repaints itself; a radio that
+        /// is NOT sends no event at all, so without this loop the row for a
+        /// switched-off remote radio would sit at "signing in" until something
+        /// unrelated happened to refresh the list. The absence is the case that
+        /// needs the timer, which is exactly the case that has no event.</para>
+        ///
+        /// <para>Ends the moment every held account is live, or at the deadline.
+        /// It repaints rather than announcing: this pass is background work and
+        /// the row is where its state belongs (#85).</para>
+        /// </remarks>
+        private async System.Threading.Tasks.Task WatchPresenceSettleAsync()
+        {
+            if (_presenceSettleDeadlineUtc == null) return;
+
+            while (PresenceStillSettling())
+            {
+                await System.Threading.Tasks.Task.Delay(400);
+                if (!IsLoaded) return;
+
+                RefreshRadiosList();
+
+                // Every account this roster depends on has answered — stop
+                // early rather than hold a settling flag nobody needs. One
+                // snapshot of the session table per tick, not one per account:
+                // reading it inside the predicate takes the coordinator's lock
+                // once per row for an answer that cannot change mid-loop in any
+                // way worth acting on.
+                var live = LiveSessionAccounts();
+                bool anyPending = RosterBoundAccounts().Any(a =>
+                    Radios.SmartLink.SmartLinkPresenceService.IsHolding(a)
+                    && !live.Contains(a));
+                if (!anyPending) break;
+            }
+
+            _presenceSettleDeadlineUtc = null;
+
+            // One final repaint AFTER the window closes, so a row whose session
+            // never came up stops saying "signing in" and says the true thing
+            // instead. Without this the last state the operator hears is the
+            // transitional one.
+            RefreshRadiosList();
+
+            Tracing.TraceLine(
+                "RigSelector: presence settle window closed; rows now report the session state they found (#382)",
+                System.Diagnostics.TraceLevel.Info);
+        }
+
         /// <summary>
         /// Re-render the list from <see cref="_radiosList"/>.
         /// </summary>
@@ -1670,6 +1960,12 @@ namespace JJFlexWpf.Dialogs
             // lock. Cheap enough to redo per refresh — a saved-account-sized
             // set built from a snapshot of at most a handful of sessions.
             var liveAccounts = LiveSessionAccounts();
+
+            // Read the settle window ONCE per refresh, so every row in a single
+            // repaint agrees about whether we are still waiting. Reading it per
+            // row could straddle the deadline and render two rows of the same
+            // account in two different states.
+            bool presenceSettling = PresenceStillSettling();
 
             // A LAN radio re-announces about once a second, and every
             // announcement used to tear the ListBox down and rebuild it —
@@ -1694,6 +1990,12 @@ namespace JJFlexWpf.Dialogs
                     r.BoundAccountHasLiveSession =
                         string.IsNullOrWhiteSpace(r.BoundAccount)
                         || liveAccounts.Contains(r.BoundAccount);
+                    // ...and, one state earlier again (#382): a session we
+                    // asked for and are still waiting on.
+                    r.BoundAccountSessionComingUp =
+                        !r.BoundAccountHasLiveSession
+                        && presenceSettling
+                        && Radios.SmartLink.SmartLinkPresenceService.IsHolding(r.BoundAccount);
                 }
 
                 StampModelAmbiguity();

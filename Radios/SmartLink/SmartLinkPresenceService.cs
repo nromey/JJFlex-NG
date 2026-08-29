@@ -49,12 +49,29 @@ namespace Radios.SmartLink
     /// connects before the operator's first remote action of the session —
     /// a LAN-only operator's app never dials out.
     /// </para>
+    ///
+    /// <para><b>Where the switch-on point lives, and why that is the whole of
+    /// #382.</b> This machinery was correct from the day it shipped and was
+    /// reachable from exactly one place: the end of a completed remote pass.
+    /// So a cold roster could not be live until the operator had already
+    /// connected somewhere remote — the one moment the roster existed to help
+    /// with. Opening the radio chooser with an account-bound row in it is now
+    /// also a switch-on point, because standing in front of a list of remote
+    /// radios deciding which to use IS a remote action. The guarantee above is
+    /// untouched: the condition tests the ROSTER, so a LAN-only operator has
+    /// nothing to trigger it.
+    /// </para>
     /// </summary>
     public static class SmartLinkPresenceService
     {
         private static readonly System.Threading.Lock _gate = new();
         private static bool _engaged;
         private static string _programName = "";
+
+        /// <summary>Accounts we are currently holding a session for. Rebuilt on
+        /// every ensure pass — see <see cref="HeldAccounts"/>.</summary>
+        private static readonly HashSet<string> _heldAccounts =
+            new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
         /// Produces a JWT for an account silently, or null when it would take
@@ -75,6 +92,36 @@ namespace Radios.SmartLink
         public static bool Engaged
         {
             get { lock (_gate) return _engaged; }
+        }
+
+        /// <summary>
+        /// The accounts this service is holding a session for right now — the
+        /// ones we have actually asked about.
+        ///
+        /// <para><b>This is deliberately NOT "the accounts with a live
+        /// session".</b> That question is already answered by the coordinator's
+        /// session table, and the two answers differ in exactly the window that
+        /// matters: between engaging and the TLS session coming up, an account
+        /// is held but not live. A consumer that can only see "live or not" has
+        /// to render that window as an absence — which is how a row would flash
+        /// "not signed in" on its way to a verdict, asserting the very thing
+        /// #340 removed, one state earlier.</para>
+        ///
+        /// <para>An account with no silent sign-in material is NEVER added, so
+        /// a row bound to a cleared sign-in still reads "not signed in"
+        /// immediately, which is true and is the one case the operator can act
+        /// on.</para>
+        /// </summary>
+        public static IReadOnlyCollection<string> HeldAccounts
+        {
+            get { lock (_gate) return _heldAccounts.ToArray(); }
+        }
+
+        /// <summary>True when a session is being held for this account.</summary>
+        public static bool IsHolding(string? email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return false;
+            lock (_gate) return _heldAccounts.Contains(email!);
         }
 
         /// <summary>
@@ -112,6 +159,14 @@ namespace Radios.SmartLink
                 return;
             }
 
+            // Built fresh and swapped in at the end of the pass, never mutated
+            // in place. An account DELETED from the manager never reaches the
+            // skip branch below, so an incremental set would keep reporting it
+            // as held forever — and a row bound to it would say we are signing
+            // in to an address that no longer exists. Rebuilding makes the set
+            // exactly what this pass found, which is the only thing it claims.
+            var nowHeld = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             int held = 0, skipped = 0;
             foreach (var account in accounts)
             {
@@ -123,6 +178,10 @@ namespace Radios.SmartLink
                 // sign-in re-runs this pass and picks it up.
                 if (string.IsNullOrEmpty(account.RefreshToken) && string.IsNullOrEmpty(account.IdToken))
                 {
+                    // Left out of nowHeld, so a sign-in cleared since the last
+                    // pass stops being reported as held — a row bound to it must
+                    // say "not signed in", which is true and is the one state
+                    // here the operator can act on.
                     skipped++;
                     Tracing.TraceLine($"SmartLinkPresence: skipping {account.Email} — no silent sign-in material", TraceLevel.Info);
                     continue;
@@ -150,12 +209,19 @@ namespace Radios.SmartLink
                         CurrentProgramName());
 
                     session.Connect();
+                    nowHeld.Add(account.Email);
                     held++;
                 }
                 catch (Exception ex)
                 {
                     Tracing.TraceLine($"SmartLinkPresence: could not hold session for {account.Email}: {ex.Message}", TraceLevel.Error);
                 }
+            }
+
+            lock (_gate)
+            {
+                _heldAccounts.Clear();
+                foreach (var e in nowHeld) _heldAccounts.Add(e);
             }
 
             Tracing.TraceLine(
