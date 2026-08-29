@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Sprint 41 Track C: the round trip's regression suite.
+
+       DELIBERATELY NOT IN JJFlexRadio.sln. Same footing as tools/refvoice —
+       the tool is run by hand and so is its suite. Keeping it out of the
+       solution also keeps it out of the way of a bare `dotnet test`, which is
+       a gesture this repo has learned to distrust.
+
+       Run: dotnet test tools\prose\Prose.Tests\Prose.Tests.csproj
+
+       These tests run against the REAL Fixer prose, copied into a throwaway
+       tree. A fixture of invented C# would prove the tool works on the C# the
+       tool's author imagined; this proves it on the file the operator is about
+       to edit. Nothing here writes into the working copy. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Prose.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Prose.csproj" />
+  </ItemGroup>
+</Project>
