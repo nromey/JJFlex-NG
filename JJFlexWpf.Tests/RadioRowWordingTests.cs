@@ -164,6 +164,90 @@ public sealed class RadioRowWordingTests
     }
 
     /// <summary>
+    /// The state between those two (#382). Opening the picker now dials the
+    /// accounts the roster depends on, which takes a second or two — long
+    /// enough for a screen reader to read the whole row. Without a word for
+    /// that window the row renders "not signed in" on its way to a verdict:
+    /// true of the instant, and a flicker through the exact sentence Noel read
+    /// on 2026-08-29 and called wrong.
+    /// </summary>
+    [Fact]
+    public void ARowWhoseAccountIsBeingDialledSaysThatRatherThanNotSignedIn()
+    {
+        var r = Row();
+        r.LastSeenText = "last seen 2 hours ago";
+        r.LastSeenViaAccount = "dbreda@example.com";
+        r.ForeignAccount = true;
+        r.BoundAccountHasLiveSession = false;
+        r.BoundAccountSessionComingUp = true;
+
+        Assert.Equal(
+            Lexicon.Get("connect.row.account_signing_in", ("account", "dbreda@example.com")),
+            r.WhereText);
+        Assert.DoesNotContain("not signed in", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("not heard from", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The positive control, and the bullet #382 was most at risk of papering
+    /// over. An account whose sign-in was CLEARED is never dialled — the
+    /// presence layer skips it rather than churning against it — so the coming-up
+    /// flag is never set for it and the row keeps saying "not signed in". That
+    /// is the one row here describing a real state the operator can act on, and
+    /// it also tells them what Enter is about to do.
+    /// </summary>
+    [Fact]
+    public void AClearedAccountIsNotDialledSoItsRowStillSaysNotSignedIn()
+    {
+        var r = Row();
+        r.LastSeenText = "last seen 2 hours ago";
+        r.LastSeenViaAccount = "dbreda@example.com";
+        r.ForeignAccount = true;
+        r.BoundAccountHasLiveSession = false;
+        r.BoundAccountSessionComingUp = false;
+
+        Assert.Contains("not signed in", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The other positive control: the coming-up state must not outlive the
+    /// session it describes. Once the account is live the row reports what the
+    /// account actually said, or a permanently-connecting row would be a
+    /// spinner that never stops — worse than the sentence it replaced, because
+    /// nothing about it suggests Enter has anything to do.
+    /// </summary>
+    [Fact]
+    public void OnceTheSessionIsUpTheComingUpWordingStopsApplying()
+    {
+        var r = Row();
+        r.LastSeenText = "last seen 2 hours ago";
+        r.LastSeenViaAccount = "dbreda@example.com";
+        r.ForeignAccount = true;
+        r.BoundAccountSessionComingUp = true;
+        r.BoundAccountHasLiveSession = true;
+
+        Assert.DoesNotContain("signing in", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not heard from", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// And it stays as narrow as the state it sits in front of. A LAN row with
+    /// no account behind it WAS asked, so nothing about a SmartLink session
+    /// coming up somewhere else may speak for it.
+    /// </summary>
+    [Fact]
+    public void ALanRowIsUntouchedByASessionComingUpElsewhere()
+    {
+        var r = Row();
+        r.LastSeenText = "last seen 2 hours ago";
+        r.BoundAccountHasLiveSession = false;
+        r.BoundAccountSessionComingUp = true;
+
+        Assert.Contains("last heard from 2 hours ago", r.WhereText);
+        Assert.DoesNotContain("signing in", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// And it stays narrow. A radio last seen on the LAN with no account behind
     /// it WAS asked — discovery settled and it did not answer — so an unsigned
     /// SmartLink account is no excuse for it.

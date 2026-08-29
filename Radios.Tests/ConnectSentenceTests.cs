@@ -247,5 +247,95 @@ namespace Radios.Tests
                 Lexicon.Get("connect.walk.failed_with_advice",
                     ("advice", "FLEX-8600 was not found on the local network.")));
         }
+
+        // ------------------------------------------------------------------
+        // The roster row's three account states (#340, #382)
+        //
+        // Assembled through connect.row.display, because that is the string a
+        // screen reader actually reads. The fragment "not signed in to
+        // dbreda@mail.com" is unobjectionable on its own; whether the finished
+        // row reads as a sentence is a different question, and it is the only
+        // one that matters. Sprint 38 shipped "last seen remote via SmartLink"
+        // out of two individually-correct fragments.
+        // ------------------------------------------------------------------
+
+        private static string Row(string whereText) =>
+            Lexicon.Get("connect.row.display",
+                ("fav", ""), ("autoConn", ""), ("lbw", ""),
+                ("namePart", "6300inshack"), ("modelPart", "FLEX-6300"),
+                ("whereText", whereText));
+
+        /// <summary>
+        /// The state #382 added, and the reason it had to exist: opening the
+        /// picker now dials the accounts the roster depends on, so for a second
+        /// or two the row is neither signed in nor unasked. Every clause is
+        /// about US — we are checking, we are signing in — which is the rule the
+        /// whole row family follows.
+        /// </summary>
+        [Fact]
+        public void A_row_whose_account_is_being_dialled_says_so_and_names_it()
+        {
+            Assert.Equal("checking, signing in to dbreda@mail.com",
+                Lexicon.Get("connect.row.account_signing_in",
+                    ("account", "dbreda@mail.com")));
+
+            Assert.Equal(
+                "6300inshack, FLEX-6300, checking, signing in to dbreda@mail.com",
+                Row(Lexicon.Get("connect.row.account_signing_in",
+                    ("account", "dbreda@mail.com"))));
+        }
+
+        /// <summary>
+        /// The settled sentence stays exactly as #340 shipped it. This is NOT a
+        /// state the fix removes: an account whose sign-in was cleared genuinely
+        /// is not signed in, and that is the one row here the operator can act
+        /// on — it also tells them what Enter is about to do.
+        /// </summary>
+        [Fact]
+        public void A_row_whose_account_has_no_sign_in_still_says_that_and_keeps_its_age()
+        {
+            var age = Lexicon.Get("connect.row.age_suffix",
+                ("lastSeenText", "last seen 3 days ago"));
+
+            Assert.Equal(
+                "6300inshack, FLEX-6300, not checked, not signed in to dbreda@mail.com, "
+                + "last seen 3 days ago",
+                Row(Lexicon.Get("connect.row.account_not_signed_in",
+                    ("account", "dbreda@mail.com"), ("age", age))));
+        }
+
+        /// <summary>
+        /// The transitional sentence carries no age, deliberately. It is about to
+        /// be replaced, and a "last seen 3 days ago" hung off the end is a clause
+        /// the operator listens past twice — once here and once on the verdict.
+        /// Pinned so a future author restoring symmetry with the settled string
+        /// has to decide to.
+        /// </summary>
+        [Fact]
+        public void The_transitional_sentence_does_not_carry_a_last_seen_age()
+        {
+            Assert.DoesNotContain("last seen",
+                Lexicon.Get("connect.row.account_signing_in", ("account", "dbreda@mail.com")),
+                System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// F2 answers "which halves have loaded?" on demand, and #382 gave it a
+        /// fourth answer. Without it F2 said "Remote not loaded." during the
+        /// very seconds the app was signing in to load it — a row reading is a
+        /// one-shot, and F2 is where an operator goes when they missed it.
+        /// </summary>
+        [Fact]
+        public void F2_can_say_that_remote_is_signing_in_rather_than_absent()
+        {
+            Assert.Equal("Remote signing in.",
+                Lexicon.Get("connect.selector.f2_remote_signing_in"));
+
+            Assert.Equal("Local loaded, still listening. Remote signing in. 1 radio online.",
+                Lexicon.Get("connect.selector.f2_summary",
+                    ("local", Lexicon.Get("connect.selector.f2_local_loaded")),
+                    ("remote", Lexicon.Get("connect.selector.f2_remote_signing_in")),
+                    ("count", Lexicon.Get("connect.selector.f2_count_one", ("live", 1)))));
+        }
     }
 }

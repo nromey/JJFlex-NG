@@ -5189,12 +5189,33 @@ namespace Radios
         /// <summary>
         /// Sprint 35 Track K (#259) — wire the presence hooks (idempotent),
         /// make sure THIS instance's intake hears attributed lists, and hold
-        /// one session per silently-signable saved account. Called at the end
-        /// of every remote pass; deliberately NOT called from purely local
-        /// flows or the background registration query, so a LAN-only operator
-        /// never grows N background TLS connections they did not ask for.
+        /// one session per silently-signable saved account.
+        ///
+        /// <para><b>Two call sites, one rule.</b> The end of every remote pass
+        /// (<c>setupRemote</c>), and the radio chooser opening onto a roster
+        /// that contains at least one account-bound row (#382). Still
+        /// deliberately NOT called from purely local flows or the background
+        /// registration query: a LAN-only operator must never grow N background
+        /// TLS connections they did not ask for.</para>
+        ///
+        /// <para><b>The second call site does not weaken that.</b> It is
+        /// conditioned on the ROSTER, never on a guess about intent — an
+        /// install that has only ever met radios on the LAN has no
+        /// account-bound row, so nothing there can trigger it. What it fixes is
+        /// the gate's POSITION: engagement used to require a COMPLETED remote
+        /// pass, so a cold roster could not be live until the operator had
+        /// already connected somewhere remote, which is the one moment the
+        /// roster existed to help with. Noel, cold app, 2026-08-29: "If Don's
+        /// radio is in my list, should it not at least sign in to check its
+        /// status?"</para>
+        ///
+        /// <para>Public because the caller is the WPF picker, in another
+        /// assembly. Kept as ONE method rather than a second entry point beside
+        /// it: two ways to engage presence is how the same idea grows two
+        /// implementations, and neither would conflict with the other at merge
+        /// time.</para>
         /// </summary>
-        private void EngageSmartLinkPresence()
+        public void EngageSmartLinkPresence()
         {
             try
             {
