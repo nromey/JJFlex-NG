@@ -245,6 +245,26 @@ namespace Radios.Fixer.Evidence
         }
 
         /// <summary>
+        /// Delete this run's file from the store and stop journalling — the
+        /// "exit without saving" path (#376). The run persists as it goes, so
+        /// once anything was recorded a file exists; an operator choosing to
+        /// abandon deliberately must actually remove it, or the option lies
+        /// in the other direction. False (traced by the store) when the file
+        /// could not be removed — the run then stays in the saved list, which
+        /// is the honest failure.
+        /// </summary>
+        public bool DeleteRecord()
+        {
+            _ended = true;   // whatever happens, nothing persists after a discard
+            try { return _store.Delete(_record); }
+            catch (Exception ex)
+            {
+                Trouble("deleting the run's file", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// The live-run staleness picture: which already-recorded stages a
         /// setting change (typically a fix) has just invalidated, each change
         /// named. Null when no fingerprints are wired.
