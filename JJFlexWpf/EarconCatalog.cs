@@ -196,7 +196,9 @@ namespace JJFlexWpf
         public static string CategoryDescription(EarconPlayer.EarconCategory? category) => category switch
         {
             EarconPlayer.EarconCategory.Connection =>
-                "Connect-phase counting tones and the success double-beep.",
+                "The connect ladder. One, two and three tones mark how far a connect has got, "
+                + "climbing in pitch as it goes, and the pair at the top — higher again, and the "
+                + "only loud one — means you are connected.",
             EarconPlayer.EarconCategory.Transmit =>
                 "Transmit start and stop, the PTT warning family, tune carrier and ATU.",
             EarconPlayer.EarconCategory.DialogsAndPanels =>
@@ -310,17 +312,23 @@ namespace JJFlexWpf
         {
             // #144 — connect-series audition candidates, Sprint 33 Track F.
             // Each plays the WHOLE series back to back: one tone, two, three,
-            // then the success pair, because the question is whether the four
-            // read as a family, not whether one tone is pleasant. They are not
-            // wired to any connect path. Delete these four and
-            // EarconPlayer.ConnectSeriesCandidate once one is chosen.
+            // then the success pair, on the shipped pitch ladder, because the
+            // question is whether the four read as a family, not whether one
+            // tone is pleasant. They are not wired to any connect path. Delete
+            // these and EarconPlayer.ConnectSeriesCandidate once an instrument
+            // is chosen.
+            //
+            // There were four. D is gone as of #379: it existed to demonstrate
+            // an arrival that rises instead of repeating phase 2 louder, and
+            // the shipped series does that now, so its label was advertising a
+            // fix for something already fixed.
             var connect = EarconPlayer.EarconCategory.Connection;
             yield return new EarconEntry
             {
                 Id = "ConnectSeriesCandidate.A",
                 Label = "Connect series candidate A, chime",
-                Description = "The whole connect series as struck chimes with a ringing tail. "
-                            + "Arrival sounds like arrival.",
+                Description = "The whole connect ladder as struck chimes with a ringing tail, "
+                            + "arrival included at its own louder level.",
                 Category = connect,
                 Order = 91,
                 Play = () => EarconPlayer.ConnectSeriesCandidate('A'),
@@ -329,8 +337,9 @@ namespace JJFlexWpf
             {
                 Id = "ConnectSeriesCandidate.B",
                 Label = "Connect series candidate B, struck and dry",
-                Description = "The whole connect series as short struck tones that fall away. "
-                            + "Crisper — a mechanical handshake rather than a bell.",
+                Description = "The whole connect ladder as short struck tones that fall away. "
+                            + "Crisper — a mechanical handshake rather than a bell. Judges the "
+                            + "instrument only: the arrival plays at the quiet level here.",
                 Category = connect,
                 Order = 92,
                 Play = () => EarconPlayer.ConnectSeriesCandidate('B'),
@@ -339,22 +348,12 @@ namespace JJFlexWpf
             {
                 Id = "ConnectSeriesCandidate.C",
                 Label = "Connect series candidate C, woody",
-                Description = "The whole connect series on odd harmonics, like a clarinet. "
-                            + "Nothing on the band sounds like this, which is the point.",
+                Description = "The whole connect ladder on odd harmonics, like a clarinet. "
+                            + "Nothing on the band sounds like this, which is the point. Judges "
+                            + "the instrument only: the arrival plays at the quiet level here.",
                 Category = connect,
                 Order = 93,
                 Play = () => EarconPlayer.ConnectSeriesCandidate('C'),
-            };
-            yield return new EarconEntry
-            {
-                Id = "ConnectSeriesCandidate.D",
-                Label = "Connect series candidate D, arrival rises",
-                Description = "Today's tone throughout, but the success pair rises instead of "
-                            + "repeating. Fixes the one real ambiguity: connect success is "
-                            + "currently the step-2 tone played louder.",
-                Category = connect,
-                Order = 94,
-                Play = () => EarconPlayer.ConnectSeriesCandidate('D'),
             };
 
             var cat = EarconPlayer.EarconCategory.TuningAndFilters;
