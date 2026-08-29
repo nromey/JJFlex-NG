@@ -1,0 +1,190 @@
+{
+  "_": [
+    "The Fixer's operator-facing words. Order is the order a person meets them:",
+    "the page around the checks, then the checks, then what they find, then the",
+    "refusals, the report, and the ways out.",
+    "",
+    "Adding a file here is all it takes to bring its words into the editing file.",
+    "Context files are parsed but never extracted from: they are where the",
+    "constants and the constructor parameter names live, and without them a key",
+    "reads as an argument position instead of as 'what is wrong with mme-in-use'."
+  ],
+
+  "id": "fixer",
+  "title": "The words the transmit checks say",
+  "blurb": "Everything the transmit checks put in front of an operator, pulled out of the code so it can be edited as writing. Change the words; the code keeps working.",
+  "editingFile": "tools/prose/fixer-prose.md",
+  "readingFile": "tools/prose/fixer-prose-read.md",
+
+  "files": [
+    {
+      "path": "Radios/Fixer/FixerPage.cs",
+      "group": "page",
+      "section": "The page around the checks",
+      "about": "The heading, the state-of-play sentence, the how-to bullets, the buttons and the words for each state a check can be in. This is the frame every check sits inside."
+    },
+    {
+      "path": "Radios/Fixer/TransmitStageSet.cs",
+      "group": "stage",
+      "section": "The checks themselves",
+      "about": "Each check's name, the question it asks, what it does, what pressing Run will do, and the two questions asked before anything transmits."
+    },
+    {
+      "path": "Radios/Fixer/AudioSetupCheck.cs",
+      "group": "finding",
+      "section": "What the audio setup check finds",
+      "about": "Stage 0's answer, and everything it can find wrong, with what to do about each one."
+    },
+    {
+      "path": "Radios/Fixer/TransmitStages.cs",
+      "group": "finding",
+      "section": "What the microphone and transmit checks find",
+      "about": "Stages 1 to 4: the answer each one gives, and everything they can find wrong."
+    },
+    {
+      "path": "Radios/Fixer/FixerTransmitGate.cs",
+      "group": "refusal",
+      "section": "When the tool refuses to transmit",
+      "about": "Every reason nothing was sent. These are heard at the moment an operator expected the radio to key, so they have to say what happened and what to do next."
+    },
+    {
+      "path": "Radios/Fixer/FixerReport.cs",
+      "group": "report",
+      "section": "The report",
+      "about": "The document the run becomes — the one that goes to a radio manufacturer."
+    },
+    {
+      "path": "JJFlexWpf/Dialogs/FixerDialog.cs",
+      "group": "window",
+      "section": "What the window says while you work",
+      "about": "Announcements, notices and the words for things that happen outside the page itself."
+    },
+    {
+      "path": "JJFlexWpf/Dialogs/FixerExitPrompt.cs",
+      "group": "exit",
+      "section": "Leaving the checks",
+      "about": "What you are asked on the way out, and what each answer costs."
+    },
+    {
+      "path": "JJFlexWpf/Dialogs/FixerPastRunsDialog.cs",
+      "group": "saved",
+      "section": "Saved runs",
+      "about": "The window that lists runs already made, and lets one be read again or carried on."
+    }
+  ],
+
+  "context": [
+    "Radios/Fixer/FixerStageSet.cs",
+    "Radios/Fixer/FixerFinding.cs",
+    "Radios/Fixer/FixerRun.cs",
+    "Radios/Fixer/FixerRunId.cs",
+    "Radios/ChainChecks/TxTuneProbe.cs"
+  ],
+
+  "shortProseMembers": [ "StatusPhrase" ],
+
+  "skipMembers": [ "Script", "Css", "PageScript", "EscapeScript", "ReceiveScript" ],
+
+  "slotLabels": {
+    "title": "its name",
+    "name": "its name",
+    "question": "the question it asks",
+    "explanation": "what this check does",
+    "describe-run-action": "what pressing Run will do",
+    "intro": "the introduction",
+    "label": "the label",
+    "what-is-wrong": "what is wrong",
+    "what-to-do": "what to do about it",
+    "what-it-means": "what skipping it means",
+    "effect-text": "what skipping it means",
+    "why-it-matters": "why it matters",
+    "question-now": "the question, when the radio is somewhere else",
+    "why-it-matters-now": "why it matters, when the radio is somewhere else",
+    "choices-now": "an answer, when the radio is somewhere else",
+    "answer": "the answer it gives",
+    "text": "the text",
+    "announcement": "what it announces",
+    "declarations-region-name": "the name of the questions section",
+    "help-text": "the help you hear on it",
+    "message": "the message"
+  },
+
+  "examples": {
+    "RunId": "TX-4K2P",
+    "OpenInputDevice": "Microphone (USB Audio CODEC)",
+    "OpenHostApi": "WASAPI",
+    "Remaining": "three",
+    "ResolvedStageCount": "five",
+    "Stamp2": "2026-08-29 14:07 UTC",
+    "yesOrNo": "yes",
+    "Join": "the open input device is not the one you chose",
+    "ValueOrNot": "not read",
+    "NameOr": "Microphone (USB Audio CODEC)",
+    "name": "Microphone (USB Audio CODEC)",
+    "ConfiguredInputDevice": "Microphone (USB Audio CODEC)",
+    "OpenOutputDevice": "Speakers (Realtek High Definition Audio)",
+    "HostApiPhrase": " through WASAPI",
+    "hostApi": "WASAPI",
+    "Stamp": "2026-08-29 14:02 UTC",
+    "Number": "3",
+    "DisplayName": "Shack bench, Thursday",
+    "StageSetName": "Transmit",
+    "OpenSampleRateHz": "48,000",
+    "OpenChannels": "one",
+    "Round": "2",
+    "Tristate": "no",
+    "Db": "minus 12",
+    "threshold": "minus 45 dBFS",
+    "Threshold": "minus 45 dBFS",
+    "ThresholdMarginDb": "6",
+    "transmitPowerWatts": "25",
+    "TransmitPowerWatts": "25",
+    "unreadable": "one",
+    "Unreadable": "one",
+    "answered": "A dummy load",
+    "loadDeclaration": "a dummy load",
+    "onOrOff": "on",
+    "v": "yes",
+    "summary": "Five checks. Two passed, three not yet run.",
+    "HearingEvidence": " You said you can hear the radio.",
+    "HelpTopic": "fixer/transmit/audio-setup",
+    "Id": "audio-setup",
+    "GetFileName": "TX-4K2P.html",
+    "fixer.page.summary.text-6#Join": ". Two passed, three not yet run",
+    "MaxRunsKept": "200",
+    "AtInto": " at 25 watts into ANT1",
+    "SecondsPhrase": "two seconds",
+    "port": "ANT1",
+    "AntennaPort": "ANT1",
+    "LowPowerCeilingWatts": "25",
+    "SuggestedInputDevice": "Microphone (USB Audio CODEC)",
+    "DeclarationsRegionName": "Before anything transmits",
+    "StageLabel": "Stage 3: Injected transmit",
+    "StatusPhrase": "passed",
+    "StatusSymbol": "check mark",
+    "Name": "Transmit",
+    "Summary": "Five checks. Two passed, three not yet run. Nothing has keyed the radio.",
+    "Answer": "Your microphone peaked at minus 12 dBFS.",
+    "Count": "two",
+    "Cap": "Five",
+    "into": "a dummy load",
+    "Value": "A dummy load",
+    "Message": "the device was not available",
+    "WhatIsWrong": "PC audio is currently switched off",
+    "WhatToDo": "Turn PC audio on",
+    "Explanation": "what this check does",
+    "Question": "Is sound from your microphone arriving in this computer?",
+    "Label": "A dummy load",
+    "Title": "Microphone check",
+    "watts": "25",
+    "Watts": "25",
+    "Peak": "minus 12",
+    "Lufs": "minus 23",
+    "Device": "Microphone (USB Audio CODEC)",
+    "HostApi": "WASAPI",
+    "Now": "2026-08-29 14:02 UTC",
+    "AtUtc": "2026-08-29 14:02 UTC",
+    "UnreadableNote": " One could not be read.",
+    "WhatItBecame": "the input is now WASAPI"
+  }
+}

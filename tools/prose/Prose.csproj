@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Sprint 41 Track C (#380): the round trip that lets the words the app
+       says be edited as WRITING rather than as code.
+
+       WHY THIS EXISTS. The Fixer's operator-facing prose lives as inline C#
+       string literals, wrapped across lines and joined with '+'. Tuning three
+       words in the middle of that means finding the right literal, minding the
+       escaping, minding the wrap, and never seeing the sentence the operator
+       will actually hear. For an editor working with a screen reader, every one
+       of those is friction paid on every edit, and there are hundreds of
+       strings.
+
+       WHAT IT DOES. `extract` reads the source and writes one markdown file
+       whose headings are the strings and whose paragraphs are the ASSEMBLED
+       sentences — a stem plus a suffix plus a fragment appears as the one
+       sentence it becomes, with runtime values shown filled in. `apply` reads
+       that file back and writes only the sentences that changed, into the
+       exact literals they came from.
+
+       NOT part of the app build or the solution — same footing as
+       tools/refvoice. It is run by hand and its output is committed.
+
+       Run:  tools\prose\prose extract
+             tools\prose\prose read
+             tools\prose\prose check
+             tools\prose\prose apply
+
+       ROSLYN, NOT REGEX, ON PURPOSE. The strings this walks are concatenations
+       split across lines, some of them inside fluent StringBuilder chains with
+       live values spliced between the halves. That is precisely the shape a
+       text scan gets wrong, and getting it wrong here means writing malformed
+       C# into a file the operator's radio control depends on. The syntax tree
+       gives exact spans, so a rewrite touches the literal and nothing else, and
+       the result is re-parsed before a byte reaches disk. Radios.Tests already
+       takes this package for the same reason (FieldKeyMapScan). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>prose</AssemblyName>
+    <RootNamespace>Prose</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="surfaces\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The suite is its own project; without this the SDK's **/*.cs glob
+         compiles it into the tool. -->
+    <Compile Remove="Prose.Tests\**" />
+    <None Remove="Prose.Tests\**" />
+  </ItemGroup>
+</Project>
