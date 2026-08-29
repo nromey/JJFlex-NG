@@ -478,15 +478,15 @@ Inside the Load Preset picker, the `Delete` key (or the Delete button) deletes t
 
 A note for anyone whose fingers learned the old way: Save Preset used to respond to its `Alt+S` button mnemonic, which also swallowed `Alt+Shift+S` — the global Speak Transmit Status key — while the workshop was focused. That mnemonic is gone; `Ctrl+S` is the Save key now, and the transmit status query is no longer blocked by the workshop.
 
-## Transmit checks
+## Transmit tests
 
-The transmit checks (Tools, then Fix) key your radio on purpose, so the way out matters more here than anywhere else in the app.
+The transmit tests (Tools, then Fix) key your radio on purpose, so the way out matters more here than anywhere else in the app.
 
-**Escape** stops the check. While the carrier is up it drops it first and asks questions afterwards — no confirmation stands between you and stopping your own transmission. The Stop everything button at the top of the page does the same thing — it stops whatever is happening right now, transmit included, which is why it isn't called plain "Stop".
+**Escape** stops the test. While the carrier is up it drops it first and asks questions afterwards — no confirmation stands between you and stopping your own transmission. The Stop everything button at the top of the page does the same thing — it stops whatever is happening right now, transmit included, which is why it isn't called plain "Stop".
 
-Leaving the checks is a separate decision, and it's never silent once you've recorded anything: press Escape with nothing running, or close the window, and you choose what happens to the run — keep going, exit without saving, or stop and pick it up later from Saved check runs on the Fix menu. The run saves itself as it goes, so stopping part-way loses nothing you've already measured.
+Leaving the tests is a separate decision, and it's never silent once you've recorded anything: press Escape with nothing running, or close the window, and you choose what happens to the run — keep going, exit without saving, or stop and pick it up later from View or resume saved test runs on the Fix menu. The run saves itself as it goes, so stopping part-way loses nothing you've already measured.
 
-Escape reaches the transmitter even while a check is mid-measurement and the window is busy, and it tells you what happened: an alert tone the moment you press, then either "Transmit stopped" or — if the radio didn't obey — that it still says it's transmitting and you should switch it off at the front panel. Those two are deliberately different sentences, because a stop that failed must never sound like one that worked.
+Escape reaches the transmitter even while a test is mid-measurement and the window is busy, and it tells you what happened: an alert tone the moment you press, then either "Transmit stopped" or — if the radio didn't obey — that it still says it's transmitting and you should switch it off at the front panel. Those two are deliberately different sentences, because a stop that failed must never sound like one that worked.
 
 ## Scanning
 

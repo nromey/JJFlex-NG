@@ -61,6 +61,33 @@ namespace Radios.ChainChecks
                 return f;
             }
 
+            // THE SLICE COMES FIRST, because the signal path does: a slice's
+            // own mute and volume sit UPSTREAM of every output the radio has
+            // and of the network stream as well, so a muted slice is silent in
+            // all of them at once.
+            //
+            // This rung existed only in a sentence until 2026-08-29 (#367).
+            // The Audio Workshop's all-clear text ended "if the radio is still
+            // silent, check the slice volume and that a slice is not muted" —
+            // real advice, in a hand-written string that no rule, no fact and
+            // no evidence line stood behind. Joining the two doors retired that
+            // string, and a rung that lives only in retired prose is a rung
+            // that is gone. It is a check now.
+            Probe(f, "active-slice", LabelFor("active-slice"),
+                  () => DiagnosticFact.Flag("active-slice", LabelFor("active-slice"),
+                                            rig.HasActiveSlice, "the radio"));
+            Probe(f, "slice-muted", LabelFor("slice-muted"),
+                  () => DiagnosticFact.Flag("slice-muted", LabelFor("slice-muted"),
+                                            rig.SliceMute, "the radio"));
+            // AudioGain reads zero when there is no active slice, so every rule
+            // that touches this fact is gated on active-slice. Without that
+            // gate a radio with no slice would be told its volume is at zero,
+            // which is a control that is not there rather than a control set
+            // wrongly.
+            Probe(f, "slice-level", LabelFor("slice-level"),
+                  () => DiagnosticFact.Measure("slice-level", LabelFor("slice-level"),
+                                               rig.AudioGain, "", "the radio"));
+
             Probe(f, "headphone-muted", LabelFor("headphone-muted"),
                   () => DiagnosticFact.Flag("headphone-muted", LabelFor("headphone-muted"),
                                             rig.HeadphoneMute, "the radio"));
@@ -423,6 +450,9 @@ namespace Radios.ChainChecks
         /// <summary>The facts read off the radio's own settings.</summary>
         private static IEnumerable<string> RadioFactNames()
         {
+            yield return "active-slice";
+            yield return "slice-muted";
+            yield return "slice-level";
             yield return "headphone-muted";
             yield return "lineout-muted";
             yield return "front-speaker-muted";
@@ -450,6 +480,12 @@ namespace Radios.ChainChecks
         {
             switch (name)
             {
+                // "Slice" deliberately, not "receiver": it is the word the
+                // radio uses, the word the Mute Slice command uses, and the
+                // word an operator will find on the Audio panel.
+                case "active-slice": return "A slice is receiving";
+                case "slice-muted": return "The slice you are listening to is muted";
+                case "slice-level": return "Slice volume";
                 case "headphone-muted": return "The headphone output is muted";
                 case "lineout-muted": return "The line out output is muted";
                 case "front-speaker-muted": return "The front speaker is muted";

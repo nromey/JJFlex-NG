@@ -534,11 +534,16 @@ namespace Radios.Tests
         }
 
         /// <summary>A connected radio with nothing wrong on the settings side,
-        /// so only stage 4 can decide anything.</summary>
+        /// so only the measurement stage can decide anything.</summary>
         private static DiagnosticFacts Silent(bool pcAudio, bool remote = true)
         {
             var f = new DiagnosticFacts();
             f.Add(DiagnosticFact.Flag("radio-connected", "A radio is connected", true));
+            // The slice rung (#367). Present and healthy, because this helper's
+            // whole job is a settings side with nothing wrong on it.
+            f.Add(DiagnosticFact.Flag("active-slice", "A slice is receiving", true));
+            f.Add(DiagnosticFact.Flag("slice-muted", "The slice you are listening to is muted", false));
+            f.Add(DiagnosticFact.Measure("slice-level", "Slice volume", 60));
             f.Add(DiagnosticFact.Flag("headphone-muted", "The headphone output is muted", false));
             f.Add(DiagnosticFact.Flag("lineout-muted", "The line out output is muted", false));
             f.Add(DiagnosticFact.Flag("front-speaker-muted", "The front speaker is muted", false));
@@ -563,7 +568,13 @@ namespace Radios.Tests
             return f;
         }
 
-        private static StageResult Stage4(ChainReport r) => r.Stages.Single(s => s.Stage.Number == 4);
+        /// <summary>The measurement stage. Numbered 5 since the slice rung joined
+        /// the walk at stage 1 (#367) — named rather than numbered here so the
+        /// next insertion costs one line instead of twenty.</summary>
+        private const int MeasurementStageNumber = 5;
+
+        private static StageResult Stage4(ChainReport r)
+            => r.Stages.Single(s => s.Stage.Number == MeasurementStageNumber);
 
         [Fact]
         public void The_shipped_rules_still_parse_with_the_measurement_stage_in_them()
@@ -572,7 +583,7 @@ namespace Radios.Tests
             Assert.True(set.Problems.Count == 0,
                         "the shipped receive rule file did not parse cleanly:" + Environment.NewLine
                         + string.Join(Environment.NewLine, set.Problems));
-            Assert.Contains(set.Stages, s => s.Number == 4);
+            Assert.Contains(set.Stages, s => s.Number == MeasurementStageNumber);
             foreach (string id in new[] { "rx-nothing-arriving", "rx-meters-but-no-audio",
                                           "rx-data-but-no-audio" })
                 Assert.True(set.Rules.Any(r => r.Id == id), "rule \"" + id + "\" is missing");
@@ -584,7 +595,7 @@ namespace Radios.Tests
             // The gate is not optional. An ungated rule here accuses every
             // operator listening on the radio's own speaker.
             DiagnosticRuleSet set = Rules();
-            foreach (DiagnosticRule rule in set.RulesFor(4))
+            foreach (DiagnosticRule rule in set.RulesFor(MeasurementStageNumber))
             {
                 Assert.True(rule.Needs.Any(c => string.Equals(c.FactName, "pc-audio",
                                                               StringComparison.OrdinalIgnoreCase)),
@@ -698,7 +709,8 @@ namespace Radios.Tests
             ChainReport r = ChainAnalyzer.Run(Rules(), f);
 
             Assert.NotNull(r.FirstBroken);
-            Assert.Equal(1, r.FirstBroken.Stage.Number);
+            // The radio's outputs, which the slice rung pushed from 1 to 2.
+            Assert.Equal(2, r.FirstBroken.Stage.Number);
         }
 
         [Fact]

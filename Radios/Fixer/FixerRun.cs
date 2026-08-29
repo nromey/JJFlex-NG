@@ -283,7 +283,7 @@ namespace Radios.Fixer
                 status = FixerStageStatus.CouldNotRun;
                 outcome = new FixerOutcome
                 {
-                    Answer = "This check could not run: the application did not supply the "
+                    Answer = "This test could not run: the application did not supply the "
                            + "code that performs it. Nothing was measured"
                            + (stage.Transmits ? " and nothing was transmitted" : "") + ".",
                 };
@@ -297,7 +297,7 @@ namespace Radios.Fixer
                     var context = new FixerStageContext(RunId, stage, cancel, ResultFor);
                     outcome = stage.Execute(context) ?? new FixerOutcome
                     {
-                        Answer = "The check ran and reported nothing at all, which is itself "
+                        Answer = "The test ran and reported nothing at all, which is itself "
                                + "worth knowing — there is no measurement here.",
                     };
                     status = FixerStageStatus.Ran;
@@ -307,7 +307,7 @@ namespace Radios.Fixer
                     status = FixerStageStatus.CouldNotRun;
                     outcome = new FixerOutcome
                     {
-                        Answer = "This check failed part-way and produced no result: " + ex.Message,
+                        Answer = "This test failed part-way and produced no result: " + ex.Message,
                         Evidence = ex.ToString(),
                     };
                     Tracing.TraceLine("FixerRun " + RunId + ": stage '" + stage.Id

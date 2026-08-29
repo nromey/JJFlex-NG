@@ -110,8 +110,8 @@ namespace Radios.Fixer.Evidence
                 }
 
                 plumbing.Start((setName ?? "").Trim().Length > 0
-                    ? setName.Trim() + " checks run " + runId
-                    : "Check run " + runId);
+                    ? setName.Trim() + " tests run " + runId
+                    : "Test run " + runId);
 
                 // Trust the state, not the call: a Start that failed silently
                 // must not leave this scope believing it owns a capture, or

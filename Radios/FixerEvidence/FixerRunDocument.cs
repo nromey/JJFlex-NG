@@ -62,7 +62,7 @@ namespace Radios.Fixer.Evidence
         public static string Title(FixerRunRecord record)
         {
             if (record == null) throw new ArgumentNullException(nameof(record));
-            string title = record.StageSetName + " check report — run " + record.RunId;
+            string title = record.StageSetName + " test report — run " + record.RunId;
             return string.IsNullOrWhiteSpace(record.Label)
                 ? title
                 : title + " (" + record.Label.Trim() + ")";
@@ -108,7 +108,7 @@ namespace Radios.Fixer.Evidence
             var s = new EvidenceSection { Title = "How to read this document" };
 
             s.Para("This is a saved record of one run of JJ Flexible's "
-                 + record.StageSetName + " checks. Test ID: " + record.RunId + ".");
+                 + record.StageSetName + " tests. Test ID: " + record.RunId + ".");
 
             if (!string.IsNullOrWhiteSpace(record.Label))
                 s.Para("The operator named this run \"" + record.Label.Trim() + "\". The Test "
@@ -179,8 +179,8 @@ namespace Radios.Fixer.Evidence
                 return s;
             }
 
-            s.Para("Each check records the settings it depends on, at the values they held "
-                 + "the moment it ran. A check listing no settings either declared none or "
+            s.Para("Each test records the settings it depends on, at the values they held "
+                 + "the moment it ran. A test listing no settings either declared none or "
                  + "ran before they could be read; either way nothing was recorded, and the "
                  + "absence is stated rather than filled in.");
 
@@ -209,7 +209,7 @@ namespace Radios.Fixer.Evidence
                 bool superseded = latest.TryGetValue(r.StageId ?? "", out RecordedStage newest)
                                   && !ReferenceEquals(newest, r);
                 string note = superseded
-                    ? " This measurement was later replaced by a re-run of the same check; it "
+                    ? " This measurement was later replaced by a re-run of the same test; it "
                       + "is kept here because it happened."
                     : "";
 
@@ -247,7 +247,7 @@ namespace Radios.Fixer.Evidence
             if (record.Sittings.Count > 1)
             {
                 s.Para("This run was worked on in " + record.Sittings.Count
-                     + " separate sittings. The checks in this document were NOT all "
+                     + " separate sittings. The tests in this document were NOT all "
                      + "measured in one continuous session: each carries its own timestamp "
                      + "and the conditions it ran under, and should be read that way.");
             }

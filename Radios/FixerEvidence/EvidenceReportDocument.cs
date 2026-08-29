@@ -14,6 +14,35 @@ namespace Radios.Fixer.Evidence
         public EvidenceItem(EvidenceItemKind kind, string text) { Kind = kind; Text = text ?? ""; }
     }
 
+    /// <summary>
+    /// Splitting an assembled passage into its paragraphs, in one place so the
+    /// page and the report cannot disagree about where the breaks fall.
+    /// </summary>
+    public static class Paragraphs
+    {
+        /// <summary>
+        /// The blocks of a passage: text separated by a blank line, trimmed,
+        /// with empties dropped. A passage with no blank line in it comes back
+        /// as itself, so every existing caller is unchanged.
+        /// </summary>
+        public static IReadOnlyList<string> Split(string text)
+        {
+            var blocks = new List<string>();
+            if (string.IsNullOrWhiteSpace(text)) return blocks;
+
+            // Normalise first: the parts are assembled by different code on
+            // different platforms and a stray \r would leave a block that looks
+            // blank and is not.
+            string normalised = (text ?? "").Replace("\r\n", "\n").Replace('\r', '\n');
+            foreach (string block in normalised.Split(new[] { "\n\n" }, StringSplitOptions.None))
+            {
+                string trimmed = block.Trim();
+                if (trimmed.Length != 0) blocks.Add(trimmed);
+            }
+            return blocks;
+        }
+    }
+
     public sealed class EvidenceSection
     {
         public string Title = "";
@@ -21,6 +50,23 @@ namespace Radios.Fixer.Evidence
         public void Para(string t) => Items.Add(new EvidenceItem(EvidenceItemKind.Paragraph, t));
         public void Bullet(string t) => Items.Add(new EvidenceItem(EvidenceItemKind.Bullet, t));
         public void Pre(string t) => Items.Add(new EvidenceItem(EvidenceItemKind.Preformatted, t));
+
+        /// <summary>
+        /// One paragraph per blank-line-separated block, so a passage assembled
+        /// from parts reads as parts.
+        /// </summary>
+        /// <remarks>
+        /// Added when stage 0 grew its receive half (#367) and its answer became
+        /// one unbroken run of six sentences. A screen reader will read a long
+        /// paragraph perfectly well; what it cannot do is let the operator step
+        /// past the half they have already heard. Paragraphs are the cheapest
+        /// navigation there is, and the text already carried the breaks — only
+        /// the renderer was flattening them.
+        /// </remarks>
+        public void Paras(string t)
+        {
+            foreach (string block in Paragraphs.Split(t)) Para(block);
+        }
     }
 
     /// <summary>

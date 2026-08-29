@@ -317,7 +317,7 @@ namespace Radios.Tests
             facts.OperatorHearsRadio = HeardRadio.NoRadio;
             FixerOutcome outcome = AudioSetupCheck.Analyze(facts);
             Assert.Contains("no radio connected, by their own account", outcome.Evidence);
-            Assert.Contains("checks that need one will wait", outcome.Answer);
+            Assert.Contains("tests that need one will wait", outcome.Answer);
         }
     }
 }

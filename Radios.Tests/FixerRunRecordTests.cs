@@ -205,9 +205,9 @@ namespace Radios.Tests
             string html = FixerRunExport.StandaloneHtml(record);
 
             Assert.Contains("<!DOCTYPE html>", html);
-            Assert.Contains("<h1>Kettle check report — run AAA-222</h1>", html);
+            Assert.Contains("<h1>Kettle test report — run AAA-222</h1>", html);
             Assert.Contains(record.ReportHtml, html);   // verbatim — a shell, not a renderer
-            Assert.Contains("<title>Kettle check report — run AAA-222</title>", html);
+            Assert.Contains("<title>Kettle test report — run AAA-222</title>", html);
         }
 
         [Fact]

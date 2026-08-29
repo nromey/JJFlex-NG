@@ -24,7 +24,7 @@ namespace JJFlexWpf.Dialogs;
 /// <para>
 /// Viewing reuses the report baked when the capture stopped, inside
 /// <see cref="HtmlInfoDialog.ShowHtml"/> — the #246 document pattern, same as
-/// the saved check runs. No second renderer exists on this path, and a stored
+/// the saved test runs. No second renderer exists on this path, and a stored
 /// capture is never re-analyzed: the report describes the window as it was
 /// measured.
 /// </para>

@@ -111,12 +111,29 @@ namespace Radios.Fixer
             sb.AppendLine("<head>");
             sb.AppendLine("<meta charset=\"utf-8\">");
             sb.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-            // Named by the CHECK, not by a product noun (Noel, 2026-08-25).
+            // Named by the TEST, not by a product noun (Noel, 2026-08-25).
             // "Fixer" remains the internal name; the operator reads
-            // "Transmit checks", and a future receive set reads "Receive
-            // checks" with nothing to rename.
+            // "Transmit tests", and a future set reads its own name with
+            // nothing to rename.
+            //
+            // ── THE WORD IS "TEST" (#381) ────────────────────────────────
+            //
+            // This tool said "checks" here and "tests" in the exit prompt, in
+            // the same session, about the same thing — the duplication defect
+            // in the vocabulary layer, arrived by the ordinary route of each
+            // string being written correctly on its own day. Noel's own usage
+            // settled it: "stop tests and resume later", "run the tests".
+            //
+            // A STAGE OF A RUN IS A TEST. The analyzer's own counting keeps
+            // the word CHECK for one evaluated rule — "Checked 14 of 19
+            // checks" — because those are different things and one run of one
+            // test makes many of them. Renaming those too would have traded a
+            // duplication for an ambiguity.
+            //
+            // Deliberately mechanical, so reversing it is one pass: grep the
+            // Fixer surfaces plus the Fix submenu for the word.
             sb.Append("<title>").Append(Esc(set.Name))
-              .Append(" checks — Test ").Append(Esc(run.RunId)).AppendLine("</title>");
+              .Append(" tests — Test ").Append(Esc(run.RunId)).AppendLine("</title>");
             sb.AppendLine("<style>").AppendLine(Css).AppendLine("</style>");
             sb.AppendLine("</head>");
             sb.Append("<body data-run=\"").Append(Attr(run.RunId)).AppendLine("\">");
@@ -214,7 +231,7 @@ namespace Radios.Fixer
 
         private static void Header(StringBuilder sb, FixerRun run, FixerPageState state)
         {
-            sb.Append("<h1>").Append(Esc(run.Set.Name)).AppendLine(" checks</h1>");
+            sb.Append("<h1>").Append(Esc(run.Set.Name)).AppendLine(" tests</h1>");
 
             // The state of play in one sentence — the job the tablist did
             // badly, done in prose where a screen reader meets it first.
@@ -278,7 +295,7 @@ namespace Radios.Fixer
             if (failed > 0) parts.Add(Count(failed) + " could not run");
             if (notRun > 0) parts.Add(Count(notRun) + " not yet run");
 
-            string counts = Cap(Count(run.Set.Stages.Count)) + " checks"
+            string counts = Cap(Count(run.Set.Stages.Count)) + " tests"
                 + (parts.Count > 0 ? ". " + Cap(string.Join(", ", parts)) + "." : ".");
 
             string keyed = state.TransmitCount <= 0
@@ -355,14 +372,14 @@ namespace Radios.Fixer
             sb.AppendLine("<h2 id=\"howto-heading\" tabindex=\"-1\">Using this page</h2>");
             sb.Append("<details data-stage=\"").Append(HowToUseKey).Append('"')
               .AppendLine(open ? " open>" : ">");
-            sb.AppendLine("<summary>How to move through the checks, and how to leave"
+            sb.AppendLine("<summary>How to move through the tests, and how to leave"
                         + "</summary>");
             sb.AppendLine("<ul>");
-            sb.AppendLine("<li>Each check is a heading. Your screen reader's heading keys "
+            sb.AppendLine("<li>Each test is a heading. Your screen reader's heading keys "
                         + "move between them, Tab reaches the controls, and F6 or Shift+F6 "
                         + "jumps between the sections of the page.</li>");
-            sb.AppendLine("<li>The checks run in order. Each answer you give and each "
-                        + "check you run carries you to the next thing to do, so you can "
+            sb.AppendLine("<li>The tests run in order. Each answer you give and each "
+                        + "test you run carries you to the next thing to do, so you can "
                         + "walk the whole run without going backwards.</li>");
             // The leave bullet states only what is true THIS run: the saved
             // wording is a promise, and a promise over a journal that never
@@ -370,7 +387,8 @@ namespace Radios.Fixer
             sb.Append("<li>").Append(state.RunIsSaved
                 ? "To leave, press Escape or close the window. Once anything has been "
                   + "recorded you choose on the way out: keep the run to pick up later "
-                  + "from Saved check runs, on the Fix menu, or leave without keeping it."
+                  + "from View or resume saved test runs, on the Fix menu, or leave "
+                  + "without keeping it."
                 : "To leave, press Escape or close the window. If the run has recorded "
                   + "anything, you are asked before it is lost.").AppendLine("</li>");
             sb.AppendLine("<li>Stop everything, above, is the emergency control: it stops "
@@ -575,7 +593,7 @@ namespace Radios.Fixer
             if (stage.Transmits)
             {
                 sb.Append("<p id=\"tx-note-").Append(Attr(stage.Id))
-                  .AppendLine("\">This check transmits.</p>");
+                  .AppendLine("\">This test transmits.</p>");
                 describedBy += " tx-note-" + Attr(stage.Id);
             }
 
@@ -618,7 +636,7 @@ namespace Radios.Fixer
 
             if (result == null)
             {
-                sb.AppendLine("<p>Not checked yet.</p>");
+                sb.AppendLine("<p>Not run yet.</p>");
                 RunButton(sb, stage, describedBy, again: false, primary: true);
                 HostActionButtons(sb, stage);
                 SkipControls(sb, stage);
@@ -654,7 +672,7 @@ namespace Radios.Fixer
                     fallback: current && result == null);
                 sb.Append("<details data-stage=\"").Append(Attr(stage.Id)).Append('"')
                   .AppendLine(open ? " open>" : ">");
-                sb.AppendLine("<summary>What this check does</summary>");
+                sb.AppendLine("<summary>What this test does</summary>");
                 sb.Append("<p>").Append(Esc(stage.Explanation)).AppendLine("</p>");
                 sb.AppendLine("</details>");
             }
@@ -662,7 +680,7 @@ namespace Radios.Fixer
             if (stage.HelpTopic.Length > 0)
                 sb.Append("<p><a href=\"jjflex-help:").Append(Attr(stage.HelpTopic))
                   .Append("\" data-topic=\"").Append(Attr(stage.HelpTopic))
-                  .AppendLine("\">Help with this check</a></p>");
+                  .AppendLine("\">Help with this test</a></p>");
 
             sb.AppendLine("</section>");
         }
@@ -687,7 +705,7 @@ namespace Radios.Fixer
               .Append("\" data-action=\"").Append(again ? "rerun" : "run")
               .Append("\" data-arg=\"").Append(Attr(stage.Id))
               .Append("\" aria-describedby=\"").Append(describedBy)
-              .Append("\">").Append(again ? "Run this check again" : "Run this check")
+              .Append("\">").Append(again ? "Run this test again" : "Run this test")
               .AppendLine("</button></p>");
         }
 
@@ -749,7 +767,14 @@ namespace Radios.Fixer
         private static void ResultBlock(StringBuilder sb, FixerStage stage,
                                         FixerStageResult result)
         {
-            sb.Append("<p>").Append(Esc(result.Answer)).AppendLine("</p>");
+            // ONE PARAGRAPH PER BLOCK. Stage 0's answer is assembled from the
+            // computer's half and the receive half (#367), and rendered as a
+            // single <p> it was one unbroken run of six sentences with no way
+            // for a screen reader user to step past the half they had already
+            // heard. The split rule lives in Evidence.Paragraphs so this page
+            // and the report cannot disagree about where the breaks fall.
+            foreach (string block in Radios.Fixer.Evidence.Paragraphs.Split(result.Answer))
+                sb.Append("<p>").Append(Esc(block)).AppendLine("</p>");
 
             if (result.Status == FixerStageStatus.Ran)
             {

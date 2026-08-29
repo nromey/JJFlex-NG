@@ -112,7 +112,7 @@ namespace Radios.Tests
 
             ArgumentException ex = Assert.Throws<ArgumentException>(
                 () => FixerRunJournal.Resume(run, store, null, record));
-            Assert.Contains("different set of checks", ex.Message);
+            Assert.Contains("different set of tests", ex.Message);
         }
 
         [Fact]

@@ -165,11 +165,11 @@ namespace Radios.Tests
             // including the transmit fact a blind operator cannot glance at.
             var run = SimpleRun();
             string html = FixerPage.Render(run);
-            Assert.Contains("Two checks. Two not yet run. Nothing has keyed the radio.", html);
+            Assert.Contains("Two tests. Two not yet run. Nothing has keyed the radio.", html);
 
             run.RunStage("fill");
             html = FixerPage.Render(run, new FixerPageState { TransmitCount = 1 });
-            Assert.Contains("Two checks. One passed, one not yet run. "
+            Assert.Contains("Two tests. One passed, one not yet run. "
                           + "The radio has been keyed once this run.", html);
         }
 
@@ -209,7 +209,7 @@ namespace Radios.Tests
                 "<details data-stage=\"how-to-use\"[^>]*>");
             Assert.True(closedDetails.Success, "no how-to disclosure");
             Assert.DoesNotContain("open", closedDetails.Value);
-            Assert.Contains("How to move through the checks, and how to leave",
+            Assert.Contains("How to move through the tests, and how to leave",
                             closedHtml);
 
             string openHtml = FixerPage.Render(SimpleRun(),
@@ -247,10 +247,10 @@ namespace Radios.Tests
             // opened it would be silent data loss with a reassuring voice.
             string saved = FixerPage.Render(SimpleRun(),
                 new FixerPageState { RunIsSaved = true });
-            Assert.Contains("Saved check runs, on the Fix menu", saved);
+            Assert.Contains("View or resume saved test runs, on the Fix menu", saved);
 
             string unsaved = FixerPage.Render(SimpleRun());
-            Assert.DoesNotContain("Saved check runs", unsaved);
+            Assert.DoesNotContain("View or resume saved test runs", unsaved);
             Assert.Contains("you are asked before it is lost", unsaved);
         }
 
@@ -507,8 +507,8 @@ namespace Radios.Tests
             string boil = CardOf(FixerPage.Render(SimpleRun()), "boil");
             string fill = CardOf(FixerPage.Render(SimpleRun()), "fill");
 
-            Assert.Contains("This check transmits.", boil);
-            Assert.DoesNotContain("This check transmits.", fill);
+            Assert.Contains("This test transmits.", boil);
+            Assert.DoesNotContain("This test transmits.", fill);
 
             // And the run button is described by that warning, so a screen
             // reader hears it on the control itself.
@@ -876,7 +876,7 @@ namespace Radios.Tests
             Assert.Contains("Nothing was transmitted", card);
             // Nothing ran: the stage still reads as unchecked, and the engine
             // holds no record.
-            Assert.Contains("Not checked yet.", card);
+            Assert.Contains("Not run yet.", card);
             Assert.Null(run.ResultFor("boil"));
         }
 
@@ -899,7 +899,7 @@ namespace Radios.Tests
             run.RunStage("boil");
             string after = CardOf(FixerPage.Render(run), "boil");
             Assert.Contains("data-action=\"rerun\"", after);
-            Assert.Contains("Run this check again", after);
+            Assert.Contains("Run this test again", after);
             Assert.DoesNotContain("data-action=\"run\"", after);
         }
 

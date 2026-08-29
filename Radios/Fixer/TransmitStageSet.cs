@@ -128,6 +128,16 @@ namespace Radios.Fixer
         {
             // Measurements, one per stage.
             public Func<AudioSetupFacts> ReadAudioSetup;
+
+            /// <summary>
+            /// The receive walk, for stage 0 (#367). Typically
+            /// <c>() =&gt; ReceiveAudioCheck.Run(rig)</c> — the SAME call the
+            /// Audio Workshop's receive door makes, so a rule added to
+            /// <c>rx-chain-rules.txt</c> reaches both with no second edit.
+            /// Null leaves stage 0 reporting only the computer's half, and
+            /// inventing no receive answer.
+            /// </summary>
+            public Func<ReceiveCheckResult> ReadReceiveChain;
             public Func<MicCheckFacts> MeasureMicrophone;
             public Func<TxTuneProbe.Result> ProbeTransmitter;
             public Func<InjectedTransmitFacts> RunInjectedTransmit;
@@ -192,6 +202,15 @@ namespace Radios.Fixer
                 catch { return null; }
             }
 
+            // The receive walk, guarded the same way: a throw or a missing
+            // delegate leaves stage 0 with only the computer's half, which is
+            // honest, rather than a receive answer nobody measured.
+            ReceiveCheckResult Receive()
+            {
+                try { return hosts.ReadReceiveChain?.Invoke(); }
+                catch { return null; }
+            }
+
             // " at 25 watts into ANT1", or as much of it as is actually known.
             // Assembled once so the transmitting stages cannot drift apart in
             // how they say it.
@@ -237,20 +256,35 @@ namespace Radios.Fixer
                 {
                     Id = AudioSetup,
                     Number = 0,
-                    Title = "Audio setup",
-                    Question = "What is your audio actually doing right now?",
+                    // NAMED FOR BOTH HALVES since 2026-08-29 (#367). It reads
+                    // this computer's audio path AND walks the receive chain,
+                    // and a stage called "Audio setup" would have hidden half
+                    // of what it now does — including the only measurement in
+                    // the run that is about the radio rather than about a
+                    // setting of ours.
+                    Title = "Audio setup and receive",
+                    Question = "What is your audio doing right now, and is sound reaching you "
+                             + "from the radio?",
                     Explanation =
-                        "Reads the open audio stream directly: host API, input and "
+                        "Two halves, and they answer different questions. The first reads "
+                        + "the open audio stream directly: host API, input and "
                         + "output device, sample rate, channel count. Not your saved "
                         + "settings — the stream itself. Those two disagree more often "
                         + "than anyone expects, and when they do, the disagreement is "
                         + "usually the fault. You would never spot it on a settings page. "
+                        + "The second walks the receive chain — the slice you are listening "
+                        + "to, the radio's outputs and their levels, how the audio reaches "
+                        + "you, and how much has actually been arriving over the network. "
+                        + "Proving receive first is what makes the transmit tests after it "
+                        + "readable, and the receive evidence belongs in the report whether "
+                        + "or not you came here about receive. "
                         + "Nothing here keys the radio.",
                     Transmits = false,
                     HelpTopic = "fixer/transmit/audio-setup",
                     DescribeRunAction = () =>
-                        "Running this takes a quick reading of the audio path. "
-                        + "Nothing transmits.",
+                        "Running this takes a quick reading of the audio path on this "
+                        + "computer, then walks the receive chain and reports how much audio "
+                        + "has been arriving from the radio. Nothing transmits.",
                     // The operator as an instrument (#243). Over a remote
                     // link, "I can hear the radio" settles in one press what
                     // no probe in this stage can: PC audio is on, the
@@ -298,14 +332,14 @@ namespace Radios.Fixer
                                             "Open the full audio device picker"),
                     },
                     Execute = hosts.ReadAudioSetup == null ? (Func<FixerStageContext, FixerOutcome>)null
-                        : ctx => AudioSetupCheck.Analyze(hosts.ReadAudioSetup()),
+                        : ctx => AudioSetupCheck.Analyze(hosts.ReadAudioSetup(), Receive()),
                 },
 
                 new FixerStage
                 {
                     Id = MicrophoneCheck,
                     Number = 1,
-                    Title = "Microphone check",
+                    Title = "Microphone test",
                     Question = "Is sound from your microphone arriving in this computer?",
                     Explanation =
                         "This listens to your microphone with the radio out of the "
@@ -339,7 +373,7 @@ namespace Radios.Fixer
                 {
                     Id = TransmitterCheck,
                     Number = 2,
-                    Title = "Transmitter check",
+                    Title = "Transmitter test",
                     Question = "Does the radio produce RF when it keys a tune carrier?",
                     Explanation =
                         "The radio keys a tune carrier — a steady unmodulated signal it "
@@ -395,7 +429,7 @@ namespace Radios.Fixer
                     Explanation =
                         "Tones and a generated voice are sent to the radio with your "
                         + "microphone taken out of the path, and the radio's own SC_MIC "
-                        + "meter is watched to see what arrives. This check and stage 4 "
+                        + "meter is watched to see what arrives. This test and stage 4 "
                         + "differ in exactly one thing, which is whether your microphone "
                         + "is involved. If this one works and stage 4 does not, your "
                         + "microphone is the problem. If neither works, your microphone is "
@@ -486,7 +520,9 @@ namespace Radios.Fixer
                 name: "Transmit",
                 intro: "Work forward from stage 0. What each stage finds feeds the ones "
                      + "after it — stage 1 measures your microphone, and stage 4 is judged "
-                     + "against that measurement rather than on its own. Jump around if "
+                     + "against that measurement rather than on its own. Stage 0 also walks "
+                     + "your receive chain, so the report carries receive evidence whether "
+                     + "or not receive is what brought you here. Jump around if "
                      + "you want; the report records what was skipped. Stages 0 and 1 do "
                      + "not key the radio.",
                 stages: stages,
@@ -497,7 +533,7 @@ namespace Radios.Fixer
                         LoadDeclaration,
                         "What is the antenna socket connected to right now?",
                         "Nothing transmits until you answer this question. Into a real "
-                        + "antenna, or through an amplifier, the checks that transmit "
+                        + "antenna, or through an amplifier, the tests that transmit "
                         + "keep the power at "
                         + FixerTransmitGate.LowPowerCeilingWatts
                           .ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -601,7 +637,7 @@ namespace Radios.Fixer
                                  + "are not at that station, so every answer here states "
                                  + "what someone there has confirmed with you — the report "
                                  + "will say your answer came over a remote session, on "
-                                 + "someone else's word. Whatever is connected, the checks "
+                                 + "someone else's word. Whatever is connected, the tests "
                                  + "that transmit keep the power at "
                                  + FixerTransmitGate.LowPowerCeilingWatts
                                    .ToString(System.Globalization.CultureInfo.InvariantCulture)

@@ -5,13 +5,13 @@ missing. This page walks the causes in the order they actually bite, starting
 with the one that catches almost everybody the first time.
 
 If you would rather have JJ Flexible Radio Access check for you, open the Audio
-Workshop, go to **Diagnostics**, and press **Check My Receive Audio**. It walks
+Workshop, go to **Diagnostics**, and press **Test My Receive Audio**. It walks
 the same ladder against your radio right now, speaks the first thing it finds
 wrong, and finishes by telling you whether sound is actually arriving from the
 radio — measured from what the radio has been sending, not read back from a
 setting. See "Is Sound Actually Arriving From the Radio?" below.
 
-The same page answers the opposite question. **Check My Transmit Chain** walks
+The same page answers the opposite question. **Test My Transmit Chain** walks
 your transmit path from the microphone to the antenna and reports the first
 stage that is dead, along with an honest account of how much of the chain it
 could not see — because a check that could not be made is not a check that
@@ -98,7 +98,7 @@ sound has ever reached your computer, and no amount of checking them will tell
 you that — which is why the receive check now ends with a measurement instead
 of only a verdict.
 
-Press **Check My Receive Audio** in the Audio Workshop's Diagnostics page and
+Press **Test My Receive Audio** in the Audio Workshop's Diagnostics page and
 the last thing it tells you is what actually arrived, in words like this:
 
 "Audio arriving from the radio: up to 42 kilobits per second, in every one of

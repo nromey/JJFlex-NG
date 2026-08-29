@@ -432,7 +432,7 @@ namespace Radios.Fixer
                     return Decision.Refuse(Refusal.PowerTooHighForLoad,
                         "Nothing was transmitted. You declared " + into + ", and the "
                         + "radio's power for this step could not be read — into " + into
-                        + " these checks only transmit when the power is known to be "
+                        + " these tests only transmit when the power is known to be "
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts or less.");
 
@@ -441,7 +441,7 @@ namespace Radios.Fixer
                         "Nothing was transmitted. The radio's power for this step is "
                         + transmitPowerWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts, and you declared " + into + ". Into " + into
-                        + " these checks transmit at "
+                        + " these tests transmit at "
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts or less — turn the power down, or declare a dummy "
                         + "load, and this step will run.");
@@ -461,7 +461,7 @@ namespace Radios.Fixer
                         "Nothing was transmitted. The dummy load was declared over a "
                         + "remote session, and the radio's power for this step could "
                         + "not be read — on a declaration made from a distance these "
-                        + "checks only transmit when the power is known to be "
+                        + "tests only transmit when the power is known to be "
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts or less.");
 
@@ -471,7 +471,7 @@ namespace Radios.Fixer
                         + transmitPowerWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts, and the dummy load was declared over a remote "
                         + "session — on the word of someone at the station, not your "
-                        + "own eyes. On a remote declaration these checks transmit at "
+                        + "own eyes. On a remote declaration these tests transmit at "
                         + LowPowerCeilingWatts.ToString(CultureInfo.InvariantCulture)
                         + " watts or less; turn the power down and this step will run.");
             }

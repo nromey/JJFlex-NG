@@ -317,10 +317,10 @@ namespace Radios.Tests
         public void The_title_always_carries_the_id_and_carries_the_name_when_there_is_one()
         {
             FixerRunRecord record = EvidenceRecords.TwoStages();
-            Assert.Equal("Kettle check report — run AAA-222", FixerRunDocument.Title(record));
+            Assert.Equal("Kettle test report — run AAA-222", FixerRunDocument.Title(record));
 
             record.Label = "Don's radio, before the fix";
-            Assert.Equal("Kettle check report — run AAA-222 (Don's radio, before the fix)",
+            Assert.Equal("Kettle test report — run AAA-222 (Don's radio, before the fix)",
                          FixerRunDocument.Title(record));
             Assert.Contains("AAA-222", FixerRunDocument.Title(record));
         }

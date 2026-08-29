@@ -12,7 +12,7 @@ using Radios.Fixer.Evidence;
 namespace JJFlexWpf.Dialogs;
 
 /// <summary>
-/// The saved check runs: every run the Fixer has recorded, each viewable,
+/// The saved test runs: every run the Fixer has recorded, each viewable,
 /// exportable and deletable. The list is what makes a Test ID quotable — a
 /// run from last Tuesday sits here with the same ID the report carried, which
 /// is the comparison "it worked Tuesday" has never been able to cite (#252).
@@ -44,7 +44,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
     {
         _radio = radio;
 
-        Title = "Saved check runs — JJ Flexible";
+        Title = "Saved test runs — JJ Flexible";
         Width = 640;
         Height = 480;
         ResizeMode = ResizeMode.CanResize;
@@ -56,7 +56,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
 
         var intro = new TextBlock
         {
-            Text = "Every check run saves itself as it happens, named by its test ID. "
+            Text = "Every test run saves itself as it happens, named by its test ID. "
                  + "Open one to read its report, rename it so you can find it again, "
                  + "continue one you stopped part-way, export it to send to someone, or "
                  + "delete it. JJ Flexible keeps the newest " + FixerRunStore.MaxRunsKept
@@ -90,7 +90,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
         buttons.Children.Add(close);
         rootPanel.Children.Add(buttons);
 
-        AutomationProperties.SetName(_list, "Saved check runs");
+        AutomationProperties.SetName(_list, "Saved test runs");
         JJFlexHelp.SetText(_list,
             "One line per saved run: its name or test ID, when it started, how many "
             + "stages have results, and whether it finished. Newest first. Enter opens "
@@ -161,8 +161,8 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
 
         if (_runs.Count == 0)
         {
-            _status.Text = "No check runs have been saved yet. Runs save themselves as "
-                         + "they happen — run a check and it will appear here."
+            _status.Text = "No test runs have been saved yet. Runs save themselves as "
+                         + "they happen — run a test and it will appear here."
                          + UnreadableNote(unreadable);
         }
         else
@@ -204,7 +204,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
 
         string lead = StalenessLead(run, out string leadText);
         HtmlInfoDialog.ShowHtml(
-            run.StageSetName + " check report — " + run.RunId,
+            run.StageSetName + " test report — " + run.RunId,
             FixerRunExport.StandaloneHtml(run, lead),
             leadText + run.ReportText,
             this,
@@ -331,7 +331,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
 
         if (run.IsComplete())
         {
-            Say("Run " + run.RunId + " has a result for every check, so there is nothing "
+            Say("Run " + run.RunId + " has a result for every test, so there is nothing "
                 + "left to continue. Open it to read the report.");
             return;
         }
@@ -343,9 +343,9 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
         MessageBoxResult answer = MessageBox.Show(this,
             "Continue run " + run.DisplayName + "? Its " + run.ResolvedStageCount()
             + " recorded results are kept and the remaining " + remaining
-            + " checks are yours to run. This is recorded as a second sitting, so the "
-            + "report will say the checks were not all done at one go.",
-            "Saved check runs — JJ Flexible",
+            + " tests are yours to run. This is recorded as a second sitting, so the "
+            + "report will say the tests were not all done at one go.",
+            "Saved test runs — JJ Flexible",
             MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (answer != MessageBoxResult.Yes) return;
 
@@ -365,7 +365,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
 
         var picker = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Export check run " + run.DisplayName,
+            Title = "Export test run " + run.DisplayName,
             FileName = FixerRunExport.FileBaseName(run),
             DefaultExt = ".html",
             Filter = Radios.Fixer.Evidence.EvidenceStrings.ExportFilter,
@@ -395,7 +395,7 @@ public sealed class FixerPastRunsDialog : JJFlexDialog
         MessageBoxResult answer = MessageBox.Show(this,
             "Delete run " + run.DisplayName + " (test ID " + run.RunId + ")? Its report "
             + "and measurements will be gone for good — there is no undo.",
-            "Saved check runs — JJ Flexible",
+            "Saved test runs — JJ Flexible",
             MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.Yes) return;
 

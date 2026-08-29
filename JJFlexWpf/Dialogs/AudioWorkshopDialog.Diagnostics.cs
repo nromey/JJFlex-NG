@@ -81,26 +81,34 @@ public partial class AudioWorkshopDialog
         // this tab — it is the FIRST verdict the transmit check gives, and a
         // diagnostic that refuses to run when nothing is connected withholds
         // exactly the answer the operator needs at that moment.
-        // WHICH SURFACE IS WHICH. Noel, using both for the first time: "it is
-        // confusing to me looking at it now with the fix tool being available."
+        // WHICH SURFACE IS WHICH (#234). Noel, using both for the first time:
+        // "it is confusing to me looking at it now with the fix tool being
+        // available."
         //
         // NOT resolved by deleting this page, which was the obvious move and is
         // wrong. These checks WALK THIRTEEN STAGES from a rule file an operator
         // can edit, and the Fixer's five coded stages cover a subset of them —
-        // stages 0, 4 and 10 have no Fixer equivalent at all. And the receive
-        // half has nowhere to go until the Fixer grows its second door. Deleting
-        // either half would lose real ground to make the menu tidier.
+        // stages 0, 4 and 10 have no Fixer equivalent at all.
         //
-        // So the cheap honest thing, until the Fixer gains the chain read as
-        // its first stage: SAY which one to reach for. An operator who knows
-        // the difference is not confused by two surfaces; one who does not is
-        // confused by any number of them.
+        // AND THE RECEIVE HALF IS NOW LITERALLY THE SAME CHECK (#367). Not a
+        // similar one, not a subset: RunReceiveCheck below and the Fixer's
+        // stage 0 both call ReceiveAudioCheck.Run, so the two doors cannot
+        // drift apart and a rule added to rx-chain-rules.txt shows up at both.
+        //
+        // That makes the boundary sayable rather than merely arguable, which is
+        // what #234 asked for: this room is where you ADJUST audio deliberately
+        // and want an answer now; the Fixer is where you go when something is
+        // WRONG and you want a document to send. The orientation line below is
+        // that sentence, in the operator's words, because an operator who knows
+        // the difference is not confused by two surfaces and one who does not
+        // is confused by any number of them.
         var orient = new TextBlock
         {
-            Text = "These checks read your settings and report what they find. Nothing here "
-                 + "transmits. If you want the radio keyed and measured instead — a tune "
-                 + "carrier, a tone sent to the radio, your own voice tested — that is JJ "
-                 + "Flexible Fix, under Tools.",
+            Text = "Nothing here transmits. Use this room while you are setting audio up and "
+                 + "want an answer now; use JJ Flexible Fix, under Tools, when something is "
+                 + "wrong and you want a report to send — it runs this very same receive "
+                 + "test as its first stage, then goes on to key the radio and measure what "
+                 + "comes back.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(2, 0, 2, 10),
         };
@@ -115,7 +123,9 @@ public partial class AudioWorkshopDialog
 
         var rxIntro = new TextBlock
         {
-            Text = "Checks the reasons a Flex plays no audio, in the order they actually bite.",
+            Text = "Walks the reasons a Flex plays no audio, in the order they actually bite, "
+                 + "and measures how much audio has really been arriving from the radio. "
+                 + "This is the same test JJ Flexible Fix runs at stage 0.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(2, 0, 2, 6),
         };
@@ -123,20 +133,22 @@ public partial class AudioWorkshopDialog
 
         var rxButton = new Button
         {
-            Content = "Check My Receive Audio",
+            Content = "Test My Receive Audio",
             Padding = new Thickness(8, 4, 8, 4),
             Margin = new Thickness(2, 0, 2, 6),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        AutomationProperties.SetName(rxButton, "Check my receive audio");
+        AutomationProperties.SetName(rxButton, "Test my receive audio");
         JJFlexHelp.SetText(rxButton,
             "Works through the reasons a Flex makes no sound, starting with the one "
             + "that catches everybody: a Flex is silent by design, headphone jack "
-            + "included, until a client connects to it.");
+            + "included, until a client connects to it. It ends with the one fact that "
+            + "is about the radio rather than about a setting of ours — how much audio "
+            + "has actually been crossing the network from it.");
         rxButton.Click += (s, e) => RunReceiveCheck(speak: true);
         AddToSection(DiagnosticsContent, rxButton);
 
-        _rxAdvisoryBox = MakeReportBox("Receive audio check result", 3, 8);
+        _rxAdvisoryBox = MakeReportBox("Receive audio test result", 3, 12);
         AddToSection(DiagnosticsContent, _rxAdvisoryBox);
 
         AddSectionHeader(DiagnosticsContent, "Why can nobody hear me");
@@ -153,12 +165,12 @@ public partial class AudioWorkshopDialog
 
         var txButton = new Button
         {
-            Content = "Check My Transmit Chain",
+            Content = "Test My Transmit Chain",
             Padding = new Thickness(8, 4, 8, 4),
             Margin = new Thickness(2, 0, 2, 6),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        AutomationProperties.SetName(txButton, "Check my transmit chain");
+        AutomationProperties.SetName(txButton, "Test my transmit chain");
         JJFlexHelp.SetText(txButton,
             "Reads your microphone, this computer, and every transmit setting the radio "
             + "will report, and tells you the first thing in the way. Some stages can only "
@@ -166,7 +178,7 @@ public partial class AudioWorkshopDialog
         txButton.Click += (s, e) => RunTransmitCheck(speak: true);
         AddToSection(DiagnosticsContent, txButton);
 
-        _txReportBox = MakeReportBox("Transmit chain check result", 8, 20);
+        _txReportBox = MakeReportBox("Transmit chain test result", 8, 20);
         _txReportBox.Text = NoTxReportYet;
         AddToSection(DiagnosticsContent, _txReportBox);
 
@@ -201,7 +213,7 @@ public partial class AudioWorkshopDialog
         _copyEvidenceButton.Click += (s, e) => CopyEvidence();
         AddToSection(DiagnosticsContent, _copyEvidenceButton);
 
-        _rxAdvisoryBox.Text = "Choose Check My Receive Audio above.";
+        _rxAdvisoryBox.Text = "Choose Test My Receive Audio above.";
 
         // Fill the receive box for real once the dialog is up. It cannot be
         // done here: this runs from the constructor, before SetRig, so the
@@ -278,51 +290,50 @@ public partial class AudioWorkshopDialog
         string message;
         try
         {
-            FlexBase? rig = _rig;
-            if (rig == null || !rig.IsConnected)
-            {
-                message = Lexicon.Get("audio.diagnostics.rx_no_radio");
-            }
-            else
-            {
-                // THROUGH THE ANALYZER as of 2026-08-25, not through the
-                // if-ladder that used to live in FlexBase.
-                //
-                // The ladder returned one sentence and nothing else: no stage
-                // names, no evidence, no way to say what it could not check,
-                // and not a word of it changeable without shipping a binary.
-                // The transmit walk beside it had thirteen stages of editable
-                // text. Two implementations of one idea, and only one of them
-                // could be improved by anybody who was not building the app.
-                //
-                // The ladder's ORDER carried real judgement and is preserved
-                // exactly in rx-chain-rules.txt: a mute is worse news than a
-                // low level, and all three muted is worse news than one.
-                DiagnosticFacts facts = RxChainFacts.Collect(rig);
-                ChainReport rx = ChainAnalyzer.Run(RuleSetLoader.RxChain(), facts);
-                _lastRxReport = rx;
+            // ONE CALL, AND IT IS THE ONE THE FIXER MAKES (#367).
+            //
+            // This door and the Fixer's stage 0 run the same check, on the same
+            // rules, phrased by the same code — Noel's ruling: "as stage 0, it
+            // does rx audio as well, but you can just go to the other submenu
+            // option if you just wanted to test rx audio." Add a rule to
+            // rx-chain-rules.txt and it appears at both doors with no second
+            // edit. That property is the whole design and it survives only
+            // while this stays a call rather than a copy.
+            //
+            // Before that this method held its own branching, and the branching
+            // was the bug. It read:
+            //
+            //     message = rx.StagesBroken > 0 ? ReportText(rx) : "nothing wrong"
+            //
+            // so a total failure to LOAD the rules — a missing embedded copy, an
+            // unreadable override, an override that is empty or all comments —
+            // reported as good news, because StagesBroken is zero in every one
+            // of those cases (#370). "Nothing is wrong", "something is wrong"
+            // and "we could not check" are three different answers, and
+            // collapsing the third into the first is the worst available
+            // collapse. The analyzer has always produced the right sentence for
+            // it; this call site threw it away.
+            ReceiveCheckResult rx = ReceiveAudioCheck.Run(_rig!);
+            _lastRxReport = rx.Report;
 
-                message = rx.StagesBroken > 0
-                    ? ReportText(rx)
-                    : Lexicon.Get("audio.diagnostics.rx_nothing_wrong",
-                        ("headphone", rig.HeadphoneGain), ("lineout", rig.LineoutGain));
-
-                // THE MEASUREMENT, ALWAYS, BROKEN OR NOT (#350).
-                //
-                // Everything above this line is a setting we made — mutes,
-                // levels, a routing switch — so the report could be entirely
-                // correct while no audio had ever reached the computer. Don
-                // asked for the missing half and Flex would ask for it first.
-                //
-                // It is appended rather than folded into either branch because
-                // the case that matters most is the one where nothing is wrong:
-                // that branch shows one lexicon sentence and never renders the
-                // stage walk or an evidence block, so a measurement joined only
-                // to those would still be invisible exactly when it is needed.
-                string arriving = RxChainFacts.ArrivalSentence(facts);
-                if (arriving.Length != 0)
-                    message += Environment.NewLine + Environment.NewLine + arriving;
+            // The verdict first, because a screen reader entering this box
+            // reads the line the caret is on. Then the measurement, then the
+            // honest census and the walk. Every one of those strings is
+            // assembled in ReceiveAudioCheck, so this box and the Fixer's
+            // report can never say different things about the same radio.
+            var sb = new StringBuilder();
+            sb.AppendLine(rx.Verdict);
+            if (rx.Arrival.Length != 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine(rx.Arrival);
             }
+            sb.AppendLine();
+            sb.AppendLine(rx.Census);
+            sb.AppendLine();
+            sb.AppendLine("Stage by stage:");
+            sb.Append(rx.Walk);
+            message = sb.ToString();
         }
         catch (Exception ex)
         {

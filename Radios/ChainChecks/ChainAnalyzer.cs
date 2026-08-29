@@ -195,6 +195,16 @@ namespace Radios.ChainChecks
             ? DiagnosticRuleSet.DefaultChainName
             : Rules.ChainName;
 
+        /// <summary>
+        /// The operator's own complaint as a clause — "you are still not being
+        /// heard", "you still cannot hear the radio" — for the one sentence
+        /// that has to say what "still wrong" means on this walk. Comes off the
+        /// ruleset; see <see cref="DiagnosticRuleSet.Symptom"/>.
+        /// </summary>
+        public string Symptom => string.IsNullOrWhiteSpace(Rules?.Symptom)
+            ? DiagnosticRuleSet.DefaultSymptom
+            : Rules.Symptom;
+
         /// <summary>Every stage, in walk order.</summary>
         public List<StageResult> Stages { get; } = new List<StageResult>();
 
@@ -302,10 +312,14 @@ namespace Radios.ChainChecks
 
             if (ChecksUnreadable > 0 || StagesUnobservable > 0)
             {
+                // The closing clause names the operator's OWN complaint, which
+                // differs by direction — "still not being heard" is the
+                // transmit one and was written into this sentence for every
+                // walk. See DiagnosticRuleSet.Symptom.
                 return "Nothing that could be checked came back wrong, but "
                      + UncheckedPhrase()
                      + " — so this is not a clean bill of health. "
-                     + "If you are still not being heard, the problem is most likely in one of those.";
+                     + "If " + Symptom + ", the problem is most likely in one of those.";
             }
 
             return "Every stage of your " + ChainName

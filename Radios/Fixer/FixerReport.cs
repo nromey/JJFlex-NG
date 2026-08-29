@@ -70,7 +70,7 @@ namespace Radios.Fixer
             // Named by the CHECK. This document's other reader is FlexRadio
             // support, who have no reason to know an in-house product noun —
             // "JJ Flexible Transmit check report" tells them what it is.
-            header.Para("JJ Flexible " + run.Set.Name + " check report");
+            header.Para("JJ Flexible " + run.Set.Name + " test report");
             header.Para("Test ID: " + run.RunId);
             // "Put together" was clunky, and the two stamps sat in one sentence
             // where they are usually seconds apart, which made the second look
@@ -252,12 +252,12 @@ namespace Radios.Fixer
                 case FixerStageStatus.Skipped:
                     // Unmistakably not a pass: leads with "Not run", carries
                     // the reason, and shows no measurement.
-                    s.Para(result.Answer);
+                    s.Paras(result.Answer);
                     return s;
 
                 case FixerStageStatus.CouldNotRun:
                     s.Para("Attempted at " + Stamp(result.AtUtc) + " and could not run.");
-                    s.Para(result.Answer);
+                    s.Paras(result.Answer);
                     return s;
             }
 
@@ -265,7 +265,7 @@ namespace Radios.Fixer
                 + (result.WasReRun
                     ? ". This stage was re-run; this result replaces an earlier one."
                     : "."));
-            s.Para(result.Answer);
+            s.Paras(result.Answer);
 
             foreach (FixerFinding f in result.Findings)
             {
