@@ -1437,10 +1437,43 @@ namespace JJFlexWpf.Dialogs
             }
             try
             {
+                // WHICH ACCOUNT SAW IT, not which account we are working with.
+                //
+                // Found walking #382's chain, and it is the seam that fix opens.
+                // A remote sighting used to reach this dialog only from a pass
+                // on the current account, so "current" and "the one that saw it"
+                // were the same address and nothing could tell them apart. Held
+                // presence sessions break that: Don's radio now arrives from
+                // Don's session while Noel's account is the one in play, and
+                // recording Noel's address here would REWRITE Don's radio's
+                // LastSeenViaAccount on disk, in radios\<serial>\config.xml.
+                //
+                // Nothing would report that. It reads as a working row for the
+                // rest of the session, and the damage lands on the NEXT launch:
+                // the row stops looking foreign, stops naming its real owner,
+                // and Enter offers to switch to an account that cannot list the
+                // radio — the wrong-account failure #342 closed, reintroduced
+                // from the other end.
+                //
+                // Empty means no session has listed it, which is exactly the
+                // pure-LAN case, and RecordSighting ignores the account for a
+                // LAN sighting anyway. Falling back to the current account
+                // there keeps the old behaviour for the path that was never
+                // wrong.
+                bool isRemote = radio.WanAvailable && !radio.LanAvailable;
+                var sawIt = Radios.FlexBase.WanAccountForSerial(radio.Serial);
+                if (string.IsNullOrWhiteSpace(sawIt)) sawIt = CurrentAccountEmail();
+                if (isRemote)
+                {
+                    Tracing.TraceLine(
+                        $"RigSelector.RecordSighting: {radio.Serial} attributed to {sawIt} "
+                        + $"(account in play: {CurrentAccountEmail()}) — #382",
+                        System.Diagnostics.TraceLevel.Info);
+                }
+
                 KnownRadioRoster.RecordSighting(
                     radio.Serial, radio.Name, radio.ModelName,
-                    radio.WanAvailable && !radio.LanAvailable,
-                    CurrentAccountEmail());
+                    isRemote, sawIt);
             }
             catch (Exception ex)
             {
@@ -1841,6 +1874,11 @@ namespace JJFlexWpf.Dialogs
             try
             {
                 engage();
+
+                // Repaint immediately: engaging is what makes IsHolding true,
+                // so this is the first moment a row can say it is being dialled
+                // rather than waiting for the watcher's first tick to say it.
+                RefreshRadiosList();
             }
             catch (Exception ex)
             {
@@ -1881,12 +1919,16 @@ namespace JJFlexWpf.Dialogs
                 RefreshRadiosList();
 
                 // Every account this roster depends on has answered — stop
-                // early rather than hold a settling flag nobody needs.
-                var pending = RosterBoundAccounts()
-                    .Where(a => Radios.SmartLink.SmartLinkPresenceService.IsHolding(a))
-                    .Where(a => !LiveSessionAccounts().Contains(a))
-                    .ToList();
-                if (pending.Count == 0) break;
+                // early rather than hold a settling flag nobody needs. One
+                // snapshot of the session table per tick, not one per account:
+                // reading it inside the predicate takes the coordinator's lock
+                // once per row for an answer that cannot change mid-loop in any
+                // way worth acting on.
+                var live = LiveSessionAccounts();
+                bool anyPending = RosterBoundAccounts().Any(a =>
+                    Radios.SmartLink.SmartLinkPresenceService.IsHolding(a)
+                    && !live.Contains(a));
+                if (!anyPending) break;
             }
 
             _presenceSettleDeadlineUtc = null;

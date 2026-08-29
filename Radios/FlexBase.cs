@@ -270,6 +270,25 @@ namespace Radios
         }
 
         /// <summary>
+        /// Which SmartLink account LISTED this serial — "" when no session has.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Public since #382, and the reason is a data-integrity one.</b>
+        /// Held presence sessions mean a radio can arrive from an account other
+        /// than the one the operator is working with, and a consumer recording
+        /// that sighting has to attribute it to the session that DELIVERED it.
+        /// Attributing it to the current account rewrites the roster's
+        /// account-per-radio answer to the wrong address, on disk, silently —
+        /// and every later decision that reads it (which row is foreign, which
+        /// account Enter switches to, which account presence dials next launch)
+        /// then follows the wrong answer.</para>
+        /// <para>Empty is a real answer and means "no SmartLink session has
+        /// listed this radio" — a caller must not read it as the current
+        /// account.</para>
+        /// </remarks>
+        public static string WanAccountForSerial(string serial) => GetWanAccountForSerial(serial);
+
+        /// <summary>
         /// True when this WAN serial is attributable to the given account —
         /// including the unattributed ("") case, which can only exist in a
         /// world where a single account is in play and so belongs to it.
