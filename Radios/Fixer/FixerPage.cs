@@ -861,12 +861,17 @@ namespace Radios.Fixer
                 // Absent on the report control: the report is not a stage.
                 sb.Append("stage-h-").Append(Attr(next.Id))
                   .Append("\" data-stage=\"").Append(Attr(next.Id))
-                  .Append("\">Next: ")
-                  .Append(Esc(StageLabel(next)));
+                  .Append("\">");
+                // The label is built clear of the markup on purpose: glued to
+                // the tag it is not a sentence, and tools/prose could not offer
+                // it for editing. Two real operator phrases were invisible to
+                // the editing surface for exactly that reason.
+                sb.Append("Next: ").Append(Esc(StageLabel(next)));
             }
             else
             {
-                sb.Append("report-heading\">Go to the report");
+                sb.Append("report-heading\">");
+                sb.Append("Go to the report");
             }
             sb.AppendLine("</button></p>");
         }

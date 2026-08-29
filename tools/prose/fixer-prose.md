@@ -300,6 +300,20 @@ What to do: {WhatToDo}
 > Keep {WhatToDo}.
 > fixer.page.result-block.text-2
 
+## Next: Stage 3: Injected transmit — text 1
+
+Next: {StageLabel}
+
+> Reads as: Next: Stage 3: Injected transmit
+> Keep {StageLabel}.
+> fixer.page.next-control.text-1
+
+## Go to the report — text 2
+
+Go to the report
+
+> fixer.page.next-control.text-2
+
 ## This is the whole run as one document, every stage in… — paragraph 1
 
 This is the whole run as one document, every stage in order, with the test ID at the top. That ID belongs to this report alone, so quote it in any message about the problem.
@@ -2405,7 +2419,7 @@ Run {RunId} could not be deleted.
 
 Nothing to read here. This is how the tool finds each sentence again.
 
-> Made 2026-08-29 09:46 · 343 sentences · 9 files
+> Made 2026-08-29 09:47 · 345 sentences · 9 files
 > fixer.page.render.title-1 · Radios/Fixer/FixerPage.cs 135 · 1c21bf
 > fixer.page.header.heading-1 · Radios/Fixer/FixerPage.cs 234 · f01686
 > fixer.page.header.paragraph-1 · Radios/Fixer/FixerPage.cs 241 · e816a0
@@ -2446,10 +2460,12 @@ Nothing to read here. This is how the tool finds each sentence again.
 > fixer.page.result-block.paragraph-1 · Radios/Fixer/FixerPage.cs 781 · d22df4
 > fixer.page.result-block.text-1 · Radios/Fixer/FixerPage.cs 784 · 8eb931
 > fixer.page.result-block.text-2 · Radios/Fixer/FixerPage.cs 821 · 8c0fe2
-> fixer.page.report-section.paragraph-1 · Radios/Fixer/FixerPage.cs 897 · 82044a
-> fixer.page.report-section.paragraph-2 · Radios/Fixer/FixerPage.cs 912 · 5e7a71
-> fixer.page.report-section.paragraph-3 · Radios/Fixer/FixerPage.cs 938 · 26ce1b
-> fixer.page.report-section.button-1 · Radios/Fixer/FixerPage.cs 947 · 0d1635
+> fixer.page.next-control.text-1 · Radios/Fixer/FixerPage.cs 869 · 9d0f86
+> fixer.page.next-control.text-2 · Radios/Fixer/FixerPage.cs 874 · 74bf6c
+> fixer.page.report-section.paragraph-1 · Radios/Fixer/FixerPage.cs 902 · 82044a
+> fixer.page.report-section.paragraph-2 · Radios/Fixer/FixerPage.cs 917 · 5e7a71
+> fixer.page.report-section.paragraph-3 · Radios/Fixer/FixerPage.cs 943 · 26ce1b
+> fixer.page.report-section.button-1 · Radios/Fixer/FixerPage.cs 952 · 0d1635
 > fixer.stage.build.text-1 · Radios/Fixer/TransmitStageSet.cs 221 · 754bcd
 > fixer.stage.build.text-2 · Radios/Fixer/TransmitStageSet.cs 223 · 3fd905
 > fixer.skip.operator-skip.operator-choice.label · Radios/Fixer/TransmitStageSet.cs 229 · 081eab

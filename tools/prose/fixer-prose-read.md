@@ -164,6 +164,14 @@ Checked at 2026-08-29 14:02 UTC. Re-run; this replaces an earlier result.
 
 What to do: Turn PC audio on
 
+## Next: Stage 3: Injected transmit — text 1
+
+Next: Stage 3: Injected transmit
+
+## Go to the report — text 2
+
+Go to the report
+
 ## This is the whole run as one document, every stage in… — paragraph 1
 
 This is the whole run as one document, every stage in order, with the test ID at the top. That ID belongs to this report alone, so quote it in any message about the problem.
