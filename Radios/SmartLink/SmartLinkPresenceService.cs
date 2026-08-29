@@ -159,6 +159,14 @@ namespace Radios.SmartLink
                 return;
             }
 
+            // Built fresh and swapped in at the end of the pass, never mutated
+            // in place. An account DELETED from the manager never reaches the
+            // skip branch below, so an incremental set would keep reporting it
+            // as held forever — and a row bound to it would say we are signing
+            // in to an address that no longer exists. Rebuilding makes the set
+            // exactly what this pass found, which is the only thing it claims.
+            var nowHeld = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             int held = 0, skipped = 0;
             foreach (var account in accounts)
             {
@@ -170,13 +178,11 @@ namespace Radios.SmartLink
                 // sign-in re-runs this pass and picks it up.
                 if (string.IsNullOrEmpty(account.RefreshToken) && string.IsNullOrEmpty(account.IdToken))
                 {
+                    // Left out of nowHeld, so a sign-in cleared since the last
+                    // pass stops being reported as held — a row bound to it must
+                    // say "not signed in", which is true and is the one state
+                    // here the operator can act on.
                     skipped++;
-                    // Forget it, rather than merely not adding it: an account
-                    // whose sign-in was cleared since the last pass must stop
-                    // being reported as held, or a row bound to it would sit
-                    // saying "signing in" against a session nobody is bringing
-                    // up.
-                    lock (_gate) _heldAccounts.Remove(account.Email);
                     Tracing.TraceLine($"SmartLinkPresence: skipping {account.Email} — no silent sign-in material", TraceLevel.Info);
                     continue;
                 }
@@ -203,13 +209,19 @@ namespace Radios.SmartLink
                         CurrentProgramName());
 
                     session.Connect();
-                    lock (_gate) _heldAccounts.Add(account.Email);
+                    nowHeld.Add(account.Email);
                     held++;
                 }
                 catch (Exception ex)
                 {
                     Tracing.TraceLine($"SmartLinkPresence: could not hold session for {account.Email}: {ex.Message}", TraceLevel.Error);
                 }
+            }
+
+            lock (_gate)
+            {
+                _heldAccounts.Clear();
+                foreach (var e in nowHeld) _heldAccounts.Add(e);
             }
 
             Tracing.TraceLine(
