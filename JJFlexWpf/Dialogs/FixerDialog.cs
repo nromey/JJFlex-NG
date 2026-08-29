@@ -97,6 +97,27 @@ public sealed class FixerDialog : JJFlexDialog
     private bool _closing;
 
     /// <summary>
+    /// Whether the page's how-to section opens by default (#378): true until
+    /// a check run has ever been saved on this computer. A first-time
+    /// operator needs the instructions open; a returning one wants them
+    /// folded away; no stored preference is needed because the run store
+    /// already knows which operator this is. Deleting every saved run brings
+    /// the instructions back, which is about right. The operator's own
+    /// toggle, reported on the explain wire, wins for the life of the window.
+    /// </summary>
+    private readonly bool _howToOpenByDefault;
+
+    /// <summary>
+    /// The verdict to speak once the next render lands (#373): pushed into
+    /// the page's polite status line AFTER navigation completes, because a
+    /// push before the render would announce into a document about to be
+    /// replaced, and content already present at load is never announced by a
+    /// live region. Focus goes to the next action; this is how the outcome is
+    /// still heard — an announcement is not a focus position.
+    /// </summary>
+    private string? _pendingAnnouncement;
+
+    /// <summary>
     /// The element the page must focus once the next render lands, named by
     /// the action that caused the render (#365).
     /// </summary>
@@ -294,6 +315,20 @@ public sealed class FixerDialog : JJFlexDialog
             _evidence = FixerEvidenceKit.Resume(_run, _radio, resumeFrom);
         }
         _gate.BeginRun(_run.RunId);
+
+        // First run on this computer? Then the how-to section opens (#378).
+        // Asked of the store by file names only — cheap — and an unreadable
+        // store reads as "first run", because the operator who gets the
+        // instructions unnecessarily loses seconds while the one who needed
+        // them and did not get them loses the feature.
+        bool anySaved = false;
+        try
+        {
+            anySaved = !string.IsNullOrEmpty(RadioConfig.AppDataRoot)
+                       && Radios.Fixer.Evidence.FixerRunStore.Default().HasAnyRecord();
+        }
+        catch { /* treat as first run */ }
+        _howToOpenByDefault = !anySaved;
 
         // NAMED BY THE CHECK, NOT BY THE TOOL. Noel, 2026-08-25: the operator
         // came for a transmit check, not for a product noun, and the menu
@@ -719,13 +754,21 @@ document.addEventListener('keydown', function (e) {
                                              CoreWebView2NavigationCompletedEventArgs e)
     {
         _ready = true;
+
+        // Taken now, pushed after the focus script: the focus announcement
+        // lands first, then the polite region speaks the verdict behind it.
+        // Taken even if focusing fails — the verdict must be heard either way.
+        string? announce = _pendingAnnouncement;
+        _pendingAnnouncement = null;
+
         try
         {
             _web.Focus();
             // THE FIRST RENDER GETS THE h1 AND NOTHING ELSE. Before any
             // action there is nothing to come back to, and the top of the
             // document is where the operator meets the summary, the test ID,
-            // the intro, how to drive the page and the Stop control. Naming
+            // the intro, the Stop everything control and how to use the
+            // page. Naming
             // no candidate at all is what asks for it — the current-stage
             // fallback must not apply here, or opening the tool would skip
             // straight past all of that into stage 0.
@@ -739,6 +782,8 @@ document.addEventListener('keydown', function (e) {
             Tracing.TraceLine("FixerDialog: focus handoff failed — " + ex.Message,
                               TraceLevel.Warning);
         }
+
+        if (!string.IsNullOrEmpty(announce)) ToPage("status", announce);
     }
 
     /// <summary>
@@ -749,14 +794,15 @@ document.addEventListener('keydown', function (e) {
     /// <para>
     /// A full re-render would otherwise dump them at the document head and
     /// make them navigate back — every time, for the length of the run
-    /// (#365). Focus goes to the element the ACTION produced: the heading of
-    /// the stage that just ran, the "You said" line of the declaration just
-    /// answered, the notice a fix just wrote. Never a Run button, and never a
-    /// stage the operator did not ask for: the heading announces name and
-    /// state ("Stage 2: Transmitter check — not yet run"), and the operator
-    /// then chooses to Tab one step or to press Next. That choice is the
-    /// difference between proceeding and being funnelled, and stages 2
-    /// through 4 key the transmitter.
+    /// (#365). Focus goes to the NEXT ACTION (#373): the Run control after a
+    /// declaration is answered or the power window closes, the forward
+    /// control after a stage completes, the first fix button when a stage
+    /// found something we can fix. The verdict is spoken separately through
+    /// the status line — an announcement is not a focus position. The one
+    /// place focus still lands on a heading is arrival at a stage the
+    /// operator has NOT read yet (the page's own Next control does that),
+    /// because stages 2 through 4 key the transmitter and must be read
+    /// before they are pressed.
     /// </para>
     /// <para>
     /// <b>Ordered candidates, because a landing that misses must not become a
@@ -796,24 +842,50 @@ document.addEventListener('keydown', function (e) {
     private static string StageHeadingId(string? stageId)
         => string.IsNullOrEmpty(stageId) ? "" : "stage-h-" + stageId;
 
-    /// <summary>The page element id of a declaration's "You said" line — the
-    /// landing after that declaration is answered, because it reads the
-    /// answer back.</summary>
-    private static string DeclaredId(string declarationId)
-        => string.IsNullOrEmpty(declarationId) ? "" : "declared-" + declarationId;
-
     /// <summary>
     /// The heading of the stage the page is treating as current — resolved
     /// the SAME way <c>FixerPage.Render</c> resolves it, including its
     /// fall-back to the first stage, so the host cannot focus one stage while
     /// the page has marked another as current.
     /// </summary>
-    private string CurrentStageHeadingId()
+    private string CurrentStageHeadingId() => StageHeadingId(CurrentStageId());
+
+    /// <summary>
+    /// The stage the page is treating as current — resolved the SAME way
+    /// <c>FixerPage.Render</c> resolves it, including its fall-back to the
+    /// first stage, so the host cannot act on one stage while the page has
+    /// marked another as current.
+    /// </summary>
+    private string CurrentStageId()
     {
         string id = _state.SelectedStageId ?? "";
         if (_run.Set.Find(id) == null)
             id = _run.Set.Stages.Count > 0 ? _run.Set.Stages[0].Id : "";
-        return StageHeadingId(id);
+        return id;
+    }
+
+    /// <summary>
+    /// The next action WITHIN a stage (#373): its first unanswered
+    /// declaration when it has one — a question the operator has not dealt
+    /// with must not be jumped over — otherwise its Run control, whose
+    /// description reads the stage's question and what pressing it will do.
+    /// The landing after a declaration is answered and after the power
+    /// window closes.
+    /// </summary>
+    private string ForwardLandingIn(string stageId)
+    {
+        FixerStage? stage = _run.Set.Find(stageId ?? "");
+        if (stage == null) return CurrentStageHeadingId();
+
+        foreach (FixerRunDeclaration decl in stage.Declarations)
+        {
+            if (_declarations.ContainsKey(decl.Id)) continue;
+            if (decl.Choices.Count == 0) continue;
+            // The first choice's radio input, whose group legend asks the
+            // question — the page's Declaration() spells these ids.
+            return "decl-" + decl.Id + "-" + decl.Choices[0].Id;
+        }
+        return FixerPage.RunControlId(stageId);
     }
 
     // ---------------- the page talks to us ----------------
@@ -870,13 +942,15 @@ document.addEventListener('keydown', function (e) {
                                   + _gate.LoadKind
                                   + (_gate.LoadDeclaredRemotely ? ", remote" : "") + ")",
                                   TraceLevel.Info);
-                // Lands on the "You said" line, which reads the answer back.
-                // Until Sprint 39 this render named no landing at all, so
-                // answering a declaration threw the operator to the top of
-                // the page and told them nothing about what had been
-                // recorded — indistinguishable, from the chair, from the
-                // button having done nothing.
-                Render(DeclaredId(TransmitStageSet.LoadDeclaration));
+                // FORWARD, with the answer spoken (#373). Sprint 39 landed on
+                // the "You said" line — the read-back — which fixed "where am
+                // I" and left "what now": the operator still walked forward
+                // past their own answer to reach the next thing to do. Now
+                // the answer is spoken through the status line and focus goes
+                // to the current stage's next action — its unanswered
+                // hearing question first, else its Run control. The page
+                // still renders the "You said" line for re-reading.
+                Render(ForwardLandingIn(CurrentStageId()), "You said: " + m.Value + ".");
                 return;
 
             case FixerPageMessage.Kind.DeclareHearing:
@@ -889,12 +963,16 @@ document.addEventListener('keydown', function (e) {
                                               m.Choice, m.Value);
                 Tracing.TraceLine("FixerDialog: hearing declared as \"" + m.Value + "\" ("
                                   + _hearing + ")", TraceLevel.Info);
-                // The same landing as the load declaration, for the same
-                // reason. This is the button Noel pressed at the bench on
-                // 2026-08-28; the trace shows thirty-two seconds between it
-                // and his reaching stage 0's Run control, which is the walk
-                // back from the top of the page (#365).
-                Render(DeclaredId(TransmitStageSet.HearingDeclaration));
+                // The same forward rule as the load declaration (#373). This
+                // is the button Noel pressed at the bench on 2026-08-28; the
+                // walk from his answer to stage 0's Run control is the walk
+                // #373 exists to end. The declaration belongs to stage 0, so
+                // stage 0 becomes current and its Run control — the next
+                // action, now that the question is answered — is the
+                // landing, with the answer spoken.
+                _state.SelectedStageId = TransmitStageSet.AudioSetup;
+                Render(ForwardLandingIn(TransmitStageSet.AudioSetup),
+                       "You said: " + m.Value + ".");
                 return;
 
             case FixerPageMessage.Kind.RunStage:
@@ -927,18 +1005,17 @@ document.addEventListener('keydown', function (e) {
                 // not done and why, and that half must survive the window
                 // closing as much as a measurement does.
                 _evidence.StageRecorded(_run.SkipStage(m.StageId, m.Value));
-                // STAYS ON THE STAGE JUST SKIPPED, and this is a reversal.
-                // The marker used to move forward on the reasoning that the
-                // operator's next question is the following stage. But a skip
-                // produces a RESULT — the reason and, more importantly, what
-                // that reason costs the rest of the run ("whether your own
-                // voice would get through is left open") — and moving on
-                // carries the operator past it unheard. The heading they land
-                // on now reads "— skipped", their own answer is the next
-                // thing under it, and the Next control the page already
-                // renders is how they choose to move (#248).
+                // FORWARD, with the cost spoken (#373). Sprint 39 kept the
+                // operator on the skipped stage so its cost — "whether your
+                // own voice would get through is left open" — was not carried
+                // past unheard. That reasoning held while the only way to be
+                // heard was to be the focus position; the verdict is spoken
+                // through the status line now, cost included, and focus goes
+                // to the forward control. A skip is a deliberate decision to
+                // move on; the landing finally agrees with it.
                 _state.SelectedStageId = m.StageId;
-                Render(StageHeadingId(m.StageId));
+                Render(FixerPage.LandingAfterResult(_run, m.StageId),
+                       FixerPage.SpokenVerdict(_run, m.StageId));
                 return;
 
             case FixerPageMessage.Kind.CurrentStage:
@@ -966,27 +1043,20 @@ document.addEventListener('keydown', function (e) {
                 _evidence.FixRecorded(applied);
                 _state.SelectedStageId = m.StageId;
 
-                // THE FIX'S OUTCOME HAS TO LAND SOMEWHERE THE OPERATOR MEETS
-                // IT. Applying a fix changes no stage result, so the card
-                // re-rendered identically and the only place the read-back
-                // appeared was the report at the bottom of the page — which
-                // means pressing "Switch to WASAPI" changed the operator's
-                // live configuration and said nothing at all. Every action in
+                // THE FIX'S OUTCOME HAS TO BE HEARD. Every action in
                 // FixerFixActions reads its change back precisely so it can
                 // report what the setting BECAME rather than that a setter
-                // was called; that sentence was being written down and never
-                // spoken. It goes in the stage's notice slot, which is where
-                // "something happened here that is not a measurement" already
-                // lives, and focus lands on it.
-                //
-                // RECORDED rather than pushed: this path re-renders, so
-                // pushing through the receive channel would announce into a
-                // document that is about to be replaced. The render carries
-                // it and focus reads it.
-                RecordNotice(m.StageId, applied.Succeeded
+                // was called; for one sprint that sentence was written down
+                // and never spoken, and for another it was the focus landing
+                // (#366's fix). Now it is spoken through the status line
+                // (#373) — recorded in the stage's notice slot too, so it can
+                // be re-read — and focus goes to the next action, which after
+                // a fix is running the check again to see whether it worked.
+                string became = applied.Succeeded
                     ? applied.WhatItBecame
-                    : "That fix did not succeed: " + applied.WhatItBecame);
-                Render(NoticeId(m.StageId));
+                    : "That fix did not succeed: " + applied.WhatItBecame;
+                RecordNotice(m.StageId, became);
+                Render(FixerPage.RunControlId(m.StageId), became);
                 return;
             }
 
@@ -1030,7 +1100,8 @@ document.addEventListener('keydown', function (e) {
     {
         if (RunInProgress)
         {
-            Notice(stageId, "Something is already running. Wait for it to finish, or press Stop.");
+            Notice(stageId, "Something is already running. Wait for it to finish, or press "
+                          + "Stop everything.");
             return;
         }
 
@@ -1117,30 +1188,34 @@ document.addEventListener('keydown', function (e) {
 
             AnnounceCriticals(r);
 
-            // WHERE FOCUS LANDS IS DECIDED, NOT DISCOVERED — and the decision
-            // is now the same one for every outcome: the stage that ran.
+            // WHERE FOCUS LANDS IS DECIDED, NOT DISCOVERED — and the verdict
+            // is SPOKEN, separately, because an announcement is not a focus
+            // position (#373).
             //
-            // A stage that PASSED used to move the marker forward, so the
-            // re-render focused the NEXT stage's heading. That looked like
-            // forward motion and was actually the loss of the result. Noel
-            // ran stage 0 at the bench on 2026-08-28 (Test ID 427-RAW): it
-            // ran clean, it was recorded, and the first thing his reader
-            // announced afterwards was "Stage 1: Microphone check — NOT YET
-            // RUN". He never heard stage 0's verdict, because focus had left
-            // the card before it rendered, and he reported that the tool said
-            // he had not run stage 0 (#366). The report was right all along;
-            // the focus rule was what told him otherwise.
+            // The history, in two halves. A stage that passed used to move
+            // focus to the NEXT stage's heading — which looked like forward
+            // motion and was actually the loss of the result: Noel ran stage
+            // 0 at the bench (Test ID 427-RAW), it ran clean, and the first
+            // thing his reader announced was "Stage 1 — NOT YET RUN"; he
+            // reasonably concluded the tool said he had not run it (#366).
+            // Sprint 39 fixed that by landing on the completed stage's own
+            // heading — the right answer to the wrong question: he heard the
+            // verdict and then had to walk forward past everything he had
+            // already dealt with, every press, for the whole run (#373).
             //
-            // The old rule protected findings from being buried. It did not
-            // notice that a PASS also produces something worth hearing —
-            // stage 0's whole product is the sentence naming the devices, the
-            // host API and the rate. So the protection now covers every
-            // outcome: land on this stage's own heading, which speaks its new
-            // status, with the answer immediately under it and the "Next"
-            // control after that. Moving on stays the operator's press,
-            // which is exactly what #248 built that control for.
+            // Both halves at once now: the verdict — the heading's words plus
+            // the answer, which is the stage's whole product — goes out
+            // through the status line once the render lands, and focus goes
+            // to the NEXT ACTION: the first fixable finding's button when
+            // there is one (its description reads the finding), the stage's
+            // own Run control when it could not run, the forward control
+            // otherwise. Moving to the next stage stays the operator's press,
+            // and arrival there still lands on its heading, because unread
+            // stages that transmit must be read before they are pressed
+            // (#248).
             _state.SelectedStageId = stageId;
-            Render(StageHeadingId(stageId));
+            Render(FixerPage.LandingAfterResult(_run, stageId),
+                   FixerPage.SpokenVerdict(_run, stageId));
             return;
         }
 
@@ -1188,20 +1263,18 @@ document.addEventListener('keydown', function (e) {
     private void Stop(FixerAbort.Source source)
     {
         bool keyed = _gate.InFlight || RigIsKeyed();
-        // The result count is what makes the question honest (#250): a stop
-        // between stages used to end the run and every recorded measurement
-        // silently.
-        //
-        // MERGE NOTE (Sprint 37): resultsAreKept is FALSE on this branch
-        // because nothing here persists the run. The persistence track wires
-        // FixerEvidenceKit into this dialog in the same sprint; once its
-        // field lands, pass the kit's own signal (its Record property is
-        // non-null exactly when the journal is live) so the question stops
-        // threatening a discard that will not happen — and never a constant
-        // true, because the journal can fail to set up.
+        // The result count is what makes the question honest (#250), and the
+        // kept flag is the evidence layer's OWN signal — Record is non-null
+        // exactly when the journal is live. Never a constant true: the
+        // journal can fail to set up, and a question that promises "saved"
+        // over a journal that never opened is silent data loss with a
+        // reassuring voice. Until Sprint 40 this passed a constant FALSE, so
+        // the prompt threatened to discard results that were already safe on
+        // disk (#376) — a warning that frightens an operator out of leaving
+        // a window is just the other kind of lie.
         FixerAbort.Plan plan = FixerAbort.Decide(keyed, source, RunInProgress,
                                                  _run.ResultsInRunOrder.Count,
-                                                 resultsAreKept: false);
+                                                 resultsAreKept: _evidence.Record != null);
 
         Tracing.TraceLine("FixerDialog: stop from " + source + ", keyed=" + keyed
                           + ", run=" + RunInProgress, TraceLevel.Info);
@@ -1217,7 +1290,16 @@ document.addEventListener('keydown', function (e) {
 
                 case FixerAbort.Step.AskAbandonOrContinue:
                     if (plan.Announcement.Length > 0) ToPage("status", plan.Announcement);
-                    if (AskAbandon(plan.Announcement)) Abandon();
+                    switch (AskExit(plan))
+                    {
+                        case FixerExitPrompt.Choice.ResumeLater:
+                            CloseKeepingRun();
+                            break;
+                        case FixerExitPrompt.Choice.DiscardAndExit:
+                            CloseDiscardingRun();
+                            break;
+                        // Continue: stay exactly where they were.
+                    }
                     return;
 
                 case FixerAbort.Step.AbandonNow:
@@ -1287,12 +1369,68 @@ document.addEventListener('keydown', function (e) {
         try { return rig.Transmit || rig.TxTune; } catch { return true; }
     }
 
-    private bool AskAbandon(string question)
+    /// <summary>
+    /// Ask the exit question as the three choices that actually exist (#376):
+    /// exit without saving, continue, stop-and-resume-later. The third is
+    /// offered only when the plan says the run is genuinely persisted and
+    /// holds results. Each choice carries its COST in help text announced on
+    /// focus — a transmit-stage measurement was paid for with RF, and the
+    /// prompt is where that price is stated.
+    /// </summary>
+    private FixerExitPrompt.Choice AskExit(FixerAbort.Plan plan)
     {
-        string q = question.Length > 0 ? question : "Do you want to stop the test?";
-        return MessageBox.Show(this, q, _run.Set.Name + " checks — JJ Flexible",
-                               MessageBoxButton.YesNo, MessageBoxImage.Question)
-               == MessageBoxResult.Yes;
+        string question = plan.Announcement.Length > 0
+            ? plan.Announcement : "Do you want to stop the test?";
+
+        bool kept = _evidence.Record != null;
+        string exitHelp = kept
+            ? "Deletes this run's saved record. Everything recorded so far is gone "
+              + "for good"
+              + (_gate.TransmitCount > 0
+                  ? ", including measurements that keyed the radio — taking those "
+                    + "again costs real transmission."
+                  : ".")
+            : "Ends the test and closes the window. This run was not being saved, "
+              + "so nothing is kept.";
+
+        string? resumeHelp = plan.OffersResumeLater
+            ? "Closes the window and keeps the run. Continue it later from Saved "
+              + "check runs, on the Fix menu — everything already recorded stays"
+              + (RunInProgress
+                  ? ", though the check running right now stops and is not recorded"
+                  : "")
+              + ", and the report will say the checks were done in more than one "
+              + "sitting."
+            : null;
+
+        return FixerExitPrompt.Ask(this, _run.Set.Name + " checks — JJ Flexible",
+                                   question, exitHelp, resumeHelp);
+    }
+
+    /// <summary>Close, keeping the saved run — "Stop tests and resume later".
+    /// The stamp says so; the saved-runs list offers the run for
+    /// continuation, which is the whole point of choosing this.</summary>
+    private void CloseKeepingRun()
+    {
+        _gate.AbortRun();
+        _evidence.End("stopped to resume later");
+        _closing = true;
+        if (DialogResult == null) CloseWithResult(false);
+        else Close();
+    }
+
+    /// <summary>Close, deleting the saved record — "Exit without saving".
+    /// Runs persist as they go, so abandoning deliberately must actually
+    /// remove the file; otherwise the option lies in the other direction
+    /// (#376). A record that cannot be deleted stays in the saved list —
+    /// traced, and the honest failure.</summary>
+    private void CloseDiscardingRun()
+    {
+        _gate.AbortRun();
+        _evidence.Discard();
+        _closing = true;
+        if (DialogResult == null) CloseWithResult(false);
+        else Close();
     }
 
     private void Abandon()
@@ -1300,7 +1438,9 @@ document.addEventListener('keydown', function (e) {
         _gate.AbortRun();
         // Stamped as abandoned, and the word matters: the saved-runs list
         // offers an abandoned run for resumption, which is what stops walking
-        // away to look something up from destroying the sitting (#250).
+        // away to look something up from destroying the sitting (#250). This
+        // path is now only the no-ceremony closes — nothing recorded, or the
+        // window already going away while keyed.
         _evidence.End("abandoned");
         _closing = true;
         if (DialogResult == null) CloseWithResult(false);
@@ -1316,25 +1456,42 @@ document.addEventListener('keydown', function (e) {
         if (_closing || _initFailed) { _evidence.End("closed"); return; }
 
         bool keyed = _gate.InFlight || RigIsKeyed();
-        // MERGE NOTE (Sprint 37): resultsAreKept false for the same reason as
-        // in Stop() — see the note there.
+        // The kept flag is the evidence layer's own signal, same as in
+        // Stop() — see the note there. The window close button reaches the
+        // SAME three-way ask as Escape and a stop, deliberately (#376): two
+        // routes out of one window must not bargain differently.
         FixerAbort.Plan plan = FixerAbort.Decide(keyed, FixerAbort.Source.WindowClosing,
                                                  RunInProgress,
                                                  _run.ResultsInRunOrder.Count,
-                                                 resultsAreKept: false);
+                                                 resultsAreKept: _evidence.Record != null);
 
         // Whatever else the plan says, if the carrier is up it comes down —
         // and it comes down here rather than after the window has gone.
         if (plan.UnkeysFirst) UnkeyNow();
 
-        if (plan.Asks && !AskAbandon(plan.Announcement))
+        if (plan.Asks)
         {
-            // The operator chose to stay. NOTHING is stamped: a run marked
-            // ended while it is still live would put a false close time on a
-            // sitting that is still going, which is the one thing a record of
-            // when measurements happened must never do.
-            e.Cancel = true;
-            return;
+            switch (AskExit(plan))
+            {
+                case FixerExitPrompt.Choice.Continue:
+                    // The operator chose to stay. NOTHING is stamped: a run
+                    // marked ended while it is still live would put a false
+                    // close time on a sitting that is still going, which is
+                    // the one thing a record of when measurements happened
+                    // must never do.
+                    e.Cancel = true;
+                    return;
+
+                case FixerExitPrompt.Choice.ResumeLater:
+                    _gate.AbortRun();
+                    _evidence.End("stopped to resume later");
+                    return;
+
+                case FixerExitPrompt.Choice.DiscardAndExit:
+                    _gate.AbortRun();
+                    _evidence.Discard();
+                    return;
+            }
         }
 
         _gate.AbortRun();
@@ -1381,6 +1538,19 @@ document.addEventListener('keydown', function (e) {
         Render();
     }
 
+    /// <summary>
+    /// Render, land focus, and SPEAK the outcome once the page arrives
+    /// (#373). The two halves of the rule in one call: focus goes to the
+    /// next action, and the verdict — which focus no longer reads — is
+    /// pushed to the polite status line after navigation completes, where a
+    /// live region genuinely announces it.
+    /// </summary>
+    private void Render(string focusElementId, string announce)
+    {
+        if (!string.IsNullOrEmpty(announce)) _pendingAnnouncement = announce;
+        Render(focusElementId);
+    }
+
     private void Render()
     {
         if (!_web.IsInitialized || _web.CoreWebView2 == null) return;
@@ -1389,6 +1559,10 @@ document.addEventListener('keydown', function (e) {
         _state.StageNotices = _notices;
         _state.ExplanationOpen = _explainOpen;
         _state.TransmitCount = _gate.TransmitCount;
+        _state.HowToOpenByDefault = _howToOpenByDefault;
+        // The how-to section's leaving bullet may only promise "pick it up
+        // later" while something is really writing the run to disk.
+        _state.RunIsSaved = _evidence.Record != null;
 
         try
         {
@@ -1549,11 +1723,14 @@ document.addEventListener('keydown', function (e) {
 
         // The stage sentences carry tune and RF power, and either may just
         // have moved — re-render so the page tells the truth. Focus returns
-        // to the CURRENT stage's heading, named explicitly: the operator left
-        // the page from a stage and must come back to it, and this render
-        // used to name no landing at all, so returning from the power window
-        // dropped them at the top (#365).
-        Render(CurrentStageHeadingId());
+        // to the current stage's RUN control (#373): the operator changed
+        // power in order to run the stage, they have already read it — the
+        // power button renders after Run — and the Run control's description
+        // reads the fresh "at N watts into ANT1" sentence, so the landing
+        // itself confirms what the power window changed. This render landed
+        // on the stage heading until Sprint 40, and named no landing at all
+        // before Sprint 39 (#365).
+        Render(ForwardLandingIn(CurrentStageId()));
     }
 
     private void OpenDevicePicker()

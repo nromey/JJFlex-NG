@@ -79,7 +79,7 @@ namespace Radios.Fixer
             SkipStage,
             /// <summary>Apply one of the fixes the page offered.</summary>
             ApplyFix,
-            /// <summary>Stop — Escape, or the Stop control.</summary>
+            /// <summary>Stop — Escape, or the Stop everything control.</summary>
             Stop,
             /// <summary>Put the report on the clipboard as plain text.</summary>
             CopyReport,

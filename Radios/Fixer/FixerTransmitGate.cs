@@ -387,7 +387,7 @@ namespace Radios.Fixer
             if (rigIsKeyed)
                 return Decision.Refuse(Refusal.AlreadyInFlight,
                     "The radio is already transmitting, so nothing more was sent. "
-                    + "Let it finish, or press Stop.");
+                    + "Let it finish, or press Stop everything.");
 
             if (_inFlight)
                 return Decision.Refuse(Refusal.AlreadyInFlight,

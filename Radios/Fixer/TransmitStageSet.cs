@@ -258,12 +258,24 @@ namespace Radios.Fixer
                     // and the decode path works.
                     Declarations = new[]
                     {
+                        // Noel's own words, supplied 2026-08-28 (#374) and
+                        // used verbatim — one doubled "to" dropped, and
+                        // "transmit" corrected to "receive" on his explicit
+                        // confirmation ("yes that is what I meant by proving
+                        // the receive path"). The line it replaced — "You are
+                        // the best instrument in the room" — was about US
+                        // being clever; his version tells the operator what
+                        // their answer accomplishes and why the run
+                        // continues.
                         new FixerRunDeclaration(
                             HearingDeclaration,
                             "Can you hear the radio right now?",
-                            "You are the best instrument in the room for this question. "
-                            + "Hearing the radio proves the whole receive path in one "
-                            + "stroke, which narrows where a transmit problem can be.",
+                            "You're the best person to help prove this test. If you can "
+                            + "hear the radio, it proves that the whole receive path is "
+                            + "working. By proving the receive path, we can move to the "
+                            + "next tests which will help us zero in on what's going "
+                            + "right and what's going wrong with your radio's "
+                            + "transmission paths.",
                             new[]
                             {
                                 new FixerDeclarationChoice(HearingYes,

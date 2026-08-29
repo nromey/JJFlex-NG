@@ -131,15 +131,17 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void The_page_has_exactly_three_landmarks_with_short_names()
+        public void The_page_has_exactly_four_landmarks_with_short_names()
         {
-            // main ("Stages"), the declarations region, the report region.
-            // NVDA speaks a landmark's name on every jump, so the names stay
-            // short — never a sentence.
+            // How to use the page, main ("Stages"), the declarations region,
+            // the report region. NVDA speaks a landmark's name on every jump,
+            // so the names stay short — never a sentence.
             string html = FixerPage.Render(SimpleRun());
 
             Assert.Single(Regex.Matches(html, "<main[\\s>]"));
             Assert.Contains("<main aria-label=\"Stages\">", html);
+            Assert.Contains("<section class=\"howto\" aria-labelledby=\"howto-heading\">", html);
+            Assert.Contains("<h2 id=\"howto-heading\" tabindex=\"-1\">Using this page</h2>", html);
             Assert.Contains("<section class=\"decl\" aria-labelledby=\"decl-heading\">", html);
             Assert.Contains("<h2 id=\"decl-heading\" tabindex=\"-1\">Declarations</h2>", html);
             Assert.Contains("aria-labelledby=\"report-heading\"", html);
@@ -178,6 +180,94 @@ namespace Radios.Tests
             string html = FixerPage.Render(SimpleRun());
             Assert.Contains("heading keys move between them", html);
             Assert.Contains("F6", html);
+        }
+
+        // -------- the how-to section (#378) --------
+
+        [Fact]
+        public void The_how_to_section_says_how_to_leave_not_just_how_to_move()
+        {
+            // Noel's question at the bench — "is the only way to exit then to
+            // escape?" — showed the ways out were undiscoverable. Every route
+            // an operator can take is named: Escape, closing the window, and
+            // what the emergency control actually does.
+            string html = FixerPage.Render(SimpleRun());
+            Assert.Contains("press Escape or close the window", html);
+            Assert.Contains("Stop everything, above, is the emergency control", html);
+            Assert.Contains("the carrier drops first", html);
+        }
+
+        [Fact]
+        public void The_how_to_disclosure_is_closed_by_default_and_the_host_can_open_it()
+        {
+            // The host opens it for a first-time operator (no saved runs on
+            // this computer); a returning one gets it folded away. The
+            // section and its promise-carrying summary are present either
+            // way — collapsed must still say what it is hiding.
+            string closedHtml = FixerPage.Render(SimpleRun());
+            var closedDetails = Regex.Match(closedHtml,
+                "<details data-stage=\"how-to-use\"[^>]*>");
+            Assert.True(closedDetails.Success, "no how-to disclosure");
+            Assert.DoesNotContain("open", closedDetails.Value);
+            Assert.Contains("How to move through the checks, and how to leave",
+                            closedHtml);
+
+            string openHtml = FixerPage.Render(SimpleRun(),
+                new FixerPageState { HowToOpenByDefault = true });
+            Assert.Matches("<details data-stage=\"how-to-use\" open>", openHtml);
+        }
+
+        [Fact]
+        public void The_operators_own_how_to_toggle_beats_the_default()
+        {
+            // The toggle rides the same explain wire and the same host-side
+            // memory as the stage explanations, under the pseudo-stage key.
+            var closedByOperator = new FixerPageState
+            {
+                HowToOpenByDefault = true,
+                ExplanationOpen = new Dictionary<string, bool>
+                    { [FixerPage.HowToUseKey] = false },
+            };
+            Assert.DoesNotMatch(new Regex("<details data-stage=\"how-to-use\" open>"),
+                                FixerPage.Render(SimpleRun(), closedByOperator));
+
+            var openedByOperator = new FixerPageState
+            {
+                ExplanationOpen = new Dictionary<string, bool>
+                    { [FixerPage.HowToUseKey] = true },
+            };
+            Assert.Matches("<details data-stage=\"how-to-use\" open>",
+                           FixerPage.Render(SimpleRun(), openedByOperator));
+        }
+
+        [Fact]
+        public void The_leaving_bullet_promises_saving_only_while_something_is_saving()
+        {
+            // The saved wording is a promise; over a journal that never
+            // opened it would be silent data loss with a reassuring voice.
+            string saved = FixerPage.Render(SimpleRun(),
+                new FixerPageState { RunIsSaved = true });
+            Assert.Contains("Saved check runs, on the Fix menu", saved);
+
+            string unsaved = FixerPage.Render(SimpleRun());
+            Assert.DoesNotContain("Saved check runs", unsaved);
+            Assert.Contains("you are asked before it is lost", unsaved);
+        }
+
+        // -------- the emergency control's name (#377) --------
+
+        [Fact]
+        public void The_emergency_control_is_called_stop_everything()
+        {
+            // Plain "Stop" read as "stop the test run" to the most informed
+            // operator alive, on a calm evening — and this control aborts a
+            // keyed transmit. The name must survive that misreading, and it
+            // must not sound like the exit prompt's stop-and-resume choice.
+            string html = FixerPage.Render(SimpleRun());
+            var stop = Regex.Match(html,
+                "<button[^>]*data-action=\"stop\"[^>]*>([^<]*)</button>");
+            Assert.True(stop.Success, "no stop control");
+            Assert.Equal("Stop everything", stop.Groups[1].Value);
         }
 
         // -------- controls are real controls --------
@@ -479,6 +569,136 @@ namespace Radios.Tests
             string card = CardOf(FixerPage.Render(SimpleRun()), "fill");
             Assert.Contains("data-action=\"run\"", card);
             Assert.DoesNotContain("data-action=\"next\"", card);
+        }
+
+        // -------- focus landings and the spoken verdict (#373) --------
+
+        [Fact]
+        public void The_landing_ids_the_host_uses_exist_in_the_markup()
+        {
+            // The host focuses these by id after an action; an id that
+            // renders under a different name silently reintroduces the
+            // land-at-the-top defect this replaced. Run controls always
+            // render; the next control needs a result; the fix button needs
+            // a fixable finding.
+            var run = new FixerRun(KettleWithDryFinding(out _));
+            run.RunStage("fill");
+            string html = FixerPage.Render(run);
+
+            Assert.Contains("id=\"" + FixerPage.RunControlId("fill") + "\"", html);
+            Assert.Contains("id=\"" + FixerPage.RunControlId("boil") + "\"", html);
+            Assert.Contains("id=\"" + FixerPage.NextControlId("fill") + "\"", html);
+            Assert.Contains("id=\"" + FixerPage.FixControlId("fill", "dry") + "\"", html);
+        }
+
+        [Fact]
+        public void The_run_control_keeps_its_id_when_it_becomes_run_again()
+        {
+            // Same id for run and run-again — only one renders, and the
+            // host's landing (a fix was applied; running again is the next
+            // action) must find it in either state.
+            var run = SimpleRun();
+            run.RunStage("fill");
+            string card = CardOf(FixerPage.Render(run), "fill");
+            Assert.Contains("id=\"" + FixerPage.RunControlId("fill") + "\"", card);
+            Assert.Contains("data-action=\"rerun\"", card);
+        }
+
+        [Fact]
+        public void A_clean_pass_lands_on_the_forward_control()
+        {
+            var run = SimpleRun();
+            run.RunStage("fill");
+            Assert.Equal(FixerPage.NextControlId("fill"),
+                         FixerPage.LandingAfterResult(run, "fill"));
+        }
+
+        [Fact]
+        public void A_skip_lands_on_the_forward_control()
+        {
+            // A skip is a deliberate decision to move on; the landing agrees
+            // with it, and the cost travels in the spoken verdict instead.
+            var run = SimpleRun();
+            run.SkipStage("fill", "no-tap");
+            Assert.Equal(FixerPage.NextControlId("fill"),
+                         FixerPage.LandingAfterResult(run, "fill"));
+        }
+
+        [Fact]
+        public void A_fixable_finding_lands_on_its_own_fix_button()
+        {
+            // Applying the fix at the point of detection is the next action,
+            // and the button's description reads the finding to whoever
+            // lands on it.
+            var run = new FixerRun(KettleWithDryFinding(out _));
+            run.RunStage("fill");
+            Assert.Equal(FixerPage.FixControlId("fill", "dry"),
+                         FixerPage.LandingAfterResult(run, "fill"));
+        }
+
+        [Fact]
+        public void Findings_nobody_here_can_fix_land_on_the_forward_control()
+        {
+            var set = Kettle(fill: _ => new FixerOutcome
+            {
+                Answer = "Trouble.",
+                Findings = new[]
+                {
+                    new FixerFinding("b", FixOwner.Operator, "B is wrong.", "Do the B thing."),
+                },
+            });
+            var run = new FixerRun(set);
+            run.RunStage("fill");
+            Assert.Equal(FixerPage.NextControlId("fill"),
+                         FixerPage.LandingAfterResult(run, "fill"));
+        }
+
+        [Fact]
+        public void A_stage_with_no_result_has_no_landing()
+        {
+            Assert.Equal("", FixerPage.LandingAfterResult(SimpleRun(), "fill"));
+        }
+
+        [Fact]
+        public void The_spoken_verdict_is_the_headings_words_plus_the_answer()
+        {
+            // Composed from the same StatusOf and StatusPhrase the heading
+            // uses, so what is spoken and what the heading says cannot
+            // disagree — and the answer rides along, because it is the whole
+            // product of running the stage.
+            var run = SimpleRun();
+            run.RunStage("fill");
+            Assert.Equal("Stage 0: Fill — passed. Yes — wet.",
+                         FixerPage.SpokenVerdict(run, "fill"));
+        }
+
+        [Fact]
+        public void The_spoken_verdict_for_a_skip_carries_the_cost()
+        {
+            // The skip answer names the reason and what it costs the rest of
+            // the run — the sentence Sprint 39 kept focus back for. It is
+            // spoken now, so focus is free to go forward.
+            var run = SimpleRun();
+            run.SkipStage("fill", "no-tap");
+            Assert.Equal("Stage 0: Fill — skipped. Not run. The reason given: "
+                       + "\"There is no tap here.\" With no tap, whether the kettle "
+                       + "holds water is left open.",
+                         FixerPage.SpokenVerdict(run, "fill"));
+        }
+
+        [Fact]
+        public void The_spoken_verdict_names_problems_found()
+        {
+            var run = new FixerRun(KettleWithDryFinding(out _));
+            run.RunStage("fill");
+            Assert.StartsWith("Stage 0: Fill — problems found.",
+                              FixerPage.SpokenVerdict(run, "fill"));
+        }
+
+        [Fact]
+        public void An_unrun_stage_has_no_verdict_to_speak()
+        {
+            Assert.Equal("", FixerPage.SpokenVerdict(SimpleRun(), "fill"));
         }
 
         // -------- skip is never offered over a measurement (#249) --------
