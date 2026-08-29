@@ -166,6 +166,21 @@ evidence: remote-radio
 #
 # Order, worst news first: nothing at all is arriving, then the radio is
 # clearly alive and only the audio is missing, then the general case.
+#
+# HOW THE CONSISTENCY COUNT IS TAKEN, added 2026-08-28 (#368). The sampler
+# starts on connect and audio starts streaming a few seconds later, so a first
+# run after any connect holds warm-up zeros at the front of the window. Those
+# mean nothing, and counted raw they made a healthy radio read "11 of 16" on
+# the measurement's very first field run. So rx-audio-readings counts from the
+# first reading that carried audio, and zeros AFTER that point — the holes,
+# which are the pattern a weak or congested network makes — are counted
+# separately in rx-audio-gaps. When no reading carried audio at all, the two
+# cannot be told apart, so rx-audio-readings reports the raw window and
+# rx-audio-gaps reports nothing rather than a guess. A rule may read
+# rx-audio-gaps (it is a number, "N of readings-since-audio-began"), but no
+# shipped rule fires on it yet: how many holes should count as a finding is a
+# judgement nobody has made, and the report already states and interprets the
+# holes in its measurement sentence either way.
 
 stage: 4 audio arriving from the radio
 about: Whether audio is actually reaching this computer, measured from what the radio has been sending over the last half minute rather than from any setting.

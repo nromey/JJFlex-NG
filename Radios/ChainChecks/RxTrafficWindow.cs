@@ -51,6 +51,37 @@ namespace Radios.ChainChecks
         /// This is the number that answers "are audio packets coming in".</summary>
         public int AudioReadingsWithTraffic { get; internal set; }
 
+        /// <summary>
+        /// Readings at the FRONT of the window from before the first one that
+        /// carried audio — the warm-up. The sampler starts on connect and audio
+        /// takes a few seconds to begin streaming, so a first run after any
+        /// connect holds a run of zeros at the front that mean nothing (#368).
+        /// Zero when the first reading already carried audio, and zero when NO
+        /// reading carried audio — with no audio ever seen there is no "before
+        /// it began" to count, and claiming one would be a guess.
+        /// </summary>
+        public int LeadingZeroReadings { get; internal set; }
+
+        /// <summary>
+        /// Readings with no audio AFTER audio had begun — the holes. This is
+        /// the number that tells a warm-up from a dropout: audio missing from
+        /// readings scattered through a run means the sound was cutting out,
+        /// which on a remote connection is what a weak or congested network
+        /// looks like. Zero when no reading carried audio, for the same reason
+        /// as <see cref="LeadingZeroReadings"/>.
+        /// </summary>
+        public int AudioGapReadings { get; internal set; }
+
+        /// <summary>
+        /// How many readings there have been from the first one that carried
+        /// audio to the newest — the honest denominator for the consistency
+        /// count, with the warm-up left out. Zero when no reading carried
+        /// audio; use <see cref="SampleCount"/> then, because with no audio the
+        /// whole window is the story.
+        /// </summary>
+        public int ReadingsSinceAudioBegan =>
+            AudioReadingsWithTraffic > 0 ? SampleCount - LeadingZeroReadings : 0;
+
         /// <summary>Highest total receive rate seen in the window, kbps — every
         /// stream the radio sends us, audio included.</summary>
         public int TotalPeakKbps { get; internal set; }
@@ -197,6 +228,7 @@ namespace Radios.ChainChecks
                 if (_samples.Count == 0) return r;
 
                 bool first = true;
+                bool audioSeen = false;
                 foreach (Sample s in _samples)
                 {
                     r.SampleCount++;
@@ -213,12 +245,37 @@ namespace Radios.ChainChecks
                     // under 125 bytes in a second reads as zero — which is why
                     // this counts what the reading SAID rather than pretending
                     // to count packets we never saw.
-                    if (s.Audio > 0) r.AudioReadingsWithTraffic++;
+                    //
+                    // A zero BEFORE the first audio is warm-up — the sampler
+                    // starts on connect, the stream a few seconds later — and a
+                    // zero AFTER it is a hole in the stream. Two different
+                    // reports (#368): the first misled the measurement's very
+                    // first reader on a radio that was working perfectly, and
+                    // the second is the single most useful thing this window
+                    // can say, because holes are what a weak network looks like.
+                    if (s.Audio > 0)
+                    {
+                        r.AudioReadingsWithTraffic++;
+                        audioSeen = true;
+                    }
+                    else if (audioSeen)
+                    {
+                        r.AudioGapReadings++;
+                    }
+                    else
+                    {
+                        r.LeadingZeroReadings++;
+                    }
 
                     r.AudioLatestKbps = s.Audio;
                     r.TotalLatestKbps = s.Total;
                     r.MeterLatestKbps = s.Meter;
                 }
+
+                // With no audio ever seen, "before it began" is a claim about
+                // an event that never happened. Report the plain count and let
+                // the reader of SampleCount have the whole window.
+                if (!audioSeen) r.LeadingZeroReadings = 0;
             }
 
             return r;

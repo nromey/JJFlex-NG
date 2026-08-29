@@ -88,6 +88,68 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Zeros_before_audio_began_are_warm_up_and_zeros_after_are_holes()
+        {
+            // #368, and it decides whether a report is alarming. The sampler
+            // starts on connect and audio starts streaming a few seconds later,
+            // so zeros at the FRONT mean nothing; zeros AFTER audio began mean
+            // the sound was cutting out. Two different reports, and the first
+            // field run collapsed them into one count.
+            var w = new RxTrafficWindow();
+            w.Add(0, 12, 4, T0);                     // warm-up
+            w.Add(0, 12, 4, T0.AddSeconds(1));       // warm-up
+            w.Add(42, 61, 5, T0.AddSeconds(2));      // audio begins
+            w.Add(0, 12, 4, T0.AddSeconds(3));       // a hole
+            w.Add(41, 60, 5, T0.AddSeconds(4));
+
+            RxTrafficReading r = w.Snapshot();
+
+            Assert.Equal(5, r.SampleCount);
+            Assert.Equal(2, r.LeadingZeroReadings);
+            Assert.Equal(1, r.AudioGapReadings);
+            Assert.Equal(2, r.AudioReadingsWithTraffic);
+            Assert.Equal(3, r.ReadingsSinceAudioBegan);
+        }
+
+        [Fact]
+        public void A_trailing_zero_after_audio_began_is_a_hole_not_a_warm_up()
+        {
+            // Audio that stops and stays stopped is a dropout in progress, not
+            // a warm-up. Only zeros BEFORE the first audio are discountable.
+            var w = new RxTrafficWindow();
+            w.Add(42, 61, 5, T0);
+            w.Add(41, 60, 5, T0.AddSeconds(1));
+            w.Add(0, 12, 4, T0.AddSeconds(2));
+            w.Add(0, 12, 4, T0.AddSeconds(3));
+
+            RxTrafficReading r = w.Snapshot();
+
+            Assert.Equal(0, r.LeadingZeroReadings);
+            Assert.Equal(2, r.AudioGapReadings);
+            Assert.Equal(4, r.ReadingsSinceAudioBegan);
+        }
+
+        [Fact]
+        public void With_no_audio_at_all_the_window_claims_neither_warm_up_nor_holes()
+        {
+            // With no audio ever seen there is no "before it began" to count
+            // from, and claiming one either way would be a guess. The raw
+            // count is the story, and the fact source says so in words.
+            var w = new RxTrafficWindow();
+            w.Add(0, 12, 4, T0);
+            w.Add(0, 12, 4, T0.AddSeconds(1));
+            w.Add(0, 12, 4, T0.AddSeconds(2));
+
+            RxTrafficReading r = w.Snapshot();
+
+            Assert.Equal(3, r.SampleCount);
+            Assert.Equal(0, r.AudioReadingsWithTraffic);
+            Assert.Equal(0, r.LeadingZeroReadings);
+            Assert.Equal(0, r.AudioGapReadings);
+            Assert.Equal(0, r.ReadingsSinceAudioBegan);
+        }
+
+        [Fact]
         public void The_window_drops_the_oldest_reading_once_it_is_full()
         {
             var w = new RxTrafficWindow(3);
@@ -149,7 +211,7 @@ namespace Radios.Tests
             DiagnosticFacts f = RxChainFacts.Collect(null);
 
             foreach (string name in new[] { "rx-audio-kbps", "rx-audio-readings",
-                                            "rx-total-kbps", "rx-meter-kbps" })
+                                            "rx-audio-gaps", "rx-total-kbps", "rx-meter-kbps" })
             {
                 DiagnosticFact fact = f.Find(name);
                 Assert.NotNull(fact);
@@ -171,32 +233,120 @@ namespace Radios.Tests
             Assert.Equal(names.Count - 1, names.IndexOf("rx-meter-kbps"));
         }
 
-        // ── The sentence an operator hears ───────────────────────────────────
+        // ── The window-to-facts conversion, driven with real windows ─────────
+        //
+        // These feed AddTrafficFactsFrom an actual RxTrafficWindow snapshot
+        // rather than hand-built facts, because the warm-up counting (#368)
+        // lives in exactly this conversion and a mirrored copy of it in a test
+        // would drift.
 
-        private static DiagnosticFacts Arriving(int peakKbps, int withAudio, int of,
-                                                int totalKbps, int meterKbps, bool pcAudio)
+        /// <summary>A window fed one audio figure per reading, a second apart,
+        /// with steady total and meter traffic underneath.</summary>
+        private static RxTrafficWindow Fed(params int[] audioPerReading)
+            => FedWith(61, 5, audioPerReading);
+
+        private static RxTrafficWindow FedWith(int total, int meter, params int[] audioPerReading)
+        {
+            var w = new RxTrafficWindow();
+            for (int i = 0; i < audioPerReading.Length; i++)
+                w.Add(audioPerReading[i], total, meter, T0.AddSeconds(i));
+            return w;
+        }
+
+        private static DiagnosticFacts FactsFrom(RxTrafficWindow w, bool pcAudio)
         {
             var f = new DiagnosticFacts();
             f.Add(DiagnosticFact.Flag("pc-audio", "Radio audio through this computer", pcAudio));
-            f.Add(DiagnosticFact.Measure("rx-audio-kbps", "Audio arriving over the network from the radio",
-                                         peakKbps, "kilobits per second", "the radio", T0));
-            f.Add(DiagnosticFact.Measure("rx-audio-readings", "Readings in which audio was arriving",
-                                         withAudio, "of " + of, "the radio", T0));
-            f.Add(DiagnosticFact.Measure("rx-total-kbps", "All data arriving from the radio",
-                                         totalKbps, "kilobits per second", "the radio", T0));
-            f.Add(DiagnosticFact.Measure("rx-meter-kbps", "Meter readings arriving from the radio",
-                                         meterKbps, "kilobits per second", "the radio", T0));
+            RxChainFacts.AddTrafficFactsFrom(f, w.Snapshot());
             return f;
         }
 
         [Fact]
+        public void The_consistency_count_starts_where_audio_did_and_says_so()
+        {
+            // The first field run, in miniature: warm-up zeros at the front of
+            // a healthy stream. The count must cover the readings since audio
+            // began, and the fact must state the leaving-out so the raw window
+            // and the trimmed count can never quietly disagree in an email.
+            DiagnosticFacts f = FactsFrom(Fed(0, 0, 0, 0, 119, 120, 120, 119, 120, 119),
+                                          pcAudio: true);
+
+            DiagnosticFact readings = f.Find("rx-audio-readings");
+            Assert.Equal(FactState.Observed, readings.State);
+            Assert.Equal(6, (int)readings.Number.Value);
+            Assert.Equal("of 6", readings.Units);
+            Assert.Contains("the count starts at the first reading that carried audio", readings.Source);
+            Assert.Contains("the 4 earlier readings taken before the stream had begun", readings.Source);
+
+            DiagnosticFact gaps = f.Find("rx-audio-gaps");
+            Assert.Equal(FactState.Observed, gaps.State);
+            Assert.Equal(0, (int)gaps.Number.Value);
+            Assert.Equal("of 6", gaps.Units);
+        }
+
+        [Fact]
+        public void Holes_after_audio_began_survive_the_trim_and_are_counted_apart()
+        {
+            // The SmartLink case, which is most of the field: warm-up AND real
+            // holes in one window. Dropping the count entirely would have
+            // suppressed the diagnosis along with the noise.
+            DiagnosticFacts f = FactsFrom(Fed(0, 0, 96, 95, 0, 96, 0, 96), pcAudio: true);
+
+            DiagnosticFact readings = f.Find("rx-audio-readings");
+            Assert.Equal(4, (int)readings.Number.Value);
+            Assert.Equal("of 6", readings.Units);
+
+            DiagnosticFact gaps = f.Find("rx-audio-gaps");
+            Assert.Equal(2, (int)gaps.Number.Value);
+            Assert.Equal("of 6", gaps.Units);
+        }
+
+        [Fact]
+        public void With_no_audio_the_count_is_raw_and_the_gap_fact_declines_to_guess()
+        {
+            // With no audio ever seen, warm-up cannot be told from a hole.
+            // The readings fact reports the whole window and the gap fact says
+            // why it has no number, instead of inventing one.
+            DiagnosticFacts f = FactsFrom(Fed(0, 0, 0, 0, 0), pcAudio: false);
+
+            DiagnosticFact readings = f.Find("rx-audio-readings");
+            Assert.Equal(FactState.Observed, readings.State);
+            Assert.Equal(0, (int)readings.Number.Value);
+            Assert.Equal("of 5", readings.Units);
+
+            DiagnosticFact gaps = f.Find("rx-audio-gaps");
+            Assert.Equal(FactState.Silent, gaps.State);
+            Assert.Contains("cannot be told apart", gaps.Why);
+        }
+
+        [Fact]
+        public void An_empty_window_still_reads_as_not_looked_yet_through_the_conversion()
+        {
+            DiagnosticFacts f = FactsFrom(new RxTrafficWindow(), pcAudio: true);
+
+            foreach (string name in new[] { "rx-audio-kbps", "rx-audio-readings",
+                                            "rx-audio-gaps", "rx-total-kbps", "rx-meter-kbps" })
+            {
+                DiagnosticFact fact = f.Find(name);
+                Assert.Equal(FactState.Silent, fact.State);
+                Assert.Contains("no traffic readings have been taken yet", fact.Why);
+            }
+        }
+
+        // ── The sentence an operator hears ───────────────────────────────────
+        //
+        // Driven from real windows through the real conversion, so what these
+        // assert is what an operator gets end to end.
+
+        [Fact]
         public void When_audio_is_arriving_the_sentence_says_so_with_the_number_and_the_window()
         {
-            string s = RxChainFacts.ArrivalSentence(Arriving(42, 10, 10, 61, 5, pcAudio: true));
+            string s = RxChainFacts.ArrivalSentence(
+                FactsFrom(Fed(42, 42, 42, 42, 42, 42, 42, 42, 42, 42), pcAudio: true));
 
             Assert.Contains("Audio arriving from the radio", s);
             Assert.Contains("42", s);
-            Assert.Contains("10 of 10 readings", s);
+            Assert.Contains("every one of 10 readings", s);
             Assert.Contains("about a second apart", s);
             Assert.Contains("61", s);
         }
@@ -209,11 +359,79 @@ namespace Radios.Tests
             // when a screen reader says them end to end, so the thing under test
             // is the finished sentence.
             Assert.Equal(
-                "Audio arriving from the radio: up to 42 kilobits per second, in 10 of 10 "
-                + "readings taken about a second apart. All data arriving from the radio over "
-                + "the same readings: up to 61 kilobits per second, of which meter readings "
-                + "were up to 5.",
-                RxChainFacts.ArrivalSentence(Arriving(42, 10, 10, 61, 5, pcAudio: true)));
+                "Audio arriving from the radio: up to 42 kilobits per second, in every one "
+                + "of 10 readings taken about a second apart, counted from the first reading "
+                + "that carried audio. All data arriving from the radio over the same "
+                + "readings: up to 61 kilobits per second, of which meter readings — the "
+                + "radio reporting its own gauges — were up to 5. Those figures are measured "
+                + "for comparison: data or meters still arriving while audio is not would "
+                + "mean the radio is talking to this computer but not sending sound — a "
+                + "different problem from a dead link.",
+                RxChainFacts.ArrivalSentence(
+                    FactsFrom(Fed(42, 42, 42, 42, 42, 42, 42, 42, 42, 42), pcAudio: true)));
+        }
+
+        [Fact]
+        public void A_first_run_after_a_connect_reads_full_rather_than_short()
+        {
+            // The bench finding that opened #368, in miniature: Noel's first run
+            // read "14 of 18 readings" on a radio that was working perfectly,
+            // because four warm-up zeros sat at the front of the window — and a
+            // first-time user would have concluded something was wrong. The
+            // count now starts where audio did, and says so.
+            string s = RxChainFacts.ArrivalSentence(
+                FactsFrom(Fed(0, 0, 0, 0, 119, 120, 120, 119, 120, 119, 120, 120,
+                              119, 120, 119, 120, 120, 119), pcAudio: true));
+
+            Assert.Contains("up to 120 kilobits per second", s);
+            Assert.Contains("in every one of 14 readings", s);
+            Assert.Contains("counted from the first reading that carried audio", s);
+            Assert.DoesNotContain("of 18", s);
+            Assert.DoesNotContain("14 of 18", s);
+        }
+
+        [Fact]
+        public void Holes_in_the_middle_of_the_run_are_named_and_interpreted()
+        {
+            // Noel: "if the number had holes, someone might be experiencing
+            // drop-outs or issues with audio say on a weak wireless signal."
+            // That is the SmartLink case, which is most of the field — so the
+            // holes must survive the warm-up trim, be counted apart, and carry
+            // their interpretation with them.
+            string s = RxChainFacts.ArrivalSentence(
+                FactsFrom(Fed(0, 0, 96, 95, 0, 96, 0, 96), pcAudio: true));
+
+            // Asserted whole, like the healthy case above, because this is the
+            // sentence a remote operator with a marginal link will actually
+            // hear read end to end.
+            Assert.Equal(
+                "Audio arriving from the radio: up to 96 kilobits per second, but it was "
+                + "missing in 2 of 6 readings taken about a second apart, counted from the "
+                + "first reading that carried audio. Audio missing from readings scattered "
+                + "through the run can mean drop-outs — often a weak or congested network "
+                + "connection. All data arriving from the radio over the same readings: up "
+                + "to 61 kilobits per second, of which meter readings — the radio reporting "
+                + "its own gauges — were up to 5. Those figures are measured for comparison: "
+                + "data or meters still arriving while audio is not would mean the radio is "
+                + "talking to this computer but not sending sound — a different problem from "
+                + "a dead link.",
+                s);
+        }
+
+        [Fact]
+        public void A_hole_left_by_switching_the_stream_off_is_not_blamed_on_the_network()
+        {
+            // Audio flowed, then radio audio through this computer was switched
+            // off, and the check ran before the window forgot. The stopping is
+            // expected, and telling this operator their network might be weak
+            // would send them to a link that is fine.
+            string s = RxChainFacts.ArrivalSentence(
+                FactsFrom(Fed(96, 96, 96, 0, 0, 0), pcAudio: false));
+
+            Assert.Contains("but it was missing in 3 of 6 readings", s);
+            Assert.Contains("switched off", s);
+            Assert.Contains("the sound stays at the radio", s);
+            Assert.DoesNotContain("network", s);
         }
 
         [Fact]
@@ -221,20 +439,28 @@ namespace Radios.Tests
         {
             // The commonest setup there is. The sentence has to carry its own
             // scope or it reads as an accusation.
-            string s = RxChainFacts.ArrivalSentence(Arriving(0, 0, 10, 12, 4, pcAudio: false));
+            string s = RxChainFacts.ArrivalSentence(
+                FactsFrom(FedWith(12, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), pcAudio: false));
 
             Assert.Contains("none measured", s);
             Assert.Contains("none is expected", s);
             Assert.Contains("the sound stays at the radio", s);
+            // And no comparison frame: with the stream switched off, meters
+            // without audio are the expected state, not a fault to hint at.
+            Assert.DoesNotContain("talking to this computer", s);
         }
 
         [Fact]
         public void A_zero_while_computer_audio_is_on_says_audio_should_have_been_arriving()
         {
-            string s = RxChainFacts.ArrivalSentence(Arriving(0, 0, 10, 12, 4, pcAudio: true));
+            string s = RxChainFacts.ArrivalSentence(
+                FactsFrom(FedWith(12, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), pcAudio: true));
 
             Assert.Contains("none measured", s);
             Assert.Contains("should be arriving here", s);
+            // This is the live version of the fault the meter figure exists to
+            // catch, and the sentence says why the figure is there.
+            Assert.Contains("talking to this computer but not sending sound", s);
         }
 
         [Theory]
@@ -264,9 +490,10 @@ namespace Radios.Tests
             // radio is faulty. Nothing here may read as a diagnosis.
             foreach (string s in new[]
             {
-                RxChainFacts.ArrivalSentence(Arriving(42, 10, 10, 61, 5, pcAudio: true)),
-                RxChainFacts.ArrivalSentence(Arriving(0, 0, 10, 12, 4, pcAudio: true)),
-                RxChainFacts.ArrivalSentence(Arriving(0, 0, 10, 12, 4, pcAudio: false)),
+                RxChainFacts.ArrivalSentence(FactsFrom(Fed(42, 42, 42), pcAudio: true)),
+                RxChainFacts.ArrivalSentence(FactsFrom(Fed(0, 0, 42, 0, 42), pcAudio: true)),
+                RxChainFacts.ArrivalSentence(FactsFrom(FedWith(12, 4, 0, 0, 0), pcAudio: true)),
+                RxChainFacts.ArrivalSentence(FactsFrom(FedWith(12, 4, 0, 0, 0), pcAudio: false)),
             })
             {
                 Assert.DoesNotContain("broken", s, StringComparison.OrdinalIgnoreCase);
