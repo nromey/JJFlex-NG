@@ -4,13 +4,13 @@ Everything the tool says, in the order an operator meets it, with the values it 
 
 # The page around the checks
 
-## Transmit checks — Test TX-4K2P — title 1
+## Transmit tests — Test TX-4K2P — title 1
 
-Transmit checks — Test TX-4K2P
+Transmit tests — Test TX-4K2P
 
-## Transmit checks — heading 1
+## Transmit tests — heading 1
 
-Transmit checks
+Transmit tests
 
 ## Your test ID is TX-4K2P. Everything this run records… — paragraph 1
 
@@ -40,9 +40,9 @@ two could not run
 
 two not yet run
 
-## two checks. Two passed, three not yet run — text 6
+## two tests. Two passed, three not yet run — text 6
 
-two checks. Two passed, three not yet run
+two tests. Two passed, three not yet run
 
 ## Nothing has keyed the radio. — text 7, when transmit count is at most 0
 
@@ -60,21 +60,21 @@ The radio has been keyed two times this run.
 
 Using this page
 
-## How to move through the checks, and how to leave — disclosure summary 1
+## How to move through the tests, and how to leave — disclosure summary 1
 
-How to move through the checks, and how to leave
+How to move through the tests, and how to leave
 
-## Each check is a heading. Your screen reader's heading… — bullet 1
+## Each test is a heading. Your screen reader's heading keys… — bullet 1
 
-Each check is a heading. Your screen reader's heading keys move between them, Tab reaches the controls, and F6 or Shift+F6 jumps between the sections of the page.
+Each test is a heading. Your screen reader's heading keys move between them, Tab reaches the controls, and F6 or Shift+F6 jumps between the sections of the page.
 
-## The checks run in order. Each answer you give and each… — bullet 2
+## The tests run in order. Each answer you give and each… — bullet 2
 
-The checks run in order. Each answer you give and each check you run carries you to the next thing to do, so you can walk the whole run without going backwards.
+The tests run in order. Each answer you give and each test you run carries you to the next thing to do, so you can walk the whole run without going backwards.
 
 ## To leave, press Escape or close the window. Once anything… — text 1, when run is saved
 
-To leave, press Escape or close the window. Once anything has been recorded you choose on the way out: keep the run to pick up later from Saved check runs, on the Fix menu, or leave without keeping it.
+To leave, press Escape or close the window. Once anything has been recorded you choose on the way out: keep the run to pick up later from View or resume saved test runs, on the Fix menu, or leave without keeping it.
 
 ## To leave, press Escape or close the window. If the run… — text 2, otherwise
 
@@ -116,29 +116,29 @@ could not run
 
 not yet run
 
-## This check transmits. — paragraph 1
+## This test transmits. — paragraph 1
 
-This check transmits.
+This test transmits.
 
-## Not checked yet. — paragraph 2
+## Not run yet. — paragraph 2
 
-Not checked yet.
+Not run yet.
 
-## What this check does — disclosure summary 1
+## What this test does — disclosure summary 1
 
-What this check does
+What this test does
 
-## Help with this check — link 1
+## Help with this test — link 1
 
-Help with this check
+Help with this test
 
-## Run this check again — text 1, when again
+## Run this test again — text 1, when again
 
-Run this check again
+Run this test again
 
-## Run this check — text 2, otherwise
+## Run this test — text 2, otherwise
 
-Run this check
+Run this test
 
 ## The reason you choose changes what the report can say… — paragraph 1
 
@@ -214,27 +214,27 @@ I don't have access to a microphone at all.
 
 With no microphone there is nothing to compare the injected audio against, so whether your own voice would get through is left open.
 
-## Stage 0 Audio setup — its name
+## Stage 0 Audio setup and receive — its name
 
-Audio setup
+Audio setup and receive
 
-## Stage 0 Audio setup — the question it asks
+## Stage 0 Audio setup and receive — the question it asks
 
-What is your audio actually doing right now?
+What is your audio doing right now, and is sound reaching you from the radio?
 
-## Stage 0 Audio setup — what this check does
+## Stage 0 Audio setup and receive — what this check does
 
-Reads the open audio stream directly: host API, input and output device, sample rate, channel count. Not your saved settings — the stream itself. Those two disagree more often than anyone expects, and when they do, the disagreement is usually the fault. You would never spot it on a settings page. Nothing here keys the radio.
+Two halves, and they answer different questions. The first reads the open audio stream directly: host API, input and output device, sample rate, channel count. Not your saved settings — the stream itself. Those two disagree more often than anyone expects, and when they do, the disagreement is usually the fault. You would never spot it on a settings page. The second walks the receive chain — the slice you are listening to, the radio's outputs and their levels, how the audio reaches you, and how much has actually been arriving over the network. Proving receive first is what makes the transmit tests after it readable, and the receive evidence belongs in the report whether or not you came here about receive. Nothing here keys the radio.
 
-## Stage 0 Audio setup — what pressing Run will do
+## Stage 0 Audio setup and receive — what pressing Run will do
 
-Running this takes a quick reading of the audio path. Nothing transmits.
+Running this takes a quick reading of the audio path on this computer, then walks the receive chain and reports how much audio has been arriving from the radio. Nothing transmits.
 
-## Stage 0 Audio setup · Can you hear the radio right now? — the question it asks
+## Stage 0 Audio setup and receive · Can you hear the radio right now? — the question it asks
 
 Can you hear the radio right now?
 
-## Stage 0 Audio setup · Can you hear the radio right now? — why it matters
+## Stage 0 Audio setup and receive · Can you hear the radio right now? — why it matters
 
 You're the best person to help prove this test. If you can hear the radio, it proves that the whole receive path is working. By proving the receive path, we can move to the next tests which will help us zero in on what's going right and what's going wrong with your radio's transmission paths.
 
@@ -250,43 +250,43 @@ I hear nothing from the radio
 
 No radio is connected
 
-## Stage 0 Audio setup · Open the full audio device picker — the label
+## Stage 0 Audio setup and receive · Open the full audio device picker — the label
 
 Open the full audio device picker
 
-## Stage 1 Microphone check — its name
+## Stage 1 Microphone test — its name
 
-Microphone check
+Microphone test
 
-## Stage 1 Microphone check — the question it asks
+## Stage 1 Microphone test — the question it asks
 
 Is sound from your microphone arriving in this computer?
 
-## Stage 1 Microphone check — what this check does
+## Stage 1 Microphone test — what this check does
 
 This listens to your microphone with the radio out of the picture entirely, and reports the peak in dBFS along with the integrated loudness in LUFS. It settles the first link in the chain before anything downstream is blamed for it. The reading is also kept as a baseline, because stage 4 is judged against it: a quiet result there means something quite different depending on whether your microphone measured well here.
 
-## Stage 1 Microphone check — what pressing Run will do
+## Stage 1 Microphone test — what pressing Run will do
 
 Running this measures your room's noise in a quiet moment, then counts you in with three tones and listens while you talk. Nothing transmits.
 
-## Stage 2 Transmitter check — its name
+## Stage 2 Transmitter test — its name
 
-Transmitter check
+Transmitter test
 
-## Stage 2 Transmitter check — the question it asks
+## Stage 2 Transmitter test — the question it asks
 
 Does the radio produce RF when it keys a tune carrier?
 
-## Stage 2 Transmitter check — what this check does
+## Stage 2 Transmitter test — what this check does
 
 The radio keys a tune carrier — a steady unmodulated signal it generates itself — so no microphone, computer audio or streaming takes any part. Forward power and SWR are read while it is keyed. If RF appears, the transmitter is working and whatever is wrong lies somewhere in the audio path. If no RF appears, you never had an audio problem at all, and no amount of microphone testing would have found it. Nothing is transmitted until you have said what is connected to the antenna port.
 
-## Stage 2 Transmitter check — what pressing Run will do
+## Stage 2 Transmitter test — what pressing Run will do
 
 Running this counts down with three tones, then keys the radio's own tune carrier at 25 watts into ANT1 for about two seconds.
 
-## Stage 2 Transmitter check · Change the tune power — the label
+## Stage 2 Transmitter test · Change the tune power — the label
 
 Change the tune power
 
@@ -300,7 +300,7 @@ Does audio reach the radio when your microphone is bypassed?
 
 ## Stage 3 Injected transmit — what this check does
 
-Tones and a generated voice are sent to the radio with your microphone taken out of the path, and the radio's own SC_MIC meter is watched to see what arrives. This check and stage 4 differ in exactly one thing, which is whether your microphone is involved. If this one works and stage 4 does not, your microphone is the problem. If neither works, your microphone is not the problem, and the fault lies between this computer and the radio.
+Tones and a generated voice are sent to the radio with your microphone taken out of the path, and the radio's own SC_MIC meter is watched to see what arrives. This test and stage 4 differ in exactly one thing, which is whether your microphone is involved. If this one works and stage 4 does not, your microphone is the problem. If neither works, your microphone is not the problem, and the fault lies between this computer and the radio.
 
 ## Stage 3 Injected transmit — what pressing Run will do
 
@@ -332,7 +332,7 @@ Change the transmit power
 
 ## Transmit — the introduction
 
-Work forward from stage 0. What each stage finds feeds the ones after it — stage 1 measures your microphone, and stage 4 is judged against that measurement rather than on its own. Jump around if you want; the report records what was skipped. Stages 0 and 1 do not key the radio.
+Work forward from stage 0. What each stage finds feeds the ones after it — stage 1 measures your microphone, and stage 4 is judged against that measurement rather than on its own. Stage 0 also walks your receive chain, so the report carries receive evidence whether or not receive is what brought you here. Jump around if you want; the report records what was skipped. Stages 0 and 1 do not key the radio.
 
 ## Transmit · What is the antenna socket connected to right now? — the question it asks
 
@@ -340,7 +340,7 @@ What is the antenna socket connected to right now?
 
 ## Transmit · What is the antenna socket connected to right now? — why it matters
 
-Nothing transmits until you answer this question. Into a real antenna, or through an amplifier, the checks that transmit keep the power at 25 watts or less. Answering that nothing is connected, or that you are not sure, keeps them parked — everything else still runs.
+Nothing transmits until you answer this question. Into a real antenna, or through an amplifier, the tests that transmit keep the power at 25 watts or less. Answering that nothing is connected, or that you are not sure, keeps them parked — everything else still runs.
 
 ## What is the antenna socket connected to… · A dummy load — the label
 
@@ -388,7 +388,7 @@ I have not confirmed what is connected
 
 ## Transmit · What is the antenna socket connected to right now? — why it matters, when the radio is somewhere else
 
-Nothing transmits until you answer this question. You are not at that station, so every answer here states what someone there has confirmed with you — the report will say your answer came over a remote session, on someone else's word. Whatever is connected, the checks that transmit keep the power at 25 watts or less, because a confirmation relayed from a distance is not the same as seeing the socket. Answering that you have not confirmed keeps them parked — everything else still runs.
+Nothing transmits until you answer this question. You are not at that station, so every answer here states what someone there has confirmed with you — the report will say your answer came over a remote session, on someone else's word. Whatever is connected, the tests that transmit keep the power at 25 watts or less, because a confirmation relayed from a distance is not the same as seeing the socket. Answering that you have not confirmed keeps them parked — everything else still runs.
 
 # What the audio setup check finds
 
@@ -470,7 +470,7 @@ You hear nothing from the radio, even though PC audio is on — so the receive p
 
 ## Hears nothing — what to do about it (operator), when remote radio
 
-Check this computer's output device and its volume first. If the radio's audio genuinely is not arriving, the transmit checks will likely fail for the same reason, so settle this before reading them.
+Check this computer's output device and its volume first. If the radio's audio genuinely is not arriving, the transmit tests will likely fail for the same reason, so settle this before reading them.
 
 ## Hears nothing — what is wrong (operator), otherwise
 
@@ -552,9 +552,9 @@ You can hear the radio, and over a remote connection that one fact proves the wh
 
 You can hear the radio. With the radio in the room that may be its own speaker rather than this computer, so it says less about the computer's audio path than it would over a remote connection.
 
-## You said no radio is connected, so the checks that need… — text 3
+## You said no radio is connected, so the tests that need… — text 3
 
-You said no radio is connected, so the checks that need one will wait until it is.
+You said no radio is connected, so the tests that need one will wait until it is.
 
 ## Audio setup, read from what is actually open — text 1
 
@@ -668,7 +668,7 @@ The microphone was not measured — the measurement did not produce a result, so
 
 ## Yes — sound is arriving in this computer from Microphone… — text 2
 
-Yes — sound is arriving in this computer from Microphone (USB Audio CODEC) through WASAPI. No radio was involved in this check, so this stands on its own whatever happens later.
+Yes — sound is arriving in this computer from Microphone (USB Audio CODEC) through WASAPI. No radio was involved in this test, so this stands on its own whatever happens later.
 
 ## your microphone — text 3
 
@@ -770,9 +770,9 @@ Conditioning chain: VALUE
 
 could not be read
 
-## The spoken check did not produce a measurement, so… — text 1
+## The spoken test did not produce a measurement, so whether… — text 1
 
-The spoken check did not produce a measurement, so whether your voice reaches the radio cannot be said either way.
+The spoken test did not produce a measurement, so whether your voice reaches the radio cannot be said either way.
 
 ## Yes — your voice, through Microphone (USB Audio CODEC),… — text 2
 
@@ -784,7 +784,7 @@ your microphone
 
 ## No — your voice did not reach the radio. But when the… — text 4
 
-No — your voice did not reach the radio. But when the microphone check ran, sound from Microphone (USB Audio CODEC) WAS arriving in this computer, so the microphone itself is the least likely culprit. The difference lies between this computer and the radio — and the injected check just walked that same path, so read the two side by side.
+No — your voice did not reach the radio. But when the microphone check ran, sound from Microphone (USB Audio CODEC) WAS arriving in this computer, so the microphone itself is the least likely culprit. The difference lies between this computer and the radio — and the injected test just walked that same path, so read the two side by side.
 
 ## that microphone — text 5
 
@@ -792,11 +792,11 @@ that microphone
 
 ## No — your voice did not reach the radio, and the… — text 6
 
-No — your voice did not reach the radio, and the microphone check heard nothing either. Start at the microphone: until sound arrives in this computer, nothing further along can carry it.
+No — your voice did not reach the radio, and the microphone test heard nothing either. Start at the microphone: until sound arrives in this computer, nothing further along can carry it.
 
 ## No — your voice did not reach the radio, and because the… — text 7
 
-No — your voice did not reach the radio, and because the microphone check was not run, whether the microphone or the path beyond it is at fault cannot be separated. Run the microphone check; it splits this question in two.
+No — your voice did not reach the radio, and because the microphone test was not run, whether the microphone or the path beyond it is at fault cannot be separated. Run the microphone test; it splits this question in two.
 
 ## Spoken transmit, microphone in the path — text 8
 
@@ -834,9 +834,9 @@ not reported
 
 Microphone baseline: VALUE
 
-## none — the microphone check was not run — text 17, when mic baseline is null
+## none — the microphone test was not run — text 17, when mic baseline is null
 
-none — the microphone check was not run
+none — the microphone test was not run
 
 ## sound was arriving from Microphone (USB Audio CODEC) — text 18, when audio arrived
 
@@ -926,19 +926,19 @@ an amplifier
 
 ## Nothing was transmitted. You declared a dummy load, and… — text 13
 
-Nothing was transmitted. You declared a dummy load, and the radio's power for this step could not be read — into a dummy load these checks only transmit when the power is known to be 25 watts or less.
+Nothing was transmitted. You declared a dummy load, and the radio's power for this step could not be read — into a dummy load these tests only transmit when the power is known to be 25 watts or less.
 
 ## Nothing was transmitted. The radio's power for this step… — text 14
 
-Nothing was transmitted. The radio's power for this step is 25 watts, and you declared a dummy load. Into a dummy load these checks transmit at 25 watts or less — turn the power down, or declare a dummy load, and this step will run.
+Nothing was transmitted. The radio's power for this step is 25 watts, and you declared a dummy load. Into a dummy load these tests transmit at 25 watts or less — turn the power down, or declare a dummy load, and this step will run.
 
 ## Nothing was transmitted. The dummy load was declared over… — text 15
 
-Nothing was transmitted. The dummy load was declared over a remote session, and the radio's power for this step could not be read — on a declaration made from a distance these checks only transmit when the power is known to be 25 watts or less.
+Nothing was transmitted. The dummy load was declared over a remote session, and the radio's power for this step could not be read — on a declaration made from a distance these tests only transmit when the power is known to be 25 watts or less.
 
 ## Nothing was transmitted. The radio's power for this step… — text 16
 
-Nothing was transmitted. The radio's power for this step is 25 watts, and the dummy load was declared over a remote session — on the word of someone at the station, not your own eyes. On a remote declaration these checks transmit at 25 watts or less; turn the power down and this step will run.
+Nothing was transmitted. The radio's power for this step is 25 watts, and the dummy load was declared over a remote session — on the word of someone at the station, not your own eyes. On a remote declaration these tests transmit at 25 watts or less; turn the power down and this step will run.
 
 ## That step has already transmitted once. Choose Run again… — text 17
 
@@ -958,9 +958,9 @@ This test has transmitted as many times as one run allows. Start a new test to c
 
 # The report
 
-## JJ Flexible Transmit check report — text 1
+## JJ Flexible Transmit test report — text 1
 
-JJ Flexible Transmit check report
+JJ Flexible Transmit test report
 
 ## Test ID: TX-4K2P — text 2
 
@@ -1100,13 +1100,13 @@ Microphone (USB Audio CODEC), could not run
 
 # What the window says while you work
 
-## Transmit checks — JJ Flexible — text 1
+## Transmit tests — JJ Flexible — text 1
 
-Transmit checks — JJ Flexible
+Transmit tests — JJ Flexible
 
-## Transmit checks — text 2
+## Transmit tests — text 2
 
-Transmit checks
+Transmit tests
 
 ## The transmit noise gate is currently off, so no threshold… — text 1
 
@@ -1118,7 +1118,7 @@ The transmit noise gate is holding its deliberately low default threshold of min
 
 ## Your transmit noise gate's threshold is currently minus… — text 3
 
-Your transmit noise gate's threshold is currently minus 45 dBFS dB, derived from the noise floor measured in your own transmitted audio (NOISEFLOORLUFS LUFS, plus a 6 dB margin). Stated here so you can see where it came from; whether it is right for your room is not judged by this check.
+Your transmit noise gate's threshold is currently minus 45 dBFS dB, derived from the noise floor measured in your own transmitted audio (NOISEFLOORLUFS LUFS, plus a 6 dB margin). Stated here so you can see where it came from; whether it is right for your room is not judged by this test.
 
 ## no reference recording is installed on this computer — text 1
 
@@ -1128,33 +1128,33 @@ no reference recording is installed on this computer
 
 the reference recording could not be prepared: the device was not available
 
-## Transmit checks — JJ Flexible — text 1
+## Transmit tests — JJ Flexible — text 1
 
-Transmit checks — JJ Flexible
+Transmit tests — JJ Flexible
 
-## The transmit checks need the Microsoft Edge WebView2… — text 2
+## The transmit tests need the Microsoft Edge WebView2… — text 2
 
-The transmit checks need the Microsoft Edge WebView2 runtime, which is not installed on this computer. Everything they would have checked can still be reached from the Audio Workshop and from Diagnostics.
+The transmit tests need the Microsoft Edge WebView2 runtime, which is not installed on this computer. Everything they would have checked can still be reached from the Audio Workshop and from Diagnostics.
 
-## Transmit checks — JJ Flexible — text 3
+## Transmit tests — JJ Flexible — text 3
 
-Transmit checks — JJ Flexible
+Transmit tests — JJ Flexible
 
 ## There is no saved run to continue. — text 1
 
 There is no saved run to continue.
 
-## Run TX-4K2P is a set of Transmit checks, and this is the… — text 2
+## Run TX-4K2P is a set of Transmit tests, and this is the… — text 2
 
-Run TX-4K2P is a set of Transmit checks, and this is the Transmit checks. It can still be read and exported from the saved check runs list.
+Run TX-4K2P is a set of Transmit tests, and this is the Transmit tests. It can still be read and exported from the saved test runs list.
 
-## Run TX-4K2P was recorded with a different set of checks… — text 3
+## Run TX-4K2P was recorded with a different set of tests… — text 3
 
-Run TX-4K2P was recorded with a different set of checks from the ones this version of JJ Flexible offers, so continuing it would mix measurements from two different tests. It can still be read and exported from the saved check runs list.
+Run TX-4K2P was recorded with a different set of tests from the ones this version of JJ Flexible offers, so continuing it would mix measurements from two different runs. It can still be read and exported from the saved test runs list.
 
 ## Whether run TX-4K2P can be continued could not be worked… — text 4
 
-Whether run TX-4K2P can be continued could not be worked out, so it has not been opened. It can still be read and exported from the saved check runs list.
+Whether run TX-4K2P can be continued could not be worked out, so it has not been opened. It can still be read and exported from the saved test runs list.
 
 ## Something went wrong handling that. Nothing was… — text 1
 
@@ -1168,9 +1168,9 @@ You said: A dummy load.
 
 You said: A dummy load.
 
-## That check has already run, and its measurement is kept.… — text 3
+## That test has already run, and its measurement is kept.… — text 3
 
-That check has already run, and its measurement is kept. To measure again, choose Run this check again.
+That test has already run, and its measurement is kept. To measure again, choose Run this test again.
 
 ## That fix did not succeed: the input is now WASAPI — text 4, otherwise
 
@@ -1180,9 +1180,9 @@ That fix did not succeed: the input is now WASAPI
 
 Something is already running. Wait for it to finish, or press Stop everything.
 
-## Something went wrong running that check. Nothing was… — text 2
+## Something went wrong running that test. Nothing was… — text 2
 
-Something went wrong running that check. Nothing was transmitted.
+Something went wrong running that test. Nothing was transmitted.
 
 ## Do you want to stop the test? — text 1, otherwise
 
@@ -1202,15 +1202,15 @@ Ends the test and closes the window. This run was not being saved, so nothing is
 
 ## Closes the window and keeps the run. Continue it later… — text 5, when offers resume later
 
-Closes the window and keeps the run. Continue it later from Saved check runs, on the Fix menu — everything already recorded stays, though the check running right now stops and is not recorded, and the report will say the checks were done in more than one sitting.
+Closes the window and keeps the run. Continue it later from View or resume saved test runs, on the Fix menu — everything already recorded stays, though the test running right now stops and is not recorded, and the report will say the tests were done in more than one sitting.
 
-## , though the check running right now stops and is not… — text 6, when run in progress
+## , though the test running right now stops and is not… — text 6, when run in progress
 
-, though the check running right now stops and is not recorded
+, though the test running right now stops and is not recorded
 
-## Transmit checks — JJ Flexible — text 7
+## Transmit tests — JJ Flexible — text 7
 
-Transmit checks — JJ Flexible
+Transmit tests — JJ Flexible
 
 ## stopped to resume later — text 1
 
@@ -1254,9 +1254,9 @@ Exit without saving
 
 Continue the test
 
-## Nothing changes. You go back to the checks where you left… — text 3
+## Nothing changes. You go back to the tests where you left… — text 3
 
-Nothing changes. You go back to the checks where you left off.
+Nothing changes. You go back to the tests where you left off.
 
 ## Stop tests and resume later — text 4
 
@@ -1264,13 +1264,13 @@ Stop tests and resume later
 
 # Saved runs
 
-## Saved check runs — JJ Flexible — text 1
+## Saved test runs — JJ Flexible — text 1
 
-Saved check runs — JJ Flexible
+Saved test runs — JJ Flexible
 
-## Every check run saves itself as it happens, named by its… — the text
+## Every test run saves itself as it happens, named by its… — the text
 
-Every check run saves itself as it happens, named by its test ID. Open one to read its report, rename it so you can find it again, continue one you stopped part-way, export it to send to someone, or delete it. JJ Flexible keeps the newest 200 runs; export anything you want to keep forever.
+Every test run saves itself as it happens, named by its test ID. Open one to read its report, rename it so you can find it again, continue one you stopped part-way, export it to send to someone, or delete it. JJ Flexible keeps the newest 200 runs; export anything you want to keep forever.
 
 ## _View report — text 2
 
@@ -1284,9 +1284,9 @@ View report
 
 Continue this run
 
-## Saved check runs — text 5
+## Saved test runs — text 5
 
-Saved check runs
+Saved test runs
 
 ## One line per saved run: its name or test ID, when it… — text 6
 
@@ -1300,9 +1300,9 @@ That could not be done: the device was not available
 
 The settings folder could not be resolved, so no saved runs can be shown.
 
-## No check runs have been saved yet. Runs save themselves… — text 2
+## No test runs have been saved yet. Runs save themselves as… — text 2
 
-No check runs have been saved yet. Runs save themselves as they happen — run a check and it will appear here. One could not be read.
+No test runs have been saved yet. Runs save themselves as they happen — run a test and it will appear here. One could not be read.
 
 ## One saved run. One could not be read. — text 3, when count is 1
 
@@ -1324,9 +1324,9 @@ one saved runs could not be read and are not listed.
 
 No run is selected.
 
-## Transmit check report — TX-4K2P — text 1
+## Transmit test report — TX-4K2P — text 1
 
-Transmit check report — TX-4K2P
+Transmit test report — TX-4K2P
 
 ## Copy report — text 2
 
@@ -1352,21 +1352,21 @@ Renamed to A dummy load. It keeps its test ID, TX-4K2P.
 
 The new name could not be saved.
 
-## Run TX-4K2P has a result for every check, so there is… — text 1
+## Run TX-4K2P has a result for every test, so there is… — text 1
 
-Run TX-4K2P has a result for every check, so there is nothing left to continue. Open it to read the report.
+Run TX-4K2P has a result for every test, so there is nothing left to continue. Open it to read the report.
 
 ## Continue run Shack bench, Thursday? Its five recorded… — text 2
 
-Continue run Shack bench, Thursday? Its five recorded results are kept and the remaining REMAINING checks are yours to run. This is recorded as a second sitting, so the report will say the checks were not all done at one go.
+Continue run Shack bench, Thursday? Its five recorded results are kept and the remaining REMAINING tests are yours to run. This is recorded as a second sitting, so the report will say the tests were not all done at one go.
 
-## Saved check runs — JJ Flexible — text 3
+## Saved test runs — JJ Flexible — text 3
 
-Saved check runs — JJ Flexible
+Saved test runs — JJ Flexible
 
-## Export check run Shack bench, Thursday — its name
+## Export test run Shack bench, Thursday — its name
 
-Export check run Shack bench, Thursday
+Export test run Shack bench, Thursday
 
 ## Exported to TX-4K2P.html. — text 1, when written
 
@@ -1380,9 +1380,9 @@ The export failed. Nothing was written.
 
 Delete run Shack bench, Thursday (test ID TX-4K2P)? Its report and measurements will be gone for good — there is no undo.
 
-## Saved check runs — JJ Flexible — text 2
+## Saved test runs — JJ Flexible — text 2
 
-Saved check runs — JJ Flexible
+Saved test runs — JJ Flexible
 
 ## Run TX-4K2P deleted. — text 3
 

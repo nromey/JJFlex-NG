@@ -20,19 +20,19 @@ To throw away everything you have changed here and start again from the program'
 
 The heading, the state-of-play sentence, the how-to bullets, the buttons and the words for each state a check can be in. This is the frame every check sits inside.
 
-## Transmit checks — Test TX-4K2P — title 1
+## Transmit tests — Test TX-4K2P — title 1
 
-{Name} checks — Test {RunId}
+{Name} tests — Test {RunId}
 
-> Reads as: Transmit checks — Test TX-4K2P
+> Reads as: Transmit tests — Test TX-4K2P
 > Keep {Name} and {RunId}, in that order.
 > fixer.page.render.title-1
 
-## Transmit checks — heading 1
+## Transmit tests — heading 1
 
-{Name} checks
+{Name} tests
 
-> Reads as: Transmit checks
+> Reads as: Transmit tests
 > Keep {Name}.
 > fixer.page.header.heading-1
 
@@ -91,11 +91,11 @@ Stop everything
 > Keep {Count}.
 > fixer.page.summary.text-5
 
-## two checks. Two passed, three not yet run — text 6
+## two tests. Two passed, three not yet run — text 6
 
-{Count} checks{Join}
+{Count} tests{Join}
 
-> Reads as: two checks. Two passed, three not yet run
+> Reads as: two tests. Two passed, three not yet run
 > Keep {Count} and {Join}, in that order.
 > fixer.page.summary.text-6
 
@@ -128,27 +128,27 @@ Using this page
 
 > fixer.page.how-to-section.heading-1
 
-## How to move through the checks, and how to leave — disclosure summary 1
+## How to move through the tests, and how to leave — disclosure summary 1
 
-How to move through the checks, and how to leave
+How to move through the tests, and how to leave
 
 > fixer.page.how-to-section.disclosure-summary-1
 
-## Each check is a heading. Your screen reader's heading… — bullet 1
+## Each test is a heading. Your screen reader's heading keys… — bullet 1
 
-Each check is a heading. Your screen reader's heading keys move between them, Tab reaches the controls, and F6 or Shift+F6 jumps between the sections of the page.
+Each test is a heading. Your screen reader's heading keys move between them, Tab reaches the controls, and F6 or Shift+F6 jumps between the sections of the page.
 
 > fixer.page.how-to-section.bullet-1
 
-## The checks run in order. Each answer you give and each… — bullet 2
+## The tests run in order. Each answer you give and each… — bullet 2
 
-The checks run in order. Each answer you give and each check you run carries you to the next thing to do, so you can walk the whole run without going backwards.
+The tests run in order. Each answer you give and each test you run carries you to the next thing to do, so you can walk the whole run without going backwards.
 
 > fixer.page.how-to-section.bullet-2
 
 ## To leave, press Escape or close the window. Once anything… — text 1, when run is saved
 
-To leave, press Escape or close the window. Once anything has been recorded you choose on the way out: keep the run to pick up later from Saved check runs, on the Fix menu, or leave without keeping it.
+To leave, press Escape or close the window. Once anything has been recorded you choose on the way out: keep the run to pick up later from View or resume saved test runs, on the Fix menu, or leave without keeping it.
 
 > fixer.page.how-to-section.text-1
 
@@ -218,43 +218,43 @@ not yet run
 
 > fixer.page.status-phrase.text-5
 
-## This check transmits. — paragraph 1
+## This test transmits. — paragraph 1
 
-This check transmits.
+This test transmits.
 
-> Reads as: This check transmits.
+> Reads as: This test transmits.
 > Keep {Id}.
 > fixer.page.stage-card.paragraph-1
 
-## Not checked yet. — paragraph 2
+## Not run yet. — paragraph 2
 
-Not checked yet.
+Not run yet.
 
 > fixer.page.stage-card.paragraph-2
 
-## What this check does — disclosure summary 1
+## What this test does — disclosure summary 1
 
-What this check does
+What this test does
 
 > fixer.page.stage-card.disclosure-summary-1
 
-## Help with this check — link 1
+## Help with this test — link 1
 
-Help with this check
+Help with this test
 
-> Reads as: Help with this check
+> Reads as: Help with this test
 > Keep {HelpTopic}, in that order.
 > fixer.page.stage-card.link-1
 
-## Run this check again — text 1, when again
+## Run this test again — text 1, when again
 
-Run this check again
+Run this test again
 
 > fixer.page.run-button.text-1
 
-## Run this check — text 2, otherwise
+## Run this test — text 2, otherwise
 
-Run this check
+Run this test
 
 > fixer.page.run-button.text-2
 
@@ -382,37 +382,37 @@ With no microphone there is nothing to compare the injected audio against, so wh
 
 > fixer.skip.no-microphone.leaves-question-open.effect-text
 
-## Stage 0 Audio setup — its name
+## Stage 0 Audio setup and receive — its name
 
-Audio setup
+Audio setup and receive
 
 > fixer.stage.audio-setup.title
 
-## Stage 0 Audio setup — the question it asks
+## Stage 0 Audio setup and receive — the question it asks
 
-What is your audio actually doing right now?
+What is your audio doing right now, and is sound reaching you from the radio?
 
 > fixer.stage.audio-setup.question
 
-## Stage 0 Audio setup — what this check does
+## Stage 0 Audio setup and receive — what this check does
 
-Reads the open audio stream directly: host API, input and output device, sample rate, channel count. Not your saved settings — the stream itself. Those two disagree more often than anyone expects, and when they do, the disagreement is usually the fault. You would never spot it on a settings page. Nothing here keys the radio.
+Two halves, and they answer different questions. The first reads the open audio stream directly: host API, input and output device, sample rate, channel count. Not your saved settings — the stream itself. Those two disagree more often than anyone expects, and when they do, the disagreement is usually the fault. You would never spot it on a settings page. The second walks the receive chain — the slice you are listening to, the radio's outputs and their levels, how the audio reaches you, and how much has actually been arriving over the network. Proving receive first is what makes the transmit tests after it readable, and the receive evidence belongs in the report whether or not you came here about receive. Nothing here keys the radio.
 
 > fixer.stage.audio-setup.explanation
 
-## Stage 0 Audio setup — what pressing Run will do
+## Stage 0 Audio setup and receive — what pressing Run will do
 
-Running this takes a quick reading of the audio path. Nothing transmits.
+Running this takes a quick reading of the audio path on this computer, then walks the receive chain and reports how much audio has been arriving from the radio. Nothing transmits.
 
 > fixer.stage.audio-setup.describe-run-action
 
-## Stage 0 Audio setup · Can you hear the radio right now? — the question it asks
+## Stage 0 Audio setup and receive · Can you hear the radio right now? — the question it asks
 
 Can you hear the radio right now?
 
 > fixer.declaration.radio-hearing.question
 
-## Stage 0 Audio setup · Can you hear the radio right now? — why it matters
+## Stage 0 Audio setup and receive · Can you hear the radio right now? — why it matters
 
 You're the best person to help prove this test. If you can hear the radio, it proves that the whole receive path is working. By proving the receive path, we can move to the next tests which will help us zero in on what's going right and what's going wrong with your radio's transmission paths.
 
@@ -436,55 +436,55 @@ No radio is connected
 
 > fixer.answer.no-radio.label
 
-## Stage 0 Audio setup · Open the full audio device picker — the label
+## Stage 0 Audio setup and receive · Open the full audio device picker — the label
 
 Open the full audio device picker
 
 > fixer.action.open-device-picker.label
 
-## Stage 1 Microphone check — its name
+## Stage 1 Microphone test — its name
 
-Microphone check
+Microphone test
 
 > fixer.stage.microphone-check.title
 
-## Stage 1 Microphone check — the question it asks
+## Stage 1 Microphone test — the question it asks
 
 Is sound from your microphone arriving in this computer?
 
 > fixer.stage.microphone-check.question
 
-## Stage 1 Microphone check — what this check does
+## Stage 1 Microphone test — what this check does
 
 This listens to your microphone with the radio out of the picture entirely, and reports the peak in dBFS along with the integrated loudness in LUFS. It settles the first link in the chain before anything downstream is blamed for it. The reading is also kept as a baseline, because stage 4 is judged against it: a quiet result there means something quite different depending on whether your microphone measured well here.
 
 > fixer.stage.microphone-check.explanation
 
-## Stage 1 Microphone check — what pressing Run will do
+## Stage 1 Microphone test — what pressing Run will do
 
 Running this measures your room's noise in a quiet moment, then counts you in with three tones and listens while you talk. Nothing transmits.
 
 > fixer.stage.microphone-check.describe-run-action
 
-## Stage 2 Transmitter check — its name
+## Stage 2 Transmitter test — its name
 
-Transmitter check
+Transmitter test
 
 > fixer.stage.transmitter-check.title
 
-## Stage 2 Transmitter check — the question it asks
+## Stage 2 Transmitter test — the question it asks
 
 Does the radio produce RF when it keys a tune carrier?
 
 > fixer.stage.transmitter-check.question
 
-## Stage 2 Transmitter check — what this check does
+## Stage 2 Transmitter test — what this check does
 
 The radio keys a tune carrier — a steady unmodulated signal it generates itself — so no microphone, computer audio or streaming takes any part. Forward power and SWR are read while it is keyed. If RF appears, the transmitter is working and whatever is wrong lies somewhere in the audio path. If no RF appears, you never had an audio problem at all, and no amount of microphone testing would have found it. Nothing is transmitted until you have said what is connected to the antenna port.
 
 > fixer.stage.transmitter-check.explanation
 
-## Stage 2 Transmitter check — what pressing Run will do
+## Stage 2 Transmitter test — what pressing Run will do
 
 Running this counts down with three tones, then keys the radio's own tune carrier{AtInto} for about {SecondsPhrase}.
 
@@ -492,7 +492,7 @@ Running this counts down with three tones, then keys the radio's own tune carrie
 > Keep {AtInto} and {SecondsPhrase}, in that order.
 > fixer.stage.transmitter-check.describe-run-action
 
-## Stage 2 Transmitter check · Change the tune power — the label
+## Stage 2 Transmitter test · Change the tune power — the label
 
 Change the tune power
 
@@ -512,7 +512,7 @@ Does audio reach the radio when your microphone is bypassed?
 
 ## Stage 3 Injected transmit — what this check does
 
-Tones and a generated voice are sent to the radio with your microphone taken out of the path, and the radio's own SC_MIC meter is watched to see what arrives. This check and stage 4 differ in exactly one thing, which is whether your microphone is involved. If this one works and stage 4 does not, your microphone is the problem. If neither works, your microphone is not the problem, and the fault lies between this computer and the radio.
+Tones and a generated voice are sent to the radio with your microphone taken out of the path, and the radio's own SC_MIC meter is watched to see what arrives. This test and stage 4 differ in exactly one thing, which is whether your microphone is involved. If this one works and stage 4 does not, your microphone is the problem. If neither works, your microphone is not the problem, and the fault lies between this computer and the radio.
 
 > fixer.stage.injected-transmit.explanation
 
@@ -564,7 +564,7 @@ Change the transmit power
 
 ## Transmit — the introduction
 
-Work forward from stage 0. What each stage finds feeds the ones after it — stage 1 measures your microphone, and stage 4 is judged against that measurement rather than on its own. Jump around if you want; the report records what was skipped. Stages 0 and 1 do not key the radio.
+Work forward from stage 0. What each stage finds feeds the ones after it — stage 1 measures your microphone, and stage 4 is judged against that measurement rather than on its own. Stage 0 also walks your receive chain, so the report carries receive evidence whether or not receive is what brought you here. Jump around if you want; the report records what was skipped. Stages 0 and 1 do not key the radio.
 
 > fixer.set.transmit.intro
 
@@ -576,9 +576,9 @@ What is the antenna socket connected to right now?
 
 ## Transmit · What is the antenna socket connected to right now? — why it matters
 
-Nothing transmits until you answer this question. Into a real antenna, or through an amplifier, the checks that transmit keep the power at {LowPowerCeilingWatts} watts or less. Answering that nothing is connected, or that you are not sure, keeps them parked — everything else still runs.
+Nothing transmits until you answer this question. Into a real antenna, or through an amplifier, the tests that transmit keep the power at {LowPowerCeilingWatts} watts or less. Answering that nothing is connected, or that you are not sure, keeps them parked — everything else still runs.
 
-> Reads as: Nothing transmits until you answer this question. Into a real antenna, or through an amplifier, the checks that transmit keep the power at 25 watts or less. Answering that nothing is connected, or that you are not sure, keeps them parked — everything else still runs.
+> Reads as: Nothing transmits until you answer this question. Into a real antenna, or through an amplifier, the tests that transmit keep the power at 25 watts or less. Answering that nothing is connected, or that you are not sure, keeps them parked — everything else still runs.
 > Keep {LowPowerCeilingWatts}.
 > fixer.declaration.antenna-load.why-it-matters
 
@@ -654,9 +654,9 @@ I have not confirmed what is connected
 
 ## Transmit · What is the antenna socket connected to right now? — why it matters, when the radio is somewhere else
 
-Nothing transmits until you answer this question. You are not at that station, so every answer here states what someone there has confirmed with you — the report will say your answer came over a remote session, on someone else's word. Whatever is connected, the checks that transmit keep the power at {LowPowerCeilingWatts} watts or less, because a confirmation relayed from a distance is not the same as seeing the socket. Answering that you have not confirmed keeps them parked — everything else still runs.
+Nothing transmits until you answer this question. You are not at that station, so every answer here states what someone there has confirmed with you — the report will say your answer came over a remote session, on someone else's word. Whatever is connected, the tests that transmit keep the power at {LowPowerCeilingWatts} watts or less, because a confirmation relayed from a distance is not the same as seeing the socket. Answering that you have not confirmed keeps them parked — everything else still runs.
 
-> Reads as: Nothing transmits until you answer this question. You are not at that station, so every answer here states what someone there has confirmed with you — the report will say your answer came over a remote session, on someone else's word. Whatever is connected, the checks that transmit keep the power at 25 watts or less, because a confirmation relayed from a distance is not the same as seeing the socket. Answering that you have not confirmed keeps them parked — everything else still runs.
+> Reads as: Nothing transmits until you answer this question. You are not at that station, so every answer here states what someone there has confirmed with you — the report will say your answer came over a remote session, on someone else's word. Whatever is connected, the tests that transmit keep the power at 25 watts or less, because a confirmation relayed from a distance is not the same as seeing the socket. Answering that you have not confirmed keeps them parked — everything else still runs.
 > Keep {LowPowerCeilingWatts}.
 > fixer.declaration.antenna-load.why-it-matters-now
 
@@ -782,7 +782,7 @@ You hear nothing from the radio, even though PC audio is on — so the receive p
 
 ## Hears nothing — what to do about it (operator), when remote radio
 
-Check this computer's output device and its volume first. If the radio's audio genuinely is not arriving, the transmit checks will likely fail for the same reason, so settle this before reading them.
+Check this computer's output device and its volume first. If the radio's audio genuinely is not arriving, the transmit tests will likely fail for the same reason, so settle this before reading them.
 
 > fixer.finding.when-remote-radio.hears-nothing.operator.what-to-do
 
@@ -931,9 +931,9 @@ You can hear the radio. With the radio in the room that may be its own speaker r
 > This runs on from the words before it, so it is spoken as part of a longer sentence.
 > fixer.finding.hearing.text-2
 
-## You said no radio is connected, so the checks that need… — text 3
+## You said no radio is connected, so the tests that need… — text 3
 
-You said no radio is connected, so the checks that need one will wait until it is.
+You said no radio is connected, so the tests that need one will wait until it is.
 
 > This runs on from the words before it, so it is spoken as part of a longer sentence.
 > fixer.finding.hearing.text-3
@@ -1138,9 +1138,9 @@ The microphone was not measured — the measurement did not produce a result, so
 
 ## Yes — sound is arriving in this computer from Microphone… — text 2
 
-Yes — sound is arriving in this computer from {NameOr}{HostApiPhrase}. No radio was involved in this check, so this stands on its own whatever happens later.
+Yes — sound is arriving in this computer from {NameOr}{HostApiPhrase}. No radio was involved in this test, so this stands on its own whatever happens later.
 
-> Reads as: Yes — sound is arriving in this computer from Microphone (USB Audio CODEC) through WASAPI. No radio was involved in this check, so this stands on its own whatever happens later.
+> Reads as: Yes — sound is arriving in this computer from Microphone (USB Audio CODEC) through WASAPI. No radio was involved in this test, so this stands on its own whatever happens later.
 > Keep {NameOr} and {HostApiPhrase}, in that order.
 > fixer.finding.microphone.text-2
 
@@ -1310,9 +1310,9 @@ could not be read
 
 > fixer.finding.injected.text-3
 
-## The spoken check did not produce a measurement, so… — text 1
+## The spoken test did not produce a measurement, so whether… — text 1
 
-The spoken check did not produce a measurement, so whether your voice reaches the radio cannot be said either way.
+The spoken test did not produce a measurement, so whether your voice reaches the radio cannot be said either way.
 
 > fixer.finding.spoken.text-1
 
@@ -1332,9 +1332,9 @@ your microphone
 
 ## No — your voice did not reach the radio. But when the… — text 4
 
-No — your voice did not reach the radio. But when the microphone check ran, sound from {NameOr} WAS arriving in this computer, so the microphone itself is the least likely culprit. The difference lies between this computer and the radio — and the injected check just walked that same path, so read the two side by side.
+No — your voice did not reach the radio. But when the microphone check ran, sound from {NameOr} WAS arriving in this computer, so the microphone itself is the least likely culprit. The difference lies between this computer and the radio — and the injected test just walked that same path, so read the two side by side.
 
-> Reads as: No — your voice did not reach the radio. But when the microphone check ran, sound from Microphone (USB Audio CODEC) WAS arriving in this computer, so the microphone itself is the least likely culprit. The difference lies between this computer and the radio — and the injected check just walked that same path, so read the two side by side.
+> Reads as: No — your voice did not reach the radio. But when the microphone check ran, sound from Microphone (USB Audio CODEC) WAS arriving in this computer, so the microphone itself is the least likely culprit. The difference lies between this computer and the radio — and the injected test just walked that same path, so read the two side by side.
 > Keep {NameOr}.
 > fixer.finding.spoken.text-4
 
@@ -1346,13 +1346,13 @@ that microphone
 
 ## No — your voice did not reach the radio, and the… — text 6
 
-No — your voice did not reach the radio, and the microphone check heard nothing either. Start at the microphone: until sound arrives in this computer, nothing further along can carry it.
+No — your voice did not reach the radio, and the microphone test heard nothing either. Start at the microphone: until sound arrives in this computer, nothing further along can carry it.
 
 > fixer.finding.spoken.text-6
 
 ## No — your voice did not reach the radio, and because the… — text 7
 
-No — your voice did not reach the radio, and because the microphone check was not run, whether the microphone or the path beyond it is at fault cannot be separated. Run the microphone check; it splits this question in two.
+No — your voice did not reach the radio, and because the microphone test was not run, whether the microphone or the path beyond it is at fault cannot be separated. Run the microphone test; it splits this question in two.
 
 > fixer.finding.spoken.text-7
 
@@ -1420,9 +1420,9 @@ Microphone baseline: {value}
 > Keep {value}.
 > fixer.finding.spoken.text-16
 
-## none — the microphone check was not run — text 17, when mic baseline is null
+## none — the microphone test was not run — text 17, when mic baseline is null
 
-none — the microphone check was not run
+none — the microphone test was not run
 
 > fixer.finding.spoken.text-17
 
@@ -1566,33 +1566,33 @@ an amplifier
 
 ## Nothing was transmitted. You declared a dummy load, and… — text 13
 
-Nothing was transmitted. You declared {into}, and the radio's power for this step could not be read — into {into} these checks only transmit when the power is known to be {LowPowerCeilingWatts} watts or less.
+Nothing was transmitted. You declared {into}, and the radio's power for this step could not be read — into {into} these tests only transmit when the power is known to be {LowPowerCeilingWatts} watts or less.
 
-> Reads as: Nothing was transmitted. You declared a dummy load, and the radio's power for this step could not be read — into a dummy load these checks only transmit when the power is known to be 25 watts or less.
+> Reads as: Nothing was transmitted. You declared a dummy load, and the radio's power for this step could not be read — into a dummy load these tests only transmit when the power is known to be 25 watts or less.
 > Keep {into} and {LowPowerCeilingWatts}, in that order.
 > fixer.refusal.request.text-13
 
 ## Nothing was transmitted. The radio's power for this step… — text 14
 
-Nothing was transmitted. The radio's power for this step is {transmitPowerWatts} watts, and you declared {into}. Into {into} these checks transmit at {LowPowerCeilingWatts} watts or less — turn the power down, or declare a dummy load, and this step will run.
+Nothing was transmitted. The radio's power for this step is {transmitPowerWatts} watts, and you declared {into}. Into {into} these tests transmit at {LowPowerCeilingWatts} watts or less — turn the power down, or declare a dummy load, and this step will run.
 
-> Reads as: Nothing was transmitted. The radio's power for this step is 25 watts, and you declared a dummy load. Into a dummy load these checks transmit at 25 watts or less — turn the power down, or declare a dummy load, and this step will run.
+> Reads as: Nothing was transmitted. The radio's power for this step is 25 watts, and you declared a dummy load. Into a dummy load these tests transmit at 25 watts or less — turn the power down, or declare a dummy load, and this step will run.
 > Keep {transmitPowerWatts}, {into} and {LowPowerCeilingWatts}, in that order.
 > fixer.refusal.request.text-14
 
 ## Nothing was transmitted. The dummy load was declared over… — text 15
 
-Nothing was transmitted. The dummy load was declared over a remote session, and the radio's power for this step could not be read — on a declaration made from a distance these checks only transmit when the power is known to be {LowPowerCeilingWatts} watts or less.
+Nothing was transmitted. The dummy load was declared over a remote session, and the radio's power for this step could not be read — on a declaration made from a distance these tests only transmit when the power is known to be {LowPowerCeilingWatts} watts or less.
 
-> Reads as: Nothing was transmitted. The dummy load was declared over a remote session, and the radio's power for this step could not be read — on a declaration made from a distance these checks only transmit when the power is known to be 25 watts or less.
+> Reads as: Nothing was transmitted. The dummy load was declared over a remote session, and the radio's power for this step could not be read — on a declaration made from a distance these tests only transmit when the power is known to be 25 watts or less.
 > Keep {LowPowerCeilingWatts}.
 > fixer.refusal.request.text-15
 
 ## Nothing was transmitted. The radio's power for this step… — text 16
 
-Nothing was transmitted. The radio's power for this step is {transmitPowerWatts} watts, and the dummy load was declared over a remote session — on the word of someone at the station, not your own eyes. On a remote declaration these checks transmit at {LowPowerCeilingWatts} watts or less; turn the power down and this step will run.
+Nothing was transmitted. The radio's power for this step is {transmitPowerWatts} watts, and the dummy load was declared over a remote session — on the word of someone at the station, not your own eyes. On a remote declaration these tests transmit at {LowPowerCeilingWatts} watts or less; turn the power down and this step will run.
 
-> Reads as: Nothing was transmitted. The radio's power for this step is 25 watts, and the dummy load was declared over a remote session — on the word of someone at the station, not your own eyes. On a remote declaration these checks transmit at 25 watts or less; turn the power down and this step will run.
+> Reads as: Nothing was transmitted. The radio's power for this step is 25 watts, and the dummy load was declared over a remote session — on the word of someone at the station, not your own eyes. On a remote declaration these tests transmit at 25 watts or less; turn the power down and this step will run.
 > Keep {transmitPowerWatts} and {LowPowerCeilingWatts}, in that order.
 > fixer.refusal.request.text-16
 
@@ -1626,11 +1626,11 @@ This test has transmitted as many times as one run allows. Start a new test to c
 
 The document the run becomes — the one that goes to a radio manufacturer.
 
-## JJ Flexible Transmit check report — text 1
+## JJ Flexible Transmit test report — text 1
 
-JJ Flexible {Name} check report
+JJ Flexible {Name} test report
 
-> Reads as: JJ Flexible Transmit check report
+> Reads as: JJ Flexible Transmit test report
 > Keep {Name}.
 > fixer.report.build.text-1
 
@@ -1892,19 +1892,19 @@ stage {Number} ({Title})
 
 Announcements, notices and the words for things that happen outside the page itself.
 
-## Transmit checks — JJ Flexible — text 1
+## Transmit tests — JJ Flexible — text 1
 
-{Name} checks — JJ Flexible
+{Name} tests — JJ Flexible
 
-> Reads as: Transmit checks — JJ Flexible
+> Reads as: Transmit tests — JJ Flexible
 > Keep {Name}.
 > fixer.window.fixer-dialog.text-1
 
-## Transmit checks — text 2
+## Transmit tests — text 2
 
-{Name} checks
+{Name} tests
 
-> Reads as: Transmit checks
+> Reads as: Transmit tests
 > Keep {Name}.
 > fixer.window.fixer-dialog.text-2
 
@@ -1924,9 +1924,9 @@ The transmit noise gate is holding its deliberately low default threshold of {th
 
 ## Your transmit noise gate's threshold is currently minus… — text 3
 
-Your transmit noise gate's threshold is currently {threshold} dB, derived from the noise floor measured in your own transmitted audio ({NoiseFloorLufs} LUFS, plus a {ThresholdMarginDb} dB margin). Stated here so you can see where it came from; whether it is right for your room is not judged by this check.
+Your transmit noise gate's threshold is currently {threshold} dB, derived from the noise floor measured in your own transmitted audio ({NoiseFloorLufs} LUFS, plus a {ThresholdMarginDb} dB margin). Stated here so you can see where it came from; whether it is right for your room is not judged by this test.
 
-> Reads as: Your transmit noise gate's threshold is currently minus 45 dBFS dB, derived from the noise floor measured in your own transmitted audio (NOISEFLOORLUFS LUFS, plus a 6 dB margin). Stated here so you can see where it came from; whether it is right for your room is not judged by this check.
+> Reads as: Your transmit noise gate's threshold is currently minus 45 dBFS dB, derived from the noise floor measured in your own transmitted audio (NOISEFLOORLUFS LUFS, plus a 6 dB margin). Stated here so you can see where it came from; whether it is right for your room is not judged by this test.
 > Keep {threshold}, {NoiseFloorLufs} and {ThresholdMarginDb}, in that order.
 > fixer.window.describe-gate-derivation.text-3
 
@@ -1944,21 +1944,21 @@ the reference recording could not be prepared: {Message}
 > Keep {Message}.
 > fixer.window.prepare-reference-voice.text-2
 
-## Transmit checks — JJ Flexible — text 1
+## Transmit tests — JJ Flexible — text 1
 
-Transmit checks — JJ Flexible
+Transmit tests — JJ Flexible
 
 > fixer.window.show.text-1
 
-## The transmit checks need the Microsoft Edge WebView2… — text 2
+## The transmit tests need the Microsoft Edge WebView2… — text 2
 
-The transmit checks need the Microsoft Edge WebView2 runtime, which is not installed on this computer. Everything they would have checked can still be reached from the Audio Workshop and from Diagnostics.
+The transmit tests need the Microsoft Edge WebView2 runtime, which is not installed on this computer. Everything they would have checked can still be reached from the Audio Workshop and from Diagnostics.
 
 > fixer.window.show.text-2
 
-## Transmit checks — JJ Flexible — text 3
+## Transmit tests — JJ Flexible — text 3
 
-Transmit checks — JJ Flexible
+Transmit tests — JJ Flexible
 
 > fixer.window.show.text-3
 
@@ -1968,27 +1968,27 @@ There is no saved run to continue.
 
 > fixer.window.why-it-cannot-be-resumed.text-1
 
-## Run TX-4K2P is a set of Transmit checks, and this is the… — text 2
+## Run TX-4K2P is a set of Transmit tests, and this is the… — text 2
 
-Run {RunId} is a set of {StageSetName} checks, and this is the {Name} checks. It can still be read and exported from the saved check runs list.
+Run {RunId} is a set of {StageSetName} tests, and this is the {Name} tests. It can still be read and exported from the saved test runs list.
 
-> Reads as: Run TX-4K2P is a set of Transmit checks, and this is the Transmit checks. It can still be read and exported from the saved check runs list.
+> Reads as: Run TX-4K2P is a set of Transmit tests, and this is the Transmit tests. It can still be read and exported from the saved test runs list.
 > Keep {RunId}, {StageSetName} and {Name}, in that order.
 > fixer.window.why-it-cannot-be-resumed.text-2
 
-## Run TX-4K2P was recorded with a different set of checks… — text 3
+## Run TX-4K2P was recorded with a different set of tests… — text 3
 
-Run {RunId} was recorded with a different set of checks from the ones this version of JJ Flexible offers, so continuing it would mix measurements from two different tests. It can still be read and exported from the saved check runs list.
+Run {RunId} was recorded with a different set of tests from the ones this version of JJ Flexible offers, so continuing it would mix measurements from two different runs. It can still be read and exported from the saved test runs list.
 
-> Reads as: Run TX-4K2P was recorded with a different set of checks from the ones this version of JJ Flexible offers, so continuing it would mix measurements from two different tests. It can still be read and exported from the saved check runs list.
+> Reads as: Run TX-4K2P was recorded with a different set of tests from the ones this version of JJ Flexible offers, so continuing it would mix measurements from two different runs. It can still be read and exported from the saved test runs list.
 > Keep {RunId}.
 > fixer.window.why-it-cannot-be-resumed.text-3
 
 ## Whether run TX-4K2P can be continued could not be worked… — text 4
 
-Whether run {RunId} can be continued could not be worked out, so it has not been opened. It can still be read and exported from the saved check runs list.
+Whether run {RunId} can be continued could not be worked out, so it has not been opened. It can still be read and exported from the saved test runs list.
 
-> Reads as: Whether run TX-4K2P can be continued could not be worked out, so it has not been opened. It can still be read and exported from the saved check runs list.
+> Reads as: Whether run TX-4K2P can be continued could not be worked out, so it has not been opened. It can still be read and exported from the saved test runs list.
 > Keep {RunId}.
 > fixer.window.why-it-cannot-be-resumed.text-4
 
@@ -2014,9 +2014,9 @@ You said: {Value}.
 > Keep {Value}.
 > fixer.window.handle.text-2
 
-## That check has already run, and its measurement is kept.… — text 3
+## That test has already run, and its measurement is kept.… — text 3
 
-That check has already run, and its measurement is kept. To measure again, choose Run this check again.
+That test has already run, and its measurement is kept. To measure again, choose Run this test again.
 
 > fixer.window.handle.text-3
 
@@ -2034,9 +2034,9 @@ Something is already running. Wait for it to finish, or press Stop everything.
 
 > fixer.window.run-stage.text-1
 
-## Something went wrong running that check. Nothing was… — text 2
+## Something went wrong running that test. Nothing was… — text 2
 
-Something went wrong running that check. Nothing was transmitted.
+Something went wrong running that test. Nothing was transmitted.
 
 > fixer.window.run-stage.text-2
 
@@ -2068,23 +2068,23 @@ Ends the test and closes the window. This run was not being saved, so nothing is
 
 ## Closes the window and keeps the run. Continue it later… — text 5, when offers resume later
 
-Closes the window and keeps the run. Continue it later from Saved check runs, on the Fix menu — everything already recorded stays{recorded}, and the report will say the checks were done in more than one sitting.
+Closes the window and keeps the run. Continue it later from View or resume saved test runs, on the Fix menu — everything already recorded stays{recorded}, and the report will say the tests were done in more than one sitting.
 
-> Reads as: Closes the window and keeps the run. Continue it later from Saved check runs, on the Fix menu — everything already recorded stays, though the check running right now stops and is not recorded, and the report will say the checks were done in more than one sitting.
+> Reads as: Closes the window and keeps the run. Continue it later from View or resume saved test runs, on the Fix menu — everything already recorded stays, though the test running right now stops and is not recorded, and the report will say the tests were done in more than one sitting.
 > Keep {recorded}.
 > fixer.window.ask-exit.text-5
 
-## , though the check running right now stops and is not… — text 6, when run in progress
+## , though the test running right now stops and is not… — text 6, when run in progress
 
-, though the check running right now stops and is not recorded
+, though the test running right now stops and is not recorded
 
 > fixer.window.ask-exit.text-6
 
-## Transmit checks — JJ Flexible — text 7
+## Transmit tests — JJ Flexible — text 7
 
-{Name} checks — JJ Flexible
+{Name} tests — JJ Flexible
 
-> Reads as: Transmit checks — JJ Flexible
+> Reads as: Transmit tests — JJ Flexible
 > Keep {Name}.
 > fixer.window.ask-exit.text-7
 
@@ -2154,9 +2154,9 @@ Continue the test
 
 > fixer.exit.fixer-exit-prompt.text-2
 
-## Nothing changes. You go back to the checks where you left… — text 3
+## Nothing changes. You go back to the tests where you left… — text 3
 
-Nothing changes. You go back to the checks where you left off.
+Nothing changes. You go back to the tests where you left off.
 
 > fixer.exit.fixer-exit-prompt.text-3
 
@@ -2170,17 +2170,17 @@ Stop tests and resume later
 
 The window that lists runs already made, and lets one be read again or carried on.
 
-## Saved check runs — JJ Flexible — text 1
+## Saved test runs — JJ Flexible — text 1
 
-Saved check runs — JJ Flexible
+Saved test runs — JJ Flexible
 
 > fixer.saved.fixer-past-runs-dialog.text-1
 
-## Every check run saves itself as it happens, named by its… — the text
+## Every test run saves itself as it happens, named by its… — the text
 
-Every check run saves itself as it happens, named by its test ID. Open one to read its report, rename it so you can find it again, continue one you stopped part-way, export it to send to someone, or delete it. JJ Flexible keeps the newest {MaxRunsKept} runs; export anything you want to keep forever.
+Every test run saves itself as it happens, named by its test ID. Open one to read its report, rename it so you can find it again, continue one you stopped part-way, export it to send to someone, or delete it. JJ Flexible keeps the newest {MaxRunsKept} runs; export anything you want to keep forever.
 
-> Reads as: Every check run saves itself as it happens, named by its test ID. Open one to read its report, rename it so you can find it again, continue one you stopped part-way, export it to send to someone, or delete it. JJ Flexible keeps the newest 200 runs; export anything you want to keep forever.
+> Reads as: Every test run saves itself as it happens, named by its test ID. Open one to read its report, rename it so you can find it again, continue one you stopped part-way, export it to send to someone, or delete it. JJ Flexible keeps the newest 200 runs; export anything you want to keep forever.
 > Keep {MaxRunsKept}.
 > fixer.saved.fixer-past-runs-dialog.text
 
@@ -2202,9 +2202,9 @@ Continue this run
 
 > fixer.saved.fixer-past-runs-dialog.text-4
 
-## Saved check runs — text 5
+## Saved test runs — text 5
 
-Saved check runs
+Saved test runs
 
 > fixer.saved.fixer-past-runs-dialog.text-5
 
@@ -2228,11 +2228,11 @@ The settings folder could not be resolved, so no saved runs can be shown.
 
 > fixer.saved.refresh.text-1
 
-## No check runs have been saved yet. Runs save themselves… — text 2
+## No test runs have been saved yet. Runs save themselves as… — text 2
 
-No check runs have been saved yet. Runs save themselves as they happen — run a check and it will appear here.{UnreadableNote}
+No test runs have been saved yet. Runs save themselves as they happen — run a test and it will appear here.{UnreadableNote}
 
-> Reads as: No check runs have been saved yet. Runs save themselves as they happen — run a check and it will appear here. One could not be read.
+> Reads as: No test runs have been saved yet. Runs save themselves as they happen — run a test and it will appear here. One could not be read.
 > Keep {UnreadableNote}.
 > fixer.saved.refresh.text-2
 
@@ -2274,11 +2274,11 @@ No run is selected.
 
 > fixer.saved.selected.text-1
 
-## Transmit check report — TX-4K2P — text 1
+## Transmit test report — TX-4K2P — text 1
 
-{StageSetName} check report — {RunId}
+{StageSetName} test report — {RunId}
 
-> Reads as: Transmit check report — TX-4K2P
+> Reads as: Transmit test report — TX-4K2P
 > Keep {StageSetName} and {RunId}, in that order.
 > fixer.saved.view-selected.text-1
 
@@ -2327,33 +2327,33 @@ The new name could not be saved.
 
 > fixer.saved.rename-selected.text-3
 
-## Run TX-4K2P has a result for every check, so there is… — text 1
+## Run TX-4K2P has a result for every test, so there is… — text 1
 
-Run {RunId} has a result for every check, so there is nothing left to continue. Open it to read the report.
+Run {RunId} has a result for every test, so there is nothing left to continue. Open it to read the report.
 
-> Reads as: Run TX-4K2P has a result for every check, so there is nothing left to continue. Open it to read the report.
+> Reads as: Run TX-4K2P has a result for every test, so there is nothing left to continue. Open it to read the report.
 > Keep {RunId}.
 > fixer.saved.resume-selected.text-1
 
 ## Continue run Shack bench, Thursday? Its five recorded… — text 2
 
-Continue run {DisplayName}? Its {ResolvedStageCount} recorded results are kept and the remaining {remaining} checks are yours to run. This is recorded as a second sitting, so the report will say the checks were not all done at one go.
+Continue run {DisplayName}? Its {ResolvedStageCount} recorded results are kept and the remaining {remaining} tests are yours to run. This is recorded as a second sitting, so the report will say the tests were not all done at one go.
 
-> Reads as: Continue run Shack bench, Thursday? Its five recorded results are kept and the remaining REMAINING checks are yours to run. This is recorded as a second sitting, so the report will say the checks were not all done at one go.
+> Reads as: Continue run Shack bench, Thursday? Its five recorded results are kept and the remaining REMAINING tests are yours to run. This is recorded as a second sitting, so the report will say the tests were not all done at one go.
 > Keep {DisplayName}, {ResolvedStageCount} and {remaining}, in that order.
 > fixer.saved.resume-selected.text-2
 
-## Saved check runs — JJ Flexible — text 3
+## Saved test runs — JJ Flexible — text 3
 
-Saved check runs — JJ Flexible
+Saved test runs — JJ Flexible
 
 > fixer.saved.resume-selected.text-3
 
-## Export check run Shack bench, Thursday — its name
+## Export test run Shack bench, Thursday — its name
 
-Export check run {DisplayName}
+Export test run {DisplayName}
 
-> Reads as: Export check run Shack bench, Thursday
+> Reads as: Export test run Shack bench, Thursday
 > Keep {DisplayName}.
 > fixer.saved.export-selected.title
 
@@ -2379,9 +2379,9 @@ Delete run {DisplayName} (test ID {RunId})? Its report and measurements will be 
 > Keep {DisplayName} and {RunId}, in that order.
 > fixer.saved.delete-selected.text-1
 
-## Saved check runs — JJ Flexible — text 2
+## Saved test runs — JJ Flexible — text 2
 
-Saved check runs — JJ Flexible
+Saved test runs — JJ Flexible
 
 > fixer.saved.delete-selected.text-2
 
@@ -2405,172 +2405,172 @@ Run {RunId} could not be deleted.
 
 Nothing to read here. This is how the tool finds each sentence again.
 
-> Made 2026-08-29 09:42 · 343 sentences · 9 files
-> fixer.page.render.title-1 · Radios/Fixer/FixerPage.cs 118 · 07e9cf
-> fixer.page.header.heading-1 · Radios/Fixer/FixerPage.cs 217 · 6c72aa
-> fixer.page.header.paragraph-1 · Radios/Fixer/FixerPage.cs 224 · e816a0
-> fixer.page.header.button-1 · Radios/Fixer/FixerPage.cs 240 · 3685fc
-> fixer.page.summary.text-1 · Radios/Fixer/FixerPage.cs 275 · e5e572
-> fixer.page.summary.text-2 · Radios/Fixer/FixerPage.cs 276 · 8d2dad
-> fixer.page.summary.text-3 · Radios/Fixer/FixerPage.cs 277 · 2fd58b
-> fixer.page.summary.text-4 · Radios/Fixer/FixerPage.cs 278 · f690ce
-> fixer.page.summary.text-5 · Radios/Fixer/FixerPage.cs 279 · 188704
-> fixer.page.summary.text-6 · Radios/Fixer/FixerPage.cs 281 · ceeae0
-> fixer.page.summary.text-7 · Radios/Fixer/FixerPage.cs 285 · 4c820d
-> fixer.page.summary.text-8 · Radios/Fixer/FixerPage.cs 287 · f92c89
-> fixer.page.summary.text-9 · Radios/Fixer/FixerPage.cs 288 · 9c09f7
-> fixer.page.how-to-section.heading-1 · Radios/Fixer/FixerPage.cs 355 · d68ae9
-> fixer.page.how-to-section.disclosure-summary-1 · Radios/Fixer/FixerPage.cs 358 · 6b9af2
-> fixer.page.how-to-section.bullet-1 · Radios/Fixer/FixerPage.cs 361 · 6ed715
-> fixer.page.how-to-section.bullet-2 · Radios/Fixer/FixerPage.cs 364 · cdf620
-> fixer.page.how-to-section.text-1 · Radios/Fixer/FixerPage.cs 371 · ac9c0f
-> fixer.page.how-to-section.text-2 · Radios/Fixer/FixerPage.cs 374 · 77bd47
-> fixer.page.how-to-section.bullet-3 · Radios/Fixer/FixerPage.cs 376 · 0dad41
-> fixer.page.declaration.text-1 · Radios/Fixer/FixerPage.cs 422 · cb5f46
-> fixer.page.declaration.button-1 · Radios/Fixer/FixerPage.cs 440 · c89348
-> fixer.page.stage-label.text-1 · Radios/Fixer/FixerPage.cs 497 · ac0988
-> fixer.page.status-phrase.text-1 · Radios/Fixer/FixerPage.cs 519 · 284d1e
-> fixer.page.status-phrase.text-2 · Radios/Fixer/FixerPage.cs 520 · b37361
-> fixer.page.status-phrase.text-3 · Radios/Fixer/FixerPage.cs 521 · 389595
-> fixer.page.status-phrase.text-4 · Radios/Fixer/FixerPage.cs 522 · 6d9973
-> fixer.page.status-phrase.text-5 · Radios/Fixer/FixerPage.cs 523 · 2a3c14
-> fixer.page.stage-card.paragraph-1 · Radios/Fixer/FixerPage.cs 577 · 6d7fce
-> fixer.page.stage-card.paragraph-2 · Radios/Fixer/FixerPage.cs 621 · 36e770
-> fixer.page.stage-card.disclosure-summary-1 · Radios/Fixer/FixerPage.cs 657 · c7a48e
-> fixer.page.stage-card.link-1 · Radios/Fixer/FixerPage.cs 663 · e2ec28
-> fixer.page.run-button.text-1 · Radios/Fixer/FixerPage.cs 690 · 66effc
-> fixer.page.run-button.text-2 · Radios/Fixer/FixerPage.cs 690 · 0b40da
-> fixer.page.skip-controls.paragraph-1 · Radios/Fixer/FixerPage.cs 718 · 9d80a7
-> fixer.page.skip-controls.question-above-the-choices-1 · Radios/Fixer/FixerPage.cs 721 · 329191
-> fixer.page.skip-controls.button-1 · Radios/Fixer/FixerPage.cs 732 · 163d38
-> fixer.page.result-block.paragraph-1 · Radios/Fixer/FixerPage.cs 756 · d22df4
-> fixer.page.result-block.text-1 · Radios/Fixer/FixerPage.cs 759 · 8eb931
-> fixer.page.result-block.text-2 · Radios/Fixer/FixerPage.cs 796 · 8c0fe2
-> fixer.page.report-section.paragraph-1 · Radios/Fixer/FixerPage.cs 872 · 82044a
-> fixer.page.report-section.paragraph-2 · Radios/Fixer/FixerPage.cs 887 · 5e7a71
-> fixer.page.report-section.paragraph-3 · Radios/Fixer/FixerPage.cs 913 · 26ce1b
-> fixer.page.report-section.button-1 · Radios/Fixer/FixerPage.cs 922 · 0d1635
-> fixer.stage.build.text-1 · Radios/Fixer/TransmitStageSet.cs 202 · 754bcd
-> fixer.stage.build.text-2 · Radios/Fixer/TransmitStageSet.cs 204 · 3fd905
-> fixer.skip.operator-skip.operator-choice.label · Radios/Fixer/TransmitStageSet.cs 210 · 081eab
-> fixer.skip.operator-skip.operator-choice.effect-text · Radios/Fixer/TransmitStageSet.cs 212 · 3e9f5a
-> fixer.skip.remote-no-direct-speech.narrows-fault-domain.label · Radios/Fixer/TransmitStageSet.cs 221 · d6052a
-> fixer.skip.remote-no-direct-speech.narrows-fault-domain.effect-text · Radios/Fixer/TransmitStageSet.cs 223 · 97e376
-> fixer.skip.no-microphone.leaves-question-open.label · Radios/Fixer/TransmitStageSet.cs 229 · a4fdfd
-> fixer.skip.no-microphone.leaves-question-open.effect-text · Radios/Fixer/TransmitStageSet.cs 231 · 714cad
-> fixer.stage.audio-setup.title · Radios/Fixer/TransmitStageSet.cs 240 · eae5fa
-> fixer.stage.audio-setup.question · Radios/Fixer/TransmitStageSet.cs 241 · 8668ab
-> fixer.stage.audio-setup.explanation · Radios/Fixer/TransmitStageSet.cs 243 · 640279
-> fixer.stage.audio-setup.describe-run-action · Radios/Fixer/TransmitStageSet.cs 252 · 7bcd32
-> fixer.declaration.radio-hearing.question · Radios/Fixer/TransmitStageSet.cs 272 · cf8f0b
-> fixer.declaration.radio-hearing.why-it-matters · Radios/Fixer/TransmitStageSet.cs 273 · 022a0e
-> fixer.answer.hears.label · Radios/Fixer/TransmitStageSet.cs 282 · b4e10b
-> fixer.answer.hears-nothing.label · Radios/Fixer/TransmitStageSet.cs 284 · 6e1b79
-> fixer.answer.no-radio.label · Radios/Fixer/TransmitStageSet.cs 286 · 65b9f8
-> fixer.action.open-device-picker.label · Radios/Fixer/TransmitStageSet.cs 298 · c7c382
-> fixer.stage.microphone-check.title · Radios/Fixer/TransmitStageSet.cs 308 · 129fb4
-> fixer.stage.microphone-check.question · Radios/Fixer/TransmitStageSet.cs 309 · 0c653e
-> fixer.stage.microphone-check.explanation · Radios/Fixer/TransmitStageSet.cs 311 · bbaef8
-> fixer.stage.microphone-check.describe-run-action · Radios/Fixer/TransmitStageSet.cs 325 · 247e4c
-> fixer.stage.transmitter-check.title · Radios/Fixer/TransmitStageSet.cs 342 · 226ca8
-> fixer.stage.transmitter-check.question · Radios/Fixer/TransmitStageSet.cs 343 · 4aab13
-> fixer.stage.transmitter-check.explanation · Radios/Fixer/TransmitStageSet.cs 345 · e01542
-> fixer.stage.transmitter-check.describe-run-action · Radios/Fixer/TransmitStageSet.cs 366 · 6f4938
-> fixer.action.transmitter-check.open-power-dialog.label · Radios/Fixer/TransmitStageSet.cs 381 · a5f7ce
-> fixer.stage.injected-transmit.title · Radios/Fixer/TransmitStageSet.cs 393 · f7e268
-> fixer.stage.injected-transmit.question · Radios/Fixer/TransmitStageSet.cs 394 · ba59a8
-> fixer.stage.injected-transmit.explanation · Radios/Fixer/TransmitStageSet.cs 396 · 07983d
-> fixer.stage.injected-transmit.describe-run-action · Radios/Fixer/TransmitStageSet.cs 409 · da1160
-> fixer.action.injected-transmit.open-power-dialog.label · Radios/Fixer/TransmitStageSet.cs 421 · 77c969
-> fixer.stage.spoken-transmit.title · Radios/Fixer/TransmitStageSet.cs 436 · a3977d
-> fixer.stage.spoken-transmit.question · Radios/Fixer/TransmitStageSet.cs 437 · cb6b4c
-> fixer.stage.spoken-transmit.explanation · Radios/Fixer/TransmitStageSet.cs 439 · ef950c
-> fixer.stage.spoken-transmit.describe-run-action · Radios/Fixer/TransmitStageSet.cs 454 · 8b64c7
-> fixer.action.spoken-transmit.open-power-dialog.label · Radios/Fixer/TransmitStageSet.cs 464 · 77c969
-> fixer.set.transmit.intro · Radios/Fixer/TransmitStageSet.cs 487 · 354483
-> fixer.declaration.antenna-load.question · Radios/Fixer/TransmitStageSet.cs 498 · 052b3c
-> fixer.declaration.antenna-load.why-it-matters · Radios/Fixer/TransmitStageSet.cs 499 · 2378af
-> fixer.answer.antenna-load.choices.dummy-load.label · Radios/Fixer/TransmitStageSet.cs 509 · a661b8
-> fixer.answer.antenna-load.choices.antenna.label · Radios/Fixer/TransmitStageSet.cs 511 · abe454
-> fixer.answer.antenna-load.choices.amplifier.label · Radios/Fixer/TransmitStageSet.cs 518 · 325399
-> fixer.answer.nothing-unsure.label · Radios/Fixer/TransmitStageSet.cs 521 · f4c7ec
-> fixer.declaration.transmit.run-declarations.when-length-is-over-0.antenna-load.question-now · Radios/Fixer/TransmitStageSet.cs 539 · d88a18
-> fixer.declaration.otherwise.antenna-load.question-now · Radios/Fixer/TransmitStageSet.cs 542 · d29299
-> fixer.declaration.transmit.run-declarations.when-length-is-over-0.antenna-load.question-now.2 · Radios/Fixer/TransmitStageSet.cs 546 · 8f5b22
-> fixer.answer.antenna-load.choices-now.dummy-load.label · Radios/Fixer/TransmitStageSet.cs 577 · 2a35fd
-> fixer.answer.antenna-load.choices-now.antenna.label · Radios/Fixer/TransmitStageSet.cs 580 · ae7918
-> fixer.answer.antenna-load.choices-now.amplifier.label · Radios/Fixer/TransmitStageSet.cs 583 · 6a1be4
-> fixer.answer.remote-not-confirmed.label · Radios/Fixer/TransmitStageSet.cs 586 · 4dda59
-> fixer.declaration.antenna-load.why-it-matters-now · Radios/Fixer/TransmitStageSet.cs 600 · 340acd
-> fixer.finding.mme-in-use.us.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 164 · 834c2c
-> fixer.finding.mme-in-use.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 170 · 36b5fd
-> fixer.finding.mme-in-use.nobody-here.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 176 · d20aaf
-> fixer.finding.mme-in-use.nobody-here.what-to-do · Radios/Fixer/AudioSetupCheck.cs 180 · 883e51
-> fixer.finding.no-input-selected.us.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 192 · b3acb2
-> fixer.finding.no-input-selected.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 194 · 6fb43a
-> fixer.finding.no-input-anywhere.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 200 · f38234
-> fixer.finding.no-input-anywhere.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 202 · c72de5
-> fixer.finding.pc-audio-off.us.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 212 · a26923
-> fixer.finding.pc-audio-off.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 215 · bcb9df
-> fixer.finding.mic-profile-empty.us.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 222 · 5d663f
-> fixer.finding.mic-profile-empty.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 225 · b3478c
-> fixer.finding.windows-muted.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 234 · ce739c
-> fixer.finding.windows-muted.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 237 · 245039
-> fixer.finding.privacy-blocked.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 241 · d0539f
-> fixer.finding.privacy-blocked.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 243 · 4fcb89
-> fixer.finding.unplugged.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 248 · e6dbb2
-> fixer.finding.unplugged.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 249 · 4b6c41
-> fixer.finding.when-remote-radio.hears-nothing.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 265 · 32866c
-> fixer.finding.when-remote-radio.hears-nothing.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 267 · deea43
-> fixer.finding.otherwise.hears-nothing.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 272 · 7eabc4
-> fixer.finding.otherwise.hears-nothing.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 273 · cbbae9
-> fixer.finding.config-open-mismatch.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 285 · 0dddd1
-> fixer.finding.describe-mismatch.text-1 · Radios/Fixer/AudioSetupCheck.cs 316 · fa5a90
-> fixer.finding.describe-mismatch.text-2 · Radios/Fixer/AudioSetupCheck.cs 321 · 67a042
-> fixer.finding.describe-mismatch.text-3 · Radios/Fixer/AudioSetupCheck.cs 324 · 9e310d
-> fixer.finding.describe-mismatch.text-4 · Radios/Fixer/AudioSetupCheck.cs 325 · fa8fc1
-> fixer.finding.host-api-phrase.text-1 · Radios/Fixer/AudioSetupCheck.cs 370 · 44ea9d
-> fixer.finding.host-api-phrase.text-2 · Radios/Fixer/AudioSetupCheck.cs 371 · c4c08b
-> fixer.finding.answer.text-1 · Radios/Fixer/AudioSetupCheck.cs 377 · 962516
-> fixer.finding.answer.text-2 · Radios/Fixer/AudioSetupCheck.cs 400 · ff1aeb
-> fixer.finding.answer.text-3 · Radios/Fixer/AudioSetupCheck.cs 403 · 063571
-> fixer.finding.answer.text-4 · Radios/Fixer/AudioSetupCheck.cs 404 · ef2176
-> fixer.finding.answer.text-5 · Radios/Fixer/AudioSetupCheck.cs 406 · e11e14
-> fixer.finding.answer.text-6 · Radios/Fixer/AudioSetupCheck.cs 409 · 4d34a9
-> fixer.finding.answer.text-7 · Radios/Fixer/AudioSetupCheck.cs 410 · 3a3c51
-> fixer.finding.answer.text-8 · Radios/Fixer/AudioSetupCheck.cs 412 · a0dfa8
-> fixer.finding.answer.text-9 · Radios/Fixer/AudioSetupCheck.cs 415 · 10d4d7
-> fixer.finding.hearing.text-1 · Radios/Fixer/AudioSetupCheck.cs 432 · a62ec8
-> fixer.finding.hearing.text-2 · Radios/Fixer/AudioSetupCheck.cs 438 · 78372b
-> fixer.finding.hearing.text-3 · Radios/Fixer/AudioSetupCheck.cs 443 · 9a6f19
-> fixer.finding.evidence.text-1 · Radios/Fixer/AudioSetupCheck.cs 453 · e789fc
-> fixer.finding.evidence.text-2 · Radios/Fixer/AudioSetupCheck.cs 455 · 5fe07e
-> fixer.finding.evidence.text-3 · Radios/Fixer/AudioSetupCheck.cs 456 · 5f0d15
-> fixer.finding.evidence.text-4 · Radios/Fixer/AudioSetupCheck.cs 457 · 8dcb10
-> fixer.finding.evidence.text-5 · Radios/Fixer/AudioSetupCheck.cs 458 · ea964e
-> fixer.finding.evidence.text-6 · Radios/Fixer/AudioSetupCheck.cs 459 · 4df271
-> fixer.finding.evidence.text-7 · Radios/Fixer/AudioSetupCheck.cs 460 · 2087cb
-> fixer.finding.evidence.text-8 · Radios/Fixer/AudioSetupCheck.cs 461 · a23402
-> fixer.finding.evidence.text-9 · Radios/Fixer/AudioSetupCheck.cs 462 · 2087cb
-> fixer.finding.evidence.text-10 · Radios/Fixer/AudioSetupCheck.cs 463 · 0c46b5
-> fixer.finding.evidence.text-11 · Radios/Fixer/AudioSetupCheck.cs 464 · b847c0
-> fixer.finding.evidence.text-12 · Radios/Fixer/AudioSetupCheck.cs 465 · 0a07a7
-> fixer.finding.evidence.text-13 · Radios/Fixer/AudioSetupCheck.cs 466 · d5e2a8
-> fixer.finding.evidence.text-14 · Radios/Fixer/AudioSetupCheck.cs 467 · 856b44
-> fixer.finding.evidence.text-15 · Radios/Fixer/AudioSetupCheck.cs 467 · 59cbb9
-> fixer.finding.evidence.text-16 · Radios/Fixer/AudioSetupCheck.cs 468 · 004593
-> fixer.finding.evidence.text-17 · Radios/Fixer/AudioSetupCheck.cs 468 · 2e0e68
-> fixer.finding.evidence.text-18 · Radios/Fixer/AudioSetupCheck.cs 469 · 9872a2
-> fixer.finding.evidence.text-19 · Radios/Fixer/AudioSetupCheck.cs 470 · e19b29
-> fixer.finding.evidence.text-20 · Radios/Fixer/AudioSetupCheck.cs 471 · 61a81c
-> fixer.finding.evidence.text-21 · Radios/Fixer/AudioSetupCheck.cs 472 · 6ff542
-> fixer.finding.tristate.text-1 · Radios/Fixer/AudioSetupCheck.cs 480 · 37b79a
-> fixer.finding.hearing-evidence.text-1 · Radios/Fixer/AudioSetupCheck.cs 486 · cfbb17
-> fixer.finding.hearing-evidence.text-2 · Radios/Fixer/AudioSetupCheck.cs 487 · 2ce652
-> fixer.finding.hearing-evidence.text-3 · Radios/Fixer/AudioSetupCheck.cs 488 · 881b31
-> fixer.finding.hearing-evidence.text-4 · Radios/Fixer/AudioSetupCheck.cs 489 · ce1533
+> Made 2026-08-29 09:46 · 343 sentences · 9 files
+> fixer.page.render.title-1 · Radios/Fixer/FixerPage.cs 135 · 1c21bf
+> fixer.page.header.heading-1 · Radios/Fixer/FixerPage.cs 234 · f01686
+> fixer.page.header.paragraph-1 · Radios/Fixer/FixerPage.cs 241 · e816a0
+> fixer.page.header.button-1 · Radios/Fixer/FixerPage.cs 257 · 3685fc
+> fixer.page.summary.text-1 · Radios/Fixer/FixerPage.cs 292 · e5e572
+> fixer.page.summary.text-2 · Radios/Fixer/FixerPage.cs 293 · 8d2dad
+> fixer.page.summary.text-3 · Radios/Fixer/FixerPage.cs 294 · 2fd58b
+> fixer.page.summary.text-4 · Radios/Fixer/FixerPage.cs 295 · f690ce
+> fixer.page.summary.text-5 · Radios/Fixer/FixerPage.cs 296 · 188704
+> fixer.page.summary.text-6 · Radios/Fixer/FixerPage.cs 298 · 4bd0ba
+> fixer.page.summary.text-7 · Radios/Fixer/FixerPage.cs 302 · 4c820d
+> fixer.page.summary.text-8 · Radios/Fixer/FixerPage.cs 304 · f92c89
+> fixer.page.summary.text-9 · Radios/Fixer/FixerPage.cs 305 · 9c09f7
+> fixer.page.how-to-section.heading-1 · Radios/Fixer/FixerPage.cs 372 · d68ae9
+> fixer.page.how-to-section.disclosure-summary-1 · Radios/Fixer/FixerPage.cs 375 · dd0214
+> fixer.page.how-to-section.bullet-1 · Radios/Fixer/FixerPage.cs 378 · b2e3d7
+> fixer.page.how-to-section.bullet-2 · Radios/Fixer/FixerPage.cs 381 · 606ac1
+> fixer.page.how-to-section.text-1 · Radios/Fixer/FixerPage.cs 388 · 4788d6
+> fixer.page.how-to-section.text-2 · Radios/Fixer/FixerPage.cs 392 · 77bd47
+> fixer.page.how-to-section.bullet-3 · Radios/Fixer/FixerPage.cs 394 · 0dad41
+> fixer.page.declaration.text-1 · Radios/Fixer/FixerPage.cs 440 · cb5f46
+> fixer.page.declaration.button-1 · Radios/Fixer/FixerPage.cs 458 · c89348
+> fixer.page.stage-label.text-1 · Radios/Fixer/FixerPage.cs 515 · ac0988
+> fixer.page.status-phrase.text-1 · Radios/Fixer/FixerPage.cs 537 · 284d1e
+> fixer.page.status-phrase.text-2 · Radios/Fixer/FixerPage.cs 538 · b37361
+> fixer.page.status-phrase.text-3 · Radios/Fixer/FixerPage.cs 539 · 389595
+> fixer.page.status-phrase.text-4 · Radios/Fixer/FixerPage.cs 540 · 6d9973
+> fixer.page.status-phrase.text-5 · Radios/Fixer/FixerPage.cs 541 · 2a3c14
+> fixer.page.stage-card.paragraph-1 · Radios/Fixer/FixerPage.cs 595 · d25b2d
+> fixer.page.stage-card.paragraph-2 · Radios/Fixer/FixerPage.cs 639 · 345ccd
+> fixer.page.stage-card.disclosure-summary-1 · Radios/Fixer/FixerPage.cs 675 · f49af9
+> fixer.page.stage-card.link-1 · Radios/Fixer/FixerPage.cs 681 · 08e8d8
+> fixer.page.run-button.text-1 · Radios/Fixer/FixerPage.cs 708 · abaca0
+> fixer.page.run-button.text-2 · Radios/Fixer/FixerPage.cs 708 · 82eba3
+> fixer.page.skip-controls.paragraph-1 · Radios/Fixer/FixerPage.cs 736 · 9d80a7
+> fixer.page.skip-controls.question-above-the-choices-1 · Radios/Fixer/FixerPage.cs 739 · 329191
+> fixer.page.skip-controls.button-1 · Radios/Fixer/FixerPage.cs 750 · 163d38
+> fixer.page.result-block.paragraph-1 · Radios/Fixer/FixerPage.cs 781 · d22df4
+> fixer.page.result-block.text-1 · Radios/Fixer/FixerPage.cs 784 · 8eb931
+> fixer.page.result-block.text-2 · Radios/Fixer/FixerPage.cs 821 · 8c0fe2
+> fixer.page.report-section.paragraph-1 · Radios/Fixer/FixerPage.cs 897 · 82044a
+> fixer.page.report-section.paragraph-2 · Radios/Fixer/FixerPage.cs 912 · 5e7a71
+> fixer.page.report-section.paragraph-3 · Radios/Fixer/FixerPage.cs 938 · 26ce1b
+> fixer.page.report-section.button-1 · Radios/Fixer/FixerPage.cs 947 · 0d1635
+> fixer.stage.build.text-1 · Radios/Fixer/TransmitStageSet.cs 221 · 754bcd
+> fixer.stage.build.text-2 · Radios/Fixer/TransmitStageSet.cs 223 · 3fd905
+> fixer.skip.operator-skip.operator-choice.label · Radios/Fixer/TransmitStageSet.cs 229 · 081eab
+> fixer.skip.operator-skip.operator-choice.effect-text · Radios/Fixer/TransmitStageSet.cs 231 · 3e9f5a
+> fixer.skip.remote-no-direct-speech.narrows-fault-domain.label · Radios/Fixer/TransmitStageSet.cs 240 · d6052a
+> fixer.skip.remote-no-direct-speech.narrows-fault-domain.effect-text · Radios/Fixer/TransmitStageSet.cs 242 · 97e376
+> fixer.skip.no-microphone.leaves-question-open.label · Radios/Fixer/TransmitStageSet.cs 248 · a4fdfd
+> fixer.skip.no-microphone.leaves-question-open.effect-text · Radios/Fixer/TransmitStageSet.cs 250 · 714cad
+> fixer.stage.audio-setup.title · Radios/Fixer/TransmitStageSet.cs 265 · 17ffec
+> fixer.stage.audio-setup.question · Radios/Fixer/TransmitStageSet.cs 266 · 42ed37
+> fixer.stage.audio-setup.explanation · Radios/Fixer/TransmitStageSet.cs 269 · 0f0dc6
+> fixer.stage.audio-setup.describe-run-action · Radios/Fixer/TransmitStageSet.cs 285 · a0f4c7
+> fixer.declaration.radio-hearing.question · Radios/Fixer/TransmitStageSet.cs 306 · cf8f0b
+> fixer.declaration.radio-hearing.why-it-matters · Radios/Fixer/TransmitStageSet.cs 307 · 022a0e
+> fixer.answer.hears.label · Radios/Fixer/TransmitStageSet.cs 316 · b4e10b
+> fixer.answer.hears-nothing.label · Radios/Fixer/TransmitStageSet.cs 318 · 6e1b79
+> fixer.answer.no-radio.label · Radios/Fixer/TransmitStageSet.cs 320 · 65b9f8
+> fixer.action.open-device-picker.label · Radios/Fixer/TransmitStageSet.cs 332 · c7c382
+> fixer.stage.microphone-check.title · Radios/Fixer/TransmitStageSet.cs 342 · e1d1a8
+> fixer.stage.microphone-check.question · Radios/Fixer/TransmitStageSet.cs 343 · 0c653e
+> fixer.stage.microphone-check.explanation · Radios/Fixer/TransmitStageSet.cs 345 · bbaef8
+> fixer.stage.microphone-check.describe-run-action · Radios/Fixer/TransmitStageSet.cs 359 · 247e4c
+> fixer.stage.transmitter-check.title · Radios/Fixer/TransmitStageSet.cs 376 · c92679
+> fixer.stage.transmitter-check.question · Radios/Fixer/TransmitStageSet.cs 377 · 4aab13
+> fixer.stage.transmitter-check.explanation · Radios/Fixer/TransmitStageSet.cs 379 · e01542
+> fixer.stage.transmitter-check.describe-run-action · Radios/Fixer/TransmitStageSet.cs 400 · 6f4938
+> fixer.action.transmitter-check.open-power-dialog.label · Radios/Fixer/TransmitStageSet.cs 415 · a5f7ce
+> fixer.stage.injected-transmit.title · Radios/Fixer/TransmitStageSet.cs 427 · f7e268
+> fixer.stage.injected-transmit.question · Radios/Fixer/TransmitStageSet.cs 428 · ba59a8
+> fixer.stage.injected-transmit.explanation · Radios/Fixer/TransmitStageSet.cs 430 · d4176e
+> fixer.stage.injected-transmit.describe-run-action · Radios/Fixer/TransmitStageSet.cs 443 · da1160
+> fixer.action.injected-transmit.open-power-dialog.label · Radios/Fixer/TransmitStageSet.cs 455 · 77c969
+> fixer.stage.spoken-transmit.title · Radios/Fixer/TransmitStageSet.cs 470 · a3977d
+> fixer.stage.spoken-transmit.question · Radios/Fixer/TransmitStageSet.cs 471 · cb6b4c
+> fixer.stage.spoken-transmit.explanation · Radios/Fixer/TransmitStageSet.cs 473 · ef950c
+> fixer.stage.spoken-transmit.describe-run-action · Radios/Fixer/TransmitStageSet.cs 488 · 8b64c7
+> fixer.action.spoken-transmit.open-power-dialog.label · Radios/Fixer/TransmitStageSet.cs 498 · 77c969
+> fixer.set.transmit.intro · Radios/Fixer/TransmitStageSet.cs 521 · fda9db
+> fixer.declaration.antenna-load.question · Radios/Fixer/TransmitStageSet.cs 534 · 052b3c
+> fixer.declaration.antenna-load.why-it-matters · Radios/Fixer/TransmitStageSet.cs 535 · 7e61cd
+> fixer.answer.antenna-load.choices.dummy-load.label · Radios/Fixer/TransmitStageSet.cs 545 · a661b8
+> fixer.answer.antenna-load.choices.antenna.label · Radios/Fixer/TransmitStageSet.cs 547 · abe454
+> fixer.answer.antenna-load.choices.amplifier.label · Radios/Fixer/TransmitStageSet.cs 554 · 325399
+> fixer.answer.nothing-unsure.label · Radios/Fixer/TransmitStageSet.cs 557 · f4c7ec
+> fixer.declaration.transmit.run-declarations.when-length-is-over-0.antenna-load.question-now · Radios/Fixer/TransmitStageSet.cs 575 · d88a18
+> fixer.declaration.otherwise.antenna-load.question-now · Radios/Fixer/TransmitStageSet.cs 578 · d29299
+> fixer.declaration.transmit.run-declarations.when-length-is-over-0.antenna-load.question-now.2 · Radios/Fixer/TransmitStageSet.cs 582 · 8f5b22
+> fixer.answer.antenna-load.choices-now.dummy-load.label · Radios/Fixer/TransmitStageSet.cs 613 · 2a35fd
+> fixer.answer.antenna-load.choices-now.antenna.label · Radios/Fixer/TransmitStageSet.cs 616 · ae7918
+> fixer.answer.antenna-load.choices-now.amplifier.label · Radios/Fixer/TransmitStageSet.cs 619 · 6a1be4
+> fixer.answer.remote-not-confirmed.label · Radios/Fixer/TransmitStageSet.cs 622 · 4dda59
+> fixer.declaration.antenna-load.why-it-matters-now · Radios/Fixer/TransmitStageSet.cs 636 · 1352da
+> fixer.finding.mme-in-use.us.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 191 · 834c2c
+> fixer.finding.mme-in-use.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 197 · 36b5fd
+> fixer.finding.mme-in-use.nobody-here.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 203 · d20aaf
+> fixer.finding.mme-in-use.nobody-here.what-to-do · Radios/Fixer/AudioSetupCheck.cs 207 · 883e51
+> fixer.finding.no-input-selected.us.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 219 · b3acb2
+> fixer.finding.no-input-selected.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 221 · 6fb43a
+> fixer.finding.no-input-anywhere.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 227 · f38234
+> fixer.finding.no-input-anywhere.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 229 · c72de5
+> fixer.finding.pc-audio-off.us.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 239 · a26923
+> fixer.finding.pc-audio-off.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 242 · bcb9df
+> fixer.finding.mic-profile-empty.us.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 249 · 5d663f
+> fixer.finding.mic-profile-empty.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 252 · b3478c
+> fixer.finding.windows-muted.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 261 · ce739c
+> fixer.finding.windows-muted.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 264 · 245039
+> fixer.finding.privacy-blocked.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 268 · d0539f
+> fixer.finding.privacy-blocked.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 270 · 4fcb89
+> fixer.finding.unplugged.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 275 · e6dbb2
+> fixer.finding.unplugged.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 276 · 4b6c41
+> fixer.finding.when-remote-radio.hears-nothing.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 292 · 32866c
+> fixer.finding.when-remote-radio.hears-nothing.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 294 · 47662b
+> fixer.finding.otherwise.hears-nothing.operator.what-is-wrong · Radios/Fixer/AudioSetupCheck.cs 299 · 7eabc4
+> fixer.finding.otherwise.hears-nothing.operator.what-to-do · Radios/Fixer/AudioSetupCheck.cs 300 · cbbae9
+> fixer.finding.config-open-mismatch.us.what-to-do · Radios/Fixer/AudioSetupCheck.cs 312 · 0dddd1
+> fixer.finding.describe-mismatch.text-1 · Radios/Fixer/AudioSetupCheck.cs 434 · fa5a90
+> fixer.finding.describe-mismatch.text-2 · Radios/Fixer/AudioSetupCheck.cs 439 · 67a042
+> fixer.finding.describe-mismatch.text-3 · Radios/Fixer/AudioSetupCheck.cs 442 · 9e310d
+> fixer.finding.describe-mismatch.text-4 · Radios/Fixer/AudioSetupCheck.cs 443 · fa8fc1
+> fixer.finding.host-api-phrase.text-1 · Radios/Fixer/AudioSetupCheck.cs 488 · 44ea9d
+> fixer.finding.host-api-phrase.text-2 · Radios/Fixer/AudioSetupCheck.cs 489 · c4c08b
+> fixer.finding.answer.text-1 · Radios/Fixer/AudioSetupCheck.cs 495 · 962516
+> fixer.finding.answer.text-2 · Radios/Fixer/AudioSetupCheck.cs 518 · ff1aeb
+> fixer.finding.answer.text-3 · Radios/Fixer/AudioSetupCheck.cs 521 · 063571
+> fixer.finding.answer.text-4 · Radios/Fixer/AudioSetupCheck.cs 522 · ef2176
+> fixer.finding.answer.text-5 · Radios/Fixer/AudioSetupCheck.cs 524 · e11e14
+> fixer.finding.answer.text-6 · Radios/Fixer/AudioSetupCheck.cs 527 · 4d34a9
+> fixer.finding.answer.text-7 · Radios/Fixer/AudioSetupCheck.cs 528 · 3a3c51
+> fixer.finding.answer.text-8 · Radios/Fixer/AudioSetupCheck.cs 530 · a0dfa8
+> fixer.finding.answer.text-9 · Radios/Fixer/AudioSetupCheck.cs 533 · 10d4d7
+> fixer.finding.hearing.text-1 · Radios/Fixer/AudioSetupCheck.cs 550 · a62ec8
+> fixer.finding.hearing.text-2 · Radios/Fixer/AudioSetupCheck.cs 556 · 78372b
+> fixer.finding.hearing.text-3 · Radios/Fixer/AudioSetupCheck.cs 561 · 916121
+> fixer.finding.evidence.text-1 · Radios/Fixer/AudioSetupCheck.cs 571 · e789fc
+> fixer.finding.evidence.text-2 · Radios/Fixer/AudioSetupCheck.cs 573 · 5fe07e
+> fixer.finding.evidence.text-3 · Radios/Fixer/AudioSetupCheck.cs 574 · 5f0d15
+> fixer.finding.evidence.text-4 · Radios/Fixer/AudioSetupCheck.cs 575 · 8dcb10
+> fixer.finding.evidence.text-5 · Radios/Fixer/AudioSetupCheck.cs 576 · ea964e
+> fixer.finding.evidence.text-6 · Radios/Fixer/AudioSetupCheck.cs 577 · 4df271
+> fixer.finding.evidence.text-7 · Radios/Fixer/AudioSetupCheck.cs 578 · 2087cb
+> fixer.finding.evidence.text-8 · Radios/Fixer/AudioSetupCheck.cs 579 · a23402
+> fixer.finding.evidence.text-9 · Radios/Fixer/AudioSetupCheck.cs 580 · 2087cb
+> fixer.finding.evidence.text-10 · Radios/Fixer/AudioSetupCheck.cs 581 · 0c46b5
+> fixer.finding.evidence.text-11 · Radios/Fixer/AudioSetupCheck.cs 582 · b847c0
+> fixer.finding.evidence.text-12 · Radios/Fixer/AudioSetupCheck.cs 583 · 0a07a7
+> fixer.finding.evidence.text-13 · Radios/Fixer/AudioSetupCheck.cs 584 · d5e2a8
+> fixer.finding.evidence.text-14 · Radios/Fixer/AudioSetupCheck.cs 585 · 856b44
+> fixer.finding.evidence.text-15 · Radios/Fixer/AudioSetupCheck.cs 585 · 59cbb9
+> fixer.finding.evidence.text-16 · Radios/Fixer/AudioSetupCheck.cs 586 · 004593
+> fixer.finding.evidence.text-17 · Radios/Fixer/AudioSetupCheck.cs 586 · 2e0e68
+> fixer.finding.evidence.text-18 · Radios/Fixer/AudioSetupCheck.cs 587 · 9872a2
+> fixer.finding.evidence.text-19 · Radios/Fixer/AudioSetupCheck.cs 588 · e19b29
+> fixer.finding.evidence.text-20 · Radios/Fixer/AudioSetupCheck.cs 589 · 61a81c
+> fixer.finding.evidence.text-21 · Radios/Fixer/AudioSetupCheck.cs 590 · 6ff542
+> fixer.finding.tristate.text-1 · Radios/Fixer/AudioSetupCheck.cs 598 · 37b79a
+> fixer.finding.hearing-evidence.text-1 · Radios/Fixer/AudioSetupCheck.cs 604 · cfbb17
+> fixer.finding.hearing-evidence.text-2 · Radios/Fixer/AudioSetupCheck.cs 605 · 2ce652
+> fixer.finding.hearing-evidence.text-3 · Radios/Fixer/AudioSetupCheck.cs 606 · 881b31
+> fixer.finding.hearing-evidence.text-4 · Radios/Fixer/AudioSetupCheck.cs 607 · ce1533
 > fixer.finding.microphone.text-1 · Radios/Fixer/TransmitStages.cs 94 · d9dd98
-> fixer.finding.microphone.text-2 · Radios/Fixer/TransmitStages.cs 114 · d943a9
+> fixer.finding.microphone.text-2 · Radios/Fixer/TransmitStages.cs 114 · f847ad
 > fixer.finding.microphone.text-3 · Radios/Fixer/TransmitStages.cs 115 · 1b619c
 > fixer.finding.microphone.text-4 · Radios/Fixer/TransmitStages.cs 117 · 85c714
 > fixer.finding.microphone.text-5 · Radios/Fixer/TransmitStages.cs 124 · 50a22c
@@ -2596,13 +2596,13 @@ Nothing to read here. This is how the tool finds each sentence again.
 > fixer.finding.injected.text-1 · Radios/Fixer/TransmitStages.cs 277 · 439a88
 > fixer.finding.injected.text-2 · Radios/Fixer/TransmitStages.cs 285 · 5aba0f
 > fixer.finding.injected.text-3 · Radios/Fixer/TransmitStages.cs 286 · 37b79a
-> fixer.finding.spoken.text-1 · Radios/Fixer/TransmitStages.cs 321 · a167b5
+> fixer.finding.spoken.text-1 · Radios/Fixer/TransmitStages.cs 321 · 7591cb
 > fixer.finding.spoken.text-2 · Radios/Fixer/TransmitStages.cs 326 · 2f148b
 > fixer.finding.spoken.text-3 · Radios/Fixer/TransmitStages.cs 326 · 1b619c
-> fixer.finding.spoken.text-4 · Radios/Fixer/TransmitStages.cs 331 · 5699b8
+> fixer.finding.spoken.text-4 · Radios/Fixer/TransmitStages.cs 331 · dbfe31
 > fixer.finding.spoken.text-5 · Radios/Fixer/TransmitStages.cs 332 · b3b67e
-> fixer.finding.spoken.text-6 · Radios/Fixer/TransmitStages.cs 340 · 7a4fec
-> fixer.finding.spoken.text-7 · Radios/Fixer/TransmitStages.cs 346 · 961c11
+> fixer.finding.spoken.text-6 · Radios/Fixer/TransmitStages.cs 340 · e3fb3d
+> fixer.finding.spoken.text-7 · Radios/Fixer/TransmitStages.cs 346 · 1dc89d
 > fixer.finding.spoken.text-8 · Radios/Fixer/TransmitStages.cs 353 · e0191e
 > fixer.finding.spoken.text-9 · Radios/Fixer/TransmitStages.cs 355 · 529240
 > fixer.finding.spoken.text-10 · Radios/Fixer/TransmitStages.cs 356 · 2b5da6
@@ -2612,7 +2612,7 @@ Nothing to read here. This is how the tool finds each sentence again.
 > fixer.finding.spoken.text-14 · Radios/Fixer/TransmitStages.cs 359 · ac4632
 > fixer.finding.spoken.text-15 · Radios/Fixer/TransmitStages.cs 359 · 2087cb
 > fixer.finding.spoken.text-16 · Radios/Fixer/TransmitStages.cs 360 · 147bce
-> fixer.finding.spoken.text-17 · Radios/Fixer/TransmitStages.cs 361 · 765e0b
+> fixer.finding.spoken.text-17 · Radios/Fixer/TransmitStages.cs 361 · 8acaee
 > fixer.finding.spoken.text-18 · Radios/Fixer/TransmitStages.cs 364 · 8bd75a
 > fixer.finding.spoken.text-19 · Radios/Fixer/TransmitStages.cs 364 · 6bf7ed
 > fixer.finding.spoken.text-20 · Radios/Fixer/TransmitStages.cs 365 · a7652f
@@ -2634,15 +2634,15 @@ Nothing to read here. This is how the tool finds each sentence again.
 > fixer.refusal.request.text-10 · Radios/Fixer/FixerTransmitGate.cs 416 · abca6c
 > fixer.refusal.request.text-11 · Radios/Fixer/FixerTransmitGate.cs 429 · 29add2
 > fixer.refusal.request.text-12 · Radios/Fixer/FixerTransmitGate.cs 429 · 10ab58
-> fixer.refusal.request.text-13 · Radios/Fixer/FixerTransmitGate.cs 433 · 2bf672
-> fixer.refusal.request.text-14 · Radios/Fixer/FixerTransmitGate.cs 441 · a1b5a5
-> fixer.refusal.request.text-15 · Radios/Fixer/FixerTransmitGate.cs 461 · 4aa2c8
-> fixer.refusal.request.text-16 · Radios/Fixer/FixerTransmitGate.cs 470 · 7a4c98
+> fixer.refusal.request.text-13 · Radios/Fixer/FixerTransmitGate.cs 433 · e63030
+> fixer.refusal.request.text-14 · Radios/Fixer/FixerTransmitGate.cs 441 · c0e728
+> fixer.refusal.request.text-15 · Radios/Fixer/FixerTransmitGate.cs 461 · 297798
+> fixer.refusal.request.text-16 · Radios/Fixer/FixerTransmitGate.cs 470 · 330403
 > fixer.refusal.request.text-17 · Radios/Fixer/FixerTransmitGate.cs 481 · e8c637
 > fixer.refusal.request.text-18 · Radios/Fixer/FixerTransmitGate.cs 488 · d9523b
 > fixer.refusal.request.text-19 · Radios/Fixer/FixerTransmitGate.cs 494 · ee0b1f
 > fixer.refusal.request.text-20 · Radios/Fixer/FixerTransmitGate.cs 501 · bfadd6
-> fixer.report.build.text-1 · Radios/Fixer/FixerReport.cs 73 · 877067
+> fixer.report.build.text-1 · Radios/Fixer/FixerReport.cs 73 · 1b732a
 > fixer.report.build.text-2 · Radios/Fixer/FixerReport.cs 74 · 04b444
 > fixer.report.build.text-3 · Radios/Fixer/FixerReport.cs 79 · 43cf6b
 > fixer.report.build.text-4 · Radios/Fixer/FixerReport.cs 80 · 7ac8e2
@@ -2677,76 +2677,76 @@ Nothing to read here. This is how the tool finds each sentence again.
 > fixer.report.describe.text-1 · Radios/Fixer/FixerReport.cs 293 · a4b7d4
 > fixer.report.describe.text-2 · Radios/Fixer/FixerReport.cs 297 · 0ad98a
 > fixer.report.describe.text-3 · Radios/Fixer/FixerReport.cs 298 · 139ed5
-> fixer.window.fixer-dialog.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 339 · 85221a
-> fixer.window.fixer-dialog.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 344 · 6c72aa
-> fixer.window.describe-gate-derivation.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 487 · bf1578
-> fixer.window.describe-gate-derivation.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 495 · 4e7933
-> fixer.window.describe-gate-derivation.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 501 · 2fc161
-> fixer.window.prepare-reference-voice.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 554 · 59cb22
-> fixer.window.prepare-reference-voice.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 562 · f18756
-> fixer.window.show.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 612 · 77e6d8
-> fixer.window.show.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 613 · 4844c2
-> fixer.window.show.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 625 · 77e6d8
-> fixer.window.why-it-cannot-be-resumed.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 644 · 81bf22
-> fixer.window.why-it-cannot-be-resumed.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 651 · 80b2c7
-> fixer.window.why-it-cannot-be-resumed.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 658 · 22532d
-> fixer.window.why-it-cannot-be-resumed.text-4 · JJFlexWpf/Dialogs/FixerDialog.cs 669 · 6e07c4
-> fixer.window.on-web-message.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 917 · f1f4dd
-> fixer.window.handle.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 953 · 35e79f
-> fixer.window.handle.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 975 · 35e79f
-> fixer.window.handle.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 999 · f6c33d
-> fixer.window.handle.text-4 · JJFlexWpf/Dialogs/FixerDialog.cs 1057 · 9afbad
-> fixer.window.run-stage.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1103 · 586e26
-> fixer.window.run-stage.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 1136 · e92787
-> fixer.window.ask-exit.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1383 · d70346
-> fixer.window.ask-exit.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 1387 · 0c909a
-> fixer.window.ask-exit.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 1390 · a65575
-> fixer.window.ask-exit.text-4 · JJFlexWpf/Dialogs/FixerDialog.cs 1393 · d76c05
-> fixer.window.ask-exit.text-5 · JJFlexWpf/Dialogs/FixerDialog.cs 1397 · 8602d7
-> fixer.window.ask-exit.text-6 · JJFlexWpf/Dialogs/FixerDialog.cs 1400 · 7ddc45
-> fixer.window.ask-exit.text-7 · JJFlexWpf/Dialogs/FixerDialog.cs 1406 · 85221a
-> fixer.window.close-keeping-run.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1416 · 4e06ae
-> fixer.window.on-closing.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1487 · 4e06ae
-> fixer.window.to-page.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1629 · dcdfdf
-> fixer.window.copy-report.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1661 · 0a1462
-> fixer.window.open-help.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1688 · ba4416
-> fixer.window.open-power-dialog.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1708 · 8dcc3f
-> fixer.window.open-power-dialog.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 1721 · 088ed2
-> fixer.window.open-device-picker.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1752 · 23e690
+> fixer.window.fixer-dialog.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 358 · 50c62a
+> fixer.window.fixer-dialog.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 363 · f01686
+> fixer.window.describe-gate-derivation.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 506 · bf1578
+> fixer.window.describe-gate-derivation.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 514 · 4e7933
+> fixer.window.describe-gate-derivation.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 520 · 839045
+> fixer.window.prepare-reference-voice.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 573 · 59cb22
+> fixer.window.prepare-reference-voice.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 581 · f18756
+> fixer.window.show.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 631 · 1105cb
+> fixer.window.show.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 632 · f41851
+> fixer.window.show.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 644 · 1105cb
+> fixer.window.why-it-cannot-be-resumed.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 663 · 81bf22
+> fixer.window.why-it-cannot-be-resumed.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 670 · 944011
+> fixer.window.why-it-cannot-be-resumed.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 677 · 46b4b0
+> fixer.window.why-it-cannot-be-resumed.text-4 · JJFlexWpf/Dialogs/FixerDialog.cs 688 · c1bc28
+> fixer.window.on-web-message.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 936 · f1f4dd
+> fixer.window.handle.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 972 · 35e79f
+> fixer.window.handle.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 994 · 35e79f
+> fixer.window.handle.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 1018 · d8d035
+> fixer.window.handle.text-4 · JJFlexWpf/Dialogs/FixerDialog.cs 1076 · 9afbad
+> fixer.window.run-stage.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1122 · 586e26
+> fixer.window.run-stage.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 1155 · c6ce0d
+> fixer.window.ask-exit.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1402 · d70346
+> fixer.window.ask-exit.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 1406 · 0c909a
+> fixer.window.ask-exit.text-3 · JJFlexWpf/Dialogs/FixerDialog.cs 1409 · a65575
+> fixer.window.ask-exit.text-4 · JJFlexWpf/Dialogs/FixerDialog.cs 1412 · d76c05
+> fixer.window.ask-exit.text-5 · JJFlexWpf/Dialogs/FixerDialog.cs 1416 · b19830
+> fixer.window.ask-exit.text-6 · JJFlexWpf/Dialogs/FixerDialog.cs 1420 · 67c5df
+> fixer.window.ask-exit.text-7 · JJFlexWpf/Dialogs/FixerDialog.cs 1426 · 50c62a
+> fixer.window.close-keeping-run.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1436 · 4e06ae
+> fixer.window.on-closing.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1507 · 4e06ae
+> fixer.window.to-page.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1649 · dcdfdf
+> fixer.window.copy-report.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1681 · 0a1462
+> fixer.window.open-help.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1708 · ba4416
+> fixer.window.open-power-dialog.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1728 · 8dcc3f
+> fixer.window.open-power-dialog.text-2 · JJFlexWpf/Dialogs/FixerDialog.cs 1741 · 088ed2
+> fixer.window.open-device-picker.text-1 · JJFlexWpf/Dialogs/FixerDialog.cs 1772 · 23e690
 > fixer.exit.fixer-exit-prompt.text-1 · JJFlexWpf/Dialogs/FixerExitPrompt.cs 85 · e08eaa
 > fixer.exit.fixer-exit-prompt.text-2 · JJFlexWpf/Dialogs/FixerExitPrompt.cs 88 · 6e2daf
-> fixer.exit.fixer-exit-prompt.text-3 · JJFlexWpf/Dialogs/FixerExitPrompt.cs 89 · ad7db9
+> fixer.exit.fixer-exit-prompt.text-3 · JJFlexWpf/Dialogs/FixerExitPrompt.cs 89 · 8f9554
 > fixer.exit.fixer-exit-prompt.text-4 · JJFlexWpf/Dialogs/FixerExitPrompt.cs 100 · febcc7
-> fixer.saved.fixer-past-runs-dialog.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 47 · 351cf0
-> fixer.saved.fixer-past-runs-dialog.text · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 59 · edf0ab
+> fixer.saved.fixer-past-runs-dialog.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 47 · 7bc86b
+> fixer.saved.fixer-past-runs-dialog.text · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 59 · e7b3cb
 > fixer.saved.fixer-past-runs-dialog.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 82 · 67daba
 > fixer.saved.fixer-past-runs-dialog.text-3 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 82 · 45e1eb
 > fixer.saved.fixer-past-runs-dialog.text-4 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 84 · 952612
-> fixer.saved.fixer-past-runs-dialog.text-5 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 93 · 48a25e
+> fixer.saved.fixer-past-runs-dialog.text-5 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 93 · 229203
 > fixer.saved.fixer-past-runs-dialog.text-6 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 95 · 484027
 > fixer.saved.make-button.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 136 · ac8c6a
 > fixer.saved.refresh.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 152 · 3ac7a2
-> fixer.saved.refresh.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 164 · 6a2a0f
+> fixer.saved.refresh.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 164 · 65b04b
 > fixer.saved.refresh.text-3 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 171 · 01f8df
 > fixer.saved.refresh.text-4 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 172 · 9ca456
 > fixer.saved.unreadable-note.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 184 · a97efa
 > fixer.saved.unreadable-note.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 185 · 7c09af
 > fixer.saved.selected.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 192 · 4665f6
-> fixer.saved.view-selected.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 207 · be3019
+> fixer.saved.view-selected.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 207 · d22567
 > fixer.saved.view-selected.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 211 · ffedb1
 > fixer.saved.staleness-lead.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 234 · 3f0da5
 > fixer.saved.staleness-lead.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 236 · 1cd814
 > fixer.saved.rename-selected.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 287 · b14948
 > fixer.saved.rename-selected.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 288 · 4e6d11
 > fixer.saved.rename-selected.text-3 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 298 · 0d9182
-> fixer.saved.resume-selected.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 334 · e34d94
-> fixer.saved.resume-selected.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 344 · 47016e
-> fixer.saved.resume-selected.text-3 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 348 · 351cf0
-> fixer.saved.export-selected.title · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 368 · 67aa82
+> fixer.saved.resume-selected.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 334 · 05d85e
+> fixer.saved.resume-selected.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 344 · 39d0c2
+> fixer.saved.resume-selected.text-3 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 348 · 7bc86b
+> fixer.saved.export-selected.title · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 368 · bc49a5
 > fixer.saved.export-selected.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 384 · 33b03c
 > fixer.saved.export-selected.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 385 · 910960
 > fixer.saved.delete-selected.text-1 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 396 · f665a1
-> fixer.saved.delete-selected.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 398 · 351cf0
+> fixer.saved.delete-selected.text-2 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 398 · 7bc86b
 > fixer.saved.delete-selected.text-3 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 404 · a5ce1b
 > fixer.saved.delete-selected.text-4 · JJFlexWpf/Dialogs/FixerPastRunsDialog.cs 409 · 2a81c7
 
