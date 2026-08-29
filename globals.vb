@@ -4894,14 +4894,29 @@ RadioConnected:
         Tracing.TraceLine("SelectRadio", TraceLevel.Info)
         Try
             ' Sprint 30 Track A: the lead is only earned by a radio that was
-            ' actually CONNECTED. A cancelled picker leaves a live-but-unstarted
-            ' FlexBase behind (only the Abort path closes it), so this used to
-            ' hand the arriving picker "Disconnected from radio" for a radio the
-            ' operator had never reached. Harmless-looking, and a lie the
-            ' operator hears in the first sentence of the window they just
-            ' opened. Newly likely rather than newly possible: Connect is now the
-            ' first button on the rescue page, so the never-connected path is the
-            ' ORDINARY one instead of a corner of the Radio menu.
+            ' actually CONNECTED. This used to hand the arriving picker
+            ' "Disconnected from radio" for a radio the operator had never
+            ' reached. Harmless-looking, and a lie the operator hears in the
+            ' first sentence of the window they just opened. Newly likely rather
+            ' than newly possible: Connect is now the first button on the rescue
+            ' page, so the never-connected path is the ORDINARY one instead of a
+            ' corner of the Radio menu.
+            '
+            ' THE REASON WRITTEN HERE UNTIL 2026-08-29 WAS WRONG, and it had
+            ' been quoted into a task by then. It said "a cancelled picker
+            ' leaves a live-but-unstarted FlexBase behind (only the Abort path
+            ' closes it)". Only the parenthesis is true: CloseTheRadio does not
+            ' run on a cancel. But wpfSelectorProc disposes the rig and nulls
+            ' RigControl itself on every non-exception cancel — it has since
+            ' Sprint 11 — so no live object is left, and the trace of 2026-08-29
+            ' 08:48 shows FlexBase.Dispose immediately before "rig's open
+            ' failed" on exactly that path. "CloseTheRadio did not run" is not
+            ' the same claim as "the object survived"; reading one as the other
+            ' is what put a false premise into task #386.
+            '
+            ' The guard is still right. What actually reaches it non-Nothing and
+            ' unconnected is a rig that survived an EXCEPTION thrown during the
+            ' picker, which openTheRadio's outer Catch swallows.
             '
             ' CloseTheRadio still runs either way - the stale object has to be
             ' disposed before openTheRadio builds another one.
@@ -5148,11 +5163,17 @@ RadioConnected:
         ' MainWindow.UpdateTitleBar, so this can never go stale.
         '
         ' Tested against WpfMainWindow.RigControl, NOT the module-level
-        ' RigControl: a cancelled picker leaves the module's FlexBase object
-        ' alive (only the Abort path calls CloseTheRadio), while the window's
-        ' RigControl is assigned only on a connect that actually succeeded.
-        ' The window's copy is what "is a radio connected" means everywhere
-        ' else, including MainWindow.EnterRescueModeIfNoRadio.
+        ' RigControl: the window's copy is assigned only on a connect that
+        ' actually succeeded, and it is what "is a radio connected" means
+        ' everywhere else, including MainWindow.EnterRescueModeIfNoRadio.
+        '
+        ' This said until 2026-08-29 that "a cancelled picker leaves the
+        ' module's FlexBase object alive (only the Abort path calls
+        ' CloseTheRadio)". CloseTheRadio indeed does not run on a cancel, but
+        ' wpfSelectorProc disposes the rig and nulls RigControl itself, so the
+        ' module-level copy is Nothing there too. See the longer note in
+        ' SelectRadio: the same sentence in both places is where task #386's
+        ' premise came from.
         If WpfMainWindow IsNot Nothing AndAlso WpfMainWindow.RigControl Is Nothing _
            AndAlso AppShellForm IsNot Nothing Then
             AppShellForm.Text &= " — no radio connected"

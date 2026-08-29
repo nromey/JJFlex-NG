@@ -4729,6 +4729,204 @@ namespace Radios
             wanRadioListReceivedHandler(e.AccountId ?? "", e.Radios);
         }
 
+        #region the one presence intake (#386)
+
+        // ══ ONE INTAKE, NOT N ═══════════════════════════════════════════════
+        //
+        // The coordinator's SessionRadioListReceived is STATIC-lifetime state:
+        // one event on an app-lifetime singleton. Subscribing an INSTANCE
+        // handler to it makes the event a root, so every FlexBase that ever
+        // engaged presence stays alive and keeps consuming pushes — one more
+        // per picker open since #382 moved the switch-on point there.
+        //
+        // Why it has never been visible: every consumer downstream happens to
+        // be idempotent (OnRadioRemoved re-asks availability, OnRadioFound
+        // updates in place, AnnounceArrival is once-per-serial), so N handlers
+        // do N times the work and produce one correct outcome. That is luck
+        // held in place by three unrelated decisions, not a design.
+        //
+        // ── THE RULE ────────────────────────────────────────────────────────
+        //
+        // The coordinator sees exactly ONE delegate, for the life of the app:
+        // the static dispatcher below. Behind it stands a list of the rigs that
+        // have engaged and not yet been disposed, most recent last, and ONLY
+        // THE LAST ONE consumes. So, stated as something to follow:
+        //
+        //   * engaging presence makes you the intake, and whoever was stops;
+        //   * Dispose takes you out of the list wherever you sit, which hands
+        //     the intake back to the rig you displaced if it is still alive,
+        //     and to nobody if you were the only one;
+        //   * therefore exactly one rig consumes at any moment, and never a
+        //     disposed one.
+        //
+        // ── WHY A LIST AND NOT A SINGLE SLOT ────────────────────────────────
+        //
+        // Because engagements NEST. The picker's Test button opens
+        // ConnectionTesterDialog while the picker is still open
+        // (RigSelectorDialog.TestButton_Click), and the tester builds, connects
+        // and disposes a FlexBase of its own for every test it runs. With a
+        // single slot cleared on Dispose, finishing a test would leave the
+        // intake empty with the picker still on screen — its rows silently stop
+        // updating from presence pushes, which is the state #382 exists to
+        // prevent, arrived at from the other side. Popping restores the
+        // picker's rig instead. A test pins this; the single-slot version fails
+        // it and passes everything else, which is how it was found.
+        //
+        // The list is ordered rather than a stack because disposal order is not
+        // guaranteed to mirror engagement order, and a stack popped out of order
+        // is worse than no stack at all.
+        //
+        // ── WHY NOT JUST UNSUBSCRIBE IN Dispose ─────────────────────────────
+        //
+        // That was the tempting fix and it is the wrong one, though NOT for the
+        // reason #386 gave. The task said the cancelled-picker instance is never
+        // disposed; it is — wpfSelectorProc disposes it and nulls RigControl,
+        // and has since Sprint 11. What is true is:
+        //
+        //   * Dispose is a promise made by callers, and on THIS event a broken
+        //     promise used to be unrecoverable: a subscribed instance is rooted
+        //     by the event, so it is never collected and its finalizer never
+        //     runs. There is no safety net behind the missed call.
+        //   * And it cannot reach the case where two rigs are subscribed AT
+        //     ONCE, which the nested tester above produces on every run — two
+        //     rigs sweeping their own myRadioList and both raising the STATIC
+        //     RadioFound/RadioRemoved into the open picker. Unsubscribing in
+        //     Dispose tidies that up after the test; this prevents it during.
+        //
+        // The invariant here holds whether or not anybody calls Dispose. Dispose
+        // only decides who inherits.
+
+        private static readonly object _presenceIntakeGate = new object();
+
+        /// <summary>
+        /// Rigs that have engaged presence and not yet been disposed, in
+        /// engagement order. The LAST one is the intake. Strong references on
+        /// purpose: a weak one could be collected out from under an open picker
+        /// and silently stop the rows updating, and the reference costs one rig
+        /// per live engagement — where the old shape retained every rig that had
+        /// ever engaged AND kept them all working.
+        /// </summary>
+        private static readonly List<FlexBase> _presenceEngaged = new List<FlexBase>();
+
+        private static Radios.SmartLink.SmartLinkSessionCoordinator _presenceIntakeWiredTo;
+
+        /// <summary>
+        /// The instance currently consuming presence pushes, or null when none
+        /// is. At most one, ever, and never a disposed one — that pair IS the
+        /// fix for #386, so it is readable to the tests that pin it.
+        /// </summary>
+        internal static FlexBase PresenceIntake
+        {
+            get
+            {
+                lock (_presenceIntakeGate)
+                {
+                    return _presenceEngaged.Count == 0
+                        ? null
+                        : _presenceEngaged[_presenceEngaged.Count - 1];
+                }
+            }
+        }
+
+        /// <summary>
+        /// The only handler the coordinator's list event ever holds. Reads the
+        /// current intake under the gate and releases it before dispatching —
+        /// the intake's own work takes <c>_wanIntakeLock</c> and can be slow.
+        /// </summary>
+        private static void presenceIntakeDispatch(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
+        {
+            FlexBase target = PresenceIntake;
+
+            if (target == null)
+            {
+                // Not an error: no rig exists between a teardown and the next
+                // picker. Traced because "the push arrived and nobody was
+                // listening" is otherwise indistinguishable from "no push
+                // arrived", and those need different investigations.
+                Tracing.TraceLine(
+                    $"presenceIntakeDispatch: list from {e?.AccountId ?? "?"} with no intake — dropped",
+                    TraceLevel.Info);
+                return;
+            }
+
+            target.sessionRadioListReceivedHandler(sender, e);
+        }
+
+        /// <summary>
+        /// Become the one instance that consumes presence pushes. Idempotent,
+        /// and cheap enough to call on every engage.
+        /// </summary>
+        private void becomeThePresenceIntake()
+        {
+            // Read the coordinator OUTSIDE the gate: the property takes its own
+            // initialisation lock, and nesting the two would be the only place
+            // in this file where a lock order exists to get wrong.
+            var coordinator = Radios.SmartLink.SmartLinkServices.Coordinator;
+            string note = null;
+
+            lock (_presenceIntakeGate)
+            {
+                // Keyed to the coordinator INSTANCE, not a bool. SmartLinkServices
+                // .Override replaces the singleton (tests, and the explicit
+                // bootstrap the coordinator's own notes anticipate), and a bool
+                // would leave the dispatcher wired to an object nothing pushes
+                // through any more — silence that looks exactly like a radio
+                // being off.
+                if (!ReferenceEquals(_presenceIntakeWiredTo, coordinator))
+                {
+                    if (_presenceIntakeWiredTo != null)
+                        _presenceIntakeWiredTo.SessionRadioListReceived -= presenceIntakeDispatch;
+
+                    coordinator.SessionRadioListReceived += presenceIntakeDispatch;
+                    _presenceIntakeWiredTo = coordinator;
+                    Tracing.TraceLine("presence intake: dispatcher wired to the session coordinator", TraceLevel.Info);
+                }
+
+                int at = _presenceEngaged.IndexOf(this);
+                bool alreadyLast = at >= 0 && at == _presenceEngaged.Count - 1;
+                if (!alreadyLast)
+                {
+                    // Re-engaging MOVES this rig to the end rather than adding a
+                    // second entry, so the ordinary flow — the picker engages on
+                    // open, ConnectToSmartLink engages again on the same rig —
+                    // cannot leave a duplicate that a later Dispose only half
+                    // removes.
+                    if (at >= 0) _presenceEngaged.RemoveAt(at);
+                    _presenceEngaged.Add(this);
+                    note = "presence intake: taken by this rig — "
+                         + _presenceEngaged.Count + " rig(s) engaged, only this one consumes";
+                }
+            }
+
+            // Outside the gate: tracing writes to disk, and nothing here should
+            // hold a lock the SmartLink receive thread wants across an I/O.
+            if (note != null) Tracing.TraceLine(note, TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// Leave the engaged list. Called from Dispose BEFORE anything that can
+        /// throw, so a teardown that fails half way still leaves a dead rig out
+        /// of the push path.
+        /// </summary>
+        private void resignAsThePresenceIntake()
+        {
+            string note = null;
+
+            lock (_presenceIntakeGate)
+            {
+                if (_presenceEngaged.Remove(this))
+                {
+                    note = _presenceEngaged.Count == 0
+                        ? "presence intake: released by the rig being disposed — nobody is consuming pushes now"
+                        : "presence intake: released by the rig being disposed — handed back to the rig it displaced";
+                }
+            }
+
+            if (note != null) Tracing.TraceLine(note, TraceLevel.Info);
+        }
+
+        #endregion
+
         private void wanRadioListReceivedHandler(string accountId, IReadOnlyList<Radio> lst)
         {
             try
@@ -5243,10 +5441,13 @@ namespace Radios
                     (acct, force) => TryGetJwtSilently(acct, force);
 
                 // Presence pushes must update rows even when no connect flow is
-                // in flight — subscribe the intake here as well as in
-                // ConnectToSmartLink (defensively, so it is never doubled).
-                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived -= sessionRadioListReceivedHandler;
-                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived += sessionRadioListReceivedHandler;
+                // in flight, so engaging presence makes THIS rig the intake —
+                // as ConnectToSmartLink does. The unsubscribe-then-subscribe
+                // pair that used to stand here defended against doubling
+                // WITHIN one instance and could not see the other instances at
+                // all; there is now one handler and one intake for the whole
+                // app, so there is nothing left to double (#386).
+                becomeThePresenceIntake();
 
                 Radios.SmartLink.SmartLinkPresenceService.EnsureHeldSessions(API.ProgramName);
             }
@@ -5860,12 +6061,13 @@ namespace Radios
                 var accountEmail = _currentAccount?.Email ?? "default-account";
                 var session = Radios.SmartLink.SmartLinkServices.Coordinator.EnsureSessionForAccount(accountEmail);
 
-                // Ensure the attributed radio-list subscription is active so `radios`
-                // and `wanListReceived` get populated alongside session.AvailableRadios.
-                // Defensive unsubscribe-first to avoid duplicate registrations across
-                // sign-in / sign-out cycles.
-                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived -= sessionRadioListReceivedHandler;
-                Radios.SmartLink.SmartLinkServices.Coordinator.SessionRadioListReceived += sessionRadioListReceivedHandler;
+                // Take the intake, so `radios` and `wanListReceived` get
+                // populated alongside session.AvailableRadios. The connect flow
+                // WAITS on that latch, so this is not optional bookkeeping —
+                // it is the reason a connect can finish. #386 replaced the
+                // per-instance unsubscribe/subscribe pair here: one static
+                // dispatcher, one intake, this one.
+                becomeThePresenceIntake();
 
                 // Whether this TLS session was live BEFORE this call. The server
                 // sends the radio list exactly once per TLS session, so on a
@@ -6359,6 +6561,20 @@ namespace Radios
         protected virtual void Dispose(bool disposing)
         {
             Tracing.TraceLine("FlexBase.Dispose:" + disposing.ToString(), TraceLevel.Info);
+
+            // FIRST, and outside the disposed guard. A rig being torn down must
+            // stop consuming presence pushes even if the teardown below throws
+            // half way, and even if Dispose is somehow reached twice — a dead
+            // rig in the push path would ghost-sweep a stale radio list and
+            // raise RadioRemoved into whatever picker is open (#386).
+            //
+            // This is a complement to the swap-on-engage rule, not the fix
+            // itself: it cannot be relied on (a caller can always skip Dispose,
+            // and see the header at the intake for why that used to be
+            // unrecoverable), but it narrows the window where a doomed rig is
+            // still the intake from "until someone else engages" to "now".
+            resignAsThePresenceIntake();
+
             if (!disposed)
             {
                 if (disposing)
