@@ -152,13 +152,13 @@ Why are you skipping this stage?
 
 Skip this stage
 
-## Checked at 2026-08-29 14:02 UTC. Re-run; this replaces an… — paragraph 1
+## Checked at 2026-08-29 14:02 UTC. This test was re-run;… — paragraph 1
 
-Checked at 2026-08-29 14:02 UTC. Re-run; this replaces an earlier result.
+Checked at 2026-08-29 14:02 UTC. This test was re-run; this result replaces an earlier one.
 
-## . Re-run; this replaces an earlier result. — text 1, when was re run
+## . This test was re-run; this result replaces an earlier… — text 1, when was re run
 
-. Re-run; this replaces an earlier result.
+. This test was re-run; this result replaces an earlier one.
 
 ## What to do: Turn PC audio on — text 2
 
@@ -402,7 +402,7 @@ Nothing transmits until you answer this question. You are not at that station, s
 
 ## Mme in use — what is wrong (us)
 
-Currently, you have selected the MME audio subsystem. It records perfectly well, but it will not tell you the truth about your hardware: Windows resamples behind it and reports its own converted format back, so the 44.1 kHz shown above may be 48 kHz at the device itself. Every level measured in this run would belong to that converter rather than to your microphone.
+You currently have the MME audio subsystem selected. It records perfectly well, but it will not tell you the truth about your hardware: Windows resamples behind it and reports its own converted format back, so the 44.1 kHz shown above may be 48 kHz at the device itself. Every level measured in this run would belong to that converter rather than to your microphone.
 
 ## Mme in use — what to do about it (us)
 
@@ -410,7 +410,7 @@ Switch to WASAPI
 
 ## Mme in use — what is wrong (nobody here)
 
-Currently, you have selected the MME audio subsystem, and this computer offers no WASAPI to move to. Recording works normally; the format MME reports simply does not have to match what the hardware is really doing.
+You currently have the MME audio subsystem selected, and this computer offers no WASAPI to move to. Recording works normally; the format MME reports simply does not have to match what the hardware is really doing.
 
 ## Mme in use — what to do about it (nobody here)
 
@@ -556,9 +556,9 @@ Playback is going to Speakers (Realtek High Definition Audio).
 
 You can hear the radio, and over a remote connection that one fact proves the whole receive path at a stroke — the link is up, audio is flowing, and your output device is playing it. A silent transmit now points at the microphone side rather than at the connection.
 
-## You can hear the radio. With the radio in the room that… — text 2
+## You can hear the radio. With the radio in the room, what… — text 2
 
-You can hear the radio. With the radio in the room that may be its own speaker rather than this computer, so it says less about the computer's audio path than it would over a remote connection.
+You can hear the radio. With the radio in the room, what you hear may be its own speaker rather than this computer, so it says less about the computer's audio path than it would over a remote connection.
 
 ## You said no radio is connected, so the tests that need… — text 3
 
@@ -884,9 +884,9 @@ declared A dummy load
 
 , over a remote session, by an operator not at the station
 
-## That step is not meant to transmit, so nothing was sent. — text 1
+## That stage is not meant to transmit, so nothing was sent. — text 1
 
-That step is not meant to transmit, so nothing was sent.
+That stage is not meant to transmit, so nothing was sent.
 
 ## The test was stopped, so nothing was transmitted. Start… — text 2
 
@@ -912,17 +912,17 @@ The radio is already transmitting, so nothing more was sent. Let it finish, or p
 
 A transmit is already running, so nothing more was sent.
 
-## Nothing was transmitted, because you have not said yet… — text 8
+## Nothing was transmitted, because you have not yet said… — text 8
 
-Nothing was transmitted, because you have not said yet what the antenna socket is connected to. Say what is connected, and this step will run.
+Nothing was transmitted, because you have not yet said what the antenna socket is connected to. Say what is connected, and this stage will run.
 
 ## Nothing was transmitted. You said you have not confirmed… — text 9, when load declared remotely
 
-Nothing was transmitted. You said you have not confirmed what the antenna socket at that station is connected to — and this tool never transmits into an unknown load, least of all at a station you are not at. Ask someone at the station what is connected, answer the antenna question again, and this step will run.
+Nothing was transmitted. You said you have not confirmed what the antenna socket at that station is connected to — and this tool never transmits into an unknown load, least of all at a station you are not at. Ask someone at the station what is connected, answer the antenna question again, and this stage will run.
 
 ## Nothing was transmitted. You said nothing is connected,… — text 10, otherwise
 
-Nothing was transmitted. You said nothing is connected, or that you are not sure — and this tool never transmits into an unknown load. Connect a dummy load or an antenna, answer the antenna question again, and this step will run.
+Nothing was transmitted. You said nothing is connected, or that you are not sure — and this tool never transmits into an unknown load. Connect a dummy load or an antenna, answer the antenna question again, and this stage will run.
 
 ## a real antenna — text 11, when load kind is antenna
 
@@ -934,27 +934,27 @@ an amplifier
 
 ## Nothing was transmitted. You declared a dummy load, and… — text 13
 
-Nothing was transmitted. You declared a dummy load, and the radio's power for this step could not be read — into a dummy load these tests only transmit when the power is known to be 25 watts or less.
+Nothing was transmitted. You declared a dummy load, and the radio's power for this stage could not be read — into a dummy load these tests only transmit when the power is known to be 25 watts or less.
 
-## Nothing was transmitted. The radio's power for this step… — text 14
+## Nothing was transmitted. The radio's power for this stage… — text 14
 
-Nothing was transmitted. The radio's power for this step is 25 watts, and you declared a dummy load. Into a dummy load these tests transmit at 25 watts or less — turn the power down, or declare a dummy load, and this step will run.
+Nothing was transmitted. The radio's power for this stage is 25 watts, and you declared a dummy load. Into a dummy load these tests transmit at 25 watts or less — turn the power down, or declare a dummy load, and this stage will run.
 
 ## Nothing was transmitted. The dummy load was declared over… — text 15
 
-Nothing was transmitted. The dummy load was declared over a remote session, and the radio's power for this step could not be read — on a declaration made from a distance these tests only transmit when the power is known to be 25 watts or less.
+Nothing was transmitted. The dummy load was declared over a remote session, and the radio's power for this stage could not be read — on a declaration made from a distance these tests only transmit when the power is known to be 25 watts or less.
 
-## Nothing was transmitted. The radio's power for this step… — text 16
+## Nothing was transmitted. The radio's power for this stage… — text 16
 
-Nothing was transmitted. The radio's power for this step is 25 watts, and the dummy load was declared over a remote session — on the word of someone at the station, not your own eyes. On a remote declaration these tests transmit at 25 watts or less; turn the power down and this step will run.
+Nothing was transmitted. The radio's power for this stage is 25 watts, and the dummy load was declared over a remote session — on the word of someone at the station, not your own eyes. On a remote declaration these tests transmit at 25 watts or less; turn the power down and this stage will run.
 
-## That step has already transmitted once. Choose Run again… — text 17
+## That stage has already transmitted once. Choose Run this… — text 17
 
-That step has already transmitted once. Choose Run again if you meant to repeat it.
+That stage has already transmitted once. Choose Run this test again if you meant to repeat it.
 
 ## Transmit requests are arriving faster than they should… — text 18
 
-Transmit requests are arriving faster than they should be, so this one was refused. That usually means something is repeating itself rather than anything you did.
+Transmit requests are arriving faster than they should be, so this one was refused. That usually means something is repeating itself, not anything you did.
 
 ## This test has transmitted for about 2 seconds altogether,… — text 19
 
@@ -974,13 +974,13 @@ JJ Flexible Transmit test report
 
 Test ID: TX-4K2P
 
-## Run started 2026-08-29 14:02 UTC. — text 3
+## The run started at 2026-08-29 14:02 UTC. — text 3
 
-Run started 2026-08-29 14:02 UTC.
+The run started at 2026-08-29 14:02 UTC.
 
-## This copy of the report was written 2026-08-29 14:02 UTC. — text 4
+## This copy of the report was written at 2026-08-29 14:02… — text 4
 
-This copy of the report was written 2026-08-29 14:02 UTC.
+This copy of the report was written at 2026-08-29 14:02 UTC.
 
 ## What was found, and what to do — its name
 
@@ -998,9 +998,9 @@ Nothing that ran found a problem it could name. The stage-by-stage detail below 
 
 Stage 3, Microphone check
 
-## FIXED during this run at 2026-08-29 14:02 UTC — it… — text 4
+## FIXED during this run at 2026-08-29 14:02 UTC — after the… — text 4
 
-FIXED during this run at 2026-08-29 14:02 UTC — it became: the input is now WASAPI
+FIXED during this run at 2026-08-29 14:02 UTC — after the fix: the input is now WASAPI
 
 ## JJ Flexible offers a one-press fix for this (Turn PC… — text 5
 
@@ -1054,9 +1054,9 @@ These settings were changed while the test was running, each one offered on the 
 
 stage 3 (Microphone check)
 
-## It became: the input is now WASAPI — text 3, when succeeded
+## After the fix: the input is now WASAPI — text 3, when succeeded
 
-It became: the input is now WASAPI
+After the fix: the input is now WASAPI
 
 ## The fix was attempted and DID NOT succeed: the input is… — text 4, otherwise
 
@@ -1152,17 +1152,17 @@ Transmit tests — JJ Flexible
 
 There is no saved run to continue.
 
-## Run TX-4K2P is a set of Transmit tests, and this is the… — text 2
+## Run TX-4K2P is a set of Transmit tests, and this window… — text 2
 
-Run TX-4K2P is a set of Transmit tests, and this is the Transmit tests. It can still be read and exported from the saved test runs list.
+Run TX-4K2P is a set of Transmit tests, and this window runs the Transmit tests. It can still be read and exported from the saved test runs list.
 
 ## Run TX-4K2P was recorded with a different set of tests… — text 3
 
 Run TX-4K2P was recorded with a different set of tests from the ones this version of JJ Flexible offers, so continuing it would mix measurements from two different runs. It can still be read and exported from the saved test runs list.
 
-## Whether run TX-4K2P can be continued could not be worked… — text 4
+## JJ Flexible could not work out whether run TX-4K2P can be… — text 4
 
-Whether run TX-4K2P can be continued could not be worked out, so it has not been opened. It can still be read and exported from the saved test runs list.
+JJ Flexible could not work out whether run TX-4K2P can be continued, so it has not been opened. It can still be read and exported from the saved test runs list.
 
 ## Something went wrong handling that. Nothing was… — text 1
 
@@ -1308,9 +1308,9 @@ That could not be done: the device was not available
 
 The settings folder could not be resolved, so no saved runs can be shown.
 
-## No test runs have been saved yet. Runs save themselves as… — text 2
+## There are no test runs to show yet. Runs save themselves… — text 2
 
-No test runs have been saved yet. Runs save themselves as they happen — run a test and it will appear here. One could not be read.
+There are no test runs to show yet. Runs save themselves as they happen — run a test and it will appear here. One could not be read.
 
 ## One saved run. One could not be read. — text 3, when count is 1
 

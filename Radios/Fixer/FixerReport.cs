@@ -76,8 +76,8 @@ namespace Radios.Fixer
             // where they are usually seconds apart, which made the second look
             // like padding. Written out, they answer two different questions:
             // when the measurements were taken, and how old this copy is.
-            header.Para("Run started " + Stamp(run.StartedUtc) + ".");
-            header.Para("This copy of the report was written " + Stamp(run.NowUtc) + ".");
+            header.Para("The run started at " + Stamp(run.StartedUtc) + ".");
+            header.Para("This copy of the report was written at " + Stamp(run.NowUtc) + ".");
             sections.Add(header);
 
             // ---- what was found, and what to do — first, so a reader who
@@ -133,7 +133,11 @@ namespace Radios.Fixer
 
                 string line = where + ": " + f.WhatIsWrong + " ";
                 if (fixed_ != null)
-                    line += "FIXED during this run at " + Stamp(fixed_.AtUtc) + " — it became: "
+                    line += "FIXED during this run at " + Stamp(fixed_.AtUtc) + " "
+                                                                              + "— "
+                                                                              + "after "
+                                                                              + "the "
+                                                                              + "fix: "
                           + fixed_.WhatItBecame;
                 else
                     line += f.Owner switch
@@ -219,7 +223,7 @@ namespace Radios.Fixer
                                     + " (" + st.Title + ")" : fix.StageId) + ": "
                     + fix.WhatWasWrong + " ";
                 line += fix.Succeeded
-                    ? "It became: " + fix.WhatItBecame
+                    ? "After the fix: " + fix.WhatItBecame
                     : "The fix was attempted and DID NOT succeed: " + fix.WhatItBecame;
 
                 var after = run.ResultsAfter(fix);

@@ -668,8 +668,8 @@ public sealed class FixerDialog : JJFlexDialog
 
             if (!string.Equals(record.StageSetId, set.Id, StringComparison.OrdinalIgnoreCase))
                 return "Run " + record.RunId + " is a set of " + record.StageSetName
-                     + " tests, and this is the " + set.Name + " tests. It can still be "
-                     + "read and exported from the saved test runs list.";
+                     + " tests, and this window runs the " + set.Name + " tests. It can "
+                     + "still be read and exported from the saved test runs list.";
 
             string was = string.Join(", ", record.Stages.Select(s => s.Id));
             string now = string.Join(", ", set.Stages.Select(s => s.Id));
@@ -685,9 +685,9 @@ public sealed class FixerDialog : JJFlexDialog
         {
             Tracing.TraceLine("FixerDialog: could not decide whether run " + record.RunId
                               + " is resumable — " + ex.Message, TraceLevel.Warning);
-            return "Whether run " + record.RunId + " can be continued could not be worked "
-                 + "out, so it has not been opened. It can still be read and exported from "
-                 + "the saved test runs list.";
+            return "JJ Flexible could not work out whether run " + record.RunId + " can be continued, so it has "
+                 + "not been opened. It can still be read and exported from the "
+                 + "saved test runs list.";
         }
     }
 

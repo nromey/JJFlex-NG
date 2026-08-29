@@ -781,7 +781,8 @@ namespace Radios.Fixer
                 sb.Append("<p>Checked at ")
                   .Append(Esc(result.AtUtc.ToString("yyyy-MM-dd HH:mm 'UTC'",
                                                     CultureInfo.InvariantCulture)))
-                  .Append(result.WasReRun ? ". Re-run; this replaces an earlier result." : ".")
+                  .Append(result.WasReRun ? ". This test was re-run; this result "
+                                          + "replaces an earlier one." : ".")
                   .AppendLine("</p>");
             }
 
