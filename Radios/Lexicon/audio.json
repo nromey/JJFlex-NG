@@ -121,7 +121,7 @@
   "audio.diagnostics.nothing_to_copy": "There is nothing to copy yet. Run the transmit check first.",
   "audio.diagnostics.rx_check_failed": "The receive audio check could not run: {reason}",
   "audio.diagnostics.rx_no_radio": "No radio is connected. A Flex makes no audio at all until a client connects to it, including at its own headphone jack. Connect first.",
-  "audio.diagnostics.rx_nothing_wrong": "Nothing obvious is wrong. Headphone level {headphone}, line out level {lineout}, nothing muted. If the radio is still silent, check the slice volume and that a slice is not muted.",
+  "audio.diagnostics.rx_nothing_wrong": "Nothing obvious is wrong with your receive audio. Headphone level {headphone}, line out level {lineout}, nothing muted. If the radio is still silent, check the slice volume and that a slice is not muted.",
   "audio.diagnostics.tx_check_failed_shown": "The transmit chain check could not run: {reason}",
   "audio.diagnostics.tx_check_failed_spoken": "The transmit chain check could not run. {reason}",
   "audio.dsp.toggled_off": "{label} off",
