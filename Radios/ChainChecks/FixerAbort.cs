@@ -56,8 +56,23 @@ namespace Radios.ChainChecks
             /// <summary>Spoken and shown. Empty when nothing needs saying.</summary>
             public readonly string Announcement;
 
-            public Plan(Step[] steps, string announcement)
-            { Steps = steps ?? Array.Empty<Step>(); Announcement = announcement ?? ""; }
+            /// <summary>
+            /// True when the ask should offer a third choice — stop now and
+            /// resume the run later from the saved check runs list (#376).
+            /// Only ever true when the caller asserted the run is genuinely
+            /// persisting AND it holds at least one result: an option that
+            /// promises "pick it up later" over a journal that never opened,
+            /// or over a run with nothing in it worth returning to, would be
+            /// a lie with a button on it.
+            /// </summary>
+            public readonly bool OffersResumeLater;
+
+            public Plan(Step[] steps, string announcement, bool offersResumeLater = false)
+            {
+                Steps = steps ?? Array.Empty<Step>();
+                Announcement = announcement ?? "";
+                OffersResumeLater = offersResumeLater;
+            }
 
             public bool UnkeysFirst => Steps.Length > 0 && Steps[0] == Step.UnkeyImmediately;
             public bool Asks => Array.IndexOf(Steps, Step.AskAbandonOrContinue) >= 0;
@@ -91,6 +106,22 @@ namespace Radios.ChainChecks
         public static Plan Decide(bool keyed, Source source, bool runInProgress,
                                   int resultsCollected = 0, bool resultsAreKept = false)
         {
+            // The resume-later offer (#376): only over a run that is really
+            // being persisted AND really holds something worth returning to.
+            bool resumeLater = resultsAreKept && resultsCollected > 0;
+
+            // The kept-case question. It states the situation — saved, and
+            // where a stopped test can be found again — and asks an open
+            // question, because the ask is presented as three labelled
+            // choices rather than yes-or-no. Naming the door matters: an
+            // option the operator cannot find afterwards is not an option.
+            string KeptQuestion(string lead)
+                => lead + " has recorded " + ResultsPhrase(resultsCollected)
+                 + ", and " + (resultsCollected == 1 ? "it is" : "they are")
+                 + " saved under its test ID. A stopped test can be picked up "
+                 + "later from Saved check runs, on the Fix menu. What would "
+                 + "you like to do?";
+
             // Keyed: stop the RF first, ALWAYS, whatever asked and whatever
             // else is true. Only then is there time to ask anything.
             if (keyed)
@@ -104,13 +135,19 @@ namespace Radios.ChainChecks
                 if (source == Source.WindowClosing)
                 {
                     // The window is going away; asking is pointless because
-                    // there is nowhere to put the answer.
+                    // there is nowhere to put the answer. With a live journal
+                    // the record survives anyway and the saved-runs list will
+                    // offer it, so nothing is lost by not asking.
                     return new Plan(new[] { Step.UnkeyImmediately, Step.AbandonNow },
                         "Stopped transmitting, and the test was abandoned.");
                 }
 
-                return new Plan(new[] { Step.UnkeyImmediately, Step.AskAbandonOrContinue },
-                    "Stopped transmitting. Do you want to abandon the test, or carry on?");
+                return resumeLater
+                    ? new Plan(new[] { Step.UnkeyImmediately, Step.AskAbandonOrContinue },
+                        "Stopped transmitting. This test" + KeptQuestion(""),
+                        offersResumeLater: true)
+                    : new Plan(new[] { Step.UnkeyImmediately, Step.AskAbandonOrContinue },
+                        "Stopped transmitting. Do you want to abandon the test, or carry on?");
             }
 
             // Not keyed. Nothing urgent, and abandoning a run represents real
@@ -125,10 +162,12 @@ namespace Radios.ChainChecks
                 // Results and no stage running: the quiet moment between
                 // stages, which is exactly when closing used to end the run
                 // without a word.
-                string fate = resultsAreKept
-                    ? " What it recorded is saved under its test ID."
-                    : " Ending it now discards "
-                      + (resultsCollected == 1 ? "it" : "them") + ".";
+                if (resumeLater)
+                    return new Plan(new[] { Step.AskAbandonOrContinue },
+                        KeptQuestion("This test"), offersResumeLater: true);
+
+                string fate = " Ending it now discards "
+                            + (resultsCollected == 1 ? "it" : "them") + ".";
 
                 return source == Source.WindowClosing
                     ? new Plan(new[] { Step.AskAbandonOrContinue },
@@ -139,25 +178,26 @@ namespace Radios.ChainChecks
                         + "." + fate + " Do you want to stop the test?");
             }
 
+            if (resumeLater)
+                return new Plan(new[] { Step.AskAbandonOrContinue },
+                    "The test has not finished. It" + KeptQuestion(""),
+                    offersResumeLater: true);
+
             if (source == Source.WindowClosing)
                 return new Plan(new[] { Step.AskAbandonOrContinue },
                     resultsCollected > 0
                         ? "The test has not finished, and it has recorded "
                           + ResultsPhrase(resultsCollected) + "."
-                          + (resultsAreKept
-                              ? " What it recorded is saved under its test ID."
-                              : " Ending it now discards "
-                                + (resultsCollected == 1 ? "it" : "them") + ".")
+                          + " Ending it now discards "
+                          + (resultsCollected == 1 ? "it" : "them") + "."
                           + " Abandon it?"
                         : "The test has not finished. Abandon it?");
 
             return new Plan(new[] { Step.AskAbandonOrContinue },
                 resultsCollected > 0
                     ? "This test has recorded " + ResultsPhrase(resultsCollected) + "."
-                      + (resultsAreKept
-                          ? " What it recorded is saved under its test ID."
-                          : " Ending it now discards "
-                            + (resultsCollected == 1 ? "it" : "them") + ".")
+                      + " Ending it now discards "
+                      + (resultsCollected == 1 ? "it" : "them") + "."
                       + " Do you want to stop the test?"
                     : "Do you want to stop the test?");
         }

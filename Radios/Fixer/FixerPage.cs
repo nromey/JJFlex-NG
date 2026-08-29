@@ -25,8 +25,9 @@ namespace Radios.Fixer
     /// only navigation; and the report's per-stage headings impersonated a
     /// stage list (#242, #248). Now every stage is always present, in order,
     /// as a section whose h2 CARRIES ITS STATUS — walking the headings is also
-    /// the progress readout. Three landmarks with short names (the
-    /// declarations region, "Stages", "Report"); h3 only for findings and the
+    /// the progress readout. Four landmarks with short names (how to use the
+    /// page, the declarations region, "Stages", "Report"); h3 only for
+    /// findings and the
     /// report's per-stage entries, so heading LEVEL disambiguates the two
     /// stage lists; F6 and Shift+F6 cycle the sections in focus mode, where
     /// heading navigation cannot reach.
@@ -121,6 +122,7 @@ namespace Radios.Fixer
             sb.Append("<body data-run=\"").Append(Attr(run.RunId)).AppendLine("\">");
 
             Header(sb, run, state);
+            HowToSection(sb, state);
             DeclarationsRegion(sb, set, state);
 
             sb.AppendLine("<main aria-label=\"Stages\">");
@@ -134,6 +136,78 @@ namespace Radios.Fixer
             sb.AppendLine("</body>");
             sb.AppendLine("</html>");
             return sb.ToString();
+        }
+
+        // -------- focus landings and the spoken verdict (#373) --------
+        //
+        // THE RULE: after an action, focus goes to the NEXT ACTION, and the
+        // verdict is spoken separately. Sprint 39 landed the operator on the
+        // heading of the stage that had just finished — the right answer to
+        // the wrong question: it fixed "where am I" and left "what now", so
+        // every press still cost a walk. An announcement is not a focus
+        // position; the host speaks the outcome through the status line and
+        // puts the caret on the thing the operator has not dealt with yet.
+        // These helpers live HERE, beside the markup that renders the ids,
+        // so the host and the page cannot drift apart about them — and so
+        // the rule is testable without a WebView.
+
+        /// <summary>The id of a stage's run control — the landing after the
+        /// operator answers a declaration or returns from the power window,
+        /// where running the stage is the next action. Its description reads
+        /// the stage's question and what pressing it will do.</summary>
+        public static string RunControlId(string stageId) => "run-" + (stageId ?? "");
+
+        /// <summary>The id of a completed stage's forward control — the
+        /// landing after a stage runs clean or is skipped. Pressing it moves
+        /// to the next stage's heading, so nothing is pressed unread.</summary>
+        public static string NextControlId(string stageId) => "next-" + (stageId ?? "");
+
+        /// <summary>The id of a finding's one-press fix button — the landing
+        /// when a stage completes with something we can fix, because applying
+        /// the fix is the next action and the button's description reads the
+        /// finding.</summary>
+        public static string FixControlId(string stageId, string findingId)
+            => "fix-" + (stageId ?? "") + "-" + (findingId ?? "");
+
+        /// <summary>
+        /// Where focus lands after a stage produces a result (#373): the
+        /// first fixable finding's button when there is one, the stage's own
+        /// run control when the stage could not run (trying again once the
+        /// cause is fixed is the only action that addresses that state), and
+        /// the forward control otherwise — a pass and a deliberate skip are
+        /// both finished business.
+        /// </summary>
+        public static string LandingAfterResult(FixerRun run, string stageId)
+        {
+            if (run == null) throw new ArgumentNullException(nameof(run));
+            FixerStageResult r = run.ResultFor(stageId ?? "");
+            if (r == null) return "";
+
+            if (r.Status == FixerStageStatus.CouldNotRun) return RunControlId(stageId);
+
+            FixerFinding fixable = r.Findings.FirstOrDefault(f => f.Owner == FixOwner.Us);
+            return fixable != null ? FixControlId(stageId, fixable.Id)
+                                   : NextControlId(stageId);
+        }
+
+        /// <summary>
+        /// The verdict of a stage, as one spoken sentence: the heading's own
+        /// words — name and new status — then the answer, which is the whole
+        /// product of running the stage. Composed here, from the same
+        /// StatusOf and StatusPhrase the heading uses, so what is spoken and
+        /// what the heading says cannot disagree. Empty when the stage has no
+        /// result.
+        /// </summary>
+        public static string SpokenVerdict(FixerRun run, string stageId)
+        {
+            if (run == null) throw new ArgumentNullException(nameof(run));
+            FixerStage stage = run.Set.Find(stageId ?? "");
+            FixerStageResult r = run.ResultFor(stageId ?? "");
+            if (stage == null || r == null) return "";
+
+            string verdict = StageLabel(stage) + " — "
+                           + StatusPhrase(StatusOf(run, stage)) + ".";
+            return r.Answer.Length > 0 ? verdict + " " + r.Answer : verdict;
         }
 
         // -------- top of page --------
@@ -154,17 +228,17 @@ namespace Radios.Fixer
             if (run.Set.Intro.Length > 0)
                 sb.Append("<p>").Append(Esc(run.Set.Intro)).AppendLine("</p>");
 
-            // How to drive the page. WCAG 3.3.2 — the one criterion the old
-            // page actually failed: the markup was correct and nothing told
-            // the operator how to use it.
-            sb.AppendLine("<p>Each check on this page is a heading. Your screen reader's "
-                        + "heading keys move between them, Tab reaches the controls, and "
-                        + "F6 or Shift+F6 jumps between the sections of the page.</p>");
-
-            // The primary way out, not a fallback — before everything it might
-            // need to stop, and never disabled.
+            // The emergency out, not a fallback — before everything it might
+            // need to stop, ahead of every other control, and never disabled.
+            // "Stop everything", Noel's call 2026-08-28 (#377): he read plain
+            // "Stop" as "stop the test run", calmly, with no RF in the air —
+            // and this control aborts whatever is happening RIGHT NOW,
+            // including a keyed transmit. The name has to survive that
+            // misreading, and it has to stay distinct from the exit prompt's
+            // "Stop tests and resume later", which is the calm, deliberate
+            // decision this button must never sound like.
             sb.AppendLine("<p><button type=\"button\" data-action=\"stop\">"
-                        + "Stop</button></p>");
+                        + "Stop everything</button></p>");
 
             // The critical-warning carve-out. The page fills it; the host adds
             // the earcon.
@@ -236,6 +310,76 @@ namespace Radios.Fixer
                 if (f != null) return f.WhatIsWrong + " " + f.WhatToDo;
             }
             return "";
+        }
+
+        // -------- how to use the page --------
+
+        /// <summary>
+        /// The pseudo-stage key the how-to disclosure reports its toggle
+        /// under. Not a stage id; it rides the same explain wire and the same
+        /// host-side memory as the stage explanations, so the operator's
+        /// choice survives re-renders with no new machinery.
+        /// </summary>
+        public const string HowToUseKey = "how-to-use";
+
+        /// <summary>
+        /// How to move and how to leave, as a real F6 section ahead of the
+        /// checks (#378). WCAG 3.3.2 — the one criterion the old page
+        /// actually failed: the markup was correct and nothing told the
+        /// operator how to use it. And Noel's question at the bench
+        /// (2026-08-28) — "is the only way to exit then to escape?" — showed
+        /// the ways OUT were just as undiscoverable as the ways around.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Behind a disclosure, because the two audiences want opposite
+        /// things: a first-time operator needs it open, a tenth-run operator
+        /// wants it gone. The host opens it by default only until a check run
+        /// has ever been saved on this computer; the operator's own toggle,
+        /// reported on the explain wire, wins thereafter for the life of the
+        /// window. When collapsed, the summary line carries the promise —
+        /// an operator must know what they are skipping past.
+        /// </para>
+        /// <para>
+        /// Four bullets, deliberately. The Fixer diagnoses a radio; it does
+        /// not teach its own UI, and a manual here would cost every operator
+        /// a walk past it on every run.
+        /// </para>
+        /// </remarks>
+        private static void HowToSection(StringBuilder sb, FixerPageState state)
+        {
+            bool open = state.ExplanationOpenFor(HowToUseKey,
+                                                 fallback: state.HowToOpenByDefault);
+
+            sb.AppendLine("<section class=\"howto\" aria-labelledby=\"howto-heading\">");
+            sb.AppendLine("<h2 id=\"howto-heading\" tabindex=\"-1\">Using this page</h2>");
+            sb.Append("<details data-stage=\"").Append(HowToUseKey).Append('"')
+              .AppendLine(open ? " open>" : ">");
+            sb.AppendLine("<summary>How to move through the checks, and how to leave"
+                        + "</summary>");
+            sb.AppendLine("<ul>");
+            sb.AppendLine("<li>Each check is a heading. Your screen reader's heading keys "
+                        + "move between them, Tab reaches the controls, and F6 or Shift+F6 "
+                        + "jumps between the sections of the page.</li>");
+            sb.AppendLine("<li>The checks run in order. Each answer you give and each "
+                        + "check you run carries you to the next thing to do, so you can "
+                        + "walk the whole run without going backwards.</li>");
+            // The leave bullet states only what is true THIS run: the saved
+            // wording is a promise, and a promise over a journal that never
+            // opened would be silent data loss with a reassuring voice.
+            sb.Append("<li>").Append(state.RunIsSaved
+                ? "To leave, press Escape or close the window. Once anything has been "
+                  + "recorded you choose on the way out: keep the run to pick up later "
+                  + "from Saved check runs, on the Fix menu, or leave without keeping it."
+                : "To leave, press Escape or close the window. If the run has recorded "
+                  + "anything, you are asked before it is lost.").AppendLine("</li>");
+            sb.AppendLine("<li>Stop everything, above, is the emergency control: it stops "
+                        + "whatever is happening right now, transmit included. If the "
+                        + "radio is transmitting, the carrier drops first and questions "
+                        + "come after.</li>");
+            sb.AppendLine("</ul>");
+            sb.AppendLine("</details>");
+            sb.AppendLine("</section>");
         }
 
         // -------- run declarations --------
@@ -533,7 +677,12 @@ namespace Radios.Fixer
         private static void RunButton(StringBuilder sb, FixerStage stage, string describedBy,
                                       bool again, bool primary)
         {
-            sb.Append("<p><button type=\"button\" class=\"")
+            // The id is a focus landing (#373): the host puts the operator
+            // here after they answer a declaration or return from the power
+            // window, because from those gestures this control is the next
+            // action. Same id for run and run-again — only one renders.
+            sb.Append("<p><button type=\"button\" id=\"").Append(RunControlId(stage.Id))
+              .Append("\" class=\"")
               .Append(primary ? "primary" : "quiet")
               .Append("\" data-action=\"").Append(again ? "rerun" : "run")
               .Append("\" data-arg=\"").Append(Attr(stage.Id))
@@ -631,7 +780,13 @@ namespace Radios.Fixer
                         // reader landing on the button hears what it is for.
                         // The wire's "fix" field carries the FINDING id — the
                         // action id is a binding detail the page never sends.
-                        sb.Append("<button type=\"button\" data-action=\"fix\" data-stage=\"")
+                        // The id is a focus landing (#373): when a stage
+                        // completes with a fixable finding, the host lands
+                        // the operator on the first such button, whose
+                        // description reads them the finding.
+                        sb.Append("<button type=\"button\" id=\"")
+                          .Append(FixControlId(stage.Id, f.Id))
+                          .Append("\" data-action=\"fix\" data-stage=\"")
                           .Append(Attr(stage.Id)).Append("\" data-fix=\"").Append(Attr(f.Id))
                           .Append("\" aria-describedby=\"find-").Append(Attr(stage.Id))
                           .Append('-').Append(Attr(f.Id)).Append("\">")
@@ -662,7 +817,11 @@ namespace Radios.Fixer
             int i = 0;
             while (i < set.Stages.Count && set.Stages[i] != stage) i++;
 
-            sb.Append("<p><button type=\"button\" class=\"primary\" data-action=\"next\" "
+            // The id is a focus landing (#373): after a stage completes, the
+            // host lands the operator on this control — the verdict is spoken
+            // separately — so moving on is one press instead of a walk.
+            sb.Append("<p><button type=\"button\" id=\"").Append(NextControlId(stage.Id))
+              .Append("\" class=\"primary\" data-action=\"next\" "
                     + "data-arg=\"");
             if (i < set.Stages.Count - 1)
             {
@@ -713,19 +872,21 @@ namespace Radios.Fixer
             sb.AppendLine("<p>This is the whole run as one document, every stage in order, "
                         + "with the test ID at the top. That ID belongs to this report alone, "
                         + "so quote it in any message about the problem.</p>");
-            // SAYS "FLEX" OUTRIGHT, on Noel's call 2026-08-25: "Right now we
-            // don't have other radios, so if you just want to mention Flex,
-            // that's cool for now." The generic "your radio's manufacturer"
-            // hedge bought nothing while Flex is the only radio supported, and
-            // it cost the paragraph a conditional clause.
-            //
-            // REVISIT WHEN A NON-FLEX RADIO ARRIVES. Hamlib and the TS-590G are
-            // real planned work, and on the day one of them connects, these two
-            // paragraphs name the wrong manufacturer and point at software the
-            // operator does not own. Recorded here rather than left to be
-            // discovered by whoever ships it.
-            sb.AppendLine("<p>Copy puts an email-ready version on the clipboard, ready to "
-                        + "send to Flex support. It separates what was measured from what "
+            // "YOUR RADIO'S MANUFACTURER", Noel's own rewording 2026-08-28
+            // (#374): change "email ready version, ready to send" to "email
+            // ready version of the report which you can send to your radio's
+            // manufacturer". It fixes the doubled "ready", and it retires the
+            // REVISIT note that stood here — the paragraph used to say "Flex
+            // support" outright (his 2026-08-25 call, right while Flex was
+            // the only radio), and the note warned that the day a Hamlib rig
+            // or the TS-590G connects, it would name the wrong manufacturer.
+            // "Your radio's manufacturer" is true for a Flex, a Kenwood and
+            // anything Hamlib reaches. Per-manufacturer text — a Flex
+            // operator getting Flex-specific words again — is #375, and it
+            // deliberately waits for a second radio to actually connect.
+            sb.AppendLine("<p>Copy puts an email-ready version of the report on the "
+                        + "clipboard, which you can send to your radio's manufacturer. It "
+                        + "separates what was measured from what "
                         + "was concluded, so their staff can read the numbers without taking "
                         + "anything on trust.</p>");
             // "IF YOU ARE ABLE TO", not an instruction. Noel, minutes after this
@@ -742,10 +903,19 @@ namespace Radios.Fixer
             // NO HELP LINK HERE YET, deliberately: the page does not exist, and
             // pointing at one that does not is the drift this project keeps
             // paying for. When #220 lands, this sentence gets the route.
-            sb.AppendLine("<p>If you are able to transmit in SmartSDR, run the same test "
+            // The SECOND paragraph the retired REVISIT note named (#374): it
+            // pointed a TS-590G operator at SmartSDR — software they do not
+            // own, which is worse than being wrong, it sends them looking for
+            // a program they never installed. SmartSDR stays named, scoped as
+            // the Flex example, because for today's operators it is the most
+            // useful sentence on the page and #375 rules a Flex operator
+            // keeps Flex-specific text.
+            sb.AppendLine("<p>If you are able to transmit in your radio manufacturer's own "
+                        + "software — for a Flex, that is SmartSDR — run the same test "
                         + "there before you send this, and see whether the problem follows "
                         + "you. If it "
-                        + "does, say so in your message. A fault that shows up in Flex's own "
+                        + "does, say so in your message. A fault that shows up in the "
+                        + "manufacturer's own "
                         + "software as well as in JJ Flexible Radio Access points at the "
                         + "radio or the station rather than at either program, and saying "
                         + "that up front will save you an exchange of emails.</p>");
@@ -824,9 +994,12 @@ namespace Radios.Fixer
     if (t) { t.focus(); }
   }
   // F6 / Shift+F6 cycle the page's sections in focus mode, where heading
-  // navigation cannot reach: declarations, the current stage, the report.
+  // navigation cannot reach: how to use the page, declarations, the current
+  // stage, the report.
   function sectionHeads() {
     var heads = [];
+    var ht = document.getElementById('howto-heading');
+    if (ht) { heads.push(ht); }
     var d = document.getElementById('decl-heading');
     if (d) { heads.push(d); }
     var cur = document.querySelector('main .stage[data-current] h2')
@@ -967,6 +1140,8 @@ summary { color: var(--muted); cursor: pointer; }
 pre { white-space: pre-wrap; overflow-x: auto; }
 section.decl { border: 1px solid var(--edge); border-radius: 8px;
   padding: 0.25rem 1rem 0.5rem; margin: 1.25rem 0; }
+section.howto { border: 1px solid var(--edge); border-radius: 8px;
+  padding: 0.25rem 1rem 0.5rem; margin: 1.25rem 0; }
 section.report-region { background: var(--report-bg); border-radius: 8px;
   padding: 0.25rem 1rem 1rem; margin: 1.5rem 0; }
 #report { border-top: 1px solid var(--edge); padding-top: 0.5rem; }";
@@ -1004,8 +1179,23 @@ section.report-region { background: var(--report-bg); border-radius: 8px;
 
         /// <summary>Stage id to the explanation-disclosure state the OPERATOR
         /// chose, reported by the page's toggle message. Absent means they
-        /// have not touched it and the render's default applies.</summary>
+        /// have not touched it and the render's default applies. The how-to
+        /// section's toggle lives here too, under
+        /// <see cref="FixerPage.HowToUseKey"/>.</summary>
         public IReadOnlyDictionary<string, bool> ExplanationOpen { get; set; }
+
+        /// <summary>Whether the how-to section opens by default (#378). The
+        /// host passes true until a check run has ever been saved on this
+        /// computer — a first-time operator needs the instructions open, a
+        /// returning one wants them folded away. The operator's own toggle,
+        /// held in <see cref="ExplanationOpen"/>, wins over this.</summary>
+        public bool HowToOpenByDefault { get; set; }
+
+        /// <summary>True when the evidence layer is actually persisting this
+        /// run. The how-to section's leaving bullet rides this fact: it may
+        /// only promise "pick it up later" while something is really writing
+        /// the run to disk.</summary>
+        public bool RunIsSaved { get; set; }
 
         internal string DeclarationAnswerFor(string declId)
             => DeclarationAnswers != null

@@ -176,6 +176,18 @@ namespace Radios.Fixer.Evidence
             return null;
         }
 
+        /// <summary>True when at least one record file exists. Cheap — file
+        /// names only, no JSON parsed — because it is asked at dialog open to
+        /// decide first-run behaviour. False when the folder is missing or
+        /// unreadable, which deliberately reads as "first run": the operator
+        /// who gets the instructions unnecessarily loses seconds, the one who
+        /// needed them and did not get them loses the feature.</summary>
+        public bool HasAnyRecord()
+        {
+            foreach (string _ in FilesNewestFirst()) return true;
+            return false;
+        }
+
         /// <summary>Delete one record's file. False (traced) when it cannot be.</summary>
         public bool Delete(TRecord record)
         {

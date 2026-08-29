@@ -178,11 +178,16 @@ namespace Radios.Tests
             // runs as they go WHEN it set up — so a caller whose journal is
             // live passes true and the question stops threatening data loss
             // that will not happen. It still asks: ending a run mid-way ends
-            // the session either way.
+            // the session either way. And because the ask is now presented
+            // as labelled choices (#376), the kept question is open — it
+            // states the situation, names the door back in, and asks what to
+            // do rather than posing a yes-or-no over a compound sentence.
             Plan p = Decide(keyed: false, Source.WindowClosing, runInProgress: false,
                             resultsCollected: 3, resultsAreKept: true);
-            Assert.Equal("This test has recorded three results. What it recorded is "
-                       + "saved under its test ID. Abandon the test?", p.Announcement);
+            Assert.Equal("This test has recorded three results, and they are saved "
+                       + "under its test ID. A stopped test can be picked up later "
+                       + "from Saved check runs, on the Fix menu. What would you "
+                       + "like to do?", p.Announcement);
 
             foreach (Source s in AllSources)
             foreach (bool running in new[] { true, false })
@@ -192,6 +197,76 @@ namespace Radios.Tests
                 Assert.DoesNotContain("discard", kept.Announcement,
                                       StringComparison.OrdinalIgnoreCase);
             }
+        }
+
+        [Fact]
+        public void A_single_kept_result_is_spoken_in_the_singular()
+        {
+            Plan p = Decide(keyed: false, Source.EscapeKey, runInProgress: false,
+                            resultsCollected: 1, resultsAreKept: true);
+            Assert.Contains("one result, and it is saved", p.Announcement);
+        }
+
+        // ---- the resume-later offer rides two facts, never fewer (#376) ----
+
+        [Fact]
+        public void Resume_later_is_offered_exactly_when_kept_results_meet_an_ask()
+        {
+            // The third choice — stop now, pick the run up later from the
+            // saved list — was fully built and never offered. It may only be
+            // offered over a run that is genuinely persisting AND holds at
+            // least one result: anything less is a promise with a button on
+            // it and nothing behind it.
+            foreach (Source s in AllSources)
+            foreach (bool keyed in new[] { true, false })
+            foreach (bool running in new[] { true, false })
+            foreach (int results in new[] { 0, 1, 3 })
+            foreach (bool kept in new[] { true, false })
+            {
+                Plan p = Decide(keyed, s, running, results, kept);
+                if (p.OffersResumeLater)
+                {
+                    Assert.True(p.Asks, "offered resume without asking anything");
+                    Assert.True(kept, "offered resume over nothing persisting");
+                    Assert.True(results > 0, "offered resume over an empty run");
+                }
+                if (p.Asks && kept && results > 0)
+                    Assert.True(p.OffersResumeLater,
+                        s + " keyed=" + keyed + " running=" + running
+                        + ": a kept run with results asked without offering resume");
+            }
+        }
+
+        [Fact]
+        public void A_kept_ask_names_the_door_back_in()
+        {
+            // An option the operator cannot find afterwards is not an option:
+            // every question that offers resuming names Saved check runs and
+            // the menu it lives on.
+            foreach (Source s in AllSources)
+            foreach (bool keyed in new[] { true, false })
+            foreach (bool running in new[] { true, false })
+            {
+                Plan p = Decide(keyed, s, running, resultsCollected: 2,
+                                resultsAreKept: true);
+                if (p.OffersResumeLater)
+                {
+                    Assert.Contains("Saved check runs", p.Announcement);
+                    Assert.Contains("Fix menu", p.Announcement);
+                }
+            }
+        }
+
+        [Fact]
+        public void The_keyed_kept_ask_still_says_transmitting_stopped_first()
+        {
+            // The resume offer changes the question, never the invariant: the
+            // first thing the operator hears is that the carrier came down.
+            Plan p = Decide(keyed: true, Source.EscapeKey, runInProgress: true,
+                            resultsCollected: 2, resultsAreKept: true);
+            Assert.True(p.UnkeysFirst);
+            Assert.StartsWith("Stopped transmitting.", p.Announcement);
+            Assert.True(p.OffersResumeLater);
         }
 
         [Fact]

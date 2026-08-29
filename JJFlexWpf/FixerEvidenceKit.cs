@@ -160,6 +160,26 @@ public sealed class FixerEvidenceKit
     }
 
     /// <summary>
+    /// Close the evidence layer AND delete the run's file — the operator's
+    /// "exit without saving" (#376). Runs persist as they go, so abandoning
+    /// deliberately must remove what was written; otherwise the option is a
+    /// lie in the other direction. Ends first (the capture must still stop
+    /// and be archived), then deletes. True when nothing remains on disk —
+    /// including the case where nothing was ever persisted.
+    /// </summary>
+    public bool Discard()
+    {
+        End("discarded");
+        try { return _journal == null || _journal.DeleteRecord(); }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerEvidenceKit: discard failed — " + ex.Message,
+                              TraceLevel.Warning);
+            return false;
+        }
+    }
+
+    /// <summary>
     /// The radio's identity and the software's, for the exported document's
     /// #217 sections — read through the SAME assemblers the chain-check
     /// evidence block uses.
