@@ -39,7 +39,8 @@
                     Click="ConnectButton_Click"/>
             <Button x:Name="UseNowButton" Content="_Use Now" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
-                    AutomationProperties.Name="Use now. Uses this account for the rest of this session without changing your default account."
+                    AutomationProperties.Name="Use Now"
+                    local:JJFlexHelp.Text="Uses this account for the rest of this session, without changing which account is your default."
                     AutomationProperties.AcceleratorKey="Alt+U"
                     Click="UseNowButton_Click"/>
             <Button Content="New _Login" MinWidth="90" Height="28" Margin="0,0,0,8"
@@ -47,7 +48,8 @@
                     AutomationProperties.AcceleratorKey="Alt+L"
                     Click="NewLoginButton_Click"/>
             <Button Content="Create Accou_nt" MinWidth="90" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Create a new SmartLink account. For when you do not have one yet."
+                    AutomationProperties.Name="Create Account"
+                    local:JJFlexHelp.Text="Creates a new SmartLink account, for when you do not have one yet."
                     AutomationProperties.AcceleratorKey="Alt+N"
                     Click="CreateAccountButton_Click"/>
             <Button x:Name="RenameButton" Content="_Rename" MinWidth="90" Height="28" Margin="0,0,0,8"
@@ -57,7 +59,8 @@
                     Click="RenameButton_Click"/>
             <Button x:Name="ResetSignInButton" Content="Reset Sign-_In" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
-                    AutomationProperties.Name="Reset sign-in. Clears the saved login data for this account; the account and its settings stay."
+                    AutomationProperties.Name="Reset Sign-In"
+                    local:JJFlexHelp.Text="Clears the saved login data for this account. The account itself, and its settings, stay."
                     AutomationProperties.AcceleratorKey="Alt+I"
                     Click="ResetSignInButton_Click"/>
             <Button x:Name="DeleteButton" Content="_Delete" MinWidth="90" Height="28" Margin="0,0,0,8"
@@ -67,11 +70,13 @@
                     Click="DeleteButton_Click"/>
             <Button x:Name="StartFreshButton" Content="Start _Fresh" MinWidth="90" Height="28" Margin="0,0,0,8"
                     IsEnabled="False"
-                    AutomationProperties.Name="Start fresh with SmartLink. Clears the saved sign-in for every account on this computer and opens a clean sign-in form. Accounts and their settings stay."
+                    AutomationProperties.Name="Start Fresh"
+                    local:JJFlexHelp.Text="Clears the saved sign-in for every account on this computer and opens a clean sign-in form. The accounts and their settings stay."
                     AutomationProperties.AcceleratorKey="Alt+F"
                     Click="StartFreshButton_Click"/>
             <Button Content="Ass_ociations" MinWidth="90" Height="28" Margin="0,0,0,8"
-                    AutomationProperties.Name="Radio associations. View which radios each account covers and change the account a radio connects with. Viewing and rebinding only, never connecting."
+                    AutomationProperties.Name="Radio Associations"
+                    local:JJFlexHelp.Text="Shows which radios each account covers, and lets you change the account a radio connects with. Viewing and rebinding only — it never connects."
                     AutomationProperties.AcceleratorKey="Alt+O"
                     Click="AssociationsButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="90" Height="28" IsCancel="True"
@@ -84,7 +89,8 @@
         <CheckBox x:Name="AutoStartRemoteCheck" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
                   Content="Start Remote _automatically at startup" Margin="0,8,0,0"
                   IsEnabled="False"
-                  AutomationProperties.Name="Start Remote automatically at startup. When checked and this account is the one in use, the radio selector begins looking for your remote radios as soon as it opens."
+                  AutomationProperties.Name="Start Remote automatically at startup"
+                  local:JJFlexHelp.Text="When this account is the one in use, the radio selector begins looking for your remote radios as soon as it opens."
                   AutomationProperties.AcceleratorKey="Alt+A"
                   Checked="AutoStartRemoteCheck_Changed"
                   Unchecked="AutoStartRemoteCheck_Changed"/>

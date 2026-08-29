@@ -156,5 +156,83 @@ namespace Radios.Tests
                 "the page script handles actions nothing renders any more: "
                 + string.Join(", ", dead));
         }
+
+        // ---- the focus contract (#365) ----
+        //
+        // THE SAME SILENT BREAK AS THE BUTTON WIRE, one layer over. After
+        // every action the host re-renders the whole document and then names
+        // an element for the page to focus, by id. Those ids are built on one
+        // side by FixerDialog and on the other by FixerPage, out of separate
+        // string literals, and if they stop agreeing NOTHING fails: the
+        // script's getElementById returns null, focus falls through to the
+        // h1, and the operator is thrown to the top of the page on every
+        // press — which is precisely what Noel reported from the bench on
+        // 2026-08-28. A build, a render and a page full of working buttons
+        // are all compatible with it.
+
+        [Fact]
+        public void Every_stage_has_the_heading_id_the_host_focuses_after_a_run()
+        {
+            string html = RenderedPage();
+            FixerStageSet set = TransmitStageSet.Build(null);
+
+            string[] missing = set.Stages
+                .Select(s => "stage-h-" + s.Id)
+                .Where(id => !html.Contains("id=\"" + id + "\"", StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.True(missing.Length == 0,
+                "the host focuses these ids after a stage runs and the page renders none "
+                + "of them, so every run would drop the operator at the top of the page: "
+                + string.Join(", ", missing));
+        }
+
+        [Fact]
+        public void Every_declaration_has_the_answer_line_id_the_host_focuses()
+        {
+            string html = RenderedPage();
+            FixerStageSet set = TransmitStageSet.Build(null);
+
+            // Run-level declarations and in-card ones alike: the load
+            // declaration lives in the declarations region, the hearing
+            // declaration (#243) inside stage 0, and answering either one
+            // lands the operator on its "You said" line.
+            string[] declarations = set.RunDeclarations.Select(d => d.Id)
+                .Concat(set.Stages.SelectMany(s => s.Declarations).Select(d => d.Id))
+                .Distinct().ToArray();
+            Assert.NotEmpty(declarations);
+
+            string[] missing = declarations
+                .Select(id => "declared-" + id)
+                .Where(id => !html.Contains("id=\"" + id + "\"", StringComparison.Ordinal))
+                .ToArray();
+
+            Assert.True(missing.Length == 0,
+                "answering a declaration lands focus on these ids and the page renders none "
+                + "of them: " + string.Join(", ", missing));
+        }
+
+        [Fact]
+        public void Every_stage_notice_slot_is_a_live_region()
+        {
+            // The slot the host writes a REFUSAL into — "something is already
+            // running", "that check has already run", what a fix became. It
+            // is filled through the receive channel WITHOUT a re-render, on
+            // purpose, so nothing but a live region can make it heard. It was
+            // an inert paragraph until Sprint 39: written to the page and
+            // spoken by nobody.
+            string html = RenderedPage();
+            FixerStageSet set = TransmitStageSet.Build(null);
+
+            string[] inert = set.Stages
+                .Where(s => !Regex.IsMatch(
+                    html, "id=\"notice-" + Regex.Escape(s.Id) + "\"[^>]*aria-live=\"polite\""))
+                .Select(s => s.Id)
+                .ToArray();
+
+            Assert.True(inert.Length == 0,
+                "these stages' notice slots are not live regions, so a refusal written into "
+                + "them is never announced: " + string.Join(", ", inert));
+        }
     }
 }

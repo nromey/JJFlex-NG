@@ -759,8 +759,14 @@ public partial class ScreenFieldsPanel : UserControl
             Padding = new Thickness(8, 4, 8, 4),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left
         };
+        // The NAME is the button's own label, read from the same key, so the
+        // two cannot drift apart again (#363). The reasoning — that the slice
+        // you are on is the one that survives — is an explanation, and an
+        // explanation is Ctrl+F1's job: on demand when it is wanted, silent
+        // when it is not.
         System.Windows.Automation.AutomationProperties.SetName(
-            releaseAllButton, Lexicon.Get("audio.fields.release_all_name"));
+            releaseAllButton, Lexicon.Get("audio.fields.release_all_button"));
+        JJFlexHelp.SetText(releaseAllButton, Lexicon.Get("audio.fields.release_all_help"));
         releaseAllButton.Click += (s, e) =>
         {
             if (_rig == null) return;

@@ -101,22 +101,34 @@ of only a verdict.
 Press **Check My Receive Audio** in the Audio Workshop's Diagnostics page and
 the last thing it tells you is what actually arrived, in words like this:
 
-"Audio arriving from the radio: up to 42 kilobits per second, in 10 of 10
-readings taken about a second apart. All data arriving from the radio over the
-same readings: up to 61 kilobits per second, of which meter readings were up to
-5."
+"Audio arriving from the radio: up to 42 kilobits per second, in every one of
+10 readings taken about a second apart, counted from the first reading that
+carried audio. All data arriving from the radio over the same readings: up to
+61 kilobits per second, of which meter readings — the radio reporting its own
+gauges — were up to 5. Those figures are measured for comparison: data or
+meters still arriving while audio is not would mean the radio is talking to
+this computer but not sending sound — a different problem from a dead link."
 
 That is counted from packets the radio sent that crossed your network, so it is
 a fact about your radio rather than a claim about this application. It is also
 the first thing Flex support will ask you about, and it is now in the evidence
 block you can copy to them.
 
-Three answers are worth knowing how to read.
+Four answers are worth knowing how to read.
 
-**Sound is arriving.** Any figure above zero, present in most of the readings,
-means the audio stream is alive and doing its job. If you still hear nothing,
-the problem is on your computer — your sound device, your Windows volume, or
-the wrong output chosen — and not between you and the radio.
+**Sound is arriving.** Any figure above zero, arriving in every reading, means
+the audio stream is alive and doing its job. If you still hear nothing, the
+problem is on your computer — your sound device, your Windows volume, or the
+wrong output chosen — and not between you and the radio.
+
+**Sound is arriving, but it went missing in some readings.** The count starts
+at the first reading that carried audio, so blanks at the very start — the
+moment between connecting and the stream beginning — are never held against a
+healthy radio. Audio missing *after* it began is different: those readings are
+the drop-outs you may be hearing, and on a remote connection they usually
+point at a weak or congested network rather than at the radio or at this
+application. This is the line that tells a network problem apart from a radio
+problem, which until now you had no way to do from your chair.
 
 **None is arriving, and none is expected.** If **Play radio audio through this
 computer** is off, no sound is meant to come across the network at all, and the
@@ -135,6 +147,9 @@ between your computer and the radio rather than at anything to do with audio.
 One honest note about timing: the readings start when you connect, so for the
 first second or two after connecting there is nothing to report yet, and the
 check says that rather than reporting a zero. Run it again a few seconds later.
+The count works the same honest way once readings exist: any taken before the
+audio stream started are left out, and the report says so — a first run after
+connecting is never made to look short by blanks that mean nothing.
 
 ## Then: Are the Right Sound Devices Chosen?
 

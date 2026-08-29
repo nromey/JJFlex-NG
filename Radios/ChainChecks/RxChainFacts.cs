@@ -143,6 +143,18 @@ namespace Radios.ChainChecks
                 rx = null;
             }
 
+            AddTrafficFactsFrom(f, rx);
+        }
+
+        /// <summary>
+        /// The reading-to-facts conversion on its own, so a test can drive the
+        /// real thing with a real window instead of hand-building facts that
+        /// mirror this code and drift from it. This is the seam the warm-up
+        /// counting (#368) lives in, which is exactly the part a mirrored copy
+        /// would have got wrong.
+        /// </summary>
+        internal static void AddTrafficFactsFrom(DiagnosticFacts f, RxTrafficReading rx)
+        {
             if (rx == null)
             {
                 // ABSENT: nothing in this build is watching, so this is not
@@ -176,10 +188,52 @@ namespace Radios.ChainChecks
                                          "the radio's network audio stream, highest of " + window,
                                          at));
 
-            f.Add(DiagnosticFact.Measure("rx-audio-readings", LabelFor("rx-audio-readings"),
-                                         rx.AudioReadingsWithTraffic, "of " + rx.SampleCount,
-                                         "the radio's network audio stream, " + window,
-                                         at));
+            // The consistency count begins at the first reading that carried
+            // audio (#368). The sampler starts on connect and the stream a few
+            // seconds later, so a first run after ANY connect holds warm-up
+            // zeros at the front — and counted raw they turn "audio arrived in
+            // every reading" into "14 of 18" on a radio that is working
+            // perfectly, for every operator, on exactly the run people take.
+            // Holes AFTER audio began are the opposite of noise — they are what
+            // a weak or congested network looks like — so they get their own
+            // fact rather than being collapsed into one count with the warm-up.
+            if (rx.AudioReadingsWithTraffic > 0)
+            {
+                int since = rx.ReadingsSinceAudioBegan;
+                string basis = "the radio's network audio stream, " + window;
+                if (rx.LeadingZeroReadings > 0)
+                {
+                    basis += "; the count starts at the first reading that carried audio, leaving out "
+                           + (rx.LeadingZeroReadings == 1
+                                  ? "the one earlier reading"
+                                  : "the " + rx.LeadingZeroReadings + " earlier readings")
+                           + " taken before the stream had begun";
+                }
+
+                f.Add(DiagnosticFact.Measure("rx-audio-readings", LabelFor("rx-audio-readings"),
+                                             rx.AudioReadingsWithTraffic, "of " + since,
+                                             basis, at));
+
+                f.Add(DiagnosticFact.Measure("rx-audio-gaps", LabelFor("rx-audio-gaps"),
+                                             rx.AudioGapReadings, "of " + since,
+                                             basis, at));
+            }
+            else
+            {
+                // No reading carried audio, so there is no "first reading that
+                // carried audio" to count from: the raw window is the story,
+                // and warm-up cannot be told apart from a hole. Saying either
+                // would be a guess, so the gap fact says exactly that instead
+                // of a number.
+                f.Add(DiagnosticFact.Measure("rx-audio-readings", LabelFor("rx-audio-readings"),
+                                             rx.AudioReadingsWithTraffic, "of " + rx.SampleCount,
+                                             "the radio's network audio stream, " + window,
+                                             at));
+
+                f.Add(DiagnosticFact.Silent("rx-audio-gaps", LabelFor("rx-audio-gaps"),
+                    "no reading carried audio, so a hole in the stream cannot be told apart "
+                    + "from the stream never having started", "the radio"));
+            }
 
             f.Add(DiagnosticFact.Measure("rx-total-kbps", LabelFor("rx-total-kbps"),
                                          rx.TotalPeakKbps, "kilobits per second",
@@ -213,6 +267,25 @@ namespace Radios.ChainChecks
         /// report and still invisible in the case that matters most, which is the
         /// report that looks fine and says nothing about audio.
         /// </para>
+        /// <para>
+        /// <b>The consistency count starts where audio did, and holes after that
+        /// are reported on their own (#368).</b> Its first field reading said
+        /// "in 11 of 16 readings" on a perfectly healthy radio, because the
+        /// sampler starts on connect and the stream a few seconds later — and
+        /// the sentence never said WHERE the missing five sat, which is the
+        /// whole difference between a warm-up and a dropout. So: warm-up zeros
+        /// are left out and the leaving-out is stated; holes AFTER audio began
+        /// survive, named and interpreted, because audio going missing mid-run
+        /// is what a weak or congested network looks like and is the single
+        /// most useful thing this measurement can say to a remote operator.
+        /// </para>
+        /// <para>
+        /// <b>Each figure carries its reason (#368 again).</b> A number with no
+        /// interpretation is the first thing a sceptical reader discards, so
+        /// the total and the meter figures say why they were measured: data or
+        /// meters still arriving while audio is not is a specific, nameable
+        /// fault — the radio talking to this computer without sending sound.
+        /// </para>
         /// </remarks>
         public static string ArrivalSentence(DiagnosticFacts facts)
         {
@@ -228,32 +301,107 @@ namespace Radios.ChainChecks
             }
 
             DiagnosticFact readings = facts.Find("rx-audio-readings");
+            DiagnosticFact gaps = facts.Find("rx-audio-gaps");
             DiagnosticFact total = facts.Find("rx-total-kbps");
             DiagnosticFact meter = facts.Find("rx-meter-kbps");
             DiagnosticFact pcAudio = facts.Find("pc-audio");
+
+            // Whether radio audio through this computer is switched OFF right
+            // now. It scopes two things below: a correct zero must not read as
+            // an accusation, and a hole left by the operator turning the stream
+            // off must not be blamed on their network.
+            bool pcAudioOff = pcAudio != null && pcAudio.State == FactState.Observed
+                              && !(pcAudio.Number > 0);
 
             var sb = new StringBuilder();
 
             double peak = audio.Number ?? 0;
             sb.Append("Audio arriving from the radio: ");
-            sb.Append(peak > 0
-                ? "up to " + audio.TextValue + " " + audio.Units
-                : "none measured");
 
-            if (readings != null && readings.State == FactState.Observed)
+            if (peak > 0)
             {
-                sb.Append(", in ").Append(readings.TextValue).Append(' ').Append(readings.Units)
-                  .Append(" readings taken about a second apart");
+                sb.Append("up to ").Append(audio.TextValue).Append(' ').Append(audio.Units);
+
+                int? withAudio = (readings != null && readings.State == FactState.Observed)
+                    ? (int?)Math.Round(readings.Number ?? 0) : null;
+                int? holes = (gaps != null && gaps.State == FactState.Observed)
+                    ? (int?)Math.Round(gaps.Number ?? 0) : null;
+
+                if (withAudio.HasValue && holes.HasValue)
+                {
+                    // The denominator is readings since audio began — the two
+                    // facts are complements within it, so the sentence and the
+                    // evidence block can never disagree about the count.
+                    int since = withAudio.Value + holes.Value;
+
+                    if (holes.Value == 0)
+                    {
+                        sb.Append(since == 1
+                            ? ", in the one reading taken since audio began."
+                            : ", in every one of " + since + " readings taken about a second "
+                              + "apart, counted from the first reading that carried audio.");
+                    }
+                    else
+                    {
+                        sb.Append(", but it was missing in ").Append(holes.Value)
+                          .Append(" of ").Append(since)
+                          .Append(" readings taken about a second apart, counted from the ")
+                          .Append("first reading that carried audio.");
+                        sb.Append(pcAudioOff
+                            ? " Radio audio through this computer is now switched off, so the "
+                              + "stream stopping is expected — the sound stays at the radio."
+                            : " Audio missing from readings scattered through the run can mean "
+                              + "drop-outs — often a weak or congested network connection.");
+                    }
+                }
+                else if (readings != null && readings.State == FactState.Observed)
+                {
+                    sb.Append(", in ").Append(readings.TextValue).Append(' ').Append(readings.Units)
+                      .Append(" readings taken about a second apart.");
+                }
+                else
+                {
+                    sb.Append('.');
+                }
             }
-            sb.Append('.');
+            else
+            {
+                sb.Append("none measured");
+                if (readings != null && readings.State == FactState.Observed)
+                {
+                    sb.Append(", in ").Append(readings.TextValue).Append(' ').Append(readings.Units)
+                      .Append(" readings taken about a second apart");
+                }
+                sb.Append('.');
+            }
 
             if (total != null && total.State == FactState.Observed)
             {
-                sb.Append(" All data arriving from the radio over the same readings: up to ")
-                  .Append(total.TextValue).Append(' ').Append(total.Units);
-                if (meter != null && meter.State == FactState.Observed)
-                    sb.Append(", of which meter readings were up to ").Append(meter.TextValue);
-                sb.Append('.');
+                if ((total.Number ?? 0) > 0)
+                {
+                    sb.Append(" All data arriving from the radio over the same readings: up to ")
+                      .Append(total.TextValue).Append(' ').Append(total.Units);
+                    if (meter != null && meter.State == FactState.Observed)
+                        sb.Append(", of which meter readings — the radio reporting its own gauges — ")
+                          .Append("were up to ").Append(meter.TextValue);
+                    sb.Append('.');
+
+                    // Why those two numbers are here at all — skipped when the
+                    // stream is switched off, because then meters without audio
+                    // are the expected state and the comparison would quietly
+                    // accuse a working station.
+                    if (!pcAudioOff)
+                    {
+                        sb.Append(" Those figures are measured for comparison: data or meters ")
+                          .Append("still arriving while audio is not would mean the radio is ")
+                          .Append("talking to this computer but not sending sound — a different ")
+                          .Append("problem from a dead link.");
+                    }
+                }
+                else
+                {
+                    sb.Append(" All data arriving from the radio over the same readings: none measured.");
+                }
             }
 
             // The scope, said out loud rather than left for the reader to infer
@@ -293,6 +441,7 @@ namespace Radios.ChainChecks
         {
             yield return "rx-audio-kbps";
             yield return "rx-audio-readings";
+            yield return "rx-audio-gaps";
             yield return "rx-total-kbps";
             yield return "rx-meter-kbps";
         }
@@ -312,6 +461,7 @@ namespace Radios.ChainChecks
                 case "radio-serial": return "Radio serial number";
                 case "rx-audio-kbps": return "Audio arriving over the network from the radio";
                 case "rx-audio-readings": return "Readings in which audio was arriving";
+                case "rx-audio-gaps": return "Readings audio went missing from after it began";
                 case "rx-total-kbps": return "All data arriving from the radio";
                 case "rx-meter-kbps": return "Meter readings arriving from the radio";
                 default: return name.Replace('-', ' ');

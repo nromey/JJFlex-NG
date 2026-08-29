@@ -17,11 +17,55 @@ namespace Radios.Tests
     {
         private const string Serial = "1234-5678";
 
+        /// <summary>
+        /// Builds a runner for these tests.
+        ///
+        /// <para>
+        /// <b><paramref name="defaultTimeout"/> is infinite by default, on purpose.</b>
+        /// Most tests here are about cache, dedup and force-refresh semantics, not
+        /// about the timeout, and they complete a probe by raising
+        /// <c>TestConnectionResultsReceived</c> on the test thread. By the time they
+        /// do, <c>RunAsync</c> has already reached
+        /// <c>await Task.WhenAny(tcs.Task, Task.Delay(timeout))</c>, and its
+        /// completion source is built with
+        /// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> — so the
+        /// probe's win is handed to the thread pool, while
+        /// <see cref="Task.Delay(TimeSpan)"/> completes inline on the timer thread.
+        /// On a pool busy enough to queue that hand-off past the timeout, the delay
+        /// WINS a race it lost by 200 milliseconds: the probe reports a timeout and
+        /// the caller gets an error report whose subtests are all null.
+        /// </para>
+        ///
+        /// <para>
+        /// That was the whole of the flake these tests carried for two days — one
+        /// full-suite run in three, always under parallel load, never in isolation,
+        /// worst on the first run after a compile. It was not a race against the
+        /// runner's subscription: that is established in the constructor, and the
+        /// pending probe is registered before <c>RunAsync</c> yields. It was only
+        /// ever the timer.
+        /// </para>
+        ///
+        /// <para>
+        /// An infinite timeout does not widen that window — it takes the timer out of
+        /// the race. <c>Task.Delay(Timeout.InfiniteTimeSpan)</c> starts no timer and
+        /// never completes, so the probe's own result is the only thing that can win
+        /// and the outcome stops depending on scheduling. Timeout behaviour keeps its
+        /// own tests below; they ask for a real timeout explicitly.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>The rule that keeps this file honest:</b> a test that takes the default
+        /// timeout MUST complete every probe it starts — raise the result event, or
+        /// expect a cache hit. A test that wants the timeout to fire must pass a real
+        /// one. Do not put a finite default back here to "give it more room"; a bigger
+        /// number makes the race rarer, not absent, which is how it survived this long.
+        /// </para>
+        /// </summary>
         private static NetworkTestRunner Make(MockWanServer wan, Func<DateTime>? clock = null, TimeSpan? defaultTimeout = null)
         {
             return new NetworkTestRunner(wan, clock)
             {
-                DefaultTimeout = defaultTimeout ?? TimeSpan.FromMilliseconds(200),
+                DefaultTimeout = defaultTimeout ?? Timeout.InfiniteTimeSpan,
                 PassCacheTtl = TimeSpan.FromMinutes(5),
                 FailCacheTtl = TimeSpan.FromSeconds(30),
             };
@@ -65,6 +109,19 @@ namespace Radios.Tests
             Assert.Equal(1, wan.SendTestConnectionCallCount);
         }
 
+        /// <summary>
+        /// A force refresh must issue a SECOND probe even when the cache is hot.
+        /// If that regressed, "check my connection again" would hand back a stale
+        /// answer on a network diagnostic — the one place a stale answer is worst.
+        ///
+        /// <para>
+        /// This is the test that used to fail one full run in three. It has twice
+        /// the exposure of its neighbours because it awaits two probes, and the
+        /// failure landed on the second: expected False, actual null, an error
+        /// report from the timeout branch. See <see cref="Make"/> for the race and
+        /// why the timeout is now infinite rather than merely longer.
+        /// </para>
+        /// </summary>
         [Fact]
         public async Task RunAsync_ForceRefreshIgnoresCache()
         {
@@ -129,6 +186,9 @@ namespace Radios.Tests
         public async Task RunAsync_TimeoutReturnsErrorReport()
         {
             var wan = new MockWanServer();
+            // A real, short timeout: the timeout IS this test's subject, and it is
+            // load-safe because no event is raised, so nothing but the delay can
+            // complete the probe. Keep it finite.
             using var runner = Make(wan, defaultTimeout: TimeSpan.FromMilliseconds(75));
 
             // No event fires — the probe should time out.
@@ -144,6 +204,10 @@ namespace Radios.Tests
         public async Task RunAsync_CancellationThrows()
         {
             var wan = new MockWanServer();
+            // Finite on purpose: cancellation is delivered through the delay task,
+            // so this test needs a real one. Load-safe either way — no event is
+            // raised, and the assertion holds whether cancellation or the five
+            // seconds gets there first.
             using var runner = Make(wan, defaultTimeout: TimeSpan.FromSeconds(5));
             using var cts = new CancellationTokenSource();
 
@@ -157,6 +221,9 @@ namespace Radios.Tests
         public async Task RunAsync_LateEventAfterTimeoutStillUpdatesCache()
         {
             var wan = new MockWanServer();
+            // Finite on purpose: this test needs the timeout to fire FIRST so the
+            // event can arrive late. Load-safe — the event is not raised until the
+            // timeout has already been observed.
             using var runner = Make(wan, defaultTimeout: TimeSpan.FromMilliseconds(50));
 
             var timeoutReport = await runner.RunAsync(Serial);

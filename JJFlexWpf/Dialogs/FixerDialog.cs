@@ -96,6 +96,30 @@ public sealed class FixerDialog : JJFlexDialog
     private bool _initFailed;
     private bool _closing;
 
+    /// <summary>
+    /// The element the page must focus once the next render lands, named by
+    /// the action that caused the render (#365).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Null means "nothing has been pressed yet", and only the very first
+    /// render is entitled to it</b> — that render goes to the h1, where the
+    /// operator meets the summary, the test ID, how to drive the page and the
+    /// Stop control before anything else. Every render after an action names
+    /// its landing here.
+    /// </para>
+    /// <para>
+    /// <b>Why a field rather than a parameter of Render.</b> Some renders are
+    /// not caused by an action at all — the fallback inside
+    /// <see cref="Notice"/> before the page is ready is one — and those should
+    /// leave the operator where the last action put them rather than moving
+    /// them somewhere new. Holding the target means "no new instruction"
+    /// keeps the old landing instead of collapsing to the top of the page,
+    /// which is the bug this whole field exists to end.
+    /// </para>
+    /// </remarks>
+    private string? _focusElementId;
+
     /// <summary>True when this dialog believes a stage is running right now.</summary>
     private bool RunInProgress => _stageCancel != null;
 
@@ -698,7 +722,17 @@ document.addEventListener('keydown', function (e) {
         try
         {
             _web.Focus();
-            await _web.CoreWebView2.ExecuteScriptAsync(FocusScript(_state.SelectedStageId));
+            // THE FIRST RENDER GETS THE h1 AND NOTHING ELSE. Before any
+            // action there is nothing to come back to, and the top of the
+            // document is where the operator meets the summary, the test ID,
+            // the intro, how to drive the page and the Stop control. Naming
+            // no candidate at all is what asks for it — the current-stage
+            // fallback must not apply here, or opening the tool would skip
+            // straight past all of that into stage 0.
+            await _web.CoreWebView2.ExecuteScriptAsync(
+                _focusElementId == null
+                    ? FocusScript()
+                    : FocusScript(_focusElementId, CurrentStageHeadingId()));
         }
         catch (Exception ex)
         {
@@ -708,30 +742,78 @@ document.addEventListener('keydown', function (e) {
     }
 
     /// <summary>
-    /// Put the caret where the operator should be after a re-render.
+    /// Put the caret where the operator should be after a re-render, trying
+    /// each named element in turn.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A full re-render would otherwise dump them at the document head and
-    /// make them navigate back — every time. Focus goes to the current
-    /// stage's HEADING, never a Run button: the heading announces name and
+    /// make them navigate back — every time, for the length of the run
+    /// (#365). Focus goes to the element the ACTION produced: the heading of
+    /// the stage that just ran, the "You said" line of the declaration just
+    /// answered, the notice a fix just wrote. Never a Run button, and never a
+    /// stage the operator did not ask for: the heading announces name and
     /// state ("Stage 2: Transmitter check — not yet run"), and the operator
-    /// then chooses to Tab one step. That step is the difference between
-    /// proceeding and being funnelled, and stages 2 through 4 key the
-    /// transmitter. Falls back to the h1 on the very first render.
+    /// then chooses to Tab one step or to press Next. That choice is the
+    /// difference between proceeding and being funnelled, and stages 2
+    /// through 4 key the transmitter.
+    /// </para>
+    /// <para>
+    /// <b>Ordered candidates, because a landing that misses must not become a
+    /// landing at the top.</b> The action's own target first, then the
+    /// current stage's heading, then the h1. A page that renamed an id would
+    /// otherwise silently reintroduce exactly the defect this replaced — the
+    /// h1 fallback is the failure mode, not the design.
+    /// </para>
     /// </remarks>
-    private static string FocusScript(string? stageId)
+    private static string FocusScript(params string?[] candidateIds)
     {
-        string id = JsonEncode(stageId ?? "");
+        var list = new System.Text.StringBuilder();
+        foreach (string? id in candidateIds)
+        {
+            if (string.IsNullOrEmpty(id)) continue;
+            if (list.Length > 0) list.Append(',');
+            list.Append(JsonEncode(id));
+        }
+
         return @"
 (function () {
+    var want = [" + list + @"];
     var target = null;
-    var want = " + id + @";
-    if (want) target = document.getElementById('stage-h-' + want);
+    for (var i = 0; i < want.length && !target; i++) {
+        target = document.getElementById(want[i]);
+    }
     if (!target) target = document.querySelector('h1') || document.body;
     if (!target) return;
     target.setAttribute('tabindex', '-1');
     target.focus();
 })();";
+    }
+
+    /// <summary>The page element id of a stage's heading — the one place the
+    /// host spells this, so the host and <c>FixerPage</c> cannot drift apart
+    /// about it.</summary>
+    private static string StageHeadingId(string? stageId)
+        => string.IsNullOrEmpty(stageId) ? "" : "stage-h-" + stageId;
+
+    /// <summary>The page element id of a declaration's "You said" line — the
+    /// landing after that declaration is answered, because it reads the
+    /// answer back.</summary>
+    private static string DeclaredId(string declarationId)
+        => string.IsNullOrEmpty(declarationId) ? "" : "declared-" + declarationId;
+
+    /// <summary>
+    /// The heading of the stage the page is treating as current — resolved
+    /// the SAME way <c>FixerPage.Render</c> resolves it, including its
+    /// fall-back to the first stage, so the host cannot focus one stage while
+    /// the page has marked another as current.
+    /// </summary>
+    private string CurrentStageHeadingId()
+    {
+        string id = _state.SelectedStageId ?? "";
+        if (_run.Set.Find(id) == null)
+            id = _run.Set.Stages.Count > 0 ? _run.Set.Stages[0].Id : "";
+        return StageHeadingId(id);
     }
 
     // ---------------- the page talks to us ----------------
@@ -788,7 +870,13 @@ document.addEventListener('keydown', function (e) {
                                   + _gate.LoadKind
                                   + (_gate.LoadDeclaredRemotely ? ", remote" : "") + ")",
                                   TraceLevel.Info);
-                Render();
+                // Lands on the "You said" line, which reads the answer back.
+                // Until Sprint 39 this render named no landing at all, so
+                // answering a declaration threw the operator to the top of
+                // the page and told them nothing about what had been
+                // recorded — indistinguishable, from the chair, from the
+                // button having done nothing.
+                Render(DeclaredId(TransmitStageSet.LoadDeclaration));
                 return;
 
             case FixerPageMessage.Kind.DeclareHearing:
@@ -801,7 +889,12 @@ document.addEventListener('keydown', function (e) {
                                               m.Choice, m.Value);
                 Tracing.TraceLine("FixerDialog: hearing declared as \"" + m.Value + "\" ("
                                   + _hearing + ")", TraceLevel.Info);
-                Render();
+                // The same landing as the load declaration, for the same
+                // reason. This is the button Noel pressed at the bench on
+                // 2026-08-28; the trace shows thirty-two seconds between it
+                // and his reaching stage 0's Run control, which is the walk
+                // back from the top of the page (#365).
+                Render(DeclaredId(TransmitStageSet.HearingDeclaration));
                 return;
 
             case FixerPageMessage.Kind.RunStage:
@@ -834,11 +927,29 @@ document.addEventListener('keydown', function (e) {
                 // not done and why, and that half must survive the window
                 // closing as much as a measurement does.
                 _evidence.StageRecorded(_run.SkipStage(m.StageId, m.Value));
-                // Skipping is a decision about this stage; the operator's next
-                // question is the following stage, so the current-stage marker
-                // moves forward with them.
-                _state.SelectedStageId = NextStageId(m.StageId) ?? m.StageId;
-                Render();
+                // STAYS ON THE STAGE JUST SKIPPED, and this is a reversal.
+                // The marker used to move forward on the reasoning that the
+                // operator's next question is the following stage. But a skip
+                // produces a RESULT — the reason and, more importantly, what
+                // that reason costs the rest of the run ("whether your own
+                // voice would get through is left open") — and moving on
+                // carries the operator past it unheard. The heading they land
+                // on now reads "— skipped", their own answer is the next
+                // thing under it, and the Next control the page already
+                // renders is how they choose to move (#248).
+                _state.SelectedStageId = m.StageId;
+                Render(StageHeadingId(m.StageId));
+                return;
+
+            case FixerPageMessage.Kind.CurrentStage:
+                // The operator used the page's forward control. Recorded, no
+                // re-render — the page has already moved them, and rebuilding
+                // the document would move a screen reader mid-gesture for
+                // nothing. Recording it is what stops the host focusing the
+                // stage they LEFT when a render it did not cause arrives,
+                // which is the shape of #365 on the one path where the
+                // operator, not a button, did the moving.
+                if (_run.Set.Find(m.StageId) != null) _state.SelectedStageId = m.StageId;
                 return;
 
             case FixerPageMessage.Kind.ExplainToggled:
@@ -849,11 +960,35 @@ document.addEventListener('keydown', function (e) {
                 return;
 
             case FixerPageMessage.Kind.ApplyFix:
+            {
                 // The wire carries the FINDING id, which is what ApplyFix takes.
-                _evidence.FixRecorded(_run.ApplyFix(m.StageId, m.Value));
+                FixerFixRecord applied = _run.ApplyFix(m.StageId, m.Value);
+                _evidence.FixRecorded(applied);
                 _state.SelectedStageId = m.StageId;
-                Render();
+
+                // THE FIX'S OUTCOME HAS TO LAND SOMEWHERE THE OPERATOR MEETS
+                // IT. Applying a fix changes no stage result, so the card
+                // re-rendered identically and the only place the read-back
+                // appeared was the report at the bottom of the page — which
+                // means pressing "Switch to WASAPI" changed the operator's
+                // live configuration and said nothing at all. Every action in
+                // FixerFixActions reads its change back precisely so it can
+                // report what the setting BECAME rather than that a setter
+                // was called; that sentence was being written down and never
+                // spoken. It goes in the stage's notice slot, which is where
+                // "something happened here that is not a measurement" already
+                // lives, and focus lands on it.
+                //
+                // RECORDED rather than pushed: this path re-renders, so
+                // pushing through the receive channel would announce into a
+                // document that is about to be replaced. The render carries
+                // it and focus reads it.
+                RecordNotice(m.StageId, applied.Succeeded
+                    ? applied.WhatItBecame
+                    : "That fix did not succeed: " + applied.WhatItBecame);
+                Render(NoticeId(m.StageId));
                 return;
+            }
 
             case FixerPageMessage.Kind.Stop:
                 Stop(FixerAbort.SourceFrom(m.Value));
@@ -870,7 +1005,14 @@ document.addEventListener('keydown', function (e) {
             case FixerPageMessage.Kind.OpenDevicePicker:
                 // The picker belongs to AudioDevicesDialog. The page asks; it
                 // does not grow one of its own.
-                Notice("", "Opening the audio device list.");
+                //
+                // Nothing is announced before it opens, on the same rule
+                // OpenPowerDialog states: a screen reader flushes its queue
+                // on a window change, so the arriving window carries its own
+                // announcement. There WAS a notice here, addressed to stage
+                // "" — an element the page never renders — so it was written
+                // to nowhere and spoken by nobody, on the one surface built
+                // to expose exactly that.
                 OpenDevicePicker();
                 return;
 
@@ -916,8 +1058,12 @@ document.addEventListener('keydown', function (e) {
                     {
                         Tracing.TraceLine("FixerDialog: stage " + stageId + " faulted — "
                             + t.Exception?.GetBaseException().Message, TraceLevel.Error);
-                        Notice(stageId, "Something went wrong running that check. "
-                                      + "Nothing was transmitted.");
+                        // RECORDED, not pushed: FinishStage re-renders on the
+                        // next line, so a push would announce into a document
+                        // about to be replaced. The render carries the notice
+                        // and lands focus on it.
+                        RecordNotice(stageId, "Something went wrong running that check. "
+                                            + "Nothing was transmitted.");
                         FinishStage(stageId, again, null);
                         return;
                     }
@@ -971,31 +1117,40 @@ document.addEventListener('keydown', function (e) {
 
             AnnounceCriticals(r);
 
-            // Where focus lands next is decided, not discovered (the design
-            // doc's phrase). A stage that PASSED moves the current-stage
-            // marker forward, so the re-render focuses the next stage's
-            // heading — name and state in one announcement, one Tab from its
-            // controls. A stage with findings, or one that could not run,
-            // keeps focus at ITS OWN heading (which now speaks the new
-            // status), because moving on would bury the findings the
-            // operator has not heard yet.
-            bool passed = r.Status == FixerStageStatus.Ran
-                          && (r.Findings == null || r.Findings.Count == 0);
-            _state.SelectedStageId = passed ? (NextStageId(stageId) ?? stageId) : stageId;
+            // WHERE FOCUS LANDS IS DECIDED, NOT DISCOVERED — and the decision
+            // is now the same one for every outcome: the stage that ran.
+            //
+            // A stage that PASSED used to move the marker forward, so the
+            // re-render focused the NEXT stage's heading. That looked like
+            // forward motion and was actually the loss of the result. Noel
+            // ran stage 0 at the bench on 2026-08-28 (Test ID 427-RAW): it
+            // ran clean, it was recorded, and the first thing his reader
+            // announced afterwards was "Stage 1: Microphone check — NOT YET
+            // RUN". He never heard stage 0's verdict, because focus had left
+            // the card before it rendered, and he reported that the tool said
+            // he had not run stage 0 (#366). The report was right all along;
+            // the focus rule was what told him otherwise.
+            //
+            // The old rule protected findings from being buried. It did not
+            // notice that a PASS also produces something worth hearing —
+            // stage 0's whole product is the sentence naming the devices, the
+            // host API and the rate. So the protection now covers every
+            // outcome: land on this stage's own heading, which speaks its new
+            // status, with the answer immediately under it and the "Next"
+            // control after that. Moving on stays the operator's press,
+            // which is exactly what #248 built that control for.
+            _state.SelectedStageId = stageId;
+            Render(StageHeadingId(stageId));
+            return;
         }
 
-        Render();
-    }
-
-    /// <summary>The stage after this one in the set's order, or null at the
-    /// end.</summary>
-    private string? NextStageId(string stageId)
-    {
-        var stages = _run.Set.Stages;
-        for (int i = 0; i < stages.Count - 1; i++)
-            if (string.Equals(stages[i].Id, stageId, StringComparison.OrdinalIgnoreCase))
-                return stages[i + 1].Id;
-        return null;
+        // No result at all — the off-thread path faulted, or the engine threw
+        // out through the synchronous path's finally. Either way a notice
+        // explaining it is recorded against this stage, so that is the
+        // landing: the heading still says "not yet run" and would tell the
+        // operator nothing about why.
+        _state.SelectedStageId = stageId;
+        Render(NoticeId(stageId));
     }
 
     /// <summary>
@@ -1208,6 +1363,24 @@ document.addEventListener('keydown', function (e) {
 
     // ---------------- we talk to the page ----------------
 
+    /// <summary>
+    /// Render, and say where the operator lands when it arrives (#365).
+    /// </summary>
+    /// <remarks>
+    /// <b>Every host action that re-renders calls THIS one</b>, never the
+    /// bare <see cref="Render()"/>. A re-render with no landing named is how
+    /// the page came to throw the operator back to the document head on every
+    /// press: the two declaration buttons and the return from the power
+    /// window all rebuilt the page without ever telling it where the person
+    /// pressing them had been. Naming the landing at the call site keeps the
+    /// decision beside the action that earns it.
+    /// </remarks>
+    private void Render(string focusElementId)
+    {
+        if (!string.IsNullOrEmpty(focusElementId)) _focusElementId = focusElementId;
+        Render();
+    }
+
     private void Render()
     {
         if (!_web.IsInitialized || _web.CoreWebView2 == null) return;
@@ -1234,10 +1407,40 @@ document.addEventListener('keydown', function (e) {
     /// </summary>
     private void Notice(string stageId, string text)
     {
-        _notices[stageId ?? ""] = text;
+        // A NOTICE THAT NAMES NO STAGE HAS NO SLOT TO GO IN. The page renders
+        // one notice paragraph per stage and nothing else, so "notice-" on
+        // its own addresses an element that does not exist and the receive
+        // channel drops it without a word. Those go to the polite status
+        // line, which always exists and is live — the page's own home for
+        // "something happened that belongs to no single stage".
+        if (string.IsNullOrEmpty(stageId) || _run.Set.Find(stageId) == null)
+        {
+            if (_ready) ToPage("status", text);
+            else Tracing.TraceLine("FixerDialog: notice with no stage arrived before the "
+                                   + "page was ready and was not shown — " + text,
+                                   TraceLevel.Warning);
+            return;
+        }
+
+        RecordNotice(stageId, text);
+        // Pushed through the receive channel rather than re-rendered, so the
+        // operator is not moved mid-gesture. The slot is a polite live region
+        // (Sprint 39), so the push is heard; before that a refusal was
+        // written into the page and never spoken, which on the surface built
+        // to expose silent failures was its own quiet one.
         if (_ready) ToPage("notice", text, stageId);
         else Render();
     }
+
+    /// <summary>Record a notice against a stage WITHOUT pushing it to the
+    /// page — for the callers that re-render immediately afterwards, where a
+    /// push would announce into a document about to be replaced.</summary>
+    private void RecordNotice(string stageId, string text)
+        => _notices[stageId ?? ""] = text;
+
+    /// <summary>The page element id of a stage's notice slot.</summary>
+    private static string NoticeId(string? stageId)
+        => string.IsNullOrEmpty(stageId) ? "" : "notice-" + stageId;
 
     private async void ToPage(string kind, string text, string? stageId = null)
     {
@@ -1345,9 +1548,12 @@ document.addEventListener('keydown', function (e) {
         }
 
         // The stage sentences carry tune and RF power, and either may just
-        // have moved — re-render so the page tells the truth, and focus
-        // returns to the current stage's heading.
-        Render();
+        // have moved — re-render so the page tells the truth. Focus returns
+        // to the CURRENT stage's heading, named explicitly: the operator left
+        // the page from a stage and must come back to it, and this render
+        // used to name no landing at all, so returning from the power window
+        // dropped them at the top (#365).
+        Render(CurrentStageHeadingId());
     }
 
     private void OpenDevicePicker()

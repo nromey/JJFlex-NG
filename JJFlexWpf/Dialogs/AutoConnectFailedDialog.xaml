@@ -33,7 +33,8 @@
                     AutomationProperties.AcceleratorKey="Alt+H"
                     Click="ChooseAnotherButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" MinWidth="75" Height="32" IsCancel="True"
-                    AutomationProperties.Name="Cancel - close this dialog and stay disconnected"
+                    AutomationProperties.Name="Cancel"
+                    local:JJFlexHelp.Text="Closes this dialog and stays disconnected."
                     Click="CancelButton_Click"/>
         </StackPanel>
     </Grid>

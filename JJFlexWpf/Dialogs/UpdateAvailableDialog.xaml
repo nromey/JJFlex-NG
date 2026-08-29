@@ -73,7 +73,8 @@
                     Content="_Cancel"
                     MinWidth="80" Height="32"
                     IsCancel="True"
-                    AutomationProperties.Name="Cancel - close this dialog and remind me later"
+                    AutomationProperties.Name="Cancel"
+                    local:JJFlexHelp.Text="Closes this dialog. The update is not skipped — you will be reminded about it again."
                     AutomationProperties.AcceleratorKey="Alt+C"
                     Click="CancelButton_Click"/>
         </StackPanel>
