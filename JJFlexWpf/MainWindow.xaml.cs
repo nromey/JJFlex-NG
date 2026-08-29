@@ -1196,7 +1196,15 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void EnableDisableWindowControls(bool enabled)
     {
-        _radioPowerOn = enabled;
+        // This method used to ALSO write _radioPowerOn, and that side effect
+        // is why the connect earcon, the PC-audio policy and the REM ON queued
+        // intent never ran once (#369, 2026-08-28): PowerNowOn calls this with
+        // true BEFORE its own off→on transition guard, so the guard read a
+        // flag this method had already raised and skipped its block on every
+        // connect there has ever been. A method named "enable controls" must
+        // not own the power lifecycle. The flag is now written only where the
+        // power state actually changes: PowerNowOn (up), PowerNowOffInternal
+        // and UnwireRadioEvents (down).
         foreach (var control in _enableDisableControls)
         {
             control.IsEnabled = enabled;
@@ -3721,7 +3729,20 @@ public partial class MainWindow : UserControl
 
     private void PowerNowOn()
     {
-        Tracing.TraceLine("MainWindow PowerNowOn", TraceLevel.Info);
+        // Capture the off→on transition FIRST, before anything in this body
+        // can touch the flag, and raise the flag here so everything the body
+        // calls sees a powered radio (#369, 2026-08-28). The transition used
+        // to be tested 36 lines further down, after EnableDisableWindowControls
+        // had already — as a side effect it no longer has — set the flag true,
+        // which made the test constant-false and silently skipped the connect
+        // earcon, the PC-audio policy and the REM ON queued intent on EVERY
+        // connect since each was added. wasOff is the one honest reading of
+        // the transition; the trace records it so a re-raised power event
+        // (wasOff=False) is visible in a capture instead of indistinguishable
+        // from a first connect.
+        bool wasOff = !_radioPowerOn;
+        _radioPowerOn = true;
+        Tracing.TraceLine($"MainWindow PowerNowOn wasOff={wasOff}", TraceLevel.Info);
 
         // Setup frequency display
         SetupFreqout();
@@ -3768,19 +3789,34 @@ public partial class MainWindow : UserControl
         // (picker local, picker remote, auto-connect, reconnect) converges on
         // this power transition, so this is the one hook that covers them all
         // (QB Track A stretch, 2026-08-07). Guarded on the off→on transition
-        // so a re-raised power event can't double-fire it.
-        if (!_radioPowerOn)
+        // so a re-raised power event can't double-fire it — wasOff, captured
+        // at the top of this method before anything could disturb the flag.
+        //
+        // The tone gets its OWN transition test, deliberately separate from
+        // the policy block below (#369, Noel's question at the bench: the tone
+        // is feedback about a CONNECTION EVENT and plays through the earcon
+        // device; the policies are per-radio state application). The condition
+        // is the same today, and that is fine — what must never happen again
+        // is the cheap, audible, harmless sound being hostage to the guard of
+        // the expensive silent ones, so that when a guard goes wrong the only
+        // audible symptom disappears with it.
+        if (wasOff)
         {
             try { EarconPlayer.ConnectSuccessTone(); }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"PowerNowOn: connect earcon failed: {ex.Message}", TraceLevel.Warning);
             }
+        }
 
+        // Per-radio connect POLICIES, on the same off→on transition but under
+        // their own test: double-applying these on a re-raised power event
+        // would be a real fault, where a doubled tone is an annoyance.
+        if (wasOff)
+        {
             // Per-radio PC audio on connect (Threads Track, 2026-08-12).
-            // Runs on the same off→on transition as the connect earcon, and
-            // AFTER FlexBase's open sequence has done its historical remote
-            // auto-on, so this is policy on top, never a race.
+            // Runs AFTER FlexBase's open sequence has done its historical
+            // remote auto-on, so this is policy on top, never a race.
             try { ApplyPcAudioOnConnect(); }
             catch (Exception ex)
             {
@@ -3796,7 +3832,6 @@ public partial class MainWindow : UserControl
             }
         }
 
-        _radioPowerOn = true;
         StatusText.Text = Radios.Lexicon.Get("connect.home.status_power_on");
 
         // Initialize PTT safety controller (Sprint 15)
