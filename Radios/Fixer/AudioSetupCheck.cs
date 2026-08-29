@@ -395,9 +395,18 @@ namespace Radios.Fixer
             // The measurement first. It is the one fact in this stage that is
             // about the RADIO rather than about a switch we set, so it is the
             // half that survives a reader who distrusts our software (#350).
-            if (receive.Arrival.Length != 0) sb.Append(' ').Append(receive.Arrival);
+            // A BLANK LINE, not a space: this is the receive half of a stage
+            // that has two, and both the page and the report render one
+            // paragraph per block. Six sentences in a single run is readable
+            // and unnavigable.
+            if (receive.Arrival.Length != 0)
+                sb.Append(Environment.NewLine).Append(Environment.NewLine).Append(receive.Arrival);
             string verdict = receive.VerdictNotCarriedByProblems;
-            if (verdict.Length != 0) sb.Append(' ').Append(verdict);
+            if (verdict.Length != 0)
+            {
+                sb.Append(sb.Length == 0
+                    ? Environment.NewLine + Environment.NewLine : " ").Append(verdict);
+            }
             return sb.ToString();
         }
 

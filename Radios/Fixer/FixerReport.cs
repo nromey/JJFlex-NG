@@ -252,12 +252,12 @@ namespace Radios.Fixer
                 case FixerStageStatus.Skipped:
                     // Unmistakably not a pass: leads with "Not run", carries
                     // the reason, and shows no measurement.
-                    s.Para(result.Answer);
+                    s.Paras(result.Answer);
                     return s;
 
                 case FixerStageStatus.CouldNotRun:
                     s.Para("Attempted at " + Stamp(result.AtUtc) + " and could not run.");
-                    s.Para(result.Answer);
+                    s.Paras(result.Answer);
                     return s;
             }
 
@@ -265,7 +265,7 @@ namespace Radios.Fixer
                 + (result.WasReRun
                     ? ". This stage was re-run; this result replaces an earlier one."
                     : "."));
-            s.Para(result.Answer);
+            s.Paras(result.Answer);
 
             foreach (FixerFinding f in result.Findings)
             {

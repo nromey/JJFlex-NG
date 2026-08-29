@@ -87,9 +87,18 @@ namespace Radios.ChainChecks
         /// operator can be shown without a radio.
         /// </summary>
         public static ReceiveCheckResult From(DiagnosticFacts facts)
+            => Using(RuleSetLoader.RxChain(), facts);
+
+        /// <summary>
+        /// The same walk against a ruleset the caller supplies. For tests that
+        /// need a rule file this build does not ship — above all the empty one,
+        /// which is the "we could not check" case (#370) and is otherwise
+        /// reachable only by damaging the operator's own settings folder.
+        /// </summary>
+        internal static ReceiveCheckResult Using(DiagnosticRuleSet rules, DiagnosticFacts facts)
         {
             facts = facts ?? new DiagnosticFacts();
-            ChainReport report = ChainAnalyzer.Run(RuleSetLoader.RxChain(), facts);
+            ChainReport report = ChainAnalyzer.Run(rules, facts);
             return new ReceiveCheckResult(facts, report);
         }
     }
@@ -291,7 +300,10 @@ namespace Radios.ChainChecks
                 foreach (DiagnosticFact f in facts.All) sb.AppendLine(f.EvidenceLine());
             }
             sb.AppendLine();
-            sb.AppendLine("Checks read from " + (report.Rules?.Describe() ?? "nowhere") + ".");
+            // Describe() ends in its own full stop; a second one is an audible
+            // stumble for a screen reader, which is who reads this.
+            sb.AppendLine("Checks read from "
+                          + StageResult.Sentence(report.Rules?.Describe() ?? "nowhere"));
             return sb.ToString();
         }
 

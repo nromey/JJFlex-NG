@@ -767,7 +767,14 @@ namespace Radios.Fixer
         private static void ResultBlock(StringBuilder sb, FixerStage stage,
                                         FixerStageResult result)
         {
-            sb.Append("<p>").Append(Esc(result.Answer)).AppendLine("</p>");
+            // ONE PARAGRAPH PER BLOCK. Stage 0's answer is assembled from the
+            // computer's half and the receive half (#367), and rendered as a
+            // single <p> it was one unbroken run of six sentences with no way
+            // for a screen reader user to step past the half they had already
+            // heard. The split rule lives in Evidence.Paragraphs so this page
+            // and the report cannot disagree about where the breaks fall.
+            foreach (string block in Radios.Fixer.Evidence.Paragraphs.Split(result.Answer))
+                sb.Append("<p>").Append(Esc(block)).AppendLine("</p>");
 
             if (result.Status == FixerStageStatus.Ran)
             {

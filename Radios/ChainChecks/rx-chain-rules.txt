@@ -25,10 +25,11 @@
 #
 # STAGE 5 IS A DIFFERENT KIND OF CHECK, added 2026-08-28 (#350).
 #
-# Stages 0 to 4 read SETTINGS: a slice mute and volume, output mutes and levels,
-# and a routing switch. Every one of them is something this application asked the radio to be, so the whole report
-# could be verifiably correct while no audio had ever reached the computer. It
-# said the plumbing was configured; it never said water came out.
+# Stages 0 to 4 read SETTINGS: a slice mute and volume, output mutes and
+# levels, and a routing switch. Every one of them is something this application
+# asked the radio to be, so the whole report could be verifiably correct while
+# no audio had ever reached the computer. It said the plumbing was configured;
+# it never said water came out.
 #
 # Stage 5 reads what ARRIVED — bytes the radio sent that crossed the network
 # and were counted on this side. That is the half a manufacturer's support desk
@@ -40,6 +41,18 @@
 # through this computer is switched on; an operator listening on the radio's
 # own speaker has no such stream, measures zero, and has nothing wrong with
 # their station. An ungated rule here would accuse the commonest setup there is.
+
+#
+# A NOTE ON NAMING KEYS IN A FIX, added 2026-08-29 (#367).
+#
+# Three remedies here named Control plus J, then A, "from anywhere in the
+# application" — true of the main window and of ordinary dialogs, and FALSE on
+# the Fixer's own page, which is a WebView2 island that keeps its own
+# keystrokes (FixerDialog says exactly that about Escape, and builds a bridge
+# for it). Joining the receive check's two doors put this text on that page.
+#
+# The key is still worth naming; the claim about where it reaches is not. The
+# remedies name the main window and stop there.
 
 ruleset: Receive audio check
 version: 3
@@ -199,13 +212,14 @@ evidence: lineout-level
 
 stage: 4 how the audio reaches you
 about: Whether radio audio is being carried to this computer, which on a remote connection is the only way to hear it.
+nothing-to-check: you are not connected remotely, so how the audio travels is a choice rather than a fault: the radio's own outputs are in the room with you whichever way it is set.
 
 rule: rx-pc-audio-off-on-remote
 in-stage: 4
 needs: remote-radio is yes
 broken-when: pc-audio is no
 verdict: PC audio is currently switched off and you are connected remotely, so there is no path at all for the sound to reach you. The radio's own headphone jack is at the radio, wherever that is.
-fix: Turn PC audio on. Control plus J, then A, does it from anywhere in the application, and the setting is also in Settings, Audio.
+fix: Turn PC audio on. Control plus J, then A, does it from the main window, and the setting is also in Settings, Audio.
 evidence: pc-audio
 evidence: remote-radio
 
@@ -258,7 +272,7 @@ needs: pc-audio is yes
 broken-when: rx-audio-kbps at most 0
 broken-when: rx-meter-kbps at least 1
 verdict: The radio is talking to this computer — its meter readings are arriving at {rx-meter-kbps} — but no audio is coming with them. Over the readings just taken, audio was present in {rx-audio-readings} readings. The link is alive; it is the audio on it that is missing.
-fix: Turn radio audio through this computer off and then on again, which asks the radio for a fresh audio stream. Control plus J, then A, does that from anywhere in the application. If it stays silent, disconnect and connect again.
+fix: Turn radio audio through this computer off and then on again, which asks the radio for a fresh audio stream. Control plus J, then A, does that from the main window. If it stays silent, disconnect and connect again.
 evidence: rx-audio-kbps
 evidence: rx-audio-readings
 evidence: rx-meter-kbps
