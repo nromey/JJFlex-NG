@@ -57,7 +57,9 @@ namespace JJFlexWpf
         /// </summary>
         public enum EarconCategory
         {
-            /// <summary>Connect-phase counting tones and the success double-beep.</summary>
+            /// <summary>The connect ladder — the counting tones that climb as a
+            /// connect progresses, and the double-beep at the top when it
+            /// lands.</summary>
             Connection = 0,
             /// <summary>TX start/stop, hard kill, tune carrier, ATU, PTT warnings.</summary>
             Transmit = 1,
@@ -199,6 +201,32 @@ namespace JJFlexWpf
         /// and need different fixes.
         /// </summary>
         private static bool Gate(EarconCategory category, [CallerMemberName] string earconName = "")
+            => GateCore(category, earconName, null);
+
+        /// <summary>
+        /// <see cref="Gate"/> for an earcon whose method takes an argument, so
+        /// its name alone cannot say which sound just fired.
+        /// </summary>
+        /// <remarks>
+        /// #379. <see cref="ConnectPhaseTone"/> is ONE method taking a count,
+        /// and the trace recorded the bare method name — so "was that two beeps
+        /// or three?" was unanswerable from every instrument this project owns,
+        /// and a session filled the gap with an assumption that turned out to
+        /// be wrong. Noel's ear supplied what the instrument could not. The
+        /// detail rides ALONGSIDE the name and never replaces it: the name is
+        /// also the id a level trim and the output transcript are keyed by, and
+        /// a per-count id would scatter one sound's trim across three keys.
+        ///
+        /// A separate name rather than an overload on purpose. <c>Gate(cat,
+        /// "count=2")</c> against an overload set would bind to the
+        /// CallerMemberName parameter — silently, and the "detail" would become
+        /// the earcon's id.
+        /// </remarks>
+        private static bool GateDetailed(EarconCategory category, string detail,
+            [CallerMemberName] string earconName = "")
+            => GateCore(category, earconName, detail);
+
+        private static bool GateCore(EarconCategory category, string earconName, string? detail)
         {
             // Arm this sound's per-tier trim for the providers it is about to
             // build. Set here because Gate is the one thing every gated earcon
@@ -220,13 +248,15 @@ namespace JJFlexWpf
             // an absent line is "never fired". Those are different defects and
             // this line is what tells them apart.
             JJTrace.Tracing.TraceLine(
-                $"Earcon: {earconName} category={category} gate={on} mixer={AlertMixer != null}",
+                $"Earcon: {earconName} category={category} gate={on} mixer={AlertMixer != null}"
+                    + (detail == null ? "" : " " + detail),
                 TraceLevel.Verbose);
 
             if (Radios.OutputChannelRecorder.RecordEnabled)
             {
                 bool rendered = on && AlertMixer != null && Radios.OutputChannelRecorder.RenderEnabled;
-                Radios.OutputChannelRecorder.RecordEarcon(earconName, category.ToString(), on, rendered);
+                Radios.OutputChannelRecorder.RecordEarcon(earconName, category.ToString(), on, rendered,
+                    detail: detail);
             }
             return on;
         }
@@ -859,91 +889,192 @@ namespace JJFlexWpf
             PlayVoicedDecaySequence(CountdownVoice, CountdownSteps(transmit: true), VolumeStrong);
         }
 
-        // Connect-phase counting tones for the state-aware connecting modal.
-        // Same pitch repeated 1 / 2 / 3 times so the user hears progress as a
-        // count, not as a melody. Pitch chosen mid-band (750 Hz) and softer
-        // (0.35) so it doesn't compete with concurrent speech announcements.
-        private const int ConnectPhaseTonePitchHz = 750;
+        // ── The connect ladder ────────────────────────────────────────────
+        //
+        // COUNT says how far along. PITCH says which direction. VOLUME marks
+        // arrival. Noel's spec, #379, 2026-08-28.
+        //
+        // WHAT THIS REPLACED, because it explains every choice below. All four
+        // of these sounds were 750 Hz, 70 ms, 60 ms gap, Plain, soft — and the
+        // success tone was the phase-2 tone with the volume turned up. Same
+        // pitch, same durations, same gap, same voice, same count. Two sounds
+        // that differ on ONE axis read as a transposition of each other, and
+        // volume is the one axis an operator cannot judge in isolation, because
+        // there is nothing to compare it against in the moment. Noel, the first
+        // time it ever played: "If it's two different tones they sure sound
+        // similar."
+        //
+        // NOBODY COULD HAVE FOUND IT EARLIER. ConnectSuccessTone had never
+        // sounded once since it was written on 2026-08-07: the guard in front of
+        // it was dead on arrival, and was only fixed the night before this
+        // (#369). Its first playback was also the first evidence that it was
+        // wrong. This code was believed correct for three weeks while silent.
+        //
+        // WHAT SURVIVED. The counting scheme, and the reason the old comment
+        // gave for it: one, two, three tones "so the user hears progress as a
+        // COUNT, not as a melody." That was right. What is added is a second
+        // axis — the count now climbs in pitch, so low means starting and high
+        // means arrived — rather than a replacement for it.
+        //
+        // SUCCESS SHARES ITS COUNT WITH PHASE 2 ON PURPOSE. DO NOT "FIX" IT.
+        // With the phases occupying one, two and three, every count is already
+        // spoken for; the only escape would be leaving the counting vocabulary
+        // altogether, which throws away a scheme worth keeping. Sharing a count
+        // is safe now because it no longer shares anything else — phase 2 is
+        // mid-ladder and soft, success is the top of the ladder and strong.
+        // Two axes apart, where they used to be one.
+        //
+        // THE PITCH IS CONSTANT WITHIN A GROUP AND CLIMBS ONLY BETWEEN GROUPS.
+        // That is what keeps the family clear of the toggle vocabulary, where a
+        // rising or falling PAIR means a feature turned on or off
+        // (FeatureOnTone is 500 -> 750, FeatureOffTone 750 -> 500). A connect
+        // group is a repeated note; a toggle is a step.
+        //
+        // THE PITCHES. 750 Hz stays exactly where it is: it is the pitch the
+        // operator already associates with connecting, and on a fast connect it
+        // is the only progress tone that plays. Phase 1 sits a fourth below it,
+        // phase 3 a fourth above, and success a fifth above that — which puts
+        // success an exact OCTAVE above phase 2, the pair heard together on
+        // every fast connect. An octave is the most recognisable interval there
+        // is, and "the same note, higher and louder" is about as plain a way of
+        // saying arrived as sound has.
+        //
+        // These are NOT clear of every other pitch in the alert set, and cannot
+        // be — the space between 500 and 1000 Hz is too crowded for four rungs.
+        // 1000 Hz is shared with the leader-help pair and the escalate pair;
+        // 560 sits between the ATU triad's 523 and the band-edge 600. Identity
+        // here rests on STRUCTURE first: one voice, one repeated pitch per
+        // group, counts of one, two and three, and the climb. Deliberately
+        // avoided: 600 Hz (BandBoundaryBeep is a double beep there), 800 Hz
+        // (ConfirmTone's fallback is a triple beep there) and 1200 Hz
+        // (PlayCollapseAll opens there, at the same strong tier as success).
+        private const int ConnectPhase1PitchHz = 560;
+        private const int ConnectPhase2PitchHz = 750;
+        private const int ConnectPhase3PitchHz = 1000;
+        private const int ConnectSuccessPitchHz = 1500;
         private const int ConnectPhaseToneMs = 70;
         private const int ConnectPhaseToneGapMs = 60;
         private const float ConnectPhaseToneVolume = VolumeSoft;
 
-        /// <summary>Connect phase 1 — single 750 Hz tone (TLS / SmartLink connect).</summary>
+        /// <summary>
+        /// The rung of the ladder a phase sounds at. Clamped rather than
+        /// indexed: the connecting window publishes phases 2 and 3 today, and a
+        /// fourth phase added later should land on the top progress rung rather
+        /// than throw on the audio path.
+        /// </summary>
+        private static int ConnectPhasePitchHz(int phase) => phase switch
+        {
+            <= 1 => ConnectPhase1PitchHz,
+            2 => ConnectPhase2PitchHz,
+            _ => ConnectPhase3PitchHz,
+        };
+
+        /// <summary>
+        /// N tones at one pitch — the shape every rung of the ladder shares.
+        /// </summary>
+        /// <remarks>
+        /// One definition, so the three named phase earcons the Earcon Explorer
+        /// auditions cannot drift from the parameterised one the connecting
+        /// window actually calls. They had not drifted, but they were four
+        /// hand-written copies of the same three numbers, which is how a bench
+        /// ends up auditioning a sound the application no longer makes.
+        /// </remarks>
+        private static void PlayConnectCount(int count, int pitchHz, float volume)
+        {
+            if (count <= 0) return;
+            var seq = new (int, int)[count * 2 - 1];
+            int idx = 0;
+            for (int i = 0; i < count; i++)
+            {
+                if (i > 0) seq[idx++] = (0, ConnectPhaseToneGapMs);
+                seq[idx++] = (pitchHz, ConnectPhaseToneMs);
+            }
+            PlayVoicedSequence(EarconVoices.Plain, seq, volume);
+        }
+
+        /// <summary>
+        /// Connect phase 1 — one tone at the bottom of the ladder.
+        /// </summary>
+        /// <remarks>
+        /// Audition-only in practice. <c>ConnectNarration</c> starts at phase 1
+        /// and only announces TRANSITIONS, so nothing on a live connect calls
+        /// this; the first tone an operator hears is phase 2. Kept because the
+        /// bottom rung is what makes the ladder legible on the bench, and
+        /// because the day the connecting window does announce its opening
+        /// phase, the sound for it should already exist and already fit.
+        /// </remarks>
         [Earcon("Connect step 1", EarconCategory.Connection, Order = 1,
-            Description = "One counting tone. The link is up and negotiating.")]
+            Description = "One tone at 560 hertz, the bottom of the connect ladder. The opening "
+                        + "stage — which the connecting window treats as where it starts rather "
+                        + "than something to announce, so you hear this rung here more than on "
+                        + "a real connect.")]
         public static void ConnectPhase1Tone()
         {
             if (!Gate(EarconCategory.Connection)) return;
-            PlayVoiced(EarconVoices.Plain, ConnectPhaseTonePitchHz, ConnectPhaseToneMs, ConnectPhaseToneVolume);
+            PlayConnectCount(1, ConnectPhase1PitchHz, ConnectPhaseToneVolume);
         }
 
-        /// <summary>Connect phase 2 — two 750 Hz tones (transport up, waiting for slice).</summary>
+        /// <summary>Connect phase 2 — two tones at 750 Hz (transport up, waiting for slice).</summary>
         [Earcon("Connect step 2", EarconCategory.Connection, Order = 2,
-            Description = "Two counting tones. Transport is up, waiting for a slice.")]
+            Description = "Two tones at 750 hertz, a fourth up from step 1. Transport is up, "
+                        + "waiting for a slice. On a fast connect this is the only progress "
+                        + "tone you get.")]
         public static void ConnectPhase2Tone()
         {
             if (!Gate(EarconCategory.Connection)) return;
-            PlayVoicedSequence(EarconVoices.Plain, new[]
-            {
-                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
-                (0, ConnectPhaseToneGapMs),
-                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs)
-            }, ConnectPhaseToneVolume);
+            PlayConnectCount(2, ConnectPhase2PitchHz, ConnectPhaseToneVolume);
         }
 
-        /// <summary>Connect phase 3 — three 750 Hz tones (slice acquired, station name pending).</summary>
+        /// <summary>Connect phase 3 — three tones at 1000 Hz (slice acquired, station name pending).</summary>
         [Earcon("Connect step 3", EarconCategory.Connection, Order = 3,
-            Description = "Three counting tones. Slice acquired, station name pending.")]
+            Description = "Three tones at 1000 hertz, a fourth up again. Slice acquired, "
+                        + "station name pending.")]
         public static void ConnectPhase3Tone()
         {
             if (!Gate(EarconCategory.Connection)) return;
-            PlayVoicedSequence(EarconVoices.Plain, new[]
-            {
-                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
-                (0, ConnectPhaseToneGapMs),
-                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
-                (0, ConnectPhaseToneGapMs),
-                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs)
-            }, ConnectPhaseToneVolume);
+            PlayConnectCount(3, ConnectPhase3PitchHz, ConnectPhaseToneVolume);
         }
 
         /// <summary>
         /// Connect success — the signature double-beep (QB Track A,
         /// 2026-08-07, memory: project_connect_earcon_signature_sound.md).
-        /// Same pitch and cadence as the phase-2 counting tone users already
-        /// know, slightly louder because it marks ARRIVAL rather than
-        /// background progress. Fired from MainWindow.PowerNowOn — the one
-        /// point every successful connect path (picker local, picker remote,
-        /// auto-connect, reconnect) flows through — so fast LAN connects are
-        /// no longer silent (the phase tones skip any phase under 500ms).
+        /// The top of the ladder: two tones at 1500 Hz, an exact octave above
+        /// the phase-2 pair, and the only one of the four at a strong tier.
+        /// Fired from MainWindow.PowerNowOn — the one point every successful
+        /// connect path (picker local, picker remote, auto-connect, reconnect)
+        /// flows through — so fast LAN connects are not silent (the phase tones
+        /// skip any phase under 500 ms).
+        ///
+        /// Two tones, the same count as phase 2, deliberately. The block
+        /// comment above the pitch constants says why; read it before changing
+        /// this to three.
         /// </summary>
         [Earcon("Connect success", EarconCategory.Connection, Order = 4,
-            Description = "The signature double-beep. Every successful connect ends here, "
-                        + "however it started.")]
+            Description = "Two tones at 1500 hertz, an octave above step 2 and the only loud one "
+                        + "of the four. Every successful connect ends here, however it started.")]
         public static void ConnectSuccessTone()
         {
             if (!Gate(EarconCategory.Connection)) return;
-            PlayVoicedSequence(EarconVoices.Plain, new[]
-            {
-                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs),
-                (0, ConnectPhaseToneGapMs),
-                (ConnectPhaseTonePitchHz, ConnectPhaseToneMs)
-            }, VolumeStrong);
+            PlayConnectCount(2, ConnectSuccessPitchHz, VolumeStrong);
         }
 
-        /// <summary>Parameterized connect-phase counting tone (1..N identical tones).</summary>
+        /// <summary>
+        /// The connect rung for one phase — the method the connecting window
+        /// actually calls. The argument is the phase number, and it decides
+        /// BOTH how many tones sound and which rung they sound at.
+        /// </summary>
         public static void ConnectPhaseTone(int count)
         {
-            if (!Gate(EarconCategory.Connection)) return;
+            int pitch = ConnectPhasePitchHz(count);
+            // The count goes in the trace. Until #379 this recorded the bare
+            // method name, so "two beeps or three?" could not be answered from
+            // any instrument this project owns — and a session answered it with
+            // an assumption instead. The name stays the method's, because it is
+            // also the level-trim and transcript id.
+            if (!GateDetailed(EarconCategory.Connection,
+                    $"count={count} pitchHz={pitch}")) return;
             if (count <= 0) return;
-            var seq = new (int, int)[Math.Max(1, count * 2 - 1)];
-            int idx = 0;
-            for (int i = 0; i < count; i++)
-            {
-                if (i > 0) seq[idx++] = (0, ConnectPhaseToneGapMs);
-                seq[idx++] = (ConnectPhaseTonePitchHz, ConnectPhaseToneMs);
-            }
-            PlayVoicedSequence(EarconVoices.Plain, seq, ConnectPhaseToneVolume);
+            PlayConnectCount(count, pitch, ConnectPhaseToneVolume);
         }
 
         // ------------------------------------------------------------------
@@ -958,26 +1089,28 @@ namespace JJFlexWpf
         //
         // These are AUDITION CANDIDATES, not a change. They reach the operator
         // only through the Earcon Explorer, and they exist so a decision can be
-        // made by ear instead of by description. Every one of them keeps the
-        // COUNTING STRUCTURE — one tone, two tones, three tones, then the
-        // success pair — because that structure is learned vocabulary and is
-        // not what anyone complained about. What varies is the instrument.
+        // made by ear instead of by description. Every one of them plays the
+        // SHIPPED STRUCTURE — one tone, two, three, then the success pair, on
+        // the pitch ladder — because that structure is the decided part. What
+        // varies is the instrument.
         //
-        // Candidate D is the odd one out and worth hearing even if the timbre
-        // question resolves elsewhere: today "connect success" is the phase-2
-        // counting tone at a louder tier, which means the sound for ARRIVED is
-        // the sound for STILL WORKING played harder. D gives arrival its own
-        // shape by rising a fourth on the second note. That is a difference an
-        // operator can hear without a reference.
+        // Candidate D is GONE as of #379, and its absence is the point. D
+        // existed because "connect success" was the phase-2 tone at a louder
+        // tier — the sound for ARRIVED was the sound for STILL WORKING played
+        // harder — and D gave arrival its own shape by rising on the second
+        // note. The shipped series now gives arrival its own rung, so D was a
+        // candidate advertising a fix for something already fixed, which is
+        // exactly the kind of label this project keeps getting caught by.
         //
-        // Delete this method and its four catalog entries once one is chosen.
+        // Delete this method and its catalog entries once an instrument is
+        // chosen. The timbre question is still open; only D closed.
         // ------------------------------------------------------------------
 
         /// <summary>
         /// Play one connect-series audition candidate (#144). Not wired to any
         /// connect path — the Earcon Explorer is the only caller.
         /// </summary>
-        /// <param name="candidate">'A' through 'D'; anything else is ignored.</param>
+        /// <param name="candidate">'A' through 'C'; anything else is ignored.</param>
         public static void ConnectSeriesCandidate(char candidate)
         {
             // A parameterised audition, not a named earcon, so there is no id
@@ -986,7 +1119,14 @@ namespace JJFlexWpf
             NoTrim();
             if (!EarconsEnabled) return;
 
-            int p = ConnectPhaseTonePitchHz;
+            // The ladder, so a candidate auditions the instrument and nothing
+            // else. Reading these from the same constants the shipped earcons
+            // use is the whole reason a candidate stays honest when the pitches
+            // move again.
+            int p1 = ConnectPhase1PitchHz;
+            int p2 = ConnectPhase2PitchHz;
+            int p3 = ConnectPhase3PitchHz;
+            int ps = ConnectSuccessPitchHz;
             int ms = ConnectPhaseToneMs;
             int gap = ConnectPhaseToneGapMs;
 
@@ -994,6 +1134,11 @@ namespace JJFlexWpf
             // with a longer gap between the groups so the count stays legible.
             // Judging a connect sound one tone at a time is judging the wrong
             // thing; what matters is whether the four read as a family.
+            //
+            // Only A reproduces the arrival's louder tier, because one render
+            // carries one level and A pays for a second render to get it. In B
+            // and C the arrival is at the phase tier — they answer "what does
+            // this instrument sound like", not "is the arrival loud enough".
             const int groupGap = 400;
 
             switch (char.ToUpperInvariant(candidate))
@@ -1001,24 +1146,24 @@ namespace JJFlexWpf
                 case 'A': // Chime — struck, with a ringing tail. Arrival as a bell.
                     PlayVoicedSequence(EarconVoices.Chime, new[]
                     {
-                        (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms), (0, gap), (p, ms),
+                        (p1, ms), (0, groupGap),
+                        (p2, ms), (0, gap), (p2, ms), (0, groupGap),
+                        (p3, ms), (0, gap), (p3, ms), (0, gap), (p3, ms),
                     }, ConnectPhaseToneVolume);
                     // The six phase tones above run 6·ms with three inter-tone
                     // gaps and two group gaps; one more group gap puts the
                     // success pair where the other candidates put theirs.
-                    PlayLaterVoiced(EarconVoices.Chime, new[] { (p, ms), (0, gap), (p, ms) },
+                    PlayLaterVoiced(EarconVoices.Chime, new[] { (ps, ms), (0, gap), (ps, ms) },
                         VolumeStrong, 6 * ms + 3 * gap + 3 * groupGap);
                     break;
 
                 case 'B': // Press — struck and dry. A mechanical handshake.
                     PlayVoicedDecaySequence(EarconVoices.Press, new[]
                     {
-                        (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms), (0, gap), (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms),
+                        (p1, ms), (0, groupGap),
+                        (p2, ms), (0, gap), (p2, ms), (0, groupGap),
+                        (p3, ms), (0, gap), (p3, ms), (0, gap), (p3, ms), (0, groupGap),
+                        (ps, ms), (0, gap), (ps, ms),
                     }, ConnectPhaseToneVolume);
                     break;
 
@@ -1026,21 +1171,10 @@ namespace JJFlexWpf
                           // sounds like a clarinet, which is the entire point.
                     PlayVoicedSequence(ConnectCandidateHollow, new[]
                     {
-                        (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms), (0, gap), (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms),
-                    }, ConnectPhaseToneVolume);
-                    break;
-
-                case 'D': // Today's voice, but arrival rises a fourth instead of
-                          // repeating the phase-2 pair louder.
-                    PlayVoicedSequence(EarconVoices.Plain, new[]
-                    {
-                        (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (p, ms), (0, gap), (p, ms), (0, groupGap),
-                        (p, ms), (0, gap), (1000, ms),
+                        (p1, ms), (0, groupGap),
+                        (p2, ms), (0, gap), (p2, ms), (0, groupGap),
+                        (p3, ms), (0, gap), (p3, ms), (0, gap), (p3, ms), (0, groupGap),
+                        (ps, ms), (0, gap), (ps, ms),
                     }, ConnectPhaseToneVolume);
                     break;
             }
