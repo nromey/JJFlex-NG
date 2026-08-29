@@ -457,7 +457,19 @@ namespace Radios.Fixer
             // failure this tool exists to expose. NOT a stage result: nothing
             // ran, so it must not sit where a measurement would. Always
             // present so the receive channel can fill it without a re-render.
-            sb.Append("<p id=\"notice-").Append(Attr(stage.Id)).Append("\">")
+            //
+            // LIVE, since Sprint 39. The receive channel fills this slot
+            // without a re-render — that is the whole point of it — so
+            // without a live region the host could write "Something is
+            // already running" or "that check has already run" into the page
+            // and a blind operator would never learn it had refused. The
+            // page's other two host-filled slots (the critical warning and
+            // the status line) were live from the day they were written; this
+            // one, which carries every REFUSAL, was not. Polite, not
+            // assertive: a refusal is not an alarm, and the assertive region
+            // is reserved for a critical finding.
+            sb.Append("<p id=\"notice-").Append(Attr(stage.Id))
+              .Append("\" aria-live=\"polite\">")
               .Append(Esc(state.NoticeFor(stage.Id))).AppendLine("</p>");
 
             if (result == null)
@@ -655,7 +667,17 @@ namespace Radios.Fixer
             if (i < set.Stages.Count - 1)
             {
                 FixerStage next = set.Stages[i + 1];
-                sb.Append("stage-h-").Append(Attr(next.Id)).Append("\">Next: ")
+                // data-stage carries the stage the operator is MOVING TO, so
+                // the page can tell the host where they went (#365). Forward
+                // motion is page-local and must stay that way — a re-render
+                // per step would be its own defect — but the host still has
+                // to know, because the current stage is what it focuses when
+                // a render it did not cause comes back (returning from the
+                // power window, most of all, which stages 2 through 4 use).
+                // Absent on the report control: the report is not a stage.
+                sb.Append("stage-h-").Append(Attr(next.Id))
+                  .Append("\" data-stage=\"").Append(Attr(next.Id))
+                  .Append("\">Next: ")
                   .Append(Esc(StageLabel(next)));
             }
             else
@@ -881,6 +903,19 @@ namespace Radios.Fixer
       // Page-local forward motion: focus the named heading. Headings, not
       // Run buttons, so nothing is pressed before it is read.
       focusById(b.dataset.arg || '');
+      // Then say where the operator went, in both places that need it. The
+      // data-current attribute is what F6's stages stop reads, so it moves
+      // now rather than at the next render; the message keeps the HOST's
+      // marker level, so a render it did not cause brings them back here
+      // and not to the stage they left. Neither costs a re-render.
+      var went = b.dataset.stage || '';
+      if (went) {
+        var was = document.querySelector('main .stage[data-current]');
+        if (was) { was.removeAttribute('data-current'); }
+        var now = document.getElementById('stage-' + went);
+        if (now) { now.setAttribute('data-current', 'true'); }
+        post({ kind: 'current-stage', run: runId, stage: went });
+      }
     }
   });
   post({ kind: 'ready', run: runId });

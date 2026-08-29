@@ -63,6 +63,14 @@ namespace Radios.Fixer
             /// disclosure. Recorded so a re-render honours their choice instead
             /// of springing the prose back open.</summary>
             ExplainToggled,
+            /// <summary>The operator moved to another stage with the page's own
+            /// forward control. Recorded, never acted on: the page has already
+            /// moved focus, and a re-render here would undo the free, instant
+            /// step that makes forward motion worth having. It exists so the
+            /// host's idea of where the operator is cannot fall behind the
+            /// page's, which is what decides the landing after a render the
+            /// operator did not cause (#365).</summary>
+            CurrentStage,
             /// <summary>Run a stage.</summary>
             RunStage,
             /// <summary>Run a stage again — deliberate, and distinct from RunStage.</summary>
@@ -203,6 +211,12 @@ namespace Radios.Fixer
                         if (stage.Length == 0) return Bad(Fault.MissingField);
                         return new FixerPageMessage(Kind.ExplainToggled, Fault.None, run, stage,
                                                     Flag(root, "open") ? "open" : "closed");
+                    }
+
+                    case "current-stage":
+                    {
+                        if (stage.Length == 0) return Bad(Fault.MissingField);
+                        return new FixerPageMessage(Kind.CurrentStage, Fault.None, run, stage, "");
                     }
 
                     case "run-stage":

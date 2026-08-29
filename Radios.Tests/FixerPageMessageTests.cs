@@ -283,6 +283,20 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void Moving_to_the_next_stage_must_name_the_stage()
+        {
+            // The page's own forward control tells the host where the
+            // operator went, so a later render lands them where they are
+            // rather than where they were (#365). With no stage named there
+            // is nothing to record, and recording a blank would be worse than
+            // recording nothing — the host would focus the first stage.
+            Assert.Equal(Fault.MissingField, Parse("{\"kind\":\"current-stage\"}").Problem);
+            Assert.Equal(Kind.CurrentStage,
+                Parse("{\"kind\":\"current-stage\",\"stage\":\"s2\"}").What);
+            Assert.Equal("s2", Parse("{\"kind\":\"current-stage\",\"stage\":\"s2\"}").StageId);
+        }
+
+        [Fact]
         public void Every_kind_can_be_produced_by_some_message()
         {
             // A kind nothing can produce is one that will drift out of step with
@@ -329,6 +343,7 @@ namespace Radios.Tests
             yield return "{\"kind\":\"declare-load\",\"what\":\"dummy load\"}";
             yield return "{\"kind\":\"declare-hearing\",\"what\":\"I can hear the radio\"}";
             yield return "{\"kind\":\"explain\",\"stage\":\"s1\",\"open\":true}";
+            yield return "{\"kind\":\"current-stage\",\"stage\":\"s1\"}";
             yield return "{\"kind\":\"run-stage\",\"stage\":\"s1\"}";
             yield return "{\"kind\":\"run-stage\",\"stage\":\"s1\",\"again\":true}";
             yield return "{\"kind\":\"skip-stage\",\"stage\":\"s1\",\"choice\":\"c\"}";
