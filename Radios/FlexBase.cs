@@ -1618,11 +1618,49 @@ namespace Radios
                 {
                     //PCAudio = true;
 
-                    // Sprint 27 Track A / Phase A.2 — auto-apply per-account
-                    // listen-port preference (Tier 1). Silent no-op when the
-                    // account has no preference, the radio's firmware already
-                    // matches, or no account is bound to the session.
-                    ApplyAccountPortPreferenceIfAny();
+                    // REMOVED 2026-08-29, Noel's ruling: the forwarded port is
+                    // NEVER written on connect. It is written only when the
+                    // operator presses Apply on the Network tab, and never at any
+                    // other time.
+                    //
+                    // WHAT THIS COST. Sprint 27 Phase A.2 auto-applied the
+                    // per-account port on every remote connect. On 2026-08-29 at
+                    // 14:11 Noel connected to DON'S 6300 and this line wrote HIS
+                    // OWN port into it:
+                    //
+                    //   ApplyAccountPortPreferenceIfAny: account=nromey@fastmail.com
+                    //     applying port=25678 (radio reports enabled=True tcp=4992 udp=4992)
+                    //   SetSmartLinkPortForwarding: enabled=True tcp=25678 udp=25678
+                    //
+                    // `wan set public_tls_port` PERSISTS IN THE RADIO. Don's radio
+                    // then advertised 25678 to SmartLink, nothing forwards that
+                    // port at his site, and it became unreachable to every client
+                    // — Don included — until someone with physical access changed
+                    // it back. Five hours of debugging, and it damaged hardware we
+                    // do not own at a site we cannot reach.
+                    //
+                    // WHY AN OWNERSHIP CHECK IS NOT THE FIX. The obvious repair is
+                    // to compare the radio's owning account against _currentAccount
+                    // and skip when they differ. Noel rejected it, correctly: the
+                    // current account is whatever happens to be default, and if
+                    // Don's account were ever made default the check passes and we
+                    // write to his radio anyway — with his consent nowhere in the
+                    // picture. A guard that depends on a mutable default is not a
+                    // guarantee.
+                    //
+                    // THE RULE: writing persistent configuration into radio
+                    // firmware is an operator action with a person behind it. It is
+                    // never a side effect of connecting. If a future build wants to
+                    // offer "apply my port on connect", the owner of THAT radio has
+                    // to have said yes to it, on that radio.
+                    //
+                    // ApplyAccountPortPreferenceIfAny() now has NO CALLERS. The
+                    // Network tab writes through FlexBase.SetSmartLinkPortForwarding
+                    // directly (SettingsDialog.xaml.cs:841), which is the operator
+                    // action described above. The method is left in place, unused,
+                    // only so this comment has something to point at; deleting it is
+                    // safe and should happen in a quieter moment. Do NOT re-add the
+                    // call from here.
 
                     // Sprint 27 Track B / Phase B.3 — attempt UPnP mapping
                     // for Tier 2 opt-in accounts. Silent no-op when UPnP is
