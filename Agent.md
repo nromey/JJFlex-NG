@@ -3,11 +3,107 @@
 This document captures the current state of JJ-Flex repository and active work.
 
 **Repository root:** `C:\dev\JJFlex-NG`
-**Branch:** `honest-tx-audio` — **this is where all current work lives**, 818 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
+**Branch:** `honest-tx-audio` — **this is where all current work lives**, 867 commits ahead of `main` and 0 behind (corrected 2026-08-25; it said 19, and had said so for a long time). **The FlexLib fast-forward is DONE:** `main` vendors **FlexLib 4.2.20.41343** as of 2026-08-11, so main and the old track branch no longer diverge and the "305 commits behind" warning that stood here is retired. Verified 2026-08-12: `main` and `honest-tx-audio` share the same last FlexLib commit (`625bdbae`).
 
 *This header claimed work lived on `track/flexlib-4220` with main 305 commits behind until 2026-08-12 — a day after the merge made that false. It is the same drift documented in `memory/project_description_drift_pattern.md`; check `git rev-parse --abbrev-ref HEAD` rather than trusting this line.*
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
+
+## END-OF-DAY SEAL — 2026-08-28 — THE DAY THE OPERATOR OUT-FOUND THE AGENTS
+
+**Sealed 22:20. Fifty commits in JJFlex-NG, 91 in jjf-private. Two full sprints
+and a sprintlet, sixteen background agents, and a build published to Don.**
+
+Rigmeter today: **+26,163 / -18,539, net +7,624**, 78 files, 50 commits. 25,553
+of the added lines are C#. Noel on the shape of it: *"Lots of churn today with
+deletions and tuning... That's healthy because we took out stuff we didn't
+need."* Snapshot at `2026-08-28-3b6f86b3.json`.
+
+### The theme
+
+**Almost every finding came from the operator using the thing.** Sixteen agents
+ran full suites, built clean and wrote careful reports; what they caught in
+themselves came from READING their own code. Focus jumping to the top of the
+Fixer page, the disconnect arriving after the landing, `V` meaning VFO, a button
+whose accessible name is a sentence, two connect tones that turned out to be one
+sound and its near-twin — none are visible in a diff, a test, or a report.
+
+**And three tracks corrected the task they were handed**, each correction worth
+more than the fix: Sprint 39 Track A found the connect guard was **dead on
+arrival**, not stale on reconnect — verified at every commit that ever contained
+it, meaning the connect beep, per-radio PC audio and the queued REM ON intent had
+**never once executed** since 7 and 12 August. Track C proved the Fixer's stage-0
+report was right all along by reading Noel's actual run off disk. Track G proved
+there was no subscription race in the flaky test: `WhenAny` reports whichever
+CALLBACK runs first, not whichever task finished, and my "the fix is nearly free,
+the clock is already there" claim was wrong in the most expensive way — a fix
+built on that clock would have changed nothing and looked principled.
+
+### What shipped
+
+**Sprint 38** (8 tracks): connect narration stopped saying "no active slice"
+while slices were arriving; "Pane" replaced by a named landing; Home letters stop
+dying in silence; split moved to `P` and toggles; the S-meter unit became a
+persisted per-radio setting; the SmartLink account override clears at disconnect;
+the Fixer's receive report gained a measurement FlexLib had been publishing to
+nobody; a Roslyn checker reconciled the per-field key maps and reported **fifteen
+free letters on the busiest Home field** — the scarcity everyone had designed
+around was never real.
+
+**Sprint 39** (7 tracks): the power-flag lifecycle; disconnect acknowledges the
+press before the teardown; the chain names itself; accessible names became
+actions (57 found, 12 fixed, 45 baselined); the flaky test fixed with
+`Timeout.InfiniteTimeSpan`, which starts no timer rather than a longer one.
+**1818 tests, three consecutive clean runs.**
+
+**Sprint 40** (1 track, a *sprintlet*): the Fixer walked by the operator — focus
+carries forward, "Stop everything", a three-way exit that tells the truth about
+persistence, and a "Using this page" section that says how to leave.
+
+### Cross-surface
+
+- **jjf-private:** 91 commits. The register went from 173 to **194 open**;
+  **fifteen closed at the bench** on Noel's ears rather than on a test.
+- **Memory:** six files touched. Three new entries — the "Pane" pattern, queuing
+  during a test pass, and sweeping the register by FILE not by report. MEMORY.md
+  at 11,670 bytes, under the 12 KB threshold.
+- **Freight Fate** 16 unpushed, **Civ VI** 45 unpushed. Unchanged, still Noel's
+  call.
+- **Dependencies:** clean, no advisories.
+- **Drift check:** 39 path candidates in non-history entries, 53 symbol
+  candidates. No new class; not chased to zero.
+- **Worktrees:** 47 removed (sprints 35 to 38, all merged and clean), branches
+  kept.
+
+### Published
+
+`JJFlex_4.1.16.1671_x64_debug.zip`, 84.6 MB, to Dropbox `debug\` — Don's first
+build since **1467 on 25 August**, 200 commits back. He was chasing an S-meter
+reading low; **he was right, and the fix has been sitting here since this
+morning.** NAS archived, destination verified before the old pair was purged.
+
+### The process finding, and it is the one to carry forward
+
+Noel, on Sprint 40: *"We should have added these fixer fixes when we were fixing
+it."* **Twenty Fixer-area tasks were open while that track edited those exact two
+files. It fixed four — the four he had found an hour earlier — and cited #248 in
+its own reasoning while leaving it open.** Scoping by "what did the operator just
+find" is a good source of tasks and a bad definition of scope. Filed as
+`feedback_sweep_the_register_by_file_not_by_report`.
+
+### Setup for tomorrow
+
+Usage at **75% all models, 87% Fable**; reset 3 AM on the 30th. Opus is the
+fallback, and compact more often.
+
+Owed: the Fixer language pass (#380 — stilted and missing words, an agent wrote
+most of it in one sitting); checks-versus-tests vocabulary (#381); the connect
+tone ladder (#379 — spec settled, pitch rises, count marks arrival); the 4O3A
+amp on the bench, which Noel offered to network (#223, corrected — a controllable
+amp does not always invalidate the checker). Braille hardware after net control.
+And the twenty Fixer tasks, swept properly this time.
+
+---
 
 ## END-OF-DAY SEAL — 2026-08-27 — THE CAPABILITY EXISTS AND THE SHAPE IS WRONG
 
