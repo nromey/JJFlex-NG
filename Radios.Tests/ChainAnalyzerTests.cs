@@ -299,7 +299,7 @@ namespace Radios.Tests
             Assert.True(r.StagesPending > 0);
             Assert.True(r.StagesBlind > 0);
             Assert.Equal(r.StagesUnobservable, r.StagesPending + r.StagesBlind);
-            Assert.Contains("transmit and run the check again", Stage(r, 11).Line());
+            Assert.Contains("transmit and run the test again", Stage(r, 11).Line());
         }
 
         [Fact]

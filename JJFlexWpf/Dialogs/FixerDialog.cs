@@ -253,6 +253,25 @@ public sealed class FixerDialog : JJFlexDialog
             // radio, fills them in here.
             ReadAudioSetup = WithHearing(WithRadioFacts(FixerHostWiring.AudioSetup())),
 
+            // WIRED. The receive walk, at stage 0 (#367) — and it is the SAME
+            // call the Audio Workshop's receive door makes, deliberately, down
+            // to the method name. One definition, two doors: add a rule to
+            // rx-chain-rules.txt and it appears here and there with no second
+            // edit. Anything less than a shared call is two homes for one idea.
+            //
+            // Nothing here decides what the receive facts mean; ReceiveAudioCheck
+            // walks the rules and AudioSetupCheck folds the answer into the
+            // stage, the same split every other stage keeps.
+            ReadReceiveChain = () =>
+            {
+                FlexBase? rig;
+                try { rig = _radio(); } catch { rig = null; }
+                // A null radio is an ordinary input, not a reason to skip: the
+                // walk's own first rule is "no radio is connected", and the
+                // report should say that rather than say nothing.
+                return Radios.ChainChecks.ReceiveAudioCheck.Run(rig!);
+            },
+
             // WIRED. Reuses the existing microphone probe rather than
             // measuring again — now with the count-in and the end signal
             // (#255, #261): the record countdown from Track G's earcon, the

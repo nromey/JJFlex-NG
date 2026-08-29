@@ -371,6 +371,40 @@ namespace Radios.ChainChecks
         /// </summary>
         public const string DefaultChainName = "signal";
 
+        /// <summary>
+        /// The operator's own complaint, as a clause the report can put after
+        /// "If": "you are still not being heard", "you still cannot hear the
+        /// radio". Set by a <c>symptom:</c> line in the rule file.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The second half of the same lesson <see cref="ChainName"/> records,
+        /// found when the receive walk first reached the Fixer (#367). One
+        /// sentence the engine writes for itself — the one it says when nothing
+        /// fired but a check went unmade — still ended "if you are still not
+        /// being heard", which is the transmit complaint and is true of nothing
+        /// a receive walk was asked about. It was unreachable on the receive
+        /// side only because the Workshop's call site substituted its own
+        /// sentence for that whole branch (#370); joining the two doors made it
+        /// live.
+        /// </para>
+        /// <para>
+        /// Data, like the chain name, and for the same reason: a
+        /// receive-flavoured copy of the sentence beside the transmit one is
+        /// two vocabularies for one idea. Write it as a bare clause with no
+        /// leading "if" and no full stop.
+        /// </para>
+        /// </remarks>
+        public string Symptom { get; internal set; } = DefaultSymptom;
+
+        /// <summary>
+        /// What a ruleset that names no symptom says instead. True of any
+        /// chain, and it claims nothing about a direction nobody stated — an
+        /// override file written before the keyword existed gets this rather
+        /// than a wrong guess.
+        /// </summary>
+        public const string DefaultSymptom = "the problem is still there";
+
         /// <summary>The ruleset's own version, so an evidence block can say which
         /// rules produced a verdict — including one delivered after release.</summary>
         public string Version { get; private set; } = "";
@@ -461,6 +495,22 @@ namespace Radios.ChainChecks
                                 continue;
                             }
                             set.ChainName = value;
+                            continue;
+
+                        case "symptom":
+                            // The operator's complaint as a clause, for the one
+                            // sentence that has to say what "still wrong" means
+                            // on this walk. Empty is refused for the same
+                            // reason an empty chain name is: it would leave a
+                            // hole mid-sentence.
+                            if (value.Length == 0)
+                            {
+                                set.Problems.Add("Line " + lineNo + ": symptom wants the operator's "
+                                    + "own complaint as a clause, as in \"symptom: you still cannot "
+                                    + "hear the radio\".");
+                                continue;
+                            }
+                            set.Symptom = value;
                             continue;
 
                         case "stage":

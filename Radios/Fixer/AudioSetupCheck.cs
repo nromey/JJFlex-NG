@@ -119,6 +119,16 @@ namespace Radios.Fixer
         public const string ConfigOpenMismatch = "config-open-mismatch";
         public const string HearsNothingFinding = "hears-nothing";
 
+        /// <summary>
+        /// The receive rule that fires on the same state as
+        /// <see cref="PcAudioOff"/>. Named here, not matched on prose, so an
+        /// operator's own edit to the rule's WORDS cannot quietly reintroduce
+        /// the duplicate. Renaming the rule itself would — which is the honest
+        /// cost of rules being data, and it fails towards saying a true thing
+        /// twice rather than towards saying nothing.
+        /// </summary>
+        public const string RxPcAudioOffRule = "rx-pc-audio-off-on-remote";
+
         // Fix action ids the transmit set binds host delegates to.
         public const string FixSwitchToWasapi = "switch-to-wasapi";
         public const string FixUseSuggestedInput = "use-suggested-input";
@@ -127,7 +137,24 @@ namespace Radios.Fixer
         public const string FixReopenConfiguredAudio = "reopen-configured-audio";
 
         /// <summary>Decide what the facts mean.</summary>
-        public static FixerOutcome Analyze(AudioSetupFacts facts)
+        /// <param name="facts">What the audio system is actually doing.</param>
+        /// <param name="receive">
+        /// The receive walk, run through the same rules and phrased by the same
+        /// code the Audio Workshop's receive door uses (#367). Null when the
+        /// host wired nothing, and the stage then reports only the computer's
+        /// half — honestly, and without inventing a receive answer.
+        /// </param>
+        /// <remarks>
+        /// <b>The receive check is folded in HERE, not run as a stage of its
+        /// own.</b> Noel's ruling, 2026-08-28: "as stage 0, it does rx audio as
+        /// well, but you can just go to the other submenu option if you just
+        /// wanted to test rx audio." One definition, two doors — so a rule
+        /// added to <c>rx-chain-rules.txt</c> reaches the Fixer's report and
+        /// the Workshop's button with no second edit. A second stage set would
+        /// have been two homes for one idea, where one silently falls behind.
+        /// </remarks>
+        public static FixerOutcome Analyze(AudioSetupFacts facts,
+                                           Radios.ChainChecks.ReceiveCheckResult receive = null)
         {
             if (facts == null) throw new ArgumentNullException(nameof(facts));
 
@@ -286,14 +313,96 @@ namespace Radios.Fixer
                     FixReopenConfiguredAudio));
             }
 
+            // THE RECEIVE WALK, in the rule file's own words (#367). Added
+            // last so the computer's own half is read first: the evidence block
+            // is a walk, and it starts at this end.
+            AddReceiveFindings(findings, receive);
+
             return new FixerOutcome
             {
-                Answer = Answer(facts),
+                Answer = Answer(facts) + ReceiveAnswer(receive),
                 Findings = findings,
-                Evidence = Evidence(facts),
+                Evidence = Evidence(facts) + ReceiveEvidence(receive),
                 Payload = facts,
             };
         }
+
+        /// <summary>
+        /// Turn the receive walk's problems into findings, with the one
+        /// exclusion that stops the same cause being reported twice.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Every receive problem belongs to the OPERATOR or to nobody here.
+        /// None of them gets a one-press button, and that is a decision rather
+        /// than an omission: the remedies are a slice mute, output mutes and
+        /// output levels — all of them choices about how somebody listens in
+        /// their own room. Unmuting an output an operator muted on purpose has
+        /// a consequence we would be making on their behalf, and picking a
+        /// level for them is a judgement about a room we cannot hear. The
+        /// Workshop is where a person adjusts audio deliberately; this stage
+        /// says what it found and names the control.
+        /// </para>
+        /// <para>
+        /// <b>The exclusion:</b> the receive rules' PC-audio rung and this
+        /// stage's own <see cref="PcAudioOff"/> finding fire on exactly the same
+        /// state, and this one carries a button that turns it on. Reporting
+        /// both would put two entries and one action in front of an operator
+        /// for one cause — "how a report starts feeling long", as the hearing
+        /// finding above already puts it.
+        /// </para>
+        /// </remarks>
+        private static void AddReceiveFindings(List<FixerFinding> findings,
+                                               Radios.ChainChecks.ReceiveCheckResult receive)
+        {
+            if (receive == null) return;
+
+            bool weAlreadyOfferPcAudio =
+                findings.Exists(f => string.Equals(f.Id, PcAudioOff, StringComparison.OrdinalIgnoreCase));
+
+            foreach (Radios.ChainChecks.ReceiveProblem p in receive.Problems)
+            {
+                if (weAlreadyOfferPcAudio
+                    && string.Equals(p.Id, RxPcAudioOffRule, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Ids come from the rule file and cannot collide with this
+                // stage's own, which are all written above; a duplicate would
+                // still be refused rather than shadowing a fix button.
+                if (findings.Exists(f => string.Equals(f.Id, p.Id, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                bool nothingChecked = string.Equals(p.Id,
+                    Radios.ChainChecks.ReceiveAudioCheck.NothingCheckedId,
+                    StringComparison.OrdinalIgnoreCase);
+
+                findings.Add(new FixerFinding(p.Id,
+                    nothingChecked ? FixOwner.NobodyHere : FixOwner.Operator,
+                    p.WhatIsWrong, p.WhatToDo));
+            }
+        }
+
+        /// <summary>
+        /// The receive half of the stage's spoken answer: what actually arrived
+        /// from the radio, and — only when no finding already carries those
+        /// words — the walk's own verdict.
+        /// </summary>
+        private static string ReceiveAnswer(Radios.ChainChecks.ReceiveCheckResult receive)
+        {
+            if (receive == null) return "";
+
+            var sb = new StringBuilder();
+            // The measurement first. It is the one fact in this stage that is
+            // about the RADIO rather than about a switch we set, so it is the
+            // half that survives a reader who distrusts our software (#350).
+            if (receive.Arrival.Length != 0) sb.Append(' ').Append(receive.Arrival);
+            string verdict = receive.VerdictNotCarriedByProblems;
+            if (verdict.Length != 0) sb.Append(' ').Append(verdict);
+            return sb.ToString();
+        }
+
+        private static string ReceiveEvidence(Radios.ChainChecks.ReceiveCheckResult receive)
+            => receive == null ? "" : Environment.NewLine + receive.Evidence;
 
         /// <summary>Is this host API name MME?</summary>
         public static bool IsMme(string hostApi)

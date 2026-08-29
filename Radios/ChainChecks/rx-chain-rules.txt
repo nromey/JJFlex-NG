@@ -23,14 +23,14 @@
 # news than a routing choice. Say the most disabling thing first.
 
 #
-# STAGE 4 IS A DIFFERENT KIND OF CHECK, added 2026-08-28 (#350).
+# STAGE 5 IS A DIFFERENT KIND OF CHECK, added 2026-08-28 (#350).
 #
-# Stages 0 to 3 read SETTINGS: mutes, levels, a routing switch. Every one of
-# them is something this application asked the radio to be, so the whole report
+# Stages 0 to 4 read SETTINGS: a slice mute and volume, output mutes and levels,
+# and a routing switch. Every one of them is something this application asked the radio to be, so the whole report
 # could be verifiably correct while no audio had ever reached the computer. It
 # said the plumbing was configured; it never said water came out.
 #
-# Stage 4 reads what ARRIVED — bytes the radio sent that crossed the network
+# Stage 5 reads what ARRIVED — bytes the radio sent that crossed the network
 # and were counted on this side. That is the half a manufacturer's support desk
 # asks about first, and the only half that means anything to a reader who does
 # not trust our software.
@@ -42,10 +42,11 @@
 # their station. An ungated rule here would accuse the commonest setup there is.
 
 ruleset: Receive audio check
-version: 2
+version: 3
+symptom: you still cannot hear the radio
 
 
-# ── Stage 0 ───────────────────────────────────────────────────────────────
+# ── Stage 0 ─────────────────────────────────────────────────────────────────────────
 
 stage: 0 the connection to your radio
 about: A Flex makes no audio at all until a client connects to it.
@@ -54,20 +55,71 @@ rule: rx-no-radio
 in-stage: 0
 broken-when: radio-connected is no
 verdict: No radio is connected. A Flex makes no sound at all until a client connects to it, and that includes its own headphone jack on the front panel. This catches nearly everybody once.
-fix: Connect to your radio, then run this check again.
+fix: Connect to your radio, then run this test again.
 
 
-# ── Stage 1 ───────────────────────────────────────────────────────────────
+# ── Stage 1 ─────────────────────────────────────────────────────────────────────────
+#
+# THE SLICE, added 2026-08-29 (#367), and it goes here because the signal path
+# does: a slice's own mute and volume sit upstream of every output the radio
+# has AND of the network stream, so a muted slice is silent in all of them at
+# once. That makes it the most disabling thing in this file after having no
+# radio at all, and this file says the most disabling thing first.
+#
+# It existed only as a sentence until now. The Audio Workshop's all-clear text
+# ended "if the radio is still silent, check the slice volume and that a slice
+# is not muted" — real advice, hand-written, with no rule, no fact and no
+# evidence line behind it. Joining the receive check's two doors retired that
+# string, and a rung living only in retired prose is a rung that is gone.
+#
+# Every rule here is gated on active-slice at RULE level rather than by a
+# stage-level needs:, because the fact is a flag and a stage gated on a flag
+# currently reports "not part of your receive path, because a slice is
+# receiving is no" (#371). The stage's nothing-to-check line says it properly.
+
+stage: 1 the slice you are listening to
+about: A slice's own mute and volume, which sit ahead of every output the radio has and of the audio sent to this computer.
+nothing-to-check: no slice is receiving, so there is no slice mute or slice volume to read. Start a slice, then run this test again.
+
+rule: rx-slice-muted
+in-stage: 1
+needs: active-slice is yes
+broken-when: slice-muted is yes
+verdict: The slice you are listening to is muted. Muting a slice silences it everywhere at once — headphones, line out, the front speaker, and the audio sent to this computer — so nothing further down will make a sound while it stays muted.
+fix: Unmute the slice. On Home, M mutes and unmutes the slice you are on, and there is a Mute box in the Audio panel.
+evidence: slice-muted
+evidence: active-slice
+
+rule: rx-slice-level-zero
+in-stage: 1
+needs: active-slice is yes
+broken-when: slice-level at most 0
+verdict: The slice you are listening to has its volume at zero. That is a different control from the radio's output levels and it comes before them, so nothing after it can make a sound.
+fix: Raise Volume in the Audio panel on Home for the slice you are on.
+evidence: slice-level
+evidence: active-slice
+
+rule: rx-slice-level-very-low
+in-stage: 1
+needs: active-slice is yes
+broken-when: slice-level at most 5
+verdict: The slice you are listening to has its volume very low, at {slice-level} out of 100. There may well be sound there, but not enough of it to hear over a room.
+fix: Raise Volume in the Audio panel on Home for the slice you are on.
+evidence: slice-level
+evidence: active-slice
+
+
+# ── Stage 2 ─────────────────────────────────────────────────────────────────────────
 #
 # Mutes before levels, and all-three before any one. An operator who is told
 # "the headphone output is muted" and fixes it, only to find the line out was
 # muted too, has been sent round twice by a check that knew both answers.
 
-stage: 1 the radio's outputs
+stage: 2 the radio's outputs
 about: Whether the radio's own outputs are muted.
 
 rule: rx-everything-muted
-in-stage: 1
+in-stage: 2
 broken-when: headphone-muted is yes
 broken-when: lineout-muted is yes
 broken-when: front-speaker-muted is yes
@@ -78,7 +130,7 @@ evidence: lineout-muted
 evidence: front-speaker-muted
 
 rule: rx-headphone-and-lineout-muted
-in-stage: 1
+in-stage: 2
 broken-when: headphone-muted is yes
 broken-when: lineout-muted is yes
 verdict: The radio's headphone and line out outputs are both currently muted. The front speaker is not, so if you have one you may still be hearing it.
@@ -87,27 +139,27 @@ evidence: headphone-muted
 evidence: lineout-muted
 
 rule: rx-headphone-muted
-in-stage: 1
+in-stage: 2
 broken-when: headphone-muted is yes
 verdict: The radio's headphone output is currently muted.
 fix: In Settings, Audio, unmute the headphone output.
 evidence: headphone-muted
 
 rule: rx-lineout-muted
-in-stage: 1
+in-stage: 2
 broken-when: lineout-muted is yes
 verdict: The radio's line out output is currently muted.
 fix: In Settings, Audio, unmute the line out output.
 evidence: lineout-muted
 
 
-# ── Stage 2 ───────────────────────────────────────────────────────────────
+# ── Stage 3 ─────────────────────────────────────────────────────────────────────────
 
-stage: 2 the radio's output levels
+stage: 3 the radio's output levels
 about: How loud the radio is set to be, which on most Flex models is the only volume control there is.
 
 rule: rx-both-levels-zero
-in-stage: 2
+in-stage: 3
 broken-when: headphone-level at most 0
 broken-when: lineout-level at most 0
 verdict: Both of the radio's output levels are currently at zero. On a Flex with no front panel knob these are the only volume controls there are, so nothing will make a sound until one of them comes up.
@@ -116,21 +168,21 @@ evidence: headphone-level
 evidence: lineout-level
 
 rule: rx-headphone-level-zero
-in-stage: 2
+in-stage: 3
 broken-when: headphone-level at most 0
 verdict: The radio's headphone level is currently at zero.
 fix: Raise the headphone level in Settings, Audio.
 evidence: headphone-level
 
 rule: rx-lineout-level-zero
-in-stage: 2
+in-stage: 3
 broken-when: lineout-level at most 0
 verdict: The radio's line out level is currently at zero.
 fix: Raise the line out level in Settings, Audio.
 evidence: lineout-level
 
 rule: rx-both-levels-very-low
-in-stage: 2
+in-stage: 3
 broken-when: headphone-level at most 5
 broken-when: lineout-level at most 5
 verdict: Both of the radio's output levels are currently very low. There may well be sound there, but not enough of it to hear over a room.
@@ -139,17 +191,17 @@ evidence: headphone-level
 evidence: lineout-level
 
 
-# ── Stage 3 ───────────────────────────────────────────────────────────────
+# ── Stage 4 ─────────────────────────────────────────────────────────────────────────
 #
 # Last, because it is a routing CHOICE rather than a fault — except on a
 # remote connection, where it is the whole ball game: there is no other path
 # for the sound to take.
 
-stage: 3 how the audio reaches you
+stage: 4 how the audio reaches you
 about: Whether radio audio is being carried to this computer, which on a remote connection is the only way to hear it.
 
 rule: rx-pc-audio-off-on-remote
-in-stage: 3
+in-stage: 4
 needs: remote-radio is yes
 broken-when: pc-audio is no
 verdict: PC audio is currently switched off and you are connected remotely, so there is no path at all for the sound to reach you. The radio's own headphone jack is at the radio, wherever that is.
@@ -158,7 +210,7 @@ evidence: pc-audio
 evidence: remote-radio
 
 
-# ── Stage 4 ───────────────────────────────────────────────────────────────
+# ── Stage 5 ─────────────────────────────────────────────────────────────────────────
 #
 # The first stage in this file that measures rather than reads back. See the
 # note at the top for why it is gated on pc-audio throughout, and why "nothing
@@ -182,12 +234,12 @@ evidence: remote-radio
 # judgement nobody has made, and the report already states and interprets the
 # holes in its measurement sentence either way.
 
-stage: 4 audio arriving from the radio
+stage: 5 audio arriving from the radio
 about: Whether audio is actually reaching this computer, measured from what the radio has been sending over the last half minute rather than from any setting.
 nothing-to-check: radio audio through this computer is switched off, so the radio is not sending any audio here and none is expected. What you hear comes out of the radio itself.
 
 rule: rx-nothing-arriving
-in-stage: 4
+in-stage: 5
 needs: pc-audio is yes
 broken-when: rx-audio-kbps at most 0
 broken-when: rx-total-kbps at most 0
@@ -201,7 +253,7 @@ evidence: pc-audio
 evidence: remote-radio
 
 rule: rx-meters-but-no-audio
-in-stage: 4
+in-stage: 5
 needs: pc-audio is yes
 broken-when: rx-audio-kbps at most 0
 broken-when: rx-meter-kbps at least 1
@@ -215,7 +267,7 @@ evidence: pc-audio
 evidence: remote-radio
 
 rule: rx-data-but-no-audio
-in-stage: 4
+in-stage: 5
 needs: pc-audio is yes
 broken-when: rx-audio-kbps at most 0
 broken-when: rx-total-kbps at least 1

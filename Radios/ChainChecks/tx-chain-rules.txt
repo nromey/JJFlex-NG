@@ -18,7 +18,7 @@
 # A keyword written twice joins its two values with a space, so a long sentence
 # can be split over several short lines rather than running off the edge.
 #
-# Three keys stand on their own at the top of the file, before any block:
+# Four keys stand on their own at the top of the file, before any block:
 #   ruleset:                   What this walk is called, in the operator's
 #                              words. It heads the report.
 #   version:                   The ruleset's own version, quoted in the
@@ -35,6 +35,17 @@
 #                              app and do not need this line; a file that is
 #                              neither of them does, and so does an operator's
 #                              own file that walks something else.
+#   symptom:                   The operator's own complaint, as a clause the
+#                              report can put after "If": "you are still not
+#                              being heard", "you still cannot hear the radio".
+#                              It appears in the one sentence the report writes
+#                              when nothing came back wrong but a check went
+#                              unmade — "so this is not a clean bill of health.
+#                              If <symptom>, the problem is most likely in one
+#                              of those." No leading "if", no full stop. Leave
+#                              it out and the report says "the problem is still
+#                              there", which is true of any walk and claims
+#                              nothing about a direction nobody stated.
 #
 # There are two kinds of block. A "stage" line opens one, a "rule" line opens
 # the other, and everything after a block line belongs to that block until the
@@ -145,6 +156,7 @@
 
 ruleset: Transmit chain check
 version: 1
+symptom: you are still not being heard
 
 
 # ── Stage 0 ───────────────────────────────────────────────────────────────
@@ -159,7 +171,7 @@ rule: no-radio
 in-stage: 0
 broken-when: radio-connected is no
 verdict: No radio is connected, so none of your transmit chain can be checked.
-fix: Connect to your radio and run this check again.
+fix: Connect to your radio and run this test again.
 
 
 # ── Stage 1 ───────────────────────────────────────────────────────────────
@@ -192,7 +204,7 @@ evidence: pc-input-device-missing-reason
 stage: 2 the microphone actually capturing
 about: Whether sound is reaching JJ Flexible from the microphone at all.
 needs: mic-source is PC
-nothing-to-check: this can only be measured while you are transmitting with computer audio, so transmit and run the check again.
+nothing-to-check: this can only be measured while you are transmitting with computer audio, so transmit and run the test again.
 
 rule: pc-mic-silent-on-transmit
 in-stage: 2
@@ -396,7 +408,7 @@ evidence: mic-source, mic-boost, speech-processor
 
 stage: 11 what the radio says it hears
 about: The radio's own microphone meter, measured after it has chosen an input. This is the radio telling you what actually arrived.
-nothing-to-check: the radio only measures its transmit audio while transmitting, so transmit and run the check again.
+nothing-to-check: the radio only measures its transmit audio while transmitting, so transmit and run the test again.
 
 # ORDER MATTERS HERE, and it is the opposite of the obvious one. The two rules
 # about the meter itself come BEFORE the rule about its value, because a meter
@@ -463,7 +475,7 @@ evidence: mic-source, mic-profile, sc-mic-peak, sw-alc, codec-mic, pc-tx-loudnes
 
 stage: 12 radio frequency out of the radio
 about: Whether power actually left the radio, and whether the antenna accepted it.
-nothing-to-check: power and standing wave ratio can only be judged while transmitting, so transmit and run the check again.
+nothing-to-check: power and standing wave ratio can only be judged while transmitting, so transmit and run the test again.
 
 # MEASURED, and the number is not chosen here — it is FlexLib's own clamp.
 # Xvtr.MaxPower is a double in dBm limited to +15.00, so the most drive the
