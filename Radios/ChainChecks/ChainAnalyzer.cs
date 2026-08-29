@@ -37,17 +37,29 @@ namespace Radios.ChainChecks
         /// <summary>We could not see this stage from this computer.</summary>
         NotObservable,
 
-        /// <summary>This stage is not part of the operator's transmit path.</summary>
+        /// <summary>This stage is not part of the path this operator actually
+        /// uses, whichever chain is being walked.</summary>
         NotInPath
     }
 
     /// <summary>One stage's answer, with everything needed to justify it.</summary>
     public sealed class StageResult
     {
-        internal StageResult(DiagnosticStage stage) { Stage = stage; }
+        internal StageResult(DiagnosticStage stage, string chainName)
+        {
+            Stage = stage;
+            ChainName = string.IsNullOrWhiteSpace(chainName)
+                ? DiagnosticRuleSet.DefaultChainName
+                : chainName;
+        }
 
         /// <summary>The stage this is about.</summary>
         public DiagnosticStage Stage { get; }
+
+        /// <summary>The operator's word for the chain this stage belongs to,
+        /// carried down from the ruleset so a stage can name it in its own
+        /// sentence. See <see cref="DiagnosticRuleSet.ChainName"/>.</summary>
+        public string ChainName { get; }
 
         /// <summary>The answer.</summary>
         public StageVerdict Verdict { get; internal set; }
@@ -109,7 +121,7 @@ namespace Radios.ChainChecks
                     return Capitalize(Title) + ": this is where it stops. " + Message;
 
                 case StageVerdict.NotInPath:
-                    return Sentence(Capitalize(Title) + ": not part of your transmit path"
+                    return Sentence(Capitalize(Title) + ": not part of your " + ChainName + " path"
                          + (Reasons.Count != 0 ? ", " + Reasons[0] : ""));
 
                 case StageVerdict.NotObservable:
@@ -172,6 +184,16 @@ namespace Radios.ChainChecks
 
         /// <summary>The moment this describes, local time.</summary>
         public DateTime At { get; }
+
+        /// <summary>
+        /// The operator's word for the chain that was walked — "transmit",
+        /// "receive" — for every sentence this report writes itself. Comes off
+        /// the ruleset, because the ruleset IS the chain; see
+        /// <see cref="DiagnosticRuleSet.ChainName"/>.
+        /// </summary>
+        public string ChainName => string.IsNullOrWhiteSpace(Rules?.ChainName)
+            ? DiagnosticRuleSet.DefaultChainName
+            : Rules.ChainName;
 
         /// <summary>Every stage, in walk order.</summary>
         public List<StageResult> Stages { get; } = new List<StageResult>();
@@ -270,7 +292,8 @@ namespace Radios.ChainChecks
             // too.
             if (ChecksMade == 0 && StagesHealthy == 0)
             {
-                string s = "Nothing was checked, so nothing can be said about your transmit chain. "
+                string s = "Nothing was checked, so nothing can be said about your "
+                         + ChainName + " chain. "
                          + "The checks themselves could not be loaded";
                 if (RuleProblems.Count != 0) s += ": " + RuleProblems[0];
                 else s += ".";
@@ -285,7 +308,8 @@ namespace Radios.ChainChecks
                      + "If you are still not being heard, the problem is most likely in one of those.";
             }
 
-            return "Every stage of your transmit chain that applies to your setup was checked, and nothing is wrong.";
+            return "Every stage of your " + ChainName
+                 + " chain that applies to your setup was checked, and nothing is wrong.";
         }
 
         private string UncheckedPhrase()
@@ -355,7 +379,9 @@ namespace Radios.ChainChecks
             if (StagesBlind > 0)
                 sb.Append(", ").Append(StagesBlind).Append(" could not be checked");
             if (StagesNotInPath > 0)
-                sb.Append(", ").Append(StagesNotInPath).Append(" are not in your transmit path");
+                sb.Append(", ").Append(StagesNotInPath)
+                  .Append(StagesNotInPath == 1 ? " is not in your " : " are not in your ")
+                  .Append(ChainName).Append(" path");
             sb.Append('.');
 
             return sb.ToString();
@@ -531,6 +557,15 @@ namespace Radios.ChainChecks
     /// through it is reachable from a unit test.
     /// </para>
     /// <para>
+    /// <b>That was true of the logic and false of the wording until 2026-08-28.</b>
+    /// Three sentences the engine writes for itself said "transmit" whichever
+    /// ruleset was running, so a receive walk could tell an operator that a
+    /// stage is not part of their transmit path. The chain now names itself:
+    /// the one word comes off <see cref="DiagnosticRuleSet.ChainName"/> and is
+    /// filled into one sentence each, rather than a receive-flavoured copy of
+    /// every line sitting beside the transmit one.
+    /// </para>
+    /// <para>
     /// <b>The engine never guesses.</b> A rule it cannot evaluate is counted as
     /// unmade, never as passed. That single choice is what keeps a report from
     /// quietly turning into "all good".
@@ -553,7 +588,7 @@ namespace Radios.ChainChecks
 
             foreach (DiagnosticStage stage in rules.Stages)
             {
-                var result = new StageResult(stage);
+                var result = new StageResult(stage, rules.ChainName);
                 report.Stages.Add(result);
 
                 // Is this stage part of the operator's path at all? A stage

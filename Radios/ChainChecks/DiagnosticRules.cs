@@ -302,10 +302,12 @@ namespace Radios.ChainChecks
         /// </summary>
         public string NothingToCheck { get; internal set; } = "";
 
-        /// <summary>Conditions that must hold for this stage to be part of the
-        /// operator's transmit path at all. A stage that fails these is reported
-        /// as not in the path — which is a different answer from broken and a
-        /// different answer from unreadable.</summary>
+        /// <summary>Conditions that must hold for this stage to be part of this
+        /// operator's path at all. A stage that fails these is reported as not
+        /// in the path — which is a different answer from broken and a
+        /// different answer from unreadable. The sentence names the chain from
+        /// <see cref="DiagnosticRuleSet.ChainName"/>, so the receive walk says
+        /// receive.</summary>
         public List<Condition> Needs { get; } = new List<Condition>();
 
         public override string ToString() => "Stage " + Number + ", " + Name;
@@ -317,11 +319,12 @@ namespace Radios.ChainChecks
     /// <remarks>
     /// <para>
     /// <b>Rules are data.</b> Nothing in this class knows what a transmit chain
-    /// is; it knows about stages, rules, conditions and facts. The TX chain walk
-    /// is one file. A receive-chain walk, an amplifier walk or a rule pushed out
-    /// through the Data Provider to chase a fault we have not seen yet are all
-    /// the same object with different text in it, and none of them needs a
-    /// build.
+    /// is; it knows about stages, rules, conditions and facts, plus the one word
+    /// a chain is called by (<see cref="ChainName"/>), which is data too. The TX
+    /// chain walk is one file. A receive-chain walk, an amplifier walk or a rule
+    /// pushed out through the Data Provider to chase a fault we have not seen
+    /// yet are all the same object with different text in it, and none of them
+    /// needs a build.
     /// </para>
     /// <para>
     /// The format is documented in full at the top of the shipped rule file,
@@ -333,6 +336,40 @@ namespace Radios.ChainChecks
     {
         /// <summary>What this ruleset walks, in the operator's words.</summary>
         public string Title { get; private set; } = "Chain check";
+
+        /// <summary>
+        /// The word the report uses whenever it has to name this chain:
+        /// "not part of your <b>transmit</b> path", "your <b>receive</b> chain".
+        /// Supplied by whoever loaded the set, and overridden by a
+        /// <c>chain:</c> line in the file itself.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// It exists because the analyzer is shared. Every sentence the engine
+        /// writes for itself — a stage that is not in the path, a walk that
+        /// checked everything, a walk that could check nothing — has to name
+        /// the chain, and those sentences used to say "transmit" whichever
+        /// ruleset was running. A receive report could therefore announce that
+        /// something is not part of your transmit path, which is true of
+        /// nothing the operator asked about.
+        /// </para>
+        /// <para>
+        /// <b>One name in two frames, not two sets of sentences.</b> The fix
+        /// deliberately is not a receive-flavoured copy of each line beside the
+        /// transmit one: that is two vocabularies for one idea, which is the
+        /// duplication this project keeps finding. Write the name lower case
+        /// and as a bare word — it always appears mid-sentence, between "your"
+        /// and "path" or "chain".
+        /// </para>
+        /// </remarks>
+        public string ChainName { get; internal set; } = DefaultChainName;
+
+        /// <summary>
+        /// What a ruleset nobody named calls its chain. Deliberately
+        /// direction-free: a set that was never told which way it points must
+        /// not claim to be either one.
+        /// </summary>
+        public const string DefaultChainName = "signal";
 
         /// <summary>The ruleset's own version, so an evidence block can say which
         /// rules produced a verdict — including one delivered after release.</summary>
@@ -363,9 +400,19 @@ namespace Radios.ChainChecks
         /// <see cref="Problems"/> say so, and the report degrades to "no checks
         /// could be run" rather than to an exception in a diagnostic tool.
         /// </summary>
-        public static DiagnosticRuleSet Parse(string text, string origin = "")
+        /// <param name="text">The rule file's contents.</param>
+        /// <param name="origin">Where it came from, for the evidence block.</param>
+        /// <param name="chainName">
+        /// What to call this chain if the file does not name itself — supplied
+        /// by the loader, which knows which of the shipped walks it asked for.
+        /// A <c>chain:</c> line inside the file wins over it, so an operator's
+        /// own rule file can say what it walks, and one that predates the
+        /// keyword still gets the right word. See <see cref="ChainName"/>.
+        /// </param>
+        public static DiagnosticRuleSet Parse(string text, string origin = "", string chainName = "")
         {
             var set = new DiagnosticRuleSet { Origin = origin ?? "" };
+            if (!string.IsNullOrWhiteSpace(chainName)) set.ChainName = chainName.Trim();
             if (string.IsNullOrEmpty(text)) return set;
 
             DiagnosticStage stage = null;
@@ -400,6 +447,20 @@ namespace Radios.ChainChecks
                             continue;
                         case "version":
                             set.Version = value;
+                            continue;
+
+                        case "chain":
+                            // The one word every sentence the ENGINE writes for
+                            // itself has to fill in. An empty one would leave a
+                            // hole mid-sentence — "not part of your  path" —
+                            // so it is refused and the loader's name stands.
+                            if (value.Length == 0)
+                            {
+                                set.Problems.Add("Line " + lineNo + ": chain wants the operator's word "
+                                    + "for what this file walks, as in \"chain: receive\".");
+                                continue;
+                            }
+                            set.ChainName = value;
                             continue;
 
                         case "stage":

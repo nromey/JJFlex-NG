@@ -18,6 +18,24 @@
 # A keyword written twice joins its two values with a space, so a long sentence
 # can be split over several short lines rather than running off the edge.
 #
+# Three keys stand on their own at the top of the file, before any block:
+#   ruleset:                   What this walk is called, in the operator's
+#                              words. It heads the report.
+#   version:                   The ruleset's own version, quoted in the
+#                              evidence block so a verdict can be traced to the
+#                              rules that produced it — including rules pushed
+#                              out after release.
+#   chain:                     One word for what this file walks: transmit,
+#                              receive. The report fills it into the sentences
+#                              it writes for itself — "not part of your receive
+#                              path", "your transmit chain" — so write it lower
+#                              case and bare, because it always lands
+#                              mid-sentence between "your" and "path". The two
+#                              walks that ship with the app are named by the
+#                              app and do not need this line; a file that is
+#                              neither of them does, and so does an operator's
+#                              own file that walks something else.
+#
 # There are two kinds of block. A "stage" line opens one, a "rule" line opens
 # the other, and everything after a block line belongs to that block until the
 # next one.
@@ -30,10 +48,12 @@
 #                              operator would say it.
 #   about:                     One sentence on what this step does.
 #   needs:                     A condition that must hold for this stage to be
-#                              part of THIS operator's transmit path. A stage
-#                              that fails it is reported as "not in your
-#                              transmit path", which is a different answer from
-#                              broken and from unreadable. Repeatable.
+#                              part of THIS operator's path. A stage that fails
+#                              it is reported as "not part of your transmit
+#                              path" — the chain's own name, from the chain key
+#                              above, so the receive walk says receive — which
+#                              is a different answer from broken and from
+#                              unreadable. Repeatable.
 #   not-observable:            Set this when the stage cannot be checked at all
 #                              from this computer, and say why. The day someone
 #                              adds the missing observable, delete this line and
@@ -106,7 +126,9 @@
 # into the radio's own front panel has no computer audio and no Opus encoder,
 # and telling them five stages "could not be checked" would invite them to hunt
 # in a path they are not using. It is counted separately and never added to the
-# unreadable total.
+# unreadable total. The word "transmit" in that sentence is this file's own
+# name for itself, not something the engine believes: the receive walk says
+# "not in your receive path" from the same line of code.
 #
 #
 # THRESHOLDS

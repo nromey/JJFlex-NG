@@ -46,6 +46,22 @@ namespace Radios.ChainChecks
         private const string TxChainResource = "Radios.ChainChecks.tx-chain-rules.txt";
         private const string RxChainResource = "Radios.ChainChecks.rx-chain-rules.txt";
 
+        // ── WHAT EACH WALK IS CALLED ──────────────────────────────────────
+        //
+        // The one word the report fills into its own sentences: "not part of
+        // your RECEIVE path", "your TRANSMIT chain". It lives here rather than
+        // in the rule files because this is the only place that already knows
+        // which of the two shipped walks is being asked for, and because an
+        // operator's own override replaces a rule file ENTIRELY — an override
+        // written before this keyword existed would otherwise come back
+        // unnamed and start calling itself the signal chain.
+        //
+        // A file that DOES name itself, with a "chain:" line, wins over these.
+        // That is the escape hatch for a walk that is neither of ours, and it
+        // is the reason the name is data rather than a constructor argument.
+        private const string TxChainName = "transmit";
+        private const string RxChainName = "receive";
+
         private static readonly object CacheLock = new object();
         private static readonly Dictionary<string, DiagnosticRuleSet> Cache =
             new Dictionary<string, DiagnosticRuleSet>(StringComparer.OrdinalIgnoreCase);
@@ -57,7 +73,7 @@ namespace Radios.ChainChecks
         /// </summary>
         public static DiagnosticRuleSet TxChain()
         {
-            return Load(TxChainFileName, TxChainResource);
+            return Load(TxChainFileName, TxChainResource, TxChainName);
         }
 
         /// <summary>
@@ -80,7 +96,7 @@ namespace Radios.ChainChecks
         /// </remarks>
         public static DiagnosticRuleSet RxChain()
         {
-            return Load(RxChainFileName, RxChainResource);
+            return Load(RxChainFileName, RxChainResource, RxChainName);
         }
 
         /// <summary>
@@ -102,15 +118,16 @@ namespace Radios.ChainChecks
             return string.IsNullOrEmpty(dir) ? "" : Path.Combine(dir, fileName);
         }
 
-        private static DiagnosticRuleSet Load(string fileName, string resourceName)
+        private static DiagnosticRuleSet Load(string fileName, string resourceName, string chainName)
         {
             lock (CacheLock)
             {
                 if (Cache.TryGetValue(fileName, out DiagnosticRuleSet cached)) return cached;
             }
 
-            DiagnosticRuleSet set = ReadOverride(fileName) ?? ReadEmbedded(resourceName)
-                ?? Missing(fileName, resourceName);
+            DiagnosticRuleSet set = ReadOverride(fileName, chainName)
+                ?? ReadEmbedded(resourceName, chainName)
+                ?? Missing(fileName, resourceName, chainName);
 
             lock (CacheLock) Cache[fileName] = set;
 
@@ -128,28 +145,28 @@ namespace Radios.ChainChecks
             return set;
         }
 
-        private static DiagnosticRuleSet ReadOverride(string fileName)
+        private static DiagnosticRuleSet ReadOverride(string fileName, string chainName)
         {
             try
             {
                 string path = OverridePath(fileName);
                 if (path.Length == 0 || !File.Exists(path)) return null;
                 string text = File.ReadAllText(path);
-                return DiagnosticRuleSet.Parse(text, "your own rule file at " + path);
+                return DiagnosticRuleSet.Parse(text, "your own rule file at " + path, chainName);
             }
             catch (Exception ex)
             {
                 // An unreadable override must NOT silently fall through to the
                 // built-in rules: the operator would then be running checks
                 // they did not write and cannot see. Say so instead.
-                var set = new DiagnosticRuleSet { Origin = "your own rule file" };
+                var set = new DiagnosticRuleSet { Origin = "your own rule file", ChainName = chainName };
                 set.Problems.Add("Your own rule file could not be read: " + ex.Message
                     + ". Move it out of the way to go back to the built-in rules.");
                 return set;
             }
         }
 
-        private static DiagnosticRuleSet ReadEmbedded(string resourceName)
+        private static DiagnosticRuleSet ReadEmbedded(string resourceName, string chainName)
         {
             try
             {
@@ -157,19 +174,23 @@ namespace Radios.ChainChecks
                 using Stream stream = asm.GetManifestResourceStream(resourceName);
                 if (stream == null) return null;
                 using var reader = new StreamReader(stream);
-                return DiagnosticRuleSet.Parse(reader.ReadToEnd(), "this build");
+                return DiagnosticRuleSet.Parse(reader.ReadToEnd(), "this build", chainName);
             }
             catch (Exception ex)
             {
-                var set = new DiagnosticRuleSet { Origin = "this build" };
+                var set = new DiagnosticRuleSet { Origin = "this build", ChainName = chainName };
                 set.Problems.Add("The built-in rules could not be read: " + ex.Message);
                 return set;
             }
         }
 
-        private static DiagnosticRuleSet Missing(string fileName, string resourceName)
+        private static DiagnosticRuleSet Missing(string fileName, string resourceName, string chainName)
         {
-            var set = new DiagnosticRuleSet { Origin = "nowhere" };
+            // NAMED EVEN HERE, and this is the branch where it matters most:
+            // with no rules at all the headline is "nothing can be said about
+            // your <chain> chain", which is the one sentence that has to be
+            // about the walk the operator actually asked for.
+            var set = new DiagnosticRuleSet { Origin = "nowhere", ChainName = chainName };
             set.Problems.Add("No rules were found. The built-in copy (" + resourceName
                 + ") is missing from this build, and there is no file at "
                 + (OverridePath(fileName) is { Length: > 0 } p ? p : "the settings folder") + ".");
