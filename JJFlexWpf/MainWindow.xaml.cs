@@ -398,6 +398,36 @@ public partial class MainWindow : UserControl
                 && prev != Radios.SmartLink.SessionStatus.Disconnected;
             if (routineBringUp) return;
 
+            // Routine tear-DOWN is not news either (#360, 2026-08-28). By
+            // construction in WanSessionOwner, Disconnected is only ever
+            // reached when the app itself asked (_userWantsConnected false —
+            // the monitor turns network trouble into Reconnecting, never
+            // straight Disconnected), and ShutDown only on a requested
+            // shutdown. Every one of those deliberate paths narrates itself:
+            // Radio ▸ Disconnect speaks "Disconnected from X", SelectRadio
+            // hands its lead to the arriving picker, exit has the farewell,
+            // and FlexBase's mid-connect WAN session cycling is plumbing
+            // inside a connect that is being narrated by the Connecting
+            // window. So "Disconnected" and "Session closed" from HERE were
+            // always a second and third voice describing an event whose first
+            // voice was already speaking — the #360 capture shows exactly
+            // that: both were queued and then cancelled by the deliberate
+            // path's own sentence 510 ms later, and the operator heard none
+            // of the three. One event, one sentence: this channel defers to
+            // the path that acted. Trouble (Reconnecting), the operator's
+            // one actionable state (AuthorizationExpired), and recovery from
+            // either still speak.
+            bool routineTearDown =
+                status == Radios.SmartLink.SessionStatus.Disconnected
+                || status == Radios.SmartLink.SessionStatus.ShutDown;
+            if (routineTearDown)
+            {
+                Tracing.TraceLine(
+                    $"SessionStatus: {prev} -> {status} suppressed as routine tear-down (#360)",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
             int attempts = session?.ReconnectAttemptCount ?? 0;
             var lastErr = session?.LastError;
@@ -639,6 +669,14 @@ public partial class MainWindow : UserControl
                 {
                     message = Radios.Lexicon.Get("connect.home.connected",
                         ("model", model), ("connType", connType));
+
+                    // #359 — this sentence carries no slice information, so
+                    // the census it would have covered becomes the only slice
+                    // announcement there will be. Release it. The release
+                    // always beats the settle it must un-suppress: reaching
+                    // this branch means no slice had arrived by now, so no
+                    // settle timer has started yet.
+                    RigControl.ConnectSentenceFellBackToConnectionOnly();
                 }
 
                 // A startup advisory may be up (or about to be) — speaking the
@@ -1196,7 +1234,15 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void EnableDisableWindowControls(bool enabled)
     {
-        _radioPowerOn = enabled;
+        // This method used to ALSO write _radioPowerOn, and that side effect
+        // is why the connect earcon, the PC-audio policy and the REM ON queued
+        // intent never ran once (#369, 2026-08-28): PowerNowOn calls this with
+        // true BEFORE its own off→on transition guard, so the guard read a
+        // flag this method had already raised and skipped its block on every
+        // connect there has ever been. A method named "enable controls" must
+        // not own the power lifecycle. The flag is now written only where the
+        // power state actually changes: PowerNowOn (up), PowerNowOffInternal
+        // and UnwireRadioEvents (down).
         foreach (var control in _enableDisableControls)
         {
             control.IsEnabled = enabled;
@@ -3721,7 +3767,20 @@ public partial class MainWindow : UserControl
 
     private void PowerNowOn()
     {
-        Tracing.TraceLine("MainWindow PowerNowOn", TraceLevel.Info);
+        // Capture the off→on transition FIRST, before anything in this body
+        // can touch the flag, and raise the flag here so everything the body
+        // calls sees a powered radio (#369, 2026-08-28). The transition used
+        // to be tested 36 lines further down, after EnableDisableWindowControls
+        // had already — as a side effect it no longer has — set the flag true,
+        // which made the test constant-false and silently skipped the connect
+        // earcon, the PC-audio policy and the REM ON queued intent on EVERY
+        // connect since each was added. wasOff is the one honest reading of
+        // the transition; the trace records it so a re-raised power event
+        // (wasOff=False) is visible in a capture instead of indistinguishable
+        // from a first connect.
+        bool wasOff = !_radioPowerOn;
+        _radioPowerOn = true;
+        Tracing.TraceLine($"MainWindow PowerNowOn wasOff={wasOff}", TraceLevel.Info);
 
         // Setup frequency display
         SetupFreqout();
@@ -3768,19 +3827,34 @@ public partial class MainWindow : UserControl
         // (picker local, picker remote, auto-connect, reconnect) converges on
         // this power transition, so this is the one hook that covers them all
         // (QB Track A stretch, 2026-08-07). Guarded on the off→on transition
-        // so a re-raised power event can't double-fire it.
-        if (!_radioPowerOn)
+        // so a re-raised power event can't double-fire it — wasOff, captured
+        // at the top of this method before anything could disturb the flag.
+        //
+        // The tone gets its OWN transition test, deliberately separate from
+        // the policy block below (#369, Noel's question at the bench: the tone
+        // is feedback about a CONNECTION EVENT and plays through the earcon
+        // device; the policies are per-radio state application). The condition
+        // is the same today, and that is fine — what must never happen again
+        // is the cheap, audible, harmless sound being hostage to the guard of
+        // the expensive silent ones, so that when a guard goes wrong the only
+        // audible symptom disappears with it.
+        if (wasOff)
         {
             try { EarconPlayer.ConnectSuccessTone(); }
             catch (Exception ex)
             {
                 Tracing.TraceLine($"PowerNowOn: connect earcon failed: {ex.Message}", TraceLevel.Warning);
             }
+        }
 
+        // Per-radio connect POLICIES, on the same off→on transition but under
+        // their own test: double-applying these on a re-raised power event
+        // would be a real fault, where a doubled tone is an annoyance.
+        if (wasOff)
+        {
             // Per-radio PC audio on connect (Threads Track, 2026-08-12).
-            // Runs on the same off→on transition as the connect earcon, and
-            // AFTER FlexBase's open sequence has done its historical remote
-            // auto-on, so this is policy on top, never a race.
+            // Runs AFTER FlexBase's open sequence has done its historical
+            // remote auto-on, so this is policy on top, never a race.
             try { ApplyPcAudioOnConnect(); }
             catch (Exception ex)
             {
@@ -3796,7 +3870,6 @@ public partial class MainWindow : UserControl
             }
         }
 
-        _radioPowerOn = true;
         StatusText.Text = Radios.Lexicon.Get("connect.home.status_power_on");
 
         // Initialize PTT safety controller (Sprint 15)
@@ -3997,7 +4070,17 @@ public partial class MainWindow : UserControl
         // VB-side tasks (knob setup, tracing)
         PowerOnCallback?.Invoke();
 
-        // Sprint 22 Phase 8: Announce radio status after connect
+        // Sprint 22 Phase 8: Announce radio status after connect.
+        //
+        // #359 — the sentence this schedules and the slice census were saying
+        // one thing twice, 60 to 94 ms apart, in two vocabularies. The full
+        // sentence is the one the operator should hear, so the census's
+        // spoken half defers to it: armed here, immediately before the
+        // sentence is scheduled, consumed by the first slice-settle. If the
+        // sentence falls back to connection-only (slices not yet populated at
+        // its 1.5 s mark), SpeakConnectStatus releases the census — it is
+        // then the only slice announcement there will be.
+        RigControl?.SuppressFirstSpokenCensusForConnect();
         SpeakConnectStatus();
     }
 

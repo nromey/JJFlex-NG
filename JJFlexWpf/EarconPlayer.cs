@@ -207,6 +207,22 @@ namespace JJFlexWpf
             _currentTrimDb = GetLevelTrimDb(earconName);
 
             bool on = On(category);
+
+            // #369 — trace the PLAY, not only the failure. Until 2026-08-28 no
+            // earcon left any record when it succeeded, so "the tone was
+            // skipped" and "the tone played and nobody heard it" were
+            // indistinguishable from every instrument this project owns — the
+            // reader-side capture records speech and braille and never sees an
+            // earcon. One Verbose line, at the single point every gated earcon
+            // passes through: the earcon's name, its category, whether the
+            // gates let it through, and whether a live mixer exists to render
+            // it. gate=True mixer=False is "fired but nothing could sound it";
+            // an absent line is "never fired". Those are different defects and
+            // this line is what tells them apart.
+            JJTrace.Tracing.TraceLine(
+                $"Earcon: {earconName} category={category} gate={on} mixer={AlertMixer != null}",
+                TraceLevel.Verbose);
+
             if (Radios.OutputChannelRecorder.RecordEnabled)
             {
                 bool rendered = on && AlertMixer != null && Radios.OutputChannelRecorder.RenderEnabled;

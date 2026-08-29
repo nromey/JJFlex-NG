@@ -13785,6 +13785,52 @@ namespace Radios
         private volatile bool _operatorChangedSliceSet;
 
         /// <summary>
+        /// #359 — one fact, two vocabularies, 60 to 94 ms apart. On a connect
+        /// the census spoke "4 slices out of 4 used, slice A USB" and the full
+        /// connect sentence then spoke "Connected to FLEX-8600 … 4 slices.
+        /// Slice A …" effectively simultaneously. The connect sentence is the
+        /// one an operator should hear (it carries model, link and slice state
+        /// as one thought), so the census's SPOKEN half defers to it: armed on
+        /// each power-on, consumed by the first slice-settle. The CW half is
+        /// untouched — a separate channel with its own audience and its own
+        /// on/off switches.
+        ///
+        /// The conditional that must not be flattened: when the connect
+        /// sentence falls back to connection-only (slices had not populated at
+        /// its 1.5 s mark), the census is the ONLY slice announcement there
+        /// will be and must speak —
+        /// <see cref="ConnectSentenceFellBackToConnectionOnly"/> releases it.
+        /// That release can never arrive after the settle it needs to
+        /// un-suppress: the fallback is taken only when no slice had arrived
+        /// by the sentence's decision point, and no slice arrivals means no
+        /// settle timer has been started yet.
+        ///
+        /// Every race here fails toward SPEAKING (a duplicate), never toward
+        /// silence — a settle that beats the arming simply speaks as before.
+        /// </summary>
+        private volatile bool _connectSentenceOwnsFirstCensus;
+
+        /// <summary>
+        /// Arm the first-census suppression for a connect (#359). Called by
+        /// the UI's power-on path immediately before it schedules the full
+        /// connect sentence, so the two can never both describe the slice set.
+        /// </summary>
+        public void SuppressFirstSpokenCensusForConnect()
+        {
+            _connectSentenceOwnsFirstCensus = true;
+        }
+
+        /// <summary>
+        /// The connect sentence fell back to connection-only (#359): the
+        /// census it would have covered is now the only slice announcement
+        /// there will be, so release it to speak.
+        /// </summary>
+        public void ConnectSentenceFellBackToConnectionOnly()
+        {
+            _connectSentenceOwnsFirstCensus = false;
+        }
+
+        /// <summary>
         /// Note that the slice set has changed and (re)start the settle timer.
         /// Called from the slice added and removed handlers.
         /// </summary>
@@ -13821,7 +13867,7 @@ namespace Radios
             // noise at best and a crash at worst.
             if (Disconnecting || theRadio == null) return;
 
-            AnnounceSliceCensus();
+            AnnounceSliceCensus(operatorInitiated: operatorDid);
             if (operatorDid) SpeakProvisionalSliceChangeReceipt();
 
             // Once the connect's replay has settled, say whether the radio
@@ -13856,7 +13902,7 @@ namespace Radios
         /// radio's too — under MultiFlex a fraction mixing "mine" over "the
         /// radio's" would be incoherent.
         /// </remarks>
-        internal void AnnounceSliceCensus()
+        internal void AnnounceSliceCensus(bool operatorInitiated = false)
         {
             var radio = theRadio;
             if (radio == null) return;
@@ -13865,9 +13911,20 @@ namespace Radios
             int used = radio.SliceList?.Count ?? 0;
             if (total <= 0) return;
 
+            // #359 — the first settle after a connect belongs to the full
+            // connect sentence; consume the arm here, once, whatever happens
+            // next. An operator-initiated change always speaks — their own
+            // action's receipt must never be swallowed by a connect that
+            // happens to still hold the arm.
+            bool censusOwedToConnectSentence = _connectSentenceOwnsFirstCensus;
+            if (censusOwedToConnectSentence) _connectSentenceOwnsFirstCensus = false;
+            bool suppressSpoken = censusOwedToConnectSentence && !operatorInitiated;
+
             Tracing.TraceLine(
                 $"AnnounceSliceCensus:{used}/{total} (radio.MaxSlices={radio.MaxSlices} "
-                + $"model={TotalMaxSlices} mine={MyNumSlices})", TraceLevel.Info);
+                + $"model={TotalMaxSlices} mine={MyNumSlices} "
+                + $"spokenSuppressed={suppressSpoken} operatorInitiated={operatorInitiated})",
+                TraceLevel.Info);
 
             // SPOKEN CENSUS ADDED 2026-08-20 BY NOEL. Until now this fact
             // existed ONLY in Morse, and CW notifications are off by default —
@@ -13903,7 +13960,7 @@ namespace Radios
             string mode = active?.DemodMode;
             bool haveActive = !string.IsNullOrEmpty(letter) && !string.IsNullOrEmpty(mode);
 
-            if (!SuppressSpeech)
+            if (!SuppressSpeech && !suppressSpoken)
             {
                 // Chatty gets the fuller sentence AND the active slice; Terse
                 // gets the count alone. A transient no-active-slice state during
