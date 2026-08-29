@@ -355,12 +355,12 @@ public sealed class FixerDialog : JJFlexDialog
         // from the stage set so a future receive set reads "Receive checks"
         // with nothing to rename. "Fixer" stays as the internal name — same
         // split as jjflexible.exe over the JJFlexRadio internals.
-        Title = _run.Set.Name + " checks — JJ Flexible";
+        Title = _run.Set.Name + " tests — JJ Flexible";
         Width = 780;
         Height = 640;
         ResizeMode = ResizeMode.CanResize;
 
-        AutomationProperties.SetName(_web, _run.Set.Name + " checks");
+        AutomationProperties.SetName(_web, _run.Set.Name + " tests");
         Content = _web;
 
         Loaded += OnLoaded;
@@ -527,7 +527,7 @@ public sealed class FixerDialog : JJFlexDialog
                  + TxAudioConditioning.ThresholdMarginDb.ToString("0.#",
                        System.Globalization.CultureInfo.InvariantCulture)
                  + " dB margin). Stated here so you can see where it came from; whether "
-                 + "it is right for your room is not judged by this check.";
+                 + "it is right for your room is not judged by this test.";
         }
         catch (Exception ex)
         {
@@ -621,27 +621,27 @@ public sealed class FixerDialog : JJFlexDialog
     /// an operator whose transmit is broken must not also be told their browser
     /// runtime is missing and left with nothing.
     /// </summary>
-    /// <param name="resumeFrom">A saved run to continue, from the saved check
+    /// <param name="resumeFrom">A saved run to continue, from the saved test
     /// runs list. Null starts a fresh run.</param>
     public static void Show(Func<FlexBase?> radio, Window? owner = null,
                             FixerRunRecord? resumeFrom = null)
     {
         if (!HtmlInfoDialog.IsAvailable)
         {
-            AdvisoryDialog.Show("Transmit checks — JJ Flexible",
-                "The transmit checks need the Microsoft Edge WebView2 runtime, which is "
+            AdvisoryDialog.Show("Transmit tests — JJ Flexible",
+                "The transmit tests need the Microsoft Edge WebView2 runtime, which is "
                 + "not installed on this computer. Everything they would have checked can "
                 + "still be reached from the Audio Workshop and from Diagnostics.");
             return;
         }
 
         // Refused BEFORE anything opens, not part-way through. A run recorded
-        // against a different set of checks cannot be continued honestly, and
+        // against a different set of tests cannot be continued honestly, and
         // discovering that after the window is up would leave the operator in a
         // live run that is quietly not being recorded.
         if (resumeFrom != null && WhyItCannotBeResumed(resumeFrom) is { Length: > 0 } refusal)
         {
-            AdvisoryDialog.Show("Transmit checks — JJ Flexible", refusal);
+            AdvisoryDialog.Show("Transmit tests — JJ Flexible", refusal);
             return;
         }
 
@@ -668,16 +668,16 @@ public sealed class FixerDialog : JJFlexDialog
 
             if (!string.Equals(record.StageSetId, set.Id, StringComparison.OrdinalIgnoreCase))
                 return "Run " + record.RunId + " is a set of " + record.StageSetName
-                     + " checks, and this is the " + set.Name + " checks. It can still be "
-                     + "read and exported from the saved check runs list.";
+                     + " tests, and this is the " + set.Name + " tests. It can still be "
+                     + "read and exported from the saved test runs list.";
 
             string was = string.Join(", ", record.Stages.Select(s => s.Id));
             string now = string.Join(", ", set.Stages.Select(s => s.Id));
             if (!string.Equals(was, now, StringComparison.OrdinalIgnoreCase))
-                return "Run " + record.RunId + " was recorded with a different set of checks "
+                return "Run " + record.RunId + " was recorded with a different set of tests "
                      + "from the ones this version of JJ Flexible offers, so continuing it "
-                     + "would mix measurements from two different tests. It can still be read "
-                     + "and exported from the saved check runs list.";
+                     + "would mix measurements from two different runs. It can still be read "
+                     + "and exported from the saved test runs list.";
 
             return "";
         }
@@ -687,7 +687,7 @@ public sealed class FixerDialog : JJFlexDialog
                               + " is resumable — " + ex.Message, TraceLevel.Warning);
             return "Whether run " + record.RunId + " can be continued could not be worked "
                  + "out, so it has not been opened. It can still be read and exported from "
-                 + "the saved check runs list.";
+                 + "the saved test runs list.";
         }
     }
 
@@ -1015,8 +1015,8 @@ document.addEventListener('keydown', function (e) {
                 // there, it cannot stop a caller SENDING it.
                 if (_run.ResultFor(m.StageId)?.Status == FixerStageStatus.Ran)
                 {
-                    Notice(m.StageId, "That check has already run, and its measurement is "
-                                    + "kept. To measure again, choose Run this check again.");
+                    Notice(m.StageId, "That test has already run, and its measurement is "
+                                    + "kept. To measure again, choose Run this test again.");
                     return;
                 }
                 // Recorded to disk like any other result. A skip carries its
@@ -1152,7 +1152,7 @@ document.addEventListener('keydown', function (e) {
                         // next line, so a push would announce into a document
                         // about to be replaced. The render carries the notice
                         // and lands focus on it.
-                        RecordNotice(stageId, "Something went wrong running that check. "
+                        RecordNotice(stageId, "Something went wrong running that test. "
                                             + "Nothing was transmitted.");
                         FinishStage(stageId, again, null);
                         return;
@@ -1413,16 +1413,17 @@ document.addEventListener('keydown', function (e) {
               + "so nothing is kept.";
 
         string? resumeHelp = plan.OffersResumeLater
-            ? "Closes the window and keeps the run. Continue it later from Saved "
-              + "check runs, on the Fix menu — everything already recorded stays"
+            ? "Closes the window and keeps the run. Continue it later from View or "
+              + "resume saved test runs, on the Fix menu — everything already recorded "
+              + "stays"
               + (RunInProgress
-                  ? ", though the check running right now stops and is not recorded"
+                  ? ", though the test running right now stops and is not recorded"
                   : "")
-              + ", and the report will say the checks were done in more than one "
+              + ", and the report will say the tests were done in more than one "
               + "sitting."
             : null;
 
-        return FixerExitPrompt.Ask(this, _run.Set.Name + " checks — JJ Flexible",
+        return FixerExitPrompt.Ask(this, _run.Set.Name + " tests — JJ Flexible",
                                    question, exitHelp, resumeHelp);
     }
 

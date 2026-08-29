@@ -11,7 +11,7 @@ namespace JJFlexWpf.Dialogs;
 /// <remarks>
 /// <para>
 /// <b>One prompt, every evidence family.</b> The signal captures grew this
-/// first; the saved check runs needed exactly the same thing when the Fixer's
+/// first; the saved test runs needed exactly the same thing when the Fixer's
 /// runs finally started persisting, and a second private copy would have been
 /// the Sprint 36 duplication all over again — two implementations of one idea
 /// in disjoint files, conflicting with nothing, building cleanly, and drifting

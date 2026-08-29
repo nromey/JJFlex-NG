@@ -58,7 +58,7 @@ namespace Radios.ChainChecks
 
             /// <summary>
             /// True when the ask should offer a third choice — stop now and
-            /// resume the run later from the saved check runs list (#376).
+            /// resume the run later from the saved test runs list (#376).
             /// Only ever true when the caller asserted the run is genuinely
             /// persisting AND it holds at least one result: an option that
             /// promises "pick it up later" over a journal that never opened,
@@ -119,7 +119,8 @@ namespace Radios.ChainChecks
                 => lead + " has recorded " + ResultsPhrase(resultsCollected)
                  + ", and " + (resultsCollected == 1 ? "it is" : "they are")
                  + " saved under its test ID. A stopped test can be picked up "
-                 + "later from Saved check runs, on the Fix menu. What would "
+                 + "later from View or resume saved test runs, on the Fix menu. What "
+                 + "would "
                  + "you like to do?";
 
             // Keyed: stop the RF first, ALWAYS, whatever asked and whatever

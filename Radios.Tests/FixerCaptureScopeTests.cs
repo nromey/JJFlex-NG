@@ -47,7 +47,7 @@ namespace Radios.Tests
                                                               fake.Plumbing());
 
             Assert.True(scope.WeStartedIt);
-            Assert.Equal("Transmit checks run ATX-357", Assert.Single(fake.StartReasons));
+            Assert.Equal("Transmit tests run ATX-357", Assert.Single(fake.StartReasons));
             Assert.Single(fake.Announcements);   // the recording light, spoken
             Assert.Contains("recording", scope.Note);
         }

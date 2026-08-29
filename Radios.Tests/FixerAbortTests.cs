@@ -186,7 +186,8 @@ namespace Radios.Tests
                             resultsCollected: 3, resultsAreKept: true);
             Assert.Equal("This test has recorded three results, and they are saved "
                        + "under its test ID. A stopped test can be picked up later "
-                       + "from Saved check runs, on the Fix menu. What would you "
+                       + "from View or resume saved test runs, on the Fix menu. What "
+                       + "would you "
                        + "like to do?", p.Announcement);
 
             foreach (Source s in AllSources)
@@ -241,7 +242,7 @@ namespace Radios.Tests
         public void A_kept_ask_names_the_door_back_in()
         {
             // An option the operator cannot find afterwards is not an option:
-            // every question that offers resuming names Saved check runs and
+            // every question that offers resuming names the menu item and
             // the menu it lives on.
             foreach (Source s in AllSources)
             foreach (bool keyed in new[] { true, false })
@@ -251,7 +252,7 @@ namespace Radios.Tests
                                 resultsAreKept: true);
                 if (p.OffersResumeLater)
                 {
-                    Assert.Contains("Saved check runs", p.Announcement);
+                    Assert.Contains("View or resume saved test runs", p.Announcement);
                     Assert.Contains("Fix menu", p.Announcement);
                 }
             }

@@ -1941,12 +1941,20 @@ public class NativeMenuBar : IDisposable
             // it. It can legitimately come back null; JJFlexDialog owns itself
             // to the main window in that case.
             Dialogs.FixerDialog.Show(() => Rig, System.Windows.Window.GetWindow(_window)));
-        // Sprint 35 Track B — check runs persist as they happen (#251), so the
+        // Sprint 35 Track B — test runs persist as they happen (#251), so the
         // Test ID on a report is quotable against a saved copy. This is the
         // door to those copies: view, export, delete. It sits inside Fix
         // because a saved run is a Fix artifact, and the submenu is already
         // ruled to grow.
-        AddWired(fixSub, "Saved check runs...", () =>
+        //
+        // NAMED FOR WHAT YOU CAN DO, not for what is behind it (#381). Noel:
+        // "You have a menu that is called 'saved check runs' I'd might say view
+        // or resume saved test runs." The old name told an operator what was in
+        // there and not why they would open it — and the reason is the one
+        // thing they cannot guess, that a stopped run can be picked up. The
+        // exit prompt has offered exactly that since Sprint 40; this is the
+        // other door to it and it advertised nothing.
+        AddWired(fixSub, "View or resume saved test runs...", () =>
             Dialogs.FixerPastRunsDialog.Show(() => Rig,
                 System.Windows.Window.GetWindow(_window)));
 

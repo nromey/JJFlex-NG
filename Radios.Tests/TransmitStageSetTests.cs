@@ -449,7 +449,7 @@ namespace Radios.Tests
         public void No_baseline_says_the_question_cannot_be_split_and_points_at_stage_1()
         {
             string answer = TransmitStages.Spoken(SpokenFailed(), null).Answer;
-            Assert.Contains("microphone check was not run", answer);
+            Assert.Contains("microphone test was not run", answer);
             Assert.Contains("cannot be separated", answer);
         }
 

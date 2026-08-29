@@ -275,7 +275,7 @@ namespace Radios.Fixer
                         + "The second walks the receive chain — the slice you are listening "
                         + "to, the radio's outputs and their levels, how the audio reaches "
                         + "you, and how much has actually been arriving over the network. "
-                        + "Proving receive first is what makes the transmit checks after it "
+                        + "Proving receive first is what makes the transmit tests after it "
                         + "readable, and the receive evidence belongs in the report whether "
                         + "or not you came here about receive. "
                         + "Nothing here keys the radio.",
@@ -339,7 +339,7 @@ namespace Radios.Fixer
                 {
                     Id = MicrophoneCheck,
                     Number = 1,
-                    Title = "Microphone check",
+                    Title = "Microphone test",
                     Question = "Is sound from your microphone arriving in this computer?",
                     Explanation =
                         "This listens to your microphone with the radio out of the "
@@ -373,7 +373,7 @@ namespace Radios.Fixer
                 {
                     Id = TransmitterCheck,
                     Number = 2,
-                    Title = "Transmitter check",
+                    Title = "Transmitter test",
                     Question = "Does the radio produce RF when it keys a tune carrier?",
                     Explanation =
                         "The radio keys a tune carrier — a steady unmodulated signal it "
@@ -429,7 +429,7 @@ namespace Radios.Fixer
                     Explanation =
                         "Tones and a generated voice are sent to the radio with your "
                         + "microphone taken out of the path, and the radio's own SC_MIC "
-                        + "meter is watched to see what arrives. This check and stage 4 "
+                        + "meter is watched to see what arrives. This test and stage 4 "
                         + "differ in exactly one thing, which is whether your microphone "
                         + "is involved. If this one works and stage 4 does not, your "
                         + "microphone is the problem. If neither works, your microphone is "
@@ -533,7 +533,7 @@ namespace Radios.Fixer
                         LoadDeclaration,
                         "What is the antenna socket connected to right now?",
                         "Nothing transmits until you answer this question. Into a real "
-                        + "antenna, or through an amplifier, the checks that transmit "
+                        + "antenna, or through an amplifier, the tests that transmit "
                         + "keep the power at "
                         + FixerTransmitGate.LowPowerCeilingWatts
                           .ToString(System.Globalization.CultureInfo.InvariantCulture)
@@ -637,7 +637,7 @@ namespace Radios.Fixer
                                  + "are not at that station, so every answer here states "
                                  + "what someone there has confirmed with you — the report "
                                  + "will say your answer came over a remote session, on "
-                                 + "someone else's word. Whatever is connected, the checks "
+                                 + "someone else's word. Whatever is connected, the tests "
                                  + "that transmit keep the power at "
                                  + FixerTransmitGate.LowPowerCeilingWatts
                                    .ToString(System.Globalization.CultureInfo.InvariantCulture)

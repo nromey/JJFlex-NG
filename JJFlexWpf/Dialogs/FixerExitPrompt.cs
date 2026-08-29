@@ -13,7 +13,7 @@ namespace JJFlexWpf.Dialogs;
 /// <b>Noel asked for this at the bench, 2026-08-28:</b> "Why not give the
 /// person three options, yes, exit without saving, no, continue the test, or
 /// stop the test in progress, use the (whatever we call it tool) to resume."
-/// The third capability — resume from the saved check runs list — was fully
+/// The third capability — resume from the saved test runs list — was fully
 /// built and simply never offered at the one moment an operator needs it.
 /// </para>
 /// <para>
@@ -86,7 +86,7 @@ public sealed class FixerExitPrompt : JJFlexDialog
                                         Choice.DiscardAndExit));
 
         Button keep = MakeChoice("Continue the test",
-            "Nothing changes. You go back to the checks where you left off.",
+            "Nothing changes. You go back to the tests where you left off.",
             Choice.Continue);
         keep.IsDefault = true;
         keep.IsCancel = true;

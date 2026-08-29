@@ -292,7 +292,7 @@ namespace Radios.Fixer
                         "You hear nothing from the radio, even though PC audio is on — so "
                         + "the receive path is not delivering sound to your ears.",
                         "Check this computer's output device and its volume first. If the "
-                        + "radio's audio genuinely is not arriving, the transmit checks "
+                        + "radio's audio genuinely is not arriving, the transmit tests "
                         + "will likely fail for the same reason, so settle this before "
                         + "reading them.")
                     : new FixerFinding(HearsNothingFinding, FixOwner.Operator,
@@ -549,7 +549,7 @@ namespace Radios.Fixer
                          + "about the computer's audio path than it would over a remote "
                          + "connection.";
                 case HeardRadio.NoRadio:
-                    return " You said no radio is connected, so the checks that need one "
+                    return " You said no radio is connected, so the tests that need one "
                          + "will wait until it is.";
                 default:
                     return "";

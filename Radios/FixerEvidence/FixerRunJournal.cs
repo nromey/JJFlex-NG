@@ -108,7 +108,7 @@ namespace Radios.Fixer.Evidence
             string now = StageShape(run.Set.Stages.Select(s => s.Id));
             if (!string.Equals(was, now, StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("run " + record.RunId + " was recorded with a "
-                    + "different set of checks (" + was + ") than this version offers ("
+                    + "different set of tests (" + was + ") than this version offers ("
                     + now + "), so it cannot be continued", nameof(record));
 
             var journal = new FixerRunJournal(run, store, probes, record, identity);

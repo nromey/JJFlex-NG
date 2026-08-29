@@ -116,7 +116,7 @@ namespace Radios.Fixer
                        + (facts.HostApi.Length > 0
                             ? ", through " + AudioSetupCheck.HostApiPhrase(facts.HostApi)
                             : "")
-                       + ". No radio was involved in this check, so this stands "
+                       + ". No radio was involved in this test, so this stands "
                        + "on its own whatever happens later.";
             }
             else
@@ -318,7 +318,7 @@ namespace Radios.Fixer
             string answer;
             if (!facts.Attempted)
             {
-                answer = "The spoken check did not produce a measurement, so whether your "
+                answer = "The spoken test did not produce a measurement, so whether your "
                        + "voice reaches the radio cannot be said either way.";
             }
             else if (facts.ReachedRadio)
@@ -332,20 +332,20 @@ namespace Radios.Fixer
                        + "check ran, sound from " + NameOr(micBaseline.Device, "that microphone")
                        + " WAS arriving in this computer, so the microphone itself is the "
                        + "least likely culprit. The difference lies between this computer "
-                       + "and the radio — and the injected check just walked that same path, "
+                       + "and the radio — and the injected test just walked that same path, "
                        + "so read the two side by side.";
             }
             else if (micBaseline != null && micBaseline.Measured && !micBaseline.AudioArrived)
             {
-                answer = "No — your voice did not reach the radio, and the microphone check "
+                answer = "No — your voice did not reach the radio, and the microphone test "
                        + "heard nothing either. Start at the microphone: until sound arrives "
                        + "in this computer, nothing further along can carry it.";
             }
             else
             {
                 answer = "No — your voice did not reach the radio, and because the microphone "
-                       + "check was not run, whether the microphone or the path beyond it is "
-                       + "at fault cannot be separated. Run the microphone check; it splits "
+                       + "test was not run, whether the microphone or the path beyond it is "
+                       + "at fault cannot be separated. Run the microphone test; it splits "
                        + "this question in two.";
             }
 
@@ -358,7 +358,7 @@ namespace Radios.Fixer
             sb.AppendLine("Device: " + NameOr(facts.Device, "not reported"));
             sb.AppendLine("Host API: " + NameOr(facts.HostApi, "not reported"));
             sb.AppendLine("Microphone baseline: " + (micBaseline == null
-                ? "none — the microphone check was not run"
+                ? "none — the microphone test was not run"
                 : micBaseline.Measured
                     ? (micBaseline.AudioArrived
                         ? "sound was arriving from " + NameOr(micBaseline.Device, "the microphone")

@@ -428,7 +428,7 @@ namespace Radios.Tests
         public void Each_quiet_rule_reports_a_page_built_to_break_it()
         {
             const string broken = @"<!doctype html><html><body>
-<h1>Transmit checks</h1>
+<h1>Transmit tests</h1>
 <h2>Stage 0: Alpha</h2>
 <p tabindex=""0"">Prose that has taken a tab stop it cannot use.</p>
 <button type=""button"" data-action=""run"" data-arg=""alpha""></button>
@@ -473,7 +473,7 @@ namespace Radios.Tests
             // back clean from all four, or "reports something" would be all any
             // of them can do.
             const string sound = @"<!doctype html><html><body>
-<h1>Transmit checks</h1>
+<h1>Transmit tests</h1>
 <h2>Stage 0: Alpha</h2>
 <p>Prose that costs nothing to tab past.</p>
 <button type=""button"" data-action=""select"" data-arg=""bravo"">On to Stage 1: Bravo</button>
@@ -490,7 +490,7 @@ namespace Radios.Tests
             // this pair ever both pass or both fail, the rule has stopped
             // discriminating and is no longer worth reading.
             const string skipOnly = @"<!doctype html><html><body>
-<h1>Transmit checks</h1>
+<h1>Transmit tests</h1>
 <h2>Stage 0: Alpha</h2>
 <button type=""button"" data-action=""run"" data-arg=""alpha"">Run this check</button>
 <fieldset class=""skip""><legend>Why are you skipping this stage?</legend>
@@ -517,7 +517,7 @@ namespace Radios.Tests
             measured.RunStage("fill");
 
             const string skipAfterResult = @"<!doctype html><html><body>
-<h1>Kettle checks</h1>
+<h1>Kettle tests</h1>
 <h2>Stage 0: Fill</h2>
 <p>Yes — wet.</p>
 <fieldset class=""skip""><legend>Why are you skipping this stage?</legend>
