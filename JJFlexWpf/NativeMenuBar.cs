@@ -2474,9 +2474,30 @@ public class NativeMenuBar : IDisposable
     ///
     /// <para>Critical rather than Terse: losing the radio is a state change the
     /// operator has to hear whatever their verbosity setting is.</para>
+    ///
+    /// <para>#360, 2026-08-28, measured from the operator's ears and a
+    /// reader-side capture: pressing Disconnect produced 2.2 seconds of
+    /// complete silence, then the Home landing announcement, then the news —
+    /// "Disconnected" arriving 4.6 seconds after the keypress, BEHIND a
+    /// sentence about where focus landed. The teardown runs synchronously on
+    /// the UI thread for seconds, so the old shape — tear down, then
+    /// SpeakAfterMenuClose — could not say anything until the work was done,
+    /// and a keypress that produces nothing for two seconds reads as a dead
+    /// key (#338's defect, recreated here). The shape now: acknowledge the
+    /// press FIRST ("Disconnecting from X"), hand that to the reader, then run
+    /// the teardown, then state the completed event — QUEUED, not
+    /// interrupting, so it can never again cancel its own companions and
+    /// arrives as the final word. The whole sequence is deferred past the
+    /// menu-close beat because a native menu's dismissal makes the reader
+    /// cancel and re-announce; anything spoken synchronously here dies in
+    /// that cancel.</para>
     /// </summary>
     private void DisconnectAndSaySo()
     {
+        // A second press inside the deferred half-second must not stack a
+        // second teardown behind the first.
+        if (_disconnectInFlight) return;
+
         var rig = Rig;
         string? radioName = null;
 
@@ -2489,7 +2510,9 @@ public class NativeMenuBar : IDisposable
         // fully alive — the only place the question can be asked safely.
         //
         // Before SuppressSpeech is set, so the offer's own announcements are
-        // heard, and before CloseRadioCallback, which disposes the rig.
+        // heard, and before the teardown, which disposes the rig. When the
+        // offer shows a dialog, the dialog itself acknowledges the keypress —
+        // a window that arrives carries its own title.
         OfferStationSaveBeforeDisconnect(rig);
 
         if (rig != null)
@@ -2502,15 +2525,51 @@ public class NativeMenuBar : IDisposable
             try { rig.SuppressSpeech = true; } catch { /* never block the disconnect */ }
         }
 
-        // Read the name BEFORE this: the callback disposes the rig.
-        _window.CloseRadioCallback?.Invoke();
+        _disconnectInFlight = true;
+        _window.Dispatcher.BeginInvoke(async () =>
+        {
+            try
+            {
+                // Same 500 ms SpeakAfterMenuClose waits: the reader needs the
+                // menu-close event to finish before speech survives.
+                await System.Threading.Tasks.Task.Delay(500);
 
-        SpeakAfterMenuClose(
-            radioName == null
-                ? Radios.Lexicon.Get("connect.disconnected_plain")
-                : Radios.Lexicon.Get("connect.disconnected_from", ("radioName", radioName)),
-            Radios.VerbosityLevel.Critical);
+                // The acknowledgment — the press has been heard, the work is
+                // starting. Interrupting, to cut the reader's own window-title
+                // re-announcement exactly as SpeakAfterMenuClose does.
+                Radios.ScreenReaderOutput.Speak(
+                    radioName == null
+                        ? Radios.Lexicon.Get("connect.disconnecting_plain")
+                        : Radios.Lexicon.Get("connect.disconnecting_from", ("radioName", radioName)),
+                    Radios.VerbosityLevel.Critical, interrupt: true);
+
+                // Read the name BEFORE this: the callback disposes the rig.
+                // Blocks this thread for the duration of the teardown; the
+                // acknowledgment is already the reader's to finish.
+                _window.CloseRadioCallback?.Invoke();
+
+                // The completed event, once it is true — queued, so it lands
+                // behind the Home landing announcements instead of cancelling
+                // them (the old interrupt=True here is what killed
+                // "Disconnected" and "Session closed" mid-word in the #360
+                // capture), and last, so the news is the final word.
+                Radios.ScreenReaderOutput.Speak(
+                    radioName == null
+                        ? Radios.Lexicon.Get("connect.disconnected_plain")
+                        : Radios.Lexicon.Get("connect.disconnected_from", ("radioName", radioName)),
+                    Radios.Speech.SpeechIntent.Queue,
+                    Radios.VerbosityLevel.Critical);
+            }
+            finally
+            {
+                _disconnectInFlight = false;
+            }
+        });
     }
+
+    /// <summary>True from the moment Radio ▸ Disconnect is accepted until its
+    /// deferred teardown-and-announce sequence finishes (#360).</summary>
+    private bool _disconnectInFlight;
 
     /// <summary>Add a separator line.</summary>
     private void AddSep(IntPtr popup)

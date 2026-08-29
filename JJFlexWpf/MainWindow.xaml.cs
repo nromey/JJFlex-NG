@@ -398,6 +398,36 @@ public partial class MainWindow : UserControl
                 && prev != Radios.SmartLink.SessionStatus.Disconnected;
             if (routineBringUp) return;
 
+            // Routine tear-DOWN is not news either (#360, 2026-08-28). By
+            // construction in WanSessionOwner, Disconnected is only ever
+            // reached when the app itself asked (_userWantsConnected false —
+            // the monitor turns network trouble into Reconnecting, never
+            // straight Disconnected), and ShutDown only on a requested
+            // shutdown. Every one of those deliberate paths narrates itself:
+            // Radio ▸ Disconnect speaks "Disconnected from X", SelectRadio
+            // hands its lead to the arriving picker, exit has the farewell,
+            // and FlexBase's mid-connect WAN session cycling is plumbing
+            // inside a connect that is being narrated by the Connecting
+            // window. So "Disconnected" and "Session closed" from HERE were
+            // always a second and third voice describing an event whose first
+            // voice was already speaking — the #360 capture shows exactly
+            // that: both were queued and then cancelled by the deliberate
+            // path's own sentence 510 ms later, and the operator heard none
+            // of the three. One event, one sentence: this channel defers to
+            // the path that acted. Trouble (Reconnecting), the operator's
+            // one actionable state (AuthorizationExpired), and recovery from
+            // either still speak.
+            bool routineTearDown =
+                status == Radios.SmartLink.SessionStatus.Disconnected
+                || status == Radios.SmartLink.SessionStatus.ShutDown;
+            if (routineTearDown)
+            {
+                Tracing.TraceLine(
+                    $"SessionStatus: {prev} -> {status} suppressed as routine tear-down (#360)",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+
             var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
             int attempts = session?.ReconnectAttemptCount ?? 0;
             var lastErr = session?.LastError;
