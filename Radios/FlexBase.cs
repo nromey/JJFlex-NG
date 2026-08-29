@@ -4748,40 +4748,66 @@ namespace Radios
         // ── THE RULE ────────────────────────────────────────────────────────
         //
         // The coordinator sees exactly ONE delegate, for the life of the app:
-        // the static dispatcher below. Behind it sits at most one FlexBase —
-        // the last one to engage — and never a disposed one. So:
+        // the static dispatcher below. Behind it stands a list of the rigs that
+        // have engaged and not yet been disposed, most recent last, and ONLY
+        // THE LAST ONE consumes. So, stated as something to follow:
         //
-        //   * engaging presence MAKES you the intake and unmakes whoever was;
-        //   * Dispose RESIGNS, so a torn-down instance cannot ghost-sweep a
-        //     stale radio list and raise RadioRemoved into a live picker;
-        //   * an abandoned instance is referenced by nothing here, so it is
-        //     collectable — which the old shape made permanently impossible.
+        //   * engaging presence makes you the intake, and whoever was stops;
+        //   * Dispose takes you out of the list wherever you sit, which hands
+        //     the intake back to the rig you displaced if it is still alive,
+        //     and to nobody if you were the only one;
+        //   * therefore exactly one rig consumes at any moment, and never a
+        //     disposed one.
+        //
+        // ── WHY A LIST AND NOT A SINGLE SLOT ────────────────────────────────
+        //
+        // Because engagements NEST. The picker's Test button opens
+        // ConnectionTesterDialog while the picker is still open
+        // (RigSelectorDialog.TestButton_Click), and the tester builds, connects
+        // and disposes a FlexBase of its own for every test it runs. With a
+        // single slot cleared on Dispose, finishing a test would leave the
+        // intake empty with the picker still on screen — its rows silently stop
+        // updating from presence pushes, which is the state #382 exists to
+        // prevent, arrived at from the other side. Popping restores the
+        // picker's rig instead. A test pins this; the single-slot version fails
+        // it and passes everything else, which is how it was found.
+        //
+        // The list is ordered rather than a stack because disposal order is not
+        // guaranteed to mirror engagement order, and a stack popped out of order
+        // is worse than no stack at all.
         //
         // ── WHY NOT JUST UNSUBSCRIBE IN Dispose ─────────────────────────────
         //
-        // Because Dispose is a promise made by callers, and this event is the
-        // one place where a broken promise is unrecoverable: a subscribed
-        // instance is rooted by the event, so it is never collected and its
-        // finalizer never runs — there is no safety net behind the missed
-        // call. Swap-on-engage needs no promise; the next engager evicts the
-        // last one whether or not anybody remembered.
+        // That was the tempting fix and it is the wrong one, though NOT for the
+        // reason #386 gave. The task said the cancelled-picker instance is never
+        // disposed; it is — wpfSelectorProc disposes it and nulls RigControl,
+        // and has since Sprint 11. What is true is:
         //
-        // It also closes a case Dispose cannot reach at all. ConnectionTester
-        // builds its own FlexBase and connects it while the app's rig is still
-        // alive: two subscribed instances at once, both sweeping their own
-        // myRadioList, both raising the STATIC RadioFound/RadioRemoved. Dispose
-        // tidies that up after the test; this prevents it during.
+        //   * Dispose is a promise made by callers, and on THIS event a broken
+        //     promise used to be unrecoverable: a subscribed instance is rooted
+        //     by the event, so it is never collected and its finalizer never
+        //     runs. There is no safety net behind the missed call.
+        //   * And it cannot reach the case where two rigs are subscribed AT
+        //     ONCE, which the nested tester above produces on every run — two
+        //     rigs sweeping their own myRadioList and both raising the STATIC
+        //     RadioFound/RadioRemoved into the open picker. Unsubscribing in
+        //     Dispose tidies that up after the test; this prevents it during.
         //
-        // The trade, stated plainly: when the tester's rig is disposed the
-        // intake goes empty rather than reverting to the app's rig, so
-        // presence pushes are dropped until something engages again. Nothing
-        // consumes RadioFound/RadioRemoved outside the picker and the settling
-        // window, and opening either engages, so the drop is unobservable —
-        // and a session's own AvailableRadios cache is replayed through the
-        // intake on the next connect, so nothing is lost, only deferred.
+        // The invariant here holds whether or not anybody calls Dispose. Dispose
+        // only decides who inherits.
 
         private static readonly object _presenceIntakeGate = new object();
-        private static FlexBase _presenceIntake;
+
+        /// <summary>
+        /// Rigs that have engaged presence and not yet been disposed, in
+        /// engagement order. The LAST one is the intake. Strong references on
+        /// purpose: a weak one could be collected out from under an open picker
+        /// and silently stop the rows updating, and the reference costs one rig
+        /// per live engagement — where the old shape retained every rig that had
+        /// ever engaged AND kept them all working.
+        /// </summary>
+        private static readonly List<FlexBase> _presenceEngaged = new List<FlexBase>();
+
         private static Radios.SmartLink.SmartLinkSessionCoordinator _presenceIntakeWiredTo;
 
         /// <summary>
@@ -4791,7 +4817,15 @@ namespace Radios
         /// </summary>
         internal static FlexBase PresenceIntake
         {
-            get { lock (_presenceIntakeGate) { return _presenceIntake; } }
+            get
+            {
+                lock (_presenceIntakeGate)
+                {
+                    return _presenceEngaged.Count == 0
+                        ? null
+                        : _presenceEngaged[_presenceEngaged.Count - 1];
+                }
+            }
         }
 
         /// <summary>
@@ -4801,8 +4835,7 @@ namespace Radios
         /// </summary>
         private static void presenceIntakeDispatch(object sender, Radios.SmartLink.SessionRadioListEventArgs e)
         {
-            FlexBase target;
-            lock (_presenceIntakeGate) { target = _presenceIntake; }
+            FlexBase target = PresenceIntake;
 
             if (target == null)
             {
@@ -4829,6 +4862,7 @@ namespace Radios
             // initialisation lock, and nesting the two would be the only place
             // in this file where a lock order exists to get wrong.
             var coordinator = Radios.SmartLink.SmartLinkServices.Coordinator;
+            string note = null;
 
             lock (_presenceIntakeGate)
             {
@@ -4848,31 +4882,47 @@ namespace Radios
                     Tracing.TraceLine("presence intake: dispatcher wired to the session coordinator", TraceLevel.Info);
                 }
 
-                if (!ReferenceEquals(_presenceIntake, this))
+                int at = _presenceEngaged.IndexOf(this);
+                bool alreadyLast = at >= 0 && at == _presenceEngaged.Count - 1;
+                if (!alreadyLast)
                 {
-                    Tracing.TraceLine(
-                        _presenceIntake == null
-                            ? "presence intake: taken by this rig (none before)"
-                            : "presence intake: taken by this rig, the previous one stops consuming pushes",
-                        TraceLevel.Info);
-                    _presenceIntake = this;
+                    // Re-engaging MOVES this rig to the end rather than adding a
+                    // second entry, so the ordinary flow — the picker engages on
+                    // open, ConnectToSmartLink engages again on the same rig —
+                    // cannot leave a duplicate that a later Dispose only half
+                    // removes.
+                    if (at >= 0) _presenceEngaged.RemoveAt(at);
+                    _presenceEngaged.Add(this);
+                    note = "presence intake: taken by this rig — "
+                         + _presenceEngaged.Count + " rig(s) engaged, only this one consumes";
                 }
             }
+
+            // Outside the gate: tracing writes to disk, and nothing here should
+            // hold a lock the SmartLink receive thread wants across an I/O.
+            if (note != null) Tracing.TraceLine(note, TraceLevel.Info);
         }
 
         /// <summary>
-        /// Stop being the intake, if this instance still is. Called from
-        /// Dispose BEFORE anything that can throw, so a teardown that fails
-        /// half way still leaves a dead rig out of the push path.
+        /// Leave the engaged list. Called from Dispose BEFORE anything that can
+        /// throw, so a teardown that fails half way still leaves a dead rig out
+        /// of the push path.
         /// </summary>
         private void resignAsThePresenceIntake()
         {
+            string note = null;
+
             lock (_presenceIntakeGate)
             {
-                if (!ReferenceEquals(_presenceIntake, this)) return;
-                _presenceIntake = null;
+                if (_presenceEngaged.Remove(this))
+                {
+                    note = _presenceEngaged.Count == 0
+                        ? "presence intake: released by the rig being disposed — nobody is consuming pushes now"
+                        : "presence intake: released by the rig being disposed — handed back to the rig it displaced";
+                }
             }
-            Tracing.TraceLine("presence intake: released by the rig being disposed", TraceLevel.Info);
+
+            if (note != null) Tracing.TraceLine(note, TraceLevel.Info);
         }
 
         #endregion

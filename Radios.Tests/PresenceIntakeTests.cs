@@ -270,10 +270,48 @@ namespace Radios.Tests
         }
 
         /// <summary>
+        /// The nested case, and the reason a single slot is not enough.
+        ///
+        /// <para>The picker's Test button opens ConnectionTesterDialog while
+        /// the picker is still on screen, and the tester builds, connects and
+        /// disposes a FlexBase of its own for every test. Clearing the intake
+        /// on Dispose would leave the picker open with nothing consuming
+        /// presence pushes — its rows quietly stop updating, which is the state
+        /// #382 exists to prevent, reached from the other side. The rig the
+        /// tester displaced has to get the intake back.</para>
+        /// </summary>
+        [Fact]
+        public void WhenANestedRigFinishesTheIntakeGoesBackToTheRigItDisplaced()
+        {
+            var (_, wan) = NewCoordinator();
+
+            var picker = NewRig();
+            picker.EngageSmartLinkPresence();
+
+            var tester = NewRig();
+            tester.EngageSmartLinkPresence();
+            Assert.Same(tester, FlexBase.PresenceIntake);
+
+            // Positive control on the displacement itself: while the tester
+            // holds the intake, the picker's rig is genuinely not consuming.
+            Push(wan);
+            Assert.True(Consumed(tester));
+            Assert.False(Consumed(picker));
+
+            tester.Dispose();
+
+            Assert.Same(picker, FlexBase.PresenceIntake);
+
+            ClearConsumed(picker);
+            Push(wan);
+            Assert.True(Consumed(picker),
+                "The picker's rig did not get the intake back when the nested rig was disposed, so its " +
+                "rows would go stale for the rest of the picker session with nothing to say so.");
+        }
+
+        /// <summary>
         /// Disposing a rig that is NOT the intake must not silence the one that
-        /// is. ConnectionTester builds and disposes its own FlexBase while the
-        /// app's rig is alive, so "resign" has to mean "resign if it is still
-        /// me", not "clear the slot".
+        /// is. Same shape as the nested case, disposal the other way round.
         /// </summary>
         [Fact]
         public void DisposingSomeOtherRigDoesNotDisturbTheIntake()
