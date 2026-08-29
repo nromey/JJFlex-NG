@@ -37,13 +37,16 @@
              settings screen, replacing the bespoke "Save". -->
         <StackPanel Grid.Row="4" Style="{StaticResource ButtonPanel}">
             <Button Content="_OK" AutomationProperties.AcceleratorKey="Alt+O" Style="{StaticResource OkButton}"
-                    AutomationProperties.Name="OK. Applies the auto-connect settings and closes."
+                    AutomationProperties.Name="OK"
+                    local:JJFlexHelp.Text="Applies the auto-connect settings and closes this dialog."
                     Click="OkButton_Click"/>
             <Button Content="_Apply" AutomationProperties.AcceleratorKey="Alt+A" Style="{StaticResource DialogButton}"
-                    AutomationProperties.Name="Apply. Applies the auto-connect settings and keeps this open."
+                    AutomationProperties.Name="Apply"
+                    local:JJFlexHelp.Text="Applies the auto-connect settings and leaves this dialog open."
                     Click="ApplyButton_Click"/>
             <Button Content="_Cancel" AutomationProperties.AcceleratorKey="Alt+C" Style="{StaticResource CancelButton}"
-                    AutomationProperties.Name="Cancel. Discards unapplied changes."
+                    AutomationProperties.Name="Cancel"
+                    local:JJFlexHelp.Text="Closes this dialog and discards any changes you have not applied."
                     Click="CancelButton_Click"/>
         </StackPanel>
     </Grid>
