@@ -669,6 +669,14 @@ public partial class MainWindow : UserControl
                 {
                     message = Radios.Lexicon.Get("connect.home.connected",
                         ("model", model), ("connType", connType));
+
+                    // #359 — this sentence carries no slice information, so
+                    // the census it would have covered becomes the only slice
+                    // announcement there will be. Release it. The release
+                    // always beats the settle it must un-suppress: reaching
+                    // this branch means no slice had arrived by now, so no
+                    // settle timer has started yet.
+                    RigControl.ConnectSentenceFellBackToConnectionOnly();
                 }
 
                 // A startup advisory may be up (or about to be) — speaking the
@@ -4062,7 +4070,17 @@ public partial class MainWindow : UserControl
         // VB-side tasks (knob setup, tracing)
         PowerOnCallback?.Invoke();
 
-        // Sprint 22 Phase 8: Announce radio status after connect
+        // Sprint 22 Phase 8: Announce radio status after connect.
+        //
+        // #359 — the sentence this schedules and the slice census were saying
+        // one thing twice, 60 to 94 ms apart, in two vocabularies. The full
+        // sentence is the one the operator should hear, so the census's
+        // spoken half defers to it: armed here, immediately before the
+        // sentence is scheduled, consumed by the first slice-settle. If the
+        // sentence falls back to connection-only (slices not yet populated at
+        // its 1.5 s mark), SpeakConnectStatus releases the census — it is
+        // then the only slice announcement there will be.
+        RigControl?.SuppressFirstSpokenCensusForConnect();
         SpeakConnectStatus();
     }
 
