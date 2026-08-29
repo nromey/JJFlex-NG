@@ -300,5 +300,45 @@ namespace Radios.Tests
             Assert.Contains("&lt;USB &amp; Things&gt;", html);
             Assert.DoesNotContain("<USB", html);
         }
+
+        // ---- a stage that ran is never reported as not run (#366) ----
+
+        [Fact]
+        public void A_stage_that_ran_is_never_described_as_not_run()
+        {
+            // #366 SAID THE REPORT CLAIMED STAGE 0 HAD NOT RUN AFTER IT RAN.
+            // It does not, and the saved run from the bench (Test ID 427-RAW,
+            // 2026-08-28) says so on disk: stage 0 recorded as Ran, and the
+            // stored report reading "Run at 2026-08-28 18:49 UTC". This is
+            // the standing positive control for that claim, so a future
+            // report of the same shape starts from a measurement rather than
+            // from a reading of the code.
+            //
+            // The real defect was that focus left the stage before its result
+            // was announced, so what the operator HEARD after running stage 0
+            // was the next stage's heading saying "not yet run". That half
+            // lives in FixerDialog and cannot be asserted here; the focus
+            // contract in FixerWireContractTests guards the ids it depends on.
+            FixerStageSet set = KettleWithDryFinding(out _);
+            var run = new FixerRun(set);
+            run.RunStage("fill");
+
+            string text = FixerReport.PlainText(run);
+
+            // The stage's own section says when it ran, and says nothing
+            // about it not having run.
+            int at = text.IndexOf("Stage 0: Fill", StringComparison.Ordinal);
+            int next = text.IndexOf("Stage 1:", StringComparison.Ordinal);
+            Assert.True(at >= 0 && next > at, "the report has no stage 0 section");
+            string stage0 = text.Substring(at, next - at);
+
+            Assert.Contains("Run at ", stage0);
+            Assert.DoesNotContain("This stage has not been run.", stage0);
+
+            // And the coverage section counts it as done rather than as
+            // never attempted.
+            Assert.Contains("The stages were done in this order: stage 0 (Fill)", text);
+            Assert.DoesNotContain("Not attempted at all: stage 0", text);
+        }
     }
 }
