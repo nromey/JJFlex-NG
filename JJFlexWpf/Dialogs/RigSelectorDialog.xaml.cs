@@ -75,19 +75,37 @@ namespace JJFlexWpf.Dialogs
         public string BrokerAccount { get; set; } = "";
 
         /// <summary>
-        /// The row's occupancy clause. Live rows ALWAYS carry it, zero
-        /// included — ", online with 0 connected clients" — because silence is
+        /// Whether any source has actually DELIVERED this row's client list —
+        /// a sighting event, or the WAN bank consulted at refresh. This flag
+        /// is the boundary between two of the occupancy clause's three states:
+        /// a delivered list speaks its count, zero included; an undelivered
+        /// one says "client count unknown". Field-proven necessary on
+        /// 2026-08-30 (trace 17:20, build 4.1.16.1736): presence pushes were
+        /// being dropped with no intake, the row rendered live off the WAN
+        /// bank's availability answer, and its empty default stations list
+        /// meant nothing — with a zero-speaks clause and no flag, it would
+        /// have claimed an empty radio while Don sat on it.
+        /// </summary>
+        public bool OccupancyKnown { get; set; }
+
+        /// <summary>
+        /// The row's occupancy clause, in three honest states. A LIVE row
+        /// whose client list was delivered ALWAYS speaks a count, zero
+        /// included — "online with 0 connected clients" — because silence is
         /// indistinguishable from a feature that is not working, and that
         /// ambiguity peaks at the worst possible moment: standing in front of
         /// a foreign radio deciding whether to key it. Noel, 2026-08-30,
         /// looking at his tester's row: "I'm not seeing that Don's connected
-        /// or no one's connected." A row that is NOT live still says nothing,
-        /// for the same honesty the negative WhereText states keep: a roster
-        /// or cached row has no current knowledge, and a count it cannot know
-        /// would be a claim, not a report (#394).
+        /// or no one's connected." A live row whose source has NOT delivered
+        /// says "client count unknown" — never a zero it cannot know. And a
+        /// row that is not live says nothing, for the same honesty the
+        /// negative WhereText states keep: no current knowledge, no claim
+        /// (#394).
         /// </summary>
         public string OccupancyText =>
-            IsLive ? Radios.OccupancyPhrase.RowSuffix(GuiClientStations) : "";
+            !IsLive ? ""
+            : OccupancyKnown ? Radios.OccupancyPhrase.RowSuffix(GuiClientStations)
+            : Radios.OccupancyPhrase.UnknownSuffix();
 
         /// <summary>
         /// The operator's persisted, ordered chain of connection paths for
@@ -1391,6 +1409,11 @@ namespace JJFlexWpf.Dialogs
                     row.LanAvailable = radio.LanAvailable;
                     row.WanAvailable = radio.WanAvailable;
                     row.GuiClientStations = radio.GuiClientStations;
+                    // A sighting always carries the radio's current client
+                    // list (both discovery channels parse gui_client_*), so
+                    // arriving here IS delivery — the row may now speak a
+                    // count, zero included, instead of "client count unknown".
+                    row.OccupancyKnown = true;
                     row.AutoConnect = radio.AutoConnect;
                     row.LowBW = radio.LowBW;
                     row.FromAccountCache = false;
@@ -2047,10 +2070,17 @@ namespace JJFlexWpf.Dialogs
             // follow every availability change.
             var currentAccount = CurrentAccountEmail();
             List<string> wanSerials;
+            List<string> occupancyWanted;
             lock (_radiosLock)
             {
                 wanSerials = _radiosList
                     .Where(r => r.WanAvailable && !string.IsNullOrWhiteSpace(r.Serial))
+                    .Select(r => r.Serial)
+                    .Distinct()
+                    .ToList();
+                occupancyWanted = _radiosList
+                    .Where(r => r.WanAvailable && !r.OccupancyKnown
+                        && !string.IsNullOrWhiteSpace(r.Serial))
                     .Select(r => r.Serial)
                     .Distinct()
                     .ToList();
@@ -2063,6 +2093,24 @@ namespace JJFlexWpf.Dialogs
                     !string.IsNullOrWhiteSpace(broker)
                     && !string.Equals(broker, currentAccount, StringComparison.OrdinalIgnoreCase)
                     ? broker : "";
+            }
+
+            // Occupancy for WAN rows no sighting has fed, from the same bank
+            // that made them live. Field-proven gap (2026-08-30, trace 17:20):
+            // presence pushes are consumed by exactly one rig, a teardown can
+            // leave NO intake, and every push is then dropped — while still
+            // refreshing FlexBase's static WAN bank, stations included. The
+            // row's WanAvailable came from that bank via ReconcileAvailability;
+            // its client list waited on an event that was being discarded, so
+            // Don's occupied radio rendered with no occupancy clause. Live-ness
+            // and occupancy now come from the same entries, or the row says
+            // "client count unknown" — never a zero its source did not state.
+            var bankStationsBySerial =
+                new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var serial in occupancyWanted)
+            {
+                if (FlexBase.TryGetWanGuiClientStations(serial, out var banked))
+                    bankStationsBySerial[serial] = banked;
             }
 
             // A LAN radio re-announces about once a second, and every
@@ -2104,6 +2152,17 @@ namespace JJFlexWpf.Dialogs
                         && r.Serial != null
                         && brokerBySerial.TryGetValue(r.Serial, out var rowBroker)
                         ? rowBroker : "";
+                    // ...and the client list, for a WAN row nothing has fed
+                    // yet — resolved above from the bank that made it live.
+                    // Delivery, not a default: the flag flips so the row may
+                    // speak a real count instead of "client count unknown".
+                    if (!r.OccupancyKnown && r.WanAvailable
+                        && r.Serial != null
+                        && bankStationsBySerial.TryGetValue(r.Serial, out var bankedStations))
+                    {
+                        r.GuiClientStations = bankedStations;
+                        r.OccupancyKnown = true;
+                    }
                 }
 
                 StampModelAmbiguity();

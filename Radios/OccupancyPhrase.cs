@@ -53,10 +53,15 @@ namespace Radios
         /// The row's availability-and-occupancy clause, leading comma included
         /// — always words, never empty. Zero clients is a report, not a
         /// silence: ", online with 0 connected clients". Callers speak this
-        /// for LIVE rows only; a roster or cached row has no current knowledge
-        /// and must not call here to invent a count. One raw entry per
-        /// connected GUI client, "" for a client that has not asserted a
-        /// station name yet.
+        /// ONLY for live rows whose client list a source actually delivered —
+        /// a sighting event or the WAN bank; a live row still waiting on its
+        /// source speaks <see cref="UnknownSuffix"/> instead, and a row that
+        /// is not live speaks nothing. Zero from a source that never spoke
+        /// would be a confident false claim in the sentence read before
+        /// keying somebody else's transmitter — the 2026-08-30 field trace
+        /// (pushes dropped with no intake, Don on the radio, row silent) is
+        /// the state that rule exists for. One raw entry per connected GUI
+        /// client, "" for a client that has not asserted a station name yet.
         /// </summary>
         public static string RowSuffix(IReadOnlyList<string> stations)
         {
@@ -88,6 +93,19 @@ namespace Radios
 
             return Lexicon.Get("connect.row.occupancy_suffix", ("occupants", phrase));
         }
+
+        /// <summary>
+        /// The honest third state, leading comma included: ", online, client
+        /// count unknown". Spoken by a live row whose client list no source
+        /// has delivered yet — reachable, so "online" still leads, but the
+        /// count is not invented. Rare by design (the WAN bank answers for
+        /// any radio it made live), and rare is the point: this is the
+        /// fallback that keeps a broken or not-yet-spoken pipe from ever
+        /// rendering as an empty radio.
+        /// </summary>
+        public static string UnknownSuffix() =>
+            Lexicon.Get("connect.row.occupancy_suffix",
+                ("occupants", Lexicon.Get("connect.row.occupancy_unknown")));
 
         /// <summary>
         /// "wa2iwc", "wa2iwc and k5ner", or a comma list beyond two — listed,

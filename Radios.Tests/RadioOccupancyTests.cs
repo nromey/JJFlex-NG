@@ -122,6 +122,44 @@ namespace Radios.Tests
                 OccupancyPhrase.RowSuffix(new[] { "wa2iwc", "k5ner", "n5xyz" }));
         }
 
+        /// <summary>
+        /// The honest third state (field trace 2026-08-30, build 4.1.16.1736):
+        /// a live row whose client list NO source delivered admits it, and
+        /// never claims zero. Presence pushes were being dropped with no
+        /// intake while Don sat on his radio; with only two states, that row
+        /// either said nothing (the ambiguity Noel called out) or — worse —
+        /// "0 connected clients", a confident false claim in the sentence
+        /// read before keying somebody else's transmitter.
+        /// </summary>
+        [Fact]
+        public void An_undelivered_row_says_unknown_never_zero()
+        {
+            Assert.Equal(", online, client count unknown",
+                OccupancyPhrase.UnknownSuffix());
+            Assert.Equal(
+                "6300inshack, FLEX-6300, on SmartLink, online, client count unknown",
+                Row("6300inshack", "FLEX-6300",
+                    Lexicon.Get("connect.row.remote"),
+                    OccupancyPhrase.UnknownSuffix()));
+        }
+
+        /// <summary>
+        /// The WAN bank's occupancy accessor answers false — with an empty,
+        /// never-null list — for a serial no SmartLink list carries. The
+        /// dialog turns that false into "client count unknown"; a true with
+        /// invented stations here would defeat the whole third state.
+        /// </summary>
+        [Fact]
+        public void The_wan_bank_answers_false_for_a_serial_no_list_carries()
+        {
+            Assert.False(FlexBase.TryGetWanGuiClientStations(
+                "0000-0000-0000-0000", out var stations));
+            Assert.NotNull(stations);
+            Assert.Empty(stations);
+            Assert.False(FlexBase.TryGetWanGuiClientStations("", out _));
+            Assert.False(FlexBase.TryGetWanGuiClientStations(null, out _));
+        }
+
         // ------------------------------------------------------------------
         // The row — the sentence a screen reader actually says, one per
         // reachability state, because these are read IN FULL on every arrow
@@ -388,6 +426,38 @@ namespace Radios.Tests
             Assert.Contains("FlexBase.AccountThatWillBroker(serial, currentAccount)",
                 dialog, StringComparison.Ordinal);
             Assert.Contains("r.BrokerAccount =", dialog, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The chain the 2026-08-30 field trace exposed, pinned link by link.
+        /// Presence pushes are consumed by exactly ONE rig (#386); a teardown
+        /// can leave none, and every push is then dropped — "list from
+        /// dbreda@mail.com with no intake — dropped" repeated for a whole
+        /// session while Don's occupied radio rendered with no occupancy
+        /// clause. The dropped push still refreshes the static WAN bank,
+        /// stations included, so the roster row now reads occupancy from the
+        /// bank when no sighting fed it — and admits not knowing when even
+        /// the bank cannot answer, rather than claiming zero.
+        /// </summary>
+        [Fact]
+        public void A_row_the_pushes_never_reached_reads_the_bank_or_admits_not_knowing()
+        {
+            string dialog = Read(Dialog);
+            string flex = Read(Flex);
+            string globals = Read(Globals);
+
+            // The dropped push still banks the freshly parsed objects.
+            Assert.Contains("RememberWanRadio(r, e.AccountId);",
+                flex, StringComparison.Ordinal);
+            // The dialog reads that bank for rows nothing has fed.
+            Assert.Contains("FlexBase.TryGetWanGuiClientStations(serial, out var banked)",
+                dialog, StringComparison.Ordinal);
+            // Delivery is an explicit fact, stamped by every source that speaks.
+            Assert.Contains("row.OccupancyKnown = true;", dialog, StringComparison.Ordinal);
+            Assert.Contains(".OccupancyKnown = True,", globals, StringComparison.Ordinal);
+            // And an undelivered live row admits it instead of claiming zero.
+            Assert.Contains(": Radios.OccupancyPhrase.UnknownSuffix();",
+                dialog, StringComparison.Ordinal);
         }
 
         /// <summary>

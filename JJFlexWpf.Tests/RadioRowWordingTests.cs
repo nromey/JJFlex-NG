@@ -342,8 +342,30 @@ public sealed class RadioRowWordingTests
     {
         var r = Row();
         r.LanAvailable = true;
+        // A delivered list is what licenses the zero — see the test below for
+        // the row whose source never spoke.
+        r.OccupancyKnown = true;
 
         Assert.EndsWith("online with 0 connected clients", r.DisplayText);
+    }
+
+    /// <summary>
+    /// And the zero is LICENSED, never defaulted. The 2026-08-30 field trace
+    /// caught the state this guards: presence pushes dropped with no intake,
+    /// the row live off the WAN bank's availability answer, its stations list
+    /// still the constructor's empty default — while Don sat on the radio. A
+    /// row in that state must admit it does not know, because "online with 0
+    /// connected clients" would be a confident false claim in the exact
+    /// sentence read before keying somebody else's transmitter.
+    /// </summary>
+    [Fact]
+    public void ALiveRowWhoseSourceNeverSpokeSaysUnknownNotZero()
+    {
+        var r = Row();
+        r.WanAvailable = true;
+
+        Assert.EndsWith("online, client count unknown", r.DisplayText);
+        Assert.DoesNotContain("0 connected", r.DisplayText);
     }
 
     /// <summary>

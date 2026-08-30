@@ -255,6 +255,7 @@
   "connect.row.lowbw_marker": "[LowBW] ",
   "connect.row.model_with_account": "{modelPart} on {account}",
   "connect.row.occupancy_suffix": ", {occupants}",
+  "connect.row.occupancy_unknown": "online, client count unknown",
   "connect.row.occupied_many": "online with {count} connected clients",
   "connect.row.occupied_many_named": "online with {count} connected clients ({stations})",
   "connect.row.occupied_one": "online with 1 connected client",
