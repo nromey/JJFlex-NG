@@ -2426,13 +2426,31 @@ namespace JJFlexWpf.Dialogs
             // on — so a connect that changes its mind now reads as one
             // continuous itinerary rather than two contradicting claims.
             //
-            // The radio and the account are still named, because that half is
-            // TX-safety wording rather than progress narration: a unified list
-            // puts Don's production 6300 one arrow key from Noel's own 8600.
+            // THE ACCOUNT IS NAMED ONLY WHEN IT IS NOT THE ONE IN PLAY.
+            // Ruled by Noel 2026-08-30.
+            //
+            // Track A shipped it on every SmartLink connect, reasoning that the
+            // brokering account decides whose radio you may key and that a
+            // unified list puts Don's production 6300 one arrow key from Noel's
+            // own 8600. True, but it spends words on the fifty connects a week
+            // to your own radio to cover the rare one that is not.
+            //
+            // The case AGAINST this, recorded because it is real and was
+            // knowingly accepted: naming it only when it differs means the
+            // normal case teaches you nothing, so the odd case has to be caught
+            // as an ADDITION to a sentence you have stopped listening to
+            // closely. An absence is the hardest thing for a listener to
+            // register -- but this is not an absence, it is an extra clause on
+            // the connect you were already being told about.
+            bool foreignAccount =
+                !string.IsNullOrWhiteSpace(acctEmail) &&
+                !string.Equals(acctEmail, CurrentAccountEmail(),
+                               StringComparison.OrdinalIgnoreCase);
+
             var legName = remote
-                ? string.IsNullOrWhiteSpace(acctEmail)
-                    ? Lexicon.Get("connect.walk.leg_smartlink")
-                    : Lexicon.Get("connect.walk.leg_smartlink_as", ("acctEmail", acctEmail))
+                ? foreignAccount
+                    ? Lexicon.Get("connect.walk.leg_smartlink_as", ("acctEmail", acctEmail))
+                    : Lexicon.Get("connect.walk.leg_smartlink")
                 : Lexicon.Get("connect.walk.leg_local");
             var connectingLine = Lexicon.Get("connect.selector.connecting",
                 ("radioName", radioName), ("legName", legName));
@@ -2450,11 +2468,13 @@ namespace JJFlexWpf.Dialogs
             // that should take three seconds or a SmartLink one that can take
             // thirty.
             //
-            // Deliberately not deleted above. Naming the radio and account
-            // before a session opens is TX-safety wording, not decoration — a
-            // unified list puts Don's production 6300 one arrow key from Noel's
-            // own 8600. If both land the operator hears the identification
-            // twice, which is the right way round for a safety line to fail.
+            // Deliberately not deleted above. Naming the RADIO before a session
+            // opens is TX-safety wording, not decoration — a unified list puts
+            // Don's production 6300 one arrow key from Noel's own 8600. If both
+            // land the operator hears the identification twice, which is the
+            // right way round for a safety line to fail. The ACCOUNT half now
+            // appears only when it is not the one in play (ruled 2026-08-30),
+            // so the doubling costs less than it used to.
             SelectedConnectingLine = connectingLine;
 
             // AS prosign (wait / standing by) alongside the "Connecting to X" speech.
