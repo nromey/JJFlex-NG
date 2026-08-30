@@ -679,12 +679,15 @@ namespace Radios
         // ---------------------------------------------------------------
 
         /// <summary>
-        /// "Change nothing on this radio." While true, JJ Flex leaves
-        /// everything the radio keeps for itself alone: no profiles created
-        /// or loaded, no settings applied at connect, no changes to its
-        /// name, network, registration, or firmware. Default false — every
-        /// radio behaves exactly as it always has until the operator arms
-        /// this deliberately.
+        /// "Change nothing on this radio." While true, JJ Flex leaves the
+        /// radio's own setup alone: no profiles created or loaded, no
+        /// settings applied at connect, no changes to its name, network,
+        /// registration, or firmware. It covers every AUTOMATIC write and
+        /// the admin-type operator writes; the operating surface — levels,
+        /// filters, the keyer, the TX interlocks — stays live, because a
+        /// radio you cannot operate is not what this promises. Default
+        /// false — every radio behaves exactly as it always has until the
+        /// operator arms this deliberately.
         /// </summary>
         public bool ChangeNothingOnThisRadio { get; set; }
 
