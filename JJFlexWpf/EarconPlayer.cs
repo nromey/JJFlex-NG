@@ -1069,37 +1069,53 @@ namespace JJFlexWpf
         private const int ConnectPhase3PitchHz = 1000;
         private const int ConnectSuccessPitchHz = 1500;
 
-        // THE LENGTH IS THE NEXT LEVER, AND IT IS DELIBERATELY NOT PULLED YET
-        // (#385). The 2026-08-19 audibility work found DURATION to be the
-        // dominant variable in whether a sound survives band noise: under about
-        // 50 ms is heard as a click with a pitch tint rather than a tone, and
-        // the sounds that actually survived were 150 to 250 ms. These are 70 —
-        // above the click threshold and well below the surviving band.
+        // THE LENGTH, AND WHY IT IS 150 (#385, landed by Noel 2026-08-29).
+        // The 2026-08-19 audibility work found DURATION to be the dominant
+        // variable in whether a sound survives band noise: under about 50 ms is
+        // heard as a click with a pitch tint rather than a tone, and the sounds
+        // that actually survived were 150 to 250 ms. These were 70 — above the
+        // click threshold and well below the surviving band, which is why the
+        // connect series kept getting buried on a noisy evening.
         //
-        // Sprint 41 Track D left it alone ON PURPOSE while it changed the
-        // pitches, because moving pitch and length together makes the ear test
-        // unreadable: an improvement could not be attributed to either. That
-        // restraint was right and it still is. So this stays 70 until the pitch
-        // ladder has been heard on a noisy evening and found wanting.
+        // IT WAS HELD BACK ON PURPOSE AND THE HOLD WAS RIGHT. Sprint 41 Track D
+        // changed the pitches and deliberately left the lengths alone, because
+        // moving both at once makes the ear test unreadable — an improvement
+        // could not be attributed to either. #385 stayed sequenced behind
+        // #379's audition for exactly that reason. The ladder was auditioned on
+        // the morning of 2026-08-29 and the pitches settled, so length could
+        // finally move as the only variable. That is the condition that had to
+        // hold, and it held.
         //
-        // WHEN IT IS PULLED, change this one number and nothing else. Every
-        // sound in the family reads it, including the Explorer's auditions, so
-        // there is no second place to remember. ConnectSeriesAtLength plays the
-        // whole ladder at any length without touching it, which is how the
-        // decision gets made by ear rather than by argument.
+        // 150 RATHER THAN 250, and there is a measured reason beyond taste.
+        // Two announced phase tones can be as little as
+        // ConnectNarrator.PhaseAnnounceThresholdMs — 500 ms — apart, because a
+        // phase is announced only once its wait has reached that threshold. At
+        // 150 the longest thing that can precede another rung is the phase-2
+        // pair at 360 ms, which clears 500 with room. At 250 that pair is
+        // 560 ms and the next rung starts ON TOP OF IT: the alert mixer would
+        // play them over each other, and two counts overlapping read as one
+        // unfamiliar sound rather than as two. So 250 is not simply "more of a
+        // good thing" — it is the point where the count stops being countable
+        // on a slow connect, which is the only connect where the full ladder
+        // sounds at all. Anything above about 220 needs the threshold raised
+        // with it, and that is a different decision about a different thing.
         //
-        // What to set it to, and the cost, stated honestly: 150 is the bottom
-        // of the surviving band and more than doubles what is there now, which
-        // takes phase 3 from 330 ms to 570 and the whole worst-case ladder from
-        // about 1.1 seconds to 1.8. At 250 phase 3 becomes 810 ms. A connect is
-        // already talking, so every millisecond here competes with speech for
-        // the same stretch — which is the argument for starting at 150 and
-        // going further only if it is still buried.
+        // The cost, stated plainly: a group of N tones runs N*150 + (N-1)*60,
+        // so phase 1 is 150 ms, phase 2 360, phase 3 570, and the arrival pair
+        // 360 — against 70, 200, 330 and 200 before. A connect is already
+        // talking, so this competes with speech for the same stretch.
+        //
+        // CHANGING IT IS ONE NUMBER AND NOTHING ELSE. Every sound in the family
+        // reads it, including the Explorer's audition rows, so there is no
+        // second place to remember. ConnectSeriesAtLength plays the whole
+        // ladder at any length without touching it, which is how this decision
+        // was made by ear rather than by argument — and how the next one will
+        // be.
         //
         // VOLUME IS NOT THE LEVER. It is already carrying the arrival's
         // emphasis, and leaning on it twice is exactly how the success tone
         // ended up being phase 2 with the gain turned up (#379).
-        private const int ConnectPhaseToneMs = 70;
+        private const int ConnectPhaseToneMs = 150;
 
         /// <summary>The silence inside a count group. Not the beat of a
         /// countdown — this one is meant to be heard as a repeated note, not
@@ -1299,7 +1315,8 @@ namespace JJFlexWpf
         /// </para>
         /// </remarks>
         /// <param name="toneMs">How long each tone lasts. The shipped value is
-        /// 70; the field work's surviving band is 150 to 250.</param>
+        /// <see cref="ConnectPhaseToneMs"/> — 150 since #385 landed; 70 before
+        /// that, and the field work's surviving band is 150 to 250.</param>
         public static void ConnectSeriesAtLength(int toneMs)
         {
             NoTrim();

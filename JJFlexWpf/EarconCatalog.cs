@@ -359,33 +359,45 @@ namespace JJFlexWpf
             // #385 — the LENGTH question, which is a different question from
             // the three candidates above and is kept apart from them on
             // purpose. Those vary the instrument at the shipped length; these
-            // vary the length on the shipped instrument. The field work found
-            // duration to be the dominant variable in whether a sound survives
-            // band noise, and put the surviving band at 150 to 250 ms; the
-            // connect series is 70. Nothing here changes what ships — the two
-            // rows exist so the decision can be made by ear, against the four
-            // shipped sounds sitting a few rows above them.
+            // vary the length on the shipped instrument.
+            //
+            // THE PAIR MOVED WHEN THE SHIPPED VALUE DID, and that is the point.
+            // These rows were 150 and 250 while the series was 70 — 150 being
+            // the proposal and 250 the rung beyond it. Noel landed 150 on
+            // 2026-08-29, which turned the first row into an audition of the
+            // shipped sound against itself: a row that plays exactly what the
+            // four rows above it already play, while its label promises a
+            // comparison. So it now offers 70, the value that was replaced,
+            // which is the only way left to hear the old sound at all, and 250,
+            // which is still the next rung.
+            //
+            // Re-point them again the day the shipped length moves again. A
+            // bench row whose label names a number the application also ships
+            // is not a comparison, and this project has been caught by exactly
+            // that shape often enough to leave the warning here.
             yield return new EarconEntry
             {
-                Id = "ConnectSeriesAtLength.150",
-                Label = "Connect series at 150 milliseconds",
-                Description = "The whole connect ladder with every tone held for 150 "
-                            + "milliseconds instead of 70. The shortest length the noise work "
-                            + "found still reads as a tone rather than a click. Listen for "
-                            + "whether step 2 and the arrival still cut through, and judge it "
-                            + "on those two alone — a fast connect plays nothing else.",
+                Id = "ConnectSeriesAtLength.70",
+                Label = "Connect series at 70 milliseconds, the old length",
+                Description = "The whole connect ladder as it sounded before 2026-08-29, with "
+                            + "every tone held for 70 milliseconds instead of the 150 it ships "
+                            + "at now. Here so the change can be heard rather than taken on "
+                            + "trust — play the four sounds above, then this, and the "
+                            + "difference is the one the noise work predicted.",
                 Category = connect,
                 Order = 94,
-                Play = () => EarconPlayer.ConnectSeriesAtLength(150),
+                Play = () => EarconPlayer.ConnectSeriesAtLength(70),
             };
             yield return new EarconEntry
             {
                 Id = "ConnectSeriesAtLength.250",
-                Label = "Connect series at 250 milliseconds",
-                Description = "The same ladder at 250 milliseconds, the top of that band. "
-                            + "Easier to hear and slower to get through: step 3 alone takes "
-                            + "810 milliseconds here against 330 today, on a connect that is "
-                            + "already speaking to you.",
+                Label = "Connect series at 250 milliseconds, the next rung up",
+                Description = "The ladder at 250 milliseconds, the top of the band the noise "
+                            + "work found. Louder against a noisy band and slower to get "
+                            + "through: step 3 alone takes 810 milliseconds here against 570 "
+                            + "as it ships. Listen to whether the counts still separate — at "
+                            + "this length two steps of a slow connect can start to run "
+                            + "together, which is why 150 was landed first.",
                 Category = connect,
                 Order = 95,
                 Play = () => EarconPlayer.ConnectSeriesAtLength(250),
