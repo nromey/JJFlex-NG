@@ -132,6 +132,27 @@ namespace Radios
             /// <summary>True when the radio answers on both paths.</summary>
             public bool DualHomed => LanAvailable && WanAvailable;
 
+            /// <summary>
+            /// Station names of the GUI clients the radio reports connected
+            /// RIGHT NOW — one entry per client, "" for a client that has not
+            /// asserted a station name yet (the name always arrives in a
+            /// later update, #402). Carried pre-connect on BOTH sighting
+            /// channels: the LAN discovery broadcast and the SmartLink radio
+            /// list each deliver gui_client_stations/handles/programs, which
+            /// FlexLib parses into <c>Radio.GuiClients</c>.
+            /// </summary>
+            /// <remarks>
+            /// An empty list means the radio reports no GUI clients — or the
+            /// sighting channel did not carry client facts (discovery protocol
+            /// v1, which no supported firmware still speaks). Both read as
+            /// silence on the roster row, which fails in the safe direction:
+            /// a false "someone is on it" costs a glance, a false "nobody is
+            /// on it" invites keying a transmitter whose owner holds the
+            /// transmit slice (#394 — transmit is a mutex).
+            /// </remarks>
+            public IReadOnlyList<string> GuiClientStations { get; internal set; } =
+                Array.Empty<string>();
+
             internal RigData() { }
         }
         public delegate void RadioFoundDel(object sender, RigData r);
@@ -363,6 +384,80 @@ namespace Radios
             }
             myRadioList.Add(r);
             if (r.IsWan) RememberWanRadio(r);
+            else WatchDiscoveryGuiClients(r);
+            RaiseRadioFound(null, BuildRigData(r));
+        }
+
+        /// <summary>
+        /// Serial → the last GUI-client roll call this instance raised to the
+        /// roster, so the per-broadcast GuiClients refresh (FlexLib re-merges
+        /// the list on every discovery packet, roughly once a second per
+        /// radio) only re-raises RadioFound when membership or a station name
+        /// actually changed.
+        /// </summary>
+        private readonly Dictionary<string, string> _occupancyRaised =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Keep a LAN radio's roster row honest about who is on it while the
+        /// picker sits open (#394). A LAN radio raises RadioFound once, at
+        /// first sighting; without this watch, an owner connecting five
+        /// minutes later changes <c>Radio.GuiClients</c> (FlexLib merges every
+        /// broadcast) and the row keeps reporting the radio empty — a stale
+        /// answer to exactly the question the operator reads before keying.
+        /// </summary>
+        /// <remarks>
+        /// LAN only, on purpose: a WAN radio's GuiClients only ever change
+        /// inside <c>wanRadioListReceivedHandler</c>, which already re-raises
+        /// RadioFound for the merged object on every server push; watching it
+        /// here too would raise the same fact twice.
+        /// </remarks>
+        private void WatchDiscoveryGuiClients(Radio r)
+        {
+            if (r == null || string.IsNullOrWhiteSpace(r.Serial)) return;
+            // Seed with the state the add-time RadioFound is about to carry,
+            // so the first per-broadcast refresh does not re-raise an
+            // unchanged fact.
+            lock (_occupancyRaised) { _occupancyRaised[r.Serial] = OccupancySignature(r); }
+            r.PropertyChanged -= discoveryGuiClientsChangedHandler;
+            r.PropertyChanged += discoveryGuiClientsChangedHandler;
+        }
+
+        private void UnwatchDiscoveryGuiClients(Radio r)
+        {
+            if (r == null) return;
+            try { r.PropertyChanged -= discoveryGuiClientsChangedHandler; } catch { }
+            if (!string.IsNullOrWhiteSpace(r.Serial))
+                lock (_occupancyRaised) { _occupancyRaised.Remove(r.Serial); }
+        }
+
+        /// <summary>Handle:station per client — the facts the roster row
+        /// speaks, and nothing else, so cosmetic churn cannot re-raise.</summary>
+        private static string OccupancySignature(Radio r)
+        {
+            lock (r.GuiClientsLockObj)
+            {
+                return string.Join("|",
+                    r.GuiClients.Select(c => c.ClientHandle.ToString() + ':' + (c.Station ?? "")));
+            }
+        }
+
+        private void discoveryGuiClientsChangedHandler(object sender, PropertyChangedEventArgs e)
+        {
+            // UpdateGuiClientsList raises this name unconditionally on every
+            // discovery broadcast; the signature gate below turns that into
+            // "raise only when the answer changed".
+            if (e.PropertyName != "GuiClients") return;
+            if (!(sender is Radio r) || string.IsNullOrWhiteSpace(r.Serial)) return;
+            string sig = OccupancySignature(r);
+            lock (_occupancyRaised)
+            {
+                if (_occupancyRaised.TryGetValue(r.Serial, out var prev) && prev == sig) return;
+                _occupancyRaised[r.Serial] = sig;
+            }
+            Tracing.TraceLine(
+                $"discoveryGuiClientsChanged: {r.Serial} clients now [{sig}] — re-raising RadioFound so the roster row says so",
+                TraceLevel.Info);
             RaiseRadioFound(null, BuildRigData(r));
         }
 
@@ -384,6 +479,14 @@ namespace Radios
             rd.Remote = r.IsWan;
             rd.LanAvailable = !r.IsWan;
             rd.WanAvailable = r.IsWan || WanKnows(r.Serial);
+            // Who is on it, as of this sighting. For a dual-homed radio the
+            // object here is the merged one — wanRadioListReceivedHandler
+            // folds the server's GuiClients into the LAN object — so one read
+            // covers both channels.
+            lock (r.GuiClientsLockObj)
+            {
+                rd.GuiClientStations = r.GuiClients.Select(c => c.Station ?? "").ToList();
+            }
             return rd;
         }
         internal static bool _apiInit;
@@ -442,6 +545,11 @@ namespace Radios
             Tracing.TraceLine($"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) gone from discovery — removing", TraceLevel.Info);
             var mine = myRadioList.FirstOrDefault(x => x.Serial == r.Serial);
             if (mine != null) myRadioList.Remove(mine);
+            // Both objects, deliberately: the subscription rides whichever
+            // Radio object was handed to radioAddedHandler, and `mine` is not
+            // guaranteed to be the same instance as `r`.
+            UnwatchDiscoveryGuiClients(r);
+            if (!ReferenceEquals(mine, r)) UnwatchDiscoveryGuiClients(mine);
             RaiseRadioRemoved(this, r.Serial, r.Nickname ?? "");
         }
 
@@ -6897,6 +7005,13 @@ namespace Radios
                         _sliceSettleTimer = null;
                     }
                 }
+
+                // Stop watching discovery GuiClients on every radio this
+                // instance subscribed (#394) — a disposed rig re-raising
+                // RadioFound into whatever picker is open would be the same
+                // ghost-push problem the intake resignation above closes.
+                foreach (var watched in myRadioList.ToList())
+                    UnwatchDiscoveryGuiClients(watched);
 
                 if (theRadio != null)
                 {

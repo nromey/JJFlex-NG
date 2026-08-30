@@ -52,6 +52,26 @@ namespace JJFlexWpf.Dialogs
         public bool DualHomed => LanAvailable && WanAvailable;
 
         /// <summary>
+        /// Station names of the GUI clients the radio reports connected right
+        /// now — "" for a client that has not asserted a name yet. Filled by
+        /// live sightings only (both discovery channels carry it); roster and
+        /// cached rows leave it empty, so a row that cannot know stays silent
+        /// rather than claiming an empty radio (#394).
+        /// </summary>
+        public IReadOnlyList<string> GuiClientStations { get; set; } = Array.Empty<string>();
+
+        /// <summary>
+        /// The row's occupancy clause: "" when the radio reports nobody — the
+        /// common case, and it stays silent on purpose, because this text is
+        /// read on every arrow keypress and silence IS the information — or a
+        /// leading-comma clause like ", one other client, k5ner" when someone
+        /// is on it. Live rows only: an offline or cached row has no current
+        /// knowledge to speak.
+        /// </summary>
+        public string OccupancyText =>
+            IsLive ? Radios.OccupancyPhrase.RowSuffix(GuiClientStations) : "";
+
+        /// <summary>
         /// The operator's persisted, ordered chain of connection paths for
         /// this radio (<see cref="Radios.RadioConfig.PathChain"/>). Empty
         /// means no preference recorded — <see cref="EffectiveChain"/> then
@@ -418,7 +438,8 @@ namespace JJFlexWpf.Dialogs
                 // rarely what the user needs and never what they navigate by.
                 return Lexicon.Get("connect.row.display",
                     ("fav", fav), ("autoConn", autoConn), ("lbw", lbw),
-                    ("namePart", namePart), ("modelPart", modelPart), ("whereText", WhereText));
+                    ("namePart", namePart), ("modelPart", modelPart), ("whereText", WhereText),
+                    ("occupancy", OccupancyText));
             }
         }
 
@@ -1324,6 +1345,7 @@ namespace JJFlexWpf.Dialogs
                     row.RigData = radio.RigData;
                     row.LanAvailable = radio.LanAvailable;
                     row.WanAvailable = radio.WanAvailable;
+                    row.GuiClientStations = radio.GuiClientStations;
                     row.AutoConnect = radio.AutoConnect;
                     row.LowBW = radio.LowBW;
                     row.FromAccountCache = false;

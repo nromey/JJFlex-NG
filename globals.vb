@@ -3763,6 +3763,7 @@ Module globals
             .ModelName = e.ModelName,
             .LanAvailable = e.LanAvailable,
             .WanAvailable = e.WanAvailable,
+            .GuiClientStations = e.GuiClientStations,
             .RigData = e
         }
         _wpfRadioFoundCallback?.Invoke(item)
