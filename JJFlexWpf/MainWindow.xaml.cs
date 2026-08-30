@@ -95,11 +95,26 @@ public partial class MainWindow : UserControl
             // foreground and a landing announcement into mid-connect. The
             // scope has no race: it is raised before the picker opens and the
             // flow's finish runs this same landing if nothing powered on.
-            if (_connectFlowQuiet)
+            //
+            // BUT THE STAND-DOWN MUST NEVER BE TOTAL. This callback carries
+            // two jobs — restore keyboard focus, then speak — and the scope
+            // only has business suppressing the second. On 2026-08-30 this
+            // branch was a bare return, and three times in one day the
+            // discovering-window → picker hand-off lost the foreground with
+            // nothing left to repair it: keyboard dead, screen reader silent,
+            // a total lockout for a blind operator until the failsafe's
+            // landing ran two minutes later. He killed the process rather
+            // than wait. So the announcement stands down here, and a SILENT
+            // focus check is scheduled instead — deferred long enough for the
+            // flow's next window to arrive and take the foreground, so the
+            // mid-connect race above stays closed.
+            if (_connectQuiet.IsQuiet)
             {
                 Tracing.TraceLine(
-                    "FocusReturnCallback: connect quiet scope active - standing down",
+                    "FocusReturnCallback: connect quiet scope active - landing "
+                    + "stands down; scheduling the silent focus check",
                     System.Diagnostics.TraceLevel.Info);
+                ScheduleQuietScopeFocusRescue();
                 return;
             }
             RunReturnToAppLanding();
@@ -109,7 +124,7 @@ public partial class MainWindow : UserControl
         // its focus-landing prefix. During a connect the activation churn
         // restores focus to it repeatedly, and each landing said "JJ Flexible
         // Home, slice" into the middle of the connect narration.
-        FreqOut.SuppressFocusPrefix = () => _connectFlowQuiet;
+        FreqOut.SuppressFocusPrefix = () => _connectQuiet.IsQuiet;
 
         // Audio Workshop hooks that must NOT wait for a radio (2026-08-12).
         // The workshop's "This Computer" section and its preset toolbar both
@@ -1541,34 +1556,32 @@ public partial class MainWindow : UserControl
     // ladder unwires and rewires mid-flow) from ending the scope of the leg
     // that superseded it.
 
-    /// <summary>True while a connect flow owns announcements and focus.</summary>
-    private bool _connectFlowQuiet;
+    // THE STATE MACHINE LIVES IN Radios.ConnectQuietScope, NOT HERE. Track
+    // D's original implementation kept it as loose fields in this file with
+    // zero assertions over it, and the first stuck scope reached the
+    // operator as a two-minute total lockout (2026-08-30, three times in one
+    // day: keyboard dead, screen reader silent, the failsafe's landing the
+    // only thing that ever brought either back). Every decision is now in
+    // the pure class where Radios.Tests pins every exit; this file keeps
+    // only the dispatcher, the timers, and the landing. The doors' pump
+    // hazard — a finish posted from INSIDE the flow running while the
+    // Connecting window is still up — is documented on the class.
 
-    /// <summary>Did a radio actually power on during the current quiet scope?</summary>
-    private bool _connectFlowSawPowerOn;
-
-    /// <summary>Invalidates finishes posted by superseded legs of the flow.</summary>
-    private int _connectQuietGen;
-
-    /// <summary>
-    /// How many DOORS (the menu command, the rescue button) currently hold the
-    /// scope open. The connect flow pumps messages while it runs — Start()'s
-    /// wait and every modal window drain the dispatcher, Background queue
-    /// included — so a finish posted from INSIDE the flow (PowerNowOn's end
-    /// request, a retry leg's unwire) could otherwise run while the Connecting
-    /// window is still up, and the tail of the churn would land outside the
-    /// scope. While a door is open, only the door's own end request (in its
-    /// finally, after the flow truly returned) lets the finish post.
-    /// </summary>
-    private int _connectQuietDoorDepth;
+    /// <summary>All quiet-scope decisions. See <see cref="Radios.ConnectQuietScope"/>.</summary>
+    private readonly Radios.ConnectQuietScope _connectQuiet = new();
 
     /// <summary>
-    /// Last line of defence: a stuck scope would permanently silence the
-    /// focus-landing prefix and every dialog-close landing, which is worse
-    /// than the noise it prevents. Two minutes outlasts any legitimate
-    /// connect, including the retry ladder; a hung station-name wait (#402)
-    /// runs longer, but the operator is inside the Connecting window's
-    /// escalation surface then, not on Home.
+    /// Last line of defence, and a short one: a stuck scope silences the
+    /// focus-landing prefix and every dialog-close landing, and the
+    /// 2026-08-30 lockouts proved a stuck scope can also be what keeps a
+    /// stranded keyboard stranded. The interval and its reasoning live at
+    /// <see cref="Radios.ConnectQuietScope.FailsafeMs"/> — ten seconds, not
+    /// the original 120, because two minutes of silence reads as a crash to
+    /// a blind operator and twice he killed the process rather than wait.
+    /// Firing is routine (the doors bracket the whole modal picker, so any
+    /// unhurried browse outlives the deadline); the finish's landing stands
+    /// down when a window of ours holds the foreground, so a healthy expiry
+    /// only lifts the suppressions, silently.
     /// </summary>
     private DispatcherTimer? _connectQuietFailsafe;
 
@@ -1581,34 +1594,32 @@ public partial class MainWindow : UserControl
     /// </summary>
     internal void BeginConnectFlowQuiet(string reason, bool door = false)
     {
-        _connectQuietGen++;
-        if (!_connectFlowQuiet)
+        var kind = _connectQuiet.Begin(door);
+        if (kind == Radios.ConnectQuietScope.BeginKind.Fresh)
         {
-            _connectFlowQuiet = true;
-            _connectFlowSawPowerOn = false;
-            _connectQuietDoorDepth = 0;
             Tracing.TraceLine($"ConnectQuiet: begin ({reason})", TraceLevel.Info);
         }
         else
         {
             Tracing.TraceLine($"ConnectQuiet: extended ({reason})", TraceLevel.Verbose);
         }
-        if (door) _connectQuietDoorDepth++;
 
         if (_connectQuietFailsafe == null)
         {
             _connectQuietFailsafe = new DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(120)
+                Interval = TimeSpan.FromMilliseconds(Radios.ConnectQuietScope.FailsafeMs)
             };
             _connectQuietFailsafe.Tick += (s, e) =>
             {
                 _connectQuietFailsafe!.Stop();
-                if (!_connectFlowQuiet) return;
+                if (!_connectQuiet.IsQuiet) return;
                 Tracing.TraceLine(
-                    "ConnectQuiet: failsafe expired after 120s - a flow never finished its scope",
+                    "ConnectQuiet: failsafe expired after "
+                    + $"{Radios.ConnectQuietScope.FailsafeMs / 1000}s - the flow is still "
+                    + "open, closing the scope so announcements come back (#395)",
                     TraceLevel.Warning);
-                FinishConnectFlowQuiet();
+                FinishConnectFlowQuiet(fromFailsafe: true);
             };
         }
         _connectQuietFailsafe.Stop();
@@ -1625,39 +1636,44 @@ public partial class MainWindow : UserControl
     /// </summary>
     internal void EndConnectFlowQuiet(string reason, bool door = false)
     {
-        if (door && _connectQuietDoorDepth > 0) _connectQuietDoorDepth--;
-        if (!_connectFlowQuiet) return;
-        if (_connectQuietDoorDepth > 0)
+        switch (_connectQuiet.RequestEnd(door))
         {
-            // A door still holds the flow open — its finally will end the
-            // scope after the flow truly returns. Honoring an inner end here
-            // would let a message pump run the finish while the Connecting
-            // window is still up.
-            Tracing.TraceLine($"ConnectQuiet: end deferred to open door ({reason})",
-                TraceLevel.Verbose);
-            return;
+            case Radios.ConnectQuietScope.EndDecision.NotOpen:
+                return;
+
+            case Radios.ConnectQuietScope.EndDecision.DeferredToDoor:
+                // A door still holds the flow open — its finally will end the
+                // scope after the flow truly returns. Honoring an inner end
+                // here would let a message pump run the finish while the
+                // Connecting window is still up.
+                Tracing.TraceLine($"ConnectQuiet: end deferred to open door ({reason})",
+                    TraceLevel.Verbose);
+                return;
         }
+
         Tracing.TraceLine($"ConnectQuiet: end requested ({reason})", TraceLevel.Verbose);
-        int gen = _connectQuietGen;
+        int gen = _connectQuiet.Generation;
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
-            if (gen != _connectQuietGen) return;   // a newer leg owns the scope
+            if (!_connectQuiet.ShouldRunPostedFinish(gen)) return; // a newer leg owns the scope
             FinishConnectFlowQuiet();
         }));
     }
 
     /// <summary>
     /// The one deliberate landing at the end of a connect flow.
+    /// <paramref name="fromFailsafe"/> marks a finish the failsafe forced: if
+    /// the landing actually has to intervene then, it announces that
+    /// announcements are back — a rescued scope is a real event the operator
+    /// must hear about, not a silent recovery leaving minutes unexplained.
     /// </summary>
-    private void FinishConnectFlowQuiet()
+    private void FinishConnectFlowQuiet(bool fromFailsafe = false)
     {
-        if (!_connectFlowQuiet) return;
+        var kind = _connectQuiet.DecideFinish();
+        if (kind == Radios.ConnectQuietScope.FinishKind.NotOpen) return;
         _connectQuietFailsafe?.Stop();
 
-        bool sawPowerOn = _connectFlowSawPowerOn;
-        _connectFlowSawPowerOn = false;
-
-        if (sawPowerOn)
+        if (kind == Radios.ConnectQuietScope.FinishKind.PowerOnQuietNormalize)
         {
             // Success. The connect narration ("PC audio on…", "Connected to
             // FLEX-8600…") is the announcement; this landing only makes sure
@@ -1676,7 +1692,7 @@ public partial class MainWindow : UserControl
                     $"ConnectQuiet: silent focus normalization failed: {ex.Message}",
                     TraceLevel.Warning);
             }
-            _connectFlowQuiet = false;
+            _connectQuiet.Close();
             Tracing.TraceLine("ConnectQuiet: finish - radio powered on, narration owns the announcement",
                 TraceLevel.Info);
             return;
@@ -1687,10 +1703,96 @@ public partial class MainWindow : UserControl
         // landing exactly as a dialog close outside a connect would have,
         // prefix announcement included (the scope is cleared first so the
         // landing speaks).
-        _connectFlowQuiet = false;
+        _connectQuiet.Close();
         Tracing.TraceLine("ConnectQuiet: finish - no power-on, running the return-to-app landing",
             TraceLevel.Info);
-        RunReturnToAppLanding();
+        RunReturnToAppLanding(fromFailsafe ? QuietScopeRescueLead : null);
+    }
+
+    /// <summary>
+    /// Spoken ahead of the landing when the FAILSAFE closed the scope and the
+    /// landing actually intervened — the operator has just lived through a
+    /// stretch where announcements (and possibly the keyboard) were dead, and
+    /// this is the one sentence that says the outage is over. A healthy
+    /// failsafe expiry (the picker browsed at leisure, foreground still ours)
+    /// stands down at the landing's guard and stays silent, so this never
+    /// fires as a false alarm. A literal, not a Lexicon key, only because the
+    /// connect partition is owned by parallel work right now; it belongs in
+    /// connect.json when that file is free.
+    /// </summary>
+    private const string QuietScopeRescueLead = "Announcements are back on.";
+
+    /// <summary>One-shot timer behind <see cref="ScheduleQuietScopeFocusRescue"/>.</summary>
+    private DispatcherTimer? _quietFocusRescue;
+
+    /// <summary>
+    /// The quiet scope's replacement for the focus half of the dialog-close
+    /// landing it stands down. Waits long enough for the flow's next window
+    /// to arrive (see <see cref="Radios.ConnectQuietScope.StrandedFocusRescueDelayMs"/>),
+    /// then repairs keyboard focus SILENTLY if nothing else did.
+    ///
+    /// This is the fix for the 2026-08-30 lockouts. The traces from all
+    /// three agree: the discovering window closed into the opening picker,
+    /// the foreground escaped, the stand-down skipped the one repair that
+    /// ever ran on that edge, and the operator sat with a dead keyboard and
+    /// a silent reader — over a pumping, healthy UI thread the whole time —
+    /// until the failsafe's landing did at 120 seconds exactly what this
+    /// does at three quarters of one.
+    /// </summary>
+    private void ScheduleQuietScopeFocusRescue()
+    {
+        if (_quietFocusRescue == null)
+        {
+            _quietFocusRescue = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(
+                    Radios.ConnectQuietScope.StrandedFocusRescueDelayMs)
+            };
+            _quietFocusRescue.Tick += (s, e) =>
+            {
+                _quietFocusRescue!.Stop();
+                RescueStrandedFocusQuietly();
+            };
+        }
+        _quietFocusRescue.Stop();
+        _quietFocusRescue.Start();
+    }
+
+    /// <summary>
+    /// The deferred check itself: same guards as the landing, none of the
+    /// speech. Every early return is a healthy outcome; only a genuinely
+    /// stranded keyboard is repaired, and silently — the scope is still
+    /// open, so the flow's own narration keeps the microphone.
+    /// </summary>
+    private void RescueStrandedFocusQuietly()
+    {
+        try
+        {
+            // The scope closed in the meantime — its finish ran the full
+            // landing, repair included.
+            if (!_connectQuiet.IsQuiet) return;
+
+            // A window of the flow (the picker, the Connecting window) holds
+            // the foreground: the operator is where the flow put them.
+            if (AnotherOwnWindowHasForeground()) return;
+
+            // Focus is alive inside the shell.
+            if (IsKeyboardFocusWithin) return;
+
+            Tracing.TraceLine(
+                "ConnectQuiet: focus was stranded with no window of ours in the "
+                + "foreground - repairing silently (#395 lockout guard)",
+                TraceLevel.Info);
+            Radios.WindowActivation.EnsureForeground(
+                System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
+            FocusHome();
+        }
+        catch (System.Exception ex)
+        {
+            Tracing.TraceLine(
+                $"ConnectQuiet: silent focus rescue failed: {ex.Message}",
+                TraceLevel.Warning);
+        }
     }
 
     /// <summary>
@@ -1729,7 +1831,7 @@ public partial class MainWindow : UserControl
     /// when a flow ends without a radio: same guards, same speech, same #348
     /// and #349 reasoning.
     /// </summary>
-    private void RunReturnToAppLanding()
+    private void RunReturnToAppLanding(string? rescueLead = null)
     {
         try
         {
@@ -1751,6 +1853,20 @@ public partial class MainWindow : UserControl
                     "FocusReturnCallback: another window of ours holds the foreground - standing down",
                     System.Diagnostics.TraceLevel.Info);
                 return;
+            }
+
+            // The failsafe's rescue announcement, spoken only once the guard
+            // above has passed: a landing that proceeds after a forced scope
+            // close means announcements really were stuck, and this one
+            // sentence is what tells the operator the outage is over before
+            // the landing describes where they are. Queued, so it lands in
+            // order ahead of the status below; Critical, because "speech is
+            // working again" must be heard at any verbosity.
+            if (rescueLead != null)
+            {
+                Radios.ScreenReaderOutput.Speak(rescueLead,
+                    Radios.Speech.SpeechIntent.Queue,
+                    Radios.VerbosityLevel.Critical);
             }
 
             // Only intervene when focus actually escaped. A dialog opened
@@ -4070,7 +4186,7 @@ public partial class MainWindow : UserControl
         // announcement and the return-to-app landing must NOT run. If no
         // scope is open (a re-raised power event mid-session) this records
         // nothing.
-        if (_connectFlowQuiet) _connectFlowSawPowerOn = true;
+        _connectQuiet.NotePowerOn();
 
         // Setup frequency display
         SetupFreqout();
