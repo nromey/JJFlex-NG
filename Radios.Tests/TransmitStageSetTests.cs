@@ -684,5 +684,81 @@ namespace Radios.Tests
                 set.Find(TransmitStageSet.SpokenTransmit).HostActions
                    .Single(a => a.MessageKind == "open-power-dialog").Label);
         }
+
+        [Fact]
+        public void The_offered_mode_list_is_exactly_the_ruled_four()
+        {
+            // RULED BY NOEL 2026-08-30: "not all 12 modes but the basics" —
+            // and the basics are exactly these, in this order, because they
+            // are the only modes with a real transmit-audio path, which is
+            // the thing this tool tests. CW and FM were offered and declined.
+            // A fifth entry appearing here is not an improvement, it is an
+            // unratified change to a ruling; this test is where that change
+            // is forced to announce itself.
+            Assert.Equal(new[] { "LSB", "USB", "DIGU", "DIGL" },
+                         TransmitStageSet.TransmitAudioModes);
+        }
+
+        [Fact]
+        public void Every_offered_mode_has_words_and_the_declined_modes_have_none()
+        {
+            // The list and the descriptions live side by side so a mode cannot
+            // be offered without words for it — the picker announces the
+            // description on focus, and a button with an empty help text is a
+            // choice a newer operator cannot weigh.
+            foreach (string mode in TransmitStageSet.TransmitAudioModes)
+            {
+                Assert.True(TransmitStageSet.IsTransmitAudioMode(mode), mode);
+                Assert.False(
+                    string.IsNullOrWhiteSpace(
+                        TransmitStageSet.TransmitAudioModeDescription(mode)),
+                    mode + " is offered but has no description");
+            }
+
+            // The radio reports modes in whatever case it likes; the answer
+            // must not depend on it.
+            Assert.True(TransmitStageSet.IsTransmitAudioMode("usb"));
+            Assert.True(TransmitStageSet.IsTransmitAudioMode(" digl "));
+
+            // The declined modes stay declined — CW has no transmit audio
+            // path at all, and FM through this test would measure a limiter.
+            foreach (string declined in new[] { "CW", "AM", "FM", "NFM", "DFM", "SAM", "" })
+            {
+                Assert.False(TransmitStageSet.IsTransmitAudioMode(declined),
+                             "\"" + declined + "\" must not be offered");
+                Assert.Equal("",
+                    TransmitStageSet.TransmitAudioModeDescription(declined));
+            }
+        }
+
+        [Fact]
+        public void The_audio_stages_offer_the_mode_hand_off_and_no_other_stage_does()
+        {
+            // #411, and WHERE it sits is part of the ruling's logic: the mode
+            // decides what a transmit-AUDIO measurement means, so the two
+            // stages that put audio on the air offer the hand-off beside the
+            // frequency control. Stage 2 transmits the radio's own unmodulated
+            // tune carrier — the slice's mode takes no part in it, that
+            // stage's sentence deliberately omits the mode, and a mode button
+            // there would be a control whose effect the operator cannot see.
+            var set = TransmitStageSet.Build(new TransmitStageSet.Hosts());
+
+            foreach (FixerStage s in set.Stages)
+            {
+                bool offers = s.HostActions.Any(
+                    a => a.MessageKind == TransmitStageSet.OpenMode);
+                bool audioOnAir = s.Id == TransmitStageSet.InjectedTransmit
+                               || s.Id == TransmitStageSet.SpokenTransmit;
+                Assert.True(audioOnAir == offers,
+                    "stage " + s.Number + " (" + s.Title + ") "
+                    + (audioOnAir
+                        ? "puts audio on the air and does not offer the mode hand-off"
+                        : "does not put audio on the air and offers the mode hand-off anyway"));
+                if (offers)
+                    Assert.Equal(TransmitStageSet.ChangeModeLabel,
+                        s.HostActions.Single(
+                            a => a.MessageKind == TransmitStageSet.OpenMode).Label);
+            }
+        }
     }
 }

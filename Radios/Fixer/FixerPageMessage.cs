@@ -96,6 +96,12 @@ namespace Radios.Fixer
             /// occupied could otherwise only abandon the run — invisible on a
             /// dummy load, and the ordinary case on a real antenna.</summary>
             OpenFrequencyDialog,
+            /// <summary>Open the mode picker the host owns (#411) — the
+            /// frequency hand-off one step along: a transmit-audio test run
+            /// in the wrong sideband is a valid measurement of the wrong
+            /// thing, and on a real antenna it is a transmission somebody
+            /// else hears.</summary>
+            OpenModeDialog,
         }
 
         /// <summary>Why a message was unusable. Traced, never shown raw to the operator.</summary>
@@ -283,6 +289,12 @@ namespace Radios.Fixer
                     // leaving them to drift.
                     case "open-frequency":
                         return new FixerPageMessage(Kind.OpenFrequencyDialog, Fault.None,
+                                                    run, "", "");
+
+                    // TransmitStageSet.OpenMode, held to this literal by the
+                    // same test that holds the frequency pair (#411).
+                    case "open-mode":
+                        return new FixerPageMessage(Kind.OpenModeDialog, Fault.None,
                                                     run, "", "");
 
                     default:

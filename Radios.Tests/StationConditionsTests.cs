@@ -114,5 +114,68 @@ namespace Radios.Tests
                                                           StationConditions.CouldNotBeRead));
             Assert.Equal("", StationConditions.OnInPhrase("", ""));
         }
+
+        // ------------------------------------------------------------------
+        //  The shared refusal and confirmation vocabulary (#399, #411)
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void A_rig_that_cannot_be_asked_reads_as_keyed()
+        {
+            // FAIL CLOSED. The frequency and mode hand-offs both gate on this
+            // read, and the cost of wrongly allowing a change under a live
+            // carrier is RF on the air. No rig at all is the plainest case.
+            Assert.True(StationConditions.KeyedFailClosed(null));
+
+            // And the POSITIVE CONTROL for the catch path: a constructed but
+            // never-connected FlexBase throws from its TxTune read (theRadio
+            // is null until a connection exists), so this proves the guard
+            // turns a throw into "keyed" rather than into "go ahead".
+            var rig = new FlexBase(new FlexBase.OpenParms { ProgramName = "JJFlexTests" });
+            Assert.True(StationConditions.KeyedFailClosed(rig));
+        }
+
+        [Fact]
+        public void The_keyed_refusal_names_the_thing_it_refused_to_change()
+        {
+            // Refused out loud, not silently ignored — a button that does
+            // nothing reads as a broken button. One sentence shape for both
+            // hand-offs, so the operator hears one rule, not two dialects.
+            Assert.Equal(
+                "The radio is transmitting. Wait until it stops, then change "
+                + "the frequency.",
+                StationConditions.RefusedWhileKeyed("frequency"));
+            Assert.Equal(
+                "The radio is transmitting. Wait until it stops, then change "
+                + "the mode.",
+                StationConditions.RefusedWhileKeyed("mode"));
+        }
+
+        [Fact]
+        public void The_confirmation_sentences_report_the_radio_never_the_request()
+        {
+            // #164: the radio acks transmit writes it does not apply, so every
+            // sentence here is built from what the radio REPORTS. There is no
+            // sentence in this vocabulary for "we sent the command" — that is
+            // the sentence the frequency hand-off shipped with once, and it
+            // told an operator they had moved when they had not.
+            Assert.Equal("The radio now reports 14.250000 MHz.",
+                StationConditions.NowReports("14.250000 MHz"));
+            Assert.Equal("The radio now reports USB.",
+                StationConditions.NowReports("USB"));
+
+            Assert.Equal(
+                "The radio has not confirmed that change. It still reports LSB.",
+                StationConditions.NotConfirmedStillReports("LSB"));
+
+            Assert.Equal(
+                "The radio has not confirmed that change, and is not reporting "
+                + "a transmit mode at all.",
+                StationConditions.NotConfirmedNothingReported("mode"));
+            Assert.Equal(
+                "The radio has not confirmed that change, and is not reporting "
+                + "a transmit frequency at all.",
+                StationConditions.NotConfirmedNothingReported("frequency"));
+        }
     }
 }
