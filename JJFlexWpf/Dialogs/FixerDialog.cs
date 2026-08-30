@@ -1264,6 +1264,13 @@ document.addEventListener('keydown', function (e) {
                 // entry. Exactly the power hand-off, one setting along (#399).
                 OpenFrequencyDialog();
                 return;
+
+            case FixerPageMessage.Kind.OpenModeDialog:
+                // The frequency hand-off one step along (#411): the ruled four
+                // transmit-audio modes, refused while keyed, confirmed from
+                // the radio's own report.
+                OpenModeDialog();
+                return;
         }
     }
 
@@ -1950,11 +1957,28 @@ document.addEventListener('keydown', function (e) {
     /// </para>
     /// </remarks>
     /// <summary>
-    /// How long to wait for the radio to confirm a frequency change before
-    /// saying, honestly, that it has not. The write is enqueued, so zero would
-    /// always report failure and a long wait would freeze the page.
+    /// How long to wait for the radio to confirm a change — frequency or mode
+    /// — before saying, honestly, that it has not. The writes are enqueued, so
+    /// zero would always report failure and a long wait would freeze the page.
+    /// One number for both hand-offs, on purpose: two constants for one
+    /// promise is how they drift apart.
     /// </summary>
-    private const int FrequencyConfirmMs = 1500;
+    private const int RadioConfirmMs = 1500;
+
+    /// <summary>
+    /// Poll until <paramref name="confirmed"/> says the radio agrees, or the
+    /// confirm window closes. Shared by the frequency and mode hand-offs so
+    /// the two cannot grow different ideas of what "confirmed" costs.
+    /// </summary>
+    private static bool ConfirmedWithin(int ms, Func<bool> confirmed)
+    {
+        for (int waited = 0; waited < ms; waited += 50)
+        {
+            if (confirmed()) return true;
+            System.Threading.Thread.Sleep(50);
+        }
+        return false;
+    }
 
     private void OpenFrequencyDialog()
     {
@@ -1975,13 +1999,12 @@ document.addEventListener('keydown', function (e) {
         // keyed from anywhere else — the operator's own microphone, another
         // client, a stage that ended without the radio confirming — must not be
         // retuned underneath the carrier. Refused out loud rather than silently
-        // ignored: a button that does nothing reads as a broken button.
-        bool keyed;
-        try { keyed = rig.Transmit || rig.TxTune; } catch { keyed = true; }
-        if (keyed)
+        // ignored: a button that does nothing reads as a broken button. The
+        // read fails CLOSED and lives in StationConditions, shared with the
+        // mode hand-off (#411).
+        if (StationConditions.KeyedFailClosed(rig))
         {
-            ToPage("status", "The radio is transmitting. Wait until it stops, then change "
-                           + "the frequency.");
+            ToPage("status", StationConditions.RefusedWhileKeyed("frequency"));
             return;
         }
 
@@ -2055,34 +2078,27 @@ document.addEventListener('keydown', function (e) {
         // is ENQUEUED, the answer is not instant: poll briefly, then say what is
         // actually true, including "we cannot confirm it" when that is the
         // honest answer. Erring towards an unconfirmed report is the direction
-        // that costs an operator RF on a frequency they did not choose.
-        string now = null;
-        for (int waited = 0; waited < FrequencyConfirmMs; waited += 50)
-        {
-            ulong reported = rig.TXFrequencyAsReported;
-            if (reported != 0UL && reported == asked)
+        // that costs an operator RF on a frequency they did not choose. The
+        // poll and the sentences are shared with the mode hand-off (#411).
+        ulong agreed = 0UL;
+        if (ConfirmedWithin(RadioConfirmMs, () =>
             {
-                now = StationConditions.Format(reported);
-                break;
-            }
-            System.Threading.Thread.Sleep(50);
-        }
-
-        if (now != null)
+                ulong r = rig.TXFrequencyAsReported;
+                if (r != 0UL && r == asked) { agreed = r; return true; }
+                return false;
+            }))
         {
-            ToPage("status", "The radio now reports " + now + ".");
+            ToPage("status", StationConditions.NowReports(StationConditions.Format(agreed)));
         }
         else
         {
             ulong reported = rig.TXFrequencyAsReported;
             Tracing.TraceLine("FixerDialog: the radio did not confirm " + asked
-                              + " within " + FrequencyConfirmMs + " ms; it reports "
+                              + " within " + RadioConfirmMs + " ms; it reports "
                               + reported, TraceLevel.Warning);
             ToPage("status", reported != 0UL
-                ? "The radio has not confirmed that change. It still reports "
-                  + StationConditions.Format(reported) + "."
-                : "The radio has not confirmed that change, and is not reporting a "
-                  + "transmit frequency at all.");
+                ? StationConditions.NotConfirmedStillReports(StationConditions.Format(reported))
+                : StationConditions.NotConfirmedNothingReported("frequency"));
         }
 
         // Re-render for the same reason the power hand-off does: every
@@ -2090,6 +2106,117 @@ document.addEventListener('keydown', function (e) {
         // and it has just moved. Focus lands on the current stage's Run control,
         // whose description carries the fresh sentence — so the landing itself
         // confirms the change.
+        Render(ForwardLandingIn(CurrentStageId()));
+    }
+
+    /// <summary>
+    /// Hand off to the mode picker, apply what the operator chose, and come
+    /// back with the run intact (#411).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The frequency hand-off one step along, and built out of its parts on
+    /// purpose:</b> a transmit-audio test run in the wrong sideband is a valid
+    /// measurement of the wrong thing, and on a real antenna it is also a
+    /// transmission somebody else hears. Mode was already RECORDED in every
+    /// stage's evidence (#399's StationConditions.Line) and offered nowhere.
+    /// The keyed refusal, the confirm poll and the confirmation sentences are
+    /// the same code the frequency hand-off runs — not the same shape, the
+    /// same code — because the integration pass found the Fixer growing second
+    /// copies of vocabularies Home already had, and this control is exactly
+    /// where a third copy would have grown.
+    /// </para>
+    /// <para>
+    /// <b>The list is ruled and it is exactly four</b> — LSB, USB, DIGU, DIGL
+    /// (<see cref="TransmitStageSet.TransmitAudioModes"/>). A radio sitting in
+    /// CW or FM is named in the picker's own words, never smuggled in as a
+    /// fifth entry.
+    /// </para>
+    /// <para>
+    /// Nothing here moves the mode on its own and nothing restores it
+    /// afterwards — this is the operator keeping the wheel, not #191's
+    /// park-and-restore.
+    /// </para>
+    /// </remarks>
+    private void OpenModeDialog()
+    {
+        FlexBase? rig;
+        try { rig = _radio(); } catch { rig = null; }
+        if (rig == null)
+        {
+            ToPage("status", "No radio is connected, so there is no mode to change.");
+            return;
+        }
+
+        // NEVER WHILE KEYED — the same shared read as the frequency hand-off,
+        // and it fails closed. A mode change re-plumbs the transmit chain, and
+        // under a live carrier that is a new transmission nobody chose.
+        if (StationConditions.KeyedFailClosed(rig))
+        {
+            ToPage("status", StationConditions.RefusedWhileKeyed("mode"));
+            return;
+        }
+
+        string asked;
+        try
+        {
+            // The picker's header states what the radio NOW REPORTS — the live
+            // slice read, not our cache and never a request (#164). If the
+            // radio reports nothing, the picker says that too.
+            asked = FixerModePrompt.Ask(this, rig.TXModeAsReported);
+            if (asked.Length == 0)
+            {
+                // Kept what they had. Nothing moved; the render keeps one exit
+                // path, exactly like the frequency hand-off's cancel.
+                Render(ForwardLandingIn(CurrentStageId()));
+                return;
+            }
+
+            rig.TXMode = asked;
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: mode change failed — " + ex.Message,
+                              TraceLevel.Warning);
+            ToPage("status", "The mode could not be changed.");
+            Render(ForwardLandingIn(CurrentStageId()));
+            return;
+        }
+
+        // WHAT THE RADIO NOW REPORTS, not what was asked for. The write is
+        // enqueued and #164 measured this radio acknowledging a transmit-side
+        // write it never applied, so the confirmation reads the slice back —
+        // TXModeAsReported — through the same poll and the same sentences the
+        // frequency hand-off uses. When the radio does not agree, the operator
+        // is told plainly what it still reports, before they key in it.
+        string agreed = "";
+        if (ConfirmedWithin(RadioConfirmMs, () =>
+            {
+                string r = rig.TXModeAsReported;
+                if (r.Length != 0 && string.Equals(r, asked, StringComparison.OrdinalIgnoreCase))
+                {
+                    agreed = r;
+                    return true;
+                }
+                return false;
+            }))
+        {
+            ToPage("status", StationConditions.NowReports(agreed.ToUpperInvariant()));
+        }
+        else
+        {
+            string reported = rig.TXModeAsReported;
+            Tracing.TraceLine("FixerDialog: the radio did not confirm mode " + asked
+                              + " within " + RadioConfirmMs + " ms; it reports \""
+                              + reported + "\"", TraceLevel.Warning);
+            ToPage("status", reported.Length != 0
+                ? StationConditions.NotConfirmedStillReports(reported.ToUpperInvariant())
+                : StationConditions.NotConfirmedNothingReported("mode"));
+        }
+
+        // Re-render so the Run control's sentence carries the mode the stage is
+        // about to transmit in — the landing itself confirms the change, the
+        // same as power and frequency.
         Render(ForwardLandingIn(CurrentStageId()));
     }
 
