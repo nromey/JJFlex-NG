@@ -10612,6 +10612,40 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The transmit mode the radio ITSELF reports right now — the TX
+        /// slice's live demod mode, not our cache and never our request.
+        /// Empty when there is no TX slice to ask.
+        /// </summary>
+        /// <remarks>
+        /// The mode sibling of <see cref="TXFrequencyAsReported"/>, for the
+        /// same caller and the same reason (#164, #411): a mode write is
+        /// enqueued and the radio has been observed acknowledging transmit
+        /// writes it never applied, so anything that confirms a change to the
+        /// operator must read THIS, poll briefly, and say plainly when the
+        /// radio has not agreed. <see cref="TXMode"/>'s cache is echo-only —
+        /// the setter never touches it — but it can sit stale after slice
+        /// churn, and stale is exactly what a confirmation must not read.
+        /// </remarks>
+        public string TXModeAsReported
+        {
+            get
+            {
+                try
+                {
+                    if (!ValidVFO(TXVFO)) return "";
+                    var s = VFOToSlice(TXVFO);
+                    if (s == null) return "";
+                    return s.DemodMode ?? "";
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("TXModeAsReported: " + ex.Message, TraceLevel.Warning);
+                    return "";
+                }
+            }
+        }
+
         private string _TXMode = "";
         /// <summary>
         /// TX mode
@@ -10631,6 +10665,14 @@ namespace Radios
                 if (s != null)
                 {
                     q.Enqueue((FunctionDel)(() => { s.DemodMode = value; }), "TXDemodMode");
+                }
+                else
+                {
+                    // Traced rather than silently dropped, the TXFrequency
+                    // lesson one property over: a caller that trusts a silent
+                    // setter will tell the operator a change happened.
+                    Tracing.TraceLine("TXMode: TX slice missing, so the requested \""
+                                      + value + "\" was NOT applied", TraceLevel.Warning);
                 }
             }
         }

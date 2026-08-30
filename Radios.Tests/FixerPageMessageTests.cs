@@ -308,6 +308,26 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_mode_picker_is_asked_for_not_built()
+        {
+            // Mode is the frequency argument one step along (#411): a
+            // transmit-audio test run in the wrong sideband is a valid
+            // measurement of the wrong thing, and on a real antenna it is a
+            // transmission somebody else hears. The page asks the host to
+            // open the picker — it does not grow a mode combo of its own.
+            Assert.Equal(Kind.OpenModeDialog, Parse("{\"kind\":\"open-mode\"}").What);
+        }
+
+        [Fact]
+        public void The_mode_wire_kind_matches_the_one_the_stages_send()
+        {
+            // The same drift guard the frequency pair has, for the same
+            // reason: a parted pair is a button that stops working silently.
+            Assert.Equal(Kind.OpenModeDialog,
+                Parse("{\"kind\":\"" + TransmitStageSet.OpenMode + "\"}").What);
+        }
+
+        [Fact]
         public void Moving_to_the_next_stage_must_name_the_stage()
         {
             // The page's own forward control tells the host where the
@@ -379,6 +399,7 @@ namespace Radios.Tests
             yield return "{\"kind\":\"open-device-picker\"}";
             yield return "{\"kind\":\"open-power-dialog\"}";
             yield return "{\"kind\":\"open-frequency\"}";
+            yield return "{\"kind\":\"open-mode\"}";
         }
 
         private static FixerPageMessage ProduceFault(Fault f)

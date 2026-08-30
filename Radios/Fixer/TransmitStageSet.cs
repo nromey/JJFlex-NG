@@ -51,6 +51,82 @@ namespace Radios.Fixer
         /// </summary>
         public const string ChangeFrequencyLabel = "Change the frequency";
 
+        /// <summary>
+        /// The wire kind for the mode hand-off (#411), stated once for the
+        /// same reason <see cref="OpenFrequency"/> is: the stages that carry
+        /// it and the parser that reads it must agree on one string.
+        /// </summary>
+        public const string OpenMode = "open-mode";
+
+        /// <summary>"Change the mode" — the same verb-and-noun shape as the
+        /// power and frequency buttons it sits beside.</summary>
+        public const string ChangeModeLabel = "Change the mode";
+
+        /// <summary>
+        /// The modes the mode hand-off offers, and it is EXACTLY these four.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>RULED BY NOEL 2026-08-30:</b> <i>"I think it needs a mode
+        /// control, not all 12 modes but the basics."</i> He chose the
+        /// shortest list on purpose: these are the only modes with a real
+        /// transmit-audio path, which is the thing this tool tests. CW and FM
+        /// were offered and declined — CW has no transmit audio path at all
+        /// (the same fact that makes <c>TxToneLadder.PlanForMode</c> refuse
+        /// it), and a transmit-audio test in FM measures a limiter, not a
+        /// voice chain.
+        /// </para>
+        /// <para>
+        /// <b>Do not add a fifth.</b> And do not add "the current mode" as a
+        /// fake entry when the radio is in something outside this list — the
+        /// hand-off says what the radio is on and lets the operator change it
+        /// or not.
+        /// </para>
+        /// </remarks>
+        public static readonly IReadOnlyList<string> TransmitAudioModes =
+            new[] { "LSB", "USB", "DIGU", "DIGL" };
+
+        /// <summary>True when <paramref name="mode"/> is one of the four the
+        /// hand-off offers. Case-insensitive, because the radio's own report
+        /// is the usual argument.</summary>
+        public static bool IsTransmitAudioMode(string mode)
+        {
+            string m = (mode ?? "").Trim();
+            foreach (string offered in TransmitAudioModes)
+                if (string.Equals(m, offered, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// What each offered mode is, for the hand-off's help text — announced
+        /// on focus, so a newer operator hears what the acronym means without
+        /// the label growing past the acronym operators actually say. Kept
+        /// beside the list so a mode cannot be offered without words for it;
+        /// a test holds the pair together.
+        /// </summary>
+        public static string TransmitAudioModeDescription(string mode)
+        {
+            switch ((mode ?? "").Trim().ToUpperInvariant())
+            {
+                case "LSB":
+                    return "Lower sideband voice — the convention below 10 megahertz: "
+                         + "160, 80 and 40 metres.";
+                case "USB":
+                    return "Upper sideband voice — the convention at and above 10 "
+                         + "megahertz: 30 metres and up.";
+                case "DIGU":
+                    return "Digital, upper sideband — what most digital programs use, "
+                         + "on most bands. The transmit audio comes from this computer "
+                         + "rather than your microphone.";
+                case "DIGL":
+                    return "Digital, lower sideband — digital operation that follows "
+                         + "the lower-sideband convention.";
+                default:
+                    return "";
+            }
+        }
+
         // Skip choice ids.
         public const string SkipOperatorChoice = "operator-skip";
         public const string SkipRemoteNoDirectSpeech = "remote-no-direct-speech";
@@ -465,6 +541,14 @@ namespace Radios.Fixer
                                             "Change the tune power"),
                         // #399, and the same hand-off exactly: one home for
                         // frequency, and it is not here either.
+                        //
+                        // NO MODE HAND-OFF HERE, deliberately (#411). The tune
+                        // carrier is the radio's own unmodulated signal — the
+                        // slice's mode takes no part in it, this stage's
+                        // sentence omits the mode for exactly that reason, and
+                        // a "Change the mode" button on a stage whose sentence
+                        // never carries one would be a control whose effect
+                        // the operator cannot see. The audio stages offer it.
                         new FixerHostAction(OpenFrequency, ChangeFrequencyLabel),
                     },
                     SkipChoices = new[] { operatorSkip },
@@ -518,6 +602,13 @@ namespace Radios.Fixer
                         // until this existed the only way to do it from here
                         // was to abandon the run.
                         new FixerHostAction(OpenFrequency, ChangeFrequencyLabel),
+                        // #411 — the same argument one step along: a transmit
+                        // audio test run in the wrong sideband is a valid
+                        // measurement of the wrong thing, and on a real
+                        // antenna it is also a transmission somebody else
+                        // hears. This stage puts audio on the air, so the
+                        // mode decides what the measurement means.
+                        new FixerHostAction(OpenMode, ChangeModeLabel),
                     },
                     SkipChoices = new[] { operatorSkip },
                     // The stated load travels with THIS stage's evidence too:
@@ -570,6 +661,10 @@ namespace Radios.Fixer
                         // until this existed the only way to do it from here
                         // was to abandon the run.
                         new FixerHostAction(OpenFrequency, ChangeFrequencyLabel),
+                        // #411, exactly as on stage 3: this stage puts the
+                        // operator's own voice on the air, and the sideband it
+                        // goes out in is part of what the measurement means.
+                        new FixerHostAction(OpenMode, ChangeModeLabel),
                     },
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
                     // Keys the transmitter, so the stated load rides with the

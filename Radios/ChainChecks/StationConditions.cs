@@ -120,6 +120,57 @@ namespace Radios.ChainChecks
             catch { return CouldNotBeRead; }
         }
 
+        // ------------------------------------------------------------------
+        //  Changing a condition mid-run: the shared refusal and confirmation
+        //  vocabulary (#399, #411).
+        // ------------------------------------------------------------------
+        //
+        // The Fixer's frequency hand-off and its mode hand-off make the same
+        // promise — refuse while keyed, then report what the radio NOW says
+        // rather than what was asked for (#164: the ack is not proof). The
+        // frequency hand-off carried these sentences inline, and the Sprint 42
+        // integration pass found that inlined vocabulary is exactly how the
+        // Fixer grew a second frequency parser beside the one Home already
+        // had. So the words live here, once, and both hand-offs read them.
+
+        /// <summary>
+        /// Whether the radio is keyed, FAILING CLOSED: a rig that cannot be
+        /// asked — null, torn down mid-read, mid-disconnect — reads as keyed,
+        /// because the cost of wrongly allowing a change under a live carrier
+        /// is RF, and the cost of wrongly refusing one is a second press.
+        /// </summary>
+        public static bool KeyedFailClosed(FlexBase rig)
+        {
+            try { return rig == null || rig.Transmit || rig.TxTune; }
+            catch { return true; }
+        }
+
+        /// <summary>
+        /// The refusal a hand-off speaks when <see cref="KeyedFailClosed"/>
+        /// says no. Spoken rather than silently ignored: a button that does
+        /// nothing reads as a broken button.
+        /// </summary>
+        public static string RefusedWhileKeyed(string what)
+            => "The radio is transmitting. Wait until it stops, then change the "
+             + what + ".";
+
+        /// <summary>"The radio now reports 14.250000 MHz." — the change
+        /// confirmed, by the radio's own report.</summary>
+        public static string NowReports(string value)
+            => "The radio now reports " + value + ".";
+
+        /// <summary>The radio answered, and its answer is not what was asked
+        /// for. Named plainly, with what it still reports.</summary>
+        public static string NotConfirmedStillReports(string value)
+            => "The radio has not confirmed that change. It still reports "
+             + value + ".";
+
+        /// <summary>The radio is reporting nothing at all for this condition —
+        /// the honest worst case, said out loud.</summary>
+        public static string NotConfirmedNothingReported(string what)
+            => "The radio has not confirmed that change, and is not reporting a "
+             + "transmit " + what + " at all.";
+
         /// <summary>
         /// One evidence line naming all three, for a stage that keyed the
         /// transmitter. Read AT THE MOMENT OF THE MEASUREMENT, never afterwards
