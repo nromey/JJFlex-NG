@@ -133,14 +133,14 @@ namespace Radios.Tests
                 + "captured = no", text);
             Assert.Contains("[TX profile: SSB Rag Chew]" + Environment.NewLine
                 + "captured = no", text);
-            Assert.Contains("problem = ", text);
-            Assert.Contains("none of this profile's settings are in this file", text);
+            Assert.Contains("problem = no radio connection; none of this profile's settings are in this file", text);
 
-            // And a walk that disturbed the radio without confirming a
-            // restore must not claim everything was put back.
+            // With no radio, no load request ever went out — so the file must
+            // say the radio was not moved, rather than raise a false alarm
+            // about profiles it never touched.
             Assert.True(export.WalkRan);
-            Assert.False(export.EverythingPutBack);
-            Assert.Contains("global profile put back = unknown — the starting selection could not be read", text);
+            Assert.True(export.EverythingPutBack);
+            Assert.Contains("global profile put back = no load was ever sent — there was no radio connection, so the radio was not moved", text);
         }
 
         [Fact]

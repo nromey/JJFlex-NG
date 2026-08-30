@@ -320,6 +320,11 @@ namespace Radios
             /// radio is left if the restore was skipped or failed.</summary>
             public string LastLoaded;
 
+            /// <summary>How many load requests actually went out. Zero means
+            /// the radio was never asked to move — "unreadable" without a
+            /// single request is a different fact from a load that hung.</summary>
+            public int LoadAttempts;
+
             public bool RestoreAttempted;
 
             /// <summary>True only when the radio confirmed the original
@@ -351,6 +356,23 @@ namespace Radios
                 Tracing.TraceLine($"ProfileReporter: could not list {label} profiles: {ex.Message}", TraceLevel.Warning);
             }
             if (profiles == null || profiles.Count == 0) return outcome;
+
+            // With no radio object there is nothing to load from: every
+            // profile is unreadable for the same plain reason, and no load
+            // request goes out — so the radio, wherever it is, is not moved.
+            bool haveRadio;
+            try { haveRadio = rig.theRadio != null; }
+            catch { haveRadio = false; }
+            if (!haveRadio)
+            {
+                foreach (var p in profiles)
+                {
+                    outcome.Unreadable.Add((p.Name, "no radio connection"));
+                    unreadableCallback?.Invoke(p.Name, "no radio connection");
+                }
+                Tracing.TraceLine($"ProfileReporter: {label} walk skipped — no radio connection", TraceLevel.Warning);
+                return outcome;
+            }
 
             // Record the currently selected profile so we can restore it.
             try
@@ -387,6 +409,7 @@ namespace Radios
                 string problem = null;
                 try
                 {
+                    outcome.LoadAttempts++;
                     if (LoadProfileAndWait(rig, profileType, p.Name))
                     {
                         outcome.LastLoaded = p.Name;
@@ -400,7 +423,12 @@ namespace Radios
                 }
                 catch (Exception ex)
                 {
-                    problem = "reading failed: " + ex.Message;
+                    // A null reference mid-walk means the radio object went
+                    // away under us; the exception's own words are developer
+                    // plumbing and this file gets read aloud.
+                    problem = ex is NullReferenceException
+                        ? "the radio connection went away during the load"
+                        : "reading failed: " + ex.Message;
                 }
 
                 if (problem != null)
@@ -1408,8 +1436,10 @@ namespace Radios
                         (name, problem) => AppendUnreadableProfileSection(sb, label, name, problem));
                     outcomes.Add(outcome);
                 }
+                // A walk that never sent a load request did not move the
+                // radio; only one that did needs its restore confirmed.
                 result.EverythingPutBack = outcomes.All(o =>
-                    (o.LastLoaded == null && o.Unreadable.Count == 0)
+                    o.LoadAttempts == 0
                     || (o.RestoreAttempted && o.RestoreConfirmed));
             }
 
@@ -1477,7 +1507,9 @@ namespace Radios
                 {
                     string key = TypeLabel(o.ProfileType) + " profile put back";
                     string value;
-                    if (o.LastLoaded == null && o.Unreadable.Count == 0)
+                    if (o.LoadAttempts == 0 && o.Unreadable.Count > 0)
+                        value = "no load was ever sent — there was no radio connection, so the radio was not moved";
+                    else if (o.LoadAttempts == 0)
                         value = "nothing was loaded, so there was nothing to put back";
                     else if (o.RestoreAttempted && o.RestoreConfirmed)
                         value = "yes, " + o.OriginalSelection + " confirmed by the radio";
