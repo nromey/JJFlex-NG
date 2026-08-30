@@ -1323,7 +1323,9 @@ namespace Radios
             sb.AppendLine("\"none\" means the radio answered with nothing.");
             sb.AppendLine();
 
-            progressCallback?.Invoke("Reading the radio's live settings.");
+            // No progress line for the live capture: it is instant, and the
+            // start announcement is still speaking. The first spoken progress
+            // is the first profile load — the first thing that takes time.
 
             // ── [capture] — identity, and where the radio stood at the start ──
             // "no radio connection" beats a null-collapsed "none" here: with
