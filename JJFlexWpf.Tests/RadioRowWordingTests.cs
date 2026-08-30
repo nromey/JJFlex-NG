@@ -326,4 +326,103 @@ public sealed class RadioRowWordingTests
         Assert.Contains("chosen@example.com", r.DisplayText);
         Assert.DoesNotContain("observed@example.com", r.DisplayText);
     }
+
+    // ------------------------------------------------------------------
+    // The live sentence (#391, #394 — Noel's spec, 2026-08-30)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Every live row states its client count, zero included. Silence used to
+    /// be the zero case, and silence is indistinguishable from a feature that
+    /// is not working — Noel, at his tester's radio, deciding whether to
+    /// transmit: "I'm not seeing that Don's connected or no one's connected."
+    /// </summary>
+    [Fact]
+    public void ALiveRowAlwaysStatesItsClientCountZeroIncluded()
+    {
+        var r = Row();
+        r.LanAvailable = true;
+
+        Assert.EndsWith("online with 0 connected clients", r.DisplayText);
+    }
+
+    /// <summary>
+    /// And a row that cannot hear the radio claims no count at all — a zero
+    /// it cannot know would be a claim, not a report. The clause's absence
+    /// now means exactly one thing: not live.
+    /// </summary>
+    [Fact]
+    public void ARowThatCannotHearTheRadioClaimsNoCount()
+    {
+        var r = Row();
+        r.LastSeenText = "last seen 3 days ago";
+
+        Assert.DoesNotContain("connected client", r.DisplayText,
+            System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Dual-homed names BOTH paths and no choice. Which leg gets tried
+    /// belongs to the path combo and the connect announcement, not to a
+    /// clause read on every arrow keypress.
+    /// </summary>
+    [Fact]
+    public void ADualHomedRowNamesBothPathsAndNoChoice()
+    {
+        var r = Row();
+        r.LanAvailable = true;
+        r.WanAvailable = true;
+
+        Assert.Equal(Lexicon.Get("connect.row.dual"), r.WhereText);
+        Assert.DoesNotContain("using", r.WhereText, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AForeignWanRowNamesTheAccountItsConnectWouldBrokerThrough()
+    {
+        var r = Row();
+        r.WanAvailable = true;
+        r.BrokerAccount = "dbreda@example.com";
+
+        Assert.Equal(
+            Lexicon.Get("connect.row.remote_via", ("account", "dbreda@example.com")),
+            r.WhereText);
+    }
+
+    /// <summary>
+    /// A radio arriving on the operator's own account names no account — the
+    /// refresh pass stamps BrokerAccount empty for it (#401's ruling: name
+    /// the account only when it is NOT the one in play).
+    /// </summary>
+    [Fact]
+    public void AWanRowOnTheAccountInPlayNamesNoAccount()
+    {
+        var r = Row();
+        r.WanAvailable = true;
+
+        Assert.Equal(Lexicon.Get("connect.row.remote"), r.WhereText);
+        Assert.DoesNotContain("@", r.WhereText);
+    }
+
+    /// <summary>
+    /// One account, said once. When the where-clause already names the
+    /// account ("on SmartLink via dbreda@..."), the model-disambiguation
+    /// suffix stands down rather than naming it a second time in the same
+    /// sentence.
+    /// </summary>
+    [Fact]
+    public void AnAmbiguousRowWhoseWhereClauseNamesTheAccountSaysItOnce()
+    {
+        var r = Row();
+        r.WanAvailable = true;
+        r.LastSeenViaAccount = "dbreda@example.com";
+        r.BrokerAccount = "dbreda@example.com";
+        r.ModelIsAmbiguous = true;
+
+        var text = r.DisplayText;
+        int first = text.IndexOf("dbreda@example.com", System.StringComparison.OrdinalIgnoreCase);
+        int last = text.LastIndexOf("dbreda@example.com", System.StringComparison.OrdinalIgnoreCase);
+        Assert.True(first >= 0, "The account vanished entirely: " + text);
+        Assert.Equal(first, last);
+    }
 }
