@@ -307,7 +307,30 @@ namespace Radios
             var currentSnap = CaptureCurrentState(rig, "Current", "Active");
             FormatSnapshot(sb, currentSnap);
 
-            // Profile comparison: load each profile and capture its state
+            // Profile comparison: load each profile and capture its state.
+            //
+            // NOT under the change-nothing hold. This pass looks like an
+            // inspection and is not one — it walks the whole station through
+            // every stored profile, visibly to every connected client, and
+            // its restore is best-effort (#414). On a guarded radio the
+            // read-only parts above still make a useful report; the report
+            // says what was left out and why, so a shorter report reads as
+            // the setting working rather than the feature breaking.
+            if (rig.ChangeNothingActive)
+            {
+                sb.AppendLine();
+                sb.AppendLine(new string('=', 60));
+                sb.AppendLine("PROFILE COMPARISON SKIPPED");
+                sb.AppendLine(new string('=', 60));
+                sb.AppendLine("Change nothing is on for this radio. Comparing profiles");
+                sb.AppendLine("means loading each one on the radio in turn, so that part");
+                sb.AppendLine("of the report was left out. The setting is in Settings,");
+                sb.AppendLine("under Radios.");
+                Tracing.TraceLine(
+                    "ProfileReporter: comparison pass skipped — change nothing is on for this radio",
+                    TraceLevel.Warning);
+            }
+            else
             foreach (var ptype in new[] { ProfileTypes.global, ProfileTypes.tx })
             {
                 var profiles = rig.GetProfilesByType(ptype);

@@ -4503,6 +4503,20 @@ public partial class MainWindow : UserControl
         var cfg = RadioConfig.LoadForRadio(serial);
         if (cfg.RemOnOnConnect == RemOnOnConnectModes.LeaveAlone) return;
 
+        // The change-nothing hold outranks the queued intent (#403): both are
+        // the operator's own per-radio answers, and the hold is the later,
+        // sharper one. Checked here so the automatic path skips quietly — the
+        // connect announcement has already said the radio is being left alone
+        // — instead of reaching the rig's setter and hearing a refusal shaped
+        // for a person who just pressed something.
+        if (cfg.ChangeNothingOnThisRadio)
+        {
+            Tracing.TraceLine(
+                "ApplyRemOnOnConnect: skipped — change nothing is on for this radio",
+                TraceLevel.Info);
+            return;
+        }
+
         bool desired = cfg.RemOnOnConnect == RemOnOnConnectModes.TurnOn;
         bool before = rig.RemoteOnEnabled;
         Tracing.TraceLine(

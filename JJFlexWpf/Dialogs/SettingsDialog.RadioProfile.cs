@@ -50,6 +50,9 @@ namespace JJFlexWpf.Dialogs
             public SmartLinkIntents SmartLinkIntent;
             /// <summary>Whose radio this is (Sprint 31 Track S, #94).</summary>
             public RadioOwnership Ownership;
+            /// <summary>"Change nothing on this radio" — the per-radio hold on
+            /// every write to state the radio keeps (#403).</summary>
+            public bool ChangeNothing;
             /// <summary>Read this radio's S-meter in dBm rather than S-units
             /// (Sprint 38 Track C, #337).</summary>
             public bool SmeterInDbm;
@@ -207,6 +210,7 @@ namespace JJFlexWpf.Dialogs
                     (SmartLinkIntents)Math.Max(0, RadioProfileSmartLinkIntentCombo.SelectedIndex),
                 Ownership =
                     (RadioOwnership)Math.Max(0, RadioProfileOwnershipCombo.SelectedIndex),
+                ChangeNothing = RadioProfileChangeNothingCheck.IsChecked == true,
                 SmeterInDbm = RadioProfileSmeterUnitsCombo.SelectedIndex == 1,
                 NicknameText = RadioProfileNicknameBox.Text?.Trim() ?? "",
                 LoadedNickname = _currentProfileLoadedNickname,
@@ -245,6 +249,12 @@ namespace JJFlexWpf.Dialogs
                 // where it appears as a sentence saying it is a guess.
                 RadioProfileOwnershipCombo.SelectedIndex =
                     (int)(stashed?.Ownership ?? cfg.Ownership);
+
+                // The change-nothing hold (#403). Loads as saved, never as a
+                // guess — pre-arming a hold the operator did not set would be
+                // as wrong here as pre-arming writes would be above.
+                RadioProfileChangeNothingCheck.IsChecked =
+                    stashed?.ChangeNothing ?? cfg.ChangeNothingOnThisRadio;
 
                 // S-meter unit (#337). Index 1 is dBm; the stored default,
                 // false, is S-units and index 0. Loaded from the SAME per-radio
@@ -374,10 +384,14 @@ namespace JJFlexWpf.Dialogs
             string smeterUnits = cfg.SmeterInDbm
                 ? Lexicon.Get("settings.profile.describe_smeter_dbm")
                 : "";
+            // Same rule as everything above: only the armed state speaks.
+            string changeNothing = cfg.ChangeNothingOnThisRadio
+                ? Lexicon.Get("settings.profile.describe_change_nothing")
+                : "";
             return Lexicon.Get("settings.profile.describe",
                 ("mode", mode), ("port", port), ("waivers", waivers), ("reach", reach),
                 ("remOn", remOn), ("smartLink", smartLink), ("owned", owned),
-                ("smeterUnits", smeterUnits));
+                ("smeterUnits", smeterUnits), ("changeNothing", changeNothing));
         }
 
         private void RadioProfileMode_Checked(object sender, RoutedEventArgs e)
@@ -426,6 +440,25 @@ namespace JJFlexWpf.Dialogs
                 : Lexicon.Get("settings.profile.remote_firmware_allowed_warning");
             RadioProfileStatusText.Text = warning;
             ScreenReaderOutput.Speak(warning, VerbosityLevel.Terse, interrupt: true);
+        }
+
+        /// <summary>
+        /// The change-nothing hold (#403). Arming gets the full consequences
+        /// up front, in the status line as well as speech, following the
+        /// remote-administration checkboxes above — the person arming it may
+        /// be doing so minutes before the connect where it matters, and no
+        /// warning repeats at use time (the connect announcement does).
+        /// </summary>
+        private void RadioProfileChangeNothing_Toggled(object sender, RoutedEventArgs e)
+        {
+            if (_suppressRadioProfileEvents) return;
+
+            bool on = RadioProfileChangeNothingCheck.IsChecked == true;
+            string text = Lexicon.Get(on
+                ? "settings.profile.change_nothing_on_warning"
+                : "settings.profile.change_nothing_off");
+            RadioProfileStatusText.Text = text;
+            ScreenReaderOutput.Speak(text, VerbosityLevel.Terse, interrupt: true);
         }
 
         private void RadioProfileRemOnCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -899,6 +932,21 @@ namespace JJFlexWpf.Dialogs
                         _ =>
                             Lexicon.Get("settings.profile.saved_owned_unanswered", ("disp", disp)),
                     });
+                }
+
+                // The change-nothing hold (#403). Applies NOW when this is the
+                // radio in front of you — the rig caches the flag for its
+                // writers, and a hold that waited for the next connect would
+                // miss the session it was armed for.
+                if (cfg.ChangeNothingOnThisRadio != edit.ChangeNothing)
+                {
+                    cfg.ChangeNothingOnThisRadio = edit.ChangeNothing;
+                    changed = true;
+                    if (connected) _rig!.SetChangeNothingActive(edit.ChangeNothing);
+                    notesApplied.Add(Lexicon.Get(edit.ChangeNothing
+                        ? "settings.profile.saved_change_nothing_on"
+                        : "settings.profile.saved_change_nothing_off",
+                        ("disp", disp)));
                 }
 
                 // S-meter unit (#337). Applies NOW when this is the radio in
