@@ -171,9 +171,34 @@ namespace Radios
         }
 
         /// <summary>
+        /// Spoken-word label for a profile type. ToString() gives "tx", which
+        /// a screen reader spells out one letter at a time mid-sentence;
+        /// this is the form progress speech and the export file both use.
+        /// </summary>
+        internal static string TypeLabel(ProfileTypes type) => type switch
+        {
+            ProfileTypes.global => "global",
+            ProfileTypes.tx => "TX",
+            ProfileTypes.mic => "mic",
+            _ => type.ToString(),
+        };
+
+        /// <summary>
         /// Loads a profile by name and waits for the radio to settle.
         /// Returns true if the profile selection was confirmed within the timeout.
         /// </summary>
+        /// <remarks>
+        /// The confirmation await below is weaker than it looks: FlexLib's
+        /// profile-selection setters are optimistic — they store the name and
+        /// THEN send the load command — so the await confirms our own write
+        /// reached the FlexLib object, not that the radio finished loading.
+        /// The real wait is <see cref="WaitForSettle"/>, which polls radio
+        /// state until it stops changing. Until 2026-08-30 this was a blind
+        /// 500 ms sleep, and a global profile load (which tears down and
+        /// rebuilds slices) can still be mid-flight at 500 ms — a snapshot
+        /// taken then reads transition state and files it under the profile's
+        /// name.
+        /// </remarks>
         private static bool LoadProfileAndWait(FlexBase rig, ProfileTypes profileType, string name, int timeoutMs = 3000)
         {
             Tracing.TraceLine($"ProfileReporter: Loading {profileType} profile '{name}'", TraceLevel.Info);
@@ -181,7 +206,8 @@ namespace Radios
             var prof = new Profile_t(name, profileType, false);
             rig.SelectProfile(prof);
 
-            // Wait for the radio to confirm the profile selection
+            // Wait for the selection to be accepted (see remarks: this is the
+            // request landing, not the load finishing).
             bool settled = FlexBase.await(() =>
             {
                 switch (profileType)
@@ -203,65 +229,227 @@ namespace Radios
                 return false;
             }
 
-            // Give the radio a moment to propagate property changes after selection
-            Thread.Sleep(500);
+            WaitForSettle(rig);
             return true;
         }
 
         /// <summary>
-        /// Captures snapshots for all profiles of the given type by loading each one,
-        /// snapshotting the radio state, then restoring the original profile.
+        /// Wait until the radio's reported state stops changing: poll a
+        /// fingerprint of the settings a profile load rewrites, and return
+        /// once two consecutive reads agree. Costs the same 500 ms as the old
+        /// blind sleep when the radio is already quiet, and keeps waiting —
+        /// up to <paramref name="capMs"/> — while a load is still landing.
         /// </summary>
-        public static List<ProfileSnapshot> CaptureAllProfiles(
-            FlexBase rig, ProfileTypes profileType, Action<string> progressCallback = null)
+        private static void WaitForSettle(FlexBase rig, int capMs = 4000, int intervalMs = 250)
         {
-            var snapshots = new List<ProfileSnapshot>();
-            var profiles = rig.GetProfilesByType(profileType);
-            if (profiles == null || profiles.Count == 0) return snapshots;
-
-            // Record the currently selected profile so we can restore it
-            string originalSelection = null;
-            switch (profileType)
+            string prev = null;
+            long deadline = Environment.TickCount64 + capMs;
+            while (true)
             {
-                case ProfileTypes.global:
-                    originalSelection = rig.theRadio.ProfileGlobalSelection;
-                    break;
-                case ProfileTypes.tx:
-                    originalSelection = rig.theRadio.ProfileTXSelection;
-                    break;
-                case ProfileTypes.mic:
-                    originalSelection = rig.theRadio.ProfileMICSelection;
-                    break;
+                Thread.Sleep(intervalMs);
+                string fp = StateFingerprint(rig);
+                if (fp == prev) return;
+                if (Environment.TickCount64 >= deadline)
+                {
+                    Tracing.TraceLine("ProfileReporter: state still changing at the settle cap — capturing anyway", TraceLevel.Warning);
+                    return;
+                }
+                prev = fp;
+            }
+        }
+
+        /// <summary>
+        /// A cheap digest of the state a profile load rewrites. Any exception
+        /// collapses to a constant, so a broken read settles immediately
+        /// rather than wedging the walk.
+        /// </summary>
+        private static string StateFingerprint(FlexBase rig)
+        {
+            try
+            {
+                var radio = rig.theRadio;
+                if (radio == null) return "";
+                var sb = new StringBuilder();
+                sb.Append(radio.ProfileTXSelection).Append('|')
+                  .Append(radio.ProfileMICSelection).Append('|')
+                  .Append(radio.RFPower).Append('|')
+                  .Append(radio.MicLevel).Append('|')
+                  .Append(radio.TXFilterLow).Append('|')
+                  .Append(radio.TXFilterHigh);
+                var slices = radio.SliceList;
+                if (slices != null)
+                {
+                    foreach (var s in slices.Where(x => x != null)
+                        .OrderBy(x => x.Letter, StringComparer.Ordinal))
+                    {
+                        sb.Append('|').Append(s.Letter).Append(':')
+                          .Append(s.Freq).Append(':').Append(s.DemodMode)
+                          .Append(':').Append(s.FilterLow).Append(':').Append(s.FilterHigh);
+                    }
+                }
+                return sb.ToString();
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// What a profile walk did to the radio: which profiles were captured,
+        /// which could not be read, and — the part <c>CaptureAllProfiles</c>
+        /// used to throw away — whether the originally loaded profile was
+        /// confirmed back in place afterwards. A failed restore leaves the
+        /// radio on the wrong profile, and until 2026-08-30 nothing recorded
+        /// that it had happened.
+        /// </summary>
+        public sealed class ProfileWalkOutcome
+        {
+            public ProfileTypes ProfileType;
+
+            /// <summary>The profile loaded when the walk began. Empty when
+            /// none was selected; null when the selection could not be read.</summary>
+            public string OriginalSelection;
+
+            public List<string> Captured = new List<string>();
+
+            /// <summary>Profiles the walk could not read: name and why.</summary>
+            public List<(string Name, string Problem)> Unreadable = new List<(string, string)>();
+
+            /// <summary>The last profile the walk actually loaded — where the
+            /// radio is left if the restore was skipped or failed.</summary>
+            public string LastLoaded;
+
+            public bool RestoreAttempted;
+
+            /// <summary>True only when the radio confirmed the original
+            /// profile back in place.</summary>
+            public bool RestoreConfirmed;
+        }
+
+        /// <summary>
+        /// THE profile walker — the only one. Loads every profile of the given
+        /// type in turn, calls <paramref name="captureWhileLoaded"/> while each
+        /// one is on the radio, then puts the original profile back and CHECKS
+        /// that the radio agreed. Both reports ride this: the comparison
+        /// report captures snapshots, the restore-grade export writes keyed
+        /// sections.
+        /// </summary>
+        public static ProfileWalkOutcome WalkProfiles(
+            FlexBase rig, ProfileTypes profileType,
+            Action<string> captureWhileLoaded,
+            Action<string> progressCallback = null,
+            Action<string, string> unreadableCallback = null)
+        {
+            var outcome = new ProfileWalkOutcome { ProfileType = profileType };
+            string label = TypeLabel(profileType);
+
+            List<Profile_t> profiles = null;
+            try { profiles = rig.GetProfilesByType(profileType); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"ProfileReporter: could not list {label} profiles: {ex.Message}", TraceLevel.Warning);
+            }
+            if (profiles == null || profiles.Count == 0) return outcome;
+
+            // Record the currently selected profile so we can restore it.
+            try
+            {
+                switch (profileType)
+                {
+                    case ProfileTypes.global:
+                        outcome.OriginalSelection = rig.theRadio.ProfileGlobalSelection ?? "";
+                        break;
+                    case ProfileTypes.tx:
+                        outcome.OriginalSelection = rig.theRadio.ProfileTXSelection ?? "";
+                        break;
+                    case ProfileTypes.mic:
+                        outcome.OriginalSelection = rig.theRadio.ProfileMICSelection ?? "";
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                outcome.OriginalSelection = null;
+                Tracing.TraceLine($"ProfileReporter: could not read the current {label} selection: {ex.Message}", TraceLevel.Warning);
             }
 
-            Tracing.TraceLine($"ProfileReporter: Capturing {profiles.Count} {profileType} profiles (current: '{originalSelection}')", TraceLevel.Info);
+            Tracing.TraceLine($"ProfileReporter: Capturing {profiles.Count} {label} profiles (current: '{outcome.OriginalSelection}')", TraceLevel.Info);
 
             int count = 0;
             foreach (var p in profiles)
             {
                 count++;
-                string progressMsg = $"Loading {profileType} profile {count} of {profiles.Count}: {p.Name}";
+                string progressMsg = $"Loading {label} profile {count} of {profiles.Count}: {p.Name}";
                 progressCallback?.Invoke(progressMsg);
                 Tracing.TraceLine($"ProfileReporter: {progressMsg}", TraceLevel.Info);
 
-                if (LoadProfileAndWait(rig, profileType, p.Name))
+                string problem = null;
+                try
                 {
-                    var snap = CaptureCurrentState(rig, p.Name, profileType.ToString());
-                    snapshots.Add(snap);
+                    if (LoadProfileAndWait(rig, profileType, p.Name))
+                    {
+                        outcome.LastLoaded = p.Name;
+                        captureWhileLoaded?.Invoke(p.Name);
+                        outcome.Captured.Add(p.Name);
+                    }
+                    else
+                    {
+                        problem = "the radio did not confirm loading this profile in time";
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    Tracing.TraceLine($"ProfileReporter: Skipping profile '{p.Name}' — load timed out", TraceLevel.Warning);
+                    problem = "reading failed: " + ex.Message;
+                }
+
+                if (problem != null)
+                {
+                    Tracing.TraceLine($"ProfileReporter: {label} profile '{p.Name}' not captured — {problem}", TraceLevel.Warning);
+                    outcome.Unreadable.Add((p.Name, problem));
+                    unreadableCallback?.Invoke(p.Name, problem);
                 }
             }
 
-            // Restore the original profile
-            if (!string.IsNullOrEmpty(originalSelection))
+            // Put the original profile back — and check, because a restore
+            // that silently fails strands the radio on the last profile
+            // walked while everything else reports success.
+            if (!string.IsNullOrEmpty(outcome.OriginalSelection))
             {
-                progressCallback?.Invoke($"Restoring original {profileType} profile: {originalSelection}");
-                LoadProfileAndWait(rig, profileType, originalSelection);
+                outcome.RestoreAttempted = true;
+                progressCallback?.Invoke($"Putting back the {label} profile that was loaded: {outcome.OriginalSelection}");
+                try
+                {
+                    outcome.RestoreConfirmed = LoadProfileAndWait(rig, profileType, outcome.OriginalSelection);
+                }
+                catch (Exception ex)
+                {
+                    outcome.RestoreConfirmed = false;
+                    Tracing.TraceLine($"ProfileReporter: restore of {label} profile '{outcome.OriginalSelection}' threw: {ex.Message}", TraceLevel.Warning);
+                }
+                if (!outcome.RestoreConfirmed)
+                {
+                    Tracing.TraceLine($"ProfileReporter: the radio did NOT confirm {label} profile '{outcome.OriginalSelection}' back in place — it may still be on '{outcome.LastLoaded}'", TraceLevel.Error);
+                }
             }
 
+            return outcome;
+        }
+
+        /// <summary>
+        /// Captures snapshots for all profiles of the given type by loading each one,
+        /// snapshotting the radio state, then restoring the original profile.
+        /// <paramref name="walk"/> reports what happened — including whether
+        /// the restore was confirmed, which callers must surface.
+        /// </summary>
+        public static List<ProfileSnapshot> CaptureAllProfiles(
+            FlexBase rig, ProfileTypes profileType, out ProfileWalkOutcome walk,
+            Action<string> progressCallback = null)
+        {
+            var snapshots = new List<ProfileSnapshot>();
+            walk = WalkProfiles(rig, profileType,
+                name => snapshots.Add(CaptureCurrentState(rig, name, profileType.ToString())),
+                progressCallback);
             return snapshots;
         }
 
@@ -337,15 +525,28 @@ namespace Radios
                 if (profiles == null || profiles.Count < 2) continue;
 
                 progressCallback?.Invoke($"Comparing {ptype} profiles...");
-                var snapshots = CaptureAllProfiles(rig, ptype, progressCallback);
-                if (snapshots.Count < 2) continue;
+                var snapshots = CaptureAllProfiles(rig, ptype, out var walk, progressCallback);
+                if (snapshots.Count >= 2)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine(new string('=', 60));
+                    sb.AppendLine($"{ptype.ToString().ToUpperInvariant()} PROFILE COMPARISON");
+                    sb.AppendLine(new string('=', 60));
 
-                sb.AppendLine();
-                sb.AppendLine(new string('=', 60));
-                sb.AppendLine($"{ptype.ToString().ToUpperInvariant()} PROFILE COMPARISON");
-                sb.AppendLine(new string('=', 60));
+                    FormatProfileComparison(sb, snapshots);
+                }
 
-                FormatProfileComparison(sb, snapshots);
+                // The walk's restore used to be fire-and-forget: a failed
+                // restore left the radio on the wrong profile and the report
+                // said nothing. Now the report says so, loudly.
+                if (walk.RestoreAttempted && !walk.RestoreConfirmed)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"CAUTION: the radio did not confirm {TypeLabel(ptype)} profile");
+                    sb.AppendLine($"'{walk.OriginalSelection}' back in place after this comparison.");
+                    sb.AppendLine($"It may still be on '{walk.LastLoaded}'. Reload your profile");
+                    sb.AppendLine("from the Radio menu before operating.");
+                }
             }
 
             // Meter enumeration
@@ -801,6 +1002,510 @@ namespace Radios
             var path = Path.Combine(dir, filename);
             File.WriteAllText(path, report);
             Tracing.TraceLine("StationSettingsExport: wrote " + path, TraceLevel.Info);
+            return path;
+        }
+
+        // ══ The restore-grade capture (2026-08-30, before Don's 6300 reset) ══
+        //
+        // A radio's settings largely live INSIDE its profiles, and a factory
+        // reset destroys them. The text export above deliberately reads only
+        // live state, so it cannot see into a profile it has not loaded; the
+        // comparison report walks, but writes a diff narrative nobody can
+        // restore from. This one walks every profile — global, TX, mic — and
+        // writes what each holds as "key = value" lines under [section]
+        // headers: one file that reads aloud line by line, goes over a phone
+        // to a helper at the radio, and parses by machine.
+        //
+        // Three rules, each load-bearing:
+        //
+        //   - Values are what the RADIO reports, read from the FlexLib radio
+        //     and slice objects the radio's own status messages populate —
+        //     never from FlexBase's optimistic caches, which hold our request
+        //     whether or not the radio applied it (#164).
+        //   - A fact that could not be read is WRITTEN DOWN as unreadable.
+        //     After the reset the radio is gone; a silently missing line and
+        //     a setting that was never captured must not look the same.
+        //   - The walk puts the original profiles back and CHECKS. A restore
+        //     the radio did not confirm is reported in the file and to the
+        //     operator, not swallowed.
+
+        /// <summary>
+        /// One captured fact: the setting's name, and either its value or the
+        /// reason it could not be read. Never both, never neither.
+        /// </summary>
+        internal sealed class SettingLine
+        {
+            public readonly string Key;
+            public readonly string Value;
+            public readonly string Problem;
+
+            public SettingLine(string key, string value, string problem)
+            {
+                Key = key;
+                Value = value;
+                Problem = problem;
+            }
+
+            public bool Readable => Problem == null;
+        }
+
+        /// <summary>
+        /// Write setting lines in the file's one format: "key = value", or
+        /// "key = unreadable: reason" when the radio did not give the fact up.
+        /// </summary>
+        internal static void AppendSettingLines(StringBuilder sb, IEnumerable<SettingLine> lines)
+        {
+            foreach (var l in lines)
+            {
+                sb.AppendLine(l.Readable
+                    ? $"{l.Key} = {l.Value}"
+                    : $"{l.Key} = unreadable: {l.Problem}");
+            }
+        }
+
+        /// <summary>
+        /// Read every setting the capture records, from the radio's own
+        /// reported state. Each read is guarded on its own: one setting the
+        /// radio will not give up costs that line, not the section.
+        /// </summary>
+        internal static List<SettingLine> CaptureKeyedSettings(FlexBase rig)
+        {
+            var lines = new List<SettingLine>();
+            var radio = rig?.theRadio;
+            string noRadio = radio == null ? "no radio connection" : null;
+
+            void Key(string key, Func<string> read)
+            {
+                if (noRadio != null)
+                {
+                    lines.Add(new SettingLine(key, null, noRadio));
+                    return;
+                }
+                try
+                {
+                    string v = read();
+                    lines.Add(new SettingLine(key, string.IsNullOrEmpty(v) ? "none" : v, null));
+                }
+                catch (Exception ex)
+                {
+                    lines.Add(new SettingLine(key, null, ex.Message));
+                }
+            }
+
+            // Which TX and mic profile ride along. Inside a global profile's
+            // section this records what loading that profile selects.
+            Key("tx profile selected", () => radio.ProfileTXSelection);
+            Key("mic profile selected", () => radio.ProfileMICSelection);
+
+            // Transmit chain.
+            Key("rf power", () => radio.RFPower + " watts");
+            Key("tune power", () => radio.TunePower + " watts");
+            Key("mic input", () => radio.MicInput);
+            Key("mic gain", () => radio.MicLevel.ToString());
+            Key("mic boost", () => OnOff(radio.MicBoost));
+            Key("mic bias", () => OnOff(radio.MicBias));
+            Key("speech processor", () => OnOff(radio.SpeechProcessorEnable));
+            Key("speech processor level", () => ((FlexBase.ProcessorSettings)radio.SpeechProcessorLevel).ToString());
+            Key("compander", () => OnOff(radio.CompanderOn));
+            Key("compander level", () => radio.CompanderLevel.ToString());
+            Key("tx filter low", () => radio.TXFilterLow + " hertz");
+            Key("tx filter high", () => radio.TXFilterHigh + " hertz");
+            Key("am carrier level", () => radio.AMCarrierLevel.ToString());
+            Key("transmit monitor", () => OnOff(radio.TXMonitor));
+            Key("transmit monitor level, sideband", () => radio.TXSBMonitorGain.ToString());
+            Key("transmit monitor level, CW", () => radio.TXCWMonitorGain.ToString());
+            Key("vox", () => OnOff(radio.SimpleVOXEnable));
+            Key("vox gain", () => radio.SimpleVOXLevel.ToString());
+            Key("vox delay", () => (radio.SimpleVOXDelay * 50) + " milliseconds");
+
+            // CW.
+            Key("cw speed", () => radio.CWSpeed + " words per minute");
+            Key("cw sidetone pitch", () => radio.CWPitch + " hertz");
+            Key("cw sidetone", () => OnOff(radio.CWSidetone));
+            Key("cw break-in", () => OnOff(radio.CWBreakIn));
+            Key("cw break-in delay", () => radio.CWDelay + " milliseconds");
+            Key("cw iambic", () => OnOff(radio.CWIambic));
+            Key("cw iambic mode", () => radio.CWIambic ? (radio.CWIambicModeB ? "B" : "A") : "not iambic");
+
+            // Audio outputs.
+            Key("lineout gain", () => radio.LineoutGain.ToString());
+            Key("lineout muted", () => radio.LineoutMute ? "yes" : "no");
+            Key("headphone gain", () => radio.HeadphoneGain.ToString());
+            Key("headphone muted", () => radio.HeadphoneMute ? "yes" : "no");
+            Key("binaural receive", () => OnOff(radio.BinauralRX));
+
+            // Slices, in letter order. The list itself is one guarded read;
+            // each slice's settings are then guarded line by line.
+            List<Slice> slices = null;
+            string sliceProblem = noRadio;
+            if (sliceProblem == null)
+            {
+                try
+                {
+                    slices = radio.SliceList?.Where(s => s != null)
+                        .OrderBy(s => s.Letter, StringComparer.Ordinal).ToList();
+                }
+                catch (Exception ex)
+                {
+                    sliceProblem = ex.Message;
+                }
+            }
+
+            if (sliceProblem != null)
+            {
+                lines.Add(new SettingLine("slices open", null, sliceProblem));
+                return lines;
+            }
+
+            lines.Add(new SettingLine("slices open", (slices?.Count ?? 0).ToString(), null));
+            if (slices == null) return lines;
+
+            foreach (var s in slices)
+            {
+                string p = "slice " + s.Letter + " ";
+                Key(p + "frequency", () => RadioStatusBuilder.FormatFreqDisplay((ulong)(s.Freq * 1_000_000d)));
+                Key(p + "mode", () => s.DemodMode);
+                Key(p + "filter low", () => s.FilterLow + " hertz");
+                Key(p + "filter high", () => s.FilterHigh + " hertz");
+                Key(p + "rx antenna", () => s.RXAnt);
+                Key(p + "tx antenna", () => s.TXAnt);
+                Key(p + "transmit slice", () => s.IsTransmitSlice ? "yes" : "no");
+                Key(p + "tune step", () => s.TuneStep + " hertz");
+                Key(p + "locked", () => OnOff(s.Lock));
+                Key(p + "agc mode", () => s.AGCMode.ToString());
+                Key(p + "agc threshold", () => s.AGCThreshold.ToString());
+                Key(p + "audio gain", () => s.AudioGain.ToString());
+                Key(p + "audio pan", () => s.AudioPan.ToString());
+                Key(p + "muted", () => s.Mute ? "yes" : "no");
+                Key(p + "rf gain", () => s.RFGain.ToString());
+                Key(p + "squelch", () => OnOff(s.SquelchOn));
+                Key(p + "squelch level", () => s.SquelchLevel.ToString());
+                Key(p + "rit", () => s.RITOn ? "on at " + s.RITFreq + " hertz" : "off");
+                Key(p + "xit", () => s.XITOn ? "on at " + s.XITFreq + " hertz" : "off");
+                Key(p + "dax channel", () => s.DAXChannel == 0 ? "none" : s.DAXChannel.ToString());
+                Key(p + "noise reduction", () => s.NROn ? "on, level " + s.NRLevel : "off");
+                Key(p + "spectral noise reduction", () => s.NRSOn ? "on, level " + s.NRSLevel : "off");
+                Key(p + "legacy noise reduction", () => s.NRLOn ? "on, level " + s.NRL_Level : "off");
+                Key(p + "noise reduction filter", () => s.NRFOn ? "on, level " + s.NRFLevel : "off");
+                Key(p + "neural noise reduction", () => OnOff(s.RNNOn));
+                Key(p + "noise blanker", () => s.NBOn ? "on, level " + s.NBLevel : "off");
+                Key(p + "wideband noise blanker", () => s.WNBOn ? "on, level " + s.WNBLevel : "off");
+                Key(p + "auto notch", () => OnOff(s.ANFTOn));
+                Key(p + "legacy auto notch", () => s.ANFOn ? "on, level " + s.ANFLevel : "off");
+                Key(p + "audio peaking filter", () => s.APFOn ? "on, level " + s.APFLevel : "off");
+            }
+
+            return lines;
+        }
+
+        /// <summary>
+        /// One walked profile's section: header, "captured = yes", then its
+        /// settings.
+        /// </summary>
+        internal static void AppendProfileSection(
+            StringBuilder sb, string typeLabel, string name, List<SettingLine> lines)
+        {
+            sb.AppendLine($"[{typeLabel} profile: {name}]");
+            sb.AppendLine("captured = yes");
+            AppendSettingLines(sb, lines);
+            sb.AppendLine();
+        }
+
+        /// <summary>
+        /// The section for a profile the walk could not read. It gets a
+        /// section anyway: after the reset, "this profile existed and could
+        /// not be captured" is a fact worth exactly as much as a captured one.
+        /// </summary>
+        internal static void AppendUnreadableProfileSection(
+            StringBuilder sb, string typeLabel, string name, string problem)
+        {
+            sb.AppendLine($"[{typeLabel} profile: {name}]");
+            sb.AppendLine("captured = no");
+            sb.AppendLine($"problem = {problem}; none of this profile's settings are in this file");
+            sb.AppendLine();
+        }
+
+        /// <summary>
+        /// What <see cref="GenerateRestoreGradeExport"/> hands back: the file
+        /// text, plus the two facts the completion announcement needs.
+        /// </summary>
+        public sealed class RestoreGradeExport
+        {
+            public string Text;
+
+            /// <summary>False when the walk was skipped — change nothing armed,
+            /// so the file holds only live settings.</summary>
+            public bool WalkRan;
+
+            /// <summary>True when nothing was disturbed, or everything the walk
+            /// loaded was confirmed back where it started.</summary>
+            public bool EverythingPutBack;
+        }
+
+        private static int _walkInFlight;
+
+        /// <summary>
+        /// True while a profile walk is running. Both walking entry points —
+        /// this export and the comparison report — load profiles on the radio,
+        /// and two walks at once would restore each other's wrong state.
+        /// </summary>
+        public static bool WalkInProgress
+            => System.Threading.Volatile.Read(ref _walkInFlight) != 0;
+
+        /// <summary>
+        /// Build the restore-grade capture. Walks every global, TX and mic
+        /// profile (in that order — a global load drags TX and mic selections
+        /// with it, so the later walks re-right what the earlier ones moved),
+        /// captures the radio's reported state under each, then puts the
+        /// original profiles back and checks. Returns null if a walk is
+        /// already in flight.
+        /// </summary>
+        public static RestoreGradeExport GenerateRestoreGradeExport(
+            FlexBase rig, Action<string> progressCallback = null)
+        {
+            if (Interlocked.CompareExchange(ref _walkInFlight, 1, 0) != 0)
+            {
+                Tracing.TraceLine("RestoreGradeExport: refused — a profile walk is already running", TraceLevel.Warning);
+                return null;
+            }
+            try
+            {
+                return GenerateRestoreGradeExportCore(rig, progressCallback);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _walkInFlight, 0);
+            }
+        }
+
+        private static RestoreGradeExport GenerateRestoreGradeExportCore(
+            FlexBase rig, Action<string> progressCallback)
+        {
+            var result = new RestoreGradeExport();
+            var sb = new StringBuilder();
+            var radio = rig.theRadio;
+
+            sb.AppendLine("JJ Flexible restore-grade settings capture");
+            sb.AppendLine("==========================================");
+            sb.AppendLine();
+            sb.AppendLine("One fact per line, \"key = value\", grouped under [section] headers —");
+            sb.AppendLine("readable straight through, over a phone, or by a parser. A value of");
+            sb.AppendLine("\"unreadable: reason\" means the radio did not give that fact up; the");
+            sb.AppendLine("line stays, so a gap is never mistaken for a captured setting.");
+            sb.AppendLine("\"none\" means the radio answered with nothing.");
+            sb.AppendLine();
+
+            progressCallback?.Invoke("Reading the radio's live settings.");
+
+            // ── [capture] — identity, and where the radio stood at the start ──
+            var capture = new List<SettingLine>();
+            void Cap(string key, Func<string> read)
+            {
+                try
+                {
+                    string v = read();
+                    capture.Add(new SettingLine(key, string.IsNullOrEmpty(v) ? "none" : v, null));
+                }
+                catch (Exception ex)
+                {
+                    capture.Add(new SettingLine(key, null, ex.Message));
+                }
+            }
+
+            Cap("taken", () => DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " local");
+            Cap("radio model", () => radio?.Model ?? rig.RadioModel);
+            Cap("radio name", () => radio?.Nickname ?? rig.RadioNickname);
+            Cap("radio serial", () => radio?.Serial);
+            Cap("callsign", () => radio?.Callsign);
+            Cap("firmware", () => radio?.Versions);
+            Cap("antenna tuner fitted", () => radio == null ? null : (radio.ATUPresent ? "yes" : "no"));
+            Cap("rx antenna ports", () => string.Join(", ", rig.RXAntennaList ?? new List<string>()));
+            Cap("tx antenna ports", () => string.Join(", ", rig.TXAntennaList ?? new List<string>()));
+            Cap("global profile loaded at start", () => radio?.ProfileGlobalSelection);
+            Cap("tx profile loaded at start", () => radio?.ProfileTXSelection);
+            Cap("mic profile loaded at start", () => radio?.ProfileMICSelection);
+            foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+            {
+                Cap(TypeLabel(t) + " profiles stored", () => rig.GetProfilesByType(t)?.Count.ToString() ?? "0");
+            }
+
+            sb.AppendLine("[capture]");
+            AppendSettingLines(sb, capture);
+            sb.AppendLine();
+
+            // ── [radio-wide settings] — not inside any profile, and a factory
+            //    reset takes them just the same ──
+            sb.AppendLine("[radio-wide settings]");
+            var radioWide = new List<SettingLine>();
+            void Wide(string key, Func<string> read)
+            {
+                try
+                {
+                    string v = read();
+                    radioWide.Add(new SettingLine(key, string.IsNullOrEmpty(v) ? "none" : v, null));
+                }
+                catch (Exception ex)
+                {
+                    radioWide.Add(new SettingLine(key, null, ex.Message));
+                }
+            }
+            Wide("remote power on (REM ON)", () => radio == null ? null : (radio.RemoteOnEnabled ? "enabled" : "disabled"));
+            Wide("network addressing", () =>
+            {
+                var ip = rig.CurrentStaticIP;
+                return ip != null ? "static IP " + ip : "automatic (DHCP)";
+            });
+            AppendSettingLines(sb, radioWide);
+            sb.AppendLine();
+
+            // ── [settings now] — the radio as found, before any profile is
+            //    loaded, including anything changed since a profile was last
+            //    saved ──
+            sb.AppendLine("[settings now]");
+            AppendSettingLines(sb, CaptureKeyedSettings(rig));
+            sb.AppendLine();
+
+            // ── The walk ──
+            var outcomes = new List<ProfileWalkOutcome>();
+            if (rig.ChangeNothingActive)
+            {
+                // Same reasoning as the comparison report: walking means
+                // loading every profile on a radio the operator asked us to
+                // leave alone. The file still holds everything readable.
+                sb.AppendLine("[profile walk skipped]");
+                sb.AppendLine("reason = change nothing is on for this radio, and walking means loading every stored profile on it");
+                sb.AppendLine("what this file holds = live settings only; no profile contents");
+                sb.AppendLine("to walk anyway = turn the setting off in Settings, under Radios, then run this export again");
+                sb.AppendLine();
+                Tracing.TraceLine("RestoreGradeExport: walk skipped — change nothing is on for this radio", TraceLevel.Warning);
+                result.WalkRan = false;
+                result.EverythingPutBack = true; // nothing was touched
+            }
+            else
+            {
+                result.WalkRan = true;
+                foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+                {
+                    string label = TypeLabel(t);
+                    var outcome = WalkProfiles(rig, t,
+                        name => AppendProfileSection(sb, label, name, CaptureKeyedSettings(rig)),
+                        progressCallback,
+                        (name, problem) => AppendUnreadableProfileSection(sb, label, name, problem));
+                    outcomes.Add(outcome);
+                }
+                result.EverythingPutBack = outcomes.All(o =>
+                    (o.LastLoaded == null && o.Unreadable.Count == 0)
+                    || (o.RestoreAttempted && o.RestoreConfirmed));
+            }
+
+            // ── [memories] — not profile contents, but the reset takes them ──
+            sb.AppendLine("[memories]");
+            var memLines = new List<SettingLine>();
+            List<Memory> mems = null;
+            string memProblem = radio == null ? "no radio connection" : null;
+            if (memProblem == null)
+            {
+                try { mems = radio.MemoryList?.Where(m => m != null).OrderBy(m => m.Freq).ToList(); }
+                catch (Exception ex) { memProblem = ex.Message; }
+            }
+            if (memProblem != null)
+            {
+                memLines.Add(new SettingLine("memories stored", null, memProblem));
+            }
+            else
+            {
+                memLines.Add(new SettingLine("memories stored", (mems?.Count ?? 0).ToString(), null));
+                int n = 0;
+                foreach (var m in mems ?? new List<Memory>())
+                {
+                    n++;
+                    string p = "memory " + n + " ";
+                    void Mem(string key, Func<string> read)
+                    {
+                        try
+                        {
+                            string v = read();
+                            memLines.Add(new SettingLine(key, string.IsNullOrEmpty(v) ? "none" : v, null));
+                        }
+                        catch (Exception ex)
+                        {
+                            memLines.Add(new SettingLine(key, null, ex.Message));
+                        }
+                    }
+                    Mem(p + "name", () => m.Name);
+                    Mem(p + "group", () => m.Group);
+                    Mem(p + "frequency", () => RadioStatusBuilder.FormatFreqDisplay((ulong)(m.Freq * 1_000_000d)));
+                    Mem(p + "mode", () => m.Mode);
+                    Mem(p + "tune step", () => m.Step + " hertz");
+                    Mem(p + "repeater offset direction", () => m.OffsetDirection.ToString());
+                    Mem(p + "repeater offset", () => m.RepeaterOffset + " megahertz");
+                    Mem(p + "tone mode", () => m.ToneMode.ToString());
+                    Mem(p + "tone value", () => m.ToneValue);
+                    Mem(p + "squelch", () => m.SquelchOn ? "on, level " + m.SquelchLevel : "off");
+                    Mem(p + "rf power", () => m.RFPower + " watts");
+                    Mem(p + "rx filter low", () => m.RXFilterLow + " hertz");
+                    Mem(p + "rx filter high", () => m.RXFilterHigh + " hertz");
+                }
+            }
+            AppendSettingLines(sb, memLines);
+            sb.AppendLine();
+
+            // ── [after the walk] — where the radio was left ──
+            sb.AppendLine("[after the walk]");
+            if (!result.WalkRan)
+            {
+                sb.AppendLine("nothing was loaded = the walk was skipped, so the radio was not touched");
+            }
+            else
+            {
+                foreach (var o in outcomes)
+                {
+                    string key = TypeLabel(o.ProfileType) + " profile put back";
+                    string value;
+                    if (o.LastLoaded == null && o.Unreadable.Count == 0)
+                        value = "nothing was loaded, so there was nothing to put back";
+                    else if (o.RestoreAttempted && o.RestoreConfirmed)
+                        value = "yes, " + o.OriginalSelection + " confirmed by the radio";
+                    else if (o.RestoreAttempted)
+                        value = "NO — the radio did not confirm " + o.OriginalSelection
+                            + "; it may still be on " + (o.LastLoaded ?? "an unknown profile")
+                            + ". Reload your profile from the Radio menu before operating";
+                    else if (o.OriginalSelection == null)
+                        value = "unknown — the starting selection could not be read; the radio is left on "
+                            + (o.LastLoaded ?? "an unknown profile");
+                    else
+                        value = "no profile was selected when the walk began; the radio is left on "
+                            + (o.LastLoaded ?? "an unknown profile");
+                    sb.AppendLine(key + " = " + value);
+                }
+            }
+            sb.AppendLine();
+            sb.AppendLine("End of capture.");
+
+            result.Text = sb.ToString();
+            return result;
+        }
+
+        /// <summary>
+        /// Save the restore-grade capture beside the text export, in
+        /// Documents\JJFlexRadio — findable without this app, which is the
+        /// moment the file matters. INI extension because the file is one:
+        /// Notepad opens it, and so does a parser.
+        /// </summary>
+        public static string SaveRestoreGradeExport(string text, string radioSerial)
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "JJFlexRadio");
+            Directory.CreateDirectory(dir);
+
+            string serialPart = string.IsNullOrWhiteSpace(radioSerial)
+                ? "radio"
+                : RadioConfig.SanitizeRadioId(radioSerial);
+            var filename = $"radio-restore-{serialPart}-{DateTime.Now:yyyy-MM-dd-HHmm}.ini";
+            var path = Path.Combine(dir, filename);
+            File.WriteAllText(path, text);
+            Tracing.TraceLine("RestoreGradeExport: wrote " + path, TraceLevel.Info);
             return path;
         }
     }
