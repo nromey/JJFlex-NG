@@ -283,6 +283,31 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void The_frequency_entry_is_asked_for_not_built()
+        {
+            // Frequency belongs to the app's own frequency entry (#399). The
+            // page asks the host to open it, exactly as it asks for power and
+            // for the device picker — it does not grow a tuning surface of its
+            // own, because the operator already knows the one on Home and a
+            // second one that behaves differently is a new thing to learn at
+            // the worst possible moment.
+            Assert.Equal(Kind.OpenFrequencyDialog, Parse("{\"kind\":\"open-frequency\"}").What);
+        }
+
+        [Fact]
+        public void The_frequency_wire_kind_matches_the_one_the_stages_send()
+        {
+            // A switch label cannot be a const reference in C#, so the literal
+            // in the parser and the const the stage set renders into the page
+            // are two statements of one string. Asserted here rather than left
+            // to drift: if they part company the button simply stops working,
+            // silently, with the message traced as "an unknown kind" where
+            // nobody is looking.
+            Assert.Equal(Kind.OpenFrequencyDialog,
+                Parse("{\"kind\":\"" + TransmitStageSet.OpenFrequency + "\"}").What);
+        }
+
+        [Fact]
         public void Moving_to_the_next_stage_must_name_the_stage()
         {
             // The page's own forward control tells the host where the
@@ -353,6 +378,7 @@ namespace Radios.Tests
             yield return "{\"kind\":\"open-help\",\"topic\":\"t\"}";
             yield return "{\"kind\":\"open-device-picker\"}";
             yield return "{\"kind\":\"open-power-dialog\"}";
+            yield return "{\"kind\":\"open-frequency\"}";
         }
 
         private static FixerPageMessage ProduceFault(Fault f)

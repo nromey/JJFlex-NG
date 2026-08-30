@@ -112,7 +112,7 @@ namespace Radios.ChainChecks
 
             if (antennaPort != null)
             {
-                string current = SafeAntenna(rig);
+                string current = StationConditions.Antenna(rig);
                 if (!string.Equals(antennaPort, current, StringComparison.OrdinalIgnoreCase))
                     return Refuse(TxTuneProbe.SkipReason.RadioNotReachable,
                                   "port switching is not implemented yet (asked for "
@@ -129,7 +129,7 @@ namespace Radios.ChainChecks
 
             Tracing.TraceLine("TxTuneProbeRunner: keying tune carrier, power "
                 + tunePower.ToString(CultureInfo.InvariantCulture)
-                + ", antenna " + SafeAntenna(rig), TraceLevel.Info);
+                + ", antenna " + StationConditions.Antenna(rig), TraceLevel.Info);
 
             // Armed BEFORE the carrier, and for the whole keyed block: while
             // this is armed the operator's Escape reaches the transmitter on a
@@ -225,8 +225,13 @@ namespace Radios.ChainChecks
 
             var result = TxTuneProbe.Result.Ran(verdict, DateTime.UtcNow, meters, tunePower,
                                                 lastComputedSwr, stoppedEarly,
-                                                SafeFrequency(rig), SafeMode(rig),
-                                                SafeAntenna(rig));
+                                                // Read HERE, at the moment of the
+                                                // measurement, through the one
+                                                // reader every transmit condition
+                                                // now goes through (#399).
+                                                StationConditions.Frequency(rig),
+                                                StationConditions.Mode(rig),
+                                                StationConditions.Antenna(rig));
 
             Tracing.TraceLine("TxTuneProbeRunner: " + verdict
                 + (stoppedEarly ? " (stopped early)" : "")
@@ -397,36 +402,10 @@ namespace Radios.ChainChecks
             catch { return double.NaN; }
         }
 
-        private static string SafeFrequency(FlexBase rig)
-        {
-            try
-            {
-                ulong hz = rig?.TXFrequency ?? 0UL;
-                return hz == 0UL ? "not reported"
-                    : (hz / 1_000_000.0).ToString("0.000000", CultureInfo.InvariantCulture) + " MHz";
-            }
-            catch { return "could not be read"; }
-        }
-
-        private static string SafeMode(FlexBase rig)
-        {
-            try
-            {
-                string m = rig?.TXMode;
-                return string.IsNullOrWhiteSpace(m) ? "not reported" : m;
-            }
-            catch { return "could not be read"; }
-        }
-
-        private static string SafeAntenna(FlexBase rig)
-        {
-            try
-            {
-                string a = rig?.TXAntennaName;
-                return string.IsNullOrWhiteSpace(a) ? "not reported" : a;
-            }
-            catch { return "could not be read"; }
-        }
+        // Frequency, mode and antenna are read through StationConditions. The
+        // three readers that used to sit here were byte-identical to the three
+        // in TxDifferentialCapture, which is how a run could record the
+        // frequency in one stage's evidence and not in another's (#399).
 
         private static string Show(double v)
             => double.IsNaN(v) ? "not derivable"

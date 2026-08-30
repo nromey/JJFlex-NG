@@ -79,31 +79,69 @@ namespace Radios.ChainChecks
         public delegate (string device, string hostApi) MicPathInfo();
 
         /// <summary>
-        /// When the key-up is issued, measured from the start of the
-        /// countdown: at the START OF THE THIRD TONE (#261). The count runs
-        /// UNKEYED — a countdown after MOX would burn keyed dead air against
-        /// the gate's budget, and one that promised a transmit before the
-        /// radio confirmed would have the operator talking into a
-        /// transmitter that may never key. So: count unkeyed, issue the
-        /// key-up on the third tone, and speak "go" only on MOX
-        /// confirmation. The gap between the third tone and "go" is honest
-        /// MOX latency.
+        /// This computer's half of the transmit chain facts — the microphone
+        /// Windows offers, its mute, its level, the open stream. Supplied by the
+        /// host because the radio layer cannot see any of it, and because
+        /// inventing a value for it would be worse than reporting it unchecked.
+        /// Null leaves the walk's computer-side stages honestly unmeasured.
+        /// </summary>
+        public delegate IReadOnlyList<DiagnosticFact> PcChainFacts();
+
+        /// <summary>
+        /// The fallback key-up moment, in milliseconds from the start of the
+        /// countdown, for a host that publishes no pacing of its own.
         /// </summary>
         /// <remarks>
-        /// COUPLED to the countdown Track G ships: 150 ms count steps, so
-        /// the third tone starts at 300 ms. If the bench retunes the step
-        /// length, retune this with it.
+        /// <para>
+        /// <b>The count runs UNKEYED, and those milliseconds are the operator's
+        /// abort window (#236, #261).</b> A countdown after MOX would burn keyed
+        /// dead air against the gate's budget, and one that promised a transmit
+        /// before the radio confirmed would have the operator talking into a
+        /// transmitter that may never key. So: count unkeyed, issue the key-up
+        /// near the end of the count, and speak "go" only on MOX confirmation.
+        /// The gap between the two is honest MOX latency.
+        /// </para>
+        /// <para>
+        /// <b>THIS WAS A HAND-COPIED CONSTANT AND IT DRIFTED.</b> It read 300,
+        /// with a remark saying "150 ms count steps, so the third tone starts at
+        /// 300 ms" — and <c>EarconPlayer.CountdownStepMs</c> had been 300 ms for
+        /// months, putting the third tone at 600 ms. So every keying stage
+        /// raised RF during the SECOND dit and then played the rest of the
+        /// warning at an operator who was already transmitting. A field trace of
+        /// 2026-08-29 caught it: countdown at 152330 ms, carrier at 152645, with
+        /// "Transmitting a tune carrier" spoken at 152671 on top of the count.
+        /// Nothing failed, nothing conflicted, and no test could see it, because
+        /// the two numbers live in assemblies that cannot see each other.
+        /// </para>
+        /// <para>
+        /// <b>So the number is no longer stated here.</b> The host passes it in
+        /// beside the countdown action, derived from the sound it is actually
+        /// going to play — see <see cref="Create"/>. This constant is only what
+        /// a host that supplies nothing gets, and it is deliberately LATE rather
+        /// than early: waiting too long costs a moment of silence, and keying
+        /// too early costs the operator the window in which they could have
+        /// stopped it. Never shorten it without treating that as a safety
+        /// change.
+        /// </para>
         /// </remarks>
-        public const int CountdownKeyUpAtMs = 300;
+        public const int DefaultCountdownKeyUpMs = 2000;
 
         private readonly FixerTransmitGate _gate;
         private readonly FixerTransmitBoundary.RadioSource _radio;
         private readonly VoicePreparer _prepareVoice;
         private readonly MicPathInfo _pcMicrophone;
+        private readonly PcChainFacts _pcChainFacts;
         private readonly Func<bool> _stopRequested;
         private readonly Action _speakNow;
         private readonly Action _speakDone;
         private readonly Action _countdown;
+
+        /// <summary>
+        /// When to issue the key-up, in milliseconds from the start of the
+        /// countdown. Published by the host beside the sound it plays, never
+        /// copied from it — see <see cref="DefaultCountdownKeyUpMs"/>.
+        /// </summary>
+        private readonly int _countdownKeyUpAtMs;
 
         /// <summary>
         /// Stage 3's meter capture, kept for stage 4's comparison. Replaced on
@@ -115,19 +153,26 @@ namespace Radios.ChainChecks
                                            FixerTransmitBoundary.RadioSource radio,
                                            VoicePreparer prepareVoice,
                                            MicPathInfo pcMicrophone,
+                                           PcChainFacts pcChainFacts,
                                            Func<bool> stopRequested,
                                            Action speakNow,
                                            Action speakDone,
-                                           Action countdown)
+                                           Action countdown,
+                                           int countdownKeyUpAtMs)
         {
             _gate = gate;
             _radio = radio;
             _prepareVoice = prepareVoice;
             _pcMicrophone = pcMicrophone;
+            _pcChainFacts = pcChainFacts;
             _stopRequested = stopRequested;
             _speakNow = speakNow;
             _speakDone = speakDone;
             _countdown = countdown;
+            // Never earlier than the fallback would have been on its own: a
+            // host that reports nonsense must not be able to bring RF forward.
+            _countdownKeyUpAtMs = countdownKeyUpAtMs > 0
+                ? countdownKeyUpAtMs : DefaultCountdownKeyUpMs;
         }
 
         /// <summary>
@@ -161,24 +206,93 @@ namespace Radios.ChainChecks
         /// <param name="countdown">
         /// Starts the transmit countdown tones (#261) — fire-and-forget, and
         /// the count runs UNKEYED with the key-up issued at
-        /// <see cref="CountdownKeyUpAtMs"/>. Both keying stages use it: on
+        /// the host's published key-up moment. Both keying stages use it: on
         /// the spoken stage it counts the operator in, and on the injected
         /// stage — where the operator does nothing — it is the warning that
         /// RF is imminent, which this tool otherwise does not give (Noel,
         /// 2026-08-26).
         /// </param>
+        /// <param name="pcChainFacts">
+        /// This computer's half of the transmit chain facts, for the walk taken
+        /// while keyed (#400). Null leaves the walk's computer-side stages
+        /// honestly unmeasured rather than healthy — the walk still runs, and
+        /// its census says how much of the chain was actually seen.
+        /// </param>
         public static FixerTransmitAudioBoundary Create(FixerTransmitGate gate,
                                                         FixerTransmitBoundary.RadioSource radio,
                                                         VoicePreparer prepareVoice = null,
                                                         MicPathInfo pcMicrophone = null,
+                                                        PcChainFacts pcChainFacts = null,
                                                         Func<bool> stopRequested = null,
                                                         Action speakNow = null,
                                                         Action speakDone = null,
-                                                        Action countdown = null)
+                                                        Action countdown = null,
+                                                        int countdownKeyUpAtMs =
+                                                            DefaultCountdownKeyUpMs)
         {
             if (gate == null || radio == null) return null;
             return new FixerTransmitAudioBoundary(gate, radio, prepareVoice, pcMicrophone,
-                                                  stopRequested, speakNow, speakDone, countdown);
+                                                  pcChainFacts, stopRequested, speakNow,
+                                                  speakDone, countdown, countdownKeyUpAtMs);
+        }
+
+        // ================================================================
+        // The transmit chain walk, taken WHILE KEYED
+        // ================================================================
+
+        /// <summary>
+        /// Walk the thirteen-stage transmit chain right now, at this instant,
+        /// with the radio keyed and audio in the path (#400).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The moment is the whole point.</b> Three stages of the walk can
+        /// only be measured during a transmission — stage 2, the microphone
+        /// actually capturing; stage 11, what the radio says it hears; stage 12,
+        /// radio frequency out of the radio — and the Audio Workshop, which is
+        /// the only place that ever ran the walk, cannot key a radio. Its report
+        /// says <i>"transmit and run the test again"</i> three times, on every
+        /// run, for ever. This is the transmit.
+        /// </para>
+        /// <para>
+        /// <b>It is called from inside the keyed block on purpose, and it must
+        /// stay there.</b> Moved a few lines later, past the unkey, every one of
+        /// those three stages would come back "nothing to check" and the walk
+        /// would be worth precisely what the Workshop's already is. It reads
+        /// properties and meters and sleeps for nothing, so it costs the
+        /// transmission no measurable time.
+        /// </para>
+        /// <para>
+        /// Never throws, and never returns a walk it did not take: a failure
+        /// leaves the stage reporting what its own probes found and inventing no
+        /// chain answer, which is the same honesty every unwired delegate gets.
+        /// </para>
+        /// </remarks>
+        private TransmitCheckResult WalkWhileKeyed(FlexBase rig)
+        {
+            try
+            {
+                IReadOnlyList<DiagnosticFact> pc = null;
+                try { pc = _pcChainFacts?.Invoke(); }
+                catch (Exception ex)
+                {
+                    // The computer's half failing must not cost the radio's
+                    // half. The walk's census then says how much was seen.
+                    Tracing.TraceLine("FixerTransmitAudioBoundary: the computer's chain facts "
+                                      + "failed — " + ex.Message, TraceLevel.Warning);
+                }
+
+                TransmitCheckResult walk = TransmitChainCheck.Run(rig, pc);
+                Tracing.TraceLine("FixerTransmitAudioBoundary: transmit chain walked while keyed — "
+                                  + walk.Verdict, TraceLevel.Info);
+                return walk;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine("FixerTransmitAudioBoundary: the transmit chain walk failed — "
+                                  + ex.Message, TraceLevel.Error);
+                return null;
+            }
         }
 
         // ================================================================
@@ -414,6 +528,21 @@ namespace Radios.ChainChecks
                                     : "the reference recording"));
                         }
                     }
+
+                    // THE WALK, WHILE STILL KEYED (#400). Last inside the try,
+                    // so every probe above has already exercised the path and
+                    // the meters it reads are the meters of a transmission in
+                    // progress. This is the moment Noel described: keyed, a
+                    // known tone at a known level, the microphone replaced at
+                    // the injection point, and nothing depending on anyone
+                    // speaking.
+                    facts.ChainWalk = WalkWhileKeyed(rig);
+
+                    // And where it happened (#399) — read here rather than
+                    // afterwards, because the operator may retune between
+                    // stages and a run measured at two frequencies has to say
+                    // which stage ran where.
+                    facts.Conditions = StationConditions.Line(rig);
                 }
                 finally
                 {
@@ -595,6 +724,15 @@ namespace Radios.ChainChecks
                 // meters read the transmission, not the moment after it.
                 spokenSample = TxDifferentialCapture.Capture(
                     rig, TxDifferential.RunKind.Spoken);
+
+                // THE WALK, WHILE STILL KEYED (#400), with the operator's own
+                // microphone in the path. Stage 3's walk and this one differ in
+                // exactly the one thing the two stages differ in, so a chain
+                // stage that dies here and lives there names the microphone.
+                facts.ChainWalk = WalkWhileKeyed(rig);
+
+                // And where it happened (#399), read while keyed.
+                facts.Conditions = StationConditions.Line(rig);
             }
             finally
             {
@@ -649,13 +787,13 @@ namespace Radios.ChainChecks
 
         /// <summary>
         /// Start the countdown tones and wait, unkeyed, until the moment the
-        /// key-up should be issued (<see cref="CountdownKeyUpAtMs"/>). False
+        /// key-up should be issued. False
         /// when a stop arrived during the count — the caller must then not
         /// key. A missing hook counts silently and still paces the key-up,
         /// so the timing an operator learns does not change with the sound.
         /// </summary>
         private bool CountdownThenReadyToKey()
-            => CountUnkeyedThenReadyToKey(_countdown, _stopRequested);
+            => CountUnkeyedThenReadyToKey(_countdown, _stopRequested, _countdownKeyUpAtMs);
 
         /// <summary>
         /// Wait for the radio to confirm the transmit state. Mox is queued
@@ -830,18 +968,24 @@ namespace Radios.ChainChecks
 
         /// <summary>
         /// The countdown-then-key pacing, shared by every keying stage: start
-        /// the tones, wait unkeyed until <see cref="CountdownKeyUpAtMs"/>, and
+        /// the tones, wait unkeyed for <paramref name="keyUpAtMs"/>, and
         /// answer whether the caller may key. False means a stop arrived —
         /// the caller must then not key. A missing hook counts silently and
         /// still paces the key-up, so the timing an operator learns does not
         /// change with the sound.
         /// </summary>
         internal static bool CountUnkeyedThenReadyToKey(Action countdown,
-                                                        Func<bool> stopRequested)
+                                                        Func<bool> stopRequested,
+                                                        int keyUpAtMs = DefaultCountdownKeyUpMs)
         {
+            // A caller that names nothing, or names nonsense, waits the
+            // fallback. Never zero: the one direction this must not fail in is
+            // early.
+            if (keyUpAtMs <= 0) keyUpAtMs = DefaultCountdownKeyUpMs;
+
             Witness(countdown, "countdown");
             var w = Stopwatch.StartNew();
-            while (w.ElapsedMilliseconds < CountdownKeyUpAtMs)
+            while (w.ElapsedMilliseconds < keyUpAtMs)
             {
                 if (StopAsked(stopRequested)) return false;
                 Thread.Sleep(25);

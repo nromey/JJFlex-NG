@@ -91,6 +91,11 @@ namespace Radios.Fixer
             /// transmitting stages name the power they will use; this is how
             /// the operator changes it without leaving the modal Fixer.</summary>
             OpenPowerDialog,
+            /// <summary>Open the frequency entry the host owns (#399). An
+            /// operator who reaches a transmit stage and finds the frequency
+            /// occupied could otherwise only abandon the run — invisible on a
+            /// dummy load, and the ordinary case on a real antenna.</summary>
+            OpenFrequencyDialog,
         }
 
         /// <summary>Why a message was unusable. Traced, never shown raw to the operator.</summary>
@@ -271,6 +276,14 @@ namespace Radios.Fixer
 
                     case "open-power-dialog":
                         return new FixerPageMessage(Kind.OpenPowerDialog, Fault.None, run, "", "");
+
+                    // The literal is TransmitStageSet.OpenFrequency, and the two
+                    // must stay equal — a switch label cannot be a const
+                    // reference in C#, so a test asserts the pair instead of
+                    // leaving them to drift.
+                    case "open-frequency":
+                        return new FixerPageMessage(Kind.OpenFrequencyDialog, Fault.None,
+                                                    run, "", "");
 
                     default:
                         return Bad(Fault.UnknownKind);

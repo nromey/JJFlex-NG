@@ -190,6 +190,14 @@ public sealed class FixerDialog : JJFlexDialog
             () => _radio() ?? null!,
             prepareVoice: PrepareReferenceVoice,
             pcMicrophone: DescribePcMicrophone,
+            // The computer's half of the transmit chain walk (#400). The walk
+            // itself is TransmitChainCheck's — the SAME definition the Audio
+            // Workshop's transmit door calls, deliberately, so a rule added to
+            // tx-chain-rules.txt reaches both with no second edit. What only
+            // this layer can see is the Windows side of it: which microphone is
+            // chosen, whether Windows has it muted, what its level is. The
+            // radio layer cannot read any of that and must never invent it.
+            pcChainFacts: ReadPcChainFacts,
             // The dialog's stage-timeout token, polled — the host delegate
             // signatures carry no CancellationToken, and this is the only
             // road the 120-second ceiling has into a keyed stage.
@@ -204,7 +212,10 @@ public sealed class FixerDialog : JJFlexDialog
             // The transmit countdown (#261): tones, not speech, so the count
             // cannot be flushed by the spoken cue's interrupt. The sound is
             // Track G's; FixerCountdown is the seam.
-            countdown: FixerCountdown.TransmitTone);
+            countdown: FixerCountdown.TransmitTone,
+            // And WHEN the key-up falls inside that count — derived from the
+            // sound itself, never copied. See CountdownKeyUpMs.
+            countdownKeyUpAtMs: CountdownKeyUpMs());
 
         var hosts = new TransmitStageSet.Hosts
         {
@@ -226,7 +237,8 @@ public sealed class FixerDialog : JJFlexDialog
                 speakNow: Cue("audio.fixer.tune_now"),
                 speakDone: Cue("audio.fixer.speak_done"),
                 countdown: FixerCountdown.TransmitTone,
-                stopRequested: StageStopRequested),
+                stopRequested: StageStopRequested,
+                countdownKeyUpAtMs: CountdownKeyUpMs()),
 
             // WIRED. What the operator said the antenna socket is connected to.
             // Read from the gate rather than from our own copy, so the value in
@@ -381,6 +393,59 @@ public sealed class FixerDialog : JJFlexDialog
     private static Action Cue(string lexiconKey)
         => () => ScreenReaderOutput.Speak(Lexicon.Get(lexiconKey),
                                           VerbosityLevel.Critical, interrupt: true);
+
+    /// <summary>
+    /// When the key-up falls inside the transmit countdown, in milliseconds
+    /// from the first tone — <b>derived from the sound that is actually going
+    /// to play, never copied from it.</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this is computed rather than stated.</b> The number lived in
+    /// <c>FixerTransmitAudioBoundary</c> as a constant with a remark naming the
+    /// earcon's step length, and the earcon's step length changed. It read 300
+    /// against a 600 ms third tone for months, so every keying stage raised RF
+    /// during the SECOND dit of its own warning and then played the rest of the
+    /// countdown at an operator who was already transmitting. Nothing failed:
+    /// the two numbers live in assemblies that cannot see each other, so no
+    /// build, no merge and no test could notice them parting company.
+    /// </para>
+    /// <para>
+    /// <b>The rule, and it is shape-independent on purpose:</b> key up at the
+    /// start of the countdown's FINAL element. Everything before it is warning
+    /// the operator can still act on — that is their abort window (#236) — and
+    /// the final element is the arrival. Stated this way it survives a retune of
+    /// the beat, a change in the number of counts, and the gaps #396 adds
+    /// between them, because it asks the figure how long it is rather than
+    /// remembering an answer.
+    /// </para>
+    /// <para>
+    /// <b>It errs LATE, never early.</b> An unexpected shape, an empty figure or
+    /// a throw all fall back to the boundary's own conservative default: waiting
+    /// too long costs a moment of silence, and keying too early costs the
+    /// operator the window in which they could have stopped it.
+    /// </para>
+    /// </remarks>
+    private static int CountdownKeyUpMs()
+    {
+        try
+        {
+            (int freq, int ms)[] steps = EarconPlayer.CountdownSteps(transmit: true);
+            if (steps == null || steps.Length < 2)
+                return FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs;
+
+            int total = 0;
+            for (int i = 0; i < steps.Length - 1; i++) total += steps[i].ms;
+            return total > 0 ? total : FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs;
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: the countdown's pacing could not be read, so the "
+                              + "key-up falls back to the conservative default — " + ex.Message,
+                              TraceLevel.Warning);
+            return FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs;
+        }
+    }
 
     /// <summary>
     /// Has this stage's cancellation fired? Polled by the boundaries — the
@@ -554,7 +619,40 @@ public sealed class FixerDialog : JJFlexDialog
         try { s.RfPowerWatts = rig.XmitPower; } catch { }
         try { s.AntennaPort = rig.TXAntennaName ?? ""; } catch { }
         try { s.RemoteRadio = rig.RemoteRig; } catch { }
+        // Through StationConditions, not by reading TXFrequency here (#399).
+        // That property is a cached echo and holds zero until the radio has
+        // reported a transmit slice, and "0.000000 MHz" in a sentence about
+        // where the radio is going to transmit is a plausible-looking lie. The
+        // one reader owns the fallback and names it.
+        s.Frequency = StationConditions.Frequency(rig);
+        s.Mode = StationConditions.Mode(rig);
         return s;
+    }
+
+    /// <summary>
+    /// This computer's half of the transmit chain facts, for the walk the keyed
+    /// stages take (#400).
+    /// </summary>
+    /// <remarks>
+    /// The same collector and the same settings path the Audio Workshop's
+    /// transmit door uses, so the two doors read the same computer the same way.
+    /// A failure here is honestly empty rather than fatal: the walk still runs
+    /// on the radio's half, and its census says how much of the chain was
+    /// actually seen.
+    /// </remarks>
+    private static System.Collections.Generic.IReadOnlyList<DiagnosticFact> ReadPcChainFacts()
+    {
+        try
+        {
+            string path = System.IO.Path.Combine(RadioConfig.AppDataRoot, "audioDevices.xml");
+            return TxChainPcFacts.Collect(path);
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: the computer's chain facts could not be read — "
+                              + ex.Message, TraceLevel.Warning);
+            return Array.Empty<DiagnosticFact>();
+        }
     }
 
     /// <summary>
@@ -1109,6 +1207,12 @@ document.addEventListener('keydown', function (e) {
                 // Power belongs to PowerDialog. The page asks; it does not
                 // grow a number box of its own (#250).
                 OpenPowerDialog();
+                return;
+
+            case FixerPageMessage.Kind.OpenFrequencyDialog:
+                // Frequency belongs to FreqInputDialog, the app's own frequency
+                // entry. Exactly the power hand-off, one setting along (#399).
+                OpenFrequencyDialog();
                 return;
         }
     }
@@ -1750,6 +1854,132 @@ document.addEventListener('keydown', function (e) {
         // itself confirms what the power window changed. This render landed
         // on the stage heading until Sprint 40, and named no landing at all
         // before Sprint 39 (#365).
+        Render(ForwardLandingIn(CurrentStageId()));
+    }
+
+    /// <summary>
+    /// Hand off to the app's frequency entry, apply what the operator typed,
+    /// and come back with the run intact (#399).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Noel, 2026-08-29, running the Fixer into a real antenna for the first
+    /// time:</b> <i>"We probably need to be able to change the frequency while
+    /// testing to find a quiet signal … right now I'm in the fix window and I
+    /// can't change frequency unless I kill the test."</i> He had walked the
+    /// whole tool on his own radio that morning and every stage passed, because
+    /// <b>on a dummy load the frequency is irrelevant</b> — nothing radiates and
+    /// any frequency is as good as any other. The instrument that made the bench
+    /// safe is the instrument that hid this.
+    /// </para>
+    /// <para>
+    /// <b>The same hand-off as power, deliberately, and not a tuning UI of our
+    /// own.</b> The Home surface tunes, has a key map the operator already
+    /// knows, and is not somewhere a modal dialog can send them and get them
+    /// back. FreqInputDialog is the app's frequency entry and it accepts the
+    /// three forms the app has always accepted; growing a second one here would
+    /// be a new thing to learn at the worst possible moment.
+    /// </para>
+    /// <para>
+    /// <b>This is NOT #191.</b> That is the automated park-and-restore — check
+    /// whether the frequency is busy, move somewhere safe, put it back
+    /// afterwards, announce both transitions. This is the operator keeping the
+    /// wheel in their own hands, which is the simpler thing and cannot get the
+    /// judgement wrong. Nothing here moves the frequency on its own, and nothing
+    /// here restores it, so there is no captured value to fail to put back.
+    /// </para>
+    /// </remarks>
+    private void OpenFrequencyDialog()
+    {
+        FlexBase? rig;
+        try { rig = _radio(); } catch { rig = null; }
+        if (rig == null)
+        {
+            ToPage("status", "No radio is connected, so there is no frequency to change.");
+            return;
+        }
+
+        // NEVER WHILE KEYED. The transmitting stages block this thread for their
+        // whole transmission so a press cannot arrive mid-stage, but a radio
+        // keyed from anywhere else — the operator's own microphone, another
+        // client, a stage that ended without the radio confirming — must not be
+        // retuned underneath the carrier. Refused out loud rather than silently
+        // ignored: a button that does nothing reads as a broken button.
+        bool keyed;
+        try { keyed = rig.Transmit || rig.TxTune; } catch { keyed = true; }
+        if (keyed)
+        {
+            ToPage("status", "The radio is transmitting. Wait until it stops, then change "
+                           + "the frequency.");
+            return;
+        }
+
+        ulong before = StationConditions.FrequencyHz(rig);
+
+        try
+        {
+            var dlg = new FreqInputDialog { Owner = this };
+            // The window title is the first thing a screen reader announces on
+            // arrival, and "Frequency Input" alone does not say WHICH frequency
+            // or that the run is still standing behind it. Named for the thing
+            // it moves.
+            dlg.Title = "Change the transmit frequency — JJ Flexible";
+            // Pre-filled with where the radio actually is, so a screen reader
+            // entering the field reads the current frequency — the operator
+            // finds out where they are and edits from there, rather than typing
+            // into a blank box with no idea what they are leaving.
+            if (before != 0UL) dlg.FreqBox.Text = StationConditions.Format(before)
+                                                     .Replace(" MHz", "");
+            dlg.ValidateFrequency = text
+                => StationConditions.TryParse(text, out ulong hz)
+                    ? hz.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : null;
+            dlg.ErrorMessage = "That is not a frequency this radio can be set to. Type "
+                             + "megahertz with a decimal point, like 14.250, or kilohertz "
+                             + "on their own, like 14250.";
+
+            if (dlg.ShowDialog() != true)
+            {
+                // Cancelled. Nothing moved, and the render below still refreshes
+                // the stage sentences, which is harmless and keeps one exit path.
+                Render(ForwardLandingIn(CurrentStageId()));
+                return;
+            }
+
+            if (!ulong.TryParse(dlg.ResultFrequency,
+                                System.Globalization.NumberStyles.None,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out ulong wanted) || wanted == 0UL)
+            {
+                ToPage("status", "That frequency could not be used, so nothing was changed.");
+                return;
+            }
+
+            rig.TXFrequency = wanted;
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: frequency change failed — " + ex.Message,
+                              TraceLevel.Warning);
+            ToPage("status", "The frequency could not be changed.");
+            Render(ForwardLandingIn(CurrentStageId()));
+            return;
+        }
+
+        // WHAT THE RADIO NOW REPORTS, not what we asked for. #164 found the
+        // radio acknowledging a transmit-side write it did not apply, and while
+        // that was measured on an unregistered connection and never re-run on a
+        // registered one, the honest thing costs one property read: say the
+        // frequency the radio is reporting, and let the stage sentence below say
+        // it again when the operator lands on Run.
+        string now = StationConditions.Frequency(rig);
+        ToPage("status", "The radio now reports " + now + ".");
+
+        // Re-render for the same reason the power hand-off does: every
+        // transmitting stage's "what Run will do" sentence names the frequency,
+        // and it has just moved. Focus lands on the current stage's Run control,
+        // whose description carries the fresh sentence — so the landing itself
+        // confirms the change.
         Render(ForwardLandingIn(CurrentStageId()));
     }
 
