@@ -263,7 +263,14 @@ namespace Radios.Fixer
                     t += " at " + watts.ToString(System.Globalization.CultureInfo.InvariantCulture)
                        + (watts == 1 ? " watt" : " watts");
                 if (!string.IsNullOrWhiteSpace(port)) t += " into " + port.Trim();
-                t += ChainChecks.StationConditions.OnInPhrase(s?.Frequency ?? "", s?.Mode ?? "");
+                // The MODE is omitted for a tune carrier, and that is not
+                // tidiness: a tune carrier is the radio's own unmodulated
+                // signal, so the slice's mode takes no part in it and naming
+                // one would imply it did. Where audio is on the air, the mode
+                // decides what the measurement means and belongs in the
+                // sentence.
+                t += ChainChecks.StationConditions.OnInPhrase(
+                        s?.Frequency ?? "", tuneCarrier ? "" : (s?.Mode ?? ""));
                 return t;
             }
 

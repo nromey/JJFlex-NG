@@ -1919,6 +1919,11 @@ document.addEventListener('keydown', function (e) {
         try
         {
             var dlg = new FreqInputDialog { Owner = this };
+            // The window title is the first thing a screen reader announces on
+            // arrival, and "Frequency Input" alone does not say WHICH frequency
+            // or that the run is still standing behind it. Named for the thing
+            // it moves.
+            dlg.Title = "Change the transmit frequency — JJ Flexible";
             // Pre-filled with where the radio actually is, so a screen reader
             // entering the field reads the current frequency — the operator
             // finds out where they are and edits from there, rather than typing
