@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 
 namespace Radios.ChainChecks
 {
@@ -167,8 +166,10 @@ namespace Radios.ChainChecks
             Verdict = Safely(report.Headline, "");
             Census = Safely(report.Census, "");
             Problems = BuildProblems(report);
-            Walk = BuildWalk(report);
-            Evidence = BuildEvidence(facts, report, Census, Walk);
+            Walk = ChainWalkPhrasing.Walk(report);
+            Evidence = ChainWalkPhrasing.Evidence(
+                facts, report, Census, Walk,
+                "Transmit chain, walked from your microphone to the antenna");
         }
 
         /// <summary>Everything that was read, in signal-path order.</summary>
@@ -257,91 +258,17 @@ namespace Radios.ChainChecks
         public bool NothingCouldBeChecked
             => Report.ChecksMade == 0 && Report.StagesHealthy == 0;
 
+        // EVERY WORD IN THE WALK COMES FROM ChainWalkPhrasing, shared with the
+        // receive check. The two halves are one idea pointed in two directions,
+        // and the first draft of this file copied three of its bodies across —
+        // caught by the integration pass on the day it was written, which is
+        // the whole reason that gate exists. What stays here is the ENVELOPE.
+
         private static IReadOnlyList<TransmitProblem> BuildProblems(ChainReport report)
-        {
-            var list = new List<TransmitProblem>();
-
-            foreach (StageResult s in report.Stages)
-            {
-                if (s.Verdict != StageVerdict.Broken) continue;
-                string wrong = s.Message.Length != 0
-                    ? s.Message
-                    : "Something is wrong at " + s.Title + ".";
-                // A rule may legitimately offer no remedy; a finding must still
-                // say something, so the honest fallback names the gap rather
-                // than inventing advice.
-                string todo = s.Remedy.Length != 0
-                    ? s.Remedy
-                    : "The check that found this offers no remedy, so there is nothing here to "
-                      + "act on. Include this in your report.";
-                list.Add(new TransmitProblem(s.Rule?.Id ?? s.Stage.Name, wrong, todo));
-            }
-
-            // NOTHING WAS CHECKED IS A THIRD ANSWER, and collapsing it into
-            // "nothing is wrong" is the worst available collapse (#370). It
-            // travels as a problem so every caller carries it without having to
-            // know it exists.
-            if (report.ChecksMade == 0 && report.StagesHealthy == 0)
-            {
-                string why = report.RuleProblems.Count != 0
-                    ? report.RuleProblems[0]
-                    : "Nothing here can restore them.";
-                list.Add(new TransmitProblem(TransmitChainCheck.NothingCheckedId,
-                    report.Headline(),
-                    "Quote your test ID when you report this. " + why));
-            }
-
-            return list;
-        }
-
-        private static string BuildWalk(ChainReport report)
-        {
-            var sb = new StringBuilder();
-            foreach (StageResult s in report.Stages) sb.AppendLine(s.Line());
-            foreach (string p in report.RuleProblems) sb.AppendLine(p);
-            return sb.ToString().TrimEnd();
-        }
-
-        private static string BuildEvidence(DiagnosticFacts facts, ChainReport report,
-                                            string census, string walk)
-        {
-            // Same shape as the receive walk's evidence block, deliberately: the
-            // two now sit in one report and a reader walks straight from one
-            // into the other.
-            var sb = new StringBuilder();
-            sb.AppendLine("Transmit chain, walked from your microphone to the antenna");
-            sb.AppendLine("-----------------------------------------------------------");
-            if (census.Length != 0) sb.AppendLine(census);
-            sb.AppendLine();
-            sb.AppendLine("Stage by stage:");
-            if (walk.Length != 0) sb.AppendLine(walk);
-            sb.AppendLine();
-            sb.AppendLine("Readings, in signal-path order:");
-            if (facts.All.Count == 0)
-            {
-                sb.AppendLine("Nothing was collected.");
-            }
-            else
-            {
-                foreach (DiagnosticFact f in facts.All) sb.AppendLine(f.EvidenceLine());
-            }
-            sb.AppendLine();
-            // Describe() ends in its own full stop; a second one is an audible
-            // stumble for a screen reader, which is who reads this.
-            sb.AppendLine("Checks read from "
-                          + StageResult.Sentence(report.Rules?.Describe() ?? "nowhere"));
-            return sb.ToString();
-        }
+            => ChainWalkPhrasing.Problems(report, TransmitChainCheck.NothingCheckedId,
+                                          (id, wrong, todo) => new TransmitProblem(id, wrong, todo));
 
         private static string Safely(Func<string> f, string fallback)
-        {
-            try { return f() ?? fallback; }
-            catch (Exception ex)
-            {
-                JJTrace.Tracing.TraceLine("TransmitChainCheck: phrasing failed — " + ex.Message,
-                                          System.Diagnostics.TraceLevel.Warning);
-                return fallback;
-            }
-        }
+            => ChainWalkPhrasing.Safely(f, fallback, "TransmitChainCheck");
     }
 }

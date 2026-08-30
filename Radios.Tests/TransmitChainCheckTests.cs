@@ -87,6 +87,18 @@ namespace Radios.Tests
                 Assert.Contains(o.Findings, f => f.Id == "tx-invented-fault");
                 Assert.Contains("Transmit chain, walked from your microphone", o.Evidence);
                 Assert.Contains("The kettle is not plugged in.", o.Evidence);
+
+                // THE ANSWER NAMES THE FAILING STEP OUT LOUD. The stage's
+                // Answer is what the page speaks when the stage ends, and a run
+                // whose whole purpose is finding the failing link must say which
+                // one it is rather than leave it to be read.
+                Assert.Contains("stops at stage 0, the kettle", o.Answer);
+
+                // AND ONLY NAMES IT. The verdict and the remedy belong to the
+                // finding; saying them twice on one card is two vocabularies for
+                // one answer.
+                Assert.DoesNotContain("The kettle is not plugged in.", o.Answer);
+                Assert.DoesNotContain("Plug the kettle in", o.Answer);
             }
         }
 

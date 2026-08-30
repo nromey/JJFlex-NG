@@ -449,12 +449,33 @@ namespace Radios.Fixer
             if (walk == null) return "";
 
             var sb = new StringBuilder();
-            // The census first. This stage's own probes already answered "did
-            // audio arrive"; what the walk adds is HOW MUCH OF THE PATH was
-            // actually seen, which is the sentence that stops a partial check
-            // reading as a clean bill of health.
+
+            // WHERE IT STOPS, named — and ONLY named. The rule's verdict and
+            // its remedy are carried word for word by the finding below, and
+            // repeating them here would be two vocabularies for one answer on
+            // one card. This is a pointer: it is what the operator HEARS the
+            // moment the stage ends, because the spoken verdict is the stage's
+            // Answer, and a run whose whole purpose was to find the failing
+            // link should say which one it is out loud rather than leave it to
+            // be discovered by reading.
+            //
+            // The acceptance test for the task this belongs to is Don's radio:
+            // run the Fixer, and the answer must name the failing stage without
+            // anyone reading a trace or holding a PTT with their third hand.
+            StageResult first = walk.Report.FirstBroken;
+            if (first != null)
+                sb.Append(Environment.NewLine).Append(Environment.NewLine)
+                  .Append("Walking your whole transmit path while the radio was keyed, it "
+                          + "stops at ").Append(first.Title)
+                  .Append(". What to do about it is below.");
+
+            // Then how much of the path was actually seen. This stage's own
+            // probes already answered "did audio arrive"; the census is the
+            // sentence that stops a partial check reading as a clean bill of
+            // health.
             if (walk.Census.Length != 0)
-                sb.Append(Environment.NewLine).Append(Environment.NewLine).Append(walk.Census);
+                sb.Append(sb.Length == 0
+                    ? Environment.NewLine + Environment.NewLine : " ").Append(walk.Census);
 
             string verdict = walk.VerdictNotCarriedByProblems;
             if (verdict.Length != 0)

@@ -480,7 +480,14 @@ namespace Radios.Fixer
                         + "is involved. If this one works and stage 4 does not, your "
                         + "microphone is the problem. If neither works, your microphone is "
                         + "not the problem, and the fault lies between this computer and "
-                        + "the radio.",
+                        + "the radio. "
+                        + "While the radio is keyed, your whole transmit path is also "
+                        + "walked from end to end — thirteen steps, from the microphone "
+                        + "this computer is set to use through to power leaving the "
+                        + "radio — and the first dead one is named. Three of those steps "
+                        + "exist only during a transmission, so this is the one moment "
+                        + "they can be read at all, and the reading is taken with audio "
+                        + "of a known loudness rather than whatever you happened to say.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/injected-transmit",
                     DescribeRunAction = () =>
@@ -527,7 +534,11 @@ namespace Radios.Fixer
                         + "makes the pair worth running. The result is read against your "
                         + "stage 1 microphone reading rather than judged on its own, so a "
                         + "quiet result here on a microphone that measured well earlier "
-                        + "points somewhere quite specific.",
+                        + "points somewhere quite specific. "
+                        + "Your whole transmit path is walked here too, while you are "
+                        + "speaking, so the two walks differ in the same one thing the "
+                        + "two stages do: a step that dies here and lives in stage 3 "
+                        + "points at your microphone.",
                     Transmits = true,
                     HelpTopic = "fixer/transmit/spoken-transmit",
                     // "Counts you in", not "counts down" — this is the one
@@ -578,7 +589,9 @@ namespace Radios.Fixer
                      + "after it — stage 1 measures your microphone, and stage 4 is judged "
                      + "against that measurement rather than on its own. Stage 0 also walks "
                      + "your receive chain, so the report carries receive evidence whether "
-                     + "or not receive is what brought you here. Jump around if "
+                     + "or not receive is what brought you here, and stages 3 and 4 walk "
+                     + "your transmit path while the radio is keyed, which is the only "
+                     + "moment several of its steps can be read at all. Jump around if "
                      + "you want; the report records what was skipped. Stages 0 and 1 do "
                      + "not key the radio.",
                 stages: stages,

@@ -113,9 +113,11 @@ public partial class AudioWorkshopDialog
         {
             Text = "Nothing here transmits. Use this room while you are setting audio up and "
                  + "want an answer now; use JJ Flexible Fix, under Tools, when something is "
-                 + "wrong and you want a report to send — it runs this very same receive "
-                 + "test as its first stage, then goes on to key the radio and measure what "
-                 + "comes back.",
+                 + "wrong and you want a report to send — it runs both of these very same "
+                 + "tests, the receive one as its first stage and the transmit one while it "
+                 + "has the radio keyed with a tone of its own. That last part matters: "
+                 + "three steps of the transmit test can only be read during a "
+                 + "transmission, and nothing in this room can key a radio.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(2, 0, 2, 10),
         };
@@ -164,7 +166,10 @@ public partial class AudioWorkshopDialog
         {
             Text = "Walks your transmit chain from the microphone to the antenna and reports "
                  + "the first stage that is dead. It also says how much of the chain it could "
-                 + "not see, because a check that could not be made is not a check that passed.",
+                 + "not see, because a check that could not be made is not a check that passed. "
+                 + "This is the same test JJ Flexible Fix runs, and Fix runs it with the radio "
+                 + "keyed — so the three steps it tells you here it could not read are exactly "
+                 + "the ones you get by going there.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(2, 0, 2, 6),
         };
@@ -180,8 +185,10 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(txButton, "Test my transmit chain");
         JJFlexHelp.SetText(txButton,
             "Reads your microphone, this computer, and every transmit setting the radio "
-            + "will report, and tells you the first thing in the way. Some stages can only "
-            + "be measured while you are transmitting, and the report says which those are.");
+            + "will report, and tells you the first thing in the way. Three stages can only "
+            + "be measured while you are transmitting, and the report says so where it "
+            + "reaches them. To fill those in, run the same test from JJ Flexible Fix, under "
+            + "Tools: it keys the radio with a tone of its own and takes the reading then.");
         txButton.Click += (s, e) => RunTransmitCheck(speak: true);
         AddToSection(DiagnosticsContent, txButton);
 

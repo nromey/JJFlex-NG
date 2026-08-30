@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 
 namespace Radios.ChainChecks
 {
@@ -144,8 +143,10 @@ namespace Radios.ChainChecks
             Census = Safely(report.Census, "");
             Arrival = Safely(() => RxChainFacts.ArrivalSentence(facts), "");
             Problems = BuildProblems(report);
-            Walk = BuildWalk(report);
-            Evidence = BuildEvidence(facts, report, Census, Walk);
+            Walk = ChainWalkPhrasing.Walk(report);
+            Evidence = ChainWalkPhrasing.Evidence(
+                facts, report, Census, Walk,
+                "Receive audio, walked from the radio's outputs to what arrived here");
         }
 
         /// <summary>Everything that was read, in signal-path order.</summary>
@@ -230,92 +231,19 @@ namespace Radios.ChainChecks
         public bool NothingCouldBeChecked
             => Report.ChecksMade == 0 && Report.StagesHealthy == 0;
 
+        // THE WALK'S OWN WORDS LIVE IN ChainWalkPhrasing, not here. The receive
+        // walk and the transmit walk are one idea pointed in two directions —
+        // same stage order, same three-state rule, same sentence for a rule
+        // with no remedy — and the integration pass caught the transmit half
+        // copying these bodies out of this file on 2026-08-29. What is left
+        // here is the ENVELOPE: which type a caller is handed, and what this
+        // chain's evidence block is called.
+
         private static IReadOnlyList<ReceiveProblem> BuildProblems(ChainReport report)
-        {
-            var list = new List<ReceiveProblem>();
-
-            foreach (StageResult s in report.Stages)
-            {
-                if (s.Verdict != StageVerdict.Broken) continue;
-                string wrong = s.Message.Length != 0
-                    ? s.Message
-                    : "Something is wrong at " + s.Title + ".";
-                // A rule may legitimately offer no remedy; a finding must still
-                // say something, so the honest fallback names the gap rather
-                // than inventing advice.
-                string todo = s.Remedy.Length != 0
-                    ? s.Remedy
-                    : "The check that found this offers no remedy, so there is nothing here to "
-                      + "act on. Include this in your report.";
-                list.Add(new ReceiveProblem(s.Rule?.Id ?? s.Stage.Name, wrong, todo));
-            }
-
-            // NOTHING WAS CHECKED IS A THIRD ANSWER, and collapsing it into
-            // "nothing is wrong" is the worst available collapse (#370). It
-            // travels as a problem so every caller carries it without having to
-            // know it exists.
-            if (report.ChecksMade == 0 && report.StagesHealthy == 0)
-            {
-                string why = report.RuleProblems.Count != 0
-                    ? report.RuleProblems[0]
-                    : "Nothing here can restore them.";
-                list.Add(new ReceiveProblem(ReceiveAudioCheck.NothingCheckedId,
-                    report.Headline(),
-                    "Quote your test ID when you report this. " + why));
-            }
-
-            return list;
-        }
-
-        private static string BuildWalk(ChainReport report)
-        {
-            var sb = new StringBuilder();
-            foreach (StageResult s in report.Stages) sb.AppendLine(s.Line());
-            foreach (string p in report.RuleProblems) sb.AppendLine(p);
-            return sb.ToString().TrimEnd();
-        }
-
-        private static string BuildEvidence(DiagnosticFacts facts, ChainReport report,
-                                            string census, string walk)
-        {
-            // Same shape as AudioSetupCheck's evidence block — a titled section,
-            // then one fact per line — because the two now sit inside the same
-            // stage's record and a reader walks straight from one into the
-            // other.
-            var sb = new StringBuilder();
-            sb.AppendLine("Receive audio, walked from the radio's outputs to what arrived here");
-            sb.AppendLine("--------------------------------------------------------------------");
-            if (census.Length != 0) sb.AppendLine(census);
-            sb.AppendLine();
-            sb.AppendLine("Stage by stage:");
-            if (walk.Length != 0) sb.AppendLine(walk);
-            sb.AppendLine();
-            sb.AppendLine("Readings, in signal-path order:");
-            if (facts.All.Count == 0)
-            {
-                sb.AppendLine("Nothing was collected.");
-            }
-            else
-            {
-                foreach (DiagnosticFact f in facts.All) sb.AppendLine(f.EvidenceLine());
-            }
-            sb.AppendLine();
-            // Describe() ends in its own full stop; a second one is an audible
-            // stumble for a screen reader, which is who reads this.
-            sb.AppendLine("Checks read from "
-                          + StageResult.Sentence(report.Rules?.Describe() ?? "nowhere"));
-            return sb.ToString();
-        }
+            => ChainWalkPhrasing.Problems(report, ReceiveAudioCheck.NothingCheckedId,
+                                          (id, wrong, todo) => new ReceiveProblem(id, wrong, todo));
 
         private static string Safely(Func<string> f, string fallback)
-        {
-            try { return f() ?? fallback; }
-            catch (Exception ex)
-            {
-                JJTrace.Tracing.TraceLine("ReceiveAudioCheck: phrasing failed — " + ex.Message,
-                                          System.Diagnostics.TraceLevel.Warning);
-                return fallback;
-            }
-        }
+            => ChainWalkPhrasing.Safely(f, fallback, "ReceiveAudioCheck");
     }
 }
