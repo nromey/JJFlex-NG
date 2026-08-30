@@ -276,13 +276,22 @@ namespace JJFlexWpf.Dialogs
         // ------------------------------------------------------------------
 
         /// <summary>Bench countdown timings, clamped to something playable.</summary>
-        private (int stepMs, int landingMs) CountdownParams()
+        /// <remarks>
+        /// The INTERVAL is here as of #396 and the bench is poorer without it:
+        /// the two length boxes could only stretch the tones, and a stretched
+        /// tone is a drawl rather than a slower count. A bench that cannot
+        /// reach one of the shipped parameters is a bench that tunes numbers
+        /// the real sound ignores.
+        /// </remarks>
+        private (int stepMs, int landingMs, int intervalMs) CountdownParams()
         {
             int step = int.TryParse(CountdownStepBox.Text, out int s)
                 ? Math.Clamp(s, 20, 2000) : EarconPlayer.CountdownStepMs;
             int landing = int.TryParse(CountdownLandingBox.Text, out int l)
                 ? Math.Clamp(l, 20, 4000) : EarconPlayer.CountdownLandingMs;
-            return (step, landing);
+            int interval = int.TryParse(CountdownIntervalBox.Text, out int i)
+                ? Math.Clamp(i, 20, 4000) : EarconPlayer.CountdownIntervalMs;
+            return (step, landing, interval);
         }
 
         /// <summary>
@@ -300,29 +309,30 @@ namespace JJFlexWpf.Dialogs
 
         private int PlayCountdown(bool transmit)
         {
-            var (step, landing) = CountdownParams();
+            var (step, landing, interval) = CountdownParams();
             var (_, _, _, volume, pan) = GetParams();
             return EarconPlayer.PlayScratchpadCountdown(
-                SelectedVoice, transmit, CountdownPitch(), step, landing, volume, pan);
+                SelectedVoice, transmit, CountdownPitch(), step, landing, volume, pan, interval);
         }
 
         private void CountdownRecord_Click(object sender, RoutedEventArgs e)
         {
-            var (step, landing) = CountdownParams();
+            var (step, landing, interval) = CountdownParams();
             int pitch = CountdownPitch();
             PlayCountdown(transmit: false);
             Say($"{VoiceName()}: three tones at {pitch} hertz, {step} milliseconds each, "
-              + $"then {pitch * 2} hertz for {landing}. Start talking on the last tone.");
+              + $"a beat of {interval}, then {pitch * 2} hertz for {landing}. "
+              + "Start talking on the last tone.");
         }
 
         private void CountdownTransmit_Click(object sender, RoutedEventArgs e)
         {
-            var (step, landing) = CountdownParams();
+            var (step, landing, interval) = CountdownParams();
             int pitch = CountdownPitch();
             PlayCountdown(transmit: true);
             Say($"{VoiceName()}: three tones at {pitch} hertz, {step} milliseconds each, "
-              + $"then the transmit pair — {pitch * 4 / 3} up to {pitch * 8 / 3} hertz — "
-              + $"drawn out over {landing}.");
+              + $"a beat of {interval}, then the transmit pair — {pitch * 4 / 3} up to "
+              + $"{pitch * 8 / 3} hertz — drawn out over {landing}.");
         }
 
         /// <summary>

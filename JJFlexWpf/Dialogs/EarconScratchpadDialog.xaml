@@ -175,7 +175,7 @@
         <TextBlock Text="Countdown" FontWeight="Bold" Margin="0,16,0,4"
                    AutomationProperties.HeadingLevel="Level2" />
         <TextBlock TextWrapping="Wrap" Margin="0,0,0,6"
-                   Text="Three counting tones, then a landing that says what you are counting down to: the octave up means start talking, the slow rising pair means the radio is about to transmit. Pitch comes from the start frequency slider, so the whole figure transposes together."/>
+                   Text="Three counting tones a beat apart, then a landing on the fourth beat that says what you are counting down to: the octave up means start talking, the slow rising pair means the radio is about to transmit. Pitch comes from the start frequency slider, so the whole figure transposes together."/>
 
         <Grid Margin="0,0,0,4">
             <Grid.ColumnDefinitions>
@@ -185,18 +185,31 @@
             <Grid.RowDefinitions>
                 <RowDefinition/>
                 <RowDefinition/>
+                <RowDefinition/>
             </Grid.RowDefinitions>
 
-            <Label Grid.Row="0" Grid.Column="0" Content="Count tone len_gth:" VerticalAlignment="Center" Margin="0,0,8,4"
+            <!-- The beat comes FIRST because it is the parameter that decides
+                 whether this is a countdown at all. #396: the two length boxes
+                 were here on their own, so the only way to slow the figure down
+                 was to lengthen the tones, which produces a drawl rather than a
+                 count. -->
+            <Label Grid.Row="0" Grid.Column="0" Content="Beat _interval:" VerticalAlignment="Center" Margin="0,0,8,4"
+                   Target="{Binding ElementName=CountdownIntervalBox}"/>
+            <TextBox x:Name="CountdownIntervalBox" Grid.Row="0" Grid.Column="1" Text="1000" Width="60"
+                     HorizontalAlignment="Left" Margin="0,0,0,4"
+                     AutomationProperties.Name="Beat interval in milliseconds"
+                     local:JJFlexHelp.Text="How long from the start of one tone to the start of the next, in milliseconds. This is the rhythm, and it is the box to reach for when the countdown feels rushed. The silence between tones is this minus the tone length, so setting it at or below the tone length makes the tones run together into one drawn-out sound."/>
+
+            <Label Grid.Row="1" Grid.Column="0" Content="Count tone len_gth:" VerticalAlignment="Center" Margin="0,0,8,4"
                    Target="{Binding ElementName=CountdownStepBox}"/>
-            <TextBox x:Name="CountdownStepBox" Grid.Row="0" Grid.Column="1" Text="300" Width="60"
+            <TextBox x:Name="CountdownStepBox" Grid.Row="1" Grid.Column="1" Text="300" Width="60"
                      HorizontalAlignment="Left" Margin="0,0,0,4"
                      AutomationProperties.Name="Count tone length in milliseconds"
-                     local:JJFlexHelp.Text="How long each of the three counting tones lasts, in milliseconds. Short is where countability breaks: below about a hundred the three run together into one warble that is perfectly audible and impossible to count."/>
+                     local:JJFlexHelp.Text="How long each of the three counting tones lasts, in milliseconds. Short is where countability breaks: below about a hundred the three run together into one warble that is perfectly audible and impossible to count. Lengthening this does not slow the countdown down — the beat interval does that."/>
 
-            <Label Grid.Row="1" Grid.Column="0" Content="Landing l_ength:" VerticalAlignment="Center" Margin="0,0,8,4"
+            <Label Grid.Row="2" Grid.Column="0" Content="Landing l_ength:" VerticalAlignment="Center" Margin="0,0,8,4"
                    Target="{Binding ElementName=CountdownLandingBox}"/>
-            <TextBox x:Name="CountdownLandingBox" Grid.Row="1" Grid.Column="1" Text="700" Width="60"
+            <TextBox x:Name="CountdownLandingBox" Grid.Row="2" Grid.Column="1" Text="700" Width="60"
                      HorizontalAlignment="Left" Margin="0,0,0,4"
                      AutomationProperties.Name="Landing length in milliseconds"
                      local:JJFlexHelp.Text="How long the final tone rings, in milliseconds. The ring comes from this length and nothing else. On the microphone check a long ring can land inside the measurement, so longer is not automatically better."/>

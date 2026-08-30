@@ -356,6 +356,41 @@ namespace JJFlexWpf
                 Play = () => EarconPlayer.ConnectSeriesCandidate('C'),
             };
 
+            // #385 — the LENGTH question, which is a different question from
+            // the three candidates above and is kept apart from them on
+            // purpose. Those vary the instrument at the shipped length; these
+            // vary the length on the shipped instrument. The field work found
+            // duration to be the dominant variable in whether a sound survives
+            // band noise, and put the surviving band at 150 to 250 ms; the
+            // connect series is 70. Nothing here changes what ships — the two
+            // rows exist so the decision can be made by ear, against the four
+            // shipped sounds sitting a few rows above them.
+            yield return new EarconEntry
+            {
+                Id = "ConnectSeriesAtLength.150",
+                Label = "Connect series at 150 milliseconds",
+                Description = "The whole connect ladder with every tone held for 150 "
+                            + "milliseconds instead of 70. The shortest length the noise work "
+                            + "found still reads as a tone rather than a click. Listen for "
+                            + "whether step 2 and the arrival still cut through, and judge it "
+                            + "on those two alone — a fast connect plays nothing else.",
+                Category = connect,
+                Order = 94,
+                Play = () => EarconPlayer.ConnectSeriesAtLength(150),
+            };
+            yield return new EarconEntry
+            {
+                Id = "ConnectSeriesAtLength.250",
+                Label = "Connect series at 250 milliseconds",
+                Description = "The same ladder at 250 milliseconds, the top of that band. "
+                            + "Easier to hear and slower to get through: step 3 alone takes "
+                            + "810 milliseconds here against 330 today, on a connect that is "
+                            + "already speaking to you.",
+                Category = connect,
+                Order = 95,
+                Play = () => EarconPlayer.ConnectSeriesAtLength(250),
+            };
+
             var cat = EarconPlayer.EarconCategory.TuningAndFilters;
 
             yield return new EarconEntry
