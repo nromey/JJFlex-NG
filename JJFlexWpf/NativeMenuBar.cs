@@ -2080,6 +2080,13 @@ public class NativeMenuBar : IDisposable
         AddWired(tools, "Profile Report", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
+            // The restore export walks profiles in the background; two walks
+            // at once would restore each other's wrong state.
+            if (ProfileReporter.WalkInProgress)
+            {
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.restore_export.busy"));
+                return;
+            }
             var report = ProfileReporter.GenerateReport(Rig);
             var path = ProfileReporter.SaveReport(report);
             SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.report_saved", ("path", path)));
@@ -2109,6 +2116,78 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose(Radios.Lexicon.Get(
                     "settings.station_export.failed", ("error", ex.Message)));
             }
+        });
+        // The RESTORE-GRADE export — the capture half of #414. A radio's
+        // settings largely live INSIDE its profiles, and the text export
+        // above cannot see into a profile it has not loaded. This one walks
+        // every stored profile — global, TX, mic — and writes what each holds
+        // as key = value lines, then puts the original profiles back and
+        // checks. Background, because the walk loads each profile on the
+        // radio in turn and takes a minute or two: frozen UI for that long
+        // reads as a hang. Progress and the saved path are SPOKEN.
+        AddWired(tools, "Export Settings for Restore", () =>
+        {
+            var restoreRig = Rig;
+            if (restoreRig == null) { SpeakNoRadio(); return; }
+            if (restoreRig.Transmit)
+            {
+                // The walk rewrites power, filters and antennas mid-load.
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    "settings.restore_export.not_while_transmitting"));
+                return;
+            }
+            if (ProfileReporter.WalkInProgress)
+            {
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.restore_export.busy"));
+                return;
+            }
+            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.restore_export.start"));
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    // Give the start announcement room to finish: the first
+                    // progress line interrupts, and the one sentence that
+                    // sets expectations must not lose the race to it.
+                    System.Threading.Thread.Sleep(4000);
+                    var export = ProfileReporter.GenerateRestoreGradeExport(restoreRig,
+                        progress => Radios.ScreenReaderOutput.Speak(
+                            progress,
+                            Radios.Speech.SpeechIntent.Latest,
+                            Radios.VerbosityLevel.Terse,
+                            coalesceKey: "restore-export-progress"));
+                    if (export == null)
+                    {
+                        Radios.ScreenReaderOutput.Speak(
+                            Radios.Lexicon.Get("settings.restore_export.busy"),
+                            Radios.VerbosityLevel.Terse, interrupt: true);
+                        return;
+                    }
+                    var savedPath = ProfileReporter.SaveRestoreGradeExport(
+                        export.Text, restoreRig.ConnectedSerial);
+                    // Critical on purpose: this is the delayed answer to a
+                    // command the operator gave a minute ago, and the
+                    // not-put-back variant is a safety fact — the radio may
+                    // be sitting on the wrong profile.
+                    string doneKey = !export.WalkRan
+                        ? "settings.restore_export.saved_no_walk"
+                        : export.EverythingPutBack
+                            ? "settings.restore_export.saved_put_back"
+                            : "settings.restore_export.saved_not_put_back";
+                    Radios.ScreenReaderOutput.Speak(
+                        Radios.Lexicon.Get(doneKey, ("path", savedPath)),
+                        Radios.VerbosityLevel.Critical, interrupt: true);
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo(savedPath) { UseShellExecute = true });
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine($"Export Settings for Restore: {ex}", TraceLevel.Error);
+                    Radios.ScreenReaderOutput.Speak(
+                        Radios.Lexicon.Get("settings.restore_export.failed", ("error", ex.Message)),
+                        Radios.VerbosityLevel.Critical, interrupt: true);
+                }
+            });
         });
         AddSep(tools);
         AddWired(tools, "Export Profiles", () =>

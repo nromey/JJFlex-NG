@@ -1298,9 +1298,17 @@ namespace Radios
             progressCallback?.Invoke("Reading the radio's live settings.");
 
             // ── [capture] — identity, and where the radio stood at the start ──
+            // "no radio connection" beats a null-collapsed "none" here: with
+            // no radio, "callsign = none" claims a fact nobody read.
+            string noRadio = radio == null ? "no radio connection" : null;
             var capture = new List<SettingLine>();
-            void Cap(string key, Func<string> read)
+            void Cap(string key, Func<string> read, bool needsRadio = true)
             {
+                if (needsRadio && noRadio != null)
+                {
+                    capture.Add(new SettingLine(key, null, noRadio));
+                    return;
+                }
                 try
                 {
                     string v = read();
@@ -1312,21 +1320,23 @@ namespace Radios
                 }
             }
 
-            Cap("taken", () => DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " local");
-            Cap("radio model", () => radio?.Model ?? rig.RadioModel);
-            Cap("radio name", () => radio?.Nickname ?? rig.RadioNickname);
-            Cap("radio serial", () => radio?.Serial);
-            Cap("callsign", () => radio?.Callsign);
-            Cap("firmware", () => radio?.Versions);
-            Cap("antenna tuner fitted", () => radio == null ? null : (radio.ATUPresent ? "yes" : "no"));
+            Cap("taken", () => DateTime.Now.ToString("yyyy-MM-dd HH:mm") + " local", needsRadio: false);
+            Cap("radio model", () => radio.Model ?? rig.RadioModel);
+            Cap("radio name", () => radio.Nickname ?? rig.RadioNickname);
+            Cap("radio serial", () => radio.Serial);
+            Cap("callsign", () => radio.Callsign);
+            Cap("firmware", () => radio.Versions);
+            Cap("antenna tuner fitted", () => radio.ATUPresent ? "yes" : "no");
             Cap("rx antenna ports", () => string.Join(", ", rig.RXAntennaList ?? new List<string>()));
             Cap("tx antenna ports", () => string.Join(", ", rig.TXAntennaList ?? new List<string>()));
-            Cap("global profile loaded at start", () => radio?.ProfileGlobalSelection);
-            Cap("tx profile loaded at start", () => radio?.ProfileTXSelection);
-            Cap("mic profile loaded at start", () => radio?.ProfileMICSelection);
+            Cap("global profile loaded at start", () => radio.ProfileGlobalSelection);
+            Cap("tx profile loaded at start", () => radio.ProfileTXSelection);
+            Cap("mic profile loaded at start", () => radio.ProfileMICSelection);
             foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
             {
-                Cap(TypeLabel(t) + " profiles stored", () => rig.GetProfilesByType(t)?.Count.ToString() ?? "0");
+                Cap(TypeLabel(t) + " profiles stored",
+                    () => rig.GetProfilesByType(t)?.Count.ToString() ?? "0",
+                    needsRadio: false);
             }
 
             sb.AppendLine("[capture]");
@@ -1339,6 +1349,11 @@ namespace Radios
             var radioWide = new List<SettingLine>();
             void Wide(string key, Func<string> read)
             {
+                if (noRadio != null)
+                {
+                    radioWide.Add(new SettingLine(key, null, noRadio));
+                    return;
+                }
                 try
                 {
                     string v = read();
@@ -1349,7 +1364,7 @@ namespace Radios
                     radioWide.Add(new SettingLine(key, null, ex.Message));
                 }
             }
-            Wide("remote power on (REM ON)", () => radio == null ? null : (radio.RemoteOnEnabled ? "enabled" : "disabled"));
+            Wide("remote power on (REM ON)", () => radio.RemoteOnEnabled ? "enabled" : "disabled");
             Wide("network addressing", () =>
             {
                 var ip = rig.CurrentStaticIP;
@@ -1374,8 +1389,8 @@ namespace Radios
                 // leave alone. The file still holds everything readable.
                 sb.AppendLine("[profile walk skipped]");
                 sb.AppendLine("reason = change nothing is on for this radio, and walking means loading every stored profile on it");
-                sb.AppendLine("what this file holds = live settings only; no profile contents");
-                sb.AppendLine("to walk anyway = turn the setting off in Settings, under Radios, then run this export again");
+                sb.AppendLine("this file holds = live settings only; no profile contents");
+                sb.AppendLine("to capture profiles = turn the setting off in Settings, under Radios, then run this export again");
                 sb.AppendLine();
                 Tracing.TraceLine("RestoreGradeExport: walk skipped — change nothing is on for this radio", TraceLevel.Warning);
                 result.WalkRan = false;
