@@ -706,6 +706,21 @@ namespace JJFlexWpf
         // used, and why the ring lives in the LANDING's own length rather than
         // in a tail.
         //
+        // THE RHYTHM LIVES IN THE GAP, AND UNTIL #396 THERE WAS NO GAP (Noel,
+        // walking the Fixer 2026-08-29: "they need to be played with a delay of
+        // 1 second — 3, 2, 1, bing, a four second countdown, not ding ding ding
+        // dinnnnng"). The dits used to ABUT: 300 + 300 + 300 and straight into
+        // the landing, 1.6 seconds end to end with the first dit already
+        // sounding before the operator knew a stage had started.
+        //
+        // The trap is that the obvious repair is the wrong one. CountdownStepMs
+        // is a DURATION — how long one dit lasts — so raising it to 1000 makes
+        // "dinnnnng dinnnnng dinnnnng", which is the complaint stretched rather
+        // than answered. A countdown is a rhythm, and a rhythm is made of the
+        // silence between events. Hence CountdownIntervalMs, and hence the dits
+        // staying at 300 ms: 300 is a perfectly good dit, and it was never the
+        // dit that was wrong.
+        //
         // WHY THE CLARINET. Hollow zeroes the even harmonics — energy at 300,
         // 900, 1500, nothing at 600 — so the record landing's octave arrives
         // as a genuinely NEW pitch rather than as the count's own second
@@ -716,6 +731,14 @@ namespace JJFlexWpf
         //
         // NEVER voice these with Plain or ClassicSine. Those are #115's
         // bare-sine masking problem wearing a voice name.
+        //
+        // AND IT IS A SAFETY CONTROL, WHICH IS WHY THE INTERVAL IS NOT TASTE.
+        // On the transmitting stages this is the only cue standing between an
+        // idle stage and a live transmitter, and the operator's only window to
+        // stop it. A window has to be long enough to register what is
+        // happening, decide, find the control and press it — which 1.6 seconds
+        // starting instantly was not. Anything that SHORTENS the interval is
+        // taking that window away; treat it as a safety change, not a retune.
         // ------------------------------------------------------------------
 
         /// <summary>
@@ -752,8 +775,31 @@ namespace JJFlexWpf
         /// derived from it.</summary>
         internal const int CountdownCountHz = 300;
 
-        /// <summary>How long each counting dit lasts.</summary>
+        /// <summary>How long each counting dit lasts. A DURATION, not a
+        /// rhythm — see <see cref="CountdownIntervalMs"/>, which is the one to
+        /// reach for when the countdown feels too fast.</summary>
         internal const int CountdownStepMs = 300;
+
+        /// <summary>
+        /// The BEAT: how long from the start of one countdown event to the
+        /// start of the next. One second, so the figure reads as 3, 2, 1, go.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A PERIOD rather than a gap, deliberately, because the period is what
+        /// the operator perceives and what the requirement is written in. The
+        /// silence is derived — <c>interval − step</c>, floored at zero — so
+        /// lengthening a dit shortens its own silence and the beat stays where
+        /// it is. Set the interval below the step and the dits simply abut
+        /// again, which is the old sound rather than a negative duration.
+        /// </para>
+        /// <para>
+        /// The landing gets a beat of its own: three dits at 0, 1000 and 2000,
+        /// landing at 3000. Four events, four seconds, which is the shape #396
+        /// asked for and the shape the two Fixer waits below are derived from.
+        /// </para>
+        /// </remarks>
+        internal const int CountdownIntervalMs = 1000;
 
         /// <summary>
         /// The landing's length. The record landing is exactly this; the
@@ -767,15 +813,17 @@ namespace JJFlexWpf
         private const int CountdownTransmitGapMs = 40;
 
         /// <summary>
-        /// Build a countdown: three counting dits, then a landing that names
-        /// what is being counted down to.
+        /// Build a countdown: three counting dits a beat apart, then a landing
+        /// on the fourth beat that names what is being counted down to.
         /// </summary>
         /// <remarks>
         /// <para>
         /// <b>The shipping earcons and the audio bench both come through
         /// here</b>, so a set of timings auditioned on the bench is the set
         /// that ships — retuning by ear cannot land on numbers the real sound
-        /// does not use.
+        /// does not use. That property is why the bench grew an interval box in
+        /// the same change that gave the sound an interval: a bench missing one
+        /// of the parameters tunes numbers the shipped sound ignores.
         /// </para>
         /// <para>
         /// <b>Every pitch is derived from <paramref name="countHz"/> so the
@@ -790,29 +838,85 @@ namespace JJFlexWpf
         /// </remarks>
         /// <param name="transmit">true for the transmit landing, false for the
         /// record landing.</param>
+        /// <param name="countHz">The counting pitch; every other pitch in the
+        /// figure is derived from it.</param>
+        /// <param name="stepMs">How long one counting dit sounds.</param>
+        /// <param name="landingMs">How long the landing sounds.</param>
+        /// <param name="intervalMs">The beat — start of one event to start of
+        /// the next. The silence between events is this minus the step.</param>
         internal static (int freq, int ms)[] CountdownSteps(
             bool transmit,
             int countHz = CountdownCountHz,
             int stepMs = CountdownStepMs,
-            int landingMs = CountdownLandingMs)
+            int landingMs = CountdownLandingMs,
+            int intervalMs = CountdownIntervalMs)
         {
             countHz = Math.Max(countHz, 1);
             stepMs = Math.Max(stepMs, 1);
             landingMs = Math.Max(landingMs, 1);
 
-            var count = new[] { (countHz, stepMs), (countHz, stepMs), (countHz, stepMs) };
+            // The silence, derived. Floored at zero so an interval shorter than
+            // its own dit degrades to the abutting sound this replaced rather
+            // than to a negative duration the renderer would have to guess at.
+            int gapMs = Math.Max(intervalMs - stepMs, 0);
+
+            var steps = new List<(int freq, int ms)>(8);
+            for (int i = 0; i < CountdownCounts; i++)
+            {
+                steps.Add((countHz, stepMs));
+                // Every dit gets its beat, INCLUDING the third — the landing is
+                // the fourth beat of the figure, not a tail on the third.
+                if (gapMs > 0) steps.Add((0, gapMs));
+            }
 
             if (!transmit)
-                return new[] { count[0], count[1], count[2], (countHz * 2, landingMs) };
-
-            return new[]
             {
-                count[0], count[1], count[2],
-                (countHz * 4 / 3, landingMs * 2 / 7),
-                (0, CountdownTransmitGapMs),
-                (countHz * 8 / 3, landingMs * 6 / 7),
-            };
+                steps.Add((countHz * 2, landingMs));
+            }
+            else
+            {
+                steps.Add((countHz * 4 / 3, landingMs * 2 / 7));
+                steps.Add((0, CountdownTransmitGapMs));
+                steps.Add((countHz * 8 / 3, landingMs * 6 / 7));
+            }
+
+            return steps.ToArray();
         }
+
+        /// <summary>How many counting dits precede the landing. Three, and the
+        /// two Fixer waits below are written in terms of it.</summary>
+        internal const int CountdownCounts = 3;
+
+        /// <summary>
+        /// How long a countdown lasts, end to end, at the shipping timings.
+        /// </summary>
+        /// <remarks>
+        /// <b>Ask this rather than writing the number down.</b> Two waits in the
+        /// transmit checks were hand-copied from the countdown's length and both
+        /// had silently gone stale by the time #396 measured them — one still
+        /// describing "three 150 ms steps and a 500 ms ring" for a sound that
+        /// had been 1.6 seconds for months. A derived number cannot drift.
+        /// The 15 ms fade tail is excluded: it overlaps the silence that follows
+        /// rather than extending the sound.
+        /// </remarks>
+        internal static int CountdownDurationMs(bool transmit)
+        {
+            int total = 0;
+            foreach (var (_, ms) in CountdownSteps(transmit)) total += ms;
+            return total;
+        }
+
+        /// <summary>
+        /// When the LAST counting dit begins, measured from the start of the
+        /// countdown — the moment the transmit checks issue their key-up, so
+        /// the landing falls on the radio's MOX confirmation.
+        /// </summary>
+        /// <remarks>
+        /// The whole count is unkeyed before this instant, and that is the
+        /// operator's abort window. It is two beats wide by construction, so it
+        /// grows and shrinks with the rhythm instead of having to be remembered.
+        /// </remarks>
+        internal static int CountdownLastDitAtMs => (CountdownCounts - 1) * CountdownIntervalMs;
 
         /// <summary>
         /// Countdown into a stage that RECORDS you — the microphone check.
@@ -840,7 +944,9 @@ namespace JJFlexWpf
         /// </para>
         /// </remarks>
         [Earcon("Countdown to record", EarconCategory.Transmit, Order = 4,
-            Description = "Three tones then a higher one. Start talking on the last tone.")]
+            Description = "Three tones a second apart, then a higher one on the fourth beat. "
+                        + "Start talking on that last tone. Four seconds end to end, so there "
+                        + "is time to get ready rather than just time to be told.")]
         public static void CountdownRecordTone()
         {
             if (!Gate(EarconCategory.Transmit)) return;
@@ -874,15 +980,25 @@ namespace JJFlexWpf
         /// <para>
         /// <b>Count UNKEYED, key on the third tone, and let the landing fall
         /// on MOX confirmation.</b> Prepending the count to an already-keyed
-        /// transmit burns about a second of dead air against the thermal
-        /// budget; firing the landing before confirmation would have the
-        /// operator talking into a transmitter that may never key. A radio
-        /// that never keys never gets a landing, and the gap between the third
-        /// dit and the landing is honest MOX latency.
+        /// transmit burns dead air against the thermal budget; firing the
+        /// landing before confirmation would have the operator talking into a
+        /// transmitter that may never key. A radio that never keys never gets a
+        /// landing.
+        /// </para>
+        /// <para>
+        /// <b>The two beats before that third dit are the abort window</b>, and
+        /// they are the whole reason #396 was a safety fix rather than a
+        /// retune. Nothing is keyed during them, the stop hook is polled
+        /// throughout, and the operator has two full seconds to decide. The
+        /// figure now also has a designed beat between the third dit and the
+        /// landing, so MOX latency rides inside that beat instead of being the
+        /// only thing separating them.
         /// </para>
         /// </remarks>
         [Earcon("Countdown to transmit", EarconCategory.Transmit, Order = 5,
-            Description = "Three tones then a slow rising pair. The radio is about to transmit.")]
+            Description = "Three tones a second apart, then a slow rising pair on the fourth "
+                        + "beat. The radio is about to transmit, and the two seconds before "
+                        + "that last count are your window to stop it.")]
         public static void CountdownTransmitTone()
         {
             if (!Gate(EarconCategory.Transmit)) return;
@@ -952,7 +1068,59 @@ namespace JJFlexWpf
         private const int ConnectPhase2PitchHz = 750;
         private const int ConnectPhase3PitchHz = 1000;
         private const int ConnectSuccessPitchHz = 1500;
-        private const int ConnectPhaseToneMs = 70;
+
+        // THE LENGTH, AND WHY IT IS 150 (#385, landed by Noel 2026-08-29).
+        // The 2026-08-19 audibility work found DURATION to be the dominant
+        // variable in whether a sound survives band noise: under about 50 ms is
+        // heard as a click with a pitch tint rather than a tone, and the sounds
+        // that actually survived were 150 to 250 ms. These were 70 — above the
+        // click threshold and well below the surviving band, which is why the
+        // connect series kept getting buried on a noisy evening.
+        //
+        // IT WAS HELD BACK ON PURPOSE AND THE HOLD WAS RIGHT. Sprint 41 Track D
+        // changed the pitches and deliberately left the lengths alone, because
+        // moving both at once makes the ear test unreadable — an improvement
+        // could not be attributed to either. #385 stayed sequenced behind
+        // #379's audition for exactly that reason. The ladder was auditioned on
+        // the morning of 2026-08-29 and the pitches settled, so length could
+        // finally move as the only variable. That is the condition that had to
+        // hold, and it held.
+        //
+        // 150 RATHER THAN 250, and there is a measured reason beyond taste.
+        // Two announced phase tones can be as little as
+        // ConnectNarrator.PhaseAnnounceThresholdMs — 500 ms — apart, because a
+        // phase is announced only once its wait has reached that threshold. At
+        // 150 the longest thing that can precede another rung is the phase-2
+        // pair at 360 ms, which clears 500 with room. At 250 that pair is
+        // 560 ms and the next rung starts ON TOP OF IT: the alert mixer would
+        // play them over each other, and two counts overlapping read as one
+        // unfamiliar sound rather than as two. So 250 is not simply "more of a
+        // good thing" — it is the point where the count stops being countable
+        // on a slow connect, which is the only connect where the full ladder
+        // sounds at all. Anything above about 220 needs the threshold raised
+        // with it, and that is a different decision about a different thing.
+        //
+        // The cost, stated plainly: a group of N tones runs N*150 + (N-1)*60,
+        // so phase 1 is 150 ms, phase 2 360, phase 3 570, and the arrival pair
+        // 360 — against 70, 200, 330 and 200 before. A connect is already
+        // talking, so this competes with speech for the same stretch.
+        //
+        // CHANGING IT IS ONE NUMBER AND NOTHING ELSE. Every sound in the family
+        // reads it, including the Explorer's audition rows, so there is no
+        // second place to remember. ConnectSeriesAtLength plays the whole
+        // ladder at any length without touching it, which is how this decision
+        // was made by ear rather than by argument — and how the next one will
+        // be.
+        //
+        // VOLUME IS NOT THE LEVER. It is already carrying the arrival's
+        // emphasis, and leaning on it twice is exactly how the success tone
+        // ended up being phase 2 with the gain turned up (#379).
+        private const int ConnectPhaseToneMs = 150;
+
+        /// <summary>The silence inside a count group. Not the beat of a
+        /// countdown — this one is meant to be heard as a repeated note, not
+        /// as separate events, so it stays short when the tone length
+        /// moves.</summary>
         private const int ConnectPhaseToneGapMs = 60;
         private const float ConnectPhaseToneVolume = VolumeSoft;
 
@@ -979,17 +1147,30 @@ namespace JJFlexWpf
         /// hand-written copies of the same three numbers, which is how a bench
         /// ends up auditioning a sound the application no longer makes.
         /// </remarks>
-        private static void PlayConnectCount(int count, int pitchHz, float volume)
+        private static void PlayConnectCount(int count, int pitchHz, float volume,
+            int toneMs = ConnectPhaseToneMs)
         {
             if (count <= 0) return;
+            PlayVoicedSequence(EarconVoices.Plain,
+                               ConnectCountSteps(count, pitchHz, toneMs), volume);
+        }
+
+        /// <summary>
+        /// The steps of one rung — N tones at one pitch. Split out so the #385
+        /// length audition plays the SHIPPED figure at a different length
+        /// rather than a hand-written imitation of it.
+        /// </summary>
+        private static (int freq, int ms)[] ConnectCountSteps(int count, int pitchHz, int toneMs)
+        {
+            if (count <= 0) return Array.Empty<(int, int)>();
             var seq = new (int, int)[count * 2 - 1];
             int idx = 0;
             for (int i = 0; i < count; i++)
             {
                 if (i > 0) seq[idx++] = (0, ConnectPhaseToneGapMs);
-                seq[idx++] = (pitchHz, ConnectPhaseToneMs);
+                seq[idx++] = (pitchHz, toneMs);
             }
-            PlayVoicedSequence(EarconVoices.Plain, seq, volume);
+            return seq;
         }
 
         /// <summary>
@@ -1105,6 +1286,70 @@ namespace JJFlexWpf
         // Delete this method and its catalog entries once an instrument is
         // chosen. The timbre question is still open; only D closed.
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The whole connect ladder at a chosen tone length — the #385
+        /// audition. Not wired to any connect path; the Earcon Explorer is the
+        /// only caller, and nothing here changes what ships.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>A separate question from the #144 candidates, so it gets a
+        /// separate method.</b> Those vary the INSTRUMENT and hold everything
+        /// else at the shipped values; this varies the LENGTH and holds the
+        /// instrument. Folding one into the other would put two questions in
+        /// one vocabulary and neither answer would mean anything.
+        /// </para>
+        /// <para>
+        /// It plays through <see cref="ConnectCountSteps"/> — the same builder
+        /// the connect path uses — so what is auditioned is the shipped figure
+        /// at a different length and not an imitation of it. That property is
+        /// the whole reason #379's collapse of four hand-written copies into
+        /// one definition was worth doing.
+        /// </para>
+        /// <para>
+        /// Judge it on the FAST-CONNECT case, which is the case operators
+        /// actually get: phase 2 alone, then the arrival. The full ladder only
+        /// sounds when a connect is slow enough for the 500 ms threshold to let
+        /// the other rungs through.
+        /// </para>
+        /// </remarks>
+        /// <param name="toneMs">How long each tone lasts. The shipped value is
+        /// <see cref="ConnectPhaseToneMs"/> — 150 since #385 landed; 70 before
+        /// that, and the field work's surviving band is 150 to 250.</param>
+        public static void ConnectSeriesAtLength(int toneMs)
+        {
+            NoTrim();
+            if (!EarconsEnabled) return;
+
+            toneMs = Math.Clamp(toneMs, 20, 600);
+
+            // The same spacing the #144 candidates use, so the two auditions
+            // are comparable to each other as well as to the shipped sound.
+            const int groupGap = 400;
+
+            var v = EarconVoices.Plain;
+            int at = 0;
+
+            void Rung(int count, int pitchHz, float volume)
+            {
+                var steps = ConnectCountSteps(count, pitchHz, toneMs);
+                if (at == 0) PlayVoicedSequence(v, steps, volume);
+                else PlayLaterVoiced(v, steps, volume, at);
+
+                int len = 0;
+                foreach (var (_, ms) in steps) len += ms;
+                at += len + groupGap;
+            }
+
+            // One, two, three, then the arrival at its own louder tier — the
+            // arrival is scheduled separately rather than folded in because one
+            // render carries one level.
+            Rung(1, ConnectPhase1PitchHz, ConnectPhaseToneVolume);
+            Rung(2, ConnectPhase2PitchHz, ConnectPhaseToneVolume);
+            Rung(3, ConnectPhase3PitchHz, ConnectPhaseToneVolume);
+            Rung(2, ConnectSuccessPitchHz, VolumeStrong);
+        }
 
         /// <summary>
         /// Play one connect-series audition candidate (#144). Not wired to any
@@ -2249,12 +2494,14 @@ namespace JJFlexWpf
         /// </remarks>
         /// <returns>Total length in milliseconds.</returns>
         public static int PlayScratchpadCountdown(MeterVoice? voice, bool transmit,
-            int countHz, int stepMs, int landingMs, float volume, float pan)
+            int countHz, int stepMs, int landingMs, float volume, float pan,
+            int intervalMs = CountdownIntervalMs)
         {
             NoTrim();
             var v = voice ?? CountdownVoice;
             var steps = CountdownSteps(transmit, countHz,
-                Math.Clamp(stepMs, 20, 2000), Math.Clamp(landingMs, 20, 4000));
+                Math.Clamp(stepMs, 20, 2000), Math.Clamp(landingMs, 20, 4000),
+                Math.Clamp(intervalMs, 20, 4000));
 
             PlayVoicedDecaySequence(v, steps, volume, pan);
 

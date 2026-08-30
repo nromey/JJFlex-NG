@@ -368,17 +368,28 @@ internal static class FixerHostWiring
 
     /// <summary>
     /// How long the countdown sound lasts before the speech window may open:
-    /// three count tones and the ringing "go" note. A ringing tone inside
-    /// the speech sample makes a quiet shack read as noisy, so the capture
-    /// waits it out (#261).
+    /// three count tones a beat apart and the ringing "go" note. A ringing
+    /// tone inside the speech sample makes a quiet shack read as noisy, so the
+    /// capture waits it out (#261).
     /// </summary>
     /// <remarks>
-    /// COUPLED to the countdown Track G ships (three 150 ms steps and a
-    /// 500 ms ring — 950 ms, padded to a round second). If the bench retunes
-    /// the sound longer than this, the ring's tail lands in the speech
-    /// sample; retune this with it.
+    /// <para>
+    /// <b>ASKED, not written down (#396).</b> This was a hand-copied 1000 whose
+    /// own comment described "three 150 ms steps and a 500 ms ring — 950 ms",
+    /// and the sound had been 1,600 ms since long before anyone noticed. The
+    /// wait was therefore 600 ms short: the record landing was still ringing
+    /// when the capture opened, inside the very sample the wait exists to keep
+    /// clean, and a quiet shack read as a noisy one. Nothing failed and nothing
+    /// could have — a number copied out of another file's comment cannot notice
+    /// that file changing.
+    /// </para>
+    /// <para>
+    /// A property rather than a const so it is read at the moment it is used.
+    /// The countdown is now four seconds, which is the whole point of #396 and
+    /// which this follows without being told.
+    /// </para>
     /// </remarks>
-    private const int MicCountdownSoundMs = 1000;
+    private static int MicCountdownSoundMs => EarconPlayer.CountdownDurationMs(transmit: false);
 
     /// <summary>The cues the microphone check speaks and sounds around its
     /// measurement (#255, #261). Any may be null; a missing cue cues nothing

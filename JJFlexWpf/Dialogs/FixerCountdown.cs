@@ -30,17 +30,46 @@ namespace JJFlexWpf.Dialogs;
 /// callers get the failure traced, never thrown, and the stage runs on its
 /// spoken cues alone.
 /// </para>
+/// <para>
+/// <b>WHICH STAGE GETS WHICH SOUND, written down here because it was written
+/// down nowhere</b> (#396). The Fixer numbers its stages 0 to 4; the earcons
+/// are named "record" and "transmit"; and nothing connected the two, so a
+/// report of "stage two sounds different from stage one" could not be checked
+/// against the code without reading three files. The mapping is:
+/// </para>
+/// <para>
+/// Stage 0, audio setup and receive — NO countdown. Nothing is measured that a
+/// person has to be ready for.
+/// </para>
+/// <para>
+/// Stage 1, microphone test — <see cref="RecordTone"/>. Four events: three
+/// counts, then the octave up. Nothing keys.
+/// </para>
+/// <para>
+/// Stages 2, 3 and 4 — transmitter test, injected transmit, spoken transmit —
+/// <see cref="TransmitTone"/>. FIVE events: three counts, then a rising PAIR
+/// rather than a single note. All three key the radio.
+/// </para>
+/// <para>
+/// <b>So one countdown genuinely has more tones than the other, and a pitch
+/// the other never uses.</b> That difference is deliberate — the landing names
+/// what is being counted down TO, and the transmit landing is the transmit
+/// start figure drawn out slow, so an operator learns one shape and reads it
+/// at two speeds. It is not a bug and it is not a doubled countdown: the field
+/// trace of 2026-08-29 shows exactly one fire per stage run, never two.
+/// </para>
 /// </remarks>
 internal static class FixerCountdown
 {
     /// <summary>The count-in before a stage that listens: stage 1's
-    /// microphone check.</summary>
+    /// microphone check. Four events, ending on the octave up.</summary>
     public static void RecordTone()
         => Guarded(EarconPlayer.CountdownRecordTone, "CountdownRecordTone");
 
     /// <summary>The count-in before a stage that keys the transmitter:
     /// stages 2, 3 and 4 — the same sound for all three until Noel rules on a
-    /// distinct RF sound, which is different numbers, not different code.</summary>
+    /// distinct RF sound, which is different numbers, not different code.
+    /// Five events, ending on the rising pair.</summary>
     public static void TransmitTone()
         => Guarded(EarconPlayer.CountdownTransmitTone, "CountdownTransmitTone");
 
