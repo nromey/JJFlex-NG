@@ -645,7 +645,12 @@ namespace Radios
 
             float share = TransmitSafety.ReflectedFractionOf(forward, reflected);
             try { Alarm?.Invoke(); } catch { }
-            Say(TransmitSafety.ReflectedWarningText(share, antenna, dummy));
+            // cutDisarmed: with the cutoff off — the operator's setting, or a
+            // hook nobody wired, which cuts nothing just the same — this
+            // warning is the moment the cut would have acted, so it says out
+            // loud that no cut is coming (#224).
+            Say(TransmitSafety.ReflectedWarningText(share, antenna, dummy,
+                cutDisarmed: !CutEnabled()));
             Tracing.TraceLine(
                 "TransmitKillSwitch: reflected power " + (share * 100f).ToString("F0")
                 + "% during " + WhatIsArmed + " (fwd " + forward.ToString("F1")

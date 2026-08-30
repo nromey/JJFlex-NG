@@ -153,9 +153,22 @@ namespace Radios
         /// taken before anyone noticed it never got warm. That sentence is worth
         /// saying out loud rather than folding into the generic one.
         /// </para>
+        /// <para>
+        /// <paramref name="cutDisarmed"/> exists because the cut became
+        /// defeatable (#224, ruled by Noel 2026-08-30), and a defeatable
+        /// safety that is off and still trusted is worse than no safety at
+        /// all — it is trusted. So the one moment the operator must not be
+        /// able to forget they turned it off is the moment it would have
+        /// acted: this alarm. When the setting is off, the warning says so
+        /// out loud. Pass the INVERSE of the operator's setting. It defaults
+        /// to false only so tests of the sentence itself can ignore it; the
+        /// live alarm paths must pass it explicitly, and a source-read test
+        /// (ReflectedWarningWiringTests) holds both of them to that.
+        /// </para>
         /// </remarks>
         public static string ReflectedWarningText(
-            float fraction, string antennaName, bool dummyLoadDeclared = false)
+            float fraction, string antennaName, bool dummyLoadDeclared = false,
+            bool cutDisarmed = false)
         {
             int percent = (int)Math.Round(fraction * 100f);
             bool named = !string.IsNullOrWhiteSpace(antennaName);
@@ -166,9 +179,13 @@ namespace Radios
                 : (named ? "audio.ptt.power_coming_back_on"
                          : "audio.ptt.power_coming_back");
 
-            return named
+            string text = named
                 ? Lexicon.Get(key, ("percent", percent), ("antenna", antennaName))
                 : Lexicon.Get(key, ("percent", percent));
+
+            if (cutDisarmed)
+                text += " " + Lexicon.Get("audio.ptt.reflected_cutoff_is_off");
+            return text;
         }
 
         /// <summary>

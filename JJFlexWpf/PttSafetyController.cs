@@ -928,8 +928,13 @@ namespace JJFlexWpf
             // whatever is mid-sentence. Power arriving back at the finals is
             // that class of thing. It cuts the preamble off mid-word, on
             // purpose.
+            // cutDisarmed: with the operator's cutoff OFF (#224), this warning
+            // is the moment the cut would have acted, so the sentence says out
+            // loud that no cut is coming — otherwise a safety they disarmed
+            // weeks ago is still silently trusted at exactly the wrong moment.
             ScreenReaderOutput.Speak(
-                TransmitSafety.ReflectedWarningText(back, antenna, rig.DummyLoadMode),
+                TransmitSafety.ReflectedWarningText(back, antenna, rig.DummyLoadMode,
+                    cutDisarmed: !_config.CutTransmitOnReflectedAlarm),
                 Radios.Speech.SpeechIntent.Urgent,
                 VerbosityLevel.Critical);
             Tracing.TraceLine(
