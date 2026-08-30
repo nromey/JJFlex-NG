@@ -170,6 +170,21 @@
                               Content="Play chirp tones on transmit and receive"
                               Margin="0,8,0,0"
                               AutomationProperties.Name="Play chirp tones on transmit and receive"/>
+
+                    <!-- The reflected-power cut's off switch (#224). Default ON,
+                         ruled by Noel 2026-08-26; defeatable, ruled 2026-08-30.
+                         Committed on OK like its neighbours, NOT applied live —
+                         arming or disarming a safety belongs in the deliberate
+                         pipeline, unlike audio values found by ear. Unchecking is
+                         never silent: the Unchecked handler speaks what is being
+                         given up, and Ctrl+F1 carries the full explanation
+                         (JJFlexHelp.Text is set from the Lexicon in code-behind,
+                         where Lexicon strings live for the dialog's speech too). -->
+                    <CheckBox x:Name="ReflectedCutCheckbox"
+                              Content="Cut transmit if the reflected-power alarm fires above 10 watts"
+                              Margin="0,8,0,0"
+                              AutomationProperties.Name="Cut transmit if the reflected-power alarm fires above 10 watts"
+                              Unchecked="ReflectedCutCheckbox_Unchecked"/>
                 </StackPanel>
             </TabItem>
 

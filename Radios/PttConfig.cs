@@ -70,6 +70,21 @@ namespace Radios
         /// mid-transmission, and an operator running a reactive load or an
         /// experimental antenna must be able to switch it off.
         ///
+        /// AND THEY CAN, since 2026-08-30: one checkbox on the Settings
+        /// dialog's PTT tab, committed on OK like its neighbours — arming or
+        /// disarming a safety belongs in the deliberate pipeline, not the
+        /// live-apply one. Until then this property was reachable only by
+        /// hand-editing XML, which meant the 2026-08-26 ON ruling was
+        /// shipping on a premise ("the escape hatch is intact") that was
+        /// false. Ruled defeatable by Noel 2026-08-30: the radio already
+        /// folds power back on its own and already alarms, so this cut is a
+        /// THIRD layer over two that exist in hardware — that is why
+        /// defeating it is tolerable. Two mitigations are part of the deal:
+        /// while this is false the reflected warning says out loud that no
+        /// cut is coming (<c>TransmitSafety.ReflectedWarningText</c>,
+        /// cutDisarmed), and unchecking the box is never a silent flip — the
+        /// dialog speaks what is being given up.
+        ///
         /// DEFAULT ON — ruled by Noel 2026-08-26, reversing the initial OFF.
         /// Two reasons, and the second is the one that decides it.
         ///
