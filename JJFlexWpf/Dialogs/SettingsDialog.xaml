@@ -956,6 +956,29 @@
                                        Text="Being able to reach a radio is not the same as owning it — you can be signed in with its owner's account and still be a guest, and a radio on your own network may have no account behind it at all. So JJ Flex asks instead of guessing. Settings you have already bound to a radio keep working whichever answer you give; this only decides whether new things may be created on it."/>
                         </StackPanel>
                     </GroupBox>
+                    <!-- #403: the change-nothing hold. Sits directly under the
+                         ownership group because it is the same conversation one
+                         step further — ownership decides whether JJ Flex may
+                         create things here as housekeeping; this is a hold on
+                         every change the radio keeps, armed for a reason and
+                         lifted when the reason passes. Editable with no radio
+                         connected on purpose: the whole point is arming it
+                         BEFORE you connect. -->
+                    <GroupBox Header="Changing this radio" Margin="0,4,0,8"
+                              AutomationProperties.Name="Changing this radio">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="RadioProfileChangeNothingCheck" Margin="0,0,0,4"
+                                      Checked="RadioProfileChangeNothing_Toggled"
+                                      Unchecked="RadioProfileChangeNothing_Toggled"
+                                      AutomationProperties.Name="Change nothing on this radio"
+                   local:JJFlexHelp.Text="While this is on, JJ Flex connects and operates as usual but leaves this radio's own setup alone: no profiles created or loaded, no settings applied at connect, no changes to its name, network, registration, or firmware. It says so at each connect, and names this setting whenever it declines something. Turn it on before connecting to a radio that has to stay exactly as it is — after a factory reset, or while someone else's setup is under test.">
+                                <TextBlock Text="Change nothing on this radio" TextWrapping="Wrap"/>
+                            </CheckBox>
+                            <TextBlock TextWrapping="Wrap" Margin="20,0,0,4"
+                                       Style="{StaticResource DialogLabel}"
+                                       Text="Everything still works — connecting, listening, tuning, the everyday controls. What stops is JJ Flex touching the radio's own setup: profiles, settings applied at connect, its name, network, registration, and firmware. You hear about it at each connect, and whenever something is declined because of it, so a setting that will not stick never has to be a mystery."/>
+                        </StackPanel>
+                    </GroupBox>
                     <!-- Sprint 38 Track C (#337): what unit this radio's
                          S-meter reads in. Sits with identity rather than with
                          the networking groups below because it is about

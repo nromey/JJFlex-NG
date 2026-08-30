@@ -651,6 +651,66 @@ namespace Radios
         public bool OwnershipAnswered => Ownership != RadioOwnership.Unset;
 
         // ---------------------------------------------------------------
+        // "Change nothing on this radio" (#403, 2026-08-30).
+        //
+        // The operator's hold on everything JJ Flex writes to state the
+        // radio keeps: profiles created or loaded, settings applied at
+        // connect, the radio's name, callsign, network, firmware — anything
+        // still there after the session ends. Built for the day a tester's
+        // radio was factory-reset and had to be TESTED before anything was
+        // reimported: our own connect sequence would have performed the
+        // deferred import step invisibly, by creating and loading the
+        // operator's profiles on a radio that had to stay clean.
+        //
+        // STRONGER THAN OWNERSHIP, AND DIFFERENT IN KIND. Ownership answers
+        // "may JJ Flex create things here as housekeeping" and is a standing
+        // declaration; this is a hold, armed for a reason and lifted when the
+        // reason passes. It applies on a radio marked Mine just the same —
+        // your own radio can be the one that must not change today.
+        //
+        // NEVER SILENT. Arming it changes what connecting DOES, so the app
+        // says so at each connect and names this setting whenever it refuses
+        // something because of it. A protection nobody can hear is how an
+        // operator concludes the app is broken when a setting will not stick.
+        //
+        // APPEND-ONLY like the blocks around it: an absent element
+        // deserialises to false, so every config.xml written before this
+        // shipped behaves exactly as it did.
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// "Change nothing on this radio." While true, JJ Flex leaves the
+        /// radio's own setup alone: no profiles created or loaded, no
+        /// settings applied at connect, no changes to its name, network,
+        /// registration, or firmware. It covers every AUTOMATIC write and
+        /// the admin-type operator writes; the operating surface — levels,
+        /// filters, the keyer, the TX interlocks — stays live, because a
+        /// radio you cannot operate is not what this promises. Default
+        /// false — every radio behaves exactly as it always has until the
+        /// operator arms this deliberately.
+        /// </summary>
+        public bool ChangeNothingOnThisRadio { get; set; }
+
+        /// <summary>
+        /// The change-nothing hold for a radio id, without the caller loading
+        /// a whole config. Unknown ids read as false — the historical
+        /// behaviour. Never throws: a failed read must not be able to turn
+        /// into a refused connect.
+        /// </summary>
+        public static bool ChangeNothingOf(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            try { return LoadForRadio(radioId).ChangeNothingOnThisRadio; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.ChangeNothingOf: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        // ---------------------------------------------------------------
         // What unit the S-meter is read in (Sprint 38 Track C, #337).
         //
         // The mode itself is old and was correct; what it never had was a

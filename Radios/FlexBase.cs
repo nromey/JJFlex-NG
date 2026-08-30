@@ -624,6 +624,83 @@ namespace Radios
         /// </summary>
         public string RadioNickname => theRadio?.Nickname ?? string.Empty;
 
+        #region Change nothing on this radio (#403)
+
+        // The per-radio hold from RadioConfig.ChangeNothingOnThisRadio, cached
+        // here at connect so every writer can consult it without a disk read.
+        // See the RadioConfig block for what it is and why it exists. The two
+        // helpers below are the only two shapes a gated writer takes:
+        //
+        //   GuardRefuses — an OPERATOR asked for something and it is not
+        //   happening. Speaks, naming this setting, because a refusal the
+        //   operator cannot hear reads as the app being broken.
+        //
+        //   GuardSkips — an AUTOMATIC write on the connect or audio path is
+        //   being left undone. Trace-only: the connect-time announcement in
+        //   mainThreadProc has already told the operator once, and narrating
+        //   every skipped housekeeping write would bury it.
+
+        /// <summary>
+        /// True while the connected radio's "Change nothing on this radio"
+        /// setting is armed. Loaded from the per-radio config at connect;
+        /// refreshed by <see cref="SetChangeNothingActive"/> when the operator
+        /// changes the answer mid-session from the Settings Radios tab.
+        /// </summary>
+        public bool ChangeNothingActive { get; private set; }
+
+        /// <summary>
+        /// Arm or lift the change-nothing hold for the live session. Called at
+        /// connect (from the per-radio config, before any connect-path write
+        /// runs) and from the Settings Radios tab when the operator changes it
+        /// while connected to this radio.
+        /// </summary>
+        public void SetChangeNothingActive(bool active)
+        {
+            if (ChangeNothingActive == active) return;
+            ChangeNothingActive = active;
+            Tracing.TraceLine(
+                "ChangeNothing: " + (active
+                    ? "armed — JJ Flex will not change anything this radio keeps"
+                    : "lifted — this radio may be changed normally"),
+                TraceLevel.Warning);
+        }
+
+        /// <summary>
+        /// The operator-action gate. True when the hold is armed, in which
+        /// case the refusal has already been spoken — naming the setting and
+        /// the action it stopped — and traced. Callers simply return.
+        /// </summary>
+        /// <param name="actionKey">Lexicon key for the action phrase that
+        /// completes "JJ Flex did not {action}" — e.g.
+        /// settings.guard.action.rename.</param>
+        private bool GuardRefuses(string actionKey)
+        {
+            if (!ChangeNothingActive) return false;
+            Tracing.TraceLine("ChangeNothing: refused " + actionKey, TraceLevel.Warning);
+            if (!SuppressSpeech)
+            {
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("settings.guard.refused",
+                        ("action", Lexicon.Get(actionKey))),
+                    VerbosityLevel.Critical, true);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The automatic-write gate. True when the hold is armed; traces what
+        /// was left undone and nothing more — the connect announcement has
+        /// already said the radio is being left alone.
+        /// </summary>
+        private bool GuardSkips(string what)
+        {
+            if (!ChangeNothingActive) return false;
+            Tracing.TraceLine("ChangeNothing: skipped " + what, TraceLevel.Info);
+            return true;
+        }
+
+        #endregion
+
         /// <summary>
         /// Rename the connected radio. The name lives on the radio itself —
         /// discovery, SmartLink, and every client see it — so this needs a live
@@ -634,6 +711,7 @@ namespace Radios
         {
             var radio = theRadio;
             if (radio == null || string.IsNullOrWhiteSpace(newName)) return false;
+            if (GuardRefuses("settings.guard.action.rename")) return false;
 
             Tracing.TraceLine($"RenameRadio: '{radio.Nickname}' -> '{newName}'", TraceLevel.Info);
             radio.Nickname = newName.Trim();
@@ -828,6 +906,9 @@ namespace Radios
                 Tracing.TraceLine("SetSmartLinkPortForwarding: no radio connected", TraceLevel.Warning);
                 return false;
             }
+            // On the method rather than only in the UI: the 2026-08-29 port
+            // incident bypassed the UI gate by calling this directly (#397).
+            if (GuardRefuses("settings.guard.action.ports")) return false;
             try
             {
                 if (enabled)
@@ -861,6 +942,7 @@ namespace Radios
                     Tracing.TraceLine("RemoteOnEnabled set: no radio connected", TraceLevel.Warning);
                     return;
                 }
+                if (GuardRefuses("settings.guard.action.rem_on")) return;
                 theRadio.RemoteOnEnabled = value;
                 Tracing.TraceLine($"RemoteOnEnabled set: {value}", TraceLevel.Info);
             }
@@ -1308,6 +1390,12 @@ namespace Radios
         /// </summary>
         private void ApplyAccountUPnPPreferenceIfAny()
         {
+            // A guarded radio's SITE is in the hold too: this writes a
+            // forward rule into the router in front of the radio, from an
+            // account-scoped value — the port incident's shape one box over
+            // (audit 1.9). First, before the tier checks, so the answer does
+            // not depend on which account happens to be current.
+            if (GuardSkips("UPnP router mapping on connect")) return;
             if (_currentAccount == null || _currentAccount.ConnectionMode < SmartLinkConnectionMode.ManualPlusUpnp)
             {
                 Tracing.TraceLine("ApplyAccountUPnPPreferenceIfAny: UPnP tier not selected for this account", TraceLevel.Info);
@@ -1513,6 +1601,11 @@ namespace Radios
             }
             knownRadioProfile.SaveForRadio(theRadio.Serial);
 
+            // Arm the change-nothing hold BEFORE the handler wiring below —
+            // the first connect-path write (TNFEnabled) is twenty lines down,
+            // and a guard loaded after the writes it governs is scenery (#403).
+            SetChangeNothingActive(knownRadioProfile.ChangeNothingOnThisRadio);
+
             // add the handlers.
             theRadio.PropertyChanged += new PropertyChangedEventHandler(radioPropertyChangedHandler);
             theRadio.MessageReceived += new Radio.MessageReceivedEventHandler(messageReceivedHandler);
@@ -1527,7 +1620,10 @@ namespace Radios
             theRadio.TNFAdded += new Radio.TNFAddedEventHandler(tnfAdded);
             theRadio.TNFRemoved += new Radio.TNFRemovedEventHandler(tnfRemoved);
             theRadio.IsTNFSubscribed = true; // v2.0.19
-            theRadio.TNFEnabled = true;
+            // radio set tnf_enabled=1 — station-global and radio-persistent, a
+            // Jim-era line the write-path audit named (1.4). Left undone on a
+            // guarded radio; the subscription above is read-only and stays.
+            if (!GuardSkips("TNFEnabled=true on connect")) theRadio.TNFEnabled = true;
             theRadio.ForwardPowerDataReady += new Radio.MeterDataReadyEventHandler(forwardPowerData);
             theRadio.SWRDataReady += new Radio.MeterDataReadyEventHandler(sWRData);
             theRadio.MicDataReady += new Radio.MeterDataReadyEventHandler(micData);
@@ -1695,8 +1791,12 @@ namespace Radios
                 }
                 else
                 {
-                    // local audio on
-                    theRadio.IsMuteLocalAudioWhenRemoteOn = false;
+                    // local audio on. radio set mute_local_audio_when_remote —
+                    // a setting about the owner's own shack speaker (audit 1.5).
+                    if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=false on local connect"))
+                    {
+                        theRadio.IsMuteLocalAudioWhenRemoteOn = false;
+                    }
                 }
             }
             else
@@ -3097,6 +3197,7 @@ namespace Radios
         public bool ApplyStaticIp(string ip, string gateway, string netmask, Action onSuccess, Action onFailure)
         {
             if (theRadio == null || !IsConnected) return false;
+            if (GuardRefuses("settings.guard.action.network")) return false;
 
             try
             {
@@ -3141,6 +3242,7 @@ namespace Radios
         public bool RevertToDhcp(Action onSuccess, Action onFailure)
         {
             if (theRadio == null || !IsConnected) return false;
+            if (GuardRefuses("settings.guard.action.network")) return false;
 
             try
             {
@@ -3192,6 +3294,7 @@ namespace Radios
                 try
                 {
                     if (theRadio == null) return;
+                    if (GuardRefuses("settings.guard.action.private_ip")) return;
                     theRadio.EnforcePrivateIPConnections = value;
                     Tracing.TraceLine($"EnforcePrivateIPConnections set to {value}", TraceLevel.Info);
                 }
@@ -3525,6 +3628,10 @@ namespace Radios
         private bool SendRegistrationCommand(bool register, Action<string, bool> onStateChange, int attempt = 1)
         {
             if (theRadio == null || !IsConnected || _currentAccount == null) return false;
+            // Registration binds the radio to an ACCOUNT and persists in the
+            // radio. Both directions — register and unregister — change what
+            // the radio keeps, so both sit inside the hold (audit 2.9).
+            if (GuardRefuses("settings.guard.action.registration")) return false;
 
             try
             {
@@ -4177,6 +4284,7 @@ namespace Radios
         public bool SetSelectedOscillator(string value)
         {
             if (theRadio == null || !IsConnected) return false;
+            if (GuardRefuses("settings.guard.action.oscillator")) return false;
             try
             {
                 if (!Enum.TryParse<Oscillator>(value, ignoreCase: true, out var osc))
@@ -4274,6 +4382,16 @@ namespace Radios
             if (theRadio == null || !IsConnected)
             {
                 check.BlockReason = "No radio is connected.";
+                return check;
+            }
+
+            // The hold blocks firmware in the PREFLIGHT, where the UI reads
+            // its reason out, as well as at BeginFirmwareUpdate — the audit's
+            // finding (2.10) is that a disabled button was the only thing
+            // standing in front of the highest-consequence write there is.
+            if (ChangeNothingActive)
+            {
+                check.BlockReason = Lexicon.Get("settings.guard.firmware_blocked");
                 return check;
             }
 
@@ -4482,6 +4600,9 @@ namespace Radios
                 Tracing.TraceLine("BeginFirmwareUpdate: no radio connected", TraceLevel.Error);
                 return false;
             }
+            // Belt to the preflight's braces: this method is public and the
+            // preflight is advisory, so the write refuses on its own.
+            if (GuardRefuses("settings.guard.action.firmware")) return false;
 
             try
             {
@@ -10974,7 +11095,9 @@ namespace Radios
                     Tracing.TraceLine("RadioCallsign set ignored: no radio", TraceLevel.Warning);
                     return;
                 }
-                if (r.Callsign != value) r.Callsign = value;
+                if (r.Callsign == value) return;
+                if (GuardRefuses("settings.guard.action.callsign")) return;
+                r.Callsign = value;
             }
         }
 
@@ -11005,7 +11128,9 @@ namespace Radios
                 }
                 if (Enum.TryParse<ScreensaverMode>(value, out var mode))
                 {
-                    if (r.Screensaver != mode) r.Screensaver = mode;
+                    if (r.Screensaver == mode) return;
+                    if (GuardRefuses("settings.guard.action.front_panel")) return;
+                    r.Screensaver = mode;
                 }
                 else
                 {
@@ -13346,6 +13471,12 @@ namespace Radios
         public bool SelectProfile(Profile_t prof)
         {
             Tracing.TraceLine("SelectProfile:" + prof.ToString(), TraceLevel.Info);
+            // Loading a profile rewrites shared station state, and the tx and
+            // mic cases below CREATE the profile on the radio when it is
+            // absent — the write #403 exists for. The connect path skips its
+            // calls before reaching here; this refusal is for the operator
+            // surfaces, and it speaks.
+            if (GuardRefuses("settings.guard.action.profile_load")) return false;
             bool rv = true;
             // select profiles, allowed before main loop.
             string str = "";
@@ -13432,6 +13563,10 @@ namespace Radios
             if (string.IsNullOrWhiteSpace(name)) return false;
             var radio = theRadio;
             if (radio == null || !radio.ProfileMICList.Contains(name)) return false;
+            // A load of an EXISTING profile is still a change to shared
+            // station state, which is exactly what the hold holds. Every
+            // caller already handles false by saying what did not happen.
+            if (GuardRefuses("settings.guard.action.profile_load")) return false;
             q.Enqueue((FunctionDel)(() =>
             {
                 theRadio.ProfileMICSelection = name;
@@ -13598,7 +13733,19 @@ namespace Radios
             var ownership = RadioConfig.OwnershipOf(radio.Serial);
             var candidate = SuggestedMicProfileName;
 
-            if (ownership == RadioOwnership.Mine && !string.IsNullOrEmpty(candidate))
+            // The change-nothing hold outranks ownership: your own radio can
+            // be the one that must not change today, and that is exactly the
+            // factory-reset-test case (#403). The WARNING below still fires —
+            // saying the failure out loud needs no permission from anyone.
+            if (ownership == RadioOwnership.Mine && ChangeNothingActive)
+            {
+                Tracing.TraceLine(
+                    "SilentTxCheck: radio is marked MINE but change-nothing is armed — "
+                    + "warning without repairing.", TraceLevel.Warning);
+            }
+
+            if (ownership == RadioOwnership.Mine && !ChangeNothingActive
+                && !string.IsNullOrEmpty(candidate))
             {
                 // SelectMicProfileIfPresent refuses to CREATE a profile — it
                 // only selects one the radio already lists — so the worst case
@@ -13700,6 +13847,10 @@ namespace Radios
         public bool SaveProfile(Profile_t p, bool immediately = false)
         {
             Tracing.TraceLine("SaveProfile:" + p.ToString(), TraceLevel.Info);
+            // The funnel for every global-profile write: the Profiles dialog,
+            // SaveCurrentStationLayout, and the disconnect-time
+            // saveNewGlobalProfile all arrive here.
+            if (GuardRefuses("settings.guard.action.profile_save")) return false;
             bool commandDone = false;
             bool rv = false;
             if (p.ProfileType == ProfileTypes.global)
@@ -13754,6 +13905,14 @@ namespace Radios
         {
             Tracing.TraceLine("saveNewGlobalProfile", TraceLevel.Info);
             bool rv = false;
+
+            // The hold, ahead of the MultiFlex refusal below — OnlyStation
+            // asks "am I the only client", which is true in exactly the
+            // foreign-remote-base case (audit 1.3). Silent because this runs
+            // at teardown, where speech may already be gone; the guard also
+            // stops newGlobalProfile being armed in the first place, so this
+            // is the second lock on a door that should already be shut.
+            if (GuardSkips("saveNewGlobalProfile at disconnect")) return false;
 
             if (!string.IsNullOrEmpty(newGlobalProfile) && !OnlyStation)
             {
@@ -13844,6 +14003,12 @@ namespace Radios
         {
             if (theRadio == null || !IsConnected)
                 return "There is no radio connected to save to.";
+
+            // The change-nothing hold. Ahead of the MultiFlex refusal because
+            // it is the operator's own standing order about THIS radio, and
+            // the sentence they should hear is the one that names it.
+            if (ChangeNothingActive)
+                return Lexicon.Get("settings.guard.layout_save_blocked");
 
             // The MultiFlex refusal, and it is the load-bearing one.
             //
@@ -15580,7 +15745,12 @@ namespace Radios
                 Tracing.TraceLine("remoteAudioProc: opus output channel not added.", TraceLevel.Error);
                 goto remoteDone;
             }
-            theRadio.IsMuteLocalAudioWhenRemoteOn = true;
+            // radio set mute_local_audio_when_remote — the owner's shack
+            // speaker, flipped from afar (audit 1.5). Held on a guarded radio.
+            if (!GuardSkips("IsMuteLocalAudioWhenRemoteOn=true on remote audio start"))
+            {
+                theRadio.IsMuteLocalAudioWhenRemoteOn = true;
+            }
             opusOutputChannel = new audioChannelData(rxStream, "JJFlexRadio.OpusOutputChan");
             opusOutputChannel.PortAudioStream = new JJAudioStream();
             opusOutputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.output, opusRxSampleRate);
@@ -16134,12 +16304,30 @@ namespace Radios
                 opusOutputChannel.JustStarted = true; // set on each call
                 opusOutputChannel.OpusChannel.RxMute = false;
                 if (opusOutputChannel.Started) return true;
-                oldMicInput = theRadio.MicInput;
-                theRadio.MicInput = "PC";
-                // Remember that WE asked for PC, so the loop can tell a silent
-                // revert from a deliberate operator choice. See
-                // checkPcMicSelection.
-                _pcMicExpected = true;
+                if (GuardSkips("MicInput=PC for computer transmit audio"))
+                {
+                    // mic_input is station-global and persists (audit 1.6),
+                    // so a guarded radio keeps its own microphone — which
+                    // means audio from this computer will NOT modulate. That
+                    // is the silent-transmit shape, so it is SAID, Critical,
+                    // at the moment PC audio comes up. oldMicInput stays
+                    // null: the stop path restores only what we swapped.
+                    if (!SuppressSpeech)
+                    {
+                        ScreenReaderOutput.Speak(
+                            Lexicon.Get("settings.guard.mic_stays"),
+                            VerbosityLevel.Critical, true);
+                    }
+                }
+                else
+                {
+                    oldMicInput = theRadio.MicInput;
+                    theRadio.MicInput = "PC";
+                    // Remember that WE asked for PC, so the loop can tell a silent
+                    // revert from a deliberate operator choice. See
+                    // checkPcMicSelection.
+                    _pcMicExpected = true;
+                }
                 // `RXGain = 50` stood here until Track B 2026-08-18 (#17)
                 // and was a no-op twice over: 50 is the property's default so
                 // the setter's changed-guard did nothing, and the scalar it
@@ -16170,7 +16358,15 @@ namespace Radios
                 _pcMicExpected = false; // we no longer own the mic selection
                 try
                 {
-                    theRadio.MicInput = oldMicInput;
+                    // Restore only what the start path actually swapped: on a
+                    // guarded radio it never captured anything, and writing a
+                    // null here would be the guard's own teardown breaking
+                    // the promise it made.
+                    if (oldMicInput != null)
+                    {
+                        theRadio.MicInput = oldMicInput;
+                        oldMicInput = null;
+                    }
                 }
                 // ignore error.
                 catch { }
@@ -16213,7 +16409,12 @@ namespace Radios
         /// </summary>
         private void checkPcMicSelection()
         {
-            if (!_pcMicExpected || theRadio == null) return;
+            // The hold stops the re-assert as well as the original write: a
+            // guard armed mid-session must not keep "healing" a selection it
+            // would no longer be allowed to make. (When the guard was armed
+            // before PC audio started, _pcMicExpected is never set and this
+            // is already a no-op.)
+            if (!_pcMicExpected || theRadio == null || ChangeNothingActive) return;
 
             int now = System.Environment.TickCount;
             if ((now - _pcMicCheckTime) < 1000) return;
@@ -16885,6 +17086,19 @@ namespace Radios
                 // Bail immediately if we're being disposed (test cycle)
                 if (stopMainThread || theRadio == null) return;
 
+                // Say the hold is on, ONCE, before the writes it suppresses
+                // would have run. A protection that is silently active is how
+                // an operator concludes the app is broken when a setting will
+                // not stick — so the session opens by naming it (#403).
+                // Critical: an operating-mode disclosure that must survive
+                // "speech off", exactly like the silent-transmit warning.
+                if (ChangeNothingActive && !SuppressSpeech)
+                {
+                    ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.guard.connected"),
+                        Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+                }
+
                 // If a default global profile, select it and await the pan and slices.
                 if (GetProfileInfo(false))
                 {
@@ -16903,7 +17117,13 @@ namespace Radios
 
                 if (!RemoteRig)
                 {
-                    theRadio.MicInput = "mic";
+                    // mic_input is station-global and outlives the session
+                    // (audit 1.7): on a guarded radio the owner's own choice
+                    // stands.
+                    if (!GuardSkips("MicInput=mic on local open"))
+                    {
+                        theRadio.MicInput = "mic";
+                    }
                 }
                 if (!await(() =>
                 {
@@ -16915,9 +17135,14 @@ namespace Radios
 
                 if (theRadio == null || stopMainThread) return;
 
-                // Turn the Vox off.
-                theRadio.SimpleVOXEnable = false;
-                theRadio.CWBreakIn = false;
+                // Turn the Vox off. Radio-persistent, and an owner who
+                // deliberately set either gets it reset every time we connect
+                // (audit 1.4) — so a guarded radio keeps its own answers.
+                if (!GuardSkips("SimpleVOXEnable=false / CWBreakIn=false on open"))
+                {
+                    theRadio.SimpleVOXEnable = false;
+                    theRadio.CWBreakIn = false;
+                }
 
                 // Ok to queue commands now.
                 q.MainLoop = true;
@@ -16946,8 +17171,14 @@ namespace Radios
 
                 raisePowerEvent(true);
 
-                // Enable TX1 RCA by default for compatibility.
-                theRadio.TX1Enabled = true;
+                // Enable TX1 RCA by default for compatibility. An interlock
+                // write, radio-persistent, on every open — the audit's 1.4
+                // family in all but its list (it enumerated three; this is
+                // the fourth). Held on a guarded radio like the others.
+                if (!GuardSkips("TX1Enabled=true on open"))
+                {
+                    theRadio.TX1Enabled = true;
+                }
 
 #if KeepAlive
                 keepAlive_t keepAlive = new keepAlive_t(this);
@@ -17074,14 +17305,23 @@ namespace Radios
                         cfgStream = File.Open(fileName, FileMode.Open);
                         XmlSerializer xs = new XmlSerializer(typeof(cfg7620));
                         cfgData = (cfg7620)xs.Deserialize(cfgStream);
-                        i_BreakinDelay = cfgData.BreakinDelay;
-                        i_SidetoneGain = cfgData.SidetoneGain;
-                        i_SidetonePitch = cfgData.SidetonePitch;
-                        i_CWReverse = cfgData.CWReverse;
-                        i_CWL = (cfgData.CWLEnabled) ?
-                            OffOnValues.on : OffOnValues.off;
-                        i_Keyer = cfgData.Keyer;
-                        i_KeyerSpeed = cfgData.KeyerSpeed;
+                        // The i_* setters each enqueue a radio write — this
+                        // is the operator's saved CW keyer setup being pushed
+                        // to whatever radio connected (audit 2.15's automatic
+                        // half). On a guarded radio the file is still read,
+                        // so the local mirror stays whole, and the radio's
+                        // own keyer settings stand.
+                        if (!GuardSkips("issue7620 CW keyer restore on open"))
+                        {
+                            i_BreakinDelay = cfgData.BreakinDelay;
+                            i_SidetoneGain = cfgData.SidetoneGain;
+                            i_SidetonePitch = cfgData.SidetonePitch;
+                            i_CWReverse = cfgData.CWReverse;
+                            i_CWL = (cfgData.CWLEnabled) ?
+                                OffOnValues.on : OffOnValues.off;
+                            i_Keyer = cfgData.Keyer;
+                            i_KeyerSpeed = cfgData.KeyerSpeed;
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -17110,45 +17350,58 @@ namespace Radios
             bool rv = true;
 
             // See if any default profiles.
-            // Await to see if CurrentProfile is in the profile list.
-            Tracing.TraceLine("getProfileInfo:awaiting default profile in GlobalProfileList", TraceLevel.Info);
-            List<Profile_t> crnt = GetProfilesByType(ProfileTypes.global, GetDefaultProfiles());
-            if ((crnt.Count > 0) && await(() =>
+            //
+            // The change-nothing hold skips ALL of the selection below — the
+            // global load, the arming of newGlobalProfile for the
+            // disconnect-time save, and the tx and mic selections, which
+            // CREATE their profile on the radio when it is absent (#403).
+            // This is the write that would have performed a factory-reset
+            // test's deferred import step invisibly: the names come from the
+            // OPERATOR'S list and land on whatever radio connects. The rest
+            // of this method — the silent-transmit check, slice allocation —
+            // reads or touches only session state and runs either way.
+            if (!GuardSkips("default profile selection on connect (global, tx, mic)"))
             {
-                return (theRadio.ProfileGlobalList.Contains(crnt[0].Name));
-            }, 3000))
-            {
-                // load the selected profile.
-                Tracing.TraceLine("getProfileInfo:global profile present " + crnt[0].Name, TraceLevel.Info);
-                // Select the current profile and wait til loaded.
-                globalProfileDesired = crnt[0].Name;
-                globalProfileLoaded = false;
-                SelectProfile(crnt[0]);
-                // Wait til loaded. (long wait)
-                if (await(() =>
+                // Await to see if CurrentProfile is in the profile list.
+                Tracing.TraceLine("getProfileInfo:awaiting default profile in GlobalProfileList", TraceLevel.Info);
+                List<Profile_t> crnt = GetProfilesByType(ProfileTypes.global, GetDefaultProfiles());
+                if ((crnt.Count > 0) && await(() =>
                 {
-                    return (globalProfileLoaded);
-                }, 20000))
+                    return (theRadio.ProfileGlobalList.Contains(crnt[0].Name));
+                }, 3000))
                 {
-                    Tracing.TraceLine("getProfileInfo:global profile loaded " + crnt[0].Name, TraceLevel.Info);
+                    // load the selected profile.
+                    Tracing.TraceLine("getProfileInfo:global profile present " + crnt[0].Name, TraceLevel.Info);
+                    // Select the current profile and wait til loaded.
+                    globalProfileDesired = crnt[0].Name;
+                    globalProfileLoaded = false;
+                    SelectProfile(crnt[0]);
+                    // Wait til loaded. (long wait)
+                    if (await(() =>
+                    {
+                        return (globalProfileLoaded);
+                    }, 20000))
+                    {
+                        Tracing.TraceLine("getProfileInfo:global profile loaded " + crnt[0].Name, TraceLevel.Info);
+                    }
                 }
-            }
-            else
-            {
-                if (crnt.Count > 0)
+                else
                 {
-                    // new profile, will get saved.
-                    Tracing.TraceLine("GetProfileInfo:new profile" + crnt[0].Name, TraceLevel.Info);
-                    newGlobalProfile = crnt[0].Name;
+                    if (crnt.Count > 0)
+                    {
+                        // new profile, will get saved.
+                        Tracing.TraceLine("GetProfileInfo:new profile" + crnt[0].Name, TraceLevel.Info);
+                        newGlobalProfile = crnt[0].Name;
+                    }
                 }
+
+                // Load other profiles
+                crnt = GetProfilesByType(ProfileTypes.tx, GetDefaultProfiles());
+                if (crnt.Count > 0) SelectProfile(crnt[0]);
+
+                crnt = GetProfilesByType(ProfileTypes.mic, GetDefaultProfiles());
+                if (crnt.Count > 0) SelectProfile(crnt[0]);
             }
-
-            // Load other profiles
-            crnt = GetProfilesByType(ProfileTypes.tx, GetDefaultProfiles());
-            if (crnt.Count > 0) SelectProfile(crnt[0]);
-
-            crnt = GetProfilesByType(ProfileTypes.mic, GetDefaultProfiles());
-            if (crnt.Count > 0) SelectProfile(crnt[0]);
 
             // The silent-transmit check (#99). This is where branch
             // diag/don-audio-708 SELECTED a profile when the selection came up
@@ -17372,10 +17625,18 @@ namespace Radios
                         + ", TunePower " + theRadio.TunePower
                         + " (this used to be forced to 100 unconditionally, #205)",
                         TraceLevel.Info);
-                    theRadio.CWBreakIn = false;
-                    theRadio.CWIambic = false;
-                    theRadio.SpeechProcessorEnable = true;
-                    theRadio.SimpleVOXEnable = false;
+                    // The four survivors of #205's cleanup, and the audit's
+                    // most instructive site (1.4): the paragraph above this
+                    // block already rules that with no saved profile there is
+                    // no intent to act on. On a guarded radio, act on that —
+                    // the radio's own persisted answers stand.
+                    if (!GuardSkips("scratch-setup CW/VOX/speech-processor writes"))
+                    {
+                        theRadio.CWBreakIn = false;
+                        theRadio.CWIambic = false;
+                        theRadio.SpeechProcessorEnable = true;
+                        theRadio.SimpleVOXEnable = false;
+                    }
 
 #if zero
                     CurrentProfile = preferredProfile;
