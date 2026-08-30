@@ -86,80 +86,30 @@ public partial class MainWindow : UserControl
         // owns putting it back, so it lands on the host pane.
         JJFlexDialog.FocusReturnCallback = () =>
         {
-            try
-            {
-                // A dialog can close in the MIDDLE of a flow that still owns
-                // the operator: the rig selector closes while the Connecting
-                // window — its own thread, its own narration — is still up, or
-                // a nested dialog closes back into its parent. Grabbing focus
-                // at those moments dragged the operator to Home between every
-                // window of a connect; each landing announced "JJ Flexible
-                // Home…" with an interrupt, and every interrupt re-queued
-                // whatever the speech arbiter still held unspoken (#348: three
-                // such landings in one connect, two of them 129 ms apart).
-                // When any other window of ours holds the foreground, the
-                // return is not ours to handle yet — and the status narration
-                // below would talk over that window too, so leave entirely.
-                if (AnotherOwnWindowHasForeground())
-                {
-                    Tracing.TraceLine(
-                        "FocusReturnCallback: another window of ours holds the foreground - standing down",
-                        System.Diagnostics.TraceLevel.Info);
-                    return;
-                }
-
-                // Only intervene when focus actually escaped. A dialog opened
-                // from a field should return to that field, and WPF manages
-                // that correctly whenever it can - overriding it every time
-                // would move the operator somewhere they did not ask to be.
-                if (!IsKeyboardFocusWithin)
-                {
-                    Radios.WindowActivation.EnsureForeground(
-                        System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
-                    FocusHome();
-                }
-            }
-            catch (System.Exception ex)
+            // Sprint 42 Track D (#395): while a connect flow is running, the
+            // dialogs closing are STAGES of the flow, not returns to the app.
+            // The #348 foreground guard inside the landing catches most of
+            // that, but it races the Connecting window's arrival — the rig
+            // picker can close BEFORE that window takes the foreground, and
+            // the guard then reads "nothing else is up" and drags focus, the
+            // foreground and a landing announcement into mid-connect. The
+            // scope has no race: it is raised before the picker opens and the
+            // flow's finish runs this same landing if nothing powered on.
+            if (_connectFlowQuiet)
             {
                 Tracing.TraceLine(
-                    $"FocusReturnCallback: restore failed: {ex.Message}",
-                    System.Diagnostics.TraceLevel.Warning);
+                    "FocusReturnCallback: connect quiet scope active - standing down",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
             }
-
-            var rig = RigControl;
-            if (rig != null && rig.MyNumSlices > 0)
-            {
-                // Compact status on return — but only once the radio's slice
-                // census has arrived. This is the same MyNumSlices test
-                // SpeakConnectStatus applies, and it was missing here: the
-                // connecting flow's dialogs close before slices populate, so
-                // this path spoke "Connected to FLEX-8600, no active slice" —
-                // false within two seconds — 77 ms after the Connecting window
-                // had already said "Connected… waiting for slice" (#348).
-                // While slices are absent the connect flow owns the narration;
-                // once they exist, this is real information about where the
-                // operator returned to.
-                string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
-                Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
-            }
-            else if (rig == null)
-            {
-                // #349: with no radio, nothing announces the return. The Home
-                // display carries no populated fields on a cold start, so the
-                // landing announcement that rides GotKeyboardFocus can stay
-                // silent, and the interop layer may restore focus without
-                // raising anything a screen reader voices — the only thing
-                // Noel heard was the unnamed host pane, as "Pane". Say where
-                // they came back to. Queued, not interrupting, so it lands
-                // behind whatever the close itself announced; Critical, since
-                // connection state is the always-spoken class.
-                Radios.ScreenReaderOutput.Speak(
-                    Radios.Lexicon.Get("connect.no_radio.plain",
-                        Radios.ScreenReaderOutput.CurrentVerbosity),
-                    Radios.Speech.SpeechIntent.Queue,
-                    Radios.VerbosityLevel.Critical);
-            }
+            RunReturnToAppLanding();
         };
+
+        // Sprint 42 Track D (#395): the frequency display asks before speaking
+        // its focus-landing prefix. During a connect the activation churn
+        // restores focus to it repeatedly, and each landing said "JJ Flexible
+        // Home, slice" into the middle of the connect narration.
+        FreqOut.SuppressFocusPrefix = () => _connectFlowQuiet;
 
         // Audio Workshop hooks that must NOT wait for a radio (2026-08-12).
         // The workshop's "This Computer" section and its preset toolbar both
@@ -1522,7 +1472,7 @@ public partial class MainWindow : UserControl
     /// to Home, and treating it as one dragged focus (and an interrupting
     /// landing announcement) into the middle of every connect.
     /// </summary>
-    private bool AnotherOwnWindowHasForeground()
+    internal bool AnotherOwnWindowHasForeground()
     {
         var fg = ForegroundProbe.GetForegroundWindow();
         if (fg == IntPtr.Zero) return false;
@@ -1553,6 +1503,310 @@ public partial class MainWindow : UserControl
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
     }
+
+    #region Connect-flow quiet scope — Sprint 42 Track D (#395)
+
+    // The connect path tears down and rebuilds the Home surface, swaps a
+    // 228-item menu bar, and closes two windows over the shell, all in the one
+    // second the operator is listening hardest — right after we asked them to
+    // pay attention with "Connecting to K5NER". Each activation change and
+    // focus restore made the reader announce the window and the landing spot:
+    // five window announcements wedged between our own two sentences, measured
+    // from the operator's own capture on 2026-08-29.
+    //
+    // Nothing in that churn is a wrong line — the menus must change, the
+    // fields must rebuild. The defect is WHEN the byproducts are allowed to
+    // speak. This scope marks "a connect flow owns the operator's ears" so the
+    // byproducts stay quiet, and exactly one deliberate landing happens at the
+    // end:
+    //
+    //  - the frequency display's focus-landing prefix stays silent (the
+    //    operator did not move; being re-told "JJ Flexible Home, slice" twice
+    //    mid-connect is noise, not orientation);
+    //  - the dialog-close focus-return landing stands down (the #348
+    //    foreground guard already catches most of this, but it races the
+    //    Connecting window's arrival — the picker can close BEFORE that window
+    //    takes the foreground, and the guard then read "nothing else is up"
+    //    and dragged focus, foreground and an announcement into mid-connect);
+    //  - when the flow finishes, ONE normalization runs: on success, focus is
+    //    quietly ensured to be somewhere real and the connect narration is the
+    //    announcement; on cancel or failure, the standard return-to-app
+    //    landing runs exactly as it always did, prefix included.
+    //
+    // The scope is entered by whichever door opens first (the menu command,
+    // the rescue button, or WireRadioEvents for auto-connect and retry legs)
+    // and finished from a Background-priority dispatcher post, so every
+    // pending focus event and queued rebuild drains inside the scope. A
+    // generation counter keeps a finish posted by an abandoned leg (the retry
+    // ladder unwires and rewires mid-flow) from ending the scope of the leg
+    // that superseded it.
+
+    /// <summary>True while a connect flow owns announcements and focus.</summary>
+    private bool _connectFlowQuiet;
+
+    /// <summary>Did a radio actually power on during the current quiet scope?</summary>
+    private bool _connectFlowSawPowerOn;
+
+    /// <summary>Invalidates finishes posted by superseded legs of the flow.</summary>
+    private int _connectQuietGen;
+
+    /// <summary>
+    /// How many DOORS (the menu command, the rescue button) currently hold the
+    /// scope open. The connect flow pumps messages while it runs — Start()'s
+    /// wait and every modal window drain the dispatcher, Background queue
+    /// included — so a finish posted from INSIDE the flow (PowerNowOn's end
+    /// request, a retry leg's unwire) could otherwise run while the Connecting
+    /// window is still up, and the tail of the churn would land outside the
+    /// scope. While a door is open, only the door's own end request (in its
+    /// finally, after the flow truly returned) lets the finish post.
+    /// </summary>
+    private int _connectQuietDoorDepth;
+
+    /// <summary>
+    /// Last line of defence: a stuck scope would permanently silence the
+    /// focus-landing prefix and every dialog-close landing, which is worse
+    /// than the noise it prevents. Two minutes outlasts any legitimate
+    /// connect, including the retry ladder; a hung station-name wait (#402)
+    /// runs longer, but the operator is inside the Connecting window's
+    /// escalation surface then, not on Home.
+    /// </summary>
+    private DispatcherTimer? _connectQuietFailsafe;
+
+    /// <summary>
+    /// Enter the quiet scope. Idempotent — the first entry wins, and a
+    /// re-entry from a retry leg just extends the same scope. Pass
+    /// <paramref name="door"/> true from the call sites that BRACKET the
+    /// whole flow (menu command, rescue button); their matching end request
+    /// is the only one honored while they are open.
+    /// </summary>
+    internal void BeginConnectFlowQuiet(string reason, bool door = false)
+    {
+        _connectQuietGen++;
+        if (!_connectFlowQuiet)
+        {
+            _connectFlowQuiet = true;
+            _connectFlowSawPowerOn = false;
+            _connectQuietDoorDepth = 0;
+            Tracing.TraceLine($"ConnectQuiet: begin ({reason})", TraceLevel.Info);
+        }
+        else
+        {
+            Tracing.TraceLine($"ConnectQuiet: extended ({reason})", TraceLevel.Verbose);
+        }
+        if (door) _connectQuietDoorDepth++;
+
+        if (_connectQuietFailsafe == null)
+        {
+            _connectQuietFailsafe = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(120)
+            };
+            _connectQuietFailsafe.Tick += (s, e) =>
+            {
+                _connectQuietFailsafe!.Stop();
+                if (!_connectFlowQuiet) return;
+                Tracing.TraceLine(
+                    "ConnectQuiet: failsafe expired after 120s - a flow never finished its scope",
+                    TraceLevel.Warning);
+                FinishConnectFlowQuiet();
+            };
+        }
+        _connectQuietFailsafe.Stop();
+        _connectQuietFailsafe.Start();
+    }
+
+    /// <summary>
+    /// Request the end of the quiet scope. The actual finish is posted at
+    /// Background priority so the activation changes, focus restores and
+    /// queued rebuilds still in flight land INSIDE the scope, not after it.
+    /// Safe to call from every exit of every door — a finish from a
+    /// superseded leg no-ops via the generation counter, and a finish with no
+    /// scope open no-ops entirely.
+    /// </summary>
+    internal void EndConnectFlowQuiet(string reason, bool door = false)
+    {
+        if (door && _connectQuietDoorDepth > 0) _connectQuietDoorDepth--;
+        if (!_connectFlowQuiet) return;
+        if (_connectQuietDoorDepth > 0)
+        {
+            // A door still holds the flow open — its finally will end the
+            // scope after the flow truly returns. Honoring an inner end here
+            // would let a message pump run the finish while the Connecting
+            // window is still up.
+            Tracing.TraceLine($"ConnectQuiet: end deferred to open door ({reason})",
+                TraceLevel.Verbose);
+            return;
+        }
+        Tracing.TraceLine($"ConnectQuiet: end requested ({reason})", TraceLevel.Verbose);
+        int gen = _connectQuietGen;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (gen != _connectQuietGen) return;   // a newer leg owns the scope
+            FinishConnectFlowQuiet();
+        }));
+    }
+
+    /// <summary>
+    /// The one deliberate landing at the end of a connect flow.
+    /// </summary>
+    private void FinishConnectFlowQuiet()
+    {
+        if (!_connectFlowQuiet) return;
+        _connectQuietFailsafe?.Stop();
+
+        bool sawPowerOn = _connectFlowSawPowerOn;
+        _connectFlowSawPowerOn = false;
+
+        if (sawPowerOn)
+        {
+            // Success. The connect narration ("PC audio on…", "Connected to
+            // FLEX-8600…") is the announcement; this landing only makes sure
+            // focus is somewhere real. Done while the scope is still marked
+            // quiet so the landing itself is silent — the hybrid shell can
+            // strand focus on the unnamed host pane across window churn, and
+            // a silent FocusHome here is the repair with none of the noise.
+            try
+            {
+                if (!AnotherOwnWindowHasForeground() && !IsKeyboardFocusWithin)
+                    FocusHome();
+            }
+            catch (System.Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"ConnectQuiet: silent focus normalization failed: {ex.Message}",
+                    TraceLevel.Warning);
+            }
+            _connectFlowQuiet = false;
+            Tracing.TraceLine("ConnectQuiet: finish - radio powered on, narration owns the announcement",
+                TraceLevel.Info);
+            return;
+        }
+
+        // Cancel or failure. Nothing powered on, so nothing else will tell
+        // the operator where they are — run the standard return-to-app
+        // landing exactly as a dialog close outside a connect would have,
+        // prefix announcement included (the scope is cleared first so the
+        // landing speaks).
+        _connectFlowQuiet = false;
+        Tracing.TraceLine("ConnectQuiet: finish - no power-on, running the return-to-app landing",
+            TraceLevel.Info);
+        RunReturnToAppLanding();
+    }
+
+    /// <summary>
+    /// Focus repair after a native menu command — replaces the unconditional
+    /// <c>_window.Focus()</c> the WM_COMMAND epilogue used to run, which
+    /// yanked keyboard focus off whatever field the operator was on and
+    /// parked it on this UserControl's ROOT. A screen reader read the root's
+    /// automation name — "JJ Flexible Radio Access Main Window" — after every
+    /// menu action, and the operator was left somewhere arrow keys mean
+    /// nothing. Now: if focus survived inside the content, leave it alone; if
+    /// another of our windows owns the operator (a workshop the command
+    /// opened, the Connecting window), stand down; only when focus genuinely
+    /// escaped, land it on Home through the one funnel that knows where Home
+    /// keeps it.
+    /// </summary>
+    internal void ReclaimFocusAfterMenuCommand()
+    {
+        try
+        {
+            if (IsKeyboardFocusWithin) return;
+            if (AnotherOwnWindowHasForeground()) return;
+            FocusHome();
+        }
+        catch (System.Exception ex)
+        {
+            Tracing.TraceLine(
+                $"ReclaimFocusAfterMenuCommand failed: {ex.Message}", TraceLevel.Warning);
+        }
+    }
+
+    /// <summary>
+    /// The standard "a dialog closed back into the app" landing — focus
+    /// repair plus compact orientation speech. Extracted verbatim from the
+    /// <see cref="JJFlexDialog.FocusReturnCallback"/> lambda (Sprint 42
+    /// Track D) so the connect flow's finish can run the identical landing
+    /// when a flow ends without a radio: same guards, same speech, same #348
+    /// and #349 reasoning.
+    /// </summary>
+    private void RunReturnToAppLanding()
+    {
+        try
+        {
+            // A dialog can close in the MIDDLE of a flow that still owns
+            // the operator: the rig selector closes while the Connecting
+            // window — its own thread, its own narration — is still up, or
+            // a nested dialog closes back into its parent. Grabbing focus
+            // at those moments dragged the operator to Home between every
+            // window of a connect; each landing announced "JJ Flexible
+            // Home…" with an interrupt, and every interrupt re-queued
+            // whatever the speech arbiter still held unspoken (#348: three
+            // such landings in one connect, two of them 129 ms apart).
+            // When any other window of ours holds the foreground, the
+            // return is not ours to handle yet — and the status narration
+            // below would talk over that window too, so leave entirely.
+            if (AnotherOwnWindowHasForeground())
+            {
+                Tracing.TraceLine(
+                    "FocusReturnCallback: another window of ours holds the foreground - standing down",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+
+            // Only intervene when focus actually escaped. A dialog opened
+            // from a field should return to that field, and WPF manages
+            // that correctly whenever it can - overriding it every time
+            // would move the operator somewhere they did not ask to be.
+            if (!IsKeyboardFocusWithin)
+            {
+                Radios.WindowActivation.EnsureForeground(
+                    System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle);
+                FocusHome();
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Tracing.TraceLine(
+                $"FocusReturnCallback: restore failed: {ex.Message}",
+                System.Diagnostics.TraceLevel.Warning);
+        }
+
+        var rig = RigControl;
+        if (rig != null && rig.MyNumSlices > 0)
+        {
+            // Compact status on return — but only once the radio's slice
+            // census has arrived. This is the same MyNumSlices test
+            // SpeakConnectStatus applies, and it was missing here: the
+            // connecting flow's dialogs close before slices populate, so
+            // this path spoke "Connected to FLEX-8600, no active slice" —
+            // false within two seconds — 77 ms after the Connecting window
+            // had already said "Connected… waiting for slice" (#348).
+            // While slices are absent the connect flow owns the narration;
+            // once they exist, this is real information about where the
+            // operator returned to.
+            string status = Radios.RadioStatusBuilder.BuildSpokenStatus(rig);
+            Radios.ScreenReaderOutput.Speak(status, Radios.VerbosityLevel.Chatty);
+        }
+        else if (rig == null)
+        {
+            // #349: with no radio, nothing announces the return. The Home
+            // display carries no populated fields on a cold start, so the
+            // landing announcement that rides GotKeyboardFocus can stay
+            // silent, and the interop layer may restore focus without
+            // raising anything a screen reader voices — the only thing
+            // Noel heard was the unnamed host pane, as "Pane". Say where
+            // they came back to. Queued, not interrupting, so it lands
+            // behind whatever the close itself announced; Critical, since
+            // connection state is the always-spoken class.
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("connect.no_radio.plain",
+                    Radios.ScreenReaderOutput.CurrentVerbosity),
+                Radios.Speech.SpeechIntent.Queue,
+                Radios.VerbosityLevel.Critical);
+        }
+    }
+
+    #endregion
 
     /// <summary>
     /// Land keyboard focus wherever Home currently keeps it: the rescue page's
@@ -1586,7 +1840,22 @@ public partial class MainWindow : UserControl
                 VerbosityLevel.Critical, true);
             return;
         }
-        SelectRadioCallback.Invoke();
+
+        // Sprint 42 Track D (#395): the whole flow — picker, Connecting
+        // window, Start — runs inside this call, and its window churn must
+        // not narrate itself over the connect narration. The end request is
+        // in a finally so a cancelled picker or a thrown connect can never
+        // leave the scope stuck; the finish decides between "narration owns
+        // the announcement" and "run the return-to-app landing".
+        BeginConnectFlowQuiet("rescue connect button", door: true);
+        try
+        {
+            SelectRadioCallback.Invoke();
+        }
+        finally
+        {
+            EndConnectFlowQuiet("rescue connect flow returned", door: true);
+        }
     }
 
     /// <summary>
@@ -2328,6 +2597,13 @@ public partial class MainWindow : UserControl
     public void WireRadioEvents()
     {
         if (RigControl == null) return;
+
+        // Sprint 42 Track D (#395): a connect is genuinely starting — this is
+        // the one call every path makes before Start(), including auto-connect
+        // and the retry ladder's fresh legs, which never pass through the menu
+        // or the rescue button. Idempotent when a door already opened it.
+        BeginConnectFlowQuiet("radio events wired");
+
         RigControl.PowerStatus += PowerStatusHandler;
         RigControl.NoSliceError += NoSliceErrorHandler;
         RigControl.FeatureLicenseChanged += FeatureLicenseChangedHandler;
@@ -2741,6 +3017,13 @@ public partial class MainWindow : UserControl
     {
         PollTimerEnabled = false;
         _radioPowerOn = false;
+
+        // Sprint 42 Track D (#395): a teardown ends any quiet scope a failed
+        // connect left open. On an ordinary disconnect there is no scope and
+        // this no-ops; on the retry ladder's mid-flow unwire, the very next
+        // WireRadioEvents re-raises the scope and its generation counter
+        // makes this end request a no-op too.
+        EndConnectFlowQuiet("radio events unwired");
 
         if (RigControl != null)
         {
@@ -3782,6 +4065,13 @@ public partial class MainWindow : UserControl
         _radioPowerOn = true;
         Tracing.TraceLine($"MainWindow PowerNowOn wasOff={wasOff}", TraceLevel.Info);
 
+        // Sprint 42 Track D (#395): tell the quiet scope a radio really
+        // arrived, so its finish knows the connect narration owns the
+        // announcement and the return-to-app landing must NOT run. If no
+        // scope is open (a re-raised power event mid-session) this records
+        // nothing.
+        if (_connectFlowQuiet) _connectFlowSawPowerOn = true;
+
         // Setup frequency display
         SetupFreqout();
 
@@ -3823,52 +4113,11 @@ public partial class MainWindow : UserControl
             UpdateTextAreasVisibility();
         }
 
-        // Signature connect double-beep — every successful connect path
-        // (picker local, picker remote, auto-connect, reconnect) converges on
-        // this power transition, so this is the one hook that covers them all
-        // (QB Track A stretch, 2026-08-07). Guarded on the off→on transition
-        // so a re-raised power event can't double-fire it — wasOff, captured
-        // at the top of this method before anything could disturb the flag.
-        //
-        // The tone gets its OWN transition test, deliberately separate from
-        // the policy block below (#369, Noel's question at the bench: the tone
-        // is feedback about a CONNECTION EVENT and plays through the earcon
-        // device; the policies are per-radio state application). The condition
-        // is the same today, and that is fine — what must never happen again
-        // is the cheap, audible, harmless sound being hostage to the guard of
-        // the expensive silent ones, so that when a guard goes wrong the only
-        // audible symptom disappears with it.
-        if (wasOff)
-        {
-            try { EarconPlayer.ConnectSuccessTone(); }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine($"PowerNowOn: connect earcon failed: {ex.Message}", TraceLevel.Warning);
-            }
-        }
-
-        // Per-radio connect POLICIES, on the same off→on transition but under
-        // their own test: double-applying these on a re-raised power event
-        // would be a real fault, where a doubled tone is an annoyance.
-        if (wasOff)
-        {
-            // Per-radio PC audio on connect (Threads Track, 2026-08-12).
-            // Runs AFTER FlexBase's open sequence has done its historical
-            // remote auto-on, so this is policy on top, never a race.
-            try { ApplyPcAudioOnConnect(); }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine($"PowerNowOn: PC audio on-connect policy failed: {ex.Message}", TraceLevel.Error);
-            }
-
-            // Per-radio REM ON queued intent (Track C, settings that stick).
-            // A setting made while disconnected survives and applies here.
-            try { ApplyRemOnOnConnect(); }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine($"PowerNowOn: REM ON on-connect policy failed: {ex.Message}", TraceLevel.Error);
-            }
-        }
+        // The signature connect double-beep and the per-radio connect
+        // policies used to fire HERE, before the audio config below was
+        // loaded and applied. Sprint 42 Track D (#395) moved both after that
+        // block — see the comments at their new site for why the tone could
+        // never reliably survive from this position.
 
         StatusText.Text = Radios.Lexicon.Get("connect.home.status_power_on");
 
@@ -4059,6 +4308,69 @@ public partial class MainWindow : UserControl
             }
         }
 
+        // Signature connect double-beep — every successful connect path
+        // (picker local, picker remote, auto-connect, reconnect) converges on
+        // this power transition, so this is the one hook that covers them all
+        // (QB Track A stretch, 2026-08-07). Guarded on the off→on transition
+        // so a re-raised power event can't double-fire it — wasOff, captured
+        // at the top of this method before anything could disturb the flag.
+        //
+        // MOVED below the audio-config block on purpose (Sprint 42 Track D,
+        // #395). It used to fire ~65 lines EARLIER, and a few milliseconds
+        // after it started, CurrentAudioConfig.Apply() above called
+        // EarconPlayer.SetAlertDevice — which stops, disposes and recreates
+        // the alert channel's output device even when the device number is
+        // unchanged. The 200 ms tone was being torn down mid-play by our own
+        // connect path, and how much of it survived depended on how much the
+        // doomed device had prefetched — which is exactly why Noel heard a
+        // different fragment every connect (#395: "a double beep, then one
+        // high beep"). From here the tone starts on a device nothing later in
+        // this method touches, and with the operator's per-radio earcon
+        // config already applied instead of the previous session's.
+        //
+        // The tone gets its OWN transition test, deliberately separate from
+        // the policy block below (#369, Noel's question at the bench: the tone
+        // is feedback about a CONNECTION EVENT and plays through the earcon
+        // device; the policies are per-radio state application). The condition
+        // is the same today, and that is fine — what must never happen again
+        // is the cheap, audible, harmless sound being hostage to the guard of
+        // the expensive silent ones, so that when a guard goes wrong the only
+        // audible symptom disappears with it.
+        if (wasOff)
+        {
+            try { EarconPlayer.ConnectSuccessTone(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PowerNowOn: connect earcon failed: {ex.Message}", TraceLevel.Warning);
+            }
+        }
+
+        // Per-radio connect POLICIES, on the same off→on transition but under
+        // their own test: double-applying these on a re-raised power event
+        // would be a real fault, where a doubled tone is an annoyance.
+        // Moved with the tone (#395) so the heard order is unchanged: tone
+        // first, then "PC audio on, as you left it" — and the announcement now
+        // speaks at the verbosity the config block above just loaded.
+        if (wasOff)
+        {
+            // Per-radio PC audio on connect (Threads Track, 2026-08-12).
+            // Runs AFTER FlexBase's open sequence has done its historical
+            // remote auto-on, so this is policy on top, never a race.
+            try { ApplyPcAudioOnConnect(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PowerNowOn: PC audio on-connect policy failed: {ex.Message}", TraceLevel.Error);
+            }
+
+            // Per-radio REM ON queued intent (Track C, settings that stick).
+            // A setting made while disconnected survives and applies here.
+            try { ApplyRemOnOnConnect(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"PowerNowOn: REM ON on-connect policy failed: {ex.Message}", TraceLevel.Error);
+            }
+        }
+
         // Initialize band tracking from current frequency so first tune doesn't
         // trigger a false "Entering extra phone" boundary notification
         if (_freqOutHandlers != null && RigControl != null)
@@ -4082,6 +4394,16 @@ public partial class MainWindow : UserControl
         // then the only slice announcement there will be.
         RigControl?.SuppressFirstSpokenCensusForConnect();
         SpeakConnectStatus();
+
+        // Sprint 42 Track D (#395): the connect churn is done being ISSUED —
+        // request the quiet scope's end. The finish is posted at Background
+        // priority, so the coalesced menu rebuild, the activation restores
+        // and every focus event this method caused all land inside the scope,
+        // and only then does the one deliberate landing run. If the flow came
+        // through a door (menu, rescue button), that door's own end request
+        // simply no-ops after this one wins — or vice versa; the finish runs
+        // once either way.
+        EndConnectFlowQuiet("power-on complete");
     }
 
     /// <summary>
@@ -5723,7 +6045,11 @@ public partial class MainWindow : UserControl
     /// </summary>
     public void SetupOperationsMenu()
     {
-        Tracing.TraceLine("MainWindow.SetupOperationsMenu: rebuilding menus", TraceLevel.Info);
+        // Wording matters: since Sprint 42 Track D the callback QUEUES a
+        // coalesced rebuild rather than running one inline, so this line must
+        // not claim the rebuild happened here — NativeMenuBar.ApplyUIMode's
+        // own trace marks the actual rebuild.
+        Tracing.TraceLine("MainWindow.SetupOperationsMenu: requesting menu rebuild", TraceLevel.Info);
         RebuildMenuCallback?.Invoke();
     }
 
