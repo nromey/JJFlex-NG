@@ -135,8 +135,13 @@ namespace Radios
         /// SmartLink account the selector is currently working with (may be
         /// empty) so rows that account last listed are marked
         /// <see cref="KnownRadioEntry.InAccountCache"/>.
+        /// <paramref name="includeHidden"/> keeps rows the operator took off
+        /// the connect roster (task #98) — for surfaces like the Settings
+        /// radio picker, where the surviving per-radio settings live and a
+        /// hidden radio must stay editable. The connect roster itself never
+        /// passes it.
         /// </summary>
-        public static List<KnownRadioEntry> Load(string accountEmail = "")
+        public static List<KnownRadioEntry> Load(string accountEmail = "", bool includeHidden = false)
         {
             var byserial = new Dictionary<string, KnownRadioEntry>(StringComparer.OrdinalIgnoreCase);
 
@@ -268,7 +273,7 @@ namespace Radios
             }
 
             return byserial.Values
-                .Where(e => !e.HiddenFromList)
+                .Where(e => includeHidden || !e.HiddenFromList)
                 .OrderByDescending(e => e.IsFavorite)
                 .ThenByDescending(e => e.LastSeenUtc)
                 .ToList();
