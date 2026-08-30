@@ -45,6 +45,28 @@ Arrow between the two to hear a sample — a press, a ding and a warning nudge, 
 
 One thing worth knowing before you pick Simple: the three transmit warnings become pure tones that differ only in pitch, which is exactly what they were before and exactly why they were changed. If you've never had trouble telling the first warning from the last one, Simple will suit you fine.
 
+## Making One Sound Louder or Softer
+
+The sounds ship balanced against each other — warnings strong, confirmations modest, keyclicks barely there — but ears differ, and one sound may read louder or quieter to you than that balance intends. Under **Settings, then the Notifications tab, under Per-Sound Loudness**, you can trim any single sound: up to 3 decibels louder, or up to 12 decibels quieter, relative to how it ships.
+
+- **The list plays as you arrow through it.** Every sound the app can make is there, grouped by family, and each one sounds as you land on it — already at your trim — so you can find a sound by ear rather than by name. The continuous ATU progress sound is the one exception: it gets its own Play and Stop buttons so it can never be left running by accident.
+- **The trim applies as you change it.** Adjust with the arrow keys or type a number, then press Play to hear the result. The whole decision happens by ear; nothing waits for OK.
+- **A trim cannot reach silence.** Twelve decibels down is a quarter of the loudness, not zero. Losing a warning should never be one slider away — the category switches above the list are the right tool for sounds you do not want at all.
+- Only the sounds you trim are remembered. Everything you never touch keeps its shipped balance, including any rebalancing a future version brings.
+
+## Warnings Can Dip the Radio Audio
+
+A warning that band noise swallowed is a warning that did not happen. So while a warning sound plays, radio audio through this computer dips a few decibels — enough for the alert to land on top of the band instead of inside it — and glides back the moment the warning is done. Only warnings do this; no other sound ever touches your receive audio. The dip cannot get stuck on: the audio always returns to exactly where it was, even if something goes wrong mid-warning.
+
+It is entirely yours to control, under **Settings, then the Notifications tab, under Warnings and Radio Audio**:
+
+- **Dip radio audio while a warning sounds** — the switch. Turn it off and your band is never touched.
+- **Dip depth** — 0 to 12 decibels, default 4. A small number nudges; a large one makes room.
+
+Both apply the moment you change them. To hear the effect, set your depth, then pick Warning alarm under Per-Sound Loudness below and press Play with radio audio running — the band dips at exactly the depth you chose.
+
+If you operate remotely, this section matters most to you: over a remote link PC audio is the only audio path there is, so this switch is the only say you have over whether warnings may dip your receive audio.
+
 ## What Earcons Are Not
 
 - **Not meter tones.** Meter tones are the continuous audio that represents SWR, ALC, and forward power during transmit. They have their own on/off controls — see the Meter Tones help page.
