@@ -69,9 +69,17 @@ internal static class FixerCountdown
     /// <summary>The count-in before a stage that keys the transmitter:
     /// stages 2, 3 and 4 — the same sound for all three until Noel rules on a
     /// distinct RF sound, which is different numbers, not different code.
-    /// Five events, ending on the rising pair.</summary>
+    /// Four events, ending on the octave — which means the radio is ON.
+    /// Ruled 2026-08-30; it was five, ending on a rising pair.</summary>
     public static void TransmitTone()
         => Guarded(EarconPlayer.CountdownTransmitTone, "CountdownTransmitTone");
+
+    /// <summary>The end of ANY test — keying or not. Ruled 2026-08-30: the
+    /// same sequence for all tests, and it ends on a fall. Guarded like the
+    /// countdowns, because a sound that throws must never be what stops a
+    /// stage from finishing.</summary>
+    public static void StageDone()
+        => Guarded(EarconPlayer.FixerStageDoneTone, "FixerStageDoneTone");
 
     private static void Guarded(Action tone, string name)
     {

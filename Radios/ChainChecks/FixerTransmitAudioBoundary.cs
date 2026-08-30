@@ -139,7 +139,7 @@ namespace Radios.ChainChecks
         /// host that reports nothing still waits the sound out rather than
         /// talking over it.
         /// </summary>
-        public const int DefaultCountdownDurationMs = 3840;
+        public const int DefaultCountdownDurationMs = 3700;
 
         private readonly FixerTransmitGate _gate;
         private readonly FixerTransmitBoundary.RadioSource _radio;

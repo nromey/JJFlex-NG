@@ -1342,6 +1342,16 @@ document.addEventListener('keydown', function (e) {
         _stageCancel?.Dispose();
         _stageCancel = null;
 
+        // THE END-OF-TEST TONE, for every stage. Ruled 2026-08-30: "the same
+        // sequence for all tests". This is the one place both the synchronous
+        // keying stages and the off-thread microphone stage converge, so it is
+        // one call rather than five wirings that could drift apart -- which is
+        // exactly how the countdown's key-up moment ended up with two answers.
+        //
+        // Before the unkey accounting below and before any render: the tone
+        // says the measurement is over, and it should not wait on bookkeeping.
+        FixerCountdown.StageDone();
+
         // Belt and braces. The boundary already unkeys in a finally and the
         // gate's NoteUnkeyed is safe unmatched, so this cannot double-count
         // — and if a path ever escaped without unkeying, the accounting

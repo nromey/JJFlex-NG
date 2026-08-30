@@ -674,6 +674,48 @@ namespace JJFlexWpf
                 new[] { (800, 50), (0, 20), (400, 50) }, VolumeNormal);
         }
 
+        /// <summary>
+        /// The Fixer's end-of-test tone: the ding's own octave falling back to
+        /// the count's pitch. OFF — the measurement is over.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Ruled by Noel 2026-08-30:</b> <i>"We do need to hear a descending
+        /// pair or a tone of some kind when the test ends."</i> Every test gets
+        /// it, keying or not.
+        /// </para>
+        /// <para>
+        /// <b>Why not <see cref="TxStopTone"/>, which already falls.</b> That
+        /// one means "you have stopped TRANSMITTING", and it is right where it
+        /// is. The microphone test transmits nothing, so borrowing it there
+        /// would tell the operator something untrue about their radio. This
+        /// says the TEST ended, which is true of all five stages.
+        /// </para>
+        /// <para>
+        /// <b>No new pitches.</b> It falls from <c>CountdownCountHz * 2</c> —
+        /// the ding, meaning on — back to <c>CountdownCountHz</c>, the counting
+        /// pitch. The whole figure lives in one octave relationship: three dits
+        /// at the bottom, the ding at the top for ON, and the return to the
+        /// bottom for OFF. Derived, so transposing the count moves all of it.
+        /// </para>
+        /// <para>
+        /// Same total weight as the landing (700 ms), because arriving and
+        /// leaving are the same size of event, but falling rather than held —
+        /// the shape carries the meaning, not the length.
+        /// </para>
+        /// </remarks>
+        [Earcon("Test finished", EarconCategory.Transmit, Order = 6,
+            Description = "Falls from the countdown's high tone back to its low one. The test "
+                        + "is over and nothing is being measured. You hear it after every "
+                        + "test in the Fix tool, whether or not it transmitted.")]
+        public static void FixerStageDoneTone()
+        {
+            if (!Gate(EarconCategory.Transmit)) return;
+            PlayVoicedDecaySequence(CountdownVoice,
+                new[] { (CountdownCountHz * 2, 200), (0, 40), (CountdownCountHz, 460) },
+                VolumeNormal);
+        }
+
         /// <summary>Hard kill tone — two rapid descending beeps.</summary>
         [Earcon("Hard kill", EarconCategory.Transmit, Order = 3,
             Description = "Transmission was cut off rather than ended.")]
@@ -802,15 +844,10 @@ namespace JJFlexWpf
         internal const int CountdownIntervalMs = 1000;
 
         /// <summary>
-        /// The landing's length. The record landing is exactly this; the
-        /// transmit landing splits it 2:6 across its rising pair, so both
-        /// destinations are the same weight of arrival.
+        /// The landing's length. Both figures land the same way now - one
+        /// octave, held this long, decaying.
         /// </summary>
         internal const int CountdownLandingMs = 700;
-
-        /// <summary>The silent gap inside the transmit landing's rising pair,
-        /// carried over from <see cref="TxStartTone"/> unchanged.</summary>
-        private const int CountdownTransmitGapMs = 40;
 
         /// <summary>
         /// Build a countdown: three counting dits a beat apart, then a landing
@@ -827,13 +864,11 @@ namespace JJFlexWpf
         /// </para>
         /// <para>
         /// <b>Every pitch is derived from <paramref name="countHz"/> so the
-        /// intervals survive transposition.</b> The record landing is the
-        /// octave (2x). The transmit landing is the same rising pair
-        /// <see cref="TxStartTone"/> uses, which at the default count sits at
-        /// 400 and 800 — a fourth up, then the octave above that. Moving the
-        /// count moves the whole figure and keeps it recognisable; hard-coding
-        /// the landings would break the relationship the moment anyone
-        /// transposed to dodge a sidetone collision.
+        /// intervals survive transposition.</b> Both landings are the octave
+        /// (2x), which at the default count is 600 Hz. Moving the count moves
+        /// the whole figure and keeps it recognisable; hard-coding the landing
+        /// would break the relationship the moment anyone transposed to dodge
+        /// a sidetone collision.
         /// </para>
         /// </remarks>
         /// <param name="transmit">true for the transmit landing, false for the
@@ -869,16 +904,25 @@ namespace JJFlexWpf
                 if (gapMs > 0) steps.Add((0, gapMs));
             }
 
-            if (!transmit)
-            {
-                steps.Add((countHz * 2, landingMs));
-            }
-            else
-            {
-                steps.Add((countHz * 4 / 3, landingMs * 2 / 7));
-                steps.Add((0, CountdownTransmitGapMs));
-                steps.Add((countHz * 8 / 3, landingMs * 6 / 7));
-            }
+            // ONE LANDING, THE OCTAVE, ON BOTH FIGURES. Ruled by Noel
+            // 2026-08-30: "it needs to be clear on all tests that the time
+            // that keying is happening is on the ding which decays. I don't
+            // think we really need an ascending key up tone in this case."
+            //
+            // The transmit landing used to be a rising pair - TxStartTone
+            // stretched, 400 then 800 - so the landing named which stage you
+            // were in. Two things killed it. Its first note is 200 ms and only
+            // a fourth above the count, so it read as a FOURTH COUNT rather
+            // than as the arrival, which is the likeliest explanation for the
+            // "ding ding ding ding ding dinnnng" #396 was filed about. And the
+            // stage is already named aloud; the sound does not have to carry
+            // it, and a second pitch direction to decode is exactly the
+            // relative-pitch burden the three identical dits exist to avoid.
+            //
+            // `transmit` is kept because callers read better for it and the
+            // distinction may return in RHYTHM. It currently changes nothing:
+            // both figures are three dits and the octave.
+            steps.Add((countHz * 2, landingMs));
 
             return steps.ToArray();
         }
@@ -959,11 +1003,28 @@ namespace JJFlexWpf
         /// </summary>
         /// <remarks>
         /// <para>
-        /// <b>The landing is <see cref="TxStartTone"/> stretched</b> — the same
-        /// 400-then-800 rising pair, at 200 and 600 ms instead of 50 and 50.
-        /// Same figure at two speeds: slow means "now beginning", and the
-        /// familiar quick one means "you are on". An operator learns one shape
-        /// and reads both.
+        /// <b>The landing is the octave, decaying, and it means ON</b> — the
+        /// radio is transmitting. It is the same landing the record countdown
+        /// uses, deliberately: the operator does not need the sound to tell
+        /// them which stage they are in, because the stage is already named
+        /// aloud. They need to know the instant the radio comes up, and that
+        /// instant is identical on every test that keys.
+        /// <para>
+        /// It used to be a rising pair, <see cref="TxStartTone"/> stretched.
+        /// Ruled out by Noel 2026-08-30: <i>"we don't need to know exactly when
+        /// we are keying, it needs to be clear on all tests that the time that
+        /// keying is happening is on the ding which decays."</i> The pair's
+        /// first note was 200 ms and only a fourth above the count, so it read
+        /// as a FOURTH COUNT rather than as the arrival — the likeliest
+        /// explanation for the "ding ding ding ding ding dinnnng" behind #396.
+        /// </para>
+        /// <para>
+        /// <b>OFF is a separate sound at the END of the test</b>, not an
+        /// inversion of this one — see the stage-complete tone. Rise and fall
+        /// as a matched pair was considered and rejected: a second pitch
+        /// direction to decode in flight is the relative-pitch burden the three
+        /// identical dits exist to avoid.
+        /// </para>
         /// </para>
         /// <para>
         /// <b>Do not play this AND <see cref="TxStartTone"/>.</b> The stretched
@@ -996,9 +1057,9 @@ namespace JJFlexWpf
         /// </para>
         /// </remarks>
         [Earcon("Countdown to transmit", EarconCategory.Transmit, Order = 5,
-            Description = "Three tones a second apart, then a slow rising pair on the fourth "
-                        + "beat. The radio is about to transmit, and the two seconds before "
-                        + "that last count are your window to stop it.")]
+            Description = "Three tones a second apart, then the octave above them on the fourth "
+                        + "beat. That last tone means the radio is transmitting, and the two "
+                        + "seconds of counting before it are your window to stop it.")]
         public static void CountdownTransmitTone()
         {
             if (!Gate(EarconCategory.Transmit)) return;

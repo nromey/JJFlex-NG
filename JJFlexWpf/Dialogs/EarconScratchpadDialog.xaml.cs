@@ -331,8 +331,8 @@ namespace JJFlexWpf.Dialogs
             int pitch = CountdownPitch();
             PlayCountdown(transmit: true);
             Say($"{VoiceName()}: three tones at {pitch} hertz, {step} milliseconds each, "
-              + $"a beat of {interval}, then the transmit pair — {pitch * 4 / 3} up to "
-              + $"{pitch * 8 / 3} hertz — drawn out over {landing}.");
+              + $"a beat of {interval}, then the octave — {pitch * 2} hertz — held for "
+              + $"{landing} and decaying. That last tone means the radio is on.");
         }
 
         /// <summary>
