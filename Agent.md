@@ -9,6 +9,157 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-29 — THE DAY FRICTION TURNED OUT TO BE LOAD-BEARING, TWICE
+
+**Sealed 21:41. Forty-one commits in JJFlex-NG, 35 in jjf-private. One sprint of
+six tracks, all merged; five hours on a tester's radio that found four faults
+and wrote the sprint that followed.**
+
+Rigmeter today: **+16,148 / -1,871, net +14,277**, 95 files, 41 commits — and
+both of rigmeter's figures agree, because the day was linear with no reverts.
+**10,343 of the added lines are C#**, 5,114 markdown. Snapshot at
+`2026-08-29-7b33489e.json`. Read aloud at 150 wpm that is 11.5 hours.
+
+### The theme
+
+**Two failures today, opposite in kind, both caused by removing the same
+friction.** Sprint 27 auto-applied a per-ACCOUNT forwarded port to whatever radio
+connected. It never fired for weeks, because reaching Don's radio REQUIRED
+switching to his account, and his account carries no port preference. #382
+removed that switch. Then:
+
+- **The protection went.** We wrote Noel's port into Don's radio two
+  milliseconds after connect. `wan set public_tls_port` persists in firmware, so
+  his 6300 advertised a port nothing at his site forwards. **Five hours off the
+  air**, repaired only by a third party booting a PC on site, because the router
+  is ISP-managed.
+- **The timing went too.** The account switch also took long enough that a quick
+  reconnect never happened — and Track A proved the station-name hang correlates
+  with reconnects inside about five minutes, not with any build. **1693 itself
+  succeeded at 18:13 and failed at 18:18.** The discriminator we had been
+  reasoning from dissolved.
+
+**The same removed inconvenience was silently holding a boundary AND a timing
+window.** Neither was a guard. Neither left anything behind when it went. Noel
+diagnosed the first himself and was right: *"We set up the mechanism to connect
+differently… whereas before it never sent the port because I wasn't connecting
+as Don."*
+
+### Don's radio — four faults, three of them ours
+
+Recovered and healthy by evening: SWR 1.9. In order found: our port write; no
+mic profile selected (`ProfileMICSelection:EMPTY`); the wrong transmit slice;
+the wrong antenna. The fix landed as `20804611` — **the forwarded port is now
+NEVER written on connect**, only when the operator presses Apply.
+
+### Sprint 42 — six tracks, merged, 1907 tests passing
+
+`honest-tx-audio` at **`7b33489e`**. Clean build, all five branches confirmed
+contained by the sweep. **The merge to `main` is deliberately deferred to
+2026-08-30**, with the Fable integration pass.
+
+- **Track A (Fable)** — the station-name lockout. Three root causes, both
+  failure signatures explained, the 45-second wait moved off the UI thread, and
+  `client station` now sends with its reply traced so the next failing reconnect
+  says whether the radio refuses or stays silent. 1,071 lines of new tests.
+- **Track B (Opus)** — the Fixer runs the 13-stage transmit walk while it holds
+  the carrier. It also deleted the hand-copied RF key-up constant and derived it
+  from the sound instead. 626 lines of new tests.
+- **Track C (Opus, read-only)** — the write-path audit. Report in JJFlex-private,
+  NOT in the repo (see below). Four new register entries came out of it.
+- **Track D (Fable)** — the connect churn, and it overturned its own task's
+  diagnosis: four of the five stray announcements were OUR OWN speech, not a
+  screen reader reacting to rebuilds. The 228-item menu rebuild was acquitted.
+- **Track E (Opus)** — the countdown is a beat a second; connect tones ship at
+  150 ms.
+- **Track F (Fable)** — the receive duck and per-sound trims have controls at
+  last. #116 is releasable.
+
+### Cross-surface activity
+
+- **Memory:** two entries written today — `feedback_exists_is_not_wired` and
+  `project_bench_has_a_dummy_load`, both indexed. MEMORY.md at 11.7 KB, under
+  the 12 KB seal threshold; no archive sweep needed.
+- **jjf-private:** 35 commits — the register (#403–#411 plus rulings and
+  corrections), the Sprint 42 plan, the test matrix, the integration-pass brief,
+  and Track C's audit.
+- **Civ VI Access: 45 commits PUSHED tonight** to `nromey/civ-vi-access`, after
+  months existing on one machine only. Noel's call: *"I'd push those… I had no
+  idea there were so many."* Two uncommitted docs left deliberately untouched.
+- **Freight Fate: nothing needed pushing**, and the earlier "16 unpushed" was a
+  bad measurement — they are all on `backup/i40-corridor-pre-rebase`, a
+  deliberate pre-rebase snapshot with no upstream, already covered by the NAS
+  mirror. `git log --branches --not --remotes` cannot tell a backup branch from
+  abandoned work.
+- **No planning docs modified today** beyond the ones this sprint created.
+
+### THE SECURITY AUDIT ALMOST WENT INTO A PUBLIC REPO
+
+Track C's brief told it to write `WRITE-PATH-AUDIT.md` into its worktree and
+commit it. **That worktree is JJFlex-NG, which `gh` confirms is PUBLIC.** 1,092
+lines mapping every unguarded write path in the application, naming people 18
+times.
+
+Caught before any push. Copied to JJFlex-private, verified byte-for-byte, then
+the commit was dropped — copy, verify, purge, in that order.
+
+**The rule existed and was applied to exactly one file.** CLAUDE.md's
+private-planning ruling covers plan files and the AAR; nothing tells a track
+brief where a REPORT goes, and a track writes wherever it is told. That is the
+same "written down correctly, never generalised" failure the ruling itself
+records. Flagged for the CLAUDE.md drift check.
+
+### Rulings from Noel today
+
+- **The transmit cut gets an off switch.** Cut stays ON by default. He supplied
+  the fact that settles it and that no earlier entry held: *"The transmitter
+  folds you back and there's an alarm."* Our cut is a THIRD layer over two that
+  exist in hardware. Queued, not built.
+- **The first connect tone does NOT sound.** *"No, I don't think it's
+  necessary."* Track E's patch stays permanently unapplied.
+- **The Fixer needs a mode control**, basic modes only; the list needs his nod.
+- **The countdown beat is one second** — confirming what shipped.
+- **Connect tones at 150 ms**, and a ceiling was found on the way: 250 ms
+  collides with the 500 ms phase-announce threshold, so going there is a
+  two-part change, not one constant.
+
+### What the tracks caught in each other — four times, before any merge
+
+Every one was a track told it could not reach another's files, reporting instead:
+Track E found the RF key-up constant in Track B's file (RF was coming up during
+the operator's abort window, and the fix for #396 would have made it worse);
+Track D found the real connect-tone killer in Track E's file; Track F flagged a
+missing report; Track C found four write paths while forbidden to touch any.
+
+**The Fixer's fourteen findings all came from an operator, after the fact.**
+This is what changed.
+
+### Setup for tomorrow
+
+1. **The Fable integration pass.** Brief written and committed at
+   `planning/active/sprint42-integration-pass-brief.md`. **It deliberately
+   withholds every track report**, and one finding is held back as an instrument
+   check. Do not paste the reports in.
+2. **Then the merge to `main`.**
+3. **The test matrix** at `planning/agile/sprint42-test-matrix.md` — split by
+   what runs on the 8600 into the dummy load versus what needs Don's 6300.
+4. **Three decisions still open**, explained in full to Noel tonight and
+   deliberately not rushed: the account-announcement wording, whether the
+   Connecting window should stop announcing itself (quieter versus cancellable),
+   and whether Track A's 10-line edit to an unowned file stands.
+5. **Hold off connecting to Don's radio** until the profile writes are
+   understood — Noel's own ruling. Every connect creates and selects profiles on
+   whatever radio you reach, from a list that is not even account-scoped.
+
+### Rigmeter snapshot — end of 2026-08-29
+
+- Work done, summed across every commit: **+16,148 / -1,871, net +14,277**
+- Repository size change: **net +14,277**, 95 files differing
+- 41 commits, all authored as JJ Flexbot
+- By type: **cs +10,343 / -1,079** (77 files), **.md +5,114 / -726**,
+  .json +196, vb +156, .txt +116, xaml +116, .csproj +93
+- Scale: 7.8 braille volumes, 323 printed pages, 11.5 hours read aloud
+
 ## END-OF-DAY SEAL — 2026-08-28 — THE DAY THE OPERATOR OUT-FOUND THE AGENTS
 
 **Sealed 22:20. Fifty commits in JJFlex-NG, 91 in jjf-private. Two full sprints
