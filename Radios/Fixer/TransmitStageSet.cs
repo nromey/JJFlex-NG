@@ -98,34 +98,6 @@ namespace Radios.Fixer
             return false;
         }
 
-        /// <summary>
-        /// What each offered mode is, for the hand-off's help text — announced
-        /// on focus, so a newer operator hears what the acronym means without
-        /// the label growing past the acronym operators actually say. Kept
-        /// beside the list so a mode cannot be offered without words for it;
-        /// a test holds the pair together.
-        /// </summary>
-        public static string TransmitAudioModeDescription(string mode)
-        {
-            switch ((mode ?? "").Trim().ToUpperInvariant())
-            {
-                case "LSB":
-                    return "Lower sideband voice — the convention below 10 megahertz: "
-                         + "160, 80 and 40 metres.";
-                case "USB":
-                    return "Upper sideband voice — the convention at and above 10 "
-                         + "megahertz: 30 metres and up.";
-                case "DIGU":
-                    return "Digital, upper sideband — what most digital programs use, "
-                         + "on most bands. The transmit audio comes from this computer "
-                         + "rather than your microphone.";
-                case "DIGL":
-                    return "Digital, lower sideband — digital operation that follows "
-                         + "the lower-sideband convention.";
-                default:
-                    return "";
-            }
-        }
 
         // Skip choice ids.
         public const string SkipOperatorChoice = "operator-skip";

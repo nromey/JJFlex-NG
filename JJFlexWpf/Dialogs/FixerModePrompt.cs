@@ -66,7 +66,11 @@ public sealed class FixerModePrompt : JJFlexDialog
 
         foreach (string mode in TransmitStageSet.TransmitAudioModes)
         {
-            string help = TransmitStageSet.TransmitAudioModeDescription(mode);
+            // NO PER-MODE DESCRIPTION. Four buttons that each explained a
+            // sideband convention told the operator nothing they did not
+            // already know, four times over - and repeating one sentence per
+            // button is the tell that it was not worth saying once.
+            string help = "";
             // The button for the mode the radio is already in says so in its
             // help text — a blind operator arrowing through the choices can
             // tell where they stand without going back to the header.
@@ -129,15 +133,22 @@ public sealed class FixerModePrompt : JJFlexDialog
                  + "still ask it to change to one of these — whether it does will "
                  + "be confirmed from the radio's own report.";
 
+        // ONE SENTENCE, AND IT IS ABOUT OUR TEST, NOT ABOUT SIDEBANDS.
+        // Ruled by Noel 2026-08-30. The earlier version described each mode -
+        // band plans, which convention sits above 10 MHz - which is a licensed
+        // operator's own domain read back at them. "A ham radio operator should
+        // know this stuff. Switch the mode, the radio operates as normal.
+        // Change it so that you test the way you normally would use the radio."
         if (TransmitStageSet.IsTransmitAudioMode(mode))
-            return "The radio is in " + mode.ToUpperInvariant()
-                 + ". Choose the mode the transmit tests should run in, or keep "
-                 + "this one.";
+            return "The radio is set to " + mode.ToUpperInvariant()
+                 + ". Test in the mode you normally use.";
 
-        return "The radio is in " + mode.ToUpperInvariant() + ". That is not one "
-             + "of the four transmit-audio modes offered here, so you can move to "
-             + "one of them, or keep " + mode.ToUpperInvariant() + " and go back "
-             + "to the tests.";
+        // THE ONLY THING HERE A HAM CANNOT KNOW is why their current mode is not
+        // on a list of four, so that is the whole sentence. The earlier version
+        // spent a paragraph saying it was not offered without ever saying why.
+        return "The radio is set to " + mode.ToUpperInvariant() + ". "
+             + mode.ToUpperInvariant() + " has no transmit audio to test, so "
+             + "choose one of these four.";
     }
 
     /// <summary>

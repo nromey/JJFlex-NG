@@ -700,20 +700,31 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Every_offered_mode_has_words_and_the_declined_modes_have_none()
+        public void The_offered_modes_carry_no_description_and_the_declined_modes_stay_declined()
         {
-            // The list and the descriptions live side by side so a mode cannot
-            // be offered without words for it — the picker announces the
-            // description on focus, and a button with an empty help text is a
-            // choice a newer operator cannot weigh.
+            // RULED BY NOEL 2026-08-30: the modes are NOT described.
+            //
+            // They were, briefly — one sentence per button explaining which
+            // sideband convention sits above 10 MHz, which band each suits.
+            // That is a licensed operator's own domain read back at them, four
+            // times over. "A ham radio operator should know this stuff. Switch
+            // the mode, the radio operates as normal. Change it so that you
+            // test the way you normally would use the radio." And: "I feel that
+            // we don't need to hit people over the head with a description of
+            // how modes work."
+            //
+            // THIS TEST GUARDS THE DELETION, which is why it reads backwards.
+            // Adding help text per mode is the obvious, well-meant change for
+            // someone who finds four bare buttons and assumes something is
+            // missing. The one thing worth saying — why only these four — is
+            // said ONCE, in the picker's header, and only in the case where the
+            // operator's own mode is not on the list.
+            Assert.False(HasSymbol("TransmitAudioModeDescription"),
+                "per-mode descriptions are back. The modes are deliberately "
+                + "undescribed; say what is ours in the header instead, once.");
+
             foreach (string mode in TransmitStageSet.TransmitAudioModes)
-            {
                 Assert.True(TransmitStageSet.IsTransmitAudioMode(mode), mode);
-                Assert.False(
-                    string.IsNullOrWhiteSpace(
-                        TransmitStageSet.TransmitAudioModeDescription(mode)),
-                    mode + " is offered but has no description");
-            }
 
             // The radio reports modes in whatever case it likes; the answer
             // must not depend on it.
@@ -726,8 +737,6 @@ namespace Radios.Tests
             {
                 Assert.False(TransmitStageSet.IsTransmitAudioMode(declined),
                              "\"" + declined + "\" must not be offered");
-                Assert.Equal("",
-                    TransmitStageSet.TransmitAudioModeDescription(declined));
             }
         }
 
@@ -760,5 +769,51 @@ namespace Radios.Tests
                             a => a.MessageKind == TransmitStageSet.OpenMode).Label);
             }
         }
-    }
+    
+        /// <summary>
+        /// Is a symbol anywhere in the two files the mode hand-off lives in?
+        /// Used to guard a DELETION, which nothing else can: a removed method
+        /// leaves no test to fail when someone helpfully puts it back.
+        /// </summary>
+        private static bool HasSymbol(string symbol)
+        {
+            string[] files =
+            {
+                "Radios/Fixer/TransmitStageSet.cs",
+                "JJFlexWpf/Dialogs/FixerModePrompt.cs",
+            };
+
+            bool readSomething = false;
+            foreach (string rel in files)
+            {
+                string path = System.IO.Path.Combine(
+                    SourceRoot(), rel.Replace('/', System.IO.Path.DirectorySeparatorChar));
+                if (!System.IO.File.Exists(path)) continue;
+                readSomething = true;
+                if (System.IO.File.ReadAllText(path)
+                        .Contains(symbol, System.StringComparison.Ordinal))
+                    return true;
+            }
+
+            // Positive control: a scan that read nothing would report "absent"
+            // for everything, which is the failure mode this guard is most
+            // vulnerable to.
+            Assert.True(readSomething,
+                "the source scan found neither file, so it proves nothing");
+            return false;
+        }
+
+        private static string SourceRoot()
+        {
+            var dir = new System.IO.DirectoryInfo(System.AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                if (System.IO.File.Exists(
+                        System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln")))
+                    return dir.FullName;
+                dir = dir.Parent;
+            }
+            return System.AppContext.BaseDirectory;
+        }
+}
 }
