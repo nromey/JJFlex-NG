@@ -66,7 +66,8 @@ namespace Radios.ChainChecks
 
             var sample = TxDifferential.TxRunSample.Measured(
                 kind, DateTime.UtcNow, meters,
-                SafeFrequency(rig), SafeMode(rig), SafeAntenna(rig));
+                StationConditions.Frequency(rig), StationConditions.Mode(rig),
+                StationConditions.Antenna(rig));
 
             // Trace what was captured, because a differential that later reads
             // oddly is worth being able to reconstruct from a log that already
@@ -91,43 +92,16 @@ namespace Radios.ChainChecks
             catch { return null; }
         }
 
-        /// <remarks>
-        /// Conditions travel with the measurement so a reader can reproduce
-        /// them rather than take our word (#217), and because a reading with no
-        /// recorded antenna port is a number a support engineer cannot use
-        /// (#188). Each is read defensively: a condition we cannot name must
-        /// say so, never guess, and never take the whole capture down with it.
-        /// </remarks>
-        private static string SafeFrequency(FlexBase rig)
-        {
-            try
-            {
-                ulong hz = rig?.TXFrequency ?? 0UL;
-                return hz == 0UL ? "not reported"
-                    : (hz / 1_000_000.0).ToString("0.000000", CultureInfo.InvariantCulture) + " MHz";
-            }
-            catch { return "could not be read"; }
-        }
-
-        private static string SafeMode(FlexBase rig)
-        {
-            try
-            {
-                string m = rig?.TXMode;
-                return string.IsNullOrWhiteSpace(m) ? "not reported" : m;
-            }
-            catch { return "could not be read"; }
-        }
-
-        private static string SafeAntenna(FlexBase rig)
-        {
-            try
-            {
-                string a = rig?.TXAntennaName;
-                return string.IsNullOrWhiteSpace(a) ? "not reported" : a;
-            }
-            catch { return "could not be read"; }
-        }
+        // Conditions travel with the measurement so a reader can reproduce them
+        // rather than take our word (#217), and because a reading with no
+        // recorded antenna port is a number a support engineer cannot use
+        // (#188). Each is read defensively: a condition we cannot name must say
+        // so, never guess, and never take the whole capture down with it.
+        //
+        // THE THREE READERS THAT USED TO LIVE HERE NOW LIVE IN
+        // StationConditions, byte for byte identical to the copies in
+        // TxTuneProbeRunner — which is exactly why the transmit-frequency gap
+        // (#399) had to be fixed twice, and was fixed nowhere. One home.
 
         /// <summary>
         /// Whether the transmit conditioning chain is doing anything right now.

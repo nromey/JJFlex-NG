@@ -90,18 +90,14 @@ namespace Radios.Tests
                       "identical in JJFlexWpf/Controls/ScreenFieldsPanel.xaml.cs and "
                       + "JJFlexWpf/Dialogs/AudioWorkshopDialog.Controls.cs"),
 
-            // The guarded radio reads in ChainChecks. Written twice for the
-            // tune probe and the differential capture, which take the same
-            // readings for the same report.
-            new Known(Rules.DuplicateBody, "SafeAntenna", "#256",
-                      "identical in Radios/ChainChecks/TxDifferentialCapture.cs and "
-                      + "Radios/ChainChecks/TxTuneProbeRunner.cs"),
-            new Known(Rules.DuplicateBody, "SafeFrequency", "#256",
-                      "identical in Radios/ChainChecks/TxDifferentialCapture.cs and "
-                      + "Radios/ChainChecks/TxTuneProbeRunner.cs"),
-            new Known(Rules.DuplicateBody, "SafeMode", "#256",
-                      "identical in Radios/ChainChecks/TxDifferentialCapture.cs and "
-                      + "Radios/ChainChecks/TxTuneProbeRunner.cs"),
+            // SafeAntenna, SafeFrequency and SafeMode used to sit here — the
+            // guarded radio reads in ChainChecks, written twice for the tune
+            // probe and the differential capture, which take the same readings
+            // for the same report. RESOLVED 2026-08-29 (#399): all three moved
+            // to Radios/ChainChecks/StationConditions.cs, and the duplication
+            // was not academic — the transmit frequency had to be fixed in two
+            // places and was fixed in neither, so every keying stage of a run
+            // into a real antenna recorded no frequency at all.
             new Known(Rules.DuplicateBody, "SafeInventory", "#256",
                       "identical in three files: Radios/ChainChecks/TxChainFacts.cs, "
                       + "TxDifferentialCapture.cs and TxTuneProbeRunner.cs"),
