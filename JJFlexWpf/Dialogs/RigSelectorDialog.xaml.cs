@@ -61,15 +61,51 @@ namespace JJFlexWpf.Dialogs
         public IReadOnlyList<string> GuiClientStations { get; set; } = Array.Empty<string>();
 
         /// <summary>
-        /// The row's occupancy clause: "" when the radio reports nobody — the
-        /// common case, and it stays silent on purpose, because this text is
-        /// read on every arrow keypress and silence IS the information — or a
-        /// leading-comma clause like ", one other client, k5ner" when someone
-        /// is on it. Live rows only: an offline or cached row has no current
-        /// knowledge to speak.
+        /// The account a SmartLink connect to this row would actually route
+        /// through, when that is NOT the account in play — empty otherwise,
+        /// including for every row of the operator's own radios. Stamped per
+        /// refresh from <see cref="Radios.FlexBase.AccountThatWillBroker"/>,
+        /// the same resolver the wire and the connect announcement use (#401):
+        /// two answers to "whose account is this" is the defect class that
+        /// took a tester's radio off the air, so the row asks the one that
+        /// already exists. Named only when foreign, per Noel's ruling — his
+        /// own radios arrive on his own account, and a row that says so anyway
+        /// spends speech answering a question nobody asked.
+        /// </summary>
+        public string BrokerAccount { get; set; } = "";
+
+        /// <summary>
+        /// Whether any source has actually DELIVERED this row's client list —
+        /// a sighting event, or the WAN bank consulted at refresh. This flag
+        /// is the boundary between two of the occupancy clause's three states:
+        /// a delivered list speaks its count, zero included; an undelivered
+        /// one says "client count unknown". Field-proven necessary on
+        /// 2026-08-30 (trace 17:20, build 4.1.16.1736): presence pushes were
+        /// being dropped with no intake, the row rendered live off the WAN
+        /// bank's availability answer, and its empty default stations list
+        /// meant nothing — with a zero-speaks clause and no flag, it would
+        /// have claimed an empty radio while Don sat on it.
+        /// </summary>
+        public bool OccupancyKnown { get; set; }
+
+        /// <summary>
+        /// The row's occupancy clause, in three honest states. A LIVE row
+        /// whose client list was delivered ALWAYS speaks a count, zero
+        /// included — "online with 0 connected clients" — because silence is
+        /// indistinguishable from a feature that is not working, and that
+        /// ambiguity peaks at the worst possible moment: standing in front of
+        /// a foreign radio deciding whether to key it. Noel, 2026-08-30,
+        /// looking at his tester's row: "I'm not seeing that Don's connected
+        /// or no one's connected." A live row whose source has NOT delivered
+        /// says "client count unknown" — never a zero it cannot know. And a
+        /// row that is not live says nothing, for the same honesty the
+        /// negative WhereText states keep: no current knowledge, no claim
+        /// (#394).
         /// </summary>
         public string OccupancyText =>
-            IsLive ? Radios.OccupancyPhrase.RowSuffix(GuiClientStations) : "";
+            !IsLive ? ""
+            : OccupancyKnown ? Radios.OccupancyPhrase.RowSuffix(GuiClientStations)
+            : Radios.OccupancyPhrase.UnknownSuffix();
 
         /// <summary>
         /// The operator's persisted, ordered chain of connection paths for
@@ -262,12 +298,32 @@ namespace JJFlexWpf.Dialogs
         {
             get
             {
+                // The positive states, to Noel's spec of 2026-08-30 (#391):
+                // "on" plus the paths — BOTH paths when both answer — with the
+                // brokering account named only when it is not the one in play.
+                // The old dual wording added "using local network" here; his
+                // spec sentence names both paths and no choice, so the chosen
+                // leg now belongs to the path combo beside the list and to the
+                // connect announcement ("Trying the local network"), not to a
+                // clause paid for on every arrow keypress. The explicit
+                // THAT-it-is-reachable word #391 found missing — "online" —
+                // arrives in the occupancy clause that every live row now
+                // carries ("online with 0 connected clients"), so a positive
+                // row states its state rather than implying it by the absence
+                // of bad news.
                 if (DualHomed)
                 {
-                    return (IsRemote ? Lexicon.Get("connect.row.dual_using_smartlink") : Lexicon.Get("connect.row.dual_using_local"));
+                    return string.IsNullOrWhiteSpace(BrokerAccount)
+                        ? Lexicon.Get("connect.row.dual")
+                        : Lexicon.Get("connect.row.dual_via", ("account", BrokerAccount));
                 }
                 if (LanAvailable) return Lexicon.Get("connect.row.local");
-                if (WanAvailable) return Lexicon.Get("connect.row.remote");
+                if (WanAvailable)
+                {
+                    return string.IsNullOrWhiteSpace(BrokerAccount)
+                        ? Lexicon.Get("connect.row.remote")
+                        : Lexicon.Get("connect.row.remote_via", ("account", BrokerAccount));
+                }
 
                 // Nothing has answered YET is not the same as nothing is there.
                 // Discovery needs a second or two, so until it settles this row
@@ -426,7 +482,14 @@ namespace JJFlexWpf.Dialogs
                 // every row would spend a second of speech per arrow key to
                 // answer a question nobody is asking on a one-radio list, which
                 // is the friction tax this app exists to refuse.
-                if (ModelIsAmbiguous && !string.IsNullOrWhiteSpace(BoundAccount))
+                //
+                // ...and not when the where-clause is already about to name the
+                // same account ("on SmartLink via dbreda@mail.com"): one
+                // account, said once. A live foreign row disambiguates itself.
+                bool whereNamesSameAccount =
+                    !string.IsNullOrWhiteSpace(BrokerAccount)
+                    && string.Equals(BrokerAccount, BoundAccount, StringComparison.OrdinalIgnoreCase);
+                if (ModelIsAmbiguous && !string.IsNullOrWhiteSpace(BoundAccount) && !whereNamesSameAccount)
                 {
                     modelPart = Lexicon.Get("connect.row.model_with_account",
                         ("modelPart", modelPart), ("account", BoundAccount));
@@ -1346,6 +1409,11 @@ namespace JJFlexWpf.Dialogs
                     row.LanAvailable = radio.LanAvailable;
                     row.WanAvailable = radio.WanAvailable;
                     row.GuiClientStations = radio.GuiClientStations;
+                    // A sighting always carries the radio's current client
+                    // list (both discovery channels parse gui_client_*), so
+                    // arriving here IS delivery — the row may now speak a
+                    // count, zero included, instead of "client count unknown".
+                    row.OccupancyKnown = true;
                     row.AutoConnect = radio.AutoConnect;
                     row.LowBW = radio.LowBW;
                     row.FromAccountCache = false;
@@ -1989,6 +2057,62 @@ namespace JJFlexWpf.Dialogs
             // account in two different states.
             bool presenceSettling = PresenceStillSettling();
 
+            // The account each WAN row's connect would route through, when that
+            // is not the one in play — resolved OUTSIDE _radiosLock for the same
+            // reason liveAccounts is: the resolver takes the session
+            // coordinator's lock, and this method keeps coordinator-lock
+            // acquisition out of list-lock scope on principle. One resolver
+            // (#401): the same FlexBase.AccountThatWillBroker the connect
+            // announcement speaks, so the row can never name an account the
+            // wire would not use. A row that flips WanAvailable between this
+            // snapshot and the stamp below renders one refresh without the
+            // account and picks it up on the next — benign, and refreshes
+            // follow every availability change.
+            var currentAccount = CurrentAccountEmail();
+            List<string> wanSerials;
+            List<string> occupancyWanted;
+            lock (_radiosLock)
+            {
+                wanSerials = _radiosList
+                    .Where(r => r.WanAvailable && !string.IsNullOrWhiteSpace(r.Serial))
+                    .Select(r => r.Serial)
+                    .Distinct()
+                    .ToList();
+                occupancyWanted = _radiosList
+                    .Where(r => r.WanAvailable && !r.OccupancyKnown
+                        && !string.IsNullOrWhiteSpace(r.Serial))
+                    .Select(r => r.Serial)
+                    .Distinct()
+                    .ToList();
+            }
+            var brokerBySerial = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var serial in wanSerials)
+            {
+                var broker = FlexBase.AccountThatWillBroker(serial, currentAccount);
+                brokerBySerial[serial] =
+                    !string.IsNullOrWhiteSpace(broker)
+                    && !string.Equals(broker, currentAccount, StringComparison.OrdinalIgnoreCase)
+                    ? broker : "";
+            }
+
+            // Occupancy for WAN rows no sighting has fed, from the same bank
+            // that made them live. Field-proven gap (2026-08-30, trace 17:20):
+            // presence pushes are consumed by exactly one rig, a teardown can
+            // leave NO intake, and every push is then dropped — while still
+            // refreshing FlexBase's static WAN bank, stations included. The
+            // row's WanAvailable came from that bank via ReconcileAvailability;
+            // its client list waited on an event that was being discarded, so
+            // Don's occupied radio rendered with no occupancy clause. Live-ness
+            // and occupancy now come from the same entries, or the row says
+            // "client count unknown" — never a zero its source did not state.
+            var bankStationsBySerial =
+                new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var serial in occupancyWanted)
+            {
+                if (FlexBase.TryGetWanGuiClientStations(serial, out var banked))
+                    bankStationsBySerial[serial] = banked;
+            }
+
             // A LAN radio re-announces about once a second, and every
             // announcement used to tear the ListBox down and rebuild it —
             // destroying focused containers, firing spurious SelectionChanged
@@ -2018,6 +2142,27 @@ namespace JJFlexWpf.Dialogs
                         !r.BoundAccountHasLiveSession
                         && presenceSettling
                         && Radios.SmartLink.SmartLinkPresenceService.IsHolding(r.BoundAccount);
+                    // ...and which account a SmartLink connect would broker
+                    // through, when that is not the one in play — resolved
+                    // above, outside this lock. Cleared for every row it does
+                    // not apply to, so a radio that leaves SmartLink stops
+                    // naming an account it can no longer be reached on.
+                    r.BrokerAccount =
+                        r.WanAvailable
+                        && r.Serial != null
+                        && brokerBySerial.TryGetValue(r.Serial, out var rowBroker)
+                        ? rowBroker : "";
+                    // ...and the client list, for a WAN row nothing has fed
+                    // yet — resolved above from the bank that made it live.
+                    // Delivery, not a default: the flag flips so the row may
+                    // speak a real count instead of "client count unknown".
+                    if (!r.OccupancyKnown && r.WanAvailable
+                        && r.Serial != null
+                        && bankStationsBySerial.TryGetValue(r.Serial, out var bankedStations))
+                    {
+                        r.GuiClientStations = bankedStations;
+                        r.OccupancyKnown = true;
+                    }
                 }
 
                 StampModelAmbiguity();

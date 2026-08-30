@@ -310,6 +310,50 @@ namespace Radios
         public static string WanAccountForSerial(string serial) => GetWanAccountForSerial(serial);
 
         /// <summary>
+        /// Who was on a WAN radio as of the last SmartLink list that mentioned
+        /// it — the roster row's pre-connect occupancy source when no sighting
+        /// event has delivered (#394). False when no list currently carries
+        /// the serial.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>Why the roster cannot rely on events alone.</b> Presence
+        /// pushes are consumed by exactly ONE rig (#386), and between a
+        /// teardown and the next engage there is no intake at all — every push
+        /// is dropped. But a dropped push still refreshes the static WAN bank
+        /// (#402), and <see cref="RememberWanRadio"/> banks the freshly PARSED
+        /// objects, GuiClients included. Noel's field trace of 2026-08-30
+        /// (17:20, build 4.1.16.1736) caught the cost of reading only half of
+        /// that: "OpenTheRadio:rig's open failed" had released the intake,
+        /// "list from dbreda@mail.com with no intake — dropped" repeated for
+        /// the life of the session, and the roster row rendered Don's radio
+        /// "remote via SmartLink" — live off this bank, via availability —
+        /// with no occupancy clause while Don sat on it. The live-ness and
+        /// the client list come from the SAME pushed objects; this accessor
+        /// is the half nothing was reading.</para>
+        /// <para>A snapshot as of the last push: exactly as stale or as fresh
+        /// as the WAN availability verdict built from the same entries, which
+        /// is the honest best a pre-connect surface can do.</para>
+        /// </remarks>
+        public static bool TryGetWanGuiClientStations(string serial, out IReadOnlyList<string> stations)
+        {
+            stations = Array.Empty<string>();
+            if (string.IsNullOrWhiteSpace(serial)) return false;
+            Radio banked;
+            lock (_wanRadiosLock)
+            {
+                if (!_wanRadiosBySerial.TryGetValue(serial, out var entry) || entry.Radio == null)
+                    return false;
+                banked = entry.Radio;
+            }
+            lock (banked.GuiClientsLockObj)
+            {
+                stations = banked.GuiClients.Select(c => c.Station ?? "").ToList();
+            }
+            Tracing.TraceLine($"occupancy[bank]: {serial} stations={stations.Count}", TraceLevel.Info);
+            return true;
+        }
+
+        /// <summary>
         /// True when this WAN serial is attributable to the given account —
         /// including the unattributed ("") case, which can only exist in a
         /// world where a single account is in play and so belongs to it.
@@ -487,6 +531,12 @@ namespace Radios
             {
                 rd.GuiClientStations = r.GuiClients.Select(c => c.Station ?? "").ToList();
             }
+            // One counted line per hop the occupancy fact travels (#394): a
+            // dropped baton along this chain reads exactly like "nobody is on
+            // it", and the 2026-08-30 field trace is what a silent drop costs.
+            Tracing.TraceLine(
+                $"occupancy[rigdata]: {r.Serial} stations={rd.GuiClientStations.Count}",
+                TraceLevel.Info);
             return rd;
         }
         internal static bool _apiInit;
@@ -5160,7 +5210,18 @@ namespace Radios
                     TraceLevel.Info);
                 if (e?.Radios != null)
                 {
-                    foreach (var r in e.Radios) RememberWanRadio(r, e.AccountId);
+                    foreach (var r in e.Radios)
+                    {
+                        RememberWanRadio(r, e.AccountId);
+                        // Counted, because the roster row now reads occupancy
+                        // from this bank when no intake delivered it (#394) —
+                        // this line is the proof the fact survived the drop.
+                        int n;
+                        lock (r.GuiClientsLockObj) n = r.GuiClients.Count;
+                        Tracing.TraceLine(
+                            $"occupancy[no-intake bank]: {r.Serial} stations={n}",
+                            TraceLevel.Info);
+                    }
                 }
                 return;
             }
@@ -5400,6 +5461,11 @@ namespace Radios
             if (oldRadio.LowBandwidthConnect != newRadio.LowBandwidthConnect)
                 oldRadio.LowBandwidthConnect = newRadio.LowBandwidthConnect;
             oldRadio.UpdateGuiClientsList(newGuiClients: newRadio.GuiClients);
+            int merged;
+            lock (oldRadio.GuiClientsLockObj) merged = oldRadio.GuiClients.Count;
+            Tracing.TraceLine(
+                $"occupancy[wan-merge]: {oldRadio.Serial} stations={merged}",
+                TraceLevel.Info);
         }
 
         // Sprint 26 Phase 4 deleted the `wan` field and the PreserveWanForRetry /

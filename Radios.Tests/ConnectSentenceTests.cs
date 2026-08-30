@@ -265,9 +265,11 @@ namespace Radios.Tests
                 ("namePart", "6300inshack"), ("modelPart", "FLEX-6300"),
                 ("whereText", whereText),
                 // Empty on purpose: these tests pin the row's account states,
-                // and the unoccupied radio is the common case — the occupancy
-                // token must vanish without a trace. RadioOccupancyTests owns
-                // the occupied wording.
+                // which are all NOT-live states, and a row that cannot hear
+                // the radio makes no claim about who is on it — the occupancy
+                // token must vanish without a trace. (Live rows always carry
+                // the clause now, zero included; RadioOccupancyTests owns that
+                // wording.)
                 ("occupancy", ""));
 
         /// <summary>

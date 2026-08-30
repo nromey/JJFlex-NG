@@ -3752,7 +3752,8 @@ Module globals
     End Sub
 
     Private Sub wpfRadioFoundHandler(sender As Object, e As FlexBase.RigData)
-        Tracing.TraceLine("wpfRadioFoundHandler:" & e.Serial, TraceLevel.Info)
+        Tracing.TraceLine("wpfRadioFoundHandler:" & e.Serial &
+            " occupancy stations=" & e.GuiClientStations.Count, TraceLevel.Info)
         ' Both homes, not one verdict. IsRemote is now derived from these two
         ' flags plus the operator's path choice, so a radio that is on the LAN
         ' and registered with SmartLink no longer has its remote identity
@@ -3764,6 +3765,7 @@ Module globals
             .LanAvailable = e.LanAvailable,
             .WanAvailable = e.WanAvailable,
             .GuiClientStations = e.GuiClientStations,
+            .OccupancyKnown = True,
             .RigData = e
         }
         _wpfRadioFoundCallback?.Invoke(item)
