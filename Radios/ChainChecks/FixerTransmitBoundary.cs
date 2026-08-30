@@ -79,7 +79,7 @@ namespace Radios.ChainChecks
         /// <param name="countdown">
         /// Starts the transmit countdown tones (#261), UNKEYED, with the
         /// key-up issued when the count reaches
-        /// <see cref="FixerTransmitAudioBoundary.CountdownKeyUpAtMs"/>. The
+        /// the moment the host publishes as the key-up. The
         /// operator does nothing in this stage — the count is the warning
         /// that RF is imminent, the same ruling that gave stage 3 its count.
         /// It never sounds for a transmit the gate refused.
@@ -88,10 +88,20 @@ namespace Radios.ChainChecks
         /// Polled during the countdown. True ends the stage before anything
         /// keys, recorded honestly as stopped-before-keying.
         /// </param>
+        /// <param name="countdownKeyUpAtMs">
+        /// When to issue the key-up, in milliseconds from the start of the
+        /// count. PUBLISHED BY THE HOST, from the sound it is actually going to
+        /// play — never copied into this assembly, which cannot see it. The
+        /// number was a hand-copied constant until 2026-08-29 and had drifted to
+        /// half its true value, so this stage raised RF during the second dit of
+        /// its own warning. See
+        /// <see cref="FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs"/>.
+        /// </param>
         public static Func<TxTuneProbe.Result> ProbeTransmitter(
             FixerTransmitGate gate, RadioSource radio, string stageId,
             Action speakNow = null, Action speakDone = null,
-            Action countdown = null, Func<bool> stopRequested = null)
+            Action countdown = null, Func<bool> stopRequested = null,
+            int countdownKeyUpAtMs = FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs)
         {
             if (gate == null || radio == null || string.IsNullOrWhiteSpace(stageId))
                 return null;
@@ -131,7 +141,7 @@ namespace Radios.ChainChecks
                 // stage got neither. Shared pacing, so the timing an operator
                 // learns on one keying stage holds on all of them.
                 if (!FixerTransmitAudioBoundary.CountUnkeyedThenReadyToKey(
-                        countdown, stopRequested))
+                        countdown, stopRequested, countdownKeyUpAtMs))
                 {
                     return TxTuneProbe.Result.NotRun(
                         TxTuneProbe.SkipReason.Cancelled,

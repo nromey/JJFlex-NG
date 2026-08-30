@@ -34,6 +34,7 @@ namespace Radios.Tests
     /// <see cref="SmartLinkSessionCoordinator"/>, so a push travels the whole
     /// production path — nothing here reaches a network or a radio.</para>
     /// </summary>
+    [Collection(SmartLinkSingletonCollection.Name)]
     public sealed class PresenceIntakeTests : IDisposable
     {
         // The account key FlexBase waits on when no account has been chosen —

@@ -59,9 +59,10 @@ namespace Radios
         public int AlcAutoReleaseSeconds { get; set; } = 60;
 
         /// <summary>
-        /// When true, the reflected-power alarm CUTS the transmission when it
-        /// fires with forward power above the cut floor (#224, ruled by Noel
-        /// 2026-08-25). When false — the default — the alarm only warns.
+        /// When true — the default, ruled ON below — the reflected-power alarm
+        /// CUTS the transmission when it fires with forward power above the
+        /// cut floor (#224, ruled by Noel 2026-08-25). When false, the alarm
+        /// only warns.
         /// </summary>
         /// <remarks>
         /// A setting, not a behaviour, on purpose: an app that unilaterally

@@ -3548,7 +3548,11 @@ Module globals
                                                  Return (False, best, True)
                                              End Function
 
-            Dim connected = RigControl.TryAutoConnect(_autoConnectConfig)
+            ' Off the UI thread (#402): a slow or unreachable radio makes
+            ' TryAutoConnect block for its full leg budget, and startup was
+            ' frozen solid for it.
+            Dim startupRig = RigControl
+            Dim connected = RunConnectPhaseOffUiThread("StartupAutoConnect", Function() startupRig.TryAutoConnect(_autoConnectConfig))
             _connectingForm?.CloseForm()
             _connectingForm = Nothing
 
@@ -3570,7 +3574,8 @@ Module globals
                     RigControl = New FlexBase(OpenParms)
                     Radios.ConnectionProfiler.Current = New Radios.ConnectionProfiler()
                     ShowConnectingFormOnOwnThread(_autoConnectConfig.RadioName, Radios.ConnectionProfiler.Current)
-                    connected = RigControl.TryAutoConnect(_autoConnectConfig)
+                    Dim tryAgainRig = RigControl
+                    connected = RunConnectPhaseOffUiThread("StartupAutoConnectRetry", Function() tryAgainRig.TryAutoConnect(_autoConnectConfig))
                     _connectingForm?.CloseForm()
                     _connectingForm = Nothing
                     If connected Then
@@ -3650,6 +3655,66 @@ Module globals
     ''' The picker's own "Connecting to X over SmartLink" sentence, carried into
     ''' this window's opening line. See ConnectingForm and task #93.
     ''' </param>
+    ''' <summary>
+    ''' Run one blocking piece of the connect phase on a worker thread while
+    ''' THIS thread keeps pumping messages.
+    '''
+    ''' <para><b>Why (#402):</b> Start()'s station-name wait is a Thread.Sleep
+    ''' poll with a 45-second budget, and the retry ladder runs it up to three
+    ''' times — all of it, until now, ON THE MAIN UI THREAD. For those minutes
+    ''' the main window answered no messages: no speech, no keyboard, no way
+    ''' for a screen reader to even query the app. The ConnectingForm survives
+    ''' on its own thread and its progress voice kept talking into a dead
+    ''' application; Noel had to kill the process. A slow connect must be
+    ''' something the operator can hear and cancel, not a lockout — whatever
+    ''' the slowness's cause, now or later.</para>
+    '''
+    ''' <para><b>Reentrancy is not new here.</b> Start() could already pump
+    ''' (error dialogs), and the callers defend: the rig is captured into a
+    ''' local before Start, cancel paths tolerate CloseTheRadio running
+    ''' mid-flight, and openTheRadio itself is now guarded against reentry.
+    ''' Interactive pieces (the walk's sign-in leg, the picker, WPF wiring)
+    ''' deliberately stay OFF the worker — only self-contained blocking work
+    ''' goes through here.</para>
+    ''' </summary>
+    Private Function RunConnectPhaseOffUiThread(Of T)(label As String, work As Func(Of T)) As T
+        ' Off the UI thread already (tests, background flows): just run it.
+        If Not Application.MessageLoop Then Return work()
+
+        Dim result As T = Nothing
+        Dim err As Exception = Nothing
+        ' Not disposed deliberately: the worker's Set() in its Finally could
+        ' race a deterministic Dispose here, and an exception on a background
+        ' thread takes the whole process down. A signalled, short-lived event
+        ' is cheap to leave to the collector.
+        Dim done As New Threading.ManualResetEventSlim(False)
+        Dim worker As New Threading.Thread(
+            Sub()
+                Try
+                    result = work()
+                Catch ex As Exception
+                    err = ex
+                Finally
+                    done.Set()
+                End Try
+            End Sub)
+        worker.IsBackground = True
+        worker.Name = "ConnectPhase:" & label
+        worker.Start()
+        While Not done.Wait(25)
+            Application.DoEvents()
+        End While
+        ' Surface the worker's exception on the calling thread so
+        ' openTheRadio's Catch handles it exactly as it always has.
+        If err IsNot Nothing Then Throw err
+        Return result
+    End Function
+
+    ''' <summary>True while openTheRadio's connect phase is in flight. With the
+    ''' UI thread pumping during that phase (#402), a second activation of the
+    ''' connect flow could otherwise start a second picker mid-connect.</summary>
+    Private _connectPhaseActive As Boolean = False
+
     Private Sub ShowConnectingFormOnOwnThread(radioName As String, profiler As Radios.ConnectionProfiler,
                                               Optional lead As String = Nothing)
         Dim ready As New Threading.ManualResetEventSlim(False)
@@ -4453,7 +4518,11 @@ Module globals
             ' The session is up on this leg. It is not a success until the
             ' radio opens, which is the whole lesson of this task.
             Tracing.TraceLine($"connect walk: leg {walk.LegIndex} ({walk.Current}) connected — opening", TraceLevel.Info)
-            opened = RigControl.Start()
+            ' Off the UI thread (#402), like every other Start in the connect
+            ' phase. RunWalkLeg itself stays on the UI thread on purpose: its
+            ' last leg may raise the interactive sign-in.
+            Dim walkRig = RigControl
+            opened = RunConnectPhaseOffUiThread("WalkStart", Function() walkRig.Start())
             Radios.ConnectionHistory.CommitPendingOutcome(opened)
             If opened Then
                 Tracing.TraceLine($"connect walk: leg {walk.LegIndex} ({walk.Current}) opened", TraceLevel.Info)
@@ -4472,6 +4541,23 @@ Module globals
     ''' Moved from Form1 during Sprint 11 Phase 11.8.
     ''' </summary>
     Friend Function openTheRadio(initialCall As Boolean) As Boolean
+        ' Reentry guard (#402): with the connect phase pumping messages on the
+        ' UI thread, a second activation (menu double-fire, a hotkey mid-
+        ' connect) could open a second picker over a live connect. One at a
+        ' time; the ConnectingForm's cancel is the way to abandon the first.
+        If _connectPhaseActive Then
+            Tracing.TraceLine("openTheRadio: connect already in flight — reentry ignored", TraceLevel.Warning)
+            Return False
+        End If
+        _connectPhaseActive = True
+        Try
+            Return openTheRadioCore(initialCall)
+        Finally
+            _connectPhaseActive = False
+        End Try
+    End Function
+
+    Private Function openTheRadioCore(initialCall As Boolean) As Boolean
         Try
             Dim rv As Boolean
             ' No itinerary until this attempt builds one. Auto-connect reaches
@@ -4581,7 +4667,10 @@ RadioConnected:
                 ' and a user cancel can run CloseTheRadio (nulling RigControl) before
                 ' Start() returns — reading the global here lost the failure reason.
                 Dim startingRig = RigControl
-                rv = startingRig.Start()
+                ' Off the UI thread (#402): Start() can sit in its 45-second
+                ' station-name wait, and on the UI thread that was a total
+                ' lockout — no speech, no keys, no way to cancel.
+                rv = RunConnectPhaseOffUiThread("Start", Function() startingRig.Start())
                 Radios.ConnectionProfiler.Current?.RecordEvent("start_call_end", New Dictionary(Of String, Object) From {
                     {"success", rv},
                     {"failureReason", If(startingRig?.LastStartFailureReason, "")}
@@ -4670,7 +4759,13 @@ RadioConnected:
                             TraceSessionContext.AddKeyEvent($"as_retry_attempt_{attempt}_remote")
 
                             Dim retryLegSw = System.Diagnostics.Stopwatch.StartNew()
-                            If RigControl.RetryConnect() Then
+                            ' Both halves of a retry leg block for seconds to
+                            ' tens of seconds; neither belongs on the UI
+                            ' thread (#402). The rig is captured per call the
+                            ' same way startingRig is captured above.
+                            Dim retryingRig = RigControl
+                            If retryingRig IsNot Nothing AndAlso
+                               RunConnectPhaseOffUiThread("RetryConnect", Function() retryingRig.RetryConnect()) Then
                                 retryLegSw.Stop()
                                 ' Armed, not recorded: this has not opened yet
                                 ' either. Committed after the ladder, so a retry
@@ -4682,7 +4777,7 @@ RadioConnected:
                                     Radios.ConnectPathKind.SmartLink.ToString(),
                                     retryLegSw.ElapsedMilliseconds)
                                 Tracing.TraceLine($"OpenTheRadio:retry {attempt} - RetryConnect succeeded, calling Start", TraceLevel.Info)
-                                rv = RigControl.Start()
+                                rv = RunConnectPhaseOffUiThread("RetryStart", Function() retryingRig.Start())
                                 If rv Then
                                     TraceSessionContext.AddKeyEvent($"as_retry_then_success_{attempt}_remote")
                                     TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryThenSuccess,
@@ -4743,10 +4838,14 @@ RadioConnected:
                         RigControl = New FlexBase(OpenParms)
                         WpfMainWindow.RigControl = RigControl
 
-                        If RigControl.TryAutoConnect(_autoConnectConfig) Then
+                        ' Captured, and both blocking halves run off the UI
+                        ' thread (#402); the WPF wiring between them stays on
+                        ' the UI thread where it belongs.
+                        Dim autoRetryRig = RigControl
+                        If RunConnectPhaseOffUiThread("AutoConnectRetry", Function() autoRetryRig.TryAutoConnect(_autoConnectConfig)) Then
                             WpfMainWindow.WireRadioEvents()
                             Tracing.TraceLine("OpenTheRadio:retry - rig is starting", TraceLevel.Info)
-                            rv = RigControl.Start()
+                            rv = RunConnectPhaseOffUiThread("AutoRetryStart", Function() autoRetryRig.Start())
                             If rv Then
                                 TraceSessionContext.AddKeyEvent("as_retry_then_success_autoconnect")
                                 TraceSessionContext.MarkOutcome(TraceSessionOutcome.AsRetryThenSuccess,

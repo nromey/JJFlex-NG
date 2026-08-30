@@ -258,15 +258,91 @@ namespace Radios.Tests
         {
             // A missing hook counts silently and still paces the key-up, so
             // the timing an operator learns does not change with the wiring.
+            //
+            // The pacing is the HOST'S number now, passed in rather than read
+            // from a constant here, so this names its own short one — which is
+            // also the assertion that the parameter is honoured at all.
+            const int keyUpAt = 250;
             var w = System.Diagnostics.Stopwatch.StartNew();
             bool ready = FixerTransmitAudioBoundary.CountUnkeyedThenReadyToKey(
-                countdown: null, stopRequested: null);
+                countdown: null, stopRequested: null, keyUpAtMs: keyUpAt);
             w.Stop();
 
             Assert.True(ready);
-            Assert.True(w.ElapsedMilliseconds
-                            >= FixerTransmitAudioBoundary.CountdownKeyUpAtMs - 30,
+            Assert.True(w.ElapsedMilliseconds >= keyUpAt - 30,
                 "the key-up was not paced to the count: " + w.ElapsedMilliseconds + " ms");
+        }
+
+        [Fact]
+        public void A_pacing_of_nothing_waits_the_conservative_default_rather_than_keying_at_once()
+        {
+            // THE ONE DIRECTION THIS MUST NOT FAIL IN IS EARLY. The count runs
+            // unkeyed and those milliseconds are the operator's only window to
+            // stop the transmission before it starts (#236), so a host that
+            // publishes zero — or a negative, or nothing at all — must wait,
+            // not key immediately.
+            //
+            // Asserted on the boundary rather than by sleeping the default,
+            // which is two seconds: the clamp is what matters and it is
+            // observable without paying for it.
+            Assert.True(FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs > 0);
+
+            var w = System.Diagnostics.Stopwatch.StartNew();
+            // Stopped straight away, so this returns on the first poll and the
+            // test costs nothing; what it proves is that a zero pacing did not
+            // sail through the loop and answer "fine to key".
+            bool ready = FixerTransmitAudioBoundary.CountUnkeyedThenReadyToKey(
+                countdown: null, stopRequested: () => true, keyUpAtMs: 0);
+            w.Stop();
+
+            Assert.False(ready, "a stop during the count still said it was fine to key");
+        }
+
+        /// <summary>
+        /// The host publishes the countdown pacing to BOTH keying boundaries,
+        /// and derives it from the sound rather than restating it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A parameter nobody supplies is the same class of defect as a shared
+        /// check nobody calls: it compiles, it runs, every test passes, and the
+        /// behaviour silently falls back. Here the fallback is a safety
+        /// behaviour — the operator's abort window — so it is worth a guard of
+        /// its own.
+        /// </para>
+        /// <para>
+        /// <b>What this replaced.</b> The key-up moment was a constant in the
+        /// radio layer with a remark naming the earcon's step length; the step
+        /// length changed and the constant did not, so every keying stage raised
+        /// RF halfway through its own warning for months. Nothing in either
+        /// assembly could see the other's number. This asserts the seam that
+        /// makes that impossible rather than the value, which is the point —
+        /// a value would have to be restated here and would drift the same way.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void The_host_publishes_the_countdown_pacing_to_both_keying_boundaries()
+        {
+            string dialog = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(RepoRoot(), "JJFlexWpf", "Dialogs", "FixerDialog.cs"));
+
+            // Both boundaries — the tune carrier and the two audio stages.
+            int supplied = 0;
+            int from = 0;
+            while (true)
+            {
+                int at = dialog.IndexOf("countdownKeyUpAtMs:", from, StringComparison.Ordinal);
+                if (at < 0) break;
+                supplied++;
+                from = at + 1;
+            }
+            Assert.True(supplied >= 2,
+                "the countdown pacing reaches " + supplied + " of the two keying boundaries, so "
+                + "at least one of them is falling back to the conservative default");
+
+            // And it is DERIVED, not restated. The rule is "the start of the
+            // countdown's final element", asked of the figure itself.
+            Assert.Contains("EarconPlayer.CountdownSteps(", dialog, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -281,6 +357,18 @@ namespace Radios.Tests
         }
 
         // ---- helpers ----
+
+        private static string RepoRoot()
+        {
+            var dir = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                if (System.IO.File.Exists(System.IO.Path.Combine(dir.FullName, "JJFlexRadio.sln")))
+                    return dir.FullName;
+                dir = dir.Parent;
+            }
+            return AppContext.BaseDirectory;
+        }
 
         private static System.Collections.Generic.IEnumerable<FixerTransmitGate.Decision>
             EveryRefusal()

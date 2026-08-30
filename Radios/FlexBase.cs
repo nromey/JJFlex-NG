@@ -2249,6 +2249,9 @@ namespace Radios
         /// <summary>Reason the last Start() call failed. Set before returning false.</summary>
         public string? LastStartFailureReason { get; private set; }
 
+        /// <summary>One mismatch trace per Start() — see the wait loop (#402).</summary>
+        private bool _stationMismatchTraced;
+
         /// <summary>Suppress screen reader speech. Set true for automated testing.</summary>
         public bool SuppressSpeech { get; set; }
 
@@ -2362,6 +2365,7 @@ namespace Radios
             // and not re-added within the grace period, disconnect and let caller retry.
             // A fresh reconnection is faster than waiting for a slow re-add cycle.
             bool stationNameSet = false;
+            _stationMismatchTraced = false;
             {
                 int maxWaitMs = 45000;       // 45s overall timeout (SmartLink re-add can take 30s+ over WAN)
                 int removalGraceMs = 15000;  // 15s grace after client removal (Don's 6300 over WAN needs 10s+)
@@ -2452,6 +2456,19 @@ namespace Radios
                         stationNameSet = true;
                         break;
                     }
+                    // Diagnostic for the case the strict equality hides: the
+                    // radio answered with a DIFFERENT name than we asked for
+                    // (its own dedupe, or a stale merge). Without this line a
+                    // radio-side rename and total radio silence produce the
+                    // same 45 seconds of nothing in the trace (#402).
+                    if (client != null && !string.IsNullOrEmpty(client.Station)
+                        && !_stationMismatchTraced)
+                    {
+                        _stationMismatchTraced = true;
+                        Tracing.TraceLine(
+                            $"start: radio reports our station as '{client.Station}' but we are waiting for '{Callouts.StationName}' — a rename happened somewhere and the wait cannot succeed (#402)",
+                            TraceLevel.Error);
+                    }
                     Thread.Sleep(interval);
                 }
             }
@@ -2467,6 +2484,7 @@ namespace Radios
                     { "phase", "station_name_wait" },
                     { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount }
                 });
+                releaseGuiClientRegistration("cancel during station-name wait");
                 try { theRadio.Disconnect(); } catch { }
                 return false;
             }
@@ -2503,6 +2521,10 @@ namespace Radios
                 });
                 if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.start.slow_retrying"), VerbosityLevel.Critical);
                 if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
+                // Tell the radio to drop this registration before the retry
+                // reconnects — a lingering registration is exactly the state
+                // the failing #402 reconnects kept landing on.
+                releaseGuiClientRegistration("station-name timeout, retrying");
                 try { theRadio.Disconnect(); } catch { }
                 return false;
             }
@@ -2538,6 +2560,16 @@ namespace Radios
             {
                 Tracing.TraceLine("Disconnect:place flush:" + ex.Message, TraceLevel.Warning);
             }
+
+            // Say goodbye properly (#402): FlexLib's Disconnect only closes
+            // the socket, so the radio kept our GUI-client registration after
+            // every disconnect — and the very next connect kept meeting it,
+            // as a ghost in the server's list snapshot and as the stale
+            // radio-side state the failing reconnects landed on. Sent early,
+            // while the socket is certainly still alive; TCP ordering puts it
+            // ahead of our FIN. No-op on an unexpected drop (socket already
+            // dead) — there is nobody left to say goodbye to.
+            releaseGuiClientRegistration("clean disconnect");
 
             // 2026-04-28: announce disconnect via speech + CW (SK prosign) so the
             // user knows the radio is going away. Fires before the actual
@@ -4881,9 +4913,26 @@ namespace Radios
                 // picker. Traced because "the push arrived and nobody was
                 // listening" is otherwise indistinguishable from "no push
                 // arrived", and those need different investigations.
+                //
+                // But the STATIC bank still gets the fresh objects (#402).
+                // The push that follows a disconnect — the one that removes
+                // our own dead session from the server's gui_client data —
+                // used to land in exactly this gap and vanish, so the next
+                // connect dialled the banked SNAPSHOT taken mid-session:
+                // theRadio arrived pre-loaded with a ghost of our own
+                // previous client (station set, client_id empty), and the
+                // dedupe renamed us to dodge ourselves ("station now will be
+                // k5ner1", 2026-08-29 17:58 and 18:14). Refreshing the bank
+                // is not "consuming" in #386's sense — no events, no
+                // instance state, no ghost sweep — just the handle map kept
+                // current so a rig-less gap cannot fossilise stale data.
                 Tracing.TraceLine(
-                    $"presenceIntakeDispatch: list from {e?.AccountId ?? "?"} with no intake — dropped",
+                    $"presenceIntakeDispatch: list from {e?.AccountId ?? "?"} with no intake — dropped (WAN bank still refreshed)",
                     TraceLevel.Info);
+                if (e?.Radios != null)
+                {
+                    foreach (var r in e.Radios) RememberWanRadio(r, e.AccountId);
+                }
                 return;
             }
 
@@ -5037,6 +5086,29 @@ namespace Radios
                 foreach (Radio r in lst)
                 {
                     Radio oldRadio = findRadioInAPI(r.Serial);
+
+                    // The radio we are CONNECTED to (or connecting to) may not
+                    // be in this instance's myRadioList at all: findRadioForConnect
+                    // can resolve it from the static WAN bank or the disk cache,
+                    // and a fresh rig's list starts empty (#402, trace 2026-08-29
+                    // 18:18 — "radioAddedHandler:1315-..." DURING the station-name
+                    // wait). Taking the add-branch then splits the world: the
+                    // pushed object joins myRadioList, every later push merges
+                    // into IT, and theRadio — the object the connect flow and the
+                    // station-name wait are actually reading — never hears a list
+                    // again. The silent GuiClients merge below is the rescue
+                    // channel that satisfied the wait in every successful field
+                    // trace; adopt theRadio into the list so it stays connected
+                    // to that channel.
+                    var liveRadio = theRadio; // instance field; teardown can null it under us
+                    if (oldRadio == null && liveRadio != null
+                        && string.Equals(liveRadio.Serial, r.Serial, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Tracing.TraceLine($"wanRadioListReceivedHandler: {r.Serial} is the connected radio but was absent from myRadioList — adopting it so list pushes merge into the live object (#402)", TraceLevel.Info);
+                        myRadioList.Add(liveRadio);
+                        oldRadio = liveRadio;
+                    }
+
                     if (oldRadio == null)
                     {
                         // In v4 API the helper is private; directly raise our local handler.
@@ -6153,18 +6225,48 @@ namespace Radios
                 // last list (owner.AvailableRadios) across this instance's
                 // whole lifetime — but a NEW FlexBase's own bookkeeping starts
                 // empty and the next spontaneous push could be minutes away.
-                // Replay the owner's cached list through the intake so this
-                // instance — and the selector's rows — get the account's
-                // current truth immediately instead of a 10s timeout followed
-                // by a needless session cycle.
-                if (sessionWasAlreadyConnected
-                    && session.AvailableRadios.Count > 0
-                    && !myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, accountEmail)))
+                // Replay the cached lists through the intake so this instance
+                // — and the selector's rows — get the current truth
+                // immediately instead of a 10s timeout followed by a needless
+                // session cycle.
+                //
+                // EVERY held session's list, not only the current account's
+                // (#402). The server sends one list per TLS session, so a rig
+                // created after that list landed can only ever get the cached
+                // copy — and replaying just _currentAccount's meant a foreign
+                // radio (Don's, owned by another account) never entered
+                // myRadioList at all. The 2026-08-29 18:18 trace shows the
+                // cost: the mid-connect push for the very radio being
+                // connected took the add-branch instead of merging into
+                // theRadio, and the silent GuiClients merge — the channel
+                // that satisfied the station-name wait in every successful
+                // trace — was dead for the whole 42-second hang. Each list is
+                // attributed to ITS OWN account; the ghost sweep inside the
+                // handler is account-scoped, so replaying A's list still says
+                // nothing about B's radios.
+                foreach (var held in Radios.SmartLink.SmartLinkServices.Coordinator.AllSessions)
                 {
-                    Tracing.TraceLine(
-                        $"ConnectToSmartLink: replaying held session's cached list ({session.AvailableRadios.Count} radio(s)) through the intake ({sw.ElapsedMilliseconds}ms)",
-                        TraceLevel.Info);
-                    wanRadioListReceivedHandler(accountEmail, session.AvailableRadios);
+                    try
+                    {
+                        if (held == null || !held.IsConnected) continue;
+                        // The current account's session is replayed under the
+                        // same condition as always: only when it was already
+                        // live (a session that JUST connected will push its
+                        // list itself, and the latch below waits for it).
+                        if (string.Equals(held.AccountId, accountEmail, StringComparison.OrdinalIgnoreCase)
+                            && !sessionWasAlreadyConnected) continue;
+                        var cached = held.AvailableRadios;
+                        if (cached == null || cached.Count == 0) continue;
+                        if (myRadioList.Any(r => r.IsWan && WanRadioBelongsToAccount(r.Serial, held.AccountId))) continue;
+                        Tracing.TraceLine(
+                            $"ConnectToSmartLink: replaying held session's cached list for {held.AccountId} ({cached.Count} radio(s)) through the intake ({sw.ElapsedMilliseconds}ms)",
+                            TraceLevel.Info);
+                        wanRadioListReceivedHandler(held.AccountId, cached);
+                    }
+                    catch (Exception replayEx)
+                    {
+                        Tracing.TraceLine($"ConnectToSmartLink: cached-list replay for {held?.AccountId ?? "?"} failed: {replayEx.Message}", TraceLevel.Warning);
+                    }
                 }
 
                 // When we already hold a radio list from this session, don't make
@@ -6285,6 +6387,70 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// The session a SmartLink connect to this serial will actually route
+        /// through, and (via <paramref name="viaOwningAccount"/>) whether that
+        /// is the radio's owning account rather than the active one.
+        ///
+        /// <para>Sprint 35 Track K (#259): a SmartLink connect must go through
+        /// the session of the account that OWNS the radio — the broker only
+        /// knows serials on the session's own account, so dialling Don's radio
+        /// through another account's session can only fail. With one held
+        /// session per account, the attributed handle map knows the owner;
+        /// prefer its live session over whatever happens to be active. (This
+        /// is the root of #203's two-Enter behaviour: the first Enter used to
+        /// have no session that could act on the row.)</para>
+        ///
+        /// <para><b>One resolver, every consumer (#401).</b> The routing here
+        /// was already right; the spoken connect sentence asked
+        /// "_currentAccount" instead and told the operator a falsehood at the
+        /// exact moment a connect was failing. Anything that needs to NAME the
+        /// account a connect will use asks
+        /// <see cref="AccountThatWillBroker"/>, which answers from this same
+        /// decision — the words and the wire cannot diverge again.</para>
+        /// </summary>
+        private static Radios.SmartLink.IWanSessionOwner ResolveBrokeringSession(string serial, out bool viaOwningAccount)
+        {
+            viaOwningAccount = false;
+            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
+
+            string owningAccount = GetWanAccountForSerial(serial);
+            if (!string.IsNullOrEmpty(owningAccount)
+                && (session == null
+                    || !string.Equals(session.AccountId, owningAccount, StringComparison.OrdinalIgnoreCase)))
+            {
+                var owningSession = Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(owningAccount);
+                if (owningSession != null && owningSession.IsConnected)
+                {
+                    viaOwningAccount = true;
+                    session = owningSession;
+                }
+            }
+            return session;
+        }
+
+        /// <summary>
+        /// The account email a SmartLink connect to this serial will actually
+        /// go through — the answer the connect ANNOUNCEMENT must speak (#401).
+        /// Falls back to <paramref name="activeAccountEmail"/> when no held
+        /// session can broker the serial, because that is then genuinely the
+        /// account the attempt will use.
+        /// </summary>
+        public static string AccountThatWillBroker(string serial, string activeAccountEmail)
+        {
+            try
+            {
+                var session = ResolveBrokeringSession(serial, out _);
+                if (session != null && !string.IsNullOrEmpty(session.AccountId))
+                    return session.AccountId;
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"AccountThatWillBroker({serial}): {ex.Message}", TraceLevel.Warning);
+            }
+            return activeAccountEmail ?? "";
+        }
+
         private bool sendRemoteConnect(Radio r)
         {
             Tracing.TraceLine("sendRemoteConnect: " + r.Serial, TraceLevel.Info);
@@ -6297,31 +6463,13 @@ namespace Radios
                 { "serial", r.Serial }
             });
 
-            var session = Radios.SmartLink.SmartLinkServices.Coordinator.ActiveSession;
-
-            // Sprint 35 Track K (#259): a SmartLink connect must go through the
-            // session of the account that OWNS the radio — the broker only
-            // knows serials on the session's own account, so dialling Don's
-            // radio through another account's session can only fail. With one
-            // held session per account, the attributed handle map knows the
-            // owner; prefer its live session over whatever happens to be
-            // active. (This is the root of #203's two-Enter behaviour: the
-            // first Enter used to have no session that could act on the row.)
-            string owningAccount = GetWanAccountForSerial(r.Serial);
-            if (!string.IsNullOrEmpty(owningAccount)
-                && (session == null
-                    || !string.Equals(session.AccountId, owningAccount, StringComparison.OrdinalIgnoreCase)))
+            var session = ResolveBrokeringSession(r.Serial, out bool viaOwningAccount);
+            if (viaOwningAccount)
             {
-                var owningSession = Radios.SmartLink.SmartLinkServices.Coordinator.GetSessionForAccount(owningAccount);
-                if (owningSession != null && owningSession.IsConnected)
-                {
-                    Tracing.TraceLine(
-                        $"sendRemoteConnect: routing through owning account's session ({owningSession.SessionId}) instead of active",
-                        TraceLevel.Info);
-                    session = owningSession;
-                }
+                Tracing.TraceLine(
+                    $"sendRemoteConnect: routing through owning account's session ({session.SessionId}) instead of active",
+                    TraceLevel.Info);
             }
-
             if (session == null)
             {
                 Tracing.TraceLine("sendRemoteConnect: no active session", TraceLevel.Error);
@@ -7641,20 +7789,40 @@ namespace Radios
 
                 if (string.IsNullOrEmpty(client.Station))
                 {
-                    // Ensure no duplicate name.
+                    // Ensure no duplicate name — against records that can
+                    // actually PROVE a duplicate. A fabricated record (no
+                    // client_id, not FlexLib-stamped) came from discovery or
+                    // the SmartLink server's list snapshot, and #402 caught
+                    // that snapshot carrying OUR OWN just-disconnected
+                    // session: the 2026-08-29 18:14 trace shows a ghost
+                    // "k5ner" with id EMPTY — us, one connect ago — renaming
+                    // us to "k5ner1" for a collision that did not exist. The
+                    // radio's own TCP status is the authority on live
+                    // clients, and every live client's record carries a
+                    // client_id; a record without one is stale scenery, not
+                    // a station to yield to.
                     if (!OnlyStation)
                     {
                         foreach (GUIClient c in theRadio.GuiClients)
                         {
-                            if (!myClient(c.ClientHandle) &
-                                (c.Station == Callouts.StationName))
+                            if (myClient(c.ClientHandle)) continue;
+                            bool identityBearing = c.IsThisClient || !string.IsNullOrEmpty(c.ClientID);
+                            if (!identityBearing)
+                            {
+                                if (c.Station == Callouts.StationName)
+                                    Tracing.TraceLine(
+                                        $"guiClientAdded: ignoring fabricated record (handle {c.ClientHandle}, no client_id) holding station '{c.Station}' — stale list data, not a live duplicate (#402)",
+                                        TraceLevel.Warning);
+                                continue;
+                            }
+                            if (c.Station == Callouts.StationName)
                             {
                                 Callouts.StationName += '1';
                                 Tracing.TraceLine("guiClientAdded:station now will be " + Callouts.StationName, TraceLevel.Error);
                             }
                         }
                     }
-                    theRadio.SetClientStationName(Callouts.StationName);
+                    requestStationName(Callouts.StationName);
                 }
 
                 client.PropertyChanged += new PropertyChangedEventHandler(guiClientPropertyChanged);
@@ -7712,6 +7880,91 @@ namespace Radios
             });
 
             GuiClientChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Ask the radio to set our station name — and TRACE ITS ANSWER.
+        ///
+        /// <para>This replaces a fire-and-forget
+        /// <c>theRadio.SetClientStationName(...)</c>. The #402 field traces
+        /// show connects where the radio simply never applied the name: no
+        /// TCP echo, no server-list change, 45 seconds of silence, three
+        /// times over. With the old call the radio's reply — including an
+        /// explicit refusal — was discarded unread, so a refusing radio and
+        /// a dead send were indistinguishable. Now the reply (or a 10 s
+        /// timeout) lands in the trace, which is the discriminating
+        /// instrument the next field failure needs.</para>
+        ///
+        /// <para>The encoding matches FlexLib's <c>SetClientStationName</c>
+        /// exactly: sanitize, then spaces to U+007F.</para>
+        /// </summary>
+        private void requestStationName(string name)
+        {
+            try
+            {
+                string encoded = Flex.Util.StringHelper.SanitizeInvalidRadioChars(name).Replace(' ', '\u007f');
+                var reply = theRadio.SendCommandAsync("client station " + encoded);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var done = await Task.WhenAny(reply, Task.Delay(10000)).ConfigureAwait(false);
+                        if (done != reply)
+                        {
+                            Tracing.TraceLine($"requestStationName('{name}'): NO REPLY from the radio within 10s — the command reached the wire but nothing acknowledged it (#402)", TraceLevel.Error);
+                            return;
+                        }
+                        var info = await reply.ConfigureAwait(false);
+                        Tracing.TraceLine($"requestStationName('{name}'): radio acknowledged{(string.IsNullOrEmpty(info) ? "" : " — " + info)}", TraceLevel.Info);
+                    }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine($"requestStationName('{name}'): radio REFUSED — {ex.Message} (#402)", TraceLevel.Error);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"requestStationName('{name}'): send failed: {ex.Message}", TraceLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// Tell the radio to drop OUR GUI-client registration, by handle.
+        ///
+        /// <para>FlexLib's <c>Radio.Disconnect()</c> only closes the TCP
+        /// socket — nothing ever tells the radio to release the
+        /// registration, so it lingers radio-side (and in the SmartLink
+        /// server's list snapshot) after every disconnect. #402's traces
+        /// show both halves of the cost: the server's stale snapshot handed
+        /// the next connect a ghost of our own dead session, and every
+        /// quick reconnect landed on a radio still holding our previous
+        /// registration — the window in which the station name was never
+        /// applied. An explicit release is how a client says goodbye.</para>
+        ///
+        /// <para>Deliberately NOT <c>DisconnectClientByHandle</c>: that path
+        /// sets FlexLib's <c>_ignoreConnectedEvents</c> and only a reply —
+        /// which a teardown may never read — clears it, leaving the reused
+        /// Radio object deaf to real connection drops. A bare
+        /// <c>client disconnect</c> (no handle) is never sent — the radio
+        /// reads that as "disconnect every GUI client".</para>
+        ///
+        /// <para>Fire-and-forget by design; never allowed to slow or fail a
+        /// teardown. TCP ordering guarantees the command precedes our FIN.</para>
+        /// </summary>
+        private void releaseGuiClientRegistration(string reason)
+        {
+            try
+            {
+                if (theRadio == null || clientHandle == noClient) return;
+                if (!theRadio.Connected) return;
+                Tracing.TraceLine($"releaseGuiClientRegistration ({reason}): client disconnect {clientHandle}", TraceLevel.Info);
+                _ = theRadio.SendCommandAsync("client disconnect " + clientHandle);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"releaseGuiClientRegistration ({reason}): {ex.Message}", TraceLevel.Warning);
+            }
         }
 
         private bool myClient(uint handle)

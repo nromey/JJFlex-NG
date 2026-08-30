@@ -905,11 +905,30 @@ public partial class FrequencyDisplay : UserControl
     // its prefix announcement on this transition — F2 speaks the prefix itself.
     private bool _suppressNextFocusPrefix;
 
+    /// <summary>
+    /// Sprint 42 Track D (#395) — asked before every focus-landing prefix.
+    /// MainWindow wires this to its connect-flow quiet scope: during a connect,
+    /// window closes and activation churn restore focus to the display several
+    /// times in one second, and each landing spoke "JJ Flexible Home, slice"
+    /// into the middle of the connect narration. The operator did not move;
+    /// re-telling them where they stand is noise. Only the automatic
+    /// GotKeyboardFocus path consults this — an explicit F2 always speaks,
+    /// because that one the operator asked for.
+    /// </summary>
+    public System.Func<bool>? SuppressFocusPrefix { get; set; }
+
     private void DisplayBox_GotKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e)
     {
         if (_suppressNextFocusPrefix)
         {
             _suppressNextFocusPrefix = false;
+            return;
+        }
+        if (SuppressFocusPrefix?.Invoke() == true)
+        {
+            JJTrace.Tracing.TraceLine(
+                "FrequencyDisplay: focus prefix suppressed (connect quiet scope)",
+                System.Diagnostics.TraceLevel.Info);
             return;
         }
         try

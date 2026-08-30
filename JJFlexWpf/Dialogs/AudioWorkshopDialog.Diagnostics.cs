@@ -48,9 +48,16 @@ public partial class AudioWorkshopDialog
     private TextBox? _evidenceBox;
     private Button? _copyEvidenceButton;
 
-    /// <summary>The last transmit report, kept so the evidence block and the
+    /// <summary>The last transmit walk, kept so the evidence block and the
     /// staleness note refer to the same run.</summary>
-    private ChainReport? _lastTxReport;
+    /// <remarks>
+    /// The shared check's result, not a bare report (#400). Every string this
+    /// tab shows about the transmit chain now comes out of
+    /// <see cref="TransmitChainCheck"/>, which is the same object the Fixer's
+    /// keying stages build — so a rule added to <c>tx-chain-rules.txt</c>
+    /// reaches this box and that report with no second edit.
+    /// </remarks>
+    private TransmitCheckResult? _lastTxWalk;
 
     /// <summary>The last receive report. Kept for the same reason as the
     /// transmit one, and because the evidence block should be able to carry
@@ -106,9 +113,11 @@ public partial class AudioWorkshopDialog
         {
             Text = "Nothing here transmits. Use this room while you are setting audio up and "
                  + "want an answer now; use JJ Flexible Fix, under Tools, when something is "
-                 + "wrong and you want a report to send — it runs this very same receive "
-                 + "test as its first stage, then goes on to key the radio and measure what "
-                 + "comes back.",
+                 + "wrong and you want a report to send — it runs both of these very same "
+                 + "tests, the receive one as its first stage and the transmit one while it "
+                 + "has the radio keyed with a tone of its own. That last part matters: "
+                 + "three steps of the transmit test can only be read during a "
+                 + "transmission, and nothing in this room can key a radio.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(2, 0, 2, 10),
         };
@@ -157,7 +166,10 @@ public partial class AudioWorkshopDialog
         {
             Text = "Walks your transmit chain from the microphone to the antenna and reports "
                  + "the first stage that is dead. It also says how much of the chain it could "
-                 + "not see, because a check that could not be made is not a check that passed.",
+                 + "not see, because a check that could not be made is not a check that passed. "
+                 + "This is the same test JJ Flexible Fix runs, and Fix runs it with the radio "
+                 + "keyed — so the three steps it tells you here it could not read are exactly "
+                 + "the ones you get by going there.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(2, 0, 2, 6),
         };
@@ -173,8 +185,10 @@ public partial class AudioWorkshopDialog
         AutomationProperties.SetName(txButton, "Test my transmit chain");
         JJFlexHelp.SetText(txButton,
             "Reads your microphone, this computer, and every transmit setting the radio "
-            + "will report, and tells you the first thing in the way. Some stages can only "
-            + "be measured while you are transmitting, and the report says which those are.");
+            + "will report, and tells you the first thing in the way. Three stages can only "
+            + "be measured while you are transmitting, and the report says so where it "
+            + "reaches them. To fill those in, run the same test from JJ Flexible Fix, under "
+            + "Tools: it keys the radio with a tone of its own and takes the reading then.");
         txButton.Click += (s, e) => RunTransmitCheck(speak: true);
         AddToSection(DiagnosticsContent, txButton);
 
@@ -358,7 +372,7 @@ public partial class AudioWorkshopDialog
     {
         if (_txReportBox == null || _evidenceBox == null) return;
 
-        ChainReport report;
+        TransmitCheckResult walk;
         try
         {
             FlexBase? rig = _rig;
@@ -386,16 +400,32 @@ public partial class AudioWorkshopDialog
                 pcFacts = Array.Empty<DiagnosticFact>();
             }
 
-            DiagnosticFacts facts = TxChainFacts.Collect(rig, pcFacts);
-            report = ChainAnalyzer.Run(RuleSetLoader.TxChain(), facts);
-            _lastTxReport = report;
+            // ONE CALL, AND IT IS THE ONE THE FIXER MAKES (#400).
+            //
+            // This door and the Fixer's keying stages walk the same thirteen
+            // stages, on the same rules, phrased by the same code. Add a rule to
+            // tx-chain-rules.txt and it appears at both with no second edit —
+            // the property is the whole design, and it survives only while this
+            // stays a call rather than a copy. The receive half was joined this
+            // way on 2026-08-28 (#367); this is the other half.
+            //
+            // AND THE TWO DOORS ARE NOT INTERCHANGEABLE, which is why joining
+            // them mattered. Nothing in this room can key a radio, so the three
+            // stages that only exist during a transmission — stage 2, the
+            // microphone actually capturing; stage 11, what the radio says it
+            // hears; stage 12, radio frequency out of the radio — will report
+            // "transmit and run the test again" from here for ever. The Fixer
+            // fills exactly those three, and until now it did not run the walk
+            // at all.
+            walk = TransmitChainCheck.Run(rig, pcFacts);
+            _lastTxWalk = walk;
         }
         catch (Exception ex)
         {
             // A diagnostic that throws is worse than one that says it could not
             // look, so this never reaches the operator as a crash.
             Tracing.TraceLine("Diagnostics: transmit check failed — " + ex, TraceLevel.Error);
-            _lastTxReport = null;
+            _lastTxWalk = null;
             _txReportBox.Text = Lexicon.Get("audio.diagnostics.tx_check_failed_shown", ("reason", ex.Message));
             _evidenceBox.Text = NoEvidenceYet;
             if (_copyEvidenceButton != null) _copyEvidenceButton.IsEnabled = false;
@@ -409,8 +439,8 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        _txReportBox.Text = ReportText(report);
-        _evidenceBox.Text = EvidenceText(report);
+        _txReportBox.Text = ReportText(walk);
+        _evidenceBox.Text = EvidenceText(walk);
         if (_copyEvidenceButton != null) _copyEvidenceButton.IsEnabled = true;
 
         if (!speak) return;
@@ -421,7 +451,7 @@ public partial class AudioWorkshopDialog
         // landing in a long edit reads its first line, not its verdict. This is
         // the case app speech exists for, and it is the same behaviour the
         // receive advisory has always had in Settings.
-        ScreenReaderOutput.Speak(report.Headline() + " " + report.Census(),
+        ScreenReaderOutput.Speak(walk.Verdict + " " + walk.Census,
                                  VerbosityLevel.Critical, true);
     }
 
@@ -435,7 +465,7 @@ public partial class AudioWorkshopDialog
     /// hears when they tab into it — and that has to be the verdict, not a
     /// heading and a date.
     /// </remarks>
-    private string ReportText(ChainReport report)
+    private string ReportText(TransmitCheckResult walk)
     {
         var sb = new StringBuilder();
 
@@ -446,22 +476,20 @@ public partial class AudioWorkshopDialog
             sb.AppendLine();
         }
 
-        sb.AppendLine(report.Headline());
+        // EVERY SENTENCE BELOW COMES OUT OF THE SHARED CHECK. What this method
+        // owns is the LAYOUT — which parts a one-text-box surface shows and in
+        // what order — and the staleness note above, which is about this
+        // window's own subscription and belongs to nobody else. The Fixer
+        // renders the same parts into a findings list and an evidence block
+        // because its container is different; neither door owns the words.
+        sb.AppendLine(walk.Verdict);
         sb.AppendLine();
-        sb.AppendLine(report.Census());
+        sb.AppendLine(walk.Census);
         sb.AppendLine();
-        sb.AppendLine("Checked at " + report.At.ToString("HH:mm:ss") + ".");
+        sb.AppendLine("Checked at " + walk.Report.At.ToString("HH:mm:ss") + ".");
         sb.AppendLine();
         sb.AppendLine("Stage by stage:");
-        foreach (StageResult s in report.Stages) sb.AppendLine(s.Line());
-
-        if (report.RuleProblems.Count != 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("Some checks are missing because the rule file has lines this build "
-                        + "could not read:");
-            foreach (string p in report.RuleProblems) sb.AppendLine(p);
-        }
+        sb.AppendLine(walk.Walk);
 
         return sb.ToString();
     }
@@ -471,20 +499,13 @@ public partial class AudioWorkshopDialog
     /// the software's from <see cref="DiagnosticSnapshot"/> — which stays the
     /// only assembler of version strings in the app.
     /// </summary>
-    private string EvidenceText(ChainReport report)
+    private string EvidenceText(TransmitCheckResult walk)
     {
-        string body;
-        try
-        {
-            body = report.EvidenceText(TxChainFacts.StationLines(_rig), TxChainPcFacts.BuildLines());
-        }
-        catch (Exception ex)
-        {
-            Tracing.TraceLine("Diagnostics: evidence block failed — " + ex.Message, TraceLevel.Warning);
-            // Half an evidence block is still worth sending; an exception is
-            // not.
-            body = report.EvidenceText();
-        }
+        // The shared check owns the fallback too: a station or build line that
+        // throws must not cost the whole block, and half an evidence block is
+        // still worth sending where an exception is not.
+        string body = walk.EvidenceForSupport(TxChainFacts.StationLines(_rig),
+                                              TxChainPcFacts.BuildLines());
 
         // A pointer rather than a copy. This block quotes only the readings
         // behind the verdict; the whole census runs to a hundred meters on an
@@ -598,7 +619,7 @@ public partial class AudioWorkshopDialog
         // subscription now starts BEFORE the facts are collected: a meter that
         // arrives mid-collection has to taint the report that is about to be
         // written, not be dropped for having arrived early.
-        if (_lastTxReport == null) return;
+        if (_lastTxWalk == null) return;
         RewriteReportWhenNotBeingRead();
     }
 
@@ -616,18 +637,18 @@ public partial class AudioWorkshopDialog
     /// </remarks>
     private void RewriteReportWhenNotBeingRead()
     {
-        if (_txReportBox == null || _lastTxReport == null) return;
+        if (_txReportBox == null || _lastTxWalk == null) return;
 
         if (!_txReportBox.IsKeyboardFocusWithin)
         {
-            _txReportBox.Text = ReportText(_lastTxReport);
+            _txReportBox.Text = ReportText(_lastTxWalk);
             return;
         }
 
         void OnLeft(object? s, RoutedEventArgs e)
         {
             _txReportBox.LostKeyboardFocus -= OnLeft;
-            if (_lastTxReport != null) _txReportBox.Text = ReportText(_lastTxReport);
+            if (_lastTxWalk != null) _txReportBox.Text = ReportText(_lastTxWalk);
         }
         _txReportBox.LostKeyboardFocus += OnLeft;
     }

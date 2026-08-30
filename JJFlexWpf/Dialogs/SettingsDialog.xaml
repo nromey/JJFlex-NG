@@ -1451,6 +1451,103 @@
 
                     <Separator Margin="0,4,0,8"/>
 
+                    <!-- #116 — the warning duck's controls. The duck itself
+                         shipped in Sprint 41 Track G, on by default, with no
+                         way to reach it; "fully defeatable" was a requirement
+                         of the original ruling and this checkbox is that
+                         requirement. It matters most to remote operators, for
+                         whom PC audio is the only audio path there is — a
+                         local operator can escape the duck by switching PC
+                         audio off and listening at the rig; a remote one
+                         cannot escape it by any route except this switch.
+
+                         Both controls apply LIVE, like the radio output levels
+                         on the Audio tab: a dip depth is found by ear, and the
+                         audition path is real — set the depth, then play the
+                         warning alarm from Per-Sound Loudness below with PC
+                         audio running, and the band dips at the depth you
+                         chose. SaveSettings captures the live values back into
+                         the config before Apply() so OK cannot clobber them. -->
+                    <TextBlock Text="Warnings and Radio Audio" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <CheckBox x:Name="RxDuckEnabledCheck"
+                              Content="Dip radio audio while a warning sounds"
+                              Margin="0,0,0,8"
+                              Checked="RxDuckEnabledCheck_Changed"
+                              Unchecked="RxDuckEnabledCheck_Changed"
+                              AutomationProperties.Name="Dip radio audio through this computer while a warning sounds"
+                   local:JJFlexHelp.Text="While a warning sound plays, radio audio through this computer dips by the depth below, so the alert is heard over the band instead of buried in it. Warnings only — keyclicks, confirmations and every other sound never touch your audio. If you are on a remote connection, PC audio is the only audio path there is, so this switch is the only say you have over the dip. Takes effect the moment you change it."/>
+                    <!-- Collapsed rather than disabled when the duck is off:
+                         house rule keeps controls that cannot act out of the
+                         tab order. -->
+                    <StackPanel x:Name="RxDuckDepthPanel" Margin="20,0,0,8">
+                        <controls:ValueFieldControl x:Name="RxDuckDepthControl"
+                            Margin="0,0,0,4"
+                            AutomationProperties.Name="Dip depth in decibels"
+                   local:JJFlexHelp.Text="How far the band audio drops while a warning plays, from zero, no dip at all, to twelve decibels, a deep one. Four is the shipped default — enough for the alert to get through without tearing a hole in weak-signal copy. Applies as you change it: pick Warning alarm under Per-Sound Loudness below and press Play to hear the dip at your chosen depth."/>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,8"/>
+
+                    <!-- #384 — per-sound level trims. The machinery has been
+                         real and persisted since #115/#119; this is the first
+                         surface that can reach it. Live-apply plus a preview
+                         on selection, because a control that changes a sound
+                         you cannot hear while adjusting it is not much of a
+                         control — arrow through the list and each sound plays
+                         at its current trim, adjust, then Play to hear it
+                         again. The clamp is the player's own (-12 to +3) and
+                         is deliberately not widened here: a sound wanting more
+                         than +3 wants a different tier, and -12 cannot reach
+                         silence because losing a warning should never be one
+                         slider away. -->
+                    <TextBlock Text="Per-Sound Loudness" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,0,0,4"/>
+                    <TextBlock Style="{StaticResource DialogLabel}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8"
+                               Focusable="True"
+                               Text="Any single sound can be raised up to 3 decibels or cut up to 12, relative to the loudness it ships at. It cannot be trimmed to silence — the switches above are for turning sounds off. Only sounds you trim are remembered."
+                               AutomationProperties.Name="Any single sound can be raised up to 3 decibels or cut up to 12, relative to the loudness it ships at. It cannot be trimmed to silence — the switches above are for turning sounds off. Only sounds you trim are remembered."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <controls:DecorativeText Text="Sound:"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource DialogLabel}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="EarconTrimSoundCombo" Width="300"
+                                  Style="{StaticResource DialogComboBox}"
+                                  SelectionChanged="EarconTrimSoundCombo_SelectionChanged"
+                                  AutomationProperties.Name="Which sound to adjust"
+                   local:JJFlexHelp.Text="Every sound the app can make, grouped by family. Each one plays as you land on it, already at your trim, so you can find a sound by ear rather than by name. The continuous ATU progress sound is the one exception — use its Play and Stop buttons instead."/>
+                    </StackPanel>
+                    <controls:ValueFieldControl x:Name="EarconTrimControl"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="Loudness trim in decibels"
+                   local:JJFlexHelp.Text="This sound's loudness, relative to where it ships: 0 is untouched, minus values are quieter, plus values are louder. Applies as you change it — press Play to hear the result."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="EarconTrimPlayButton"
+                                Content="Play"
+                                HorizontalAlignment="Left" Padding="12,0" Height="26"
+                                Margin="0,0,6,0"
+                                AutomationProperties.Name="Play the selected sound"
+                   local:JJFlexHelp.Text="Plays the selected sound at its current trim, exactly as it will sound in use. If its family is switched off above, this says so instead of playing nothing."
+                                Click="EarconTrimPlayButton_Click"/>
+                        <!-- Only visible while a continuous sound is selected —
+                             a button that starts something it cannot finish is
+                             a trap, and the ATU progress tone would still be
+                             running long after the operator moved on. Same
+                             honesty rule as the Earcon Explorer's Start/Stop
+                             pair. -->
+                        <Button x:Name="EarconTrimStopButton"
+                                Content="Stop"
+                                Visibility="Collapsed"
+                                HorizontalAlignment="Left" Padding="12,0" Height="26"
+                                AutomationProperties.Name="Stop the selected sound"
+                   local:JJFlexHelp.Text="Stops the continuous sound the Play button started."
+                                Click="EarconTrimStopButton_Click"/>
+                    </StackPanel>
+
+                    <Separator Margin="0,4,0,8"/>
+
                     <!-- CW notifications moved to the Audio tab, 2026-08-07
                          (QB Track B). They play through the alert device, and
                          the switch belongs beside the device it uses. This

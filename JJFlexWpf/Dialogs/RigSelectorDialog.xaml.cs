@@ -2400,7 +2400,15 @@ namespace JJFlexWpf.Dialogs
         {
             var radioName = RowName(radio);
             bool remote = path == ConnectPathKind.SmartLink;
-            var acctEmail = CurrentAccountEmail();
+            // #401: name the account the connect will actually ROUTE THROUGH,
+            // not the one that happens to be in play. sendRemoteConnect was
+            // already routing through the owning account's held session while
+            // this sentence named _currentAccount — so an operator connecting
+            // to a foreign radio was told something false at the exact moment
+            // a connect might be failing. One resolver answers both.
+            var acctEmail = remote
+                ? FlexBase.AccountThatWillBroker(radio.Serial, CurrentAccountEmail())
+                : CurrentAccountEmail();
 
             // ***** SAY WHAT IS BEING TRIED, NOT WHAT IS HAPPENING. *****
             //

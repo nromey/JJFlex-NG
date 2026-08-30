@@ -122,6 +122,105 @@ namespace Radios.Tests
                 + "method.");
         }
 
+        /// <summary>
+        /// The countdown must have a BEAT, and the beat must be longer than the
+        /// tone — otherwise the dits abut and there is no rhythm at all.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// #396. The countdown shipped for months as three 300 ms tones with no
+        /// silence between them and a landing straight after: 1.6 seconds of
+        /// "ding ding ding dinnnnng", with the first tone already sounding
+        /// before the operator knew a stage had started. On the transmitting
+        /// stages that is the only cue before RF and the only window to stop
+        /// it, so the rhythm is a safety property rather than a taste.
+        /// </para>
+        /// <para>
+        /// <b>The wrong repair is the tempting one</b>, which is why this test
+        /// exists rather than a comment. <c>CountdownStepMs</c> is a DURATION,
+        /// so raising it to slow the countdown down produces a drawl — the same
+        /// complaint, stretched. The interval is the parameter that matters and
+        /// it must stay strictly greater than the step.
+        /// </para>
+        /// </remarks>
+        [Fact]
+        public void TheCountdownHasABeatLongerThanItsTone()
+        {
+            string source = ReadTarget();
+
+            int step = ReadIntConstant(source, "CountdownStepMs");
+            int interval = ReadIntConstant(source, "CountdownIntervalMs");
+
+            Assert.True(interval > step,
+                "The countdown's beat interval (" + interval + " ms) is not longer than one "
+                + "counting tone (" + step + " ms), so the tones abut and the figure has no "
+                + "rhythm. If the countdown feels too fast, raise CountdownIntervalMs — raising "
+                + "CountdownStepMs only makes each tone longer, which is a drawl and not a "
+                + "count. See #396.");
+        }
+
+        /// <summary>
+        /// The microphone check's countdown wait must be ASKED for, never
+        /// written down.
+        /// </summary>
+        /// <remarks>
+        /// It was a hand-copied literal whose own comment described a sound
+        /// three times shorter than the one that had been shipping, so the
+        /// record landing rang on into the speech sample the wait exists to
+        /// keep clean — and nothing failed, because a number copied out of
+        /// another file's comment cannot notice that file changing. #396.
+        /// </remarks>
+        [Fact]
+        public void TheMicrophoneCheckAsksTheEarconHowLongTheCountdownIs()
+        {
+            string source = Read("JJFlexWpf/Dialogs/FixerHostWiring.cs");
+
+            Assert.Contains("EarconPlayer.CountdownDurationMs", source, StringComparison.Ordinal);
+
+            var literal = new Regex(@"MicCountdownSoundMs\s*=\s*\d+");
+            Assert.False(literal.IsMatch(source),
+                "MicCountdownSoundMs is a literal again. It has to be derived from "
+                + "EarconPlayer.CountdownDurationMs, or the wait and the sound drift apart "
+                + "silently and the countdown's ring lands inside the noise measurement.");
+        }
+
+        /// <summary>
+        /// The positive control for the two tests above: prove the constant
+        /// reader finds a value that is certainly there and certainly not one
+        /// of the two under test, and that the file reader reaches a second
+        /// file at all.
+        /// </summary>
+        [Fact]
+        public void TheConstantReaderAndFileReaderActuallyWork()
+        {
+            string source = ReadTarget();
+            Assert.Equal(300, ReadIntConstant(source, "CountdownCountHz"));
+
+            string wiring = Read("JJFlexWpf/Dialogs/FixerHostWiring.cs");
+            Assert.Contains("MicCountdownSoundMs", wiring, StringComparison.Ordinal);
+        }
+
+        /// <summary>Read <c>const int Name = 123;</c> out of the source, and
+        /// fail loudly rather than defaulting when it is not there.</summary>
+        private static int ReadIntConstant(string source, string name)
+        {
+            var m = new Regex(@"const\s+int\s+" + Regex.Escape(name) + @"\s*=\s*(-?\d+)")
+                .Match(source);
+            Assert.True(m.Success,
+                "No 'const int " + name + " = ...' in the source. A test that cannot find its "
+                + "subject proves nothing about it.");
+            return int.Parse(m.Groups[1].Value);
+        }
+
+        private static string Read(string repoRelativePath)
+        {
+            string path = Path.Combine(RepoRoot(),
+                repoRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(path),
+                "Could not find " + repoRelativePath + " (looked at " + path + ").");
+            return File.ReadAllText(path);
+        }
+
         private static string ReadTarget()
         {
             string path = Path.Combine(RepoRoot(), TargetFile.Replace('/', Path.DirectorySeparatorChar));
