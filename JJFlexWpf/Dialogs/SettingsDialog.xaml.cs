@@ -902,6 +902,15 @@ namespace JJFlexWpf.Dialogs
                     : Lexicon.Get("settings.network.forwarding_disabled_spoken"),
                     VerbosityLevel.Terse, interrupt: true);
             }
+            else if (_rig.ChangeNothingActive)
+            {
+                // Not a failure — the operator's own hold refused it, and the
+                // rig has already spoken the refusal by name. The status line
+                // carries the same sentence so it can be re-read; the generic
+                // "command failed" would be a lie with a worse diagnosis (#403).
+                NetworkCurrentStateText.Text = Lexicon.Get("settings.guard.refused",
+                    ("action", Lexicon.Get("settings.guard.action.ports")));
+            }
             else
             {
                 NetworkCurrentStateText.Text = Lexicon.Get("settings.network.command_failed");

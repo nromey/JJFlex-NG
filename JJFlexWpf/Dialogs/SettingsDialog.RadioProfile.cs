@@ -978,7 +978,19 @@ namespace JJFlexWpf.Dialogs
                     else
                     {
                         bool wantOn = edit.RemOn == RemOnOnConnectModes.TurnOn;
-                        if (connected)
+                        if (connected && _rig!.ChangeNothingActive)
+                        {
+                            // The hold refuses the write (and the rig says so
+                            // by name). The intent is still SAVED — it applies
+                            // once the hold is lifted — and the note must say
+                            // that, not claim a change that did not happen.
+                            notesQueued.Add(Lexicon.Get("settings.profile.saved_rem_on_held",
+                                ("disp", disp),
+                                ("state", wantOn
+                                    ? Lexicon.Get("settings.profile.word_on")
+                                    : Lexicon.Get("settings.profile.word_off"))));
+                        }
+                        else if (connected)
                         {
                             // The radio is right here — a queued intent that can
                             // apply now, applies now, and keeps applying at each
@@ -1019,7 +1031,16 @@ namespace JJFlexWpf.Dialogs
                 }
                 else if (nicknameDirty && edit.NicknameText.Length > 0)
                 {
-                    if (connected)
+                    if (connected && _rig!.ChangeNothingActive)
+                    {
+                        // Don't even ask the rig — its refusal would speak over
+                        // the commit receipt for a question this note answers
+                        // better: the LIST name (app-side) still changes, the
+                        // radio's own name stands, and the reason has a name.
+                        notesApplied.Add(Lexicon.Get("settings.profile.rename_held",
+                            ("disp", disp), ("newName", edit.NicknameText)));
+                    }
+                    else if (connected)
                     {
                         if (_rig!.RenameRadio(edit.NicknameText))
                             notesApplied.Add(Lexicon.Get("settings.radio.name.renamed",

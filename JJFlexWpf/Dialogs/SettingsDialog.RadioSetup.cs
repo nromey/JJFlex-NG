@@ -1131,6 +1131,17 @@ namespace JJFlexWpf.Dialogs
             try { EnforcePrivateIpCheck.IsChecked = actual; }
             finally { _suppressPrivateIpAnnouncement = false; }
 
+            // Under the change-nothing hold the setter has just refused and
+            // said so, naming the setting. The read-back above has already
+            // snapped the checkbox to the truth; announcing the unchanged
+            // state on top would interrupt the one sentence that explains
+            // what happened (#403).
+            if (_rig.ChangeNothingActive && actual != wanted)
+            {
+                RefreshReachabilityStatus();
+                return;
+            }
+
             ScreenReaderOutput.Speak(
                 actual
                     ? Lexicon.Get("settings.network.private_ip.local_only")
