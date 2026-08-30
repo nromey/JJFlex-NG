@@ -210,6 +210,10 @@ namespace JJFlexWpf.Dialogs
             // Radio output levels — live-apply, see SettingsDialog.Audio.cs.
             InitializeAudioTab();
 
+            // The warning duck and per-sound trims (#116, #384) — live-apply
+            // for the same reason the radio output levels are.
+            InitializeSoundAdjustments();
+
             LoadSettings();
         }
 
@@ -1429,6 +1433,22 @@ namespace JJFlexWpf.Dialogs
             _audioConfig.OfferStationSaveOnDisconnect =
                 OfferStationSaveOnDisconnectCheck.IsChecked == true;
 
+            // #116 / #384 — the duck and the per-sound trims apply LIVE (they
+            // are found by ear; see InitializeSoundAdjustments), so by now the
+            // statics are ahead of this config object. Capture them back
+            // BEFORE Apply(), or Apply() would push the stale values loaded at
+            // dialog-open straight over the ones the operator just set and
+            // auditioned — and the commit's CaptureFromEngine would then
+            // persist the wiped state as if it were chosen.
+            _audioConfig.RxDuckEnabled = RxDuck.Enabled;
+            _audioConfig.RxDuckDepthDb = RxDuck.DepthDb;
+            var liveTrims = new List<AudioOutputConfig.EarconLevelTrim>();
+            foreach (var kv in EarconPlayer.GetAllLevelTrimsDb())
+                liveTrims.Add(new AudioOutputConfig.EarconLevelTrim { Id = kv.Key, Db = kv.Value });
+            // Sorted by id for a stable file, mirroring CaptureFromEngine.
+            liveTrims.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
+            _audioConfig.EarconLevelTrims = liveTrims;
+
             // Apply audio settings immediately
             _audioConfig.Apply();
 
@@ -1595,5 +1615,172 @@ namespace JJFlexWpf.Dialogs
                         Radios.VerbosityLevel.Critical, true);
             }
         }
+
+        #region #116 / #384 — the warning duck and per-sound loudness (Sprint 42 Track F)
+
+        // Every sound the trim picker offers, in combo order: category groups
+        // in catalog order, then anything uncategorised — the same walk of the
+        // same registry the Earcon Explorer makes, so the two surfaces can
+        // never disagree about what exists.
+        private readonly List<EarconEntry> _trimEntries = new();
+
+        // Populating the combo raises SelectionChanged, and a Settings dialog
+        // that plays a sound on the way open would be a bug — the same
+        // reasoning as _suppressSoundPreviews for the three sound pickers.
+        private bool _suppressTrimPreview;
+
+        /// <summary>
+        /// Wire the duck (#116) and per-sound trim (#384) controls on the
+        /// Notifications tab.
+        /// </summary>
+        /// <remarks>
+        /// Both surfaces apply LIVE, which is the Audio tab's rule for values
+        /// found by ear: a dip depth or a loudness trim that only lands after
+        /// an OK-and-reopen round trip cannot be found by ear at all. They
+        /// initialise from the live statics rather than from
+        /// <see cref="_audioConfig"/> for the same reason — the statics ARE
+        /// the audible truth — and <see cref="SaveSettings"/> captures them
+        /// back into the config before Apply() so a commit persists exactly
+        /// what the operator is hearing.
+        /// </remarks>
+        private void InitializeSoundAdjustments()
+        {
+            // #116 — the duck. The depth panel collapses rather than disables
+            // when the duck is off (house rule: nothing that cannot act stays
+            // in the tab order).
+            RxDuckEnabledCheck.IsChecked = RxDuck.Enabled;
+            RxDuckDepthPanel.Visibility =
+                RxDuck.Enabled ? Visibility.Visible : Visibility.Collapsed;
+            RxDuckDepthControl.Setup(Lexicon.Get("settings.sound.duck_depth_label"),
+                0, (int)RxDuck.MaxDepthDb, 1, (int)Math.Round(RxDuck.DepthDb),
+                unit: Lexicon.Get("settings.audio.decibel_unit"));
+            RxDuckDepthControl.ValueChanged += RxDuckDepth_ValueChanged;
+
+            // #384 — the trims. The value control is set up BEFORE the combo
+            // is filled, because filling the combo selects an entry and the
+            // selection handler writes this control — against the default
+            // 0..100 range a -6 would clamp to zero.
+            EarconTrimControl.Setup(Lexicon.Get("settings.sound.trim_label"),
+                (int)EarconPlayer.MinLevelTrimDb, (int)EarconPlayer.MaxLevelTrimDb, 1,
+                unit: Lexicon.Get("settings.audio.decibel_unit"));
+            EarconTrimControl.ValueChanged += EarconTrim_ValueChanged;
+
+            _suppressTrimPreview = true;
+            try
+            {
+                foreach (var category in EarconCatalog.Categories)
+                    foreach (var entry in EarconCatalog.InCategory(category))
+                        AddTrimEntry(entry);
+                foreach (var entry in EarconCatalog.Uncategorised)
+                    AddTrimEntry(entry);
+                if (EarconTrimSoundCombo.Items.Count > 0)
+                    EarconTrimSoundCombo.SelectedIndex = 0;
+            }
+            finally
+            {
+                _suppressTrimPreview = false;
+            }
+        }
+
+        private void AddTrimEntry(EarconEntry entry)
+        {
+            _trimEntries.Add(entry);
+            EarconTrimSoundCombo.Items.Add(entry.Label + " — " + entry.CategoryLabel);
+        }
+
+        private EarconEntry? SelectedTrimEntry()
+        {
+            int idx = EarconTrimSoundCombo.SelectedIndex;
+            return idx >= 0 && idx < _trimEntries.Count ? _trimEntries[idx] : null;
+        }
+
+        /// <summary>Whether this entry's family switch currently lets it play.</summary>
+        private static bool TrimEntryCategoryLive(EarconEntry entry) =>
+            entry.Category is not { } cat || EarconPlayer.GetCategoryEnabled(cat);
+
+        private void EarconTrimSoundCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var entry = SelectedTrimEntry();
+            if (entry == null) return;
+
+            EarconTrimControl.SuppressEvents = true;
+            EarconTrimControl.Value = (int)Math.Round(EarconPlayer.GetLevelTrimDb(entry.Id));
+            EarconTrimControl.SuppressEvents = false;
+
+            // The Stop button exists only while it could do something.
+            EarconTrimStopButton.Visibility =
+                entry.IsContinuous ? Visibility.Visible : Visibility.Collapsed;
+
+            // Preview on selection, because finding a sound by ear beats
+            // finding it by name — the same rule as the three sound pickers.
+            // Continuous sounds are excluded (arrowing past one must not
+            // start a loop), and a gated family previews as silence rather
+            // than as a spoken refusal on every arrow press; the Play button
+            // gives the refusal its words on demand.
+            if (_suppressTrimPreview || entry.IsContinuous) return;
+            if (!EarconPlayer.EarconsEnabled || !TrimEntryCategoryLive(entry)) return;
+            entry.Play();
+        }
+
+        private void EarconTrim_ValueChanged(object? sender, int value)
+        {
+            var entry = SelectedTrimEntry();
+            if (entry == null) return;
+            // Live, so the next preview or Play is already at the new trim.
+            // The player clamps and treats zero as "no trim".
+            EarconPlayer.SetLevelTrimDb(entry.Id, value);
+        }
+
+        private void EarconTrimPlayButton_Click(object sender, RoutedEventArgs e)
+        {
+            var entry = SelectedTrimEntry();
+            if (entry == null) return;
+
+            // Never a dead button: say why instead of playing silence.
+            if (!EarconPlayer.EarconsEnabled)
+            {
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.sound.trim_master_off"),
+                    VerbosityLevel.Terse, true);
+                return;
+            }
+            if (!TrimEntryCategoryLive(entry))
+            {
+                ScreenReaderOutput.Speak(Lexicon.Get("settings.sound.trim_family_off"),
+                    VerbosityLevel.Terse, true);
+                return;
+            }
+
+            entry.Play();
+        }
+
+        private void EarconTrimStopButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Stopping an already-stopped sound is a harmless no-op, and the
+            // silence that follows a real stop is its own confirmation.
+            SelectedTrimEntry()?.Stop?.Invoke();
+        }
+
+        /// <summary>
+        /// Checked AND Unchecked, not Click, so the handler hears every state
+        /// change however it happens — a press, the Space bar, or code — and
+        /// stays idempotent because of it (integration-pass rule).
+        /// </summary>
+        private void RxDuckEnabledCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            if (RxDuckDepthPanel == null) return; // fired mid-construction
+            bool on = RxDuckEnabledCheck.IsChecked == true;
+            // Live — the next warning obeys immediately, and unchecking
+            // mid-audition is itself an audition ("play the alarm, now
+            // without the dip").
+            RxDuck.Enabled = on;
+            RxDuckDepthPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void RxDuckDepth_ValueChanged(object? sender, int value)
+        {
+            RxDuck.DepthDb = value; // live; the setter clamps 0..12
+        }
+
+        #endregion
     }
 }
