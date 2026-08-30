@@ -263,7 +263,12 @@ namespace Radios.Tests
             Lexicon.Get("connect.row.display",
                 ("fav", ""), ("autoConn", ""), ("lbw", ""),
                 ("namePart", "6300inshack"), ("modelPart", "FLEX-6300"),
-                ("whereText", whereText));
+                ("whereText", whereText),
+                // Empty on purpose: these tests pin the row's account states,
+                // and the unoccupied radio is the common case — the occupancy
+                // token must vanish without a trace. RadioOccupancyTests owns
+                // the occupied wording.
+                ("occupancy", ""));
 
         /// <summary>
         /// The state #382 added, and the reason it had to exist: opening the
