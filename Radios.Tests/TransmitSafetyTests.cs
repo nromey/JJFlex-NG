@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using Xunit;
 
 namespace Radios.Tests
@@ -222,6 +225,57 @@ namespace Radios.Tests
                 true, true, 17.5f, float.NaN, false));
         }
 
+        // ---- the disarmed reminder (#224, ruled defeatable 2026-08-30) ----
+        //
+        // The cut has an off switch now, and the mitigation that came WITH the
+        // ruling is that the alarm must not let the operator forget they used
+        // it: a defeatable safety that is off and still trusted is worse than
+        // no safety, because it is trusted.
+
+        [Fact]
+        public void With_the_cut_disarmed_the_warning_says_no_cut_is_coming()
+        {
+            // The moment the cut would have acted is the one moment the
+            // operator must be reminded they turned it off.
+            string s = TransmitSafety.ReflectedWarningText(
+                0.76f, "ANT1", dummyLoadDeclared: false, cutDisarmed: true);
+
+            Assert.Contains("cutoff is turned off", s);
+            Assert.Contains("ANT1", s);
+            Assert.Contains("76", s);
+            Assert.DoesNotContain("{", s);
+        }
+
+        [Fact]
+        public void With_the_cut_armed_the_warning_keeps_quiet_about_the_setting()
+        {
+            // The negative control. A sentence that always mentioned the
+            // setting would pass the test above while burying the reminder in
+            // routine noise — which is how an operator learns to stop hearing
+            // it, the exact failure the reminder exists to prevent.
+            Assert.DoesNotContain("turned off",
+                TransmitSafety.ReflectedWarningText(0.76f, "ANT1"));
+            Assert.DoesNotContain("turned off",
+                TransmitSafety.ReflectedWarningText(
+                    0.76f, "ANT1", dummyLoadDeclared: false, cutDisarmed: false));
+        }
+
+        [Fact]
+        public void The_disarmed_reminder_composes_with_every_variant_of_the_sentence()
+        {
+            // Named or unnamed antenna, declared load or not — the reminder
+            // rides along in all four shapes, with no dangling placeholder.
+            foreach (bool named in new[] { true, false })
+                foreach (bool dummy in new[] { true, false })
+                {
+                    string s = TransmitSafety.ReflectedWarningText(
+                        0.76f, named ? "ANT2" : "", dummy, cutDisarmed: true);
+
+                    Assert.Contains("cutoff is turned off", s);
+                    Assert.DoesNotContain("{", s);
+                }
+        }
+
         [Fact]
         public void The_cut_sentence_says_you_are_no_longer_on_the_air()
         {
@@ -236,6 +290,107 @@ namespace Radios.Tests
             string plain = TransmitSafety.ReflectedCutText(0.76f, "");
             Assert.Contains("no longer on the air", plain);
             Assert.DoesNotContain("{", plain);
+        }
+    }
+
+    /// <summary>
+    /// Both live alarm paths tell ReflectedWarningText whether the cut is
+    /// disarmed (#224).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Source-read, in the TransmitKillSwitchRoutingTests family, and for the
+    /// same reason: the parameter is optional — it has to be, or every test of
+    /// the sentence itself would be forced to answer a wiring question — so a
+    /// live call site that forgets it compiles clean, reviews clean, and
+    /// silently reverts the warning to trusting a cut that is off. A
+    /// behavioural test cannot reach either site: both need a FlexBase.
+    /// </para>
+    /// <para>
+    /// The sweep proves it looked (both files must yield at least one call
+    /// site) before it proves anything else — a broken path constant would
+    /// otherwise read as a clean bill of health.
+    /// </para>
+    /// </remarks>
+    public sealed class ReflectedWarningWiringTests
+    {
+        // The two live alarm paths. TransmitSafety.cs itself is not here — it
+        // is the definition, not a caller — and test files are not here
+        // because a test may legitimately omit the parameter.
+        private static readonly string[] LiveAlarmFiles =
+        {
+            "JJFlexWpf/PttSafetyController.cs",
+            "Radios/TransmitKillSwitch.cs",
+        };
+
+        [Fact]
+        public void Every_live_warning_call_site_passes_cutDisarmed()
+        {
+            string root = RepoRoot();
+            foreach (string rel in LiveAlarmFiles)
+            {
+                string path = Path.Combine(root, rel.Replace('/', Path.DirectorySeparatorChar));
+                Assert.True(File.Exists(path),
+                    "The sweep cannot find " + rel + " — fix the path, do not delete the test.");
+
+                string text = File.ReadAllText(path);
+                var calls = CallArgumentSpans(text, "ReflectedWarningText(");
+
+                // Positive control: a file with no call sites means the sweep
+                // (or the code) moved, not that all is well.
+                Assert.True(calls.Count > 0,
+                    rel + " has no ReflectedWarningText call site; if the "
+                    + "warning moved, move this sweep with it.");
+
+                foreach (string args in calls)
+                {
+                    Assert.True(args.Contains("cutDisarmed:"),
+                        rel + " calls ReflectedWarningText without saying "
+                        + "whether the cut is disarmed. With the setting off, "
+                        + "that warning would silently stop reminding the "
+                        + "operator that no cut is coming (#224): "
+                        + Condense(args));
+                }
+            }
+        }
+
+        /// <summary>The argument text of each call, to the matching close paren.</summary>
+        private static List<string> CallArgumentSpans(string text, string callToken)
+        {
+            var spans = new List<string>();
+            int at = 0;
+            while ((at = text.IndexOf(callToken, at, StringComparison.Ordinal)) >= 0)
+            {
+                int start = at + callToken.Length;
+                int depth = 1;
+                int i = start;
+                while (i < text.Length && depth > 0)
+                {
+                    if (text[i] == '(') depth++;
+                    else if (text[i] == ')') depth--;
+                    i++;
+                }
+                spans.Add(text.Substring(start, i - start - 1));
+                at = i;
+            }
+            return spans;
+        }
+
+        private static string Condense(string s)
+        {
+            return string.Join(" ",
+                s.Split((char[])null!, StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        private static string RepoRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) return dir.FullName;
+                dir = dir.Parent;
+            }
+            return AppContext.BaseDirectory;
         }
     }
 }

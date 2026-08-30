@@ -42,5 +42,16 @@ JJ Flexible Radio Access includes several built-in transmit-safety features, eac
 - The `F12` key is a global emergency stop for CW transmission — it works from anywhere in the application.
 - The TX status is always a single keystroke away, via `Alt+Shift+S`.
 - The Tune Carrier toggle (`Ctrl+Shift+T`) has clear audio feedback — an earcon plus speech — so you always know whether the radio is radiating a carrier.
+- Your forward and reflected power are watched the whole time you transmit — see Reflected-Power Protection below.
+
+## Reflected-Power Protection
+
+While you are transmitting, JJ Flexible watches your forward and reflected power. If most of your power is coming back at you instead of leaving — a disconnected antenna, a failed feed line, transmitting on the wrong antenna port — you hear a warning earcon and a spoken message that names the transmit antenna, for example: "76 percent of your power is coming back on ANT1. Check that the antenna is connected." The message is deliberately built from forward and reflected power rather than the SWR meter, because an SWR meter can read perfectly normal while most of your power is arriving back at the radio.
+
+If that warning has fired and you are still keyed above 10 watts of forward power, JJ Flexible also ends the transmission for you and says so plainly: what happened, why, and that you are no longer on the air. Your radio already protects itself by folding its power back, and it sounds its own alarm — this cut is an extra layer on top of both, for the operator who cannot glance at a meter mid-over.
+
+The cut is a setting, on by default: **Cut transmit if the reflected-power alarm fires above 10 watts**, on the PTT tab of Settings. If you deliberately operate into a mismatched or reactive load — an experimental antenna, or an outboard tuner you adjust on the air — you can switch it off. While it is off, the reflected-power warning reminds you each time it fires that transmit will not be stopped for you, so a protection you switched off is never a protection you still think you have.
+
+Both the warning and the cut stand down while your radio's antenna tuner is running a tune cycle. High reflected power during a tune is the tuner doing its job, and a warning that fired on every tune-up would teach you to ignore the one that matters.
 
 **Warning:** Always verify that you are on the correct frequency and in the correct mode before you transmit. Press `F2` at any time to hear the current frequency spoken.

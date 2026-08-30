@@ -580,6 +580,8 @@
   "settings.ptt.local_already_on": "Local PTT is already on",
   "settings.ptt.local_on": "Local PTT on",
   "settings.ptt.receiving": "Receiving",
+  "settings.ptt.reflected_cut_help": "When this is on and the reflected power alarm fires while you are transmitting above 10 watts forward, your transmission is ended for you, and you are told so. The radio already folds its power back and sounds its own alarm; this cut is a third layer of protection on top of those two. Turn it off only if you deliberately run a mismatched or reactive load, such as an experimental antenna or an outboard tuner you adjust on the air. With it off, a transmission into a failed antenna keeps going until you stop it yourself. The warning still sounds either way, and while the cut is off, the warning reminds you that it is off.",
+  "settings.ptt.reflected_cut_off_spoken": "Reflected power cutoff off. If the reflected power alarm fires, your transmission will keep going. Nothing will stop transmit for you, even into a failed antenna. The alarm will still sound, and it will remind you the cutoff is off.",
   "settings.ptt.timeout_out_of_range": "Timeout must be between 10 and 900 seconds.",
   "settings.ptt.warning1_not_a_number": "First warning must be a number.",
   "settings.ptt.warning2_not_a_number": "Second warning must be a number.",

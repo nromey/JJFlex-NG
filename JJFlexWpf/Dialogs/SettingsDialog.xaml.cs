@@ -214,6 +214,12 @@ namespace JJFlexWpf.Dialogs
             // for the same reason the radio output levels are.
             InitializeSoundAdjustments();
 
+            // The reflected cut's full explanation is Ctrl+F1, on demand —
+            // NOT AutomationProperties.HelpText, which NVDA recites as the
+            // control's description on every focus (#91).
+            JJFlexHelp.SetText(ReflectedCutCheckbox,
+                Lexicon.Get("settings.ptt.reflected_cut_help"));
+
             LoadSettings();
         }
 
@@ -233,6 +239,14 @@ namespace JJFlexWpf.Dialogs
             PttAlcBox.Text = _pttConfig.AlcAutoReleaseSeconds.ToString();
             PttSpeechCheckbox.IsChecked = _pttConfig.SpeechEnabled;
             ChirpEnabledCheckbox.IsChecked = _pttConfig.ChirpEnabled;
+
+            // Suppressed like every other programmatic load in this dialog: an
+            // operator who saved the cut OFF has already heard the warning and
+            // made the choice — re-lecturing them on every open of Settings
+            // would teach them to stop hearing it.
+            _suppressReflectedCutWarning = true;
+            try { ReflectedCutCheckbox.IsChecked = _pttConfig.CutTransmitOnReflectedAlarm; }
+            finally { _suppressReflectedCutWarning = false; }
 
             // Tuning tab
             foreach (var choice in _coarseStepOptions)
@@ -1307,6 +1321,7 @@ namespace JJFlexWpf.Dialogs
             _pttConfig.AlcAutoReleaseSeconds = alc;
             _pttConfig.SpeechEnabled = PttSpeechCheckbox.IsChecked == true;
             _pttConfig.ChirpEnabled = ChirpEnabledCheckbox.IsChecked == true;
+            _pttConfig.CutTransmitOnReflectedAlarm = ReflectedCutCheckbox.IsChecked == true;
             _pttConfig.Validate();
 
             // Tuning tab
@@ -1567,6 +1582,35 @@ namespace JJFlexWpf.Dialogs
         private void TuneDebounceCheckbox_Changed(object sender, RoutedEventArgs e)
         {
             DebounceDelayPanel.IsEnabled = TuneDebounceCheckbox.IsChecked == true;
+        }
+
+        /// <summary>True while LoadSettings assigns the reflected-cut checkbox,
+        /// so a saved OFF does not lecture the operator on every open.</summary>
+        private bool _suppressReflectedCutWarning;
+
+        /// <summary>
+        /// Disarming the reflected-power cut is never a silent flip (#224).
+        /// </summary>
+        /// <remarks>
+        /// The failure this guards: an operator unchecks it casually, forgets,
+        /// and months later transmits into a genuinely failed antenna trusting
+        /// a guard that is off — a defeatable safety that is off and still
+        /// trusted is worse than no safety. So the uncheck itself says what is
+        /// being given up, out loud, right now. Critical because it must
+        /// outrank the verbosity filter the way the reflected warning itself
+        /// does; no interrupt, so the screen reader's own "not checked" lands
+        /// first and this follows. The flip still commits on OK like its
+        /// neighbours — this is the receipt for the choice, not the apply.
+        /// Re-checking is deliberately quiet: "checked" already says the
+        /// protection is back, and speech that repeats the obvious trains the
+        /// operator to stop listening (see the reflected warning's own
+        /// once-per-transmission rule).
+        /// </remarks>
+        private void ReflectedCutCheckbox_Unchecked(object sender, RoutedEventArgs e)
+        {
+            if (_suppressReflectedCutWarning) return;
+            ScreenReaderOutput.Speak(Lexicon.Get("settings.ptt.reflected_cut_off_spoken"),
+                VerbosityLevel.Critical);
         }
 
         private void AudioWorkshopButton_Click(object sender, RoutedEventArgs e)
