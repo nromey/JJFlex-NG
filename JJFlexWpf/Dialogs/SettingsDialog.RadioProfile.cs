@@ -128,35 +128,20 @@ namespace JJFlexWpf.Dialogs
 
         private void PopulateRadioProfilePicker()
         {
-            var items = new List<RadioProfileItem>();
-            var dir = RadioConfig.BaseDirectory;
-            if (!string.IsNullOrEmpty(dir))
-            {
-                foreach (var id in RadioConfig.ListKnownRadioIds(dir))
-                {
-                    var cfg = RadioConfig.Load(dir, id);
-                    items.Add(new RadioProfileItem
-                    {
-                        Id = id,
-                        Display = string.IsNullOrEmpty(cfg.DisplayName)
-                            ? id
-                            : Lexicon.Get("settings.profile.picker_named",
-                                ("displayName", cfg.DisplayName), ("id", id))
-                    });
-                }
-            }
-
-            // The connected radio belongs in the list even before its first
-            // saved profile.
+            // Entries, labels and order all come from the one non-UI model
+            // (task #391's Settings half): every row leads with a name or a
+            // model, never a bare serial when anything better is known, and
+            // the order is the one a person looks in — connected, favorites,
+            // most recently seen, never-seen last. Radios.Tests pins all of
+            // it; this method only paints.
             var connected = _rig?.ConnectedSerial;
-            if (!string.IsNullOrEmpty(connected) && items.All(i => i.Id != connected))
-            {
-                items.Insert(0, new RadioProfileItem
-                {
-                    Id = connected,
-                    Display = Lexicon.Get("settings.profile.picker_connected", ("connected", connected)),
-                });
-            }
+            var items = RadioProfilePickerModel.Build(
+                    RadioConfig.BaseDirectory,
+                    connected,
+                    _rig?.RadioNickname ?? "",
+                    _rig?.RadioModel ?? "")
+                .Select(e => new RadioProfileItem { Id = e.Id, Display = e.Label })
+                .ToList();
 
             RadioProfilePicker.ItemsSource = items;
             if (items.Count > 0)
@@ -321,6 +306,17 @@ namespace JJFlexWpf.Dialogs
             }
         }
 
+        /// <summary>
+        /// The sentence spoken as the picker moves between radios. It LEADS
+        /// with the radio's identity, and that lead is load-bearing: this is
+        /// spoken with interrupt on every selection change, which flushes the
+        /// screen reader's own announcement of the item that was just
+        /// selected. Until 2026-08-30 it led with "Profile:", so arrowing
+        /// through four radios was heard as "profile: automatic" three times —
+        /// the operator reported a radio MISSING from the list because no
+        /// utterance anywhere named it. Whatever the race between this speech
+        /// and the reader's own, the first words must say which radio.
+        /// </summary>
         private static string DescribeRadioProfile(RadioConfig cfg)
         {
             string mode = cfg.ConnectionPreference switch
@@ -389,6 +385,7 @@ namespace JJFlexWpf.Dialogs
                 ? Lexicon.Get("settings.profile.describe_change_nothing")
                 : "";
             return Lexicon.Get("settings.profile.describe",
+                ("who", RadioProfilePickerModel.SpokenNameFor(cfg)),
                 ("mode", mode), ("port", port), ("waivers", waivers), ("reach", reach),
                 ("remOn", remOn), ("smartLink", smartLink), ("owned", owned),
                 ("smeterUnits", smeterUnits), ("changeNothing", changeNothing));
@@ -822,7 +819,8 @@ namespace JJFlexWpf.Dialogs
                         if (item != null) RadioProfilePicker.SelectedItem = item;
                     }
                     RadioProfileStatusText.Text =
-                        Lexicon.Get("settings.profile.punch_port_invalid", ("radioId", radioId));
+                        Lexicon.Get("settings.profile.punch_port_invalid",
+                            ("disp", RadioProfilePickerModel.LabelFor(RadioConfig.LoadForRadio(radioId))));
                     ScreenReaderOutput.Speak(Lexicon.Get("settings.profile.punch_port_invalid_spoken"),
                         VerbosityLevel.Terse, interrupt: true);
                     RadioProfilePunchPortBox.Focus();
@@ -836,10 +834,7 @@ namespace JJFlexWpf.Dialogs
             {
                 var cfg = RadioConfig.LoadForRadio(radioId);
                 bool connected = IsConnectedTo(radioId);
-                string disp = string.IsNullOrEmpty(cfg.DisplayName)
-                    ? radioId
-                    : Lexicon.Get("settings.profile.picker_named",
-                        ("displayName", cfg.DisplayName), ("id", radioId));
+                string disp = RadioProfilePickerModel.LabelFor(cfg);
                 var notesQueued = new List<string>();
                 var notesApplied = new List<string>();
                 bool changed = false;
