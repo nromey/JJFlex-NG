@@ -340,9 +340,25 @@ namespace Radios.Tests
                 "the countdown pacing reaches " + supplied + " of the two keying boundaries, so "
                 + "at least one of them is falling back to the conservative default");
 
-            // And it is DERIVED, not restated. The rule is "the start of the
-            // countdown's final element", asked of the figure itself.
-            Assert.Contains("EarconPlayer.CountdownSteps(", dialog, StringComparison.Ordinal);
+            // And it is DERIVED, not restated.
+            //
+            // THE RULE CHANGED 2026-08-30 AND THIS ASSERTION CHANGED WITH IT.
+            // It used to read "the start of the countdown's final element",
+            // summed from CountdownSteps. Noel ruled that the radio must
+            // already be TRANSMITTING when the landing sounds — MOX does not
+            // engage the instant it is commanded — so the key-up goes out on
+            // the last counting dit and the final second of the count absorbs
+            // the latency. The old rule keyed 1,240 ms later, at the landing's
+            // second note, an instant nobody had ever described.
+            //
+            // This guard did its job: it failed the moment the derivation
+            // moved, which is exactly what it was written for. What it could
+            // not tell anyone is that the rule it was pinning had been wrong
+            // since the day it was written, while three other artifacts stated
+            // the right one. See CountdownKeyUpRuleTests, which adds the check
+            // that would have caught THAT — whether the constant carrying the
+            // documented reasoning has any callers at all.
+            Assert.Contains("EarconPlayer.CountdownLastDitAtMs", dialog, StringComparison.Ordinal);
         }
 
         [Fact]

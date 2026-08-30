@@ -215,7 +215,11 @@ public sealed class FixerDialog : JJFlexDialog
             countdown: FixerCountdown.TransmitTone,
             // And WHEN the key-up falls inside that count — derived from the
             // sound itself, never copied. See CountdownKeyUpMs.
-            countdownKeyUpAtMs: CountdownKeyUpMs());
+            countdownKeyUpAtMs: CountdownKeyUpMs(),
+            // And how long that count SOUNDS, which is a different number and
+            // 1.8 s later. The spoken stage waits it out before asking anyone
+            // to talk — see WaitOutTheCountdown.
+            countdownDurationMs: CountdownDurationMs());
 
         var hosts = new TransmitStageSet.Hosts
         {
@@ -411,13 +415,36 @@ public sealed class FixerDialog : JJFlexDialog
     /// build, no merge and no test could notice them parting company.
     /// </para>
     /// <para>
-    /// <b>The rule, and it is shape-independent on purpose:</b> key up at the
-    /// start of the countdown's FINAL element. Everything before it is warning
-    /// the operator can still act on — that is their abort window (#236) — and
-    /// the final element is the arrival. Stated this way it survives a retune of
-    /// the beat, a change in the number of counts, and the gaps #396 adds
-    /// between them, because it asks the figure how long it is rather than
-    /// remembering an answer.
+    /// <b>The rule, RULED BY NOEL 2026-08-30:</b> key up at the start of the
+    /// LAST COUNTING DIT — <see cref="EarconPlayer.CountdownLastDitAtMs"/> —
+    /// so that the radio is ALREADY TRANSMITTING when the landing sounds.
+    /// </para>
+    /// <para>
+    /// <b>The distinction is the whole point, and it is easy to lose.</b> "Start
+    /// transmitting at the ding" and "send the key-up at the ding" are different
+    /// instants, because MOX does not engage the moment it is commanded. Keying
+    /// a beat early spends the count's last second absorbing that latency, so
+    /// the landing coincides with the radio actually coming up. The landing then
+    /// MEANS "you are transmitting" rather than "you are about to" — which is
+    /// what the Earcon Explorer has always told the operator ("the two seconds
+    /// before that last count are your window to stop it") and what #261
+    /// specified.
+    /// </para>
+    /// <para>
+    /// <b>This derivation was wrong from the day it was written, and three
+    /// artifacts said so.</b> It summed every element but the last, which put
+    /// key-up 1,240 ms late — at the start of the landing's SECOND note, an
+    /// instant nobody had ever described. `CountdownLastDitAtMs` already
+    /// computed the right answer, carried the reasoning above in its own doc
+    /// comment, and had ZERO CALLERS. The boundary's fallback agreed with the
+    /// orphan. The Explorer's operator-facing sentence agreed with the orphan.
+    /// Only the running code disagreed, and no test pinned either value, so
+    /// nothing could fail. Found by the Sprint 42 integration pass.
+    /// </para>
+    /// <para>
+    /// It stays shape-independent: the orphan derives from the count and the
+    /// interval, so it survives a retune of the beat and a change in the number
+    /// of counts without anyone remembering to follow it.
     /// </para>
     /// <para>
     /// <b>It errs LATE, never early.</b> An unexpected shape, an empty figure or
@@ -426,17 +453,40 @@ public sealed class FixerDialog : JJFlexDialog
     /// operator the window in which they could have stopped it.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// How long the transmit countdown SOUNDS, end to end. A different number
+    /// from the key-up, and later than it.
+    /// </summary>
+    /// <remarks>
+    /// <b>These two being different is the whole point.</b> The key-up goes out
+    /// on the last counting dit so the radio is transmitting by the landing;
+    /// the landing then sounds for another second and a half. A stage that
+    /// treats MOX confirmation as "the countdown is over" talks over its own
+    /// warning and measures the landing as the operator's voice. Derived, like
+    /// the key-up, so retuning the beat moves both.
+    /// </remarks>
+    private static int CountdownDurationMs()
+    {
+        try
+        {
+            int ms = EarconPlayer.CountdownDurationMs(transmit: true);
+            return ms > 0 ? ms : FixerTransmitAudioBoundary.DefaultCountdownDurationMs;
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("FixerDialog: the countdown's length could not be read, so the "
+                              + "spoken cue falls back to the conservative default — " + ex.Message,
+                              TraceLevel.Warning);
+            return FixerTransmitAudioBoundary.DefaultCountdownDurationMs;
+        }
+    }
+
     private static int CountdownKeyUpMs()
     {
         try
         {
-            (int freq, int ms)[] steps = EarconPlayer.CountdownSteps(transmit: true);
-            if (steps == null || steps.Length < 2)
-                return FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs;
-
-            int total = 0;
-            for (int i = 0; i < steps.Length - 1; i++) total += steps[i].ms;
-            return total > 0 ? total : FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs;
+            int at = EarconPlayer.CountdownLastDitAtMs;
+            return at > 0 ? at : FixerTransmitAudioBoundary.DefaultCountdownKeyUpMs;
         }
         catch (Exception ex)
         {

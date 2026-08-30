@@ -126,6 +126,21 @@ namespace Radios.ChainChecks
         /// </remarks>
         public const int DefaultCountdownKeyUpMs = 2000;
 
+        /// <summary>
+        /// The beat of silence between the countdown's last sound and the
+        /// moment the operator is asked to speak. Noel, 2026-08-30: <i>"if
+        /// there's 300 ms of silence to give it time, that's ok too."</i>
+        /// </summary>
+        public const int DefaultCountdownSettleMs = 300;
+
+        /// <summary>
+        /// How long the countdown SOUND lasts, when the host does not say.
+        /// Deliberately the full transmit figure at the shipping timings, so a
+        /// host that reports nothing still waits the sound out rather than
+        /// talking over it.
+        /// </summary>
+        public const int DefaultCountdownDurationMs = 3840;
+
         private readonly FixerTransmitGate _gate;
         private readonly FixerTransmitBoundary.RadioSource _radio;
         private readonly VoicePreparer _prepareVoice;
@@ -144,6 +159,37 @@ namespace Radios.ChainChecks
         private readonly int _countdownKeyUpAtMs;
 
         /// <summary>
+        /// How long the countdown SOUND lasts, in milliseconds from its start.
+        /// Published by the host beside the sound it plays, never copied.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The key-up is not the end of the countdown, and conflating them
+        /// is what this exists to stop.</b> The count starts, the key-up goes
+        /// out on the last dit so the radio is transmitting by the landing —
+        /// and the LANDING IS STILL PLAYING for another second and a half. A
+        /// stage that cues the operator the moment MOX confirms therefore says
+        /// "speak now" over its own countdown, and then measures the landing as
+        /// if it were the operator's voice.
+        /// </para>
+        /// <para>
+        /// Found by the Sprint 42 integration pass. The record stage already
+        /// waits the sound out — <c>MicCountdownSoundMs</c>, fixed when it was
+        /// discovered to be 600 ms short and leaving the landing ringing inside
+        /// the capture, which makes a quiet shack read as noisy. The transmit
+        /// stages never had the equivalent wait at all.
+        /// </para>
+        /// </remarks>
+        private readonly int _countdownDurationMs;
+
+        /// <summary>
+        /// Running since the countdown began, so the wait above is measured
+        /// from the sound's own start rather than from whenever MOX happened to
+        /// confirm. Null until a countdown has actually been started.
+        /// </summary>
+        private Stopwatch _sinceCountdown;
+
+        /// <summary>
         /// Stage 3's meter capture, kept for stage 4's comparison. Replaced on
         /// an injected re-run; null until the injected stage has really keyed.
         /// </summary>
@@ -158,7 +204,8 @@ namespace Radios.ChainChecks
                                            Action speakNow,
                                            Action speakDone,
                                            Action countdown,
-                                           int countdownKeyUpAtMs)
+                                           int countdownKeyUpAtMs,
+                                           int countdownDurationMs)
         {
             _gate = gate;
             _radio = radio;
@@ -173,6 +220,14 @@ namespace Radios.ChainChecks
             // host that reports nonsense must not be able to bring RF forward.
             _countdownKeyUpAtMs = countdownKeyUpAtMs > 0
                 ? countdownKeyUpAtMs : DefaultCountdownKeyUpMs;
+
+            // Same shape, same reason: a host that reports nothing or nonsense
+            // waits the full figure out rather than cutting it short. Erring
+            // long costs a moment of silence on a keyed but silent SSB
+            // transmitter, which radiates nothing; erring short puts our own
+            // sound inside the operator's measurement.
+            _countdownDurationMs = countdownDurationMs > 0
+                ? countdownDurationMs : DefaultCountdownDurationMs;
         }
 
         /// <summary>
@@ -228,12 +283,15 @@ namespace Radios.ChainChecks
                                                         Action speakDone = null,
                                                         Action countdown = null,
                                                         int countdownKeyUpAtMs =
-                                                            DefaultCountdownKeyUpMs)
+                                                            DefaultCountdownKeyUpMs,
+                                                        int countdownDurationMs =
+                                                            DefaultCountdownDurationMs)
         {
             if (gate == null || radio == null) return null;
             return new FixerTransmitAudioBoundary(gate, radio, prepareVoice, pcMicrophone,
                                                   pcChainFacts, stopRequested, speakNow,
-                                                  speakDone, countdown, countdownKeyUpAtMs);
+                                                  speakDone, countdown, countdownKeyUpAtMs,
+                                                  countdownDurationMs);
         }
 
         // ================================================================
@@ -711,9 +769,26 @@ namespace Radios.ChainChecks
 
                 _gate.NoteKeyed(stageId);
 
-                // Only now — after the radio has confirmed — is the operator
-                // told to speak. A cue before confirmation would have them
-                // talking into a transmitter that may never key.
+                // AND ONLY NOW IS THE COUNTDOWN ACTUALLY OVER. The key-up goes
+                // out on the last dit so the radio is up by the landing; the
+                // landing itself is still sounding for another second and a
+                // half after that. Cueing at MOX confirmation said "speak now"
+                // over our own counting and then measured the landing as if it
+                // were the operator's voice, through a live microphone in the
+                // same room as the speaker playing it.
+                if (!WaitOutTheCountdown())
+                {
+                    Tracing.TraceLine("FixerTransmitAudioBoundary: stopped while the countdown "
+                                      + "finished sounding; nothing was asked of the operator",
+                                      TraceLevel.Info);
+                    facts.Detail = "The check was stopped before you were asked to speak.";
+                    return facts;
+                }
+
+                // Only now — after the radio has confirmed AND the countdown
+                // has finished — is the operator told to speak. A cue before
+                // confirmation would have them talking into a transmitter that
+                // may never key.
                 cuedToSpeak = true;
                 Witness(_speakNow, "speakNow");
 
@@ -793,7 +868,48 @@ namespace Radios.ChainChecks
         /// so the timing an operator learns does not change with the sound.
         /// </summary>
         private bool CountdownThenReadyToKey()
-            => CountUnkeyedThenReadyToKey(_countdown, _stopRequested, _countdownKeyUpAtMs);
+        {
+            // Started here rather than inside the helper, because the helper is
+            // also called directly by tests and by the tune probe. A stopwatch
+            // from the sound's own start is what lets a later stage know how
+            // much of the countdown is still playing.
+            _sinceCountdown = Stopwatch.StartNew();
+            return CountUnkeyedThenReadyToKey(_countdown, _stopRequested, _countdownKeyUpAtMs);
+        }
+
+        /// <summary>
+        /// Wait, keyed, until the countdown has finished sounding and a beat of
+        /// silence has passed. Returns false if a stop arrived while waiting.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Called only by the spoken stage, deliberately.</b> The injected
+        /// stage replaces the microphone at the injection point, so nothing of
+        /// ours can reach its measurement acoustically and the wait would buy
+        /// it only a longer carrier. The spoken stage has the operator's real
+        /// microphone live in the room, which is exactly where the landing can
+        /// be heard.
+        /// </para>
+        /// <para>
+        /// <b>It costs a keyed but silent transmitter, and that is cheap.</b>
+        /// Noel, 2026-08-30: <i>"if the mic isn't actually activated, if the
+        /// radio's transmitting, we're not producing RF until the exciter
+        /// receives audio."</i> On SSB the silence radiates nothing, so erring
+        /// long here is close to free — which is why the fallbacks err long.
+        /// </para>
+        /// </remarks>
+        private bool WaitOutTheCountdown()
+        {
+            if (_sinceCountdown == null) return !StopAsked(_stopRequested);
+
+            int until = _countdownDurationMs + DefaultCountdownSettleMs;
+            while (_sinceCountdown.ElapsedMilliseconds < until)
+            {
+                if (StopAsked(_stopRequested)) return false;
+                Thread.Sleep(25);
+            }
+            return !StopAsked(_stopRequested);
+        }
 
         /// <summary>
         /// Wait for the radio to confirm the transmit state. Mox is queued
