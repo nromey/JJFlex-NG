@@ -236,21 +236,57 @@ public class NativeMenuBar : IDisposable
 
     private void OnSliceCountChanged()
     {
-        _window.Dispatcher.BeginInvoke(new Action(() => RebuildCurrentMenu()));
+        QueueMenuRebuild("slice count changed");
     }
 
     private void OnConnectionStateChanged(bool connected)
     {
-        _window.Dispatcher.BeginInvoke(new Action(() => RebuildCurrentMenu()));
+        QueueMenuRebuild(connected ? "connected" : "disconnected");
     }
 
     /// <summary>
     /// Rebuild the current mode's menu bar (e.g., after radio connects and DSP is available).
-    /// Called from MainWindow.SetupOperationsMenu().
+    /// Called from MainWindow.SetupOperationsMenu(). Coalesced — see
+    /// <see cref="QueueMenuRebuild"/>.
     /// </summary>
     public void RebuildCurrentMenu()
     {
-        ApplyUIMode(_window.ActiveUIMode);
+        QueueMenuRebuild("explicit rebuild request");
+    }
+
+    /// <summary>True while a rebuild is posted and not yet run.</summary>
+    private bool _rebuildQueued;
+
+    /// <summary>
+    /// Coalesce menu rebuilds into one Background-priority dispatcher pass.
+    ///
+    /// Sprint 42 Track D (#395). A connect fires this from several directions
+    /// inside one second: PowerNowOn's explicit SetupOperationsMenu, a
+    /// SliceCountChanged per arriving slice, and ConnectionStateChanged — the
+    /// menu was measured being rebuilt eight times in one session on
+    /// 2026-08-25, with the operator standing in the UI. Every one of those
+    /// rebuilds produced an identical result to the last one in the burst,
+    /// because each rebuilds from CURRENT state. So: first request posts one
+    /// rebuild at Background priority (after pending input and focus events
+    /// drain), and every further request before it runs rides along for free.
+    /// The rebuild itself is unchanged — same ApplyUIMode, same trace lines,
+    /// same 228 items — only how many times it runs per burst.
+    /// </summary>
+    private void QueueMenuRebuild(string reason)
+    {
+        if (_disposed) return;
+        Tracing.TraceLine(
+            $"NativeMenuBar: rebuild queued ({reason})" + (_rebuildQueued ? " - coalesced" : ""),
+            TraceLevel.Verbose);
+        if (_rebuildQueued) return;
+        _rebuildQueued = true;
+        _window.Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Background,
+            new Action(() =>
+            {
+                _rebuildQueued = false;
+                ApplyUIMode(_window.ActiveUIMode);
+            }));
     }
 
     /// <summary>
@@ -271,7 +307,16 @@ public class NativeMenuBar : IDisposable
                 TraceLevel.Info);
 
             handler();
-            _window.Focus();  // Return focus to WPF content after menu action
+            // Return focus to WPF content after menu action — but only when
+            // it actually needs returning. This used to be an unconditional
+            // _window.Focus(), which set keyboard focus on the UserControl
+            // ROOT: the reader announced "JJ Flexible Radio Access Main
+            // Window" after every command, and after the Connect command it
+            // did so in the middle of the connect narration (#395). The
+            // reclaim leaves focus alone when it survived inside the content,
+            // stands down when another of our windows owns the operator, and
+            // lands on Home only when focus genuinely escaped.
+            _window.ReclaimFocusAfterMenuCommand();
             return true;
         }
         return false;
@@ -2266,7 +2311,23 @@ public class NativeMenuBar : IDisposable
                 yesLabel: Radios.Lexicon.Get("connect.switch_radio.yes_label"));
             if (confirm.ShowDialog() != true) return;
         }
-        _window.SelectRadioCallback?.Invoke();
+
+        // Sprint 42 Track D (#395): the whole connect flow — picker,
+        // Connecting window, Start — runs inside this call, and its window
+        // churn must not narrate itself over the connect narration. The end
+        // request sits in a finally so a cancelled picker or a thrown
+        // connect can never leave the scope stuck; the finish decides
+        // between "the narration owns the announcement" and "run the
+        // return-to-app landing".
+        _window.BeginConnectFlowQuiet("menu connect command", door: true);
+        try
+        {
+            _window.SelectRadioCallback?.Invoke();
+        }
+        finally
+        {
+            _window.EndConnectFlowQuiet("menu connect flow returned", door: true);
+        }
     }
 
     /// <summary>Add a popup (dropdown) menu to the menu bar.</summary>
