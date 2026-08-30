@@ -1949,8 +1949,19 @@ document.addEventListener('keydown', function (e) {
     /// here restores it, so there is no captured value to fail to put back.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// How long to wait for the radio to confirm a frequency change before
+    /// saying, honestly, that it has not. The write is enqueued, so zero would
+    /// always report failure and a long wait would freeze the page.
+    /// </summary>
+    private const int FrequencyConfirmMs = 1500;
+
     private void OpenFrequencyDialog()
     {
+        // What we asked for, so the confirmation below can tell "the radio
+        // agrees" from "the radio has not said so".
+        ulong asked = 0UL;
+
         FlexBase? rig;
         try { rig = _radio(); } catch { rig = null; }
         if (rig == null)
@@ -2016,6 +2027,7 @@ document.addEventListener('keydown', function (e) {
             }
 
             rig.TXFrequency = wanted;
+            asked = wanted;
         }
         catch (Exception ex)
         {
@@ -2027,13 +2039,51 @@ document.addEventListener('keydown', function (e) {
         }
 
         // WHAT THE RADIO NOW REPORTS, not what we asked for. #164 found the
-        // radio acknowledging a transmit-side write it did not apply, and while
-        // that was measured on an unregistered connection and never re-run on a
-        // registered one, the honest thing costs one property read: say the
-        // frequency the radio is reporting, and let the stage sentence below say
-        // it again when the operator lands on Run.
-        string now = StationConditions.Frequency(rig);
-        ToPage("status", "The radio now reports " + now + ".");
+        // radio acknowledging a transmit-side write it did not apply, so this
+        // line exists to be honest about exactly that.
+        //
+        // IT WAS READING BACK OUR OWN WRITE. Found by the Sprint 42 integration
+        // pass. StationConditions.Frequency reads FlexBase.TXFrequency, which
+        // the setter fills with the REQUESTED value immediately; the radio's
+        // echo overwrites it later only if the change actually lands. So a
+        // refused or ignored write left the request sitting there and this line
+        // reported it as fact -- in the one place written to guard against that
+        // very thing. The operator was told they had moved, and could key
+        // believing it.
+        //
+        // TXFrequencyAsReported asks the slice instead. And because the write
+        // is ENQUEUED, the answer is not instant: poll briefly, then say what is
+        // actually true, including "we cannot confirm it" when that is the
+        // honest answer. Erring towards an unconfirmed report is the direction
+        // that costs an operator RF on a frequency they did not choose.
+        string now = null;
+        for (int waited = 0; waited < FrequencyConfirmMs; waited += 50)
+        {
+            ulong reported = rig.TXFrequencyAsReported;
+            if (reported != 0UL && reported == asked)
+            {
+                now = StationConditions.Format(reported);
+                break;
+            }
+            System.Threading.Thread.Sleep(50);
+        }
+
+        if (now != null)
+        {
+            ToPage("status", "The radio now reports " + now + ".");
+        }
+        else
+        {
+            ulong reported = rig.TXFrequencyAsReported;
+            Tracing.TraceLine("FixerDialog: the radio did not confirm " + asked
+                              + " within " + FrequencyConfirmMs + " ms; it reports "
+                              + reported, TraceLevel.Warning);
+            ToPage("status", reported != 0UL
+                ? "The radio has not confirmed that change. It still reports "
+                  + StationConditions.Format(reported) + "."
+                : "The radio has not confirmed that change, and is not reporting a "
+                  + "transmit frequency at all.");
+        }
 
         // Re-render for the same reason the power hand-off does: every
         // transmitting stage's "what Run will do" sentence names the frequency,

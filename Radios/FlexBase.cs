@@ -10449,6 +10449,50 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// What the RADIO says its transmit slice is on, read from the slice
+        /// itself rather than from our cached echo. Zero when there is no
+        /// transmit slice to ask — and zero is an honest answer, not a failure.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b><see cref="TXFrequency"/> is optimistic and this is not.</b> The
+        /// setter records the requested value immediately so the UI stays
+        /// responsive, and the radio's echo overwrites it later if the change
+        /// lands. If the radio never applies the write — acknowledged with
+        /// error code 0 and ignored, which #164 measured — no echo arrives and
+        /// the cached request simply stays there, indistinguishable from
+        /// success.
+        /// </para>
+        /// <para>
+        /// <b>So anything CONFIRMING a change to an operator must read this,
+        /// not that.</b> Found by the Sprint 42 integration pass: the Fixer's
+        /// post-change line said "the radio now reports X" and was reading back
+        /// our own write, in the one place added specifically to be honest
+        /// about #164. Reporting a frequency that did not take is worse than
+        /// reporting nothing, because the operator then keys believing they
+        /// have moved.
+        /// </para>
+        /// </remarks>
+        public ulong TXFrequencyAsReported
+        {
+            get
+            {
+                try
+                {
+                    if (!ValidVFO(TXVFO)) return 0UL;
+                    var s = VFOToSlice(TXVFO);
+                    if (s == null) return 0UL;
+                    return LibFreqtoLong(s.Freq);
+                }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("TXFrequencyAsReported: " + ex.Message, TraceLevel.Warning);
+                    return 0UL;
+                }
+            }
+        }
+
         private ulong _TXFrequency;
         public ulong TXFrequency
         {
@@ -10460,15 +10504,30 @@ namespace Radios
             {
                 ulong replaced = _TXFrequency;
                 _TXFrequency = value;
+
+                // A REFUSED WRITE MUST NOT LEAVE ITS VALUE BEHIND. Both bails
+                // below used to return with _TXFrequency holding a frequency
+                // this radio was never asked for, and the getter then handed it
+                // back to anyone who asked "what is the radio on?" — including
+                // the Fixer's post-change confirmation, whose whole job is to
+                // report radio truth rather than our request (#164). The
+                // operator was told a frequency change applied, and could key
+                // believing they had moved.
                 if (!ValidVFO(TXVFO))
                 {
-                    Tracing.TraceLine("TXFrequency: no valid TX slice", TraceLevel.Warning);
+                    _TXFrequency = replaced;
+                    Tracing.TraceLine("TXFrequency: no valid TX slice, so the requested "
+                                      + value + " was NOT applied and was not kept",
+                                      TraceLevel.Warning);
                     return;
                 }
                 var slice = VFOToSlice(TXVFO);
                 if (slice == null)
                 {
-                    Tracing.TraceLine("TXFrequency: TX slice missing", TraceLevel.Warning);
+                    _TXFrequency = replaced;
+                    Tracing.TraceLine("TXFrequency: TX slice missing, so the requested "
+                                      + value + " was NOT applied and was not kept",
+                                      TraceLevel.Warning);
                     return;
                 }
                 double freq = LongFreqToLibFreq(value);
