@@ -35,6 +35,22 @@ namespace Radios.Fixer
         public const string InjectedTransmit = "injected-transmit";
         public const string SpokenTransmit = "spoken-transmit";
 
+        /// <summary>
+        /// The wire kind for the frequency hand-off (#399), and the label the
+        /// operator reads. Stated once here because three stages carry it: three
+        /// literals would be three chances for one of them to say something
+        /// slightly different, and a button whose wording moves between stages
+        /// of one run is a button an operator has to re-read every time.
+        /// </summary>
+        public const string OpenFrequency = "open-frequency";
+
+        /// <summary>
+        /// "Change the frequency" — a verb and a noun, like the power button
+        /// beside it. Not "Frequency…", which names a thing and leaves the
+        /// operator to guess what pressing it does.
+        /// </summary>
+        public const string ChangeFrequencyLabel = "Change the frequency";
+
         // Skip choice ids.
         public const string SkipOperatorChoice = "operator-skip";
         public const string SkipRemoteNoDirectSpeech = "remote-no-direct-speech";
@@ -183,6 +199,25 @@ namespace Radios.Fixer
             /// <summary>The TX antenna port ("ANT1"), or empty when not known.</summary>
             public string AntennaPort { get; set; } = "";
 
+            /// <summary>
+            /// Where the radio will transmit ("14.250000 MHz"), or empty when it
+            /// could not be read (#399).
+            /// </summary>
+            /// <remarks>
+            /// On a dummy load the frequency is irrelevant, which is why the
+            /// whole tool was designed, built and bench-tested without it. Into
+            /// a real antenna it is the first thing any operator settles before
+            /// keying, and until this existed the stage sentence named the power
+            /// and the port and said nothing about where.
+            /// </remarks>
+            public string Frequency { get; set; } = "";
+
+            /// <summary>The transmit mode ("USB"), or empty when not known.
+            /// Reported, never changed: whether an operator needs to change mode
+            /// mid-run is a question Noel raised and did not settle, and it is
+            /// not built on a guess.</summary>
+            public string Mode { get; set; } = "";
+
             /// <summary>True when this is a remote session — the operator is
             /// not in the room with the antenna socket (#247).</summary>
             public bool RemoteRadio { get; set; }
@@ -211,17 +246,25 @@ namespace Radios.Fixer
                 catch { return null; }
             }
 
-            // " at 25 watts into ANT1", or as much of it as is actually known.
-            // Assembled once so the transmitting stages cannot drift apart in
-            // how they say it.
-            static string AtInto(int watts, string port)
+            // " at 25 watts into ANT1 on 14.250000 MHz in USB", or as much of it
+            // as is actually known. Assembled once so the transmitting stages
+            // cannot drift apart in how they say it.
+            //
+            // WHERE comes last and it is not decoration (#399). Power and port
+            // describe how hard and through what; the frequency is the only one
+            // of the three that says who else is affected, and it is the one an
+            // operator changes before keying into a real antenna.
+            static string AtInto(TransmitStageSet.StationNow s, bool tuneCarrier)
             {
-                string s = "";
+                int watts = tuneCarrier ? (s?.TunePowerWatts ?? -1) : (s?.RfPowerWatts ?? -1);
+                string port = s?.AntennaPort ?? "";
+                string t = "";
                 if (watts >= 0)
-                    s += " at " + watts.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    t += " at " + watts.ToString(System.Globalization.CultureInfo.InvariantCulture)
                        + (watts == 1 ? " watt" : " watts");
-                if (!string.IsNullOrWhiteSpace(port)) s += " into " + port.Trim();
-                return s;
+                if (!string.IsNullOrWhiteSpace(port)) t += " into " + port.Trim();
+                t += ChainChecks.StationConditions.OnInPhrase(s?.Frequency ?? "", s?.Mode ?? "");
+                return t;
             }
 
             var operatorSkip = new FixerSkipChoice(
@@ -399,7 +442,7 @@ namespace Radios.Fixer
                         StationNow s = Station();
                         return "Running this counts down with three tones, then keys "
                              + "the radio's own tune carrier"
-                             + AtInto(s?.TunePowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + AtInto(s, tuneCarrier: true)
                              + " for about " + SecondsPhrase(TxTuneProbe.TuneMs) + ".";
                     },
                     // The other half of #250: once the stage names the power
@@ -413,6 +456,9 @@ namespace Radios.Fixer
                     {
                         new FixerHostAction("open-power-dialog",
                                             "Change the tune power"),
+                        // #399, and the same hand-off exactly: one home for
+                        // frequency, and it is not here either.
+                        new FixerHostAction(OpenFrequency, ChangeFrequencyLabel),
                     },
                     SkipChoices = new[] { operatorSkip },
                     Execute = hosts.ProbeTransmitter == null ? (Func<FixerStageContext, FixerOutcome>)null
@@ -442,7 +488,7 @@ namespace Radios.Fixer
                         StationNow s = Station();
                         return "Running this counts down with three tones, then keys "
                              + "the transmitter"
-                             + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + AtInto(s, tuneCarrier: false)
                              + " for several seconds and sends tones and a recorded voice "
                              + "through it. Your microphone stays out of the path.";
                     },
@@ -453,6 +499,11 @@ namespace Radios.Fixer
                     {
                         new FixerHostAction("open-power-dialog",
                                             "Change the transmit power"),
+                        // #399. Into a real antenna, finding a clear spot is
+                        // the first thing any operator does before keying, and
+                        // until this existed the only way to do it from here
+                        // was to abandon the run.
+                        new FixerHostAction(OpenFrequency, ChangeFrequencyLabel),
                     },
                     SkipChoices = new[] { operatorSkip },
                     // The stated load travels with THIS stage's evidence too:
@@ -487,7 +538,7 @@ namespace Radios.Fixer
                         StationNow s = Station();
                         return "Running this counts you in with three tones, then keys "
                              + "the transmitter"
-                             + AtInto(s?.RfPowerWatts ?? -1, s?.AntennaPort ?? "")
+                             + AtInto(s, tuneCarrier: false)
                              + " for about " + SecondsPhrase(TxAudioProbe.SpokenListenMs)
                              + " while you speak into your microphone.";
                     },
@@ -496,6 +547,11 @@ namespace Radios.Fixer
                     {
                         new FixerHostAction("open-power-dialog",
                                             "Change the transmit power"),
+                        // #399. Into a real antenna, finding a clear spot is
+                        // the first thing any operator does before keying, and
+                        // until this existed the only way to do it from here
+                        // was to abandon the run.
+                        new FixerHostAction(OpenFrequency, ChangeFrequencyLabel),
                     },
                     SkipChoices = new[] { operatorSkip, remoteSkip, noMicSkip },
                     // Keys the transmitter, so the stated load rides with the

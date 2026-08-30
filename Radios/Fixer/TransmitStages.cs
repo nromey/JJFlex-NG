@@ -44,6 +44,25 @@ namespace Radios.Fixer
         /// and the explanation must then hedge rather than name it.</summary>
         public bool? ConditioningActive { get; set; }
 
+        /// <summary>
+        /// The thirteen-stage transmit walk, taken WHILE THIS STAGE WAS KEYED
+        /// with the tone injected (#400). Null when the host wired no walk or
+        /// the stage never keyed — in which case nothing here invents one.
+        /// </summary>
+        /// <remarks>
+        /// This is the whole point of the stage from a diagnostic's point of
+        /// view. Three stages of that walk exist only during a transmission, and
+        /// this is the one moment in the application where a radio is keyed with
+        /// audio of a known level and a known source.
+        /// </remarks>
+        public TransmitCheckResult ChainWalk { get; set; }
+
+        /// <summary>
+        /// Where the radio actually transmitted: frequency, mode and antenna,
+        /// read while keyed (#399). Empty when nothing keyed.
+        /// </summary>
+        public string Conditions { get; set; } = "";
+
         public string Detail { get; set; } = "";
     }
 
@@ -56,6 +75,26 @@ namespace Radios.Fixer
         public bool ReachedRadio { get; set; }
         public string Device { get; set; } = "";
         public string HostApi { get; set; } = "";
+
+        /// <summary>
+        /// The thirteen-stage transmit walk, taken WHILE THIS STAGE WAS KEYED
+        /// with the operator's own microphone in the path (#400). Null when the
+        /// host wired no walk or the stage never keyed.
+        /// </summary>
+        /// <remarks>
+        /// Stage 3's walk and this one differ in exactly the same one thing the
+        /// stages themselves differ in — the microphone — so a stage that dies
+        /// here and lives there names the microphone, and one that dies in both
+        /// names the path beyond it.
+        /// </remarks>
+        public TransmitCheckResult ChainWalk { get; set; }
+
+        /// <summary>
+        /// Where the radio actually transmitted: frequency, mode and antenna,
+        /// read while keyed (#399). Empty when nothing keyed.
+        /// </summary>
+        public string Conditions { get; set; } = "";
+
         public string Detail { get; set; } = "";
     }
 
@@ -286,12 +325,15 @@ namespace Radios.Fixer
                 ? "could not be read"
                 : facts.ConditioningActive.Value ? "on" : "off"));
             if (facts.Detail.Length > 0) sb.AppendLine(facts.Detail.TrimEnd());
+            sb.Append(ConditionsLines(facts.Conditions));
             sb.Append(LoadLine(loadDeclaration));
 
             return new FixerOutcome
             {
-                Answer = TxProbeSet.OperatorSummary(facts.Probes, facts.ConditioningActive),
-                Evidence = sb.ToString(),
+                Answer = TxProbeSet.OperatorSummary(facts.Probes, facts.ConditioningActive)
+                       + WalkAnswer(facts.ChainWalk),
+                Findings = WalkFindings(facts.ChainWalk),
+                Evidence = sb.ToString() + WalkEvidence(facts.ChainWalk),
                 Payload = facts,
             };
         }
@@ -365,15 +407,116 @@ namespace Radios.Fixer
                         : "measured, and nothing arrived")
                     : "attempted, but nothing was measured"));
             if (facts.Detail.Length > 0) sb.AppendLine(facts.Detail.TrimEnd());
+            sb.Append(ConditionsLines(facts.Conditions));
             sb.Append(LoadLine(loadDeclaration));
 
             return new FixerOutcome
             {
-                Answer = answer,
-                Evidence = sb.ToString(),
+                Answer = answer + WalkAnswer(facts.ChainWalk),
+                Findings = WalkFindings(facts.ChainWalk),
+                Evidence = sb.ToString() + WalkEvidence(facts.ChainWalk),
                 Payload = facts,
             };
         }
+
+        // ---- the transmit chain walk, in ONE home for both keying stages ----
+        //
+        // #400. Stages 3 and 4 both key the radio with audio in the path, so
+        // both are moments the thirteen-stage walk can be taken — and if each
+        // grew its own way of saying what the walk found, the two stages of one
+        // report would describe the same radio in two vocabularies. That is the
+        // duplication this project keeps finding, and it does not produce a
+        // merge conflict.
+        //
+        // Shaped exactly on AudioSetupCheck's receive trio (#367): an answer
+        // fragment, a findings list, an evidence block. Nothing here decides
+        // what the walk MEANS — every verdict and remedy came out of
+        // tx-chain-rules.txt and every self-written sentence out of the
+        // analyzer.
+
+        /// <summary>
+        /// The walk's half of the stage's spoken answer: the verdict, but only
+        /// when no finding already carries those exact words.
+        /// </summary>
+        /// <remarks>
+        /// A BLANK LINE, not a space. This is the second half of a stage that
+        /// now has two, and both the page and the report render one paragraph
+        /// per block; a single run of six sentences is readable and
+        /// unnavigable.
+        /// </remarks>
+        private static string WalkAnswer(TransmitCheckResult walk)
+        {
+            if (walk == null) return "";
+
+            var sb = new StringBuilder();
+            // The census first. This stage's own probes already answered "did
+            // audio arrive"; what the walk adds is HOW MUCH OF THE PATH was
+            // actually seen, which is the sentence that stops a partial check
+            // reading as a clean bill of health.
+            if (walk.Census.Length != 0)
+                sb.Append(Environment.NewLine).Append(Environment.NewLine).Append(walk.Census);
+
+            string verdict = walk.VerdictNotCarriedByProblems;
+            if (verdict.Length != 0)
+                sb.Append(sb.Length == 0
+                    ? Environment.NewLine + Environment.NewLine : " ").Append(verdict);
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Every broken stage of the walk as a finding, in walk order.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>None of them gets a one-press button, and that is a decision.</b>
+        /// The transmit rules' remedies are mic profiles, mic inputs, transmit
+        /// slices, antenna ports and power settings — every one of them a choice
+        /// about how somebody's station is set up, several of them able to put
+        /// RF where the operator did not intend it. The walk names the control;
+        /// the operator turns it.
+        /// </para>
+        /// <para>
+        /// <b>"Nothing could be checked" is carried as a finding like any
+        /// other</b>, because it is the third answer and collapsing it into
+        /// "nothing is wrong" is the worst available collapse (#370). It is
+        /// owned by nobody here — no operator action restores a rule file — so
+        /// it is marked as such rather than being given advice nobody can act
+        /// on.
+        /// </para>
+        /// </remarks>
+        private static IReadOnlyList<FixerFinding> WalkFindings(TransmitCheckResult walk)
+        {
+            if (walk == null) return Array.Empty<FixerFinding>();
+
+            var findings = new List<FixerFinding>();
+            foreach (TransmitProblem p in walk.Problems)
+            {
+                bool nothingChecked = string.Equals(p.Id, TransmitChainCheck.NothingCheckedId,
+                                                    StringComparison.OrdinalIgnoreCase);
+                try
+                {
+                    findings.Add(new FixerFinding(p.Id,
+                        nothingChecked ? FixOwner.NobodyHere : FixOwner.Operator,
+                        p.WhatIsWrong, p.WhatToDo));
+                }
+                catch (ArgumentException ex)
+                {
+                    // A rule with no id, or a verdict this build could not fill
+                    // in, is a fault in the rule FILE — and an operator whose
+                    // rule file has one bad line must still get the other
+                    // twelve stages. The walk's own evidence block still carries
+                    // the line verbatim, so nothing is lost from the report.
+                    JJTrace.Tracing.TraceLine("TransmitStages: a transmit rule could not be "
+                        + "rendered as a finding — " + ex.Message,
+                        System.Diagnostics.TraceLevel.Warning);
+                }
+            }
+            return findings;
+        }
+
+        private static string WalkEvidence(TransmitCheckResult walk)
+            => walk == null ? "" : Environment.NewLine + walk.Evidence;
 
         // ---- helpers ----
 
@@ -390,6 +533,20 @@ namespace Radios.Fixer
                 ? ""
                 : "Antenna socket, as stated by the operator: "
                   + loadDeclaration.Trim() + Environment.NewLine;
+
+        /// <summary>
+        /// Where the transmission actually happened — frequency, mode and
+        /// antenna port, read while the radio was keyed (#399).
+        /// </summary>
+        /// <remarks>
+        /// <b>Per stage, deliberately, and not once per run.</b> The operator
+        /// can now retune between stages to find a quiet spot, so a run whose
+        /// stages were measured at different frequencies must say which stage
+        /// ran where. One line at the top of the report would be a misleading
+        /// document the moment the frequency moved.
+        /// </remarks>
+        private static string ConditionsLines(string conditions)
+            => string.IsNullOrWhiteSpace(conditions) ? "" : conditions;
 
         private static string NameOr(string name, string fallback)
             => string.IsNullOrWhiteSpace(name) ? fallback : name;
