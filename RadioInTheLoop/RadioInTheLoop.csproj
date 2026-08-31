@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Radio-in-the-loop connect harness. Deliberately NOT a test project and
+       deliberately NOT in JJFlexRadio.sln:
+
+       - No Microsoft.NET.Test.Sdk, no xunit, no IsTestProject. There is no
+         test runner at any scope - solution or project - that can discover
+         this, so `dotnet test` (in every form, including the forbidden bare
+         one) can never reach a radio through it. That is structural, not
+         configured: the guard inside Program.cs is the second line, this is
+         the first.
+       - Not in the solution, matching Radios.Tests (which is also invoked
+         only by its explicit path). Nothing that builds "everything" builds
+         an executable that talks to a radio.
+
+       It runs only when a human types its full command AND has declared a
+       radio free by serial in JJFLEX_RADIO_IN_THE_LOOP for that one run.
+       See README.md in this directory. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <!-- Radios types surface WinForms (OpenParms.PanField) and WPF-adjacent
+         helpers; both flags mirror Radios.Tests. OutputType stays Exe, so
+         this remains a console program with console output - no window is
+         ever created (the message pump in PumpedDesk runs without one). -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWpf>true</UseWpf>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Radios\Radios.csproj" />
+    <ProjectReference Include="..\FlexLib_API\FlexLib\FlexLib.csproj" />
+  </ItemGroup>
+
+</Project>
