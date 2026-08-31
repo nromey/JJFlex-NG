@@ -15813,7 +15813,9 @@ namespace Radios
             return fallback;
         }
 
-        class audioChannelData
+        // internal (not private) so Radios.Tests can pin the constructor
+        // refusals below without needing a live FlexLib stream.
+        internal class audioChannelData
         {
             public string Name;
             private object radioStream; // the radio's stream
@@ -15838,6 +15840,15 @@ namespace Radios
             // audioChannel for Opus output
             public audioChannelData(RXRemoteAudioStream stream, string name)
             {
+                // #419: a null here is a programming error in the CALLER —
+                // it means somebody waited for a stream, the wait ended for a
+                // reason other than arrival, and they constructed the channel
+                // anyway. Build 4.1.16.1760 crashed the whole process on the
+                // next line's field assignment; a named refusal at least says
+                // whose mistake it was.
+                if (stream == null) throw new ArgumentNullException(nameof(stream),
+                    "audioChannelData: the receive stream never arrived — the caller must "
+                    + "check what its wait actually produced before building the channel");
                 stream.IsCompressed = true;
                 OpusChannel = stream;
                 Name = name;
@@ -15847,6 +15858,9 @@ namespace Radios
             // audioChannel for Opus input
             public audioChannelData(TXRemoteAudioStream stream, string name)
             {
+                if (stream == null) throw new ArgumentNullException(nameof(stream),
+                    "audioChannelData: the transmit stream never arrived — the caller must "
+                    + "check what its wait actually produced before building the channel");
                 TXOpusChannel = stream;
                 Name = name;
                 IsOpus = true;
@@ -16081,6 +16095,86 @@ namespace Radios
                 _opusRxGapCount == 0 ? TraceLevel.Info : TraceLevel.Error);
         }
 
+        // ── #419: why a wait for a pending remote-audio stream ended ──
+        //
+        // remoteAudioProc waits for each stream with a predicate of the shape
+        //     (stream != null) || Disconnecting || stopRemoteAudio
+        // which has three ways to become true and only ONE of them means the
+        // stream arrived. await() collapses all three into `true`, so its
+        // return value can only distinguish "timed out" from "something
+        // happened" — it cannot say WHAT happened. Build 4.1.16.1760 read
+        // `true` as "the stream is here", constructed the channel from a null,
+        // and the NullReferenceException on this handler-less background
+        // thread took the whole process down. Deterministically: switching PC
+        // audio off during the wait ALWAYS satisfied the predicate, so the
+        // crash was on demand, not a race.
+        //
+        // The decision that was missing — did the thing I waited for actually
+        // arrive, and if not, why not — is extracted here as a pure function
+        // so it can be pinned by tests (PendingStreamWaitTests) without
+        // running the wait machinery.
+        internal enum PendingStreamWaitOutcome
+        {
+            /// <summary>The stream is here — proceed.</summary>
+            Arrived,
+            /// <summary>The operator switched PC audio off. Normal; not a fault.</summary>
+            CancelledByOperator,
+            /// <summary>The connection is being torn down. Normal; not a fault.</summary>
+            Disconnecting,
+            /// <summary>The wait expired with nothing. The radio never answered — a fault.</summary>
+            NeverArrived,
+        }
+
+        /// <summary>
+        /// Classify the state a pending-stream wait ended in. Reads the state
+        /// AFTER the wait rather than the wait's boolean, because the boolean
+        /// cannot distinguish arrival from cancellation (#419).
+        /// </summary>
+        /// <remarks>
+        /// Precedence, and why: an arrived stream wins over everything — if
+        /// cancel or disconnect also fired, the main loop and the remoteDone
+        /// teardown handle it in order, and building the channel from a real
+        /// stream is always safe. Cancellation wins over disconnection when
+        /// both are set, because switching PC audio off is the operator's own
+        /// direct act and is the truer story in a trace.
+        /// </remarks>
+        internal static PendingStreamWaitOutcome ClassifyPendingStreamWait(
+            bool streamArrived, bool cancelled, bool disconnecting)
+        {
+            if (streamArrived) return PendingStreamWaitOutcome.Arrived;
+            if (cancelled) return PendingStreamWaitOutcome.CancelledByOperator;
+            if (disconnecting) return PendingStreamWaitOutcome.Disconnecting;
+            return PendingStreamWaitOutcome.NeverArrived;
+        }
+
+        /// <summary>
+        /// One trace line per non-arrival outcome, at the honest level: the
+        /// two normal exits are Info, and only a radio that never answered is
+        /// an Error — a log somebody is diagnosing from must not present the
+        /// operator switching audio off as a failure.
+        /// </summary>
+        /// <param name="which">"receive" or "transmit".</param>
+        private static void TracePendingStreamWaitOutcome(string which, PendingStreamWaitOutcome outcome)
+        {
+            switch (outcome)
+            {
+                case PendingStreamWaitOutcome.CancelledByOperator:
+                    Tracing.TraceLine("remoteAudioProc: PC audio was switched off while the " + which
+                        + " stream was pending — abandoning audio setup (normal, not a fault)",
+                        TraceLevel.Info);
+                    break;
+                case PendingStreamWaitOutcome.Disconnecting:
+                    Tracing.TraceLine("remoteAudioProc: disconnect began while the " + which
+                        + " stream was pending — abandoning audio setup (normal, not a fault)",
+                        TraceLevel.Info);
+                    break;
+                case PendingStreamWaitOutcome.NeverArrived:
+                    Tracing.TraceLine("remoteAudioProc: the radio never sent the " + which
+                        + " stream within the wait — audio setup failed", TraceLevel.Error);
+                    break;
+            }
+        }
+
         private void remoteAudioProc()
         {
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
@@ -16147,14 +16241,42 @@ namespace Radios
             JJPortaudio.Audio.Initialize(remoteInputDevice, remoteOutputDevice);
 
             // Setup audio channels, output first.
+            //
+            // #419 follow-on, found in the live reproduction: a run abandoned
+            // mid-wait leaves its stream request in flight, and the radio
+            // still answers it — the answer can land DURING the next run's
+            // setup. The bare `rxStream = null` that used to sit here then
+            // clobbered the reference, orphaning that stream on the radio,
+            // and the radio never answered this run's own create (one
+            // remote_audio_rx per client) — so PC audio failed for the full
+            // ten seconds and gave up, on a healthy radio, one toggle after a
+            // cancelled start. Close the leftover before asking fresh.
+            var staleRx = rxStream;
+            if (staleRx != null)
+            {
+                Tracing.TraceLine("remoteAudioProc: closing the receive stream a previous run's"
+                    + " abandoned request left behind, before requesting a fresh one", TraceLevel.Info);
+                try { staleRx.Close(); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("remoteAudioProc: closing the leftover receive stream failed: "
+                        + ex.Message, TraceLevel.Error);
+                }
+            }
             rxStream = null;
             theRadio.RequestRXRemoteAudioStream(true); // see opusOutputStreamAddedHandler
-            if (!await(() =>
+            // #419: the wait's boolean is deliberately ignored — it cannot say
+            // WHY the wait ended (see ClassifyPendingStreamWait above). This
+            // used to branch on it, so switching PC audio off mid-wait read as
+            // success and the null rxStream crashed the process one line later.
+            await(() =>
                 {
                     return (rxStream != null) || Disconnecting || stopRemoteAudio;
-                }, 10000))
+                }, 10000);
+            var rxWait = ClassifyPendingStreamWait(rxStream != null, stopRemoteAudio, Disconnecting);
+            if (rxWait != PendingStreamWaitOutcome.Arrived)
             {
-                Tracing.TraceLine("remoteAudioProc: opus output channel not added.", TraceLevel.Error);
+                TracePendingStreamWaitOutcome("receive", rxWait);
                 goto remoteDone;
             }
             // radio set mute_local_audio_when_remote — the owner's shack
@@ -16202,6 +16324,22 @@ namespace Radios
             }
 
             // Setup the transmit audio, after the rx audio, but don't start the I/O.
+            //
+            // Same leftover-stream discipline as the receive side above: a
+            // previous run's abandoned TX request can be answered into the
+            // next run. Close it rather than orphan it.
+            var staleTx = txStream;
+            if (staleTx != null)
+            {
+                Tracing.TraceLine("remoteAudioProc: closing the transmit stream a previous run's"
+                    + " abandoned request left behind, before requesting a fresh one", TraceLevel.Info);
+                try { staleTx.Close(); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("remoteAudioProc: closing the leftover transmit stream failed: "
+                        + ex.Message, TraceLevel.Error);
+                }
+            }
             txStream = null;
             // Sprint 33 Track G, 2026-08-20: declare the compression we are
             // actually going to send. Everything that reaches AddTXData below
@@ -16249,10 +16387,14 @@ namespace Radios
                     + " explicit-compression one — report it, that is a firmware difference worth knowing",
                     TraceLevel.Error);
             }
-            if (txStream == null)
+            // #419: same discipline as the receive stream — classify what the
+            // waits above actually produced, and say which of the three
+            // endings it was. This check is what kept the TX path from
+            // crashing the way the RX path did; it now names the reason too.
+            var txWait = ClassifyPendingStreamWait(txStream != null, stopRemoteAudio, Disconnecting);
+            if (txWait != PendingStreamWaitOutcome.Arrived)
             {
-                // Disconnecting or stopping raced us; nothing to set up.
-                Tracing.TraceLine("remoteAudioProc: TX stream setup abandoned", TraceLevel.Info);
+                TracePendingStreamWaitOutcome("transmit", txWait);
                 goto remoteDone;
             }
             opusInputChannel = new audioChannelData(txStream, "JJFlexRadio.OpusInputChan");
@@ -16509,6 +16651,22 @@ namespace Radios
                     rxStream = null;
                 }
             }
+            else if (rxStream != null)
+            {
+                // #419 follow-on: the stream arrived but the wait had already
+                // been abandoned, so no channel ever owned it. Close it here
+                // rather than leave it orphaned on the radio, where it blocks
+                // the next run's own create.
+                Tracing.TraceLine("remoteAudioProc: closing a receive stream that arrived after"
+                    + " its wait was abandoned", TraceLevel.Info);
+                try { rxStream.Close(); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("remoteAudioProc: closing the unowned receive stream failed: "
+                        + ex.Message, TraceLevel.Error);
+                }
+                rxStream = null;
+            }
 
             if (opusInputChannel != null)
             {
@@ -16524,6 +16682,19 @@ namespace Radios
                     opusInputChannel.TXOpusChannel = null;
                     txStream = null;
                 }
+            }
+            else if (txStream != null)
+            {
+                // Same as the receive side: arrived, never owned, close it.
+                Tracing.TraceLine("remoteAudioProc: closing a transmit stream that arrived after"
+                    + " its wait was abandoned", TraceLevel.Info);
+                try { txStream.Close(); }
+                catch (Exception ex)
+                {
+                    Tracing.TraceLine("remoteAudioProc: closing the unowned transmit stream failed: "
+                        + ex.Message, TraceLevel.Error);
+                }
+                txStream = null;
             }
 
             Audio.Terminate();
