@@ -998,7 +998,16 @@ document.addEventListener('keydown', function (e) {
     }
     if (!target) target = document.querySelector('h1') || document.body;
     if (!target) return;
-    target.setAttribute('tabindex', '-1');
+    // ONLY make it script-focusable if it is not ALREADY focusable (#449).
+    // This helper was written for HEADINGS, which need tabindex=-1 to take
+    // script focus. Its targets also include the Run button - and a <button>
+    // is focusable already, so setting tabindex=-1 on one REMOVES IT FROM THE
+    // TAB ORDER. Landing focus on Run therefore made Run unreachable by Tab
+    // for the rest of that render, on every stage, which is how a blind
+    // operator loses the ability to start a test at all.
+    var focusable = target.matches(
+        'a[href],button,input,select,textarea,[tabindex],[contenteditable]');
+    if (!focusable) target.setAttribute('tabindex', '-1');
     target.focus();
 })();";
     }
