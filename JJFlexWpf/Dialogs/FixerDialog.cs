@@ -2201,7 +2201,7 @@ document.addEventListener('keydown', function (e) {
                 return false;
             }))
         {
-            ToPage("status", StationConditions.NowReports(agreed.ToUpperInvariant()));
+            ToPage("status", StationConditions.NowReports(StationConditions.ModeInWords(agreed) + " mode"));
         }
         else
         {
@@ -2210,7 +2210,7 @@ document.addEventListener('keydown', function (e) {
                               + " within " + RadioConfirmMs + " ms; it reports \""
                               + reported + "\"", TraceLevel.Warning);
             ToPage("status", reported.Length != 0
-                ? StationConditions.NotConfirmedStillReports(reported.ToUpperInvariant())
+                ? StationConditions.NotConfirmedStillReports(StationConditions.ModeInWords(reported) + " mode")
                 : StationConditions.NotConfirmedNothingReported("mode"));
         }
 

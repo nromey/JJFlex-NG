@@ -571,7 +571,7 @@
   "audio.ptt.power_coming_back_on_dummy_load": "{percent} percent of your power is coming back on {antenna}, but you have declared a dummy load. Check that the load is on the port you are transmitting on.",
   "audio.ptt.reflected_cut": "Transmit stopped. {percent} percent of your power was coming back, and your reflected power cutoff is turned on, so your transmission was ended. You are no longer on the air. Check the antenna before keying again.",
   "audio.ptt.reflected_cut_on": "Transmit stopped. {percent} percent of your power was coming back on {antenna}, and your reflected power cutoff is turned on, so your transmission was ended. You are no longer on the air. Check {antenna} before keying again.",
-  "audio.ptt.reflected_cutoff_is_off": "Your reflected power cutoff is turned off, so transmit will not be stopped for you.",
+  "audio.ptt.reflected_cutoff_is_off": "The reflected power cutoff setting is disabled. Transmission will continue until you unkey. Your radio may be damaged!",
   "audio.ptt.remaining_minutes": "{minutes} minutes",
   "audio.ptt.remaining_minutes_seconds": "{minutes} minutes {seconds} seconds",
   "audio.ptt.remaining_one_minute": "1 minute",

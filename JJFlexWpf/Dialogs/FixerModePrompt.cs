@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using Radios.ChainChecks;
 using Radios.Fixer;
 
 namespace JJFlexWpf.Dialogs;
@@ -139,8 +140,13 @@ public sealed class FixerModePrompt : JJFlexDialog
         // operator's own domain read back at them. "A ham radio operator should
         // know this stuff. Switch the mode, the radio operates as normal.
         // Change it so that you test the way you normally would use the radio."
+        // The mode is SPOKEN IN WORDS here for the reason given on
+        // StationConditions.ModeInWords: a reader says "USB" as three letters,
+        // and this is the transmit-audio walk, where the microphone is very
+        // often on a USB interface. "Set to upper sideband" takes the bare
+        // phrase - the sentence does not need the noun to be unambiguous.
         if (TransmitStageSet.IsTransmitAudioMode(mode))
-            return "The radio is set to " + mode.ToUpperInvariant()
+            return "The radio is set to " + StationConditions.ModeInWords(mode)
                  + ". Test in the mode you normally use.";
 
         // THE ONLY THING HERE A HAM CANNOT KNOW is why their current mode is not

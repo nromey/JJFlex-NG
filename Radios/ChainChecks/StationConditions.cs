@@ -154,6 +154,49 @@ namespace Radios.ChainChecks
             => "The radio is transmitting. Wait until it stops, then change the "
              + what + ".";
 
+        /// <summary>
+        /// A transmit mode in WORDS, for anything a screen reader will read
+        /// aloud. Returns the token unchanged when it is not one we know.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Noel, 2026-08-30, reading the Fixer's confirmations: <i>"expand the
+        /// mode"</i>. The reason is sharper than tidiness. A reader says
+        /// <c>USB</c> as three letters, and the one dialog these sentences are
+        /// spoken in is the transmit-audio walk — where the operator's
+        /// microphone is very often plugged into a USB interface, and where
+        /// half the surrounding prose is about USB devices. "The radio now
+        /// reports U S B" is a genuine collision, in the one place it can least
+        /// afford one.
+        /// </para>
+        /// <para>
+        /// Returns the BARE phrase, because Noel's own two examples need
+        /// different endings — "set to upper sideband" reads naturally, while
+        /// "reports upper sideband" does not and wants the noun: "reports
+        /// upper sideband mode". So the caller adds "mode" where its sentence
+        /// needs it. That noun is what finally kills the cable reading, so a
+        /// caller writing a bare-sounding sentence should include it.
+        /// </para>
+        /// <para>
+        /// Unknown tokens pass through as themselves rather than being
+        /// swallowed or guessed at. The radio may report a mode this build has
+        /// never heard of — saying it back verbatim is honest, and saying
+        /// nothing is not.
+        /// </para>
+        /// </remarks>
+        public static string ModeInWords(string mode)
+        {
+            switch ((mode ?? "").Trim().ToUpperInvariant())
+            {
+                case "USB":  return "upper sideband";
+                case "LSB":  return "lower sideband";
+                case "DIGU": return "digital upper sideband";
+                case "DIGL": return "digital lower sideband";
+                case "":     return "";
+                default:     return (mode ?? "").Trim();
+            }
+        }
+
         /// <summary>"The radio now reports 14.250000 MHz." — the change
         /// confirmed, by the radio's own report.</summary>
         public static string NowReports(string value)

@@ -232,6 +232,18 @@ namespace Radios.Tests
         // it: a defeatable safety that is off and still trusted is worse than
         // no safety, because it is trusted.
 
+        /// <summary>
+        /// The reminder's own words, in ONE place, because the positive test
+        /// and its negative control must move together. They did not on
+        /// 2026-08-30: the control asserted the armed sentence lacked "turned
+        /// off", and Noel's rewording to "disabled" would have left that
+        /// assertion true of every possible sentence — a control that passes
+        /// for a string it can no longer fail on is not a control. Wording is
+        /// Noel's, ruled the same day; changing it here is deliberate, and it
+        /// is meant to be.
+        /// </summary>
+        private const string DisarmedPhrase = "cutoff setting is disabled";
+
         [Fact]
         public void With_the_cut_disarmed_the_warning_says_no_cut_is_coming()
         {
@@ -240,7 +252,7 @@ namespace Radios.Tests
             string s = TransmitSafety.ReflectedWarningText(
                 0.76f, "ANT1", dummyLoadDeclared: false, cutDisarmed: true);
 
-            Assert.Contains("cutoff is turned off", s);
+            Assert.Contains(DisarmedPhrase, s);
             Assert.Contains("ANT1", s);
             Assert.Contains("76", s);
             Assert.DoesNotContain("{", s);
@@ -253,9 +265,9 @@ namespace Radios.Tests
             // setting would pass the test above while burying the reminder in
             // routine noise — which is how an operator learns to stop hearing
             // it, the exact failure the reminder exists to prevent.
-            Assert.DoesNotContain("turned off",
+            Assert.DoesNotContain(DisarmedPhrase,
                 TransmitSafety.ReflectedWarningText(0.76f, "ANT1"));
-            Assert.DoesNotContain("turned off",
+            Assert.DoesNotContain(DisarmedPhrase,
                 TransmitSafety.ReflectedWarningText(
                     0.76f, "ANT1", dummyLoadDeclared: false, cutDisarmed: false));
         }
@@ -271,7 +283,7 @@ namespace Radios.Tests
                     string s = TransmitSafety.ReflectedWarningText(
                         0.76f, named ? "ANT2" : "", dummy, cutDisarmed: true);
 
-                    Assert.Contains("cutoff is turned off", s);
+                    Assert.Contains(DisarmedPhrase, s);
                     Assert.DoesNotContain("{", s);
                 }
         }
