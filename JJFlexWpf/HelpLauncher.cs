@@ -16,6 +16,14 @@ namespace JJFlexWpf
         // We install a low-level keyboard hook that posts WM_CLOSE when Escape
         // is pressed *and* the foreground window is the HtmlHelp viewer.
         // Honors the project dialog-escape rule for the F1 help path.
+        //
+        // The hook lives on KeyboardHookThread's dedicated pump, never the UI
+        // thread (#402): Windows delivers a WH_KEYBOARD_LL callback via the
+        // installing thread's message loop, so a hook installed from the UI
+        // thread stalls every keystroke on the machine whenever that thread
+        // blocks. The callback itself stays non-blocking — foreground-window
+        // class check, then PostMessage, which posts and returns; the
+        // synchronous send would couple this thread to the CHM viewer's pump.
         private const int WH_KEYBOARD_LL = 13;
         private const int WM_KEYDOWN = 0x0100;
         private const int WM_SYSKEYDOWN = 0x0104;
@@ -90,12 +98,27 @@ namespace JJFlexWpf
             { "DiagnosticLog", "pages/diagnostic-log.htm" },
         };
 
+        /// <summary>True once the install has been handed to the hook thread.</summary>
+        private static bool _installPosted;
+
         public static void Initialize()
         {
             _helpFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "JJFlexRadio.chm");
-            InstallEscapeHook();
+
+            if (_installPosted)
+                return;
+            _installPosted = true;
+
+            // The actual SetWindowsHookEx must run on the dedicated pumped
+            // thread (#402) — see the class comment. Fire-and-forget: startup
+            // never waits on the hook thread.
+            KeyboardHookThread.InstallHook(
+                "HelpLauncher (Escape closes the CHM viewer)",
+                installOnHookThread: InstallEscapeHook,
+                unhookOnHookThread: UnhookEscapeHook);
         }
 
+        /// <summary>Runs ONLY on the hook thread.</summary>
         private static void InstallEscapeHook()
         {
             if (_hookHandle != IntPtr.Zero)
@@ -122,6 +145,16 @@ namespace JJFlexWpf
                 Trace.WriteLine($"HelpLauncher.InstallEscapeHook: {ex.Message}");
                 _hookProc = null;
             }
+        }
+
+        /// <summary>Teardown, run on the hook thread during shutdown.</summary>
+        private static void UnhookEscapeHook()
+        {
+            if (_hookHandle == IntPtr.Zero)
+                return;
+            UnhookWindowsHookEx(_hookHandle);
+            _hookHandle = IntPtr.Zero;
+            _hookProc = null;
         }
 
         private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)

@@ -52,9 +52,15 @@ namespace JJFlexWpf
     /// Auto-repeat while held fires once, on the down transition.
     /// </para>
     /// <para>
-    /// #307 (global hotkeys) is expected to want this same machinery; when
-    /// it lands, the shared wrapper gets extracted then, with two real
-    /// consumers in hand, rather than speculatively now.
+    /// <b>The hook lives on <see cref="KeyboardHookThread"/>, never the UI
+    /// thread (#402).</b> Windows delivers a WH_KEYBOARD_LL callback via the
+    /// pump of the thread that installed it, so a hook installed from the UI
+    /// thread makes every keystroke ON THE MACHINE wait out
+    /// LowLevelHooksTimeout whenever that thread is blocked — which a stuck
+    /// connect did on 2026-08-29, three times, ~45 s each. Install here only
+    /// hands the real installation to the dedicated pumped thread;
+    /// #307 (global hotkeys), which this comment used to promise the shared
+    /// wrapper to, gets that same host when it lands.
     /// </para>
     /// </remarks>
     public static class CwCtrlInterrupt
@@ -97,15 +103,23 @@ namespace JJFlexWpf
         private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string? lpModuleName);
 
+        /// <summary>True once the install has been handed to the hook thread.</summary>
+        private static bool _installPosted;
+
         /// <summary>
-        /// Install the hook. Call once, from a thread that pumps messages
-        /// (MainWindow's construction) — a WH_KEYBOARD_LL callback is
-        /// delivered via the installing thread's message loop.
+        /// Install the hook. Call once, from anywhere — the actual
+        /// SetWindowsHookEx runs on <see cref="KeyboardHookThread"/>'s
+        /// dedicated pump, never on the caller (#402), so a blocked UI
+        /// thread can no longer stall keystrokes machine-wide.
         /// </summary>
         /// <param name="cwActive">
         /// Cheap busy check consulted on the hook thread — must be a volatile
@@ -121,6 +135,23 @@ namespace JJFlexWpf
             _cwActive = cwActive ?? throw new ArgumentNullException(nameof(cwActive));
             _cancelCw = cancelCw ?? throw new ArgumentNullException(nameof(cancelCw));
 
+            if (_installPosted)
+                return;
+            _installPosted = true;
+
+            KeyboardHookThread.InstallHook(
+                "CwCtrlInterrupt (Ctrl silences CW)",
+                installOnHookThread: InstallOnHookThread,
+                unhookOnHookThread: UnhookOnHookThread);
+        }
+
+        /// <summary>
+        /// The real installation. Runs ONLY on the hook thread — Windows
+        /// delivers the callback via the installing thread's pump, and that
+        /// thread must be one that can never block.
+        /// </summary>
+        private static void InstallOnHookThread()
+        {
             if (_hookHandle != IntPtr.Zero)
                 return;
 
@@ -145,6 +176,20 @@ namespace JJFlexWpf
                 Trace.WriteLine($"CwCtrlInterrupt.Install: {ex.Message}");
                 _hookProc = null;
             }
+        }
+
+        /// <summary>
+        /// Teardown, run on the hook thread during shutdown. A global hook
+        /// left installed while its thread has stopped pumping degrades
+        /// every keystroke on the machine — the very failure #402 removes.
+        /// </summary>
+        private static void UnhookOnHookThread()
+        {
+            if (_hookHandle == IntPtr.Zero)
+                return;
+            UnhookWindowsHookEx(_hookHandle);
+            _hookHandle = IntPtr.Zero;
+            _hookProc = null;
         }
 
         private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)

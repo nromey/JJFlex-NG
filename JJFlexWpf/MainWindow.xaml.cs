@@ -286,7 +286,9 @@ public partial class MainWindow : UserControl
         // and still silences itself — and the busy check is one volatile
         // read, so the hook thread never does real work. The cancel is the
         // same one the repeat key uses: CW output only, continuous earcons
-        // untouched.
+        // untouched. Since #402 the hook lives on KeyboardHookThread's own
+        // pump, not this thread — this call only hands the install over, so
+        // a blocked UI thread can no longer stall typing machine-wide.
         CwCtrlInterrupt.Install(() => _cwOutput.IsBusy, () => _morseNotifier.Cancel());
         // (#146) The radio announces its CW sidetone pitch on connect, on every
         // change, and as null on disconnect. Whether the notifier USES it is the
