@@ -32,7 +32,7 @@ For remote operation through the internet:
 
 1. You need a SmartLink account from FlexRadio Systems. If you don't already have one, set it up at flexradio.com first, or use the sign-up link that appears on the SmartLink sign-in page within JJ Flexible Radio Access.
 2. From the **Radio** menu, choose **Connect to Radio**. The Select Radio dialog opens, and JJ Flexible Radio Access starts announcing any radios it discovers on your local network.
-3. If your remote radio is already in the list from an earlier session, just select it and press `Enter` — JJ Flexible signs in to SmartLink and connects, announcing each step. To browse your account's radios first instead, press `Shift+F10` on the radio list and choose **Show Remote Radios**; the sign-in dialog asks for your SmartLink email and password.
+3. If your remote radio is already in the list from an earlier session, just select it and press `Enter` — JJ Flexible Radio signs in to SmartLink and connects, announcing each step. To browse your account's radios first instead, press `Shift+F10` on the radio list and choose **Show Remote Radios**; the sign-in dialog asks for your SmartLink email and password.
 4. After you sign in, your remote radios appear in the same radio list alongside (or in place of) the local ones.
 5. Use the arrow keys to select the radio you want, then press the **Connect** button (or `Alt+N`, or `Enter`) to start the connection.
 

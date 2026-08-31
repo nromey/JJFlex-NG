@@ -180,7 +180,7 @@ control does, followed by whatever its line currently says.
 ### The Audio System, at the Top of the Dialog
 
 Windows hands the same sound card to programs through more than one driver
-model, and JJ Flexible now asks you which one to use rather than guessing. The
+model, and JJ Flexible Radio now asks you which one to use rather than guessing. The
 choice is the **Audio system** combo at the top of the Audio Devices dialog. It
 applies to your microphone and your receive audio together, and the two lists
 underneath show whatever that system offers.
@@ -192,7 +192,7 @@ back.
 
 **MME is the forgiving one.** It converts sample rates for you, so a device
 WASAPI turns down will usually work under MME. The cost is that it reports 48
-kHz for absolutely everything, so you cannot tell from inside JJ Flexible what
+kHz for absolutely everything, so you cannot tell from inside JJ Flexible Radio what
 rate your hardware is actually running at. It also cuts device names short at
 31 characters, which is a Windows limitation rather than ours.
 
@@ -206,7 +206,7 @@ about that device's rate.
 
 One rescue worth knowing about: some devices are locked to 44.1 kHz — a rate
 radio audio cannot use — and under WASAPI they used to be simply unusable. Now,
-when a device refuses every rate JJ Flexible can work with, it asks Windows to
+when a device refuses every rate JJ Flexible Radio can work with, it asks Windows to
 convert as a last resort, and the device opens anyway. Every device that can
 run without conversion still does, and when the rescue engages, the diagnostic
 log says plainly that Windows is resampling and how to get native audio back
@@ -245,26 +245,26 @@ A few more things worth knowing:
   one as your transmit microphone would put your own received audio on the air.
   They are labelled so you can tell them apart.
 - **Mono devices work.** A great many USB headset microphones have exactly one
-  channel, and JJ Flexible used to list them and then refuse them, which meant
+  channel, and JJ Flexible Radio used to list them and then refuse them, which meant
   that if it was the only microphone you owned you could not use the app at
   all. That is fixed. A mono microphone is sent to the radio on both channels,
   and a mono speaker gets both channels mixed together. The row says which so
   you know what is happening to your audio, but there is nothing to work
   around any more.
 - **Devices with more than two channels work normally.** Many laptop microphone
-  arrays report four; JJ Flexible lists them and uses them in stereo. The
+  arrays report four; JJ Flexible Radio lists them and uses them in stereo. The
   dialog notes it when your chosen device is one of these.
 - **A device running at the wrong rate says so in its row.** Audio to and from
   the radio is carried by the Opus codec, which works at 48, 24, 16, 12 or 8
   kHz — and notably not at 44.1 kHz, which is what a good number of sound
-  devices sit at by default. When you are on WASAPI, JJ Flexible can see the
+  devices sit at by default. When you are on WASAPI, JJ Flexible Radio can see the
   real rate and marks any device that cannot carry radio audio. The cleanest
   fix is to set the device to 48000 Hz in Windows Sound settings; switching
   the audio system to MME also works, since MME converts the rate for you.
-  And if you do neither, the device still opens: JJ Flexible falls back to
+  And if you do neither, the device still opens: JJ Flexible Radio falls back to
   asking Windows to convert, as a last resort, rather than leaving the device
   unusable. You will not see the rate warning under MME, because under MME the
-  rate JJ Flexible is told is not the rate your hardware is running at.
+  rate JJ Flexible Radio is told is not the rate your hardware is running at.
 - **The device list is a snapshot.** If you plug something in while the dialog
   is open, press the **Refresh device list** button.
 
@@ -280,7 +280,7 @@ that keeps breaking up on transmit, where duller audio that gets through beats
 better audio that does not.
 
 Two honest caveats. Your sound card has the last word — if it cannot run at the
-rate you asked for, JJ Flexible opens at a rate it can and encodes to match,
+rate you asked for, JJ Flexible Radio opens at a rate it can and encodes to match,
 rather than sending the radio something it cannot follow. And because MME
 converts rates and WASAPI does not, the lower settings are most likely to
 actually take effect while you are on MME. The change applies from your next

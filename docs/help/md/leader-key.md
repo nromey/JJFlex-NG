@@ -26,7 +26,7 @@ If you change your mind, press `Escape`. You will hear a soft falling tone letti
 
 ## DSP Toggles
 
-Two of these come in on-radio and PC flavours, and the names now say so. "On-Radio" noise reduction runs in the radio's own DSP hardware (8000-series and Aurora only). "PC" noise reduction runs inside JJ Flexible on this computer and works on every radio.
+Two of these come in on-radio and PC flavours, and the names now say so. "On-Radio" noise reduction runs in the radio's own DSP hardware (8000-series and Aurora only). "PC" noise reduction runs inside JJ Flexible Radio on this computer and works on every radio.
 
 - **N** — Toggle Legacy Noise Reduction on or off
 - **Shift+N** — Toggle NR Filter on or off (model-specific)

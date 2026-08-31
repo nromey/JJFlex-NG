@@ -75,10 +75,10 @@ Right after This Computer. A microphone profile is built around the microphone r
 
 Each profile carries two halves:
 
-- **The computer half** — which Windows device the mic is, its input level, its boost, and your PC Cleanup settings (the noise reduction and noise gate that tidy the room before the radio hears it). This half always belongs to JJ Flexible; a radio has nowhere to keep it.
+- **The computer half** — which Windows device the mic is, its input level, its boost, and your PC Cleanup settings (the noise reduction and noise gate that tidy the room before the radio hears it). This half always belongs to JJ Flexible Radio; a radio has nowhere to keep it.
 - **The radio half, per radio** — and here is the part worth understanding. Flex radios keep their own mic profiles, on the radio itself, shared with SmartSDR and every other client. So on a Flex, your microphone profile simply **names which of the radio's own mic profiles to load** — nothing is copied, so there is nothing to drift out of date and nothing fighting other programs over the same settings. On a radio with no profile system of its own (a road that is being paved for other makes), the profile carries the actual values instead.
 
-Pick a profile and press **Apply Profile**, and both halves go into effect — with plain words about anything that could not happen. If the radio does not have the referenced mic profile, JJ Flexible says so and leaves the radio alone; it never guesses at a substitute and never creates profiles on a radio behind your back. If your computer is using a different microphone than the profile was made with, it says that too, and leaves the Windows level where it is rather than moving it for the wrong mic.
+Pick a profile and press **Apply Profile**, and both halves go into effect — with plain words about anything that could not happen. If the radio does not have the referenced mic profile, JJ Flexible Radio says so and leaves the radio alone; it never guesses at a substitute and never creates profiles on a radio behind your back. If your computer is using a different microphone than the profile was made with, it says that too, and leaves the Windows level where it is rather than moving it for the wrong mic.
 
 **Save Profile** captures your computer settings under the mic's name and asks what to store for the radio you are on: reference the radio's current mic profile (the usual right answer on a Flex), snapshot the radio's TX settings into the file, or store the computer half only. Creating a mic profile *on the radio* is offered right there when the radio has none loaded — offered, and only ever done because you chose it.
 
@@ -94,7 +94,7 @@ The Microphone section starts with **Transmit audio from**, showing the radio's 
 
 The section always shows the gain that actually applies to your current source, so there is never a control sitting there that cannot help you.
 
-A line under the level names the exact Windows device being adjusted. If JJ Flexible cannot be certain which Windows device matches your chosen microphone, the control is switched off and that line says why rather than risk moving some other microphone's level.
+A line under the level names the exact Windows device being adjusted. If JJ Flexible Radio cannot be certain which Windows device matches your chosen microphone, the control is switched off and that line says why rather than risk moving some other microphone's level.
 
 ### Moving around
 

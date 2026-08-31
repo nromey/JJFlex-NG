@@ -6,7 +6,7 @@ Everything about it lives in one place: **Settings, then the Diagnostics tab**. 
 
 ## The standing log
 
-By default, JJ Flexible keeps a diagnostic log all the time. At the Normal detail level it records connections, errors, and the actions you take, and honestly, you will never notice the cost — not in speed, and not meaningfully in disk space either, because old sessions clean themselves up (more on that below).
+By default, JJ Flexible Radio keeps a diagnostic log all the time. At the Normal detail level it records connections, errors, and the actions you take, and honestly, you will never notice the cost — not in speed, and not meaningfully in disk space either, because old sessions clean themselves up (more on that below).
 
 You can turn the standing log off with the "Keep a diagnostic log" checkbox. I'd suggest leaving it on: the whole value of the thing is that it was already running when something surprised you.
 
@@ -15,7 +15,7 @@ There are two detail levels:
 - **Normal** — the recommended everyday setting. Connections, errors, your actions.
 - **Detailed** — records nearly everything the app does. The files grow fast at this level, so use it when I ask you for a detailed log, or better yet, use a capture instead.
 
-If you've used earlier versions of JJ Flexible, you may remember a Tracing dialog with five detail levels with names only a programmer could love. That dialog is retired. Two honest choices and a capture button replace it, and they cover everything the five levels did.
+If you've used earlier versions of JJ Flexible Radio, you may remember a Tracing dialog with five detail levels with names only a programmer could love. That dialog is retired. Two honest choices and a capture button replace it, and they cover everything the five levels did.
 
 ## The meter stream — a bench-session switch
 
@@ -29,9 +29,9 @@ Every switch on this tab has the same awkward property: it stays where you put i
 
 That's fixed, in three places:
 
-- **Press `Ctrl+J` then `O` any time** and JJ Flexible tells you what it currently has running and what each one has cost: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." Nothing running gets an answer too.
+- **Press `Ctrl+J` then `O` any time** and JJ Flexible Radio tells you what it currently has running and what each one has cost: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." Nothing running gets an answer too.
 - **If something grows past a sensible size, it says so** — once, at the moment it crosses the line. Not on a timer. A reminder that arrives every few minutes is a reminder you stop hearing, and then it's worse than nothing.
-- **If you close JJ Flexible with recording still going, it tells you first** and offers to turn it off on the way out. The everyday log and your meter tones don't raise this — the log is on for everybody and the tones are, well, audible. It's the silent, persistent ones that get a word.
+- **If you close JJ Flexible Radio with recording still going, it tells you first** and offers to turn it off on the way out. The everyday log and your meter tones don't raise this — the log is on for everybody and the tones are, well, audible. It's the silent, persistent ones that get a word.
 
 ## Detailed capture — the "watch this" button
 

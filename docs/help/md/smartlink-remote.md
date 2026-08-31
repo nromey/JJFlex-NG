@@ -12,7 +12,7 @@ SmartLink lets you control your Flex radio over the internet from anywhere. JJ F
 
 1. Launch JJ Flexible Radio Access.
 2. From the **Radio** menu, choose **Connect to Radio**. The Select Radio dialog opens and begins discovering radios on your local network.
-3. If your remote radio is already in the list from an earlier session, select it and press `Enter` — JJ Flexible signs in to SmartLink and connects in one go, announcing each step. To browse your account's radios first instead, press `Shift+F10` on the radio list and choose **Show Remote Radios**. Sign-in is a regular dialog — email, password, Sign In — not a web page.
+3. If your remote radio is already in the list from an earlier session, select it and press `Enter` — JJ Flexible Radio signs in to SmartLink and connects in one go, announcing each step. To browse your account's radios first instead, press `Shift+F10` on the radio list and choose **Show Remote Radios**. Sign-in is a regular dialog — email, password, Sign In — not a web page.
 4. After you sign in, your remote radios appear in the same radio list you just saw.
 5. Use the arrow keys to select the radio you want, then press **Connect** (`Alt+N`, or `Enter`).
 

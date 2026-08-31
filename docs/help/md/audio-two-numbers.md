@@ -40,7 +40,7 @@ LUFS ignores the gaps between your words. That is normally exactly what you want
 
 The number is not lying to you — it is honestly reporting a signal that happens to include your room. But it is worth knowing, because the fix is not turning yourself up. Turning up a noisy signal just gives everyone more noise.
 
-So JJ Flexible watches the quiet stretches too, not only the loud ones. When your room is loud enough to matter and your voice is not standing far enough clear of it, your mic reading picks up one extra line:
+So JJ Flexible Radio watches the quiet stretches too, not only the loud ones. When your room is loud enough to matter and your voice is not standing far enough clear of it, your mic reading picks up one extra line:
 
 "Steady background noise, about 14 dB under your voice. Turning up would raise the room too."
 

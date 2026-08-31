@@ -22,7 +22,7 @@ Choose a message in the list and press **Show this again**. That message will ap
 
 There is also **Show all of them again**, which brings back everything on the list in one go. It is there for when you want a clean slate. If you only want one message back, choose it in the list instead — restoring everything also restores the messages you silenced on purpose and were glad to be rid of.
 
-Either way, JJ Flexible tells you what it just did, and the same words stay on screen underneath the list so you can find them again.
+Either way, JJ Flexible Radio tells you what it just did, and the same words stay on screen underneath the list so you can find them again.
 
 ## What Kinds of Messages End Up Here
 

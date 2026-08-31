@@ -38,7 +38,7 @@ Each radio you own gets its own per-radio settings, remembered by serial number,
 
 The **"Reaching this radio from away"** setting has three answers, because "no" genuinely comes in two flavors:
 
-- **Ask me when it comes up** — the starting state. On a local connection to an unregistered radio, JJ Flexible may mention SmartLink registration as an option.
+- **Ask me when it comes up** — the starting state. On a local connection to an unregistered radio, JJ Flexible Radio may mention SmartLink registration as an option.
 - **I only use this radio here** — the peace-and-quiet answer. Choosing it silences every SmartLink registration prompt for this radio, permanently. Nothing about your local operating changes; registering is only how you reach a radio from somewhere else, and a radio that never leaves your house does not need it.
 - **I want to reach it from away** — points you toward SmartLink registration and the Radio Setup checklist.
 
@@ -61,7 +61,7 @@ it. If two of you use the same rig, you are both using the same profiles. That
 is worth remembering before you save one.
 
 Open the profile list from the **Radio** menu, then **Profiles**. It shows the
-profiles you have told JJ Flexible about, and also any the radio itself is
+profiles you have told JJ Flexible Radio about, and also any the radio itself is
 carrying that you have never adopted — those are marked "on radio". From here
 you can select a profile to load it, add a name, update an entry, delete one, or
 save the current station into a global profile.
@@ -75,7 +75,7 @@ menu, which saves into
 whichever global profile the radio currently has loaded, and tells you which one
 that is before it writes anything.
 
-You can also have JJ Flexible ask you on the way out. Turn on **Offer to save my
+You can also have JJ Flexible Radio ask you on the way out. Turn on **Offer to save my
 setup to the radio when I disconnect** on the Notifications tab. It only ever
 asks — it never saves by itself, it stays quiet when you have changed nothing or
 when another operator is connected, and it does not raise the subject at all on

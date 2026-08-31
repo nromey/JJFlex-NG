@@ -36,7 +36,7 @@ Two things are worth knowing before you save:
   to that radio gets what you save. If you are borrowing someone else's rig,
   this is the one to leave alone.
 
-For that second reason, JJ Flexible will not save while another operator is
+For that second reason, JJ Flexible Radio will not save while another operator is
 connected to the same radio — saving then would store their setup along with
 yours. It says so rather than failing quietly.
 

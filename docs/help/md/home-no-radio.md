@@ -9,10 +9,10 @@ The rule behind this page is simple: everything on it genuinely works without a 
 Five buttons, in tab order:
 
 - **Connect a radio** — opens the radio picker to look for radios on your network and your SmartLink account. If nothing is found, you land right back here, no harm done.
-- **Settings** — every JJ Flexible setting, including per-radio setup for radios you are not connected to right now. A change that needs a radio waits patiently and applies at your next connection.
+- **Settings** — every JJ Flexible Radio setting, including per-radio setup for radios you are not connected to right now. A change that needs a radio waits patiently and applies at your next connection.
 - **Audio Workshop** — the microphone check and this computer's audio setup work fully with no radio. The Workshop's radio-side controls (mic gain, compander, and friends) quietly disable themselves until a radio arrives, so nothing in there can claim a change it didn't make.
 - **Help** — opens this help file.
-- **Exit** — closes JJ Flexible.
+- **Exit** — closes JJ Flexible Radio.
 
 ## Getting the full Home back
 

@@ -6,7 +6,7 @@ One honest boundary up front: presets are about your **transmit** audio — the 
 
 ## What a preset holds
 
-When you save a preset, JJ Flexible captures these settings from the radio, and loading it later puts every one of them back at once:
+When you save a preset, JJ Flexible Radio captures these settings from the radio, and loading it later puts every one of them back at once:
 
 - Mic gain, mic boost, and mic bias
 - The compander, on or off, and its level
@@ -45,7 +45,7 @@ Press **Load Preset** (or `Ctrl+O`) and pick from the list. The moment you press
 
 ### Deleting
 
-Deleting lives inside the Load Preset picker, right where the list is: arrow to the preset you are done with and press the `Delete` key, or Tab to the Delete button. JJ Flexible reads the preset back to you and asks before removing anything, because there is no undo. Deleting never touches the radio — even if the preset you delete is the one you loaded five minutes ago, your current settings stay exactly where they are.
+Deleting lives inside the Load Preset picker, right where the list is: arrow to the preset you are done with and press the `Delete` key, or Tab to the Delete button. JJ Flexible Radio reads the preset back to you and asks before removing anything, because there is no undo. Deleting never touches the radio — even if the preset you delete is the one you loaded five minutes ago, your current settings stay exactly where they are.
 
 ### Sharing: Export and Import
 
@@ -54,7 +54,7 @@ Deleting lives inside the Load Preset picker, right where the list is: arrow to 
 Two things worth knowing about Import:
 
 - **Importing does not touch the radio.** The preset lands in your list and waits; nothing changes on the air until you deliberately load it. A file arriving from a friend is not permission to retune your transmitter.
-- **A bad file gets called a bad file.** If the file cannot be read as a preset — wrong format, corrupted, not a preset at all — JJ Flexible says so and imports nothing, rather than quietly handing you a blank preset. And if an import's name matches one you already have, the newcomer gets a number after its name so the two stay tellable-apart in the list.
+- **A bad file gets called a bad file.** If the file cannot be read as a preset — wrong format, corrupted, not a preset at all — JJ Flexible Radio says so and imports nothing, rather than quietly handing you a blank preset. And if an import's name matches one you already have, the newcomer gets a number after its name so the two stay tellable-apart in the list.
 
 A word to the wise before loading a preset from someone else: their mic, their voice, and their station are not yours. Load it, run an Audio Check, and listen before you call anyone.
 
@@ -64,9 +64,9 @@ A word to the wise before loading a preset from someone else: their mic, their v
 
 ## Your presets are yours
 
-Presets are stored per operator. If more than one person uses JJ Flexible on this computer, each operator keeps their own list — your contest settings will not ambush anyone else's ragchew.
+Presets are stored per operator. If more than one person uses JJ Flexible Radio on this computer, each operator keeps their own list — your contest settings will not ambush anyone else's ragchew.
 
-And if the preset file itself ever becomes unreadable — a bad shutdown, a disk hiccup — JJ Flexible says so out loud instead of quietly showing you the three built-ins as if your saved work never existed. The unreadable file is kept right next to where it was, renamed so nothing overwrites it, in case its contents can be recovered.
+And if the preset file itself ever becomes unreadable — a bad shutdown, a disk hiccup — JJ Flexible Radio says so out loud instead of quietly showing you the three built-ins as if your saved work never existed. The unreadable file is kept right next to where it was, renamed so nothing overwrites it, in case its contents can be recovered.
 
 ## When to reach for presets
 

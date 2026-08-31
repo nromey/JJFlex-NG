@@ -107,7 +107,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 
 <!-- END LEADER-KEY-TABLE -->
 
-Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
+Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible Radio. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
 Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for those three keys only: `H` and `Shift slash` read you the command list, `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. The full story is on the JJ Key Commands page.
 
@@ -234,17 +234,17 @@ While we were at it, CW notifications stopped piling up. Arrow across four slice
 
 ### What is still running — Ctrl+J, then O
 
-O for "what's on". Press `Ctrl+J` then `O` and JJ Flexible tells you every expensive thing it currently has switched on, and what each one has cost so far: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." If nothing is running, it says that too.
+O for "what's on". Press `Ctrl+J` then `O` and JJ Flexible Radio tells you every expensive thing it currently has switched on, and what each one has cost so far: "Meter stream recording, 218,000 meter lines into the log, and it will still be on the next time you start. The diagnostic log, 1.2 megabytes." If nothing is running, it says that too.
 
 This one exists because sighted operators get it for free. They have a recording light in the corner of the screen, a meter they can watch moving, a panel that's obviously open. We don't, and a switch that stays on across restarts, quietly changes what the app writes to disk, and never says a word about itself is exactly the kind of thing this program is supposed to fix.
 
-There's more to it than the key. If something you left on grows past a sensible size, JJ Flexible now says so on its own — once, when it actually crosses the line, not on a nagging timer. And if you close the app with recording still going, it tells you what's still on before it goes, and offers to turn it off for you on the way out.
+There's more to it than the key. If something you left on grows past a sensible size, JJ Flexible Radio now says so on its own — once, when it actually crosses the line, not on a nagging timer. And if you close the app with recording still going, it tells you what's still on before it goes, and offers to turn it off for you on the way out.
 
 ### Which build am I on — Ctrl+J, then Alt+V
 
 V for Version, with Alt on it because plain `V` has been volume mode for a while now and isn't moving.
 
-Press `Ctrl+J` then `Alt+V` and JJ Flexible says the version number, whether it's a test build or a release build, and the date it was built: "Version 4.1.16.1024, Debug, built August 27, 2026." That's it — short enough to read straight back to me in an email.
+Press `Ctrl+J` then `Alt+V` and JJ Flexible Radio says the version number, whether it's a test build or a release build, and the date it was built: "Version 4.1.16.1024, Debug, built August 27, 2026." That's it — short enough to read straight back to me in an email.
 
 This is the answer to a question that comes up in every single bug report, and until now the only place to find it was Help, About — a dialog you have to go and open, which is a nuisance when you're already in the middle of describing something that just went wrong. Now it's one chord from wherever you are, including from inside a dialog.
 
@@ -337,7 +337,7 @@ These keys work from ANY field within your JJ Flexible Home. First, remember to 
 
 Navigation inside the Home: Left and Right arrows move one character at a time, Home jumps to the first field (except on the Slice field, where it pans center), End jumps to the last field, and Page Down jumps straight to the Frequency field from fields that don't use Page Down themselves.
 
-No letter on the Home surface is ever silent. Press a letter that isn't bound on the field you're on and JJ Flexible says so — "S does nothing on the Volume field" — and points you at Shift slash, which speaks the keys that do work right there. With no radio connected, these keys answer "No radio connected" instead of pretending to be broken.
+No letter on the Home surface is ever silent. Press a letter that isn't bound on the field you're on and JJ Flexible Radio says so — "S does nothing on the Volume field" — and points you at Shift slash, which speaks the keys that do work right there. With no radio connected, these keys answer "No radio connected" instead of pretending to be broken.
 
 ## JJ Flexible Home — Slice Field Keys
 

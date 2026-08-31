@@ -4,7 +4,7 @@ Every Flex radio has noise reduction built into the radio's own firmware. JJ Fle
 
 ## Two Noise Reduction Layers, Two Different Purposes
 
-- **On-radio NR** (the Flex's built-in NR, NRS, RNN, and similar features) runs inside the radio's own DSP hardware. It is fast, it does not touch your computer's CPU, and it works whether JJ Flexible Radio Access is running or not. Use it as your first stop — it is always available, and for most conditions it is enough. In JJ Flexible these controls all say "On-Radio" in their names so you always know which side of the wire you're adjusting.
+- **On-radio NR** (the Flex's built-in NR, NRS, RNN, and similar features) runs inside the radio's own DSP hardware. It is fast, it does not touch your computer's CPU, and it works whether JJ Flexible Radio Access is running or not. Use it as your first stop — it is always available, and for most conditions it is enough. In JJ Flexible Radio these controls all say "On-Radio" in their names so you always know which side of the wire you're adjusting.
 - **PC-side NR** runs inside JJ Flexible Radio Access on your computer. It processes the audio stream after the audio leaves the radio. It is free, it is available on every radio model regardless of license tier — including the 6300 and 6400 that never had the fancy DSP hardware — and it gives you two different engines.
 
 ## The Two PC-Side Engines
