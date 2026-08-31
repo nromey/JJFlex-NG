@@ -1452,6 +1452,29 @@ namespace Radios
         /// original profiles back and checks. Returns null if a walk is
         /// already in flight.
         /// </summary>
+        /// <summary>
+        /// Whether this model has anywhere to SHOW the front-panel
+        /// screensaver. Pure, so a test can hold it to the models we ship.
+        /// </summary>
+        /// <remarks>
+        /// The flag is NOT the one with "FrontPanel" in its name.
+        /// <c>HasBacklitFrontPanel</c> is true for every non-M 6400, 6600,
+        /// 8400 and 8600 — they have a lit panel with no screen on it. Only
+        /// the OLED models (6500, 6700, 6700R) and the M models can paint
+        /// text. Reading the obvious flag, which is also the first one a grep
+        /// finds, reports "shows a screensaver" for half the radios we
+        /// support.
+        /// </remarks>
+        internal static bool CanShowScreensaver(string model)
+        {
+            try
+            {
+                var mi = ModelInfo.GetModelInfoForModel(model ?? string.Empty);
+                return mi != null && (mi.HasOledDisplay || mi.IsMModel);
+            }
+            catch { return false; }
+        }
+
         public static RestoreGradeExport GenerateRestoreGradeExport(
             FlexBase rig, Action<string> progressCallback = null)
         {
@@ -1584,8 +1607,11 @@ namespace Radios
             // "callsign", among model, name and serial — which are identity.
             // Noel read the resulting "callsign = none" on his own 8600 the
             // morning after it shipped and asked what had gone wrong. Nothing
-            // had: a FLEX-8600 has no front display for a screensaver to
-            // paint, so the field is legitimately empty. The DATA was right
+            // had. (The first version of this comment said the 8600 "has no
+            // front display", which is loose: FlexLib has it as
+            // HasBacklitFrontPanel = true. It has a lit panel and no SCREEN —
+            // see the display check below.) The field is legitimately empty
+            // on his radio, so the DATA was right
             // and the KEY lied, which is the worse of the two failures,
             // because the file's whole promise is that it can be read
             // straight through and believed.
@@ -1594,6 +1620,33 @@ namespace Radios
             // mode captures half a setting, and a restore made from it would
             // silently drop which of Model / Name / Callsign / None the
             // operator had chosen.
+            // Can this radio SHOW a screensaver at all? Noel asked the
+            // question the moment he understood the setting, and FlexLib
+            // already answers it: ModelInfo is a per-model capability table
+            // (ModelInfo.cs), keyed by the model string.
+            //
+            // THE FLAG IS NOT THE ONE WITH "FrontPanel" IN THE NAME. His own
+            // 8600 is HasBacklitFrontPanel = TRUE — it has an illuminated
+            // panel — and HasOledDisplay = false, IsMModel = false, so there
+            // is no SCREEN on it and nothing can paint text. Only the OLED
+            // models (6500, 6700, 6700R) and the M models have somewhere to
+            // show one. Reading HasBacklitFrontPanel here, which is the
+            // obvious name and the one a grep finds first, would report
+            // "this radio shows a screensaver" for every non-M 6400, 6600,
+            // 8400 and 8600 we support.
+            //
+            // Both values are still captured when there is no display: the
+            // radio stores them either way, and dropping a stored setting
+            // because we judged it cosmetic is how a restore file loses
+            // something quietly. The applicability line goes ABOVE them, so
+            // the reader meets it before the values.
+            // radio may be null here — Wide() guards its LAMBDAS, not the
+            // setup around them, and this line runs either way.
+            bool canShowScreensaver = radio != null && CanShowScreensaver(radio.Model);
+
+            Wide("front panel display", () => canShowScreensaver
+                ? "yes — this model can show the screensaver below"
+                : "none — this model has no screen, so the screensaver below is stored but never shown");
             Wide("front panel screensaver mode",
                  () => radio.Screensaver.ToString().ToLowerInvariant());
             Wide("front panel callsign text", () => radio.Callsign);
