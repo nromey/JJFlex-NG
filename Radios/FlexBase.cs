@@ -397,10 +397,41 @@ namespace Radios
         /// dual-homed radio dropping off the LAN is still perfectly reachable
         /// through SmartLink.
         /// </summary>
+        /// <summary>
+        /// Serial → <see cref="Environment.TickCount64"/> of the last LAN
+        /// discovery evidence for that radio: seeded when the LAN sighting is
+        /// added, refreshed on every discovery broadcast (FlexLib re-raises
+        /// GuiClients per packet, about once a second), and retired only by a
+        /// genuine discovery loss — never by our own disconnect's lifecycle
+        /// removal. This is what keeps <see cref="RadioAvailability"/> honest
+        /// through the hole our own teardown tears in <c>myRadioList</c>: on
+        /// 2026-08-30 that hole was 119 ms wide, the connect walk asked inside
+        /// it, and a radio whose broadcast arrived 100 ms later was declared
+        /// "not on the LAN" (#402).
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _lanLastSeenTicks =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// How long a LAN sighting stays credible with no list entry behind
+        /// it. Discovery broadcasts arrive about once a second and FlexLib's
+        /// own discovery timeout is 17 s (API.RADIOLIST_TIMEOUT_SECONDS), so
+        /// ten seconds bridges every bookkeeping hole while staying inside
+        /// the window FlexLib itself considers current.
+        /// </summary>
+        internal const int LanRecencyWindowMs = 10000;
+
+        /// <summary>Pure so the window arithmetic is pinned by tests.
+        /// A zero <paramref name="lastSeenTick"/> means never seen.</summary>
+        internal static bool LanSeenRecently(long lastSeenTick, long nowTick, int windowMs = LanRecencyWindowMs)
+            => lastSeenTick > 0 && nowTick >= lastSeenTick && (nowTick - lastSeenTick) <= windowMs;
+
         public (bool lan, bool wan) RadioAvailability(string serial)
         {
             if (string.IsNullOrWhiteSpace(serial)) return (false, false);
             bool wan = findWanRadio(serial) != null;
+            bool recent = _lanLastSeenTicks.TryGetValue(serial, out var seen)
+                && LanSeenRecently(seen, Environment.TickCount64);
             try
             {
                 // ToList first: myRadioList is appended to from the discovery
@@ -408,12 +439,24 @@ namespace Radios
                 // leaves. An enumeration that throws here would take the picker
                 // down over a bookkeeping question.
                 bool lan = myRadioList.ToList().Any(x => x.Serial == serial && !x.IsWan);
+                if (!lan && recent)
+                {
+                    // The list is momentarily empty of this serial but the
+                    // radio's own broadcasts are current — the empty list is
+                    // bookkeeping (our own disconnect's lifecycle removal),
+                    // not network truth. Say so, because the connect walk
+                    // reads this answer to decide whether a local leg exists.
+                    Tracing.TraceLine(
+                        $"RadioAvailability({serial}): no list entry but LAN discovery evidence is {Environment.TickCount64 - seen} ms old — reporting lan=true (#402)",
+                        TraceLevel.Info);
+                    lan = true;
+                }
                 return (lan, wan);
             }
             catch (InvalidOperationException ex)
             {
                 Tracing.TraceLine($"RadioAvailability({serial}): list changed mid-read: {ex.Message}", TraceLevel.Warning);
-                return (false, wan);
+                return (recent, wan);
             }
         }
 
@@ -428,7 +471,11 @@ namespace Radios
             }
             myRadioList.Add(r);
             if (r.IsWan) RememberWanRadio(r);
-            else WatchDiscoveryGuiClients(r);
+            else
+            {
+                _lanLastSeenTicks[r.Serial] = Environment.TickCount64;
+                WatchDiscoveryGuiClients(r);
+            }
             RaiseRadioFound(null, BuildRigData(r));
         }
 
@@ -493,6 +540,10 @@ namespace Radios
             // "raise only when the answer changed".
             if (e.PropertyName != "GuiClients") return;
             if (!(sender is Radio r) || string.IsNullOrWhiteSpace(r.Serial)) return;
+            // Every broadcast lands here (the raise is unconditional), so this
+            // is the LAN-recency heartbeat — refreshed BEFORE the signature
+            // gate, which only decides whether the roster needs re-telling.
+            _lanLastSeenTicks[r.Serial] = Environment.TickCount64;
             string sig = OccupancySignature(r);
             lock (_occupancyRaised)
             {
@@ -584,6 +635,89 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Why a <see cref="Radio"/> object left FlexLib's list. FlexLib raises
+        /// ONE event for three different stories, and until #402 this class
+        /// told all three as "gone from discovery" — false for two of them.
+        ///
+        /// <para>The tell, from FlexLib itself: the discovery-timeout sweep
+        /// (<c>API.RadioListMaid</c>) only ever removes radios with
+        /// <c>Connected == false</c>. A radio WE hold a connection to can only
+        /// leave the list through <c>Radio.Disconnect()</c> — whose tail
+        /// unconditionally calls <c>API.RemoveRadio(this)</c> — and that
+        /// Disconnect is either ours (teardown, retry, dispose) or FlexLib's
+        /// own reaction to the socket dropping. Neither says ANYTHING about
+        /// discovery: on 2026-08-30 the 8600's broadcasts kept arriving the
+        /// whole time, and the LAN sighting was re-added 119 ms later.</para>
+        /// </summary>
+        internal enum RadioRemovalKind
+        {
+            /// <summary>Our own teardown called Disconnect; the removal is
+            /// bookkeeping we caused. Not a discovery statement.</summary>
+            SelfInitiated,
+            /// <summary>The object we were connected to was retired after its
+            /// connection closed unexpectedly. The radio may well still be on
+            /// the air; discovery will say within a second.</summary>
+            ConnectionLostOurRadio,
+            /// <summary>A radio we were NOT connected to aged out of
+            /// discovery. The one story the old wording was true for.</summary>
+            DiscoveryLoss,
+        }
+
+        /// <summary>
+        /// Pure classification so the truth table is pinned by tests.
+        /// <paramref name="disconnectingFlag"/> is a one-way latch (never
+        /// reset for the life of this instance), so it only counts together
+        /// with reference identity — never by serial, or a later, genuine
+        /// discovery loss of the re-added sighting would be mislabelled and
+        /// swallowed.
+        /// </summary>
+        internal static RadioRemovalKind ClassifyRadioRemoval(
+            bool selfDisconnectActive, bool disconnectingFlag, bool sameObject)
+        {
+            if (sameObject && (selfDisconnectActive || disconnectingFlag))
+                return RadioRemovalKind.SelfInitiated;
+            if (sameObject)
+                return RadioRemovalKind.ConnectionLostOurRadio;
+            return RadioRemovalKind.DiscoveryLoss;
+        }
+
+        /// <summary>
+        /// Only a self-initiated removal is kept away from the roster. Tonight
+        /// (#402) the row for a radio broadcasting a few feet away vanished
+        /// because our own timeout teardown hung up on it, and 3 ms later the
+        /// connect walk read the empty roster as "radio not on the LAN" and
+        /// denied the retry its local leg. A radio does not leave the shack
+        /// because we hung up on it. The other two kinds still raise: the
+        /// roster consumer consults <see cref="RadioAvailability"/> for the
+        /// truth, and a genuine discovery loss must keep reaching it.
+        /// </summary>
+        internal static bool RemovalSuppressesRosterRaise(RadioRemovalKind kind)
+            => kind == RadioRemovalKind.SelfInitiated;
+
+        /// <summary>Nonzero while OUR code is inside a deliberate
+        /// <c>theRadio.Disconnect()</c> — FlexLib raises the removal
+        /// synchronously on the same thread, so the window is exact.</summary>
+        private int _selfDisconnects;
+
+        /// <summary>
+        /// A deliberate teardown disconnect, marked so the synchronous
+        /// <c>API.RadioRemoved</c> it triggers is classified as ours
+        /// (<see cref="RadioRemovalKind.SelfInitiated"/>) instead of being
+        /// read as the radio leaving the network.
+        /// </summary>
+        private void teardownDisconnect(string reason)
+        {
+            Tracing.TraceLine($"teardownDisconnect ({reason})", TraceLevel.Info);
+            System.Threading.Interlocked.Increment(ref _selfDisconnects);
+            try { theRadio?.Disconnect(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine($"teardownDisconnect ({reason}): {ex.Message}", TraceLevel.Warning);
+            }
+            finally { System.Threading.Interlocked.Decrement(ref _selfDisconnects); }
+        }
+
         private void apiRadioRemovedHandler(Radio r)
         {
             if (r == null || string.IsNullOrWhiteSpace(r.Serial)) return;
@@ -592,7 +726,32 @@ namespace Radios
                 Tracing.TraceLine("apiRadioRemovedHandler: suppressed (rescan teardown) " + r.Serial, TraceLevel.Info);
                 return;
             }
-            Tracing.TraceLine($"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) gone from discovery — removing", TraceLevel.Info);
+
+            var kind = ClassifyRadioRemoval(
+                selfDisconnectActive: System.Threading.Volatile.Read(ref _selfDisconnects) > 0,
+                disconnectingFlag: Disconnecting,
+                sameObject: ReferenceEquals(r, theRadio));
+
+            switch (kind)
+            {
+                case RadioRemovalKind.SelfInitiated:
+                    Tracing.TraceLine(
+                        $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) released by our own disconnect — FlexLib lifecycle removal, NOT a discovery loss; roster keeps the row (#402)",
+                        TraceLevel.Info);
+                    break;
+                case RadioRemovalKind.ConnectionLostOurRadio:
+                    Tracing.TraceLine(
+                        $"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) retired after its connection dropped — the radio may still be on the air; discovery will say (#402)",
+                        TraceLevel.Info);
+                    break;
+                default:
+                    Tracing.TraceLine($"apiRadioRemovedHandler: {r.Serial} ({r.Nickname}) gone from discovery — removing", TraceLevel.Info);
+                    // Only a genuine discovery loss retires the LAN-recency
+                    // evidence; our own hang-up says nothing about the LAN.
+                    _lanLastSeenTicks.TryRemove(r.Serial, out _);
+                    break;
+            }
+
             var mine = myRadioList.FirstOrDefault(x => x.Serial == r.Serial);
             if (mine != null) myRadioList.Remove(mine);
             // Both objects, deliberately: the subscription rides whichever
@@ -600,7 +759,8 @@ namespace Radios
             // guaranteed to be the same instance as `r`.
             UnwatchDiscoveryGuiClients(r);
             if (!ReferenceEquals(mine, r)) UnwatchDiscoveryGuiClients(mine);
-            RaiseRadioRemoved(this, r.Serial, r.Nickname ?? "");
+            if (!RemovalSuppressesRosterRaise(kind))
+                RaiseRadioRemoved(this, r.Serial, r.Nickname ?? "");
         }
 
         /// <summary>
@@ -2611,7 +2771,7 @@ namespace Radios
                 {
                     { "phase", "antenna_wait" }
                 });
-                try { theRadio?.Disconnect(); } catch { }
+                teardownDisconnect("cancel during antenna wait");
                 return false;
             }
 
@@ -2743,7 +2903,7 @@ namespace Radios
                     { "msSinceStartBegin", Environment.TickCount64 - _startBeginTickCount }
                 });
                 releaseGuiClientRegistration("cancel during station-name wait");
-                try { theRadio.Disconnect(); } catch { }
+                teardownDisconnect("cancel during station-name wait");
                 return false;
             }
             if (stationNameSet)
@@ -2765,17 +2925,33 @@ namespace Radios
             }
             else
             {
-                // Station name timeout — SmartLink re-add is too slow.
+                // Station name timeout.
                 // Disconnect cleanly and return false so caller can retry with a fresh connection.
                 // Don't show error dialog — a fresh connection usually succeeds quickly.
                 Tracing.TraceLine("start:station name timeout, disconnecting for retry", TraceLevel.Warning);
+                // The discriminating instrument (#402): the radio's own LAN
+                // discovery broadcasts carry the station roll call, on a UDP
+                // path that does not depend on our TCP receive channel. On
+                // 2026-08-30 they showed our client as 'k5ner' 122 ms into a
+                // wait that then starved for 45 s — proof the radio APPLIED
+                // the name and OUR receive path never delivered the echo
+                // (the read loop was wedged behind a synchronous marshal to
+                // the blocked UI thread). Without this line, a silent radio
+                // and a self-inflicted stall produce the same trace.
+                var (discoverySawHandle, discoveryStation) = DiscoveryStationEvidence();
+                Tracing.TraceLine(
+                    "start:station name timeout — " +
+                    StationEvidenceVerdict(discoverySawHandle, discoveryStation, Callouts.StationName),
+                    TraceLevel.Error);
                 LastStartFailureReason = _clientRemovedDuringStart
                     ? "Client removed during connection"
                     : "Station name timeout";
                 ConnectionProfiler.Current?.RecordAndSave("station_name_timeout", new Dictionary<string, object>
                 {
                     { "clientRemovedDuringStart", _clientRemovedDuringStart },
-                    { "ticksSinceRemoval", _clientRemovedDuringStart ? (Environment.TickCount64 - _clientRemovedTickCount) : 0 }
+                    { "ticksSinceRemoval", _clientRemovedDuringStart ? (Environment.TickCount64 - _clientRemovedTickCount) : 0 },
+                    { "discoverySawOurHandle", discoverySawHandle },
+                    { "discoveryStation", discoveryStation }
                 });
                 if (!SuppressSpeech) ScreenReaderOutput.Speak(Lexicon.Get("connect.start.slow_retrying"), VerbosityLevel.Critical);
                 if (ScreenReaderOutput.CwNotificationsEnabled) _ = ScreenReaderOutput.PlayCwAS?.Invoke();
@@ -2783,7 +2959,7 @@ namespace Radios
                 // reconnects — a lingering registration is exactly the state
                 // the failing #402 reconnects kept landing on.
                 releaseGuiClientRegistration("station-name timeout, retrying");
-                try { theRadio.Disconnect(); } catch { }
+                teardownDisconnect("station-name timeout, retrying");
                 return false;
             }
             mainThread = new Thread(mainThreadProc);
@@ -8185,6 +8361,52 @@ namespace Radios
         }
 
         /// <summary>
+        /// What the radio's own DISCOVERY BROADCASTS say about our client at
+        /// this moment — evidence that arrives over UDP, independent of the
+        /// TCP receive path the station-name wait depends on. The API-side
+        /// sighting (found by serial) is deliberately consulted rather than
+        /// <c>theRadio</c>: on a WAN-path connect they can be different Radio
+        /// objects, and it is the LAN sighting that FlexLib re-merges with
+        /// every broadcast's station roll call.
+        /// </summary>
+        private (bool sawHandle, string station) DiscoveryStationEvidence()
+        {
+            try
+            {
+                var serial = theRadio?.Serial;
+                if (string.IsNullOrWhiteSpace(serial) || clientHandle == noClient) return (false, "");
+                var apiRadio = findRadioInAPI(serial);
+                if (apiRadio == null) return (false, "");
+                lock (apiRadio.GuiClientsLockObj)
+                {
+                    foreach (GUIClient c in apiRadio.GuiClients)
+                    {
+                        if (c.ClientHandle == clientHandle) return (true, c.Station ?? "");
+                    }
+                }
+                return (false, "");
+            }
+            catch { return (false, ""); }
+        }
+
+        /// <summary>
+        /// Turn the discovery evidence into the sentence the timeout trace
+        /// needs. Pure, so the four verdicts are pinned by tests. The verdict
+        /// distinguishes what 45 identical seconds of silence never could:
+        /// whose defect this is.
+        /// </summary>
+        internal static string StationEvidenceVerdict(bool sawHandle, string discoveryStation, string requestedName)
+        {
+            if (!sawHandle)
+                return "discovery carries no record of our client — the radio may never have processed the registration, or the sighting is gone";
+            if (string.IsNullOrEmpty(discoveryStation))
+                return "discovery shows our client with NO station name — the radio never applied it; the silence is radio-side";
+            if (discoveryStation == requestedName)
+                return $"discovery shows our client as '{discoveryStation}' — the radio APPLIED the name and the TCP echo was never read; the receive path stalled in-process, which is OUR defect, not the radio's";
+            return $"discovery shows our client as '{discoveryStation}' where we asked for '{requestedName}' — a radio-side rename; the equality wait can never succeed";
+        }
+
+        /// <summary>
         /// Ask the radio to set our station name — and TRACE ITS ANSWER.
         ///
         /// <para>This replaces a fire-and-forget
@@ -8213,7 +8435,16 @@ namespace Radios
                         var done = await Task.WhenAny(reply, Task.Delay(10000)).ConfigureAwait(false);
                         if (done != reply)
                         {
-                            Tracing.TraceLine($"requestStationName('{name}'): NO REPLY from the radio within 10s — the command reached the wire but nothing acknowledged it (#402)", TraceLevel.Error);
+                            // Wording matters here (#402): this line used to
+                            // claim the command "reached the wire but nothing
+                            // acknowledged it", which reads as a radio-side
+                            // silence. The 2026-08-30 traces disproved that
+                            // reading — the radio HAD processed the command
+                            // (its discovery broadcasts showed the name
+                            // applied) and the reply sat unread behind a
+                            // wedged receive loop. From this vantage the two
+                            // are indistinguishable; say so.
+                            Tracing.TraceLine($"requestStationName('{name}'): no reply was READ within 10s — either the radio stayed silent, or the reply arrived and our receive path never delivered it; the two look identical from here (#402)", TraceLevel.Error);
                             return;
                         }
                         var info = await reply.ConfigureAwait(false);

@@ -383,7 +383,11 @@ namespace Radios.Tests
             Assert.Contains(
                 "rd.GuiClientStations = r.GuiClients.Select(c => c.Station ?? \"\").ToList();",
                 source, StringComparison.Ordinal);
-            Assert.Contains("else WatchDiscoveryGuiClients(r);", source, StringComparison.Ordinal);
+            // The non-WAN add branch grew a second duty in #402 — seeding the
+            // LAN-recency evidence — so the single-statement `else` became a
+            // block. The watch call is what this test exists to pin.
+            Assert.Contains("WatchDiscoveryGuiClients(r);", source, StringComparison.Ordinal);
+            Assert.Contains("_lanLastSeenTicks[r.Serial] = Environment.TickCount64;", source, StringComparison.Ordinal);
         }
 
         [Fact]
