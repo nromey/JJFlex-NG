@@ -1493,7 +1493,7 @@ namespace Radios
 
             // ── [capture] — identity, and where the radio stood at the start ──
             // "no radio connection" beats a null-collapsed "none" here: with
-            // no radio, "callsign = none" claims a fact nobody read.
+            // no radio, "radio name = none" claims a fact nobody read.
             string noRadio = radio == null ? "no radio connection" : null;
             var capture = new List<SettingLine>();
             void Cap(string key, Func<string> read, bool needsRadio = true)
@@ -1518,7 +1518,6 @@ namespace Radios
             Cap("radio model", () => radio.Model ?? rig.RadioModel);
             Cap("radio name", () => radio.Nickname ?? rig.RadioNickname);
             Cap("radio serial", () => radio.Serial);
-            Cap("callsign", () => radio.Callsign);
             Cap("firmware", () => radio.Versions);
             Cap("antenna tuner fitted", () => radio.ATUPresent ? "yes" : "no");
             Cap("rx antenna ports", () => string.Join(", ", rig.RXAntennaList ?? new List<string>()));
@@ -1571,6 +1570,33 @@ namespace Radios
                 }
             }
             Wide("remote power on (REM ON)", () => radio.RemoteOnEnabled ? "enabled" : "disabled");
+
+            // ── The front-panel screensaver, and the trap in its second half ──
+            //
+            // FlexLib's `Radio.Callsign` is NOT the operator's station
+            // callsign. Its own summary says so: "the Callsign string to be
+            // stored in the radio to be shown on the front display if the
+            // Callsign ScreensaverMode is selected". It is the screensaver's
+            // text, it sits between Screensaver and Nickname in FlexLib, and
+            // the only command behind it is "radio callsign".
+            //
+            // This capture used to write it into [capture] as bare
+            // "callsign", among model, name and serial — which are identity.
+            // Noel read the resulting "callsign = none" on his own 8600 the
+            // morning after it shipped and asked what had gone wrong. Nothing
+            // had: a FLEX-8600 has no front display for a screensaver to
+            // paint, so the field is legitimately empty. The DATA was right
+            // and the KEY lied, which is the worse of the two failures,
+            // because the file's whole promise is that it can be read
+            // straight through and believed.
+            //
+            // The mode came with the rename: capturing the text without the
+            // mode captures half a setting, and a restore made from it would
+            // silently drop which of Model / Name / Callsign / None the
+            // operator had chosen.
+            Wide("front panel screensaver mode",
+                 () => radio.Screensaver.ToString().ToLowerInvariant());
+            Wide("front panel callsign text", () => radio.Callsign);
             Wide("network addressing", () =>
             {
                 var ip = rig.CurrentStaticIP;
