@@ -24,6 +24,16 @@ Namespace My
         Friend Shared TheShellForm As ShellForm
 
         Private Sub MyApplication_Startup(sender As Object, e As ApplicationServices.StartupEventArgs) Handles Me.Startup
+            ' The Startup thread IS the UI thread: this same thread goes on to
+            ' create ShellForm and run the message loop. Record its identity
+            ' before anything can connect, so RunConnectPhaseOffUiThread can
+            ' recognise the UI thread even while there is no message loop to
+            ' infer it from — which is the whole of startup, including the
+            ' first connect. Inferring it from Application.MessageLoop is what
+            ' ran the 2026-08-29 startup connect inline and froze the app for
+            ' three 45-second station-name waits (#402).
+            UiThreadId = Environment.CurrentManagedThreadId
+
             ' Initialize native library resolver FIRST (enables x86/x64 DLL loading)
             NativeLoader.Initialize()
 

@@ -3656,6 +3656,17 @@ Module globals
     ''' this window's opening line. See ConnectingForm and task #93.
     ''' </param>
     ''' <summary>
+    ''' Managed id of the thread the UI lives on. Captured at the top of
+    ''' MyApplication_Startup — the Startup event, ShellForm creation and the
+    ''' message loop all run on that one thread — so it is set before any path
+    ''' can reach a connect. <see cref="RunConnectPhaseOffUiThread"/> keys off
+    ''' this rather than Application.MessageLoop, because the startup connect
+    ''' runs BEFORE the message loop exists and still runs on the UI thread
+    ''' (#402, second lockout, 2026-08-29).
+    ''' </summary>
+    Friend UiThreadId As Integer = -1
+
+    ''' <summary>
     ''' Run one blocking piece of the connect phase on a worker thread while
     ''' THIS thread keeps pumping messages.
     '''
@@ -3678,8 +3689,29 @@ Module globals
     ''' goes through here.</para>
     ''' </summary>
     Private Function RunConnectPhaseOffUiThread(Of T)(label As String, work As Func(Of T)) As T
-        ' Off the UI thread already (tests, background flows): just run it.
-        If Not Application.MessageLoop Then Return work()
+        ' Only the UI thread needs rescuing; any other caller (the Connection
+        ' Tester's worker, future background flows) just runs the work where
+        ' it stands.
+        '
+        ' Decided by THREAD IDENTITY, captured at startup — NOT by
+        ' Application.MessageLoop. MessageLoop answers "is a WinForms message
+        ' loop running on this thread RIGHT NOW", which is False for the whole
+        ' of MyApplication_Startup — and the startup connect (auto-connect,
+        ' the first picker, the retry ladder) runs exactly there, on the very
+        ' thread that becomes the message-loop thread the moment startup
+        ' returns. On 2026-08-29 that guard quietly ran the entire connect
+        ' phase inline: a 45-second station-name wait, three failures over 132
+        ' seconds, zero ConnectPhase workers in the trace, no speech, no keys,
+        ' no cancel — indistinguishable from a crash (#402). The windows shown
+        ' during startup belong to this thread just as much as they do once
+        ' the loop is running, so "no loop yet" must mean pump, not block.
+        '
+        ' Unknown identity (UiThreadId still -1) also pumps: DoEvents on a
+        ' thread that owns no windows is a cheap no-op per iteration and the
+        ' work still completes on the worker, while running inline wrongly is
+        ' the 45-second lockout this function exists to end. The safe default
+        ' is the one that cannot freeze the operator out.
+        If UiThreadId >= 0 AndAlso Environment.CurrentManagedThreadId <> UiThreadId Then Return work()
 
         Dim result As T = Nothing
         Dim err As Exception = Nothing
