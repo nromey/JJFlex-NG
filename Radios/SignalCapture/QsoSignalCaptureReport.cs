@@ -278,7 +278,7 @@ namespace Radios.SignalCapture
             s.Para(band == SMeterReading.Band.VhfAndAbove
                 ? "That is the above-30-MHz reference. The standard sets S9 twenty "
                 + "decibels weaker above 30 MHz than below it, so the same signal is "
-                + "more than three S-units stronger on 6 metres than the HF scale "
+                + "more than three S-units stronger on 6 meters than the HF scale "
                 + "would call it."
                 : "That is the below-30-MHz reference. Above 30 MHz the standard sets "
                 + "S9 twenty decibels weaker, and captures taken there use that scale "
