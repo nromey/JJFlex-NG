@@ -2088,7 +2088,7 @@ document.addEventListener('keydown', function (e) {
                 return false;
             }))
         {
-            ToPage("status", StationConditions.NowReports(StationConditions.Format(agreed)));
+            ToPage("status", StationConditions.ChangeAccepted("frequency"));
         }
         else
         {
@@ -2097,8 +2097,8 @@ document.addEventListener('keydown', function (e) {
                               + " within " + RadioConfirmMs + " ms; it reports "
                               + reported, TraceLevel.Warning);
             ToPage("status", reported != 0UL
-                ? StationConditions.NotConfirmedStillReports(StationConditions.Format(reported))
-                : StationConditions.NotConfirmedNothingReported("frequency"));
+                ? StationConditions.ChangeNotAccepted("frequency")
+                : StationConditions.ChangeNotAcceptedNothingReported("frequency"));
         }
 
         // Re-render for the same reason the power hand-off does: every
@@ -2201,7 +2201,7 @@ document.addEventListener('keydown', function (e) {
                 return false;
             }))
         {
-            ToPage("status", StationConditions.NowReports(StationConditions.ModeInWords(agreed) + " mode"));
+            ToPage("status", StationConditions.ChangeAccepted("mode"));
         }
         else
         {
@@ -2210,8 +2210,8 @@ document.addEventListener('keydown', function (e) {
                               + " within " + RadioConfirmMs + " ms; it reports \""
                               + reported + "\"", TraceLevel.Warning);
             ToPage("status", reported.Length != 0
-                ? StationConditions.NotConfirmedStillReports(StationConditions.ModeInWords(reported) + " mode")
-                : StationConditions.NotConfirmedNothingReported("mode"));
+                ? StationConditions.ChangeNotAccepted("mode")
+                : StationConditions.ChangeNotAcceptedNothingReported("mode"));
         }
 
         // Re-render so the Run control's sentence carries the mode the stage is

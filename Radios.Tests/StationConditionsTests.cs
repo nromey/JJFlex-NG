@@ -159,23 +159,47 @@ namespace Radios.Tests
             // sentence in this vocabulary for "we sent the command" — that is
             // the sentence the frequency hand-off shipped with once, and it
             // told an operator they had moved when they had not.
-            Assert.Equal("The radio now reports 14.250000 MHz.",
-                StationConditions.NowReports("14.250000 MHz"));
-            Assert.Equal("The radio now reports USB.",
-                StationConditions.NowReports("USB"));
+            Assert.Equal("Mode change accepted.", StationConditions.ChangeAccepted("mode"));
+            Assert.Equal("Frequency change accepted.",
+                StationConditions.ChangeAccepted("frequency"));
 
-            Assert.Equal(
-                "The radio has not confirmed that change. It still reports LSB.",
-                StationConditions.NotConfirmedStillReports("LSB"));
+            Assert.Equal("Mode change not accepted.",
+                StationConditions.ChangeNotAccepted("mode"));
+            Assert.Equal("Frequency change not accepted.",
+                StationConditions.ChangeNotAccepted("frequency"));
 
-            Assert.Equal(
-                "The radio has not confirmed that change, and is not reporting "
-                + "a transmit mode at all.",
-                StationConditions.NotConfirmedNothingReported("mode"));
-            Assert.Equal(
-                "The radio has not confirmed that change, and is not reporting "
-                + "a transmit frequency at all.",
-                StationConditions.NotConfirmedNothingReported("frequency"));
+            // The one case that gets extra words, because it is the one case
+            // the display cannot carry: there is no value on screen to read.
+            Assert.Equal("Mode change not accepted. No mode reported.",
+                StationConditions.ChangeNotAcceptedNothingReported("mode"));
+            Assert.Equal("Frequency change not accepted. No frequency reported.",
+                StationConditions.ChangeNotAcceptedNothingReported("frequency"));
+        }
+
+        [Fact]
+        public void The_confirmations_never_read_the_value_back()
+        {
+            // Ruled by Noel 2026-08-31. The dialog already displays the mode
+            // and the frequency; reading them back spends his time telling him
+            // something on the screen in front of him. "This is stuff that a
+            // ham, being techie people that we are, don't need to be told
+            // simple stuff like this like we're five."
+            //
+            // A guard rather than a style note: the previous version was
+            // rewritten twice in two days, each time growing, and the value
+            // creeping back in is the specific regression to catch.
+            foreach (string s in new[]
+            {
+                StationConditions.ChangeAccepted("mode"),
+                StationConditions.ChangeNotAccepted("mode"),
+                StationConditions.ChangeNotAcceptedNothingReported("mode"),
+            })
+            {
+                Assert.DoesNotContain("USB", s);
+                Assert.DoesNotContain("sideband", s);
+                Assert.DoesNotContain("MHz", s);
+                Assert.True(s.Split(' ').Length <= 8, "too many words: " + s);
+            }
         }
     }
 }

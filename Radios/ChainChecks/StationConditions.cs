@@ -197,22 +197,49 @@ namespace Radios.ChainChecks
             }
         }
 
-        /// <summary>"The radio now reports 14.250000 MHz." — the change
-        /// confirmed, by the radio's own report.</summary>
-        public static string NowReports(string value)
-            => "The radio now reports " + value + ".";
+        // ── The confirmation vocabulary, said in as few words as it takes ──
+        //
+        // Ruled by Noel 2026-08-31, reading the long forms these replaced:
+        // "Again, too many words. Just 'mode change not accepted'. It already
+        // shows what the mode is." And: "This is stuff that a ham, being techie
+        // people that we are, don't need to be told simple stuff like this like
+        // we're five."
+        //
+        // The value is deliberately NOT repeated back. The dialog already
+        // displays the mode and the frequency; saying them again spends the
+        // operator's time telling them something on screen in front of them.
+        // What they cannot see is whether the RADIO agreed, and that is the
+        // whole content of these three lines.
+        //
+        // "accepted" is doing precise work and is not a synonym for "sent".
+        // #164: the radio acks transmit writes it does not apply, so every
+        // sentence here is built from what the radio REPORTS afterwards.
+        // There is deliberately no sentence in this vocabulary for "we sent
+        // the command" — that is the sentence the frequency hand-off shipped
+        // with once, and it told an operator they had moved when they had not.
 
-        /// <summary>The radio answered, and its answer is not what was asked
-        /// for. Named plainly, with what it still reports.</summary>
-        public static string NotConfirmedStillReports(string value)
-            => "The radio has not confirmed that change. It still reports "
-             + value + ".";
+        /// <summary>"Mode change accepted." — the radio's own report agrees
+        /// with what was asked for.</summary>
+        public static string ChangeAccepted(string what)
+            => Capitalize(what) + " change accepted.";
 
-        /// <summary>The radio is reporting nothing at all for this condition —
-        /// the honest worst case, said out loud.</summary>
-        public static string NotConfirmedNothingReported(string what)
-            => "The radio has not confirmed that change, and is not reporting a "
-             + "transmit " + what + " at all.";
+        /// <summary>"Mode change not accepted." — the radio answered with
+        /// something else. What it reports instead is on screen.</summary>
+        public static string ChangeNotAccepted(string what)
+            => Capitalize(what) + " change not accepted.";
+
+        /// <summary>
+        /// The radio is reporting nothing at all for this condition. Three
+        /// extra words, and they earn their place: every other line here is
+        /// short because the display carries the value, and THIS is the case
+        /// where the display has nothing to carry.
+        /// </summary>
+        public static string ChangeNotAcceptedNothingReported(string what)
+            => Capitalize(what) + " change not accepted. No " + (what ?? "").ToLowerInvariant()
+             + " reported.";
+
+        private static string Capitalize(string s)
+            => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s.Substring(1);
 
         /// <summary>
         /// One evidence line naming all three, for a stage that keyed the
