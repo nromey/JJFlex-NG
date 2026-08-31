@@ -9,6 +9,118 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-30 — ONE BUG, THREE SYMPTOMS, AND THE RADIO WAS NEVER AT FAULT
+
+**Sealed 21:26. Forty-six commits in JJFlexRadio-NG, 13 in jjf-private. Eleven
+background agents. Tests 1,862 → 2,098.**
+
+Rigmeter today: **+10,405 / -527, net +9,878**, 64 files, 46 commits — both
+figures agree, no reverts. **10,077 of the added lines are C#.** Snapshot at
+`2026-08-30-6f42ad79.json`. Build `4.1.16.1760`.
+
+### The theme
+
+**A guard that disarmed itself, and three symptoms nobody connected.**
+
+`RunConnectPhaseOffUiThread` exists to keep connects off the UI thread. Its first
+line asked `Application.MessageLoop` — "is a WinForms loop running here?" At
+startup that is FALSE, **on the very thread that is about to become the UI
+thread**. So the guard read "no loop" as "not the UI thread" and ran the entire
+connect inline, exactly when it mattered most.
+
+From that one mistake:
+
+- **The UI thread blocked** — no speech, no keyboard, 45 s at a time.
+- **FlexLib's read loop wedged.** A licence message fired a handler that did a
+  synchronous `Dispatcher.Invoke` onto that blocked thread. FlexLib has ONE
+  sequential reader, so the radio's reply sat unread in the TLS buffer forever
+  and the station-name wait timed out. **The radio had applied the name in 122
+  ms and said so over UDP discovery** — a channel we had stopped listening to.
+- **Typing degraded across the whole of Windows.** Two global `WH_KEYBOARD_LL`
+  hooks lived on that thread, so every keystroke on the machine waited on the
+  low-level-hook timeout. **Measured: 314 ms per keystroke while blocked, 1.9 ms
+  after the fix**, with a control run (suspend the new hook thread instead)
+  reproducing the 314 ms to prove the hooks were still live.
+
+Noel: *"When 'setting up' it's hard to do anything on the computer. I can't type
+into Claude, it kind of locks stuff down."* That sentence is what turned this
+from an accessibility defect into "the application makes the operator's computer
+unusable while it is broken."
+
+**Verified fixed, both paths, by Noel on 4.1.16.1760.**
+
+### What the register believed, and what was wrong
+
+- **The station-name fault is NOT about remote radios.** It reproduced on his own
+  8600. It is path-independent; the SmartLink framing was insufficient.
+- **Track A's intake hypothesis is contradicted.** Nothing was received and
+  discarded — the bytes were never read off the socket.
+- **We remove the radio from discovery ourselves.** `Disconnect()` always ends in
+  `API.RemoveRadio`, so that log line was never a statement about the radio — and
+  it made the retry read the empty roster as "not on the LAN" and skip its local
+  leg. Now classified.
+
+### Shipped today, beyond the headline
+
+Sprint 42's six tracks merged this morning. Then: the transmit-cut off switch;
+the Fixer's mode control (four modes, ruled); **"Change nothing on this radio"**
+gating ~30 writers and finding one the audit missed; **occupancy in the roster**,
+verified in the field with a real second client; **the radio picker naming
+radios** instead of reciting serials; **a restore-grade export** that walks
+profiles into an INI-shaped file; the stranded-focus sentinel; and
+**`RadioInTheLoop`**, a harness that connects to a real radio and asserts the UI
+thread stays responsive — the check that would have caught all of this.
+
+### The reasoning failure worth keeping
+
+**I concluded from absences four times and was wrong every time.** No occupancy
+clause meant "nobody connected" (the push was being dropped). No `DoCommand`
+lines meant "thread blocked" (keys in a modal never reach that pipeline). No
+entry in a combo meant "radio missing" (our speech was interrupting the reader).
+No reply to `client station` meant "the radio is silent" (we were deaf).
+
+Noel corrected the same class three times and had to repeat himself to do it.
+Written up as `feedback_absence_is_not_evidence`; the mechanism half is
+`project_read_loop_wedge_hazard`.
+
+### Cross-surface activity
+
+- **Memory:** two entries written and indexed (the two above). Index 11.7 KB,
+  under threshold.
+- **jjf-private:** 13 commits — register entries #403 through #416, the reset
+  plan, the prose review file, the slice-status design, the integration findings.
+- **Freight Fate and Civ VI:** both clean on branch, nothing unpushed. Civ VI's
+  45-commit backlog was pushed yesterday.
+- **No external infrastructure work.** No vulnerable packages.
+
+### Deferred, deliberately
+
+**Don's factory reset.** Noel: *"I think I just leave it until everything's
+settled. If I have to, I'll call Tony tomorrow and reset."* Correct call —
+resetting a remote station on a build that could lock the operator out was a bad
+trade. The capture tool now exists; the reset does not need to be rushed.
+
+### Setup for tomorrow
+
+1. **Rehearse the reset on his OWN 8600** — his idea, and much better than
+   mine. Export, reset, restore by hand from the file. Every place the file does
+   not tell him enough is the spec for the replayer. Cost: a GPSDO re-lock.
+2. **Then Don's radio** — export first, THEN arm the hold (the hold makes the
+   export skip the profile walk), then the Fixer's transmit chain walk, which is
+   what he actually needs.
+3. **Rulings waiting:** the slice-status design (letters, capital for active,
+   routing that navigates but never acts) and #416, the walk announcing
+   "trying SmartLink" for a radio answering LAN discovery in front of it.
+4. **`RadioInTheLoop` has never been run against a radio.** Its first run is his.
+
+### Rigmeter snapshot — end of 2026-08-30
+
+- Work done, summed across every commit: **+10,405 / -527, net +9,878**
+- Repository size change: **net +9,878**, 64 files differing
+- 46 commits; by type: **cs +10,077 / -507** (53 files), .md +137, .json +62,
+  vb +48, xaml +40, .csproj +41
+- Scale: 5.1 braille volumes
+
 ## END-OF-DAY SEAL — 2026-08-29 — THE DAY FRICTION TURNED OUT TO BE LOAD-BEARING, TWICE
 
 **Sealed 21:41. Forty-one commits in JJFlex-NG, 35 in jjf-private. One sprint of
