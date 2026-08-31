@@ -3931,7 +3931,19 @@ public partial class MainWindow : UserControl
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.Invoke(() => FeatureLicenseChangedHandler(sender, e));
+            // BeginInvoke, NEVER Invoke (#402). This event is raised from
+            // FlexLib's TCP read loop (status parse → FeatureLicense
+            // PropertyChanged), and that loop is strictly sequential: it does
+            // not read the next line until this handler returns. A synchronous
+            // Invoke therefore parks the radio's ENTIRE receive channel on the
+            // UI thread's message pump. On 2026-08-30 the pump was blocked in
+            // the station-name wait, this Invoke wedged the read loop about
+            // 1.2 s into the connect, and every reply and status after it —
+            // including the station-name echo the wait was polling for — sat
+            // unread for 45 seconds, three attempts in a row, on a healthy
+            // radio a few feet away. Queued execution is all this handler
+            // needs: it is signature-gated and last-writer-wins.
+            Dispatcher.BeginInvoke(() => FeatureLicenseChangedHandler(sender, e));
             return;
         }
 
@@ -4003,7 +4015,13 @@ public partial class MainWindow : UserControl
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.Invoke(() => TransmitChangeHandler(sender, transmit));
+            // BeginInvoke, NEVER Invoke — raised from FlexLib's sequential
+            // TCP read loop (interlock status parse); a synchronous marshal
+            // here stalls every subsequent reply and status whenever the UI
+            // thread is busy. Same wedge class as FeatureLicenseChanged
+            // (#402). Queued is safe: button text is last-writer-wins and
+            // EscapeUnlock is idempotent.
+            Dispatcher.BeginInvoke(() => TransmitChangeHandler(sender, transmit));
             return;
         }
 
@@ -4023,7 +4041,13 @@ public partial class MainWindow : UserControl
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.Invoke(() => FlexAntTuneStartStopHandler(e));
+            // BeginInvoke, NEVER Invoke — raised from FlexLib's sequential
+            // TCP read loop (ATU status parse); a synchronous marshal here
+            // stalls the radio's whole receive channel whenever the UI
+            // thread is busy. Same wedge class as FeatureLicenseChanged
+            // (#402). Queued is safe: tune progress display is
+            // last-writer-wins.
+            Dispatcher.BeginInvoke(() => FlexAntTuneStartStopHandler(e));
             return;
         }
 
