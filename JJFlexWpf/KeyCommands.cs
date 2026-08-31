@@ -538,6 +538,24 @@ public class KeyCommands
                                      "recent", "earlier", "back", "previous", "missed",
                                      "resend", "slice", "census", "code" },
                   ShortActionLabel = "repeat last CW" },
+            // 2026-08-31 (#433). The other direction, on the ADJACENT key so the
+            // pair reads left-to-right as back-then-forward. Overshooting used
+            // to cost up to nine more presses to wrap round.
+            new(CommandValues.RepeatNextMessage, KeyTypes.Command, RepeatNextMessageHandler,
+                "Step forward through recent messages, toward the newest", "Repeat Next Message", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "repeat", "next", "forward", "newer", "message", "messages",
+                                     "speech", "history", "recent", "later", "overshot",
+                                     "ahead", "said", "heard" },
+                  ShortActionLabel = "step forward through messages" },
+            // 2026-08-31 (#433), Don's request by way of Noel. ONE generic copy
+            // rather than a copy button on every report: a new report then gets
+            // clipboard support for free, and nobody has to remember to add it.
+            new(CommandValues.CopyRecentMessage, KeyTypes.Command, CopyRecentMessageHandler,
+                "Copy what was just spoken to the clipboard", "Copy Spoken Message", false, FunctionGroups.General, KeyScope.Global)
+                { Keywords = new[] { "copy", "clipboard", "paste", "spoken", "speech", "message",
+                                     "report", "text", "log", "save", "share", "send",
+                                     "transcript", "history" },
+                  ShortActionLabel = "copy spoken message" },
             // Sprint 36 Track F (#269). "Which build are you on?" is the first
             // question of every tester conversation, and until now the only
             // answer was Help, About — a dialog you have to leave what you are
@@ -1394,6 +1412,50 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.repeat.no_recent_cw"), Radios.VerbosityLevel.Critical);
     }
 
+    // #433. The forward twin of RepeatLastMessageHandler, and it shares its
+    // empty-case sentence: "nothing recorded yet" is the same fact whichever
+    // way you were walking.
+    private void RepeatNextMessageHandler()
+    {
+        if (!Radios.ScreenReaderOutput.RepeatRecentNewer())
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.repeat.no_previous_message"));
+    }
+
+    // #433. Copies the message the walk is sitting on. CurrentRecent() does not
+    // move the cursor and refreshes the walk's clock, so you can walk back,
+    // think, and copy the one you actually heard rather than whatever the
+    // six-second timeout reset you to.
+    //
+    // Spoken confirmation is CRITICAL and deliberate: a clipboard is invisible.
+    // A copy that says nothing is indistinguishable from a key that did
+    // nothing, and the operator would only find out at the paste.
+    private void CopyRecentMessageHandler()
+    {
+        string text = Radios.ScreenReaderOutput.CurrentRecent();
+        if (string.IsNullOrEmpty(text))
+        {
+            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("settings.repeat.no_previous_message"));
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("settings.repeat.copied"), Radios.VerbosityLevel.Critical);
+        }
+        catch (Exception ex)
+        {
+            // The clipboard is genuinely refusable - another process can hold
+            // it open - so this is a real outcome, not a defensive shrug, and
+            // it must be SAID rather than swallowed.
+            JJTrace.Tracing.TraceLine("CopyRecentMessage: clipboard refused: " + ex.Message,
+                System.Diagnostics.TraceLevel.Warning);
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("settings.repeat.copy_failed"), Radios.VerbosityLevel.Critical);
+        }
+    }
+
     // #269. Reads DiagnosticSnapshot.BuildStamp — the same assembler the About
     // page uses — rather than reaching for the assembly itself, because a
     // second version-reporting path is how About and the spoken answer end up
@@ -1632,6 +1694,13 @@ public class KeyCommands
             "Ctrl+J, E re-sends recent CW notifications — E for echo. The flat chord "
             + "that would have mirrored the speech repeat on Ctrl+F4 is Ctrl+Shift+F4, "
             + "and that already focuses the CW send text box."),
+        // #433. Leader-layer for the same reason: a global Ctrl+letter for
+        // "copy the last thing said" would take a chord out of every dialog's
+        // hands for a command used occasionally and deliberately.
+        [CommandValues.CopyRecentMessage] = new(UnboundReason.LeaderLayer,
+            "Ctrl+J, Ctrl+C copies what was just spoken. Ctrl+C alone belongs to "
+            + "whatever control has focus, and taking it globally would break copying "
+            + "out of every text box in the application."),
         [CommandValues.SpeakVersion] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Alt+V speaks the version, build type and build date. Alt rather than "
             + "bare V because V is volume mode, and V is the letter you reach for when you "
@@ -1891,6 +1960,11 @@ public class KeyCommands
         // _unboundNotes.
         new(Keys.None, CommandValues.SpeakFrequency, KeyScope.Radio), // unbound: Shadowed
         new(Keys.F4 | Keys.Control, CommandValues.RepeatLastMessage, KeyScope.Global),
+        // #433: forward on the ADJACENT key, so the pair reads left-to-right as
+        // back-then-forward. Ctrl+F3 / Ctrl+F4 would have given the identical
+        // ergonomics while reversing a documented, shipped binding.
+        new(Keys.F5 | Keys.Control, CommandValues.RepeatNextMessage, KeyScope.Global),
+        new(Keys.None, CommandValues.CopyRecentMessage, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Ctrl+C
         new(Keys.None, CommandValues.RepeatLastCw, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, E
         new(Keys.None, CommandValues.SpeakVersion, KeyScope.Global), // unbound: LeaderLayer — Ctrl+J, Alt+V
 
@@ -3512,6 +3586,19 @@ public class KeyCommands
             // exiting. The handler gates starting on its own.
             case Keys.Q | Keys.Control:
                 ToggleQsoSignalCaptureFromChord();
+                break;
+
+            // #433, 2026-08-31. Don asked for it, Noel scoped it: ONE generic
+            // copy rather than a copy button on every report. Ctrl+C is the
+            // copy chord everywhere, so it is the copy chord here too - and it
+            // is safe on the leader layer, where plain Ctrl+C still belongs to
+            // whatever control has focus.
+            //
+            // No rig gate: what was said is ours, not the radio's, and copying
+            // it must work after the radio has gone away - which is exactly
+            // when somebody wants to paste the error into a message.
+            case Keys.C | Keys.Control:
+                CopyRecentMessageHandler();
                 break;
 
             // Sprint 38 Track C (#337): switch the S-meter between S-units and

@@ -143,11 +143,14 @@ namespace Radios.Tests
                 Assert.Equal(name, Enum.GetName(type, (CommandValues)value));
             }
 
-            // 123 as of Sprint 36 Track F, which appended SpeakVersion = 121
-            // for the Ctrl+J, Alt+V build chord (#269). Bump this deliberately
-            // when a command is added; a test that counts is how an accidental
-            // renumbering gets noticed.
-            Assert.Equal(123, names.Length);
+            // 125 as of 2026-08-31 (#433), which appended RepeatNextMessage =
+            // 122 (Ctrl+F5, the forward half of the speech-history walk) and
+            // CopyRecentMessage = 123 (Ctrl+J, Ctrl+C). Was 123 at Sprint 36
+            // Track F, which appended SpeakVersion = 121 for the Ctrl+J, Alt+V
+            // build chord (#269). Bump this deliberately when a command is
+            // added; a test that counts is how an accidental renumbering gets
+            // noticed.
+            Assert.Equal(125, names.Length);
         }
     }
 }

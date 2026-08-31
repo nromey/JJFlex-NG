@@ -716,6 +716,8 @@
   "settings.radio.way_in.ports_separate": "external TCP port {tcp} and UDP port {udp}",
   "settings.radio.way_in.set": "Set on the radio. It advertises {ports}. {modeText} Your router still needs the two rules — external TCP {tcp} to the radio's LAN IP port {tlsPort}, and external UDP {udpShown} to port {udpPort} — JJ Flex cannot do that part. Step 6 checks whether it worked.",
   "settings.radio_info.not_available": "Radio information is not available yet",
+  "settings.repeat.copied": "Copied.",
+  "settings.repeat.copy_failed": "Could not copy. Another program is holding the clipboard.",
   "settings.repeat.no_previous_message": "No previous message",
   "settings.repeat.no_recent_cw": "No recent CW",
   "settings.restore_export.busy": "A profile walk is already running. Let it finish first.",

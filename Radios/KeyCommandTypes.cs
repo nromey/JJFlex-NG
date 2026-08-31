@@ -176,6 +176,11 @@ public enum CommandValues
     // Sprint 36 Track F (#269). Appended, for the same reason RepeatLastCw was:
     // these are ordinals and a stored KeyDefs.xml references them by value.
     SpeakVersion = 121,
+    // 2026-08-31 (#433). Appended, for the same reason RepeatLastCw and
+    // SpeakVersion were: these are ordinals and a stored KeyDefs.xml
+    // references them by value.
+    RepeatNextMessage = 122,
+    CopyRecentMessage = 123,
 }
 
 /// <summary>

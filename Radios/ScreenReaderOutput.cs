@@ -895,7 +895,82 @@ namespace Radios
         /// when the newest message comes round again.
         /// </summary>
         /// <returns>False when there is nothing recorded yet.</returns>
-        public static bool RepeatRecent()
+        public static bool RepeatRecent() => Walk(older: true);
+
+        /// <summary>
+        /// Step FORWARD through the walk — toward the most recent message.
+        /// Same rules as <see cref="RepeatRecent"/> in every other respect:
+        /// the first press after a pause says the newest thing, and running
+        /// off the newest wraps round to the oldest.
+        /// </summary>
+        /// <remarks>
+        /// Added 2026-08-31. The walk was backward-only, so overshooting the
+        /// message you wanted cost up to nine more presses to come round
+        /// again. Noel proposed the pairing and the reason it is on an
+        /// ADJACENT key rather than a shifted one: F4 and F5 sit next to each
+        /// other, so back-is-left and forward-is-right is carried by the keys
+        /// themselves, which is a cue a shifted chord cannot give somebody
+        /// finding the function row by feel.
+        ///
+        /// Ctrl+F4 keeps its existing meaning. Putting BACK on Ctrl+F3 and
+        /// forward on Ctrl+F4 would have given the identical ergonomics while
+        /// reversing a documented, shipped binding — the same spatial logic
+        /// for the price of everybody's muscle memory.
+        /// </remarks>
+        /// <returns>False when there is nothing recorded yet.</returns>
+        public static bool RepeatRecentNewer() => Walk(older: false);
+
+        /// <summary>
+        /// The message the walk is currently sitting on, WITHOUT speaking it
+        /// and without moving the cursor. A stale walk reads as the newest
+        /// message, which is exactly what the walk itself would say on its
+        /// next press — one rule, not two.
+        /// </summary>
+        /// <remarks>
+        /// For the clipboard copy (Ctrl+J, Ctrl+C). Reading this REFRESHES the
+        /// walk's clock on purpose: copying is a thing you do part-way through
+        /// deciding, and a six-second timeout that fires while you think would
+        /// silently hand you a different message than the one you just heard.
+        /// </remarks>
+        public static string CurrentRecent()
+        {
+            lock (_historyLock)
+            {
+                if (_history.Count == 0) return null;
+                bool stale = (DateTime.UtcNow - _lastWalkAt).TotalMilliseconds > HistoryWalkResetMs;
+                int at = (stale || _historyCursor < 0) ? 0 : _historyCursor;
+                _historyCursor = at;
+                _lastWalkAt = DateTime.UtcNow;
+                return _history[at];
+            }
+        }
+
+        /// <summary>
+        /// Where the walk lands next. Pure, so the wrap arithmetic can be
+        /// pinned without a speech backend.
+        /// </summary>
+        /// <remarks>
+        /// The hazard worth extracting for: stepping toward the NEWER end from
+        /// cursor 0 is -1 before the modulus, and in C# <c>-1 % n</c> is -1,
+        /// not n-1. Without adding <paramref name="count"/> first, the very
+        /// first forward press on a fresh walk indexes the list at -1 and
+        /// throws — on a background thread, where an unhandled exception is
+        /// silent process death rather than a message.
+        ///
+        /// A stale walk lands on the newest whichever direction was asked for:
+        /// the first press after a pause says the most recent thing, and that
+        /// is one rule rather than two.
+        /// </remarks>
+        internal static int StepCursor(int cursor, int count, bool older, bool stale)
+        {
+            if (count <= 0) return 0;
+            if (stale || cursor < 0) return 0;
+            return older
+                ? (cursor + 1) % count
+                : (cursor - 1 + count) % count;
+        }
+
+        private static bool Walk(bool older)
         {
             string message;
             lock (_historyLock)
@@ -903,8 +978,7 @@ namespace Radios
                 if (_history.Count == 0) return false;
 
                 bool stale = (DateTime.UtcNow - _lastWalkAt).TotalMilliseconds > HistoryWalkResetMs;
-                if (stale || _historyCursor < 0) _historyCursor = 0;
-                else _historyCursor = (_historyCursor + 1) % _history.Count;
+                _historyCursor = StepCursor(_historyCursor, _history.Count, older, stale);
 
                 _lastWalkAt = DateTime.UtcNow;
                 message = _history[_historyCursor];

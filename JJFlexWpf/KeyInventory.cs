@@ -399,6 +399,9 @@ public static class KeyInventory
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] LeaderCommands =
     {
+        new("Leader", "Leader key", "Ctrl+J, Ctrl+C", "Copy the message the history walk is sitting on",
+            new[] { "copy", "clipboard", "paste", "spoken", "speech", "message", "report",
+                    "text", "share", "leader" }, "Global", "General"),
         new("Leader", "Leader key", "Ctrl+J, N", "Toggle legacy Noise Reduction",
             new[] { "nr", "noise", "reduction", "leader", "toggle" }, "Radio", "DSP"),
         new("Leader", "Leader key", "Ctrl+J, B", "Toggle Noise Blanker",

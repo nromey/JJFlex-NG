@@ -22,6 +22,7 @@ These keys work no matter where you are in the application — and "no matter wh
 - **Ctrl+Alt+S** — Open the status dialog
 - **Alt+Shift+S** — Speak your current transmit (TX) status
 - **Ctrl+F4** — Repeat what was just spoken — and keep pressing it. Within about six seconds each further press steps back through the last ten messages, wrapping round at the oldest. Leave it longer and the next press starts again from the most recent
+- **Ctrl+F5** — Step the other way, back toward the newest message. Handy when you overshoot the one you were after — `Ctrl+F4` goes back in time, `Ctrl+F5` comes forward again, and the keys sit next to each other in that order
 - **Ctrl+Shift+V** — Cycle speech verbosity (Chatty, Terse, Off)
 - **Ctrl+Shift+B** — Toggle the braille status line
 - **F12** — Stop CW transmission immediately
@@ -86,6 +87,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 - **Shift+T** — Toggle alert sounds (earcons) on/off
 - **D** — Toggle tuning speech debounce
 - **Ctrl+Q** — Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (see "QSO signal analyzer" below)
+- **Ctrl+C** — Copy what was just spoken to the clipboard — walk back with `Ctrl+F4` to the message you want first, then copy it (see "Copying what the app said" below)
 - **Ctrl+S** — Switch the S-meter between S-units and dBm. It tells you which one you landed on, and it stays that way for this radio until you change it back — so `Ctrl+S` on its own reads the meter in whichever unit you chose. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is what you want when you're asking whether that antenna change actually helped. It's also on the Radios tab in Settings, if you'd rather see where it stands than press a key to find out
 
 ### Status, information, and slices
@@ -157,6 +159,31 @@ Arms or disarms the Audio Workshop's TX test tone from anywhere, using your save
 ### Noise capture — Ctrl+J, then Q
 
 Captures a noise profile for PC Spectral NR: three seconds (adjustable, 1 to 5) of what your band sounds like with nobody talking, so the spectral engine knows exactly what to subtract. Find a quiet spot on the band, press `Ctrl+J` then `Q`, and listen — it announces the start, counts the seconds out loud as they pass, and tells you when the profile is captured and whether Spectral NR is using it. Press `Q` again mid-capture to cancel. The capture listens to the radio audio playing through this computer, so PC audio has to be on — if it isn't, the capture says so instead of pretending. A finished capture saves itself and comes back on your next connect; naming and managing profiles lives in the Noise Profiles dialog (Slice menu, DSP, PC Noise Reduction). The full story is on the PC-Side Noise Reduction help page.
+
+### Copying what the app said — Ctrl+J, then Ctrl+C
+
+Every so often the app says something you want to keep — a QSO signal report to
+paste into your log, a fault message to send to somebody who can help, the
+station conditions at the moment something went wrong. This copies it to the
+clipboard.
+
+It copies whichever message the history walk is sitting on, so the usual move is
+to walk to the one you want first: `Ctrl+F4` steps back through the last ten
+things the app said, `Ctrl+F5` comes forward again if you go too far, and then
+`Ctrl+J`, `Ctrl+C` copies the one you are on. Press it without walking anywhere
+and you get the most recent message, which is what you want most of the time.
+
+Walking normally forgets where you were after about six seconds, but copying does
+not — you can walk back, think about it, and still copy the message you actually
+heard rather than whatever the timer reset you to.
+
+It says "Copied" so you know it worked. A clipboard is invisible, and a copy that
+said nothing would be indistinguishable from a key that did nothing. If another
+program has the clipboard locked, it tells you that instead.
+
+This works with no radio connected, which is deliberate: what the app said is the
+app's, not the radio's, and the moment you most want to paste an error message is
+usually right after the radio has gone away.
 
 ### QSO signal analyzer — Ctrl+J, then Ctrl+Q
 

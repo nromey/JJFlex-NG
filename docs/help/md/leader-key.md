@@ -69,6 +69,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 
 - **O** — Say what is still running and what it is costing — recording, captures, meter tones. O for "what's on"
 - **Ctrl+D** — Start or stop a detailed capture of what the app is doing. Works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs
+- **Ctrl+C** — Copy the message the history walk is sitting on to the clipboard. Walk to the one you want first with `Ctrl+F4` (back) and `Ctrl+F5` (forward), or press it straight away to copy the most recent thing said. Works with no radio connected — the moment you most want to paste an error is usually just after the radio has gone away
 - **Ctrl+R** — Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement
 - **Alt+V** — Speak the version, the build type and the date this copy was built. The answer to "which build are you on?" without leaving what you are doing
 - **L** — Speak log statistics
