@@ -20,6 +20,10 @@ namespace Radios.Tests
         [InlineData("FLEX-8600")]
         // No panel at all.
         [InlineData("FLEX-6300")]
+        // Aurora. Present in FlexLib's table in its own right, NOT falling
+        // through to DEFAULT - the non-M pair mirrors the 8400/8600 exactly.
+        [InlineData("AU-510")]
+        [InlineData("AU-520")]
         public void A_lit_panel_is_not_a_screen(string model)
         {
             Assert.False(ProfileReporter.CanShowScreensaver(model),
@@ -35,9 +39,32 @@ namespace Radios.Tests
         [InlineData("FLEX-6600M")]
         [InlineData("FLEX-8400M")]
         [InlineData("FLEX-8600M")]
+        [InlineData("AU-510M")]
+        [InlineData("AU-520M")]
         public void The_OLED_and_M_models_can_show_one(string model)
         {
             Assert.True(ProfileReporter.CanShowScreensaver(model), model);
+        }
+
+        [Fact]
+        public void Aurora_is_answered_from_its_OWN_row_not_the_default_fallback()
+        {
+            // The positive control for the two Aurora cases above. Both
+            // AU-510 and AU-520 answer "no screen", which is ALSO what an
+            // unrecognised model answers via FlexLib's DEFAULT row — so the
+            // False on its own proves nothing about whether FlexLib knows
+            // what an Aurora is.
+            //
+            // The M variants are the discriminator: DEFAULT has IsMModel
+            // false, so a fallback could never return true for them. If
+            // AU-510M answers "yes", the table has real Aurora rows.
+            //
+            // Worth a test because a survey of this table on 2026-08-31
+            // reported Aurora ABSENT — the survey's own pattern required
+            // "new()" and these four rows are written "new ()". The data was
+            // right and the instrument was wrong.
+            Assert.True(ProfileReporter.CanShowScreensaver("AU-510M"));
+            Assert.True(ProfileReporter.CanShowScreensaver("AU-520M"));
         }
 
         [Theory]
