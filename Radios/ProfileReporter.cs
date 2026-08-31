@@ -307,6 +307,14 @@ namespace Radios
         {
             public ProfileTypes ProfileType;
 
+            /// <summary>The reading of the radio's own profile list this walk
+            /// ran from (#418), carrying which of three states it ended in:
+            /// reported (possibly empty), never reported, or could not ask.
+            /// The walk walks NOTHING unless the radio reported names, and
+            /// callers render the difference rather than collapsing all three
+            /// to an empty walk.</summary>
+            public FlexBase.RadioProfileList RadioList;
+
             /// <summary>The profile loaded when the walk began. Empty when
             /// none was selected; null when the selection could not be read.</summary>
             public string OriginalSelection;
@@ -332,6 +340,107 @@ namespace Radios
             public bool RestoreConfirmed;
         }
 
+        // ── #418: the three-state profile list, and its renderings ──
+        //
+        // Every surface in this file that names or counts profiles reads the
+        // RADIO's list through FlexBase.ReadRadioProfileList, and renders
+        // which of three states the reading ended in: the radio reports none;
+        // the radio never reported its list; we could not ask. Until
+        // 2026-08-30 the counts came from the OPERATOR's profile references
+        // and rendered "0" for all three states at once — in the file whose
+        // one promise is that a blind spot says so, taken immediately before
+        // the factory reset that destroys the originals.
+
+        /// <summary>
+        /// Read the radio's profile list for one type, never throwing: a
+        /// failure becomes a reading that says it could not ask.
+        /// </summary>
+        private static FlexBase.RadioProfileList ReadListSafely(FlexBase rig, ProfileTypes type)
+        {
+            try { return rig.ReadRadioProfileList(type); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    $"ProfileReporter: could not read the {TypeLabel(type)} profile list: {ex.Message}",
+                    TraceLevel.Warning);
+                return new FlexBase.RadioProfileList
+                {
+                    ProfileType = type,
+                    Problem = "reading the profile list failed: " + ex.Message,
+                };
+            }
+        }
+
+        private static string WaitedSecondsPhrase(FlexBase.RadioProfileList list)
+            => "waited " + Math.Max(1, list.WaitedMs / 1000) + " seconds";
+
+        /// <summary>
+        /// The "N profiles stored" line for the restore-grade capture. Three
+        /// states, three visibly different renderings — never a bare "0" that
+        /// could mean "none", "not yet", or "never asked" at once.
+        /// </summary>
+        internal static SettingLine ProfileCountLine(FlexBase.RadioProfileList list)
+        {
+            string label = TypeLabel(list.ProfileType);
+            string key = label + " profiles stored";
+            if (list.CouldNotAsk)
+                return new SettingLine(key, null, list.Problem);
+            if (!list.Reported)
+                return new SettingLine(key, null,
+                    "the radio never reported its " + label + " profile list ("
+                    + WaitedSecondsPhrase(list) + ")");
+            string value = list.Names.Count.ToString();
+            if (!list.FreshAnswer)
+                value += " (the radio did not refresh this list within "
+                    + Math.Max(1, list.WaitedMs / 1000)
+                    + " seconds; this count is from the list it sent earlier in this session)";
+            return new SettingLine(key, value, null);
+        }
+
+        /// <summary>
+        /// The cross-check the capture must state rather than average away: a
+        /// list showing no profiles while the radio names a loaded one is a
+        /// contradiction, and at least one profile exists that the capture
+        /// cannot see. Null when there is nothing to report.
+        /// </summary>
+        internal static SettingLine ProfileCrossCheckLine(FlexBase.RadioProfileList list)
+        {
+            if (!list.SelectionContradictsCount) return null;
+            string label = TypeLabel(list.ProfileType);
+            return new SettingLine(label + " profiles cross-check",
+                "the radio names '" + list.Selection + "' as the loaded " + label
+                + " profile, yet its list shows no " + label
+                + " profiles; at least one exists that this capture cannot see", null);
+        }
+
+        /// <summary>
+        /// The restore-grade capture's section for a profile type the walk
+        /// could not walk: no radio, no answer, or a genuinely empty list.
+        /// The gap gets a section for the same reason an unreadable profile
+        /// does — after the reset, "these existed and were not captured" is
+        /// the fact that matters most.
+        /// </summary>
+        internal static void AppendUnwalkedTypeSection(StringBuilder sb, FlexBase.RadioProfileList list)
+        {
+            string label = TypeLabel(list.ProfileType);
+            sb.AppendLine($"[{label} profiles not walked]");
+            string reason;
+            if (list.CouldNotAsk)
+                reason = list.Problem + "; any " + label
+                    + " profiles the radio holds are not captured in this file";
+            else if (!list.Reported)
+                reason = "the radio never reported its " + label + " profile list ("
+                    + WaitedSecondsPhrase(list) + "); any " + label
+                    + " profiles it holds are not captured in this file";
+            else
+                reason = "the radio reports no stored " + label + " profiles";
+            sb.AppendLine("reason = " + reason);
+            var crossCheck = ProfileCrossCheckLine(list);
+            if (crossCheck != null)
+                sb.AppendLine("contradiction = " + crossCheck.Value);
+            sb.AppendLine();
+        }
+
         /// <summary>
         /// THE profile walker — the only one. Loads every profile of the given
         /// type in turn, calls <paramref name="captureWhileLoaded"/> while each
@@ -344,18 +453,23 @@ namespace Radios
             FlexBase rig, ProfileTypes profileType,
             Action<string> captureWhileLoaded,
             Action<string> progressCallback = null,
-            Action<string, string> unreadableCallback = null)
+            Action<string, string> unreadableCallback = null,
+            FlexBase.RadioProfileList radioList = null)
         {
             var outcome = new ProfileWalkOutcome { ProfileType = profileType };
             string label = TypeLabel(profileType);
 
-            List<Profile_t> profiles = null;
-            try { profiles = rig.GetProfilesByType(profileType); }
-            catch (Exception ex)
-            {
-                Tracing.TraceLine($"ProfileReporter: could not list {label} profiles: {ex.Message}", TraceLevel.Warning);
-            }
-            if (profiles == null || profiles.Count == 0) return outcome;
+            // #418: the walk enumerates from the RADIO, never from the
+            // operator's profile references — a radio full of profiles its
+            // owner never named must still be captured, and this walk exists
+            // precisely for the radio about to be wiped. The reading also
+            // says which of three states it ended in, and the outcome
+            // carries it so every caller can render the difference between
+            // "the radio has none" and "we never asked".
+            if (radioList == null) radioList = ReadListSafely(rig, profileType);
+            outcome.RadioList = radioList;
+            if (!radioList.Reported || radioList.Names.Count == 0) return outcome;
+            List<string> profiles = radioList.Names;
 
             // With no radio object there is nothing to load from: every
             // profile is unreadable for the same plain reason, and no load
@@ -365,10 +479,10 @@ namespace Radios
             catch { haveRadio = false; }
             if (!haveRadio)
             {
-                foreach (var p in profiles)
+                foreach (var name in profiles)
                 {
-                    outcome.Unreadable.Add((p.Name, "no radio connection"));
-                    unreadableCallback?.Invoke(p.Name, "no radio connection");
+                    outcome.Unreadable.Add((name, "no radio connection"));
+                    unreadableCallback?.Invoke(name, "no radio connection");
                 }
                 Tracing.TraceLine($"ProfileReporter: {label} walk skipped — no radio connection", TraceLevel.Warning);
                 return outcome;
@@ -399,10 +513,10 @@ namespace Radios
             Tracing.TraceLine($"ProfileReporter: Capturing {profiles.Count} {label} profiles (current: '{outcome.OriginalSelection}')", TraceLevel.Info);
 
             int count = 0;
-            foreach (var p in profiles)
+            foreach (var name in profiles)
             {
                 count++;
-                string progressMsg = $"Loading {label} profile {count} of {profiles.Count}: {p.Name}";
+                string progressMsg = $"Loading {label} profile {count} of {profiles.Count}: {name}";
                 progressCallback?.Invoke(progressMsg);
                 Tracing.TraceLine($"ProfileReporter: {progressMsg}", TraceLevel.Info);
 
@@ -410,11 +524,11 @@ namespace Radios
                 try
                 {
                     outcome.LoadAttempts++;
-                    if (LoadProfileAndWait(rig, profileType, p.Name))
+                    if (LoadProfileAndWait(rig, profileType, name))
                     {
-                        outcome.LastLoaded = p.Name;
-                        captureWhileLoaded?.Invoke(p.Name);
-                        outcome.Captured.Add(p.Name);
+                        outcome.LastLoaded = name;
+                        captureWhileLoaded?.Invoke(name);
+                        outcome.Captured.Add(name);
                     }
                     else
                     {
@@ -433,9 +547,9 @@ namespace Radios
 
                 if (problem != null)
                 {
-                    Tracing.TraceLine($"ProfileReporter: {label} profile '{p.Name}' not captured — {problem}", TraceLevel.Warning);
-                    outcome.Unreadable.Add((p.Name, problem));
-                    unreadableCallback?.Invoke(p.Name, problem);
+                    Tracing.TraceLine($"ProfileReporter: {label} profile '{name}' not captured — {problem}", TraceLevel.Warning);
+                    outcome.Unreadable.Add((name, problem));
+                    unreadableCallback?.Invoke(name, problem);
                 }
             }
 
@@ -472,12 +586,14 @@ namespace Radios
         /// </summary>
         public static List<ProfileSnapshot> CaptureAllProfiles(
             FlexBase rig, ProfileTypes profileType, out ProfileWalkOutcome walk,
-            Action<string> progressCallback = null)
+            Action<string> progressCallback = null,
+            FlexBase.RadioProfileList radioList = null)
         {
             var snapshots = new List<ProfileSnapshot>();
             walk = WalkProfiles(rig, profileType,
                 name => snapshots.Add(CaptureCurrentState(rig, name, profileType.ToString())),
-                progressCallback);
+                progressCallback,
+                radioList: radioList);
             return snapshots;
         }
 
@@ -493,25 +609,39 @@ namespace Radios
             sb.AppendLine($"Radio: {rig.RadioNickname} ({rig.RadioModel})");
             sb.AppendLine(new string('=', 60));
 
-            // List all profiles by type
+            // List all profiles by type — the RADIO's own lists (#418), each
+            // with its three-state reading. A type whose list could not be
+            // read still gets its heading: a section silently missing is the
+            // gap this report exists to prevent.
             var types = new[] {
                 ProfileTypes.global,
                 ProfileTypes.tx,
                 ProfileTypes.mic
             };
 
+            var readings = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
             foreach (var ptype in types)
             {
-                var profiles = rig.GetProfilesByType(ptype);
-                if (profiles == null || profiles.Count == 0) continue;
+                var list = ReadListSafely(rig, ptype);
+                readings[ptype] = list;
 
                 sb.AppendLine();
-                sb.AppendLine($"--- {ptype.ToString().ToUpperInvariant()} Profiles ---");
-                foreach (var p in profiles)
-                {
-                    string suffix = p.Default ? " (current)" : "";
-                    sb.AppendLine($"  {p.Name}{suffix}");
-                }
+                sb.AppendLine($"--- {ptype.ToString().ToUpperInvariant()} Profiles (on the radio) ---");
+                if (list.CouldNotAsk)
+                    sb.AppendLine($"  Could not be read: {list.Problem}.");
+                else if (!list.Reported)
+                    sb.AppendLine($"  The radio never reported this list ({WaitedSecondsPhrase(list)}).");
+                else if (list.Names.Count == 0)
+                    sb.AppendLine("  The radio reports none stored.");
+                else
+                    foreach (var name in list.Names)
+                    {
+                        string suffix = name == list.Selection ? " (loaded now)" : "";
+                        sb.AppendLine($"  {name}{suffix}");
+                    }
+                if (list.SelectionContradictsCount)
+                    sb.AppendLine($"  Caution: the radio names '{list.Selection}' as loaded,"
+                        + " so at least one exists that this list does not show.");
             }
 
             // Capture current state
@@ -549,11 +679,11 @@ namespace Radios
             else
             foreach (var ptype in new[] { ProfileTypes.global, ProfileTypes.tx })
             {
-                var profiles = rig.GetProfilesByType(ptype);
-                if (profiles == null || profiles.Count < 2) continue;
+                var list = readings[ptype];
+                if (!list.Reported || list.Names.Count < 2) continue;
 
                 progressCallback?.Invoke($"Comparing {ptype} profiles...");
-                var snapshots = CaptureAllProfiles(rig, ptype, out var walk, progressCallback);
+                var snapshots = CaptureAllProfiles(rig, ptype, out var walk, progressCallback, list);
                 if (snapshots.Count >= 2)
                 {
                     sb.AppendLine();
@@ -834,12 +964,9 @@ namespace Radios
                 sb.AppendLine("right now, under the profiles currently loaded.");
                 sb.AppendLine();
 
-                AppendProfileNames(sb, rig, ProfileTypes.global, "Global profiles",
-                    radio?.ProfileGlobalSelection);
-                AppendProfileNames(sb, rig, ProfileTypes.tx, "TX profiles",
-                    radio?.ProfileTXSelection);
-                AppendProfileNames(sb, rig, ProfileTypes.mic, "Mic profiles",
-                    radio?.ProfileMICSelection);
+                AppendProfileNames(sb, ReadListSafely(rig, ProfileTypes.global), "Global profiles");
+                AppendProfileNames(sb, ReadListSafely(rig, ProfileTypes.tx), "TX profiles");
+                AppendProfileNames(sb, ReadListSafely(rig, ProfileTypes.mic), "Mic profiles");
 
                 sb.AppendLine();
                 sb.AppendLine("For a machine-restorable copy of every profile's contents, also");
@@ -989,21 +1116,58 @@ namespace Radios
             sb.AppendLine();
         }
 
-        private static void AppendProfileNames(
-            StringBuilder sb, FlexBase rig, ProfileTypes type, string label, string loadedNow)
+        /// <summary>
+        /// The text export's names-per-type lines, from the RADIO's own list
+        /// (#418). Three states render three visibly different ways: the
+        /// radio reporting none is a finding; the radio never reporting its
+        /// list, or the reading failing, is a blind spot — and this file's
+        /// promise is that a blind spot says so.
+        /// </summary>
+        internal static void AppendProfileNames(
+            StringBuilder sb, FlexBase.RadioProfileList list, string label)
         {
-            var profiles = rig.GetProfilesByType(type);
-            string loaded = string.IsNullOrEmpty(loadedNow) ? "none" : loadedNow;
-            if (profiles == null || profiles.Count == 0)
+            string typeWord = TypeLabel(list.ProfileType);
+            if (list.CouldNotAsk)
             {
-                sb.AppendLine($"{label} (loaded now: {loaded}): none stored.");
+                sb.AppendLine($"{label}: could not be read — {list.Problem}."
+                    + $" Any {typeWord} profiles the radio holds are not named here.");
+                return;
+            }
+            string loaded = list.Selection == null
+                ? "not readable"
+                : (list.Selection.Length == 0 ? "none" : list.Selection);
+            if (!list.Reported)
+            {
+                sb.AppendLine($"{label} (loaded now: {loaded}): the radio never reported"
+                    + $" its list ({WaitedSecondsPhrase(list)})."
+                    + $" Any {typeWord} profiles it holds are not named here.");
+                AppendContradictionSentence(sb, list, typeWord);
+                return;
+            }
+            if (list.Names.Count == 0)
+            {
+                sb.AppendLine($"{label} (loaded now: {loaded}): the radio reports none stored.");
+                AppendContradictionSentence(sb, list, typeWord);
                 return;
             }
             sb.AppendLine($"{label} (loaded now: {loaded}):");
-            foreach (var p in profiles)
+            foreach (var name in list.Names)
             {
-                sb.AppendLine($"  - {p.Name}");
+                sb.AppendLine($"  - {name}");
             }
+            if (!list.FreshAnswer)
+                sb.AppendLine($"  (the radio did not refresh this list within"
+                    + $" {Math.Max(1, list.WaitedMs / 1000)} seconds; these names are from"
+                    + " the list it sent earlier in this session)");
+        }
+
+        private static void AppendContradictionSentence(
+            StringBuilder sb, FlexBase.RadioProfileList list, string typeWord)
+        {
+            if (!list.SelectionContradictsCount) return;
+            sb.AppendLine($"  Caution: the radio names '{list.Selection}' as the loaded"
+                + $" {typeWord} profile, so at least one {typeWord} profile exists that"
+                + " this export cannot see.");
         }
 
         private static string OnOff(bool value) => value ? "on" : "off";
@@ -1362,11 +1526,23 @@ namespace Radios
             Cap("global profile loaded at start", () => radio.ProfileGlobalSelection);
             Cap("tx profile loaded at start", () => radio.ProfileTXSelection);
             Cap("mic profile loaded at start", () => radio.ProfileMICSelection);
-            foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+
+            // #418: the counts come from the RADIO's own lists, read once here
+            // and reused by the walk below so the file cannot disagree with
+            // itself about what the radio holds. Each line renders one of
+            // three states — a count the radio reported (0 included), "the
+            // radio never reported its list", or "we could not ask" — because
+            // this file's promise is that a blind spot says so, and until
+            // 2026-08-30 all three rendered as the operator's own count, "0"
+            // on a radio full of profiles its owner never named.
+            var profileTypes = new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic };
+            var lists = new Dictionary<ProfileTypes, FlexBase.RadioProfileList>();
+            foreach (var t in profileTypes)
             {
-                Cap(TypeLabel(t) + " profiles stored",
-                    () => rig.GetProfilesByType(t)?.Count.ToString() ?? "0",
-                    needsRadio: false);
+                lists[t] = ReadListSafely(rig, t);
+                capture.Add(ProfileCountLine(lists[t]));
+                var crossCheck = ProfileCrossCheckLine(lists[t]);
+                if (crossCheck != null) capture.Add(crossCheck);
             }
 
             sb.AppendLine("[capture]");
@@ -1429,14 +1605,20 @@ namespace Radios
             else
             {
                 result.WalkRan = true;
-                foreach (var t in new[] { ProfileTypes.global, ProfileTypes.tx, ProfileTypes.mic })
+                foreach (var t in profileTypes)
                 {
                     string label = TypeLabel(t);
                     var outcome = WalkProfiles(rig, t,
                         name => AppendProfileSection(sb, label, name, CaptureKeyedSettings(rig)),
                         progressCallback,
-                        (name, problem) => AppendUnreadableProfileSection(sb, label, name, problem));
+                        (name, problem) => AppendUnreadableProfileSection(sb, label, name, problem),
+                        lists[t]);
                     outcomes.Add(outcome);
+                    // A type with nothing to walk still gets a section: after
+                    // the reset, the difference between "the radio had none"
+                    // and "we could not see them" is the whole point (#418).
+                    if (!lists[t].Reported || lists[t].Names.Count == 0)
+                        AppendUnwalkedTypeSection(sb, lists[t]);
                 }
                 // A walk that never sent a load request did not move the
                 // radio; only one that did needs its restore confirmed.
@@ -1507,9 +1689,20 @@ namespace Radios
             {
                 foreach (var o in outcomes)
                 {
-                    string key = TypeLabel(o.ProfileType) + " profile put back";
+                    string typeWord = TypeLabel(o.ProfileType);
+                    string key = typeWord + " profile put back";
                     string value;
-                    if (o.LoadAttempts == 0 && o.Unreadable.Count > 0)
+                    if (o.RadioList != null && o.RadioList.CouldNotAsk)
+                        value = "no load was ever sent — the " + typeWord
+                            + " profile list could not be read (" + o.RadioList.Problem
+                            + "), so the radio was not moved";
+                    else if (o.RadioList != null && !o.RadioList.Reported)
+                        value = "no load was ever sent — the radio never reported its "
+                            + typeWord + " profile list, so the radio was not moved";
+                    else if (o.RadioList != null && o.RadioList.Names.Count == 0)
+                        value = "nothing was loaded — the radio reports no stored "
+                            + typeWord + " profiles, so there was nothing to put back";
+                    else if (o.LoadAttempts == 0 && o.Unreadable.Count > 0)
                         value = "no load was ever sent — there was no radio connection, so the radio was not moved";
                     else if (o.LoadAttempts == 0)
                         value = "nothing was loaded, so there was nothing to put back";
