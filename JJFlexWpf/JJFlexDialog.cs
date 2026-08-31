@@ -56,6 +56,11 @@ namespace JJFlexWpf
             // Wire up standard events
             PreviewKeyDown += JJFlexDialog_PreviewKeyDown;
             Loaded += JJFlexDialog_Loaded;
+
+            // The stranded-focus sentinel runs for the LIFE of the dialog,
+            // not just its edges — see StartStrandedFocusSentinel.
+            Loaded += (_, _) => StartStrandedFocusSentinel();
+            Closed += (_, _) => StopStrandedFocusSentinel();
         }
 
         /// <summary>
@@ -206,6 +211,160 @@ namespace JJFlexWpf
         {
             // MoveFocus will find the first focusable element in tab order
             MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+        }
+
+        // ── Stranded-focus sentinel (#395 follow-on, 2026-08-30) ─────────
+        //
+        // Every repair this base class had fires at an EDGE — activation at
+        // ContentRendered, the focus-return landing at close. A dialog left
+        // OPEN and unattended has no edge, and on 2026-08-30 the operator hit
+        // exactly that three times: the foreground escaped while Settings
+        // (once) or the radio picker (twice) sat open, keys reached nothing,
+        // the screen reader fell silent, and nothing in the application ever
+        // looked again. One session recovered only when he stumbled into an
+        // OS-level escape about 195 seconds later; the others only when the
+        // connect scope's failsafe happened to run its landing at 120.
+        //
+        // So: while a dialog is open, look every couple of seconds. The
+        // DECISION lives in Radios.StrandedFocusSentinel, pure and pinned by
+        // Radios.Tests — most importantly the rule that a FOREIGN foreground
+        // is never repaired over: an operator reading email while the picker
+        // waits is a choice, and stealing the foreground back on a timer
+        // would be worse than the outage. Only the two provable black holes
+        // are repaired — no foreground window anywhere, or a foreground of
+        // our own process whose thread has no focus window — and the repair
+        // is to reactivate THIS dialog, the thing the operator left open.
+        //
+        // Per-instance on purpose: dialogs live on more than one thread (the
+        // Connecting window pumps its own), so a shared static timer would
+        // race. A dialog whose owner chain disabled it (a modal child is up)
+        // stands down and lets the child's own sentinel do the looking.
+
+        private System.Windows.Threading.DispatcherTimer? _strandedFocusTimer;
+        private readonly Radios.StrandedFocusSentinel _strandedFocus = new();
+
+        private void StartStrandedFocusSentinel()
+        {
+            if (_strandedFocusTimer != null)
+            {
+                _strandedFocusTimer.Start();
+                return;
+            }
+            _strandedFocusTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = System.TimeSpan.FromMilliseconds(
+                    Radios.StrandedFocusSentinel.CheckIntervalMs)
+            };
+            _strandedFocusTimer.Tick += (_, _) => StrandedFocusTick();
+            _strandedFocusTimer.Start();
+        }
+
+        private void StopStrandedFocusSentinel()
+        {
+            _strandedFocusTimer?.Stop();
+        }
+
+        private void StrandedFocusTick()
+        {
+            try
+            {
+                if (!IsVisible) return;
+
+                var own = new WindowInteropHelper(this).Handle;
+                if (own == nint.Zero) return;
+
+                // A modal child has this dialog Win32-disabled: the child owns
+                // the operator, and its own sentinel is the one on watch.
+                if (!NativeFocusProbe.IsWindowEnabled(own)) return;
+
+                if (!_strandedFocus.NoteAndDecide(ObserveDesktopFocus())) return;
+
+                JJTrace.Tracing.TraceLine(
+                    $"JJFlexDialog: keyboard focus is stranded (no window taking input) "
+                    + $"while '{Title}' sits open - reactivating it (#395 sentinel)",
+                    System.Diagnostics.TraceLevel.Warning);
+
+                Radios.WindowActivation.EnsureForeground(own);
+                try { Activate(); } catch { /* best effort */ }
+                if (!IsKeyboardFocusWithin) FocusFirstControl();
+            }
+            catch (System.Exception ex)
+            {
+                JJTrace.Tracing.TraceLine(
+                    $"JJFlexDialog: stranded-focus sentinel tick failed: {ex.Message}",
+                    System.Diagnostics.TraceLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// One look at the desktop, classified for the sentinel. Cross-thread
+        /// correct: the focus question is asked of the FOREGROUND window's
+        /// thread via GetGUIThreadInfo, not of whichever thread this dialog
+        /// happens to run on.
+        /// </summary>
+        private static Radios.StrandedFocusSentinel.Observation ObserveDesktopFocus()
+        {
+            var fg = NativeFocusProbe.GetForegroundWindow();
+            if (fg == nint.Zero)
+                return Radios.StrandedFocusSentinel.Observation.NoForegroundAnywhere;
+
+            uint tid = NativeFocusProbe.GetWindowThreadProcessId(fg, out uint pid);
+            if (pid != (uint)System.Environment.ProcessId)
+                return Radios.StrandedFocusSentinel.Observation.ForeignForeground;
+
+            var info = NativeFocusProbe.GuiThreadInfo.Create();
+            if (NativeFocusProbe.GetGUIThreadInfo(tid, ref info)
+                && info.hwndFocus == nint.Zero)
+                return Radios.StrandedFocusSentinel.Observation.OursWithDeadFocus;
+
+            return Radios.StrandedFocusSentinel.Observation.Healthy;
+        }
+
+        private static class NativeFocusProbe
+        {
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            internal static extern nint GetForegroundWindow();
+
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            internal static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
+
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            [return: System.Runtime.InteropServices.MarshalAs(
+                System.Runtime.InteropServices.UnmanagedType.Bool)]
+            internal static extern bool IsWindowEnabled(nint hWnd);
+
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            [return: System.Runtime.InteropServices.MarshalAs(
+                System.Runtime.InteropServices.UnmanagedType.Bool)]
+            internal static extern bool GetGUIThreadInfo(uint idThread, ref GuiThreadInfo info);
+
+            [System.Runtime.InteropServices.StructLayout(
+                System.Runtime.InteropServices.LayoutKind.Sequential)]
+            internal struct GuiThreadInfo
+            {
+                public int cbSize;
+                public int flags;
+                public nint hwndActive;
+                public nint hwndFocus;
+                public nint hwndCapture;
+                public nint hwndMenuOwner;
+                public nint hwndMoveSize;
+                public nint hwndCaret;
+                public Rect rcCaret;
+
+                internal static GuiThreadInfo Create() => new()
+                {
+                    cbSize = System.Runtime.InteropServices.Marshal
+                        .SizeOf<GuiThreadInfo>()
+                };
+            }
+
+            [System.Runtime.InteropServices.StructLayout(
+                System.Runtime.InteropServices.LayoutKind.Sequential)]
+            internal struct Rect
+            {
+                public int Left, Top, Right, Bottom;
+            }
         }
 
         /// <summary>
