@@ -1,6 +1,6 @@
 # Messages You Have Silenced
 
-Some of the messages JJ Flexible shows you offer a **Don't show this again** checkbox. Tick it, and that message stops appearing.
+Some of the messages JJ Flexible Radio Access shows you offer a **Don't show this again** checkbox. Tick it, and that message stops appearing.
 
 Every message you silence that way is kept on a list, by name, with the date you silenced it. You can bring any of them back at any time, one at a time or all at once. Nothing you silence is ever lost for good.
 

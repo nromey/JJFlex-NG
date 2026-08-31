@@ -24,7 +24,7 @@ survive disconnect unless you save the profile."
 
 To make the change permanent, choose **Save Station Setup to Radio**, which sits
 with New Slice and Release Active Slice in the Selection submenu on the Slice
-menu. JJ Flexible tells you which profile it is about to write and asks you to
+menu. JJ Flexible Radio Access tells you which profile it is about to write and asks you to
 confirm before anything is saved.
 
 Two things are worth knowing before you save:

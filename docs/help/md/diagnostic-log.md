@@ -1,6 +1,6 @@
 # The Diagnostic Log
 
-When something goes wrong with radio software, the worst part is usually that it went wrong five minutes ago and left no trace. The diagnostic log is JJ Flexible's answer: a quiet record of what the app was doing, kept so that a problem which already happened can still be explained — without you having to reproduce it on demand while somebody watches.
+When something goes wrong with radio software, the worst part is usually that it went wrong five minutes ago and left no trace. The diagnostic log is JJ Flexible Radio Access's answer: a quiet record of what the app was doing, kept so that a problem which already happened can still be explained — without you having to reproduce it on demand while somebody watches.
 
 Everything about it lives in one place: **Settings, then the Diagnostics tab**. Tools, then Diagnostics, jumps straight there. The first thing on that tab is a single sentence that tells you whether a log is being kept, at what detail, and whether a capture is running right now — so you never have to wonder.
 
