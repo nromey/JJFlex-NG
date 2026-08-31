@@ -114,11 +114,15 @@ namespace Radios.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void ProfileThatCouldNotBeRead_GetsASectionSayingSo()
+        public void WithNoRadio_TheOperatorsListIsNeverSubstitutedForTheRadios()
         {
             var rig = MakeRig();
-            // The rig knows these profiles exist; with no radio, loading them
-            // fails. That failure must be IN the file, per profile, by name.
+            // Bait: the OPERATOR's profile references. Until #418 the export
+            // walked and counted THIS list — reporting the operator's
+            // bookkeeping as the radio's contents, and "0 stored" for a radio
+            // full of profiles nobody on this computer had named. With no
+            // radio, the honest file says the lists could not be read; it
+            // must not dress the bait up as a finding.
             rig.Callouts.Profiles = new List<Profile_t>
             {
                 new Profile_t("Contest", ProfileTypes.global, false),
@@ -129,18 +133,28 @@ namespace Radios.Tests
             Assert.NotNull(export);
             string text = export.Text;
 
-            Assert.Contains("[global profile: Contest]" + Environment.NewLine
-                + "captured = no", text);
-            Assert.Contains("[TX profile: SSB Rag Chew]" + Environment.NewLine
-                + "captured = no", text);
-            Assert.Contains("problem = no radio connection; none of this profile's settings are in this file", text);
+            // The operator's references appear NOWHERE: not counted, not
+            // walked, not listed.
+            Assert.DoesNotContain("Contest", text);
+            Assert.DoesNotContain("SSB Rag Chew", text);
 
-            // With no radio, no load request ever went out — so the file must
-            // say the radio was not moved, rather than raise a false alarm
-            // about profiles it never touched.
+            // The count lines say "could not ask" — never "0", which would
+            // claim the radio answered when nobody could reach it.
+            Assert.Contains("global profiles stored = unreadable: no radio connection", text);
+            Assert.Contains("TX profiles stored = unreadable: no radio connection", text);
+            Assert.Contains("mic profiles stored = unreadable: no radio connection", text);
+
+            // Each type's gap gets a section saying what is missing.
+            Assert.Contains("[global profiles not walked]" + Environment.NewLine
+                + "reason = no radio connection; any global profiles the radio holds are not captured in this file", text);
+            Assert.Contains("[TX profiles not walked]", text);
+            Assert.Contains("[mic profiles not walked]", text);
+
+            // No load request ever went out — so the file must say the radio
+            // was not moved, rather than raise a false alarm.
             Assert.True(export.WalkRan);
             Assert.True(export.EverythingPutBack);
-            Assert.Contains("global profile put back = no load was ever sent — there was no radio connection, so the radio was not moved", text);
+            Assert.Contains("global profile put back = no load was ever sent — the global profile list could not be read (no radio connection), so the radio was not moved", text);
         }
 
         [Fact]
@@ -243,20 +257,18 @@ namespace Radios.Tests
         public void TheWholeFile_RoundTripsThroughAnIniParser()
         {
             var rig = MakeRig();
-            rig.Callouts.Profiles = new List<Profile_t>
-            {
-                new Profile_t("Contest", ProfileTypes.global, false),
-                new Profile_t("PR781", ProfileTypes.mic, false),
-            };
             string text = Generate(rig);
 
             var sections = ParseIni(text);
 
-            // Every named section arrived.
+            // Every named section arrived — including one gap section per
+            // profile type, because offline no list can be read and a gap
+            // that says so is the file's whole promise (#418).
             foreach (var name in new[]
             {
                 "capture", "radio-wide settings", "settings now",
-                "global profile: Contest", "mic profile: PR781",
+                "global profiles not walked", "TX profiles not walked",
+                "mic profiles not walked",
                 "memories", "after the walk",
             })
             {
@@ -268,15 +280,16 @@ namespace Radios.Tests
             Assert.True(capture.Values.ContainsKey("taken"));
             Assert.True(capture.Values.ContainsKey("radio model"));
             Assert.True(capture.Values.ContainsKey("global profile loaded at start"));
-            Assert.Equal("1", capture.Values["global profiles stored"]);
+            // The count is a marked gap, not a number: "0" here would claim
+            // the radio answered when nobody could ask it (#418).
+            Assert.StartsWith("unreadable:", capture.Values["global profiles stored"]);
 
             var now = sections.First(s => s.Name == "settings now");
             Assert.True(now.Values.ContainsKey("rf power"));
             Assert.True(now.Values.ContainsKey("slices open"));
 
-            var contest = sections.First(s => s.Name == "global profile: Contest");
-            Assert.Equal("no", contest.Values["captured"]);
-            Assert.True(contest.Values.ContainsKey("problem"));
+            var gap = sections.First(s => s.Name == "mic profiles not walked");
+            Assert.True(gap.Values.ContainsKey("reason"));
 
             // The unreadable convention is detectable mechanically.
             Assert.StartsWith("unreadable:", now.Values["rf power"]);

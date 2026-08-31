@@ -13986,6 +13986,191 @@ namespace Radios
             return true;
         }
 
+        // ── Radio-scoped profile enumeration (#418, 2026-08-30) ──
+        //
+        // The operator's list (Callouts.Profiles) is one list per human on
+        // this computer — a set of REFERENCES, not an inventory. The radio's
+        // inventory is ProfileGlobalList / ProfileTXList / ProfileMICList,
+        // reported asynchronously after "profile <type> info". The settings
+        // exports were counting the operator's references and reporting "0"
+        // for a radio full of profiles its owner never named — immediately
+        // before a factory reset, in a file whose promise is that a blind
+        // spot says so. This reader asks the RADIO, waits (bounded) for the
+        // answer, and reports which of three states the reading ended in:
+        // the radio reported its list (possibly empty); the radio never
+        // reported it; we could not ask at all. FlexLib's list getters
+        // collapse "never reported" to an empty collection, so the
+        // discriminator is the PropertyChanged event ParseProfilesStatus
+        // raises — it fires even for an empty list, which is exactly the
+        // positive "the radio answered: none" signal the exports need.
+
+        /// <summary>
+        /// One reading of the radio's own profile list for one type: the
+        /// names, the radio's current selection, and — load-bearing — which
+        /// of three states the reading ended in. Plain data; renderers and
+        /// tests construct it freely.
+        /// </summary>
+        public sealed class RadioProfileList
+        {
+            public ProfileTypes ProfileType;
+
+            /// <summary>Names the radio reports. Meaningful only when
+            /// <see cref="Reported"/> is true.</summary>
+            public List<string> Names = new List<string>();
+
+            /// <summary>The radio's current selection for this type: a name,
+            /// "" when the radio says none is loaded, null when it could not
+            /// be read.</summary>
+            public string Selection;
+
+            /// <summary>The radio has answered with its list — possibly an
+            /// empty one, which is a real answer ("none stored"), not a
+            /// gap.</summary>
+            public bool Reported;
+
+            /// <summary>The answer arrived within the bounded wait after our
+            /// fresh ask. False with <see cref="Reported"/> true means the
+            /// names are from a list the radio sent earlier in the
+            /// session.</summary>
+            public bool FreshAnswer;
+
+            /// <summary>How long the fresh ask was given, so a renderer can
+            /// say "waited N seconds" honestly.</summary>
+            public int WaitedMs;
+
+            /// <summary>Non-null when we could not ask at all: no radio
+            /// connection, or the reading itself failed.</summary>
+            public string Problem;
+
+            public bool CouldNotAsk => Problem != null;
+
+            /// <summary>The contradiction a settings file must state rather
+            /// than average away: the list shows no names, yet the radio
+            /// names a loaded selection — so at least one profile exists
+            /// that the list does not show.</summary>
+            public bool SelectionContradictsCount =>
+                Problem == null && Names.Count == 0 && !string.IsNullOrEmpty(Selection);
+        }
+
+        /// <summary>
+        /// Read the RADIO's profile list for one type: subscribe for the
+        /// answer, send a fresh "profile ... info", wait (bounded), then
+        /// report the list and which state the reading ended in. Read-only —
+        /// nothing is loaded and nothing on the radio changes.
+        /// </summary>
+        public RadioProfileList ReadRadioProfileList(ProfileTypes typ, int timeoutMs = 5000)
+        {
+            var result = new RadioProfileList { ProfileType = typ, WaitedMs = timeoutMs };
+
+            string listProperty;
+            string infoCommand;
+            switch (typ)
+            {
+                case ProfileTypes.global:
+                    listProperty = "ProfileGlobalList"; infoCommand = "profile global info"; break;
+                case ProfileTypes.tx:
+                    listProperty = "ProfileTXList"; infoCommand = "profile tx info"; break;
+                case ProfileTypes.mic:
+                    listProperty = "ProfileMICList"; infoCommand = "profile mic info"; break;
+                case ProfileTypes.display:
+                    listProperty = "ProfileDisplayList"; infoCommand = "profile display info"; break;
+                default:
+                    result.Problem = "unknown profile type " + typ;
+                    return result;
+            }
+
+            var radio = theRadio;
+            if (radio == null)
+            {
+                result.Problem = "no radio connection";
+                Tracing.TraceLine("ReadRadioProfileList(" + typ + "): no radio connection",
+                    TraceLevel.Warning);
+                return result;
+            }
+
+            // Subscribe BEFORE asking, so the answer cannot slip past us.
+            int answered = 0;
+            PropertyChangedEventHandler onChange = (s, e) =>
+            {
+                if (e.PropertyName == listProperty) Interlocked.Exchange(ref answered, 1);
+            };
+            radio.PropertyChanged += onChange;
+            try
+            {
+                try
+                {
+                    // Fire the ask and OBSERVE the reply task so a refusal
+                    // cannot surface later as an unobserved exception. The
+                    // list itself arrives as a status message, not in the
+                    // command reply, so the wait below watches the property.
+                    var reply = radio.SendCommandAsync(infoCommand);
+                    _ = reply.ContinueWith(
+                        t => Tracing.TraceLine(
+                            "ReadRadioProfileList(" + typ + "): info command refused: "
+                            + t.Exception?.GetBaseException().Message, TraceLevel.Warning),
+                        TaskContinuationOptions.OnlyOnFaulted);
+                }
+                catch (Exception ex)
+                {
+                    // The ask itself failed. Fall through to whatever the
+                    // session already holds; Reported says whether that is
+                    // anything.
+                    Tracing.TraceLine("ReadRadioProfileList(" + typ + "): ask failed: "
+                        + ex.Message, TraceLevel.Warning);
+                }
+
+                result.FreshAnswer = await(() => Volatile.Read(ref answered) != 0, timeoutMs);
+            }
+            finally
+            {
+                radio.PropertyChanged -= onChange;
+            }
+
+            try
+            {
+                List<string> names = null;
+                string selection = null;
+                switch (typ)
+                {
+                    case ProfileTypes.global:
+                        names = radio.ProfileGlobalList?.ToList();
+                        selection = radio.ProfileGlobalSelection;
+                        break;
+                    case ProfileTypes.tx:
+                        names = radio.ProfileTXList?.ToList();
+                        selection = radio.ProfileTXSelection;
+                        break;
+                    case ProfileTypes.mic:
+                        names = radio.ProfileMICList?.ToList();
+                        selection = radio.ProfileMICSelection;
+                        break;
+                    case ProfileTypes.display:
+                        names = radio.ProfileDisplayList?.ToList();
+                        selection = radio.ProfileDisplaySelection;
+                        break;
+                }
+                result.Names = names ?? new List<string>();
+                result.Selection = selection;
+                // A non-empty list is positive evidence the radio reported it
+                // at some point: the collection is only ever populated from
+                // the radio's own status messages.
+                result.Reported = result.FreshAnswer || result.Names.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                result.Problem = ex.Message;
+                Tracing.TraceLine("ReadRadioProfileList(" + typ + "): read failed: "
+                    + ex.Message, TraceLevel.Warning);
+            }
+
+            Tracing.TraceLine("ReadRadioProfileList(" + typ + "): reported=" + result.Reported
+                + " fresh=" + result.FreshAnswer + " count=" + result.Names.Count
+                + " selection='" + (result.Selection ?? "<unreadable>") + "'"
+                + (result.Problem != null ? " problem=" + result.Problem : ""),
+                TraceLevel.Info);
+            return result;
+        }
+
         // ── The silent-transmit check (Sprint 31 Track S, task #99) ──
         //
         // A radio whose mic-profile SELECTION is empty has no transmit-audio
