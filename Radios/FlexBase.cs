@@ -9230,7 +9230,17 @@ namespace Radios
             // The change guard here existed only to avoid re-raising
             // MeterChanged for a repeated value. With that event gone the
             // comparison decides nothing, so the assignment stands alone.
-            _PowerDBM = data;
+            //
+            // Stamped under the pair lock (#453): the value alone cannot tell a
+            // consumer whether it was sampled with its reflected counterpart or
+            // a burst earlier, and on a speech envelope that is the difference
+            // between a reflected share and an artefact. See
+            // ReadTransmitPower.
+            lock (_powerPairLock)
+            {
+                _PowerDBM = data;
+                _forwardStamp = Stopwatch.GetTimestamp();
+            }
         }
 
         protected float _SWR;
@@ -9339,9 +9349,87 @@ namespace Radios
         public float ReflectedFraction =>
             TransmitSafety.ReflectedFractionOf(ForwardPowerWatts, ReflectedPowerWatts);
 
+        // --- Forward and reflected as ONE reading (#453) ---------------------
+        //
+        // The two meters arrive as two separate FlexLib callbacks, each
+        // assigning its own field. Reading ForwardPowerWatts and then
+        // ReflectedPowerWatts is therefore NOT a sample of one instant, and on
+        // a speech envelope — where forward power plunges toward zero between
+        // syllables many times a second — a small forward reading divided into
+        // a slightly older, larger reflected one spikes the ratio past any
+        // threshold. It ended real transmissions on a correctly matched
+        // antenna. The two properties above stay exactly as they are (plenty of
+        // callers legitimately want one number); anything JUDGING the two
+        // together takes them from here instead.
+        private readonly object _powerPairLock = new object();
+        private long _forwardStamp;     // Stopwatch ticks, 0 = never reported
+        private long _reflectedStamp;
+
+        /// <summary>
+        /// Forward and reflected transmit power as ONE reading, carrying the
+        /// skew between the two meter samples and their age.
+        /// </summary>
+        /// <remarks>
+        /// A method rather than a property because it takes a lock and reads a
+        /// clock. Returns <see cref="TransmitPowerReading.None"/> until both
+        /// meters have reported at least once, so a radio that never sends one
+        /// of them judges nothing rather than judging a default.
+        /// </remarks>
+        public TransmitPowerReading ReadTransmitPower()
+        {
+            float fwdDbm, refDbm;
+            long fwdAt, refAt;
+            lock (_powerPairLock)
+            {
+                fwdDbm = _PowerDBM;
+                refDbm = _ReflectedPower;
+                fwdAt = _forwardStamp;
+                refAt = _reflectedStamp;
+            }
+            if (fwdAt == 0 || refAt == 0) return TransmitPowerReading.None;
+
+            double perMs = Stopwatch.Frequency / 1000.0;
+            double skew = Math.Abs(fwdAt - refAt) / perMs;
+            double age = (Stopwatch.GetTimestamp() - Math.Max(fwdAt, refAt)) / perMs;
+            return new TransmitPowerReading(
+                DBmToWatts(fwdDbm), DBmToWatts(refDbm), (float)skew, (float)age);
+        }
+
+        /// <summary>
+        /// The SWR shown to the operator on the manual-tuner button.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Two things were wrong here and the second was the larger (#454).</b>
+        /// This was <c>_SWR.ToString("f1")</c> — the raw radio meter, straight
+        /// to a string, with no test for the sentinel. <see cref="SWRNoReading"/>
+        /// is −25, the radio reports it whenever it has no reading including
+        /// part-way through a transmit, and its own comment says it must never
+        /// be read as a low SWR. It was rendered as <b>"-25.0"</b>. A standing
+        /// wave ratio cannot be negative; anything below 1 is by construction
+        /// not a measurement.
+        /// </para>
+        /// <para>
+        /// And the raw meter should not have been the source at all. It is
+        /// documented as untrustworthy exactly where it matters — measured on
+        /// 2026-08-22 reporting <b>1.008</b> while 76 percent of the power was
+        /// coming back off an empty port. <see cref="ComputedSWR"/> exists
+        /// because of that measurement and the display never adopted it. The
+        /// meters panel already made this move; this was the last raw-meter
+        /// reader left.
+        /// </para>
+        /// <para>
+        /// NaN — not enough forward power to derive anything — says so in
+        /// words. Silence would be ambiguous and an invented 1.0 is the failure
+        /// being replaced.
+        /// </para>
+        /// </remarks>
         private string SWRText()
         {
-            return _SWR.ToString("f1");
+            float swr = ComputedSWR;
+            if (float.IsNaN(swr) || swr < 1f)
+                return Lexicon.Get("audio.tune.swr_no_reading");
+            return swr.ToString("f1");
         }
 
         private float _MicData;
@@ -9879,7 +9967,13 @@ namespace Radios
         private void reflectedPowerData(float data)
         {
             meterTrace.Report("reflectedPower:", data);
-            _ReflectedPower = data;
+            // Stamped under the pair lock — see forwardPowerData and
+            // ReadTransmitPower (#453).
+            lock (_powerPairLock)
+            {
+                _ReflectedPower = data;
+                _reflectedStamp = Stopwatch.GetTimestamp();
+            }
         }
 
         private float _PAEffData;

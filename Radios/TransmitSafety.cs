@@ -73,10 +73,106 @@ namespace Radios
         public const int ReflectedWarnSeconds = 2;
 
         /// <summary>
-        /// Forward power below which a reflected fraction means nothing,
+        /// The ABSOLUTE floor below which a reflected fraction means nothing,
         /// because a meter wandering around zero can produce any ratio at all.
         /// </summary>
+        /// <remarks>
+        /// <b>This is the floor of a floor, not the floor (#453.)</b> It was
+        /// measured against a DEAD KEY — 0.22 W into an open port on
+        /// 2026-08-22 — which is a steady-state number that says nothing about
+        /// speech. On a hundred-watt voice envelope one watt excludes almost
+        /// nothing: the envelope crosses it constantly on its way down between
+        /// syllables, which is exactly where a mismatched pair of readings
+        /// produces a spike. The floor that actually acts is
+        /// <see cref="ReflectedWarnFloorWatts"/>, which scales with the
+        /// transmission; this remains as its lower bound, for the QRP and
+        /// transverter-drive case where a share of the peak would be a
+        /// fraction of a watt and the ratio really is noise.
+        /// </remarks>
         public const float ReflectedWarnMinWatts = 1f;
+
+        /// <summary>
+        /// The share of a transmission's own forward-power PEAK below which a
+        /// reflected reading is not judged.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A tenth — ten times the old absolute watt, and on a hundred-watt
+        /// transmission it lands on ten watts, the figure Noel independently
+        /// ruled as the boundary worth stopping for. It discards the deep
+        /// troughs between syllables, which is where the mismatched-pair
+        /// artefact lived, without discarding most of the transmission.
+        /// </para>
+        /// <para>
+        /// <b>Deliberately not a quarter, and the reasoning is the same
+        /// reasoning that rules out smoothing.</b> The register's objection to
+        /// smoothing is that it lowers a false spike AND delays a real alarm,
+        /// which is the wrong trade on a protective feature. A floor and a
+        /// persistence rule stack the same way: the floor decides how often a
+        /// sample is judgeable at all, and the persistence rule then waits for
+        /// several of them, so raising the floor multiplies the delay before a
+        /// GENUINE fault is announced. Speech has roughly ten decibels of
+        /// peak-to-average, so a quarter-of-peak floor would leave only a small
+        /// minority of one-a-second samples judgeable and push the warning out
+        /// by tens of seconds. The pairing rule is what removes the defect;
+        /// this is defence in depth and must not be paid for in alarm latency.
+        /// </para>
+        /// <para>
+        /// <b>Still to be measured on the bench:</b> how often a sample is
+        /// judgeable on real speech, and therefore how long the warning
+        /// actually takes on a genuinely bad match.
+        /// <see cref="ReflectedPowerRun.JudgedSamples"/> is traced with the
+        /// warning precisely so a sitting can answer that rather than an
+        /// estimate standing in for it.
+        /// </para>
+        /// <para>
+        /// <b>A share of the PEAK, not of the operator's power setting</b>, and
+        /// the difference is not cosmetic — see
+        /// <see cref="ReflectedPowerRun"/> for the foldback measurement that
+        /// decides it.
+        /// </para>
+        /// <para>
+        /// <b>Not named <c>...Fraction</c> or <c>...Percent</c> on purpose.</b>
+        /// In this assembly those suffixes on a <c>Reflected*</c> constant mean
+        /// a share of forward power that is coming BACK, and
+        /// <c>IntegrationPassRuleTests.Every_reflected_power_threshold_is_the_same_number</c>
+        /// discovers them by that convention and requires them all to agree
+        /// with <see cref="ReflectedWarnFraction"/>. This is a share of FORWARD
+        /// power — a different quantity that would have been judged against the
+        /// wrong ruler, and rightly so, had it kept the wrong suffix.
+        /// </para>
+        /// </remarks>
+        public const float ReflectedWarnFloorShareOfPeak = 0.10f;
+
+        /// <summary>
+        /// Judgeable samples in a row that must be bad before the warning
+        /// speaks.
+        /// </summary>
+        /// <remarks>
+        /// Three. The pre-existing persistence was "the warning fired on an
+        /// earlier tick and the cut reads this one", which is sound against a
+        /// key-down transient and no defence at all against a voice envelope —
+        /// troughs recur many times a second and supply a second bad sample for
+        /// free. Counting JUDGEABLE samples rather than ticks is what makes
+        /// three achievable; see <see cref="ReflectedPowerRun.Observe"/>.
+        /// </remarks>
+        public const int ReflectedWarnSustainedSamples = 3;
+
+        /// <summary>
+        /// The forward power below which a reflected share is not judged, given
+        /// how much power this transmission has actually managed to make.
+        /// </summary>
+        /// <param name="forwardPeakWatts">
+        /// The highest forward power seen this transmission — normally
+        /// <see cref="ReflectedPowerRun.ForwardPeakWatts"/>.
+        /// </param>
+        public static float ReflectedWarnFloorWatts(float forwardPeakWatts)
+        {
+            if (float.IsNaN(forwardPeakWatts) || forwardPeakWatts <= 0f)
+                return ReflectedWarnMinWatts;
+            return Math.Max(ReflectedWarnMinWatts,
+                            forwardPeakWatts * ReflectedWarnFloorShareOfPeak);
+        }
 
         /// <summary>
         /// How much of the forward power is coming back, from 0 to 1, or NaN
@@ -101,13 +197,40 @@ namespace Radios
         /// Whether the operator should be told, right now, that their power is
         /// coming back instead of leaving.
         /// </summary>
-        /// <param name="forwardWatts">Forward power in WATTS, not dBm.</param>
-        /// <param name="reflectedWatts">Reflected power in WATTS, not dBm.</param>
+        /// <remarks>
+        /// <para>
+        /// <b>It takes a paired reading and a run, not two loose numbers, and
+        /// that is the whole of #453.</b> The signature that used to be here
+        /// accepted a forward float and a reflected float, and both live
+        /// callers filled them with two independent property gets of two
+        /// independently-updated fields. Every judgement was therefore made on
+        /// a pair that might have been sampled at different instants, and on
+        /// speech that is not a rare edge — it is most of them. There is no
+        /// overload taking loose watts on purpose: leaving one would leave the
+        /// defect available to the next caller.
+        /// </para>
+        /// <para>
+        /// The rule itself is unchanged: over
+        /// <see cref="ReflectedWarnPercent"/> of the power coming back, once
+        /// the meters have settled, not during a tune, once per transmission.
+        /// What is added is that the sample must be one sample, must be near
+        /// the transmission's own envelope peak, and must be corroborated by
+        /// its neighbours.
+        /// </para>
+        /// </remarks>
+        /// <param name="reading">Forward and reflected as ONE reading.</param>
+        /// <param name="run">
+        /// This transmission's accumulated state — the forward peak that sets
+        /// the floor and the run of bad judgeable samples.
+        /// <see cref="ReflectedPowerRun.Observe"/> must already have been given
+        /// this reading.
+        /// </param>
         /// <param name="txSeconds">Seconds transmitting, in any keying state.</param>
         /// <param name="tuning">True while the antenna tuner is running a cycle.</param>
         /// <param name="alreadyWarned">True once this transmission has spoken.</param>
         public static bool ShouldWarnReflected(
-            float forwardWatts, float reflectedWatts, int txSeconds, bool tuning, bool alreadyWarned)
+            in TransmitPowerReading reading, ReflectedPowerRun run,
+            int txSeconds, bool tuning, bool alreadyWarned)
         {
             // Once per transmission. A warning that repeats every second while
             // the operator is trying to act on it is noise, and noise is how a
@@ -123,12 +246,21 @@ namespace Radios
             // a warning is worse off than one who never had it.
             if (tuning) return false;
 
-            if (float.IsNaN(forwardWatts) || forwardWatts < ReflectedWarnMinWatts) return false;
+            if (run == null) return false;
 
-            float back = ReflectedFractionOf(forwardWatts, reflectedWatts);
+            // The current sample must itself be judgeable and bad. The run
+            // carries the corroboration; it must not carry the verdict on its
+            // own, or a warning could fire off three old samples after the
+            // meters had already recovered.
+            if (!reading.IsCoherent) return false;
+            if (float.IsNaN(reading.ForwardWatts)
+                || reading.ForwardWatts < run.FloorWatts) return false;
+
+            float back = reading.ReflectedShare;
             if (float.IsNaN(back)) return false;
+            if (back <= ReflectedWarnFraction) return false;
 
-            return back > ReflectedWarnFraction;
+            return run.Sustained;
         }
 
         /// <summary>
@@ -217,20 +349,35 @@ namespace Radios
         /// so a single transient at key-down can never cut — the same
         /// reasoning as the antenna checker's early stop.
         /// </param>
-        /// <param name="forwardWatts">Forward power in WATTS.</param>
-        /// <param name="reflectedWatts">Reflected power in WATTS.</param>
+        /// <param name="reading">
+        /// Forward and reflected as ONE reading (#453). An incoherent pair
+        /// never cuts — ending an operator's transmission on two readings that
+        /// were not taken together is the worst version of this defect, because
+        /// the cost is a contact rather than a sentence.
+        /// </param>
         /// <param name="tuning">True while the antenna tuner runs a cycle —
         /// high reflected power during one is the tuner working, and a cut
         /// here would kill every tune-up the operator starts.</param>
+        /// <remarks>
+        /// <b>The ten-watt floor is deliberately NOT replaced by the run's
+        /// scaled floor.</b> Ten watts was ruled by Noel on 2026-08-25 as the
+        /// boundary between "worth telling you" and "worth stopping for", and a
+        /// share of the peak would sit above it on any full-power
+        /// transmission — quietly raising a number a human set. The pairing
+        /// requirement plus <paramref name="alreadyWarned"/> (which now needs a
+        /// sustained run behind it) is what keeps a voice trough out of here.
+        /// </remarks>
         public static bool ShouldCutReflected(bool settingEnabled, bool alreadyWarned,
-                                              float forwardWatts, float reflectedWatts,
+                                              in TransmitPowerReading reading,
                                               bool tuning)
         {
             if (!settingEnabled || !alreadyWarned || tuning) return false;
-            if (float.IsNaN(forwardWatts) || forwardWatts <= ReflectedCutMinForwardWatts)
+            if (!reading.IsCoherent) return false;
+            if (float.IsNaN(reading.ForwardWatts)
+                || reading.ForwardWatts <= ReflectedCutMinForwardWatts)
                 return false;
 
-            float back = ReflectedFractionOf(forwardWatts, reflectedWatts);
+            float back = reading.ReflectedShare;
             return !float.IsNaN(back) && back >= ReflectedWarnFraction;
         }
 
@@ -247,6 +394,178 @@ namespace Radios
             return named
                 ? Lexicon.Get(key, ("percent", percent), ("antenna", antennaName))
                 : Lexicon.Get(key, ("percent", percent));
+        }
+
+        // ==================================================================
+        // Transmit audio: is anything arriving at all? (#459)
+        // ==================================================================
+
+        /// <summary>
+        /// The SC_MIC peak-hold's idle value — what the field reads when no
+        /// meter sample has arrived. Anything the meter actually reports is
+        /// above it.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is the honest test for "nothing arrived", and the reason the
+        /// old one cried wolf (#459).</b> The warning used to ask whether the
+        /// peak had risen above <c>-45 dBFS</c> — a LEVEL judgement standing in
+        /// for a PRESENCE one. An operator measured at <b>-92.59 dBFS</b> while
+        /// audible on the air and making contacts was therefore told his
+        /// microphone was dead on every transmission, 47 dB below a threshold
+        /// that was never about him. A path that delivered nothing at all reads
+        /// this floor; -92.59 is emphatically not this floor. Presence and
+        /// level are two different faults with two different urgencies, and one
+        /// threshold cannot do both jobs.
+        /// </remarks>
+        public const float MicNothingArrivedDbfs = -150f;
+
+        /// <summary>
+        /// How long a transmission may run with NOTHING arriving before the
+        /// operator is told.
+        /// </summary>
+        /// <remarks>
+        /// Ten seconds, up from five. Five is a normal amount of time to key up
+        /// and gather your thoughts — one tester keys, thinks for about five
+        /// seconds, talks, pauses again, all while keyed, and that is not
+        /// unusual operating. A dead microphone still wants finding early
+        /// rather than at unkey, so this waits rather than deferring.
+        /// </remarks>
+        public const double MicVerifyWindowSeconds = 10.0;
+
+        /// <summary>
+        /// How long a proven-good transmit audio path stays proven, across
+        /// transmissions.
+        /// </summary>
+        /// <remarks>
+        /// Ten minutes. A working microphone does not die mid-sentence, and
+        /// re-running the check on every over is how a warning becomes noise.
+        /// Time is only the backstop: <see cref="MicPathVerification"/> also
+        /// drops the proof the moment anything that could change the audio path
+        /// changes.
+        /// </remarks>
+        public const double MicVerifiedForSeconds = 600.0;
+
+        /// <summary>What the transmit-audio watch has concluded so far.</summary>
+        public enum MicPathVerdict
+        {
+            /// <summary>Nothing has arrived yet, but the window has not run
+            /// out. Say nothing.</summary>
+            KeepWatching,
+
+            /// <summary>Audio arrived. The path is proven and nothing is said
+            /// — the point of the whole rule is that success is what
+            /// latches.</summary>
+            Verified,
+
+            /// <summary>The window elapsed with nothing at all. Wrong device,
+            /// wrong profile, unplugged microphone: act now.</summary>
+            NothingArrived
+        }
+
+        /// <summary>
+        /// Judge the transmit audio path from the peak-hold so far.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Latch the SUCCESS, not the failure.</b> The defect this replaces
+        /// formed its verdict on the first tick at five seconds and latched
+        /// "silent" forever. Because the peak-hold only ever grows, a verdict
+        /// of silent at five seconds could be false by six — the warning could
+        /// be contradicted by the meter before the sentence finished being
+        /// spoken, and an operator who gathered his thoughts and then talked
+        /// for four minutes was told his microphone was dead.
+        /// </para>
+        /// <para>
+        /// Inverting it removes that whole class: once audio has arrived the
+        /// answer can never become wrong, so it is the answer worth keeping.
+        /// </para>
+        /// </remarks>
+        /// <param name="micPeakDbfs">
+        /// The SC_MIC peak-hold since key-down (<c>FlexBase.ScMicMaxDb</c>),
+        /// which only ever grows, so a pause between words cannot lower it.
+        /// </param>
+        /// <param name="txSeconds">Seconds since key-down.</param>
+        public static MicPathVerdict JudgeMicPath(float micPeakDbfs, double txSeconds)
+        {
+            if (!float.IsNaN(micPeakDbfs) && micPeakDbfs > MicNothingArrivedDbfs)
+                return MicPathVerdict.Verified;
+
+            return txSeconds >= MicVerifyWindowSeconds
+                ? MicPathVerdict.NothingArrived
+                : MicPathVerdict.KeepWatching;
+        }
+
+        /// <summary>
+        /// Whether an earlier verification still describes the path in front of
+        /// us.
+        /// </summary>
+        /// <remarks>
+        /// <b>Both halves matter, and the signature is the important one.</b>
+        /// A clock alone would suppress the warning for up to ten minutes after
+        /// a microphone was unplugged or a profile switched — a new defect of
+        /// exactly the shape this one is. So the proof is dropped the moment
+        /// anything that defines the audio path differs from what it was when
+        /// the proof was taken.
+        /// </remarks>
+        public static bool MicVerificationStillHolds(
+            bool haveVerification, double secondsSinceVerified,
+            string signatureWhenVerified, string signatureNow)
+        {
+            if (!haveVerification) return false;
+            if (secondsSinceVerified < 0 || secondsSinceVerified > MicVerifiedForSeconds)
+                return false;
+            return string.Equals(signatureWhenVerified ?? "", signatureNow ?? "",
+                                 StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Everything that decides which audio path a transmission uses, as one
+        /// comparable string.
+        /// </summary>
+        /// <remarks>
+        /// A pulled fingerprint rather than a set of subscribed events, because
+        /// an event set is only as complete as the last person to remember it.
+        /// The radio's serial covers a radio change and a disconnect (it empties
+        /// when nothing is connected, so a reconnect re-proves); the mic source
+        /// and the PC-audio flag cover the two ways the transmit chain is
+        /// re-pointed on the radio; <paramref name="audioDeviceId"/> carries
+        /// whatever the caller can see of the Windows capture device.
+        /// </remarks>
+        public static string MicPathSignature(
+            string radioSerial, string micSource, bool pcAudio, string audioDeviceId)
+        {
+            return (radioSerial ?? "") + "|" + (micSource ?? "") + "|"
+                   + (pcAudio ? "pc" : "radio") + "|" + (audioDeviceId ?? "");
+        }
+
+        /// <summary>
+        /// Whether transmit audio arrived but never got anywhere near a usable
+        /// level — gain staging, which is advice rather than an alarm.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Separate from <see cref="JudgeMicPath"/> on purpose (#459). The
+        /// meter distinguishes two faults the old code collapsed into one:
+        /// nothing arriving is urgent and means the device or profile is wrong,
+        /// while a present-but-low reading is a level to adjust and can wait
+        /// for the end of the over. They want different sentences and different
+        /// urgency.
+        /// </para>
+        /// <para>
+        /// The threshold is passed in rather than declared here because it
+        /// still lives with the PTT controller, and because it has NOT been set
+        /// from measurement yet: the single spoken reading we hold came from a
+        /// window that may have had very little talking in it. Ruled by Noel on
+        /// 2026-09-01 — fix the shape now, set the number when the operator's
+        /// QSO capture lands. Guessing a second number is how the first one got
+        /// here.
+        /// </para>
+        /// </remarks>
+        public static bool ShouldAdviseMicLevel(float micPeakDbfs, float adviceFloorDbfs)
+        {
+            if (float.IsNaN(micPeakDbfs)) return false;
+            if (micPeakDbfs <= MicNothingArrivedDbfs) return false;  // that is the other fault
+            return micPeakDbfs < adviceFloorDbfs;
         }
     }
 }
