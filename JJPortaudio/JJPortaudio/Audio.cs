@@ -781,6 +781,21 @@ namespace JJPortaudio
             // the callback timing measures — the two disagreeing is itself
             // worth seeing.
             public double ReportedDeviceLatency;
+            // Track J, 2026-09-01 (#462): how much decoded audio is standing in
+            // the playback queue when a callback arrives.
+            //
+            // This is the receive path's OWN latency, and until now nothing
+            // reported it. It is not a constant: the output callback consumes
+            // at most one buffer's worth per call and fills the remainder with
+            // silence when the queue is short, so a starvation leaves the
+            // backlog DEEPER than it found it — and nothing anywhere drains it
+            // back down. Whether that ratchet actually happens in the field is
+            // exactly what these three numbers answer.
+            //
+            // Sampled at callback entry, before anything is dequeued.
+            public int QueueDepthMin = int.MaxValue;
+            public int QueueDepthMax;
+            public int QueueDepthLast;
         }
         internal class staticQueues
         {
@@ -1658,6 +1673,14 @@ namespace JJPortaudio
             }
             data.SilentPeriod = false;
 
+            // The standing backlog, read before a single buffer is dequeued
+            // (#462). One lock on an uncontended synchronized queue, against a
+            // callback that is about to take the same lock up to ten times.
+            int depth = data.Q.Count;
+            if (depth < data.QueueDepthMin) data.QueueDepthMin = depth;
+            if (depth > data.QueueDepthMax) data.QueueDepthMax = depth;
+            data.QueueDepthLast = depth;
+
             // A mono playback device takes half the samples for the same number
             // of frames, so the queued stereo pair is mixed down to one. The
             // same argument as mono capture applies: refusing to play through
@@ -1788,6 +1811,28 @@ namespace JJPortaudio
                     + (data.StarvationFills == 0
                         ? " (the queue never ran dry while playing)" : ""),
                     data.StarvationFills == 0 ? TraceLevel.Info : TraceLevel.Error);
+                // #462: the standing backlog those starvations left behind.
+                // The queue IS the receive path's jitter buffer, nothing primes
+                // it and nothing drains it, so the spread between the smallest
+                // and the largest depth is the receive latency this session
+                // accumulated. A final depth well above the smallest one is the
+                // ratchet: silence inserted during a starvation is never
+                // reclaimed, so every dropout leaves the operator permanently
+                // further behind the radio.
+                if (data.QueueDepthMin != int.MaxValue && data.OpusFrameSZ > 0 && data.SampleRate > 0)
+                {
+                    double msPerBuffer = (data.OpusFrameSZ / (double)Devices.StreamChannels)
+                        * 1000.0 / data.SampleRate;
+                    Tracing.TraceLine("audio output queue depth: "
+                        + data.QueueDepthMin + " to " + data.QueueDepthMax
+                        + " buffers standing at callback entry, "
+                        + data.QueueDepthLast + " at close — "
+                        + (data.QueueDepthMin * msPerBuffer).ToString("F0") + " to "
+                        + (data.QueueDepthMax * msPerBuffer).ToString("F0")
+                        + " ms of receive latency, ending at "
+                        + (data.QueueDepthLast * msPerBuffer).ToString("F0") + " ms",
+                        TraceLevel.Info);
+                }
             }
             if ((rv == PortAudio.PaStreamCallbackResult.paContinue) &
                 (data.Q.Count == 0))
