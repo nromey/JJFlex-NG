@@ -31,6 +31,7 @@ namespace Radios.Tests
     /// shape — was unhandled on a thread with nothing above it. That thread
     /// starts whether or not a knob is attached, which is most installs.
     /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
     public sealed class BareThreadBoundaryTests
     {
         private const string FlexBase = "Radios/FlexBase.cs";
