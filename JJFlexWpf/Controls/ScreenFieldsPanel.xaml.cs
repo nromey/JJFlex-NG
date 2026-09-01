@@ -67,6 +67,7 @@ public partial class ScreenFieldsPanel : UserControl
     private ValueFieldControl _pcSpectralFloorControl = null!;
     private Button _captureNoiseButton = null!;
     private Button _noiseProfilesButton = null!;
+    private Button _rxEqButton = null!;
     private System.Windows.Controls.TextBlock _noiseProfileDisplay = null!;
     private CheckBox _meterToneCheck = null!;
     private CheckBox _peakWatcherCheck = null!;
@@ -130,6 +131,7 @@ public partial class ScreenFieldsPanel : UserControl
     private ValueFieldControl _txFilterHighControl = null!;
     private CheckBox _monitorCheck = null!;
     private ValueFieldControl _monitorLevelControl = null!;
+    private Button _txEqButton = null!;
 
     #endregion
 
@@ -233,6 +235,14 @@ public partial class ScreenFieldsPanel : UserControl
         // QB Track I — TX power personality follows the TX antenna from the
         // first paint (PollTX keeps it honest afterwards).
         ReconfigureTxPowerForMode(rig.XvtrPowerAvailable);
+
+        // Ask for both equalizers now, not when a button is pressed. The radio
+        // creates its Equalizer object on demand and fills it from an
+        // "eq txsc info" / "eq rxsc info" round trip, so a first press with
+        // nothing having asked would find nothing to show. Asking here means
+        // the answer has long arrived by the time an operator gets there.
+        rig.RequestTxEqualizer();
+        rig.RequestRxEqualizer();
 
         // Subscribe to mode changes for immediate DSP refresh
         rig.ModeChanged += OnModeChanged;
@@ -540,6 +550,22 @@ public partial class ScreenFieldsPanel : UserControl
             UpdateNoiseProfileDisplay();
         };
         DspContent.Children.Add(_noiseProfilesButton);
+
+        // The receive equalizer (#457/#430). It lives here rather than on the
+        // orphaned FiltersDspControl because THIS is the panel an operator
+        // actually reaches — the button on that control has never been on
+        // screen, which is why the equalizers read as missing.
+        _rxEqButton = new Button
+        {
+            Content = Lexicon.Get("audio.eq.button_receive"),
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            _rxEqButton, Lexicon.Get("audio.eq.name_receive"));
+        _rxEqButton.Click += (s, e) => Dialogs.EqualizerLauncher.ShowReceive(_rig);
+        DspContent.Children.Add(_rxEqButton);
 
         // Read-only profile readout — arrow to it, hear which profile is
         // loaded (name, band, antenna ride the name). Mic-verdict pattern:
@@ -967,6 +993,21 @@ public partial class ScreenFieldsPanel : UserControl
         _monitorLevelControl.Visibility = Visibility.Collapsed;
         _monitorLevelControl.ValueChanged += (s, v) => { if (_rig != null && !_polling) _rig.SBMonitorLevel = v; };
         TxContent.Children.Add(_monitorLevelControl);
+
+        // The transmit equalizer (#457/#430) — the other half of what Don
+        // reported missing. Last in the transmit category on purpose: it is
+        // the shaping stage, and the gain staging above it comes first.
+        _txEqButton = new Button
+        {
+            Content = Lexicon.Get("audio.eq.button_transmit"),
+            Margin = new Thickness(0, 2, 0, 2),
+            Padding = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        };
+        System.Windows.Automation.AutomationProperties.SetName(
+            _txEqButton, Lexicon.Get("audio.eq.name_transmit"));
+        _txEqButton.Click += (s, e) => Dialogs.EqualizerLauncher.ShowTransmit(_rig);
+        TxContent.Children.Add(_txEqButton);
     }
 
     private void BuildAntennaControls()

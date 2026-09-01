@@ -19,9 +19,15 @@ public class AudioChainPreset
     /// <see cref="TxEqCaptured"/> is false on those and ApplyTo leaves the
     /// radio's EQ alone rather than zeroing it with defaults the file never
     /// held. Version 1 (2026-08-16): adds the version itself, the TX EQ
-    /// block, and the tuned-for input fields.
+    /// block, and the tuned-for input fields. Version 2 (2026-09-01, #431):
+    /// adds <see cref="TxEq32"/>, the ninth and lowest band. A version 1 file
+    /// has no 32 Hz value at all, which deserialises to 0 — and 0 is a
+    /// perfectly legal band level, so the absence is not visible in the
+    /// number. <see cref="ApplyTo"/> therefore reads the radio's own 32 Hz
+    /// and writes it back unchanged on a version 1 file, rather than flatten
+    /// a band the file never had an opinion about.
     /// </summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>Written-by schema version. 0 = a pre-versioning file.
     /// Deliberately NOT defaulted to current: absence must stay detectable.</summary>
@@ -67,6 +73,12 @@ public class AudioChainPreset
     public bool TxEqCaptured { get; set; }
 
     public bool TxEqEnabled { get; set; }
+
+    /// <summary>The lowest band, added at schema version 2. Absent from
+    /// version 1 files — see <see cref="CurrentSchemaVersion"/> for why that
+    /// absence cannot be read off the value.</summary>
+    public int TxEq32 { get; set; }
+
     public int TxEq63 { get; set; }
     public int TxEq125 { get; set; }
     public int TxEq250 { get; set; }
@@ -109,9 +121,17 @@ public class AudioChainPreset
 
         if (TxEqCaptured)
         {
+            // A version 1 file carries eight bands. Its 32 Hz reads 0 because
+            // the element was not there, not because anyone chose 0 — so send
+            // the radio back its own current 32 Hz and leave that band alone.
+            // Same doctrine as TxEqCaptured itself: "the file never knew" and
+            // "the file said zero" must not act the same.
+            int hz32 = SchemaVersion >= 2 ? TxEq32 : (rig.GetTxEq()?.Hz32 ?? 0);
+
             if (!rig.ApplyTxEq(new FlexBase.TxEqSettings
             {
                 Enabled = TxEqEnabled,
+                Hz32 = hz32,
                 Hz63 = TxEq63,
                 Hz125 = TxEq125,
                 Hz250 = TxEq250,
@@ -176,6 +196,7 @@ public class AudioChainPreset
             PcInputDevice = pcSourced ? (pcInputDevice ?? "") : "",
             TxEqCaptured = txEq != null,
             TxEqEnabled = txEq?.Enabled ?? false,
+            TxEq32 = txEq?.Hz32 ?? 0,
             TxEq63 = txEq?.Hz63 ?? 0,
             TxEq125 = txEq?.Hz125 ?? 0,
             TxEq250 = txEq?.Hz250 ?? 0,
