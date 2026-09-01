@@ -2644,6 +2644,17 @@ public partial class MainWindow : UserControl
     public Action? ShowTestResultsCallback { get; set; }
 
     /// <summary>
+    /// Callback to open the CW message manager (#329).
+    /// </summary>
+    /// <remarks>
+    /// A callout rather than a direct call because the messages belong to the
+    /// operator record, which lives on the VB side; JJFlexWpf cannot reference
+    /// back. The dialogs it opens are ours and take delegates, which is what
+    /// keeps them free of any radio or operator type.
+    /// </remarks>
+    public Action? ManageCWMessagesCallback { get; set; }
+
+    /// <summary>
     /// Callback to show a WinForms error dialog parented to ShellForm.
     /// Parameters: message, title. Falls back to unparented WPF MessageBox if not set.
     /// </summary>

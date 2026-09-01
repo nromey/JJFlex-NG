@@ -184,6 +184,22 @@ Namespace My
             ' Wire Connection Test results callback (Sprint 15.5)
             WpfMainWindow.ShowTestResultsCallback = AddressOf ShowTestResults
 
+            ' CW message manager (#329). CWText is created when the current
+            ' operator is set, so it can be Nothing here and the menu handler
+            ' has to cope - which it does by saying so rather than by doing
+            ' nothing, since a menu item that silently declines is the defect
+            ' this whole finding is about.
+            WpfMainWindow.ManageCWMessagesCallback =
+                Sub()
+                    If CWText Is Nothing Then
+                        Radios.ScreenReaderOutput.Speak(
+                            Radios.Lexicon.Get("settings.cw.no_operator_for_messages"),
+                            Radios.VerbosityLevel.Critical, interrupt:=True)
+                        Return
+                    End If
+                    CWText.Manage()
+                End Sub
+
             ' Wire UI mode persistence — saves to operator profile when user switches modes.
             WpfMainWindow.SaveUIModeCallback = Sub(mode)
                 ActiveUIMode = CType(mode, UIMode)

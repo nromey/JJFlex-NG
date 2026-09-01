@@ -123,6 +123,7 @@
   "settings.commit.waiting_lead": " Waiting: ",
   "settings.cw.no_message_at_position": "No CW message at this position",
   "settings.cw.no_messages_configured": "No CW messages configured",
+  "settings.cw.no_operator_for_messages": "CW messages are saved with your operator record, and no operator is loaded yet. Set one up under Personal Information first.",
   "settings.cw.sending": "Sending {label}",
   "settings.cw.stopped": "CW stopped",
   "settings.cw_message.key_already_defined": "This key is already defined.",

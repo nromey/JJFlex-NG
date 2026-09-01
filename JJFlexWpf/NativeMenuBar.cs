@@ -2206,7 +2206,11 @@ public class NativeMenuBar : IDisposable
         });
         AddSep(tools);
         AddWired(tools, "View Test Results", () => _window.ShowTestResultsCallback?.Invoke());
-        AddNotImplemented(tools, "Manage CW Messages");
+        // #329: this was AddNotImplemented for as long as anyone can remember,
+        // while both WPF dialogs for it sat finished in the tree since Sprint 9
+        // and the Hotkey Editor was already telling operators that CW message
+        // keys are "managed under CW Messages".
+        AddWired(tools, "Manage CW Messages", () => _window.ManageCWMessagesCallback?.Invoke());
         AddSep(tools);
         AddWired(tools, "Audio Workshop\tCtrl+Shift+W", () =>
             Dialogs.AudioWorkshopDialog.ShowOrFocus(Rig, 0));

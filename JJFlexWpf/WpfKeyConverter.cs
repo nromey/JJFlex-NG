@@ -20,15 +20,30 @@ public static class WpfKeyConverter
     {
         // Get the actual key (resolve System keys like Alt+letter)
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        return ToWinFormsKeys(key, Keyboard.Modifiers);
+    }
 
+    /// <summary>
+    /// The same conversion from a key and modifiers already in hand, for
+    /// callers holding those rather than the original event.
+    /// </summary>
+    /// <remarks>
+    /// Added for the CW message editor (#329), whose delegate contract hands
+    /// out <c>(Key, ModifierKeys)</c> so the dialog can stay ignorant of
+    /// WinForms. Deliberately the same body as the event overload rather than
+    /// a second copy of the modifier folding — that is exactly the shape that
+    /// drifts, and one of the two would eventually stop matching the other.
+    /// </remarks>
+    public static WinFormsKeys ToWinFormsKeys(Key key, ModifierKeys modifiers)
+    {
         var result = MapKey(key);
 
         // Add modifier flags
-        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        if (modifiers.HasFlag(ModifierKeys.Control))
             result |= WinFormsKeys.Control;
-        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
+        if (modifiers.HasFlag(ModifierKeys.Alt))
             result |= WinFormsKeys.Alt;
-        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        if (modifiers.HasFlag(ModifierKeys.Shift))
             result |= WinFormsKeys.Shift;
 
         return result;
