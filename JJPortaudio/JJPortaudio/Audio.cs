@@ -1027,6 +1027,30 @@ namespace JJPortaudio
                     CBData.Encoder = null;
                     return false;
                 }
+                // What the encoder ACTUALLY settled on, read back from libopus
+                // rather than assumed (Track J, #460 / #462). Two figures that
+                // have only ever been quoted from documentation:
+                //   - the bitrate nobody sets, which is where the ~70 kbps in
+                //     the register comes from and which nothing in this tree
+                //     has ever confirmed on a real machine;
+                //   - the lookahead, the codec's delay on top of the frame
+                //     duration, quotable as 2.5 to 6.5 ms from the specification
+                //     and knowable exactly from the encoder itself.
+                // Read HERE, above the branch, because the output path disposes
+                // this encoder — it exists only to size the buffer — and the
+                // figures are the same either way.
+                string codecFacts;
+                try
+                {
+                    var enc = CBData.Encoder;
+                    codecFacts = "libopus settled on " + enc.Bitrate + " bps, lookahead "
+                        + enc.Lookahead + " samples ("
+                        + (enc.Lookahead * 1000.0 / openRate).ToString("F1") + " ms)";
+                }
+                catch (Exception ex)
+                {
+                    codecFacts = "libopus would not report its bitrate or lookahead: " + ex.Message;
+                }
                 // We'll use bufSZ for input and output.
                 if (inOut == Devices.DeviceTypes.input)
                 {
@@ -1049,6 +1073,7 @@ namespace JJPortaudio
                 Tracing.TraceLine("Audio.Open:opus "
                     + ((inOut == Devices.DeviceTypes.input) ? "encode" : "decode")
                     + " at " + openRate + " Hz, " + opusProfile.Describe()
+                    + "; " + codecFacts
                     + "; " + cbPerSec + " callback(s)/second = "
                     + AudioBuffering.BufferMilliseconds(bufSZ, openRate).ToString("F1")
                     + " ms of buffer, "
