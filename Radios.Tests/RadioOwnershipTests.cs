@@ -145,7 +145,7 @@ namespace Radios.Tests
             // without reading.
             var cfg = new RadioConfig
             {
-                LastSeenViaAccount = "mmgaffney@comcast.net",
+                LastSeenViaAccount = "other@example.com",
                 LastSeenRemote = true,
                 LastSeenUtc = new DateTime(2026, 8, 18, 9, 0, 0, DateTimeKind.Utc),
             };
@@ -191,7 +191,7 @@ namespace Radios.Tests
             // observations may produce a pre-selected "not yours".
             foreach (var account in new string?[] { null, "", "nromey@gmail.com" })
             {
-                foreach (var seenVia in new[] { "", "nromey@gmail.com", "mmgaffney@comcast.net" })
+                foreach (var seenVia in new[] { "", "nromey@gmail.com", "other@example.com" })
                 {
                     foreach (var remote in new[] { true, false })
                     {

@@ -324,7 +324,7 @@ namespace Radios
         /// objects, GuiClients included. Noel's field trace of 2026-08-30
         /// (17:20, build 4.1.16.1736) caught the cost of reading only half of
         /// that: "OpenTheRadio:rig's open failed" had released the intake,
-        /// "list from dbreda@mail.com with no intake — dropped" repeated for
+        /// "list from dbreda@example.com with no intake — dropped" repeated for
         /// the life of the session, and the roster row rendered Don's radio
         /// "remote via SmartLink" — live off this bank, via availability —
         /// with no occupancy clause while Don sat on it. The live-ness and
@@ -1214,8 +1214,11 @@ namespace Radios
         /// external <paramref name="udpPort"/> UDP → radio LAN IP port 4993.</para>
         ///
         /// <para>This comment previously claimed the radio listens on the ports you
-        /// pass in. That was wrong and misled a live debugging session (2026-08-14);
-        /// see docs/planning/for-noel/2026-08-14-don-6300-rf-truth-test.md.</para>
+        /// pass in. That was wrong and misled a live debugging session on
+        /// 2026-08-14; the RF truth test written up that day is the record, and
+        /// it lives in the private planning estate rather than this repository.
+        /// The paragraph above is the finding, so nothing here depends on
+        /// reaching it.</para>
         /// </summary>
         public bool SetSmartLinkPortForwarding(bool enabled, int tcpPort, int udpPort)
         {

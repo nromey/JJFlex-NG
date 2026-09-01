@@ -215,10 +215,10 @@ namespace Radios.Tests
         public void A_foreign_radio_names_its_broker_account_and_who_is_on_it()
         {
             Assert.Equal(
-                "6300inshack, FLEX-6300, on SmartLink via dbreda@mail.com, "
+                "6300inshack, FLEX-6300, on SmartLink via dbreda@example.com, "
                 + "online with 1 connected client (wa2iwc)",
                 Row("6300inshack", "FLEX-6300",
-                    Lexicon.Get("connect.row.remote_via", ("account", "dbreda@mail.com")),
+                    Lexicon.Get("connect.row.remote_via", ("account", "dbreda@example.com")),
                     OccupancyPhrase.RowSuffix(new[] { "wa2iwc" })));
         }
 
@@ -246,10 +246,10 @@ namespace Radios.Tests
         public void A_dual_homed_foreign_radio_with_a_crowd_reads_as_one_sentence()
         {
             Assert.Equal(
-                "6300inshack, FLEX-6300, on the local network and SmartLink via dbreda@mail.com, "
+                "6300inshack, FLEX-6300, on the local network and SmartLink via dbreda@example.com, "
                 + "online with 3 connected clients (wa2iwc, k5ner, n5xyz)",
                 Row("6300inshack", "FLEX-6300",
-                    Lexicon.Get("connect.row.dual_via", ("account", "dbreda@mail.com")),
+                    Lexicon.Get("connect.row.dual_via", ("account", "dbreda@example.com")),
                     OccupancyPhrase.RowSuffix(new[] { "wa2iwc", "k5ner", "n5xyz" })));
         }
 
@@ -436,7 +436,7 @@ namespace Radios.Tests
         /// The chain the 2026-08-30 field trace exposed, pinned link by link.
         /// Presence pushes are consumed by exactly ONE rig (#386); a teardown
         /// can leave none, and every push is then dropped — "list from
-        /// dbreda@mail.com with no intake — dropped" repeated for a whole
+        /// dbreda@example.com with no intake — dropped" repeated for a whole
         /// session while Don's occupied radio rendered with no occupancy
         /// clause. The dropped push still refreshes the static WAN bank,
         /// stations included, so the roster row now reads occupancy from the

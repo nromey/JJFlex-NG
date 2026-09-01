@@ -1710,14 +1710,19 @@ public class KeyCommands
             "Ctrl+J, Ctrl+A turns PC audio on and off — added Sprint 32 Track G. Noel named "
             + "this one specifically: 'No hotkey for PC audio on and off available that I "
             + "know of, you have to do it in the menu.' Also on the Radio menu under Audio."),
+        // Task #337 made this the unit toggle. The citation is HERE and not in
+        // the Detail string below: KeyManifest writes every Detail verbatim
+        // into the key list the operator exports from the Hotkey Editor, so a
+        // task number in it lands in a file the operator reads and may share,
+        // pointing into a register no reader can open. See task #389.
         [CommandValues.SmeterDBM] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, Ctrl+S switches the S-meter between S-units and dBm, and the choice is "
-            + "remembered for that radio (#337). The chord echoes the key it changes: Ctrl+S "
+            + "remembered for that radio. The chord echoes the key it changes: Ctrl+S "
             + "reads the meter, Ctrl+J then Ctrl+S changes what it reads in. Also on the "
             + "Operations menu, and on the Radios tab in Settings, which is where the answer "
             + "can be seen without pressing anything. Carried a flat Keys.None and a "
-            + "'Command Finder only' note until then, which is how a toggle Noel remembered "
-            + "having became one he could not reach."),
+            + "'Command Finder only' note until that shipped, which is how a toggle Noel "
+            + "remembered having became one he could not reach."),
 
         // ── Menu or dialog, deliberately. These open something; the thing they
         //    open is where the operator already goes. ──

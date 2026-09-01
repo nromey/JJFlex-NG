@@ -253,7 +253,7 @@ namespace Radios.Tests
         //
         // Assembled through connect.row.display, because that is the string a
         // screen reader actually reads. The fragment "not signed in to
-        // dbreda@mail.com" is unobjectionable on its own; whether the finished
+        // dbreda@example.com" is unobjectionable on its own; whether the finished
         // row reads as a sentence is a different question, and it is the only
         // one that matters. Sprint 38 shipped "last seen remote via SmartLink"
         // out of two individually-correct fragments.
@@ -282,14 +282,14 @@ namespace Radios.Tests
         [Fact]
         public void A_row_whose_account_is_being_dialled_says_so_and_names_it()
         {
-            Assert.Equal("checking, signing in to dbreda@mail.com",
+            Assert.Equal("checking, signing in to dbreda@example.com",
                 Lexicon.Get("connect.row.account_signing_in",
-                    ("account", "dbreda@mail.com")));
+                    ("account", "dbreda@example.com")));
 
             Assert.Equal(
-                "6300inshack, FLEX-6300, checking, signing in to dbreda@mail.com",
+                "6300inshack, FLEX-6300, checking, signing in to dbreda@example.com",
                 Row(Lexicon.Get("connect.row.account_signing_in",
-                    ("account", "dbreda@mail.com"))));
+                    ("account", "dbreda@example.com"))));
         }
 
         /// <summary>
@@ -305,10 +305,10 @@ namespace Radios.Tests
                 ("lastSeenText", "last seen 3 days ago"));
 
             Assert.Equal(
-                "6300inshack, FLEX-6300, not checked, not signed in to dbreda@mail.com, "
+                "6300inshack, FLEX-6300, not checked, not signed in to dbreda@example.com, "
                 + "last seen 3 days ago",
                 Row(Lexicon.Get("connect.row.account_not_signed_in",
-                    ("account", "dbreda@mail.com"), ("age", age))));
+                    ("account", "dbreda@example.com"), ("age", age))));
         }
 
         /// <summary>
@@ -322,7 +322,7 @@ namespace Radios.Tests
         public void The_transitional_sentence_does_not_carry_a_last_seen_age()
         {
             Assert.DoesNotContain("last seen",
-                Lexicon.Get("connect.row.account_signing_in", ("account", "dbreda@mail.com")),
+                Lexicon.Get("connect.row.account_signing_in", ("account", "dbreda@example.com")),
                 System.StringComparison.OrdinalIgnoreCase);
         }
 

@@ -1837,9 +1837,15 @@ namespace JJFlexWpf
         /// off. Roughly 260 ms against the shipping pair's 160. <b>Delete this
         /// and its mirror once the comparison is made</b> — a candidate that
         /// outlives its decision is just clutter in the Explorer.
+        /// <para>The comparison this candidate exists for is task #114. The
+        /// citation lives HERE and not in the Description: an Earcon
+        /// Description becomes the HelpText on the audition button, and
+        /// HelpText is announced on focus — so a task number in it is read
+        /// aloud to the operator, and it points into a register no reader of
+        /// this repository can open. See task #389.</para>
         /// </remarks>
         [Earcon("Feature on, three-note candidate",
-            Description = "Candidate for the confirmation tone (#114): three notes that state "
+            Description = "Candidate for the confirmation tone: three notes that state "
                         + "a tension and resolve it. Compare against Feature on.")]
         public static void FeatureOnToneThreeNoteCandidate()
         {
@@ -1849,9 +1855,10 @@ namespace JJFlexWpf
         }
 
         /// <summary>CANDIDATE, not shipping: the mirror of the three-note
-        /// confirmation. Delete with it.</summary>
+        /// confirmation. Delete with it. Task #114, kept out of the
+        /// Description for the reason given on its twin above.</summary>
         [Earcon("Feature off, three-note candidate",
-            Description = "Candidate mirror for the confirmation tone (#114). Compare against "
+            Description = "Candidate mirror for the confirmation tone. Compare against "
                         + "Feature off.")]
         public static void FeatureOffToneThreeNoteCandidate()
         {

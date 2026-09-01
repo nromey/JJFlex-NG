@@ -484,7 +484,7 @@ namespace JJFlexWpf.Dialogs
                 // is the friction tax this app exists to refuse.
                 //
                 // ...and not when the where-clause is already about to name the
-                // same account ("on SmartLink via dbreda@mail.com"): one
+                // same account ("on SmartLink via dbreda@example.com"): one
                 // account, said once. A live foreign row disambiguates itself.
                 bool whereNamesSameAccount =
                     !string.IsNullOrWhiteSpace(BrokerAccount)
