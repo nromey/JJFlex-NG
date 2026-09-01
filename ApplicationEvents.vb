@@ -147,6 +147,22 @@ Namespace My
             JJFlexWpf.EarconPlayer.Initialize()
             JJTrace.Tracing.TraceLine($"Startup phase: EarconPlayer.Initialize took {phaseClock.ElapsedMilliseconds} ms", TraceLevel.Info)
 
+            ' #321 - if prism.dll did not load we have NO speech, and until now
+            ' the app said so only in the trace, on Help > About and in crash
+            ' bundles. All three are things you read; the operator this fires
+            ' for is a blind operator whose application has just gone silent.
+            '
+            ' Two channels, and each does a different job. The earcon does not
+            ' touch the speech stack at all, so it survives whatever broke - it
+            ' is the alarm. The dialog is the explanation, and it is genuinely
+            ' reachable: the operator's screen reader is NOT the broken part,
+            ' our bridge to it is, so NVDA or JAWS reads an ordinary Windows
+            ' dialog through the platform exactly as it always does.
+            '
+            ' Raised HERE, before ShellForm exists, so nothing of ours can sit
+            ' on top of it - which is the trap #331 records on the connect path.
+            RaiseSpeechFailureAlertIfNeeded()
+
             ' Initialize compiled help file launcher.
             phaseClock.Restart()
             JJFlexWpf.HelpLauncher.Initialize()
@@ -408,6 +424,47 @@ Namespace My
                     Radios.AccessibilityConfig.Load(BaseConfigDir, opName)
                 End If
             End Sub
+        End Sub
+
+        ''' <summary>
+        ''' #321 — tell the operator, through a channel that does not depend on
+        ''' the broken one, that the application has no speech this session.
+        '''
+        ''' The decision itself lives in
+        ''' <see cref="Radios.Speech.SpeechFailureAlert"/> so it can be tested;
+        ''' this is only the two acts of telling. Nothing here may throw: a
+        ''' failure to REPORT a startup failure must not become a second one.
+        ''' </summary>
+        Private Sub RaiseSpeechFailureAlertIfNeeded()
+            Try
+                If Not Radios.Speech.SpeechFailureAlert.ShouldAlert(
+                        Radios.OutputChannelRecorder.RenderEnabled,
+                        Radios.ScreenReaderOutput.IsAvailable) Then Return
+
+                JJTrace.Tracing.TraceLine(Radios.Speech.SpeechFailureAlert.TraceLine,
+                                          TraceLevel.Error)
+
+                ' The alarm first, and it is the only earcon in the app that
+                ' ignores the mute switches — see SpeechUnavailableAlarm. It
+                ' plays while the dialog is still being built, so the sound
+                ' arrives before the silence has to be interpreted.
+                Try
+                    JJFlexWpf.EarconPlayer.SpeechUnavailableAlarm()
+                Catch ex As Exception
+                    JJTrace.Tracing.TraceLine(
+                        "Speech failure alarm could not sound: " & ex.Message, TraceLevel.Error)
+                End Try
+
+                ' Ownerless on purpose: no window of ours exists yet, which is
+                ' precisely what keeps this from ending up underneath one.
+                MessageBox.Show(Radios.Speech.SpeechFailureAlert.AlertMessage,
+                                Radios.Speech.SpeechFailureAlert.AlertTitle,
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Warning)
+            Catch ex As Exception
+                JJTrace.Tracing.TraceLine(
+                    "RaiseSpeechFailureAlertIfNeeded failed: " & ex.Message, TraceLevel.Error)
+            End Try
         End Sub
 
         Private Sub MyApplication_Shutdown(sender As Object, e As System.EventArgs) Handles Me.Shutdown
