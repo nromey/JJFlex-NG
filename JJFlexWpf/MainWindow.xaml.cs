@@ -6308,13 +6308,45 @@ public partial class MainWindow : UserControl
     #endregion
 
     /// <summary>
-    /// Handle "Log Contact" result from Station Lookup.
-    /// Matches Form1.HandleLogContactResult().
+    /// Enter Logging Mode with the log entry pre-filled from a station lookup.
     /// </summary>
-    public void HandleLogContactResult()
+    /// <remarks>
+    /// <para>
+    /// <b>#310.</b> This replaces <c>HandleLogContactResult</c>, whose whole
+    /// body was a trace line saying "wiring in Phase 9.5". The Log Contact
+    /// button in Station Lookup works and always did — it sets
+    /// <c>WantsLogContact</c> and fills <c>LookupData</c> — and nothing read
+    /// either, so pressing it did nothing at all.
+    /// </para>
+    /// <para>
+    /// It takes the values rather than reaching for the lookup window because
+    /// that window is owned by the VB side, which is also where the old call
+    /// site lived. Form1's version went through
+    /// <c>LoggingLogPanel.PreFillFromLookup</c>; that interface has no
+    /// implementation any more, so this uses <c>SetFieldText</c> on the live
+    /// control, whose field names are the same set.
+    /// </para>
+    /// <para>
+    /// Deliberately silent about the values. Focus lands on the Call Sign box
+    /// and the screen reader reads it with the callsign already in it —
+    /// speaking them as well would say everything twice, and Form1 carried the
+    /// same note.
+    /// </para>
+    /// </remarks>
+    public void PreFillLogEntryFromLookup(string callSign, string name, string qth,
+                                          string state, string grid)
     {
-        // Phase 9.5+: Check LookupStation.WantsLogContact, enter Logging Mode, pre-fill
-        Tracing.TraceLine("MainWindow.HandleLogContactResult: stub — wiring in Phase 9.5", TraceLevel.Info);
+        if (ActiveUIMode != UIMode.Logging) EnterLoggingMode();
+
+        LoggingLogEntry.SetFieldText("CALL", callSign ?? "");
+        LoggingLogEntry.SetFieldText("NAME", name ?? "");
+        LoggingLogEntry.SetFieldText("QTH", qth ?? "");
+        LoggingLogEntry.SetFieldText("STATE", state ?? "");
+        LoggingLogEntry.SetFieldText("GRID", grid ?? "");
+
+        LoggingLogEntry.FocusCallSign();
+        Tracing.TraceLine("MainWindow.PreFillLogEntryFromLookup: filled from station lookup",
+            TraceLevel.Info);
     }
 
     /// <summary>
@@ -6332,34 +6364,71 @@ public partial class MainWindow : UserControl
     }
 
     /// <summary>
-    /// Toggle focus between Log pane and Radio pane in Logging Mode.
-    /// Matches Form1.ToggleLoggingPaneFocusForHotkey().
+    /// Toggle focus between the log pane and the radio pane in Logging Mode.
+    /// F6, the primary navigation key of the mode.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>#310.</b> This was a stub whose whole body traced "wiring in Phase
+    /// 9.5" — a phase the sprint numbering walked past long ago — so F6
+    /// dispatched correctly, reached the handler, and did nothing. That is the
+    /// no-silent-keystrokes rule in its worst form: an unbound key tells you
+    /// so, while a key bound to a stub is indistinguishable from a key that
+    /// worked and had no effect, which is indistinguishable from a radio that
+    /// ignored you. The keyboard reference has documented F6 the whole time.
+    /// </para>
+    /// <para>
+    /// Both targets exist and always did. <c>Form1</c> and <c>RadioPane.vb</c>
+    /// were deleted in Sprint 11 but they were REPLACED, not dropped —
+    /// <c>LoggingRadioPane</c> and <c>LoggingLogEntry</c> are named controls in
+    /// MainWindow.xaml with accessible names, and both expose a public focus
+    /// entry point. <c>RadioPaneControl.FocusFirst</c>'s own doc comment says
+    /// "Called by F6 pane-switching logic", which nothing had ever done.
+    /// </para>
+    /// <para>
+    /// Only the destination is announced, not both panes: the arrival is what
+    /// the operator does not otherwise know. FreqBox announces itself on
+    /// focus, so the radio side would be said twice — Form1 carried the same
+    /// note.
+    /// </para>
+    /// </remarks>
     public void ToggleLoggingPaneFocusForHotkey()
     {
-        // Phase 9.5+: ToggleLoggingPaneFocus()
-        Tracing.TraceLine("MainWindow.ToggleLoggingPaneFocusForHotkey: stub — wiring in Phase 9.5", TraceLevel.Info);
+        if (ActiveUIMode != UIMode.Logging)
+        {
+            // Reachable: the command is also in the Command Finder and the
+            // Hotkey Editor, both of which will happily run it from anywhere.
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("logging.pane.only_in_logging_mode"),
+                VerbosityLevel.Critical, true);
+            return;
+        }
+
+        if (LoggingRadioPane.IsKeyboardFocusWithin)
+        {
+            LoggingLogEntry.FocusCallSign();
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("logging.pane.log_entry"), VerbosityLevel.Terse, true);
+        }
+        else
+        {
+            LoggingRadioPane.FocusFirst();
+        }
     }
 
-    /// <summary>
-    /// Show log characteristics in Logging Mode.
-    /// Matches Form1.LogCharacteristicsForHotkey().
-    /// </summary>
-    public void LogCharacteristicsForHotkey()
-    {
-        // Phase 9.5+: LogCharacteristicsMenuItem_Click(Nothing, EventArgs.Empty)
-        Tracing.TraceLine("MainWindow.LogCharacteristicsForHotkey: stub — wiring in Phase 9.5", TraceLevel.Info);
-    }
-
-    /// <summary>
-    /// Open full log entry form in Logging Mode.
-    /// Matches Form1.OpenFullLogEntryForHotkey().
-    /// </summary>
-    public void OpenFullLogEntryForHotkey()
-    {
-        // Phase 9.5+: OpenFullLogEntry()
-        Tracing.TraceLine("MainWindow.OpenFullLogEntryForHotkey: stub — wiring in Phase 9.5", TraceLevel.Info);
-    }
+    // LogCharacteristicsForHotkey and OpenFullLogEntryForHotkey WERE HERE AND
+    // ARE DELETED (#310). Both were bodies of one trace line reading "stub —
+    // wiring in Phase 9.5", and both had a working implementation on the VB
+    // side the entire time: ShowLogCharacteristicsDialog and
+    // OpenFullLogEntryForm in globals.vb, which the two callouts now call
+    // directly. Nothing here to hold an implementation, so nothing here.
+    //
+    // They were left pointing at a "Phase 9.5" the sprint numbering walked
+    // past long ago, and NativeMenuBar had already worked around them: the
+    // Logging menu's Log Characteristics item is deliberately routed to
+    // CommandValues.LogFileName with a comment saying the other command
+    // "dead-ends in the same kind of MainWindow stub — don't wire it". The
+    // workaround can go now; the comment is corrected with it.
 
     /// <summary>
     /// LogPanel bridge for KeyCommands access.

@@ -2278,15 +2278,18 @@ public class NativeMenuBar : IDisposable
         AddCommand(log, "New Entry\tCtrl+N", Radios.CommandValues.NewLogEntry);
         AddCommand(log, "Write Entry\tCtrl+W", Radios.CommandValues.LogFinalize);
         AddCommand(log, "Search Log\tCtrl+Shift+F", Radios.CommandValues.SearchLog);
-        // Full Log Form's command (LogOpenFullForm, Ctrl+Alt+L) currently
-        // dead-ends in a MainWindow stub that traces and does nothing —
-        // wiring the menu to it would trade an honest "not yet" for a
-        // silent no-op.
-        AddNotImplemented(log, "Full Log Form");
+        // #310: this was AddNotImplemented because LogOpenFullForm dead-ended
+        // in a MainWindow stub, and the comment here said so — an honest "not
+        // yet" in preference to a silent no-op, which was the right call at the
+        // time. The stub is gone and the command reaches the same full log form
+        // Alt+C already opens, so the menu can have it.
+        AddCommand(log, "Full Log Form\tCtrl+Alt+L", Radios.CommandValues.LogOpenFullForm);
         AddSep(log);
-        // LogFileName is the working door to the characteristics dialog.
-        // CommandValues.LogCharacteristicsDialog (Ctrl+Shift+N) dead-ends in
-        // the same kind of MainWindow stub as Full Log Form — don't wire it.
+        // LogFileName is the working door to the characteristics dialog, and
+        // Ctrl+Shift+N (CommandValues.LogCharacteristicsDialog) now arrives at
+        // the same one — #310 pointed its callout at the shared route rather
+        // than at the stub it used to dead-end in. Either would do here; this
+        // one stays because it is the route the other two callers already use.
         AddCommand(log, "Log Characteristics", Radios.CommandValues.LogFileName);
         AddNotImplemented(log, "Import Log");
         AddNotImplemented(log, "Export Log");
