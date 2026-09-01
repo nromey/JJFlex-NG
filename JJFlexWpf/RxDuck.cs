@@ -38,6 +38,32 @@ namespace JJFlexWpf
     /// with nothing to restore it.
     /// </para>
     /// <para>
+    /// <b>THE SCREEN READER DUCKS TOO, AND THE TWO MULTIPLY — so this one is
+    /// scoped to the only sound the reader cannot know about (#436).</b> NVDA
+    /// and JAWS both duck natively, at the Windows session mixer, for their
+    /// own speech; ours is a gain multiplier inside our own pipeline. When
+    /// both engage the band is attenuated twice — a modest four dB under a
+    /// reader's fourteen is roughly eighteen, which is exactly the hole in the
+    /// band the four dB above was chosen to avoid. Ruled by Noel 2026-08-31:
+    /// <i>"I'd just let NVDA handle ducking or JAWS."</i>
+    /// </para>
+    /// <para>
+    /// <b>The warning earcon is the exception, and it is the reason this class
+    /// still exists.</b> The reader has no idea an earcon is playing, so it
+    /// will never duck for one — and its duck pulls OUR earcon down by the
+    /// same amount as the band, since both leave this process on the same
+    /// audio session. It therefore makes no room for the alert at all. This
+    /// duck is the only thing that gives a warning an edge over the band it
+    /// has to be heard through. So: the reader ducks for speech, we duck for
+    /// our own warning sounds, and neither ducks for the other's. Anything
+    /// the reader can hear about is the reader's to duck for, at the depth the
+    /// operator already chose in their reader — never here.
+    /// <c>Radios.Tests/WarningDuckScopeTests</c> is what keeps that true, and
+    /// it is a test rather than this paragraph because a request added to a
+    /// keyclick or a speech path breaks nothing, fails no build, and simply
+    /// starts taking the band away at moments the reader is already taking it.
+    /// </para>
+    /// <para>
     /// <b>THE DUCK CANNOT OUTLIVE THE EARCON, and not because something
     /// remembers to end it.</b> A start/stop pair would leave RX permanently
     /// attenuated if the stop were ever missed — an exception on the earcon
