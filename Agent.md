@@ -9,6 +9,138 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-08-31 — DON'S RADIO TRANSMITS, AND IT WAS NEVER OURS TO FIX
+
+**Sealed 21:20. Fourteen commits in JJFlexRadio-NG, 27 in jjf-private. Rigmeter
++641 / -106, net +535, 31 files — both figures agree, no reverts. Build
+`4.1.16.1781` staged for Don. Twenty-five findings registered.**
+
+### The headline
+
+**Don's FLEX-6300 transmits over SmartLink for the first time.** Tony ran a
+factory reset; Noel keyed it and heard a tone come back. *"Holy crap dude … I
+heard a tone for the first time on his radio."*
+
+**This closes an investigation open since 2026-08-14**, where two suspects sat at
+even odds: Tony's router eating sustained inbound UDP, or something radio-side
+sitting undisturbed because the feature had never been used. **The reset touched
+one of them. It was the radio.**
+
+Measured, before and after, same radio, from the saved Fixer runs:
+
+- `Reached the radio` — **no → yes**
+- Radio transmit mic meter (SC_MIC) — **-150 → -31.81 dBFS**
+- Compression peak — **-150 → -10.21 dBFS**
+- Stage 12, RF out — ***"this is where it stops" → "checked, nothing wrong"***
+- 105 of 143 readings byte-identical, so the differences are signal
+
+**The reframing from 2026-08-14 is what cracked it**: Don had never completed a
+voice QSO over SmartLink, so nothing had regressed — the remote path had never
+been commissioned. You do not factory-reset a radio to fix a regression; you do
+it to clear first-time state nobody has exercised. **JJ Flexible was never
+implicated** — it failed identically from SmartSDR throughout.
+
+**And the reset preserved his profiles**, 27 → 26, so the morning's worry about
+losing them was unfounded.
+
+### Twenty-five findings, and where they came from
+
+**Almost none came from reading code.** They came from Noel operating: running a
+test, tuning to 29.800, pressing Tab, listening to a warning arrive twice. A day
+of source reading would not have produced this list; a day of operating produced
+it without either of us trying. **That is the argument for the guided-testing
+sessions, made empirically.**
+
+The sharpest ones:
+
+- **#449** — the Fixer's focus landing set `tabindex="-1"` on the **Run button**.
+  Correct for headings, which need it to take script focus; destructive on a
+  `<button>`, which is focusable already. Landing focus on Run removed Run from
+  the tab order. **A blind operator could not reach the control that starts a
+  test.** Fixed today.
+- **#447** — tune announces "tune on" and does not key, with no reason. 29.800 is
+  above the 10 m band and the radio is right to refuse. `Radio.TXAllowed` is
+  published by FlexLib and **read nowhere in our tree**. This is #164's lesson
+  — the ack is not proof — unlearned in the transmit path.
+- **#446** — "microphone profile" means two different things in adjacent
+  surfaces: ours is a mic on this computer, the radio's is stored TX settings.
+  The Workshop truthfully says "no mic profiles saved" about a radio holding 26.
+- **#450 / #451** — we load our profiles onto a guest radio at connect and
+  **never put theirs back**. Same principle as "the slices are not ours",
+  not yet applied to profiles.
+- **#437, #443, #448** — three cases of the Fixer's remedy text not reading the
+  evidence beside it, including advice refuted two stages earlier in the same
+  document.
+- **#434** — startup stalled at ~10,000 ms PER STEP, 220 s and climbing, no
+  window ever created. Same machine, same binary, 397 ms an hour earlier and
+  453 ms an hour later. Traces preserved; cause unknown.
+
+### The other thing that got built: an architecture
+
+A conversation that started at "tuning should be easier" became a design.
+**Layers** entered from the JJ key, each modal, all sharing one grammar — arrows
+do the thing, Shift is fine, a letter picks the target, `?` reports, Enter keeps,
+Escape reverts, any other key exits cleanly. **Pan and volume already work this
+way**, so it is the third instance of a proven pattern, not a new one.
+
+Noel's argument is the one that carries it: *"problem with the keys as they are,
+I forget them."* **A flat hotkey table costs memorisation once per feature,
+forever. A grammar costs learning once, ever.**
+
+He named the thing, too: **an invisible interface**, in the tradition of the
+screen-reader-first social clients. That settles arguments "accessibility" cannot
+— a box may MIRROR a mode, and may not BE it. Captured as
+`project_invisible_interface_principle`.
+
+Proposal at `for-noel/2026-08-31-tuning-mode-proposal.md`; the slice-status design
+(#415) was ruled today, all five, full flag set.
+
+### Also shipped
+
+#419 and #418 merged from last night's agents. **#421 solved** — four days of an
+intermittent that moved between test classes was ONE probe file written into the
+repo root while fifteen other tests walked that tree; the suite runs sequentially
+now. Noel's prose applied (#417). The help swept so every page leads with the
+full name, 191 bare shorthands replaced with five proper nouns protected by a
+follower census. Copy-what-was-just-spoken on `Ctrl+J, Ctrl+C`, speech history
+forward on `Ctrl+F5` (#433).
+
+### Cross-surface activity
+
+- **Memory:** 7 files touched, all this session. Two new entries — the invisible
+  interface, and explain-our-decisions-not-the-operator's-domain. The naming rule
+  reversed by Noel and re-recorded with the old reasoning kept. Index 11.7 KB.
+- **jjf-private:** 27 commits — the register, four for-noel docs, and the
+  incident folders holding the startup-stall traces and the before/after runs.
+- **Worktrees:** all six quiet, nothing uncommitted.
+- **Freight Fate:** 16 unpushed, unchanged, still Noel's call. **Civ VI:** clean.
+- **No external infrastructure work. No vulnerable packages. Drift check clean** —
+  one new symbol candidate, `aria-braillelabel`, correctly absent from our code.
+
+### Setup for tomorrow
+
+**Collate the 25 findings into tracks.** Noel: *"we'll have to slow down and
+actually figure out what gets built. A lot is ok with me."* The buckets that
+sorted themselves today: things that can harm someone else's station (#450, #451,
+#447, #445) — these gate using Don's radio routinely; **#434 alone**, because it
+has no workaround and is already in Don's hands; things that mislead (#437, #443,
+#444, #446, #448, #438); things merely missing (#430, #431, #439, #440); prose.
+
+**Waiting on Don** — whether he has made a QSO. That closes the investigation
+properly rather than on a bench measurement.
+
+### Rigmeter snapshot — end of 2026-08-31
+
+- Work done, summed across every commit: **+641 / -106, net +535**
+- Repository size change: **net +535**, 31 files differing — the two agree
+- 14 commits; by type: **cs +561 / -58** (14 files), .md +72 / -42 (15 files),
+  .json +8 / -6
+- Scale: 0.4 braille volumes, 42 minutes read aloud
+- Snapshot at `2026-08-31-9c64ca3a.json`
+- **Branch-scope caveat:** JJFlex-NG only. The 27 jjf-private commits — the
+  entire finding register for the day — live in a separate repository and are
+  not counted here.
+
 ## END-OF-DAY SEAL — 2026-08-30 — ONE BUG, THREE SYMPTOMS, AND THE RADIO WAS NEVER AT FAULT
 
 **Sealed 21:26. Forty-six commits in JJFlexRadio-NG, 13 in jjf-private. Eleven
