@@ -2523,9 +2523,13 @@ public class NativeMenuBar : IDisposable
     private void AddRadioChecked(IntPtr popup, string text, Action handler, Func<bool> stateGetter,
                                  bool enabled = true)
     {
-        int id = _nextId;
         AddChecked(popup, text, handler, stateGetter, enabled);
-        _radioGroupItems.Add(id);
+        // The id AddChecked just allocated, taken from the row it just
+        // registered rather than predicted from _nextId. Predicting it works
+        // today and would silently mark the wrong row the day id allocation
+        // changes — and a wrong row here is a mode that announces itself
+        // "checked" when it is not.
+        _radioGroupItems.Add(_checkItems[^1].id);
     }
 
     // ── Verbs that are not there yet, and how they should say so ──
