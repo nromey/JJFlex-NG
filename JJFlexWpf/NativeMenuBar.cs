@@ -2120,7 +2120,21 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose(Radios.Lexicon.Get("settings.gps.window_failed"));
             }
         });
-        AddWired(tools, "Profile Report", () =>
+        // #420, DRAFT WORDING — the three items below all write text, so "as
+        // Text" named nothing, and both exports prepare for a restore, so "for
+        // Restore" named nothing either. Both were the wrong axis.
+        //
+        // The one thing that genuinely separates them is whether the item OPENS
+        // THE STORED PROFILES, and everything else follows from it: opening a
+        // profile means loading it on the radio, which moves the station,
+        // shows up on every connected client, takes a minute or two, and is
+        // best-effort to put back. Not opening them means an instant read that
+        // touches nothing.
+        //
+        // So each label now ends with what it does to the radio, in the same
+        // words, and all three diverge on the FIRST word — a menu is arrowed
+        // through and heard, not scanned.
+        AddWired(tools, "Profile comparison report, loads each one", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             // The restore export walks profiles in the background; two walks
@@ -2140,7 +2154,7 @@ public class NativeMenuBar : IDisposable
         // Report above, which loads each profile to compare them. The path is
         // SPOKEN, not just shown: an export the operator cannot find is not
         // an export.
-        AddWired(tools, "Export Settings as Text", () =>
+        AddWired(tools, "Quick settings export, read only", () =>
         {
             if (Rig == null) { SpeakNoRadio(); return; }
             try
@@ -2155,7 +2169,7 @@ public class NativeMenuBar : IDisposable
             }
             catch (Exception ex)
             {
-                Tracing.TraceLine($"Export Settings as Text: {ex}", TraceLevel.Error);
+                Tracing.TraceLine($"Quick settings export: {ex}", TraceLevel.Error);
                 SpeakAfterMenuClose(Radios.Lexicon.Get(
                     "settings.station_export.failed", ("error", ex.Message)));
             }
@@ -2168,7 +2182,7 @@ public class NativeMenuBar : IDisposable
         // checks. Background, because the walk loads each profile on the
         // radio in turn and takes a minute or two: frozen UI for that long
         // reads as a hang. Progress and the saved path are SPOKEN.
-        AddWired(tools, "Export Settings for Restore", () =>
+        AddWired(tools, "Full restore capture, loads every profile", () =>
         {
             var restoreRig = Rig;
             if (restoreRig == null) { SpeakNoRadio(); return; }
@@ -2225,7 +2239,7 @@ public class NativeMenuBar : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    Tracing.TraceLine($"Export Settings for Restore: {ex}", TraceLevel.Error);
+                    Tracing.TraceLine($"Full restore capture: {ex}", TraceLevel.Error);
                     Radios.ScreenReaderOutput.Speak(
                         Radios.Lexicon.Get("settings.restore_export.failed", ("error", ex.Message)),
                         Radios.VerbosityLevel.Critical, interrupt: true);
