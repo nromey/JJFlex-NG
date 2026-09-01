@@ -152,7 +152,7 @@ public partial class AudioWorkshopDialog
 
     /// <summary>
     /// True when an arm that is now mid-flight is still wanted: the operator
-    /// has not untied it, and the radio has not changed underneath it.
+    /// has not unticked it, and the radio has not changed underneath it.
     /// </summary>
     /// <remarks>
     /// The wait for the radio is up to a second, and a second is plenty of time
