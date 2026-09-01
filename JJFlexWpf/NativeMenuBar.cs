@@ -1589,6 +1589,11 @@ public class NativeMenuBar : IDisposable
                 {
                     var types = Rig.StrandedProfileRestorePoints.ToList();
                     SpeakAfterMenuClose(Rig.RestoreStrandedProfiles(types));
+                    // Take the item away once it has done its job. Left in
+                    // place it becomes a verb that announces its own absence
+                    // the second time it is pressed, which is the pattern the
+                    // condition above exists to avoid.
+                    RebuildCurrentMenu();
                 });
             }
         }

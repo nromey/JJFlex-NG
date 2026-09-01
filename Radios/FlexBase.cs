@@ -14830,7 +14830,12 @@ namespace Radios
                 // unanswered radio, so it must not survive "speech off" the
                 // way a safety warning does, and it stops for good the moment
                 // the question is answered either way.
-                if (!SuppressSpeech)
+                //
+                // Not when there are stranded restore points to report. That
+                // sentence is longer, more urgent, and names the same menu, so
+                // saying both would bury the one that matters under the one
+                // that does not.
+                if (!SuppressSpeech && plan.StrandedRestorePoints.Count == 0)
                 {
                     ScreenReaderOutput.Speak(
                         Lexicon.Get("settings.profile_guest.left_alone"),
@@ -15148,7 +15153,14 @@ namespace Radios
                 return false;
             }
 
-            bool gone = await(() => !ProfileNamesOnRadio(type).Contains(name), 3000);
+            // A SHORT wait, and deliberately shorter than the capture's. This
+            // runs on the way out, where every second is a second the operator
+            // waits for a disconnect they asked for — and unlike the capture,
+            // the answer changes nothing: the radio is already back on its own
+            // profile, so a restore point left behind is harmless clutter that
+            // the next session will recognise and skip. A restore that makes
+            // leaving feel broken is a restore that gets switched off.
+            bool gone = await(() => !ProfileNamesOnRadio(type).Contains(name), 1500);
             if (!gone)
             {
                 Tracing.TraceLine(
