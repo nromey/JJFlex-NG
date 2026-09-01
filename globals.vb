@@ -2203,18 +2203,7 @@ Module globals
                 LogEntry.Write()
             End Sub,
             .SetLogDateTime = Sub() LogEntry.SetLogDateTime(),
-            .GetLogFileName = Sub()
-                ' The dialog reads theOp on load, and the other two callers
-                ' (LogClass.Open, PersonalInfo) set it first. This one
-                ' historically did not — on a session where neither of those
-                ' had run yet, theOp was Nothing, the dialog died on load, and
-                ' the exception was swallowed upstream, so the command looked
-                ' like it did nothing at all. Now that the Log Characteristics
-                ' menu items route here too, set it the way the other callers
-                ' do (stub audit, 2026-08-21).
-                LogCharacteristics.theOp = CurrentOp
-                If LogCharacteristics.ShowDialog() = DialogResult.OK Then ConfigContactLog()
-            End Sub,
+            .GetLogFileName = Sub() ShowLogCharacteristicsDialog(),
             .SearchLog = Sub()
                 Dim thrd As New Threading.Thread(Sub() FindLogEntry.ShowDialog())
                 thrd.SetApartmentState(Threading.ApartmentState.STA)
@@ -2319,7 +2308,16 @@ Module globals
                 If LookupStation IsNot Nothing Then LookupStation.Finished()
                 LookupStation = CreateStationLookupWindow()
                 LookupStation.ShowDialog()
-                WpfMainWindow.HandleLogContactResult()
+                ' #310: this called HandleLogContactResult, which traced "stub -
+                ' wiring in Phase 9.5" and returned. So Station Lookup's Log
+                ' Contact button set WantsLogContact, filled LookupData, and
+                ' nothing on earth read either of them - the button did nothing
+                ' at all, silently.
+                If LookupStation.WantsLogContact AndAlso LookupStation.LookupData IsNot Nothing Then
+                    Dim d = LookupStation.LookupData
+                    WpfMainWindow.PreFillLogEntryFromLookup(
+                        d.CallSign, d.Name, d.QTH, d.State, d.Grid)
+                End If
             End Sub,
             .GatherDebug = Sub() DebugInfo.GetDebugInfo(),
             .ShowATUMemories = Sub()
@@ -2369,8 +2367,19 @@ Module globals
                 WpfMainWindow.FreqOut.FocusDisplay()
             End Sub,
             .AudioSetup = Sub() GetNewAudioDevices(),
-            .ShowLogCharacteristics = Sub() WpfMainWindow.LogCharacteristicsForHotkey(),
-            .LogOpenFullForm = Sub() WpfMainWindow.OpenFullLogEntryForHotkey(),
+            .ShowLogCharacteristics = Sub()
+                ' #310: pointed at a MainWindow method whose entire body was a
+                ' trace line saying "wiring in Phase 9.5". Ctrl+Shift+N
+                ' dispatched, reached the handler, and nothing happened - no
+                ' announcement, no failure, no disabled state. This is the same
+                ' dialog the Logging menu has always opened.
+                ShowLogCharacteristicsDialog()
+            End Sub,
+            .LogOpenFullForm = Sub()
+                ' #310, same shape as ShowLogCharacteristics above. Ctrl+Alt+L
+                ' now reaches the full log form that Alt+C already opened.
+                OpenFullLogEntryForm()
+            End Sub,
             .PCAudioToggle = Sub()
                 If RigControl IsNot Nothing Then
                     Dim wanted As Boolean = Not RigControl.PCAudio
@@ -3144,6 +3153,67 @@ Module globals
     End Sub
 
     ''' <summary>
+    ''' Open the Log Characteristics dialog.
+    ''' </summary>
+    ''' <remarks>
+    ''' One body, two callers - the Logging menu's Log File Name route and
+    ''' Ctrl+Shift+N (#310). It was inline in the GetLogFileName callout and had
+    ''' to be shared once the hotkey stopped dead-ending in a stub; a second
+    ''' copy is how the theOp lesson below gets re-learned.
+    '''
+    ''' The dialog reads theOp on load, and the other two callers
+    ''' (LogClass.Open, PersonalInfo) set it first. This one historically did
+    ''' not - on a session where neither of those had run yet, theOp was
+    ''' Nothing, the dialog died on load, and the exception was swallowed
+    ''' upstream, so the command looked like it did nothing at all (stub audit,
+    ''' 2026-08-21).
+    ''' </remarks>
+    Friend Sub ShowLogCharacteristicsDialog()
+        LogCharacteristics.theOp = CurrentOp
+        If LogCharacteristics.ShowDialog() = DialogResult.OK Then ConfigContactLog()
+    End Sub
+
+    ''' <summary>
+    ''' Open the full log entry form - every ADIF field and record navigation,
+    ''' which the quick-entry pane does not have. Ctrl+Alt+L.
+    ''' </summary>
+    ''' <remarks>
+    ''' #310. Ctrl+Alt+L reached a stub that traced and returned, while the very
+    ''' same form was one Alt+C away the whole time: BringUpLogForm's live path
+    ''' falls through to LogEntry.ShowDialog because the LoggingLogPanel bridge
+    ''' it tests for is never assigned.
+    '''
+    ''' Carried over from the deleted Form1.OpenFullLogEntry: the no-log-file
+    ''' guard, the new-entry-at-end position, and the spoken confirmation.
+    ''' Form1 also offered to save an in-progress quick entry first, via
+    ''' LoggingLogPanel.HasUnsavedEntry - that interface has no implementation
+    ''' any more and LogEntryControl has no equivalent, so the prompt is not
+    ''' reproduced. Reported rather than faked: an operator with a half-typed
+    ''' entry gets no offer to save it.
+    '''
+    ''' Hides the main window around the modal the way BringUpLogForm does,
+    ''' because that is the path demonstrably working today.
+    ''' </remarks>
+    Friend Sub OpenFullLogEntryForm()
+        If ContactLog Is Nothing Then
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("logging.full_form.no_log_file"),
+                VerbosityLevel.Critical, True)
+            Return
+        End If
+
+        LogEntry.FieldID = AdifTags.ADIF_Call
+        LogEntry.FilePosition = -1
+        Radios.ScreenReaderOutput.Speak(
+            Radios.Lexicon.Get("logging.full_form.opening"), VerbosityLevel.Terse, True)
+
+        Dim saveVisible = WpfMainWindow.Visible
+        WpfMainWindow.Visible = False
+        LogEntry.ShowDialog()
+        WpfMainWindow.Visible = saveVisible
+    End Sub
+
+    ''' <summary>
     ''' get the descriptive string for this key
     ''' </summary>
     ''' <param name="k">the key</param>
@@ -3233,7 +3303,9 @@ Module globals
         End If
     End Sub
 
-    Friend Property MemoryMode As Boolean
+    ' MemoryMode removed with AdjustVFO (#357): it had a setter delegate, a
+    ' getter delegate, and no reader in the tree. Note AllRadios has its OWN
+    ' unrelated MemoryMode derived from CurVFO - that one is live.
 #End Region
 
     ' Region remote audio

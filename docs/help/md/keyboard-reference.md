@@ -531,7 +531,7 @@ Start scan, saved scan, and memory scan have no default keys — find them in th
 
 ## CW Messages
 
-If you have CW messages configured, you can send them with `Ctrl+1` through `Ctrl+7`. Each number corresponds to a message slot. You can configure your CW messages in the Settings dialog.
+If you have CW messages configured, you can send them with `Ctrl+1` through `Ctrl+7`. Each number corresponds to a message slot. To add, change or remove them, open Tools, then Manage CW Messages. Each message has a label, the key that sends it, and the text itself; a key already used by something else is refused, so pick a free one.
 
 ## Logging Mode
 

@@ -4732,6 +4732,28 @@ namespace Radios
                 return check;
             }
 
+            // #404. Firmware CANNOT travel over SmartLink — the transfer opens
+            // a separate connection SmartLink does not carry — and until now
+            // the only thing that said so was three lines of button enablement
+            // in RefreshFirmwareStatus.
+            //
+            // That is a UI-state protection standing in for a transport fact,
+            // and UI state goes stale: RefreshFirmwareStatus runs on tab setup
+            // and twice more, and NOT on a connection change. Paint the Setup
+            // tab while local, reconnect over SmartLink, and three enabled
+            // buttons sat in front of a click path that had nothing in it.
+            //
+            // A real refusal also gives the operator the reason. The disabled
+            // button announced "unavailable" and no more; the reason lived in
+            // a separate polite live region that never fires for someone who
+            // tabs onto the button later in the session. This travels back as
+            // BlockReason, which the callers already speak.
+            if (IsWanConnection)
+            {
+                check.BlockReason = Lexicon.Get("settings.radio.firmware.smartlink_cannot_carry");
+                return check;
+            }
+
             if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
             {
                 check.BlockReason = "The firmware file could not be found.";
@@ -4940,6 +4962,20 @@ namespace Radios
             // Belt to the preflight's braces: this method is public and the
             // preflight is advisory, so the write refuses on its own.
             if (GuardRefuses("settings.guard.action.firmware")) return false;
+
+            // #404, same reasoning as the preflight's WAN block. This method is
+            // public and the preflight can be skipped, so the transport fact is
+            // asserted at the write too. Spoken as well as traced: a refusal
+            // the operator cannot hear is indistinguishable from a click that
+            // did not register.
+            if (IsWanConnection)
+            {
+                string why = Lexicon.Get("settings.radio.firmware.smartlink_cannot_carry");
+                Tracing.TraceLine("BeginFirmwareUpdate: refused, connection is over SmartLink",
+                    TraceLevel.Error);
+                ScreenReaderOutput.Speak(why, VerbosityLevel.Critical, interrupt: true);
+                return false;
+            }
 
             try
             {

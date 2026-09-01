@@ -1112,7 +1112,7 @@
                               AutomationProperties.Name="Remote administration">
                         <StackPanel Margin="4">
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
-                                       Text="Normally, changes that persist on the radio — port settings, firmware — require being at the radio. If this radio lives somewhere you can never be, turn on what you need here. These choices apply to this radio only and are off unless you say otherwise."/>
+                                       Text="Some changes that persist on the radio are meant to need someone at the radio. Port settings ask now; firmware will. If this radio lives somewhere you can never be, turn on what you need here. These choices apply to this radio only and are off unless you say otherwise."/>
                             <CheckBox x:Name="RadioProfileAllowRemotePortCheck" Margin="0,0,0,6"
                                       Checked="RadioProfileRemoteAdmin_Toggled"
                                       Unchecked="RadioProfileRemoteAdmin_Toggled"
@@ -1124,7 +1124,7 @@
                                       Checked="RadioProfileRemoteAdmin_Toggled"
                                       Unchecked="RadioProfileRemoteAdmin_Toggled"
                                       AutomationProperties.Name="Allow firmware updates without someone at the radio"
-                   local:JJFlexHelp.Text="Lets a firmware update start with nobody at the radio. Firmware always travels over the radio's local network, so from afar this needs a VPN link like Tailscale — and interrupting an update is not recoverable. Leave it off unless it is truly your only option.">
+                   local:JJFlexHelp.Text="Records that a firmware update may start with nobody at the radio. There is no at-the-radio check for firmware yet, so this is not holding anything back today — it is your answer for when that check arrives, and without it a radio you can never reach could never be updated at all. Firmware always travels over the radio's local network, so from afar this needs a VPN link like Tailscale. Interrupting an update is not recoverable, so leave it off unless it is truly your only option.">
                                 <TextBlock Text="Allow firmware updates without someone at the radio" TextWrapping="Wrap"/>
                             </CheckBox>
                             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
