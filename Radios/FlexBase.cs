@@ -7257,9 +7257,38 @@ namespace Radios
 
                 if (theRadio != null)
                 {
-                    saveNewGlobalProfile(); // if any
+                    // #423. Teardown must not be able to abandon itself half
+                    // way, and on the finalizer thread it must not be able to
+                    // take the process with it. The measured case: theRadio
+                    // non-null with Callouts.Profiles null sent
+                    // saveNewGlobalProfile into GetDefaultProfiles, which
+                    // walked a null list — and when that fired from the
+                    // finalizer it took down the whole test host. 2098 tests
+                    // never saw it because no prior test had attached a radio
+                    // to a FlexBase.
+                    //
+                    // The null-list confusion itself is fixed at its source in
+                    // GetDefaultProfiles. This is the second lock: whatever
+                    // else these two steps ever throw, the rest of Dispose
+                    // still runs, `disposed` is still set, and the failure is
+                    // named rather than being an unattributable death on a
+                    // thread nobody was watching.
+                    try
+                    {
+                        saveNewGlobalProfile(); // if any
 
-                    Disconnect();
+                        Disconnect();
+                    }
+                    catch (Exception ex)
+                    {
+                        try
+                        {
+                            Tracing.TraceLine("FlexBase.Dispose: radio teardown failed and was "
+                                + "contained so the rest of Dispose could finish (disposing="
+                                + disposing.ToString() + "). " + ex, TraceLevel.Error);
+                        }
+                        catch { /* a trace failing here must not become the fault */ }
+                    }
                 }
 
                 // Sprint 26 Phase 4: coordinator owns session lifecycle; FlexBase
@@ -7285,9 +7314,46 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// #423. Nothing may leave a finalizer.
+        /// </summary>
+        /// <remarks>
+        /// <para>An exception escaping here is unhandled ON THE GC THREAD: the
+        /// process dies, there is no window to say so, no speech, and the
+        /// stack belongs to the collector rather than to whatever caused it.
+        /// <b>Unrecoverable and unattributable</b> is the worst pair of
+        /// properties a failure can have, and it is the pair a blind operator
+        /// is least able to work around.</para>
+        ///
+        /// <para>So this catches everything, and the trace is wrapped too —
+        /// finalization can run at process exit with the trace file already
+        /// closed, and a diagnostic that throws while reporting a fault would
+        /// reproduce the exact failure it exists to prevent.</para>
+        ///
+        /// <para><b>Reported, not fixed here (out of this track's region):</b>
+        /// <c>Dispose(false)</c> reaches a great deal of managed work —
+        /// <c>saveNewGlobalProfile</c> talks to the radio, <c>Disconnect</c>
+        /// and <c>API.CloseSession</c> do network I/O, <c>RigFields.Close</c>
+        /// touches UI. A finalizer is not the place for any of that, and it may
+        /// be running against objects that were already collected. This guard
+        /// stops that being fatal; it does not make it correct.</para>
+        /// </remarks>
         ~FlexBase()
         {
-            Dispose(false);
+            try
+            {
+                Dispose(false);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Tracing.TraceLine("FlexBase finalizer: exception contained on the GC thread. "
+                        + "Unhandled here it would have ended the process with no window, no "
+                        + "speech and no attribution (#423). " + ex, TraceLevel.Error);
+                }
+                catch { /* the report must never become the fault */ }
+            }
         }
         #endregion
 
@@ -13797,6 +13863,28 @@ namespace Radios
             List<Profile_t> rv = new List<Profile_t>();
             // Any default profile must be in Callouts.Profiles.
             if (lst == null) lst = Callouts.Profiles;
+
+            // #423. A null profile list and an empty one are DIFFERENT STATES,
+            // and this used to collapse them by walking straight into the
+            // foreach. The answer to "which profiles are marked default" is the
+            // same either way — none — so returning the empty list is right;
+            // what was wrong was arriving there by way of a
+            // NullReferenceException. It fires during Dispose with a radio
+            // attached, and on the finalizer thread that is process death with
+            // no diagnosis: it took down a whole test host when it was found.
+            //
+            // Traced rather than swallowed, because "the profile list was never
+            // loaded" and "this station has no default profiles" want different
+            // answers from whoever is reading the log, and only one of them is
+            // ordinary.
+            if (lst == null)
+            {
+                Tracing.TraceLine("GetDefaultProfiles: no profile list — Callouts.Profiles is "
+                    + "null, which is not the same as empty. Reporting no default profiles "
+                    + "(#423).", TraceLevel.Warning);
+                return rv;
+            }
+
             foreach (Profile_t p in lst)
             {
                 if (p.Default)
