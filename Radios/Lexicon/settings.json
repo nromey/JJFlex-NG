@@ -794,7 +794,7 @@
   "settings.slice.not_yet_created": "Slice {letter} not yet created. From the Slice field, press period to create the next slice.",
   "settings.slice.only_one_active": "Only one slice active",
   "settings.slice.owner_suffix": ", {owner}",
-  "settings.slice.provisional_change_receipt": "This will not survive disconnect unless you save the profile.",
+  "settings.slice.provisional_change_receipt": "Changes to the radio will not survive disconnect unless you save the profile.",
   "settings.slice.release_failed": "Could not release slice",
   "settings.slice.released": "Slice {letter} released, {count} active",
   "settings.slice.released_extras_many": "Released {removed} extra slices, slice {keptLetter} active",

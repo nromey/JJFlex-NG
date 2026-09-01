@@ -15157,11 +15157,28 @@ namespace Radios
         // choice. This is the notification.
 
         /// <summary>
-        /// The trailing clause spoken after a provisional slice change. The
-        /// operator has just heard the change itself from whichever surface
-        /// they used ("Slice D released, 3 active"), so this adds only what
-        /// none of those surfaces could know.
+        /// Spoken after a provisional slice or setting change. The operator has
+        /// just heard the change itself from whichever surface they used
+        /// ("Slice D released, 3 active"), so this adds only what none of those
+        /// surfaces could know.
         /// </summary>
+        /// <remarks>
+        /// <b>It must stand alone, and that is a requirement rather than a
+        /// preference (#442).</b> It is queued, so an interrupt can flush it
+        /// and the arbiter will SALVAGE it — re-speaking it up to
+        /// <see cref="Speech.SpeechArbiter.MaxSalvages"/> times, as late as its
+        /// length allows. Measured 2026-08-31: this sentence arrived 14.9
+        /// seconds after its first emission, after a tune and an SWR reading.
+        /// It read "This will not survive disconnect …" then, and "This"
+        /// pointed at an announcement the operator had long moved past — a
+        /// fragment with no referent, which is worse than silence because the
+        /// operator tries to make sense of it. Written to name its own subject,
+        /// a late arrival is merely redundant.
+        /// <para>
+        /// So: no bare demonstrative or pronoun opener here, ever.
+        /// <c>ProvisionalReceiptStandsAloneTests</c> pins it.
+        /// </para>
+        /// </remarks>
         private static string ProvisionalSliceChangeReceipt =>
             Lexicon.Get("settings.slice.provisional_change_receipt");
 
@@ -15639,9 +15656,12 @@ namespace Radios
 
             if (SuppressSpeech) return;
             // The same sentence, and the same lexicon line, as the slice
-            // receipt — one vocabulary for one fact. Queued for the same
-            // reason: the surface the operator used has already announced the
-            // value itself; this is the trailing clause.
+            // receipt — one vocabulary for one fact, which is also why the
+            // sentence says "changes to the radio" rather than naming slices:
+            // this path fires for antennas, filters, VOX and the noise
+            // reduction family too. Queued for the same reason: the surface the
+            // operator used has already announced the value itself; this is the
+            // second half of that thought.
             ScreenReaderOutput.Speak(
                 ProvisionalSliceChangeReceipt,
                 Speech.SpeechIntent.Queue,
