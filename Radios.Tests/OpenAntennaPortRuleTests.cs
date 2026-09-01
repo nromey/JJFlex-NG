@@ -73,6 +73,9 @@ namespace Radios.Tests
             f.Add(DiagnosticFact.Text("tx-antenna", "Transmit antenna port", "ANT1"));
             f.Add(DiagnosticFact.Text("rx-antenna", "Receive antenna port", "ANT1"));
             f.Add(DiagnosticFact.Flag("transverter-path", "Transmitting through a transverter", false));
+            // Voice mode, so stage 12 can judge whether zero power is a
+            // consequence of silence upstream rather than a fault (#437).
+            f.Add(DiagnosticFact.Flag("tx-audio-mode", "This transmit mode carries audio", true));
             return f;
         }
 

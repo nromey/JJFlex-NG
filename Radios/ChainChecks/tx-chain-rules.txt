@@ -87,10 +87,58 @@
 #                              setting. Required.
 #   fix:                       What to do about it, as an instruction they can
 #                              follow without knowing how the radio works.
+#   cleared-by:                Other rules in THIS file whose passing refutes
+#                              the causes "fix" names, comma separated and
+#                              repeatable. When every one of them was actually
+#                              made and did not fire, "fix-when-cleared" is said
+#                              instead. See A REMEDY MUST READ THE WALK below.
+#   fix-when-cleared:          The remedy for that case. Required whenever
+#                              cleared-by is present, and refused without it.
 #   evidence:                  Extra fact names to quote in the evidence block,
 #                              comma separated. The facts a rule tests are
 #                              always included; this is for context that helps
 #                              someone else read the report.
+#
+#
+# A REMEDY MUST READ THE WALK
+#
+# A "fix" line used to be a static string chosen by rule id and written with no
+# access to anything the rest of the walk found. On Don's radio, 31 August 2026,
+# that produced this in ONE document (#448):
+#
+#   stage 8, the microphone input the radio is listening to: checked, nothing
+#   stage 9, the mic profile on the radio: checked, nothing wrong.
+#   ...
+#   What to do: The most common cause is that the radio has no mic profile
+#   selected, and the next is that the radio is listening to a different
+#   microphone input.
+#
+# The walk checked both, found both correct, and then told the operator to go
+# and check both — on someone else's radio, mid-session. Nothing failed. Every
+# stage was right, the rule was right, and the sentence was still false, because
+# nothing connected them.
+#
+# So: A RULE WHOSE REMEDY NAMES A CAUSE MUST SAY WHICH RULE EXCLUDES THAT CAUSE.
+# Write "cleared-by" with those rule ids and "fix-when-cleared" with what to say
+# once they all come back clean — which is usually that the fault is past what
+# this tool can see, and that is far more useful than a list to re-check.
+#
+# PASSING is the only outcome that clears, and the three that do not are the
+# whole point. A named rule that FIRED leaves its cause standing. One that did
+# not APPLY was never about this operator's setup, so it excluded nothing. One
+# that was UNREADABLE is the case this file exists to refuse: a check we could
+# not make is never spent as a check that passed.
+#
+# The engine reads the ids, so a typo cannot pass silently: a cleared-by naming
+# a rule that is not in this file is reported as a line that could not be read,
+# and so is a cleared-by with no fix-when-cleared beside it.
+#
+# THE OTHER HALF OF THE SAME LESSON, and it is data rather than a keyword: when
+# a stage's failure is a CONSEQUENCE of an earlier stage's, write the consequence
+# as its own rule and list it FIRST in the stage. The first rule to fire in a
+# stage is the one that speaks, so the specific sentence wins over the general
+# one. That is how transverter-overdrive beats no-power-out at stage 12, and how
+# no-power-out-nothing-to-modulate now beats it too (#437).
 #
 # Inside verdict and fix, and inside not-observable and nothing-to-check, a
 # fact name in curly braces is replaced by that fact's value: write
@@ -204,7 +252,7 @@ evidence: pc-input-device-missing-reason
 stage: 2 the microphone actually capturing
 about: Whether sound is reaching JJ Flexible from the microphone at all.
 needs: mic-source is PC
-nothing-to-check: this can only be measured while you are transmitting with computer audio, so transmit and run the test again.
+nothing-to-check: this can only be measured while you are transmitting with computer audio, so this stage needs the radio keyed. The Audio Workshop's Audio Check keys it, and the Fixer Tool keys it and runs this whole walk while it is keyed.
 
 rule: pc-mic-silent-on-transmit
 in-stage: 2
@@ -408,7 +456,7 @@ evidence: mic-source, mic-boost, speech-processor
 
 stage: 11 what the radio says it hears
 about: The radio's own microphone meter, measured after it has chosen an input. This is the radio telling you what actually arrived.
-nothing-to-check: the radio only measures its transmit audio while transmitting, so transmit and run the test again.
+nothing-to-check: the radio only measures its transmit audio while transmitting, so this stage needs the radio keyed. The Audio Workshop's Audio Check keys it, and the Fixer Tool keys it and runs this whole walk while it is keyed.
 
 # ORDER MATTERS HERE, and it is the opposite of the obvious one. The two rules
 # about the meter itself come BEFORE the rule about its value, because a meter
@@ -444,6 +492,18 @@ needs: transmitting is yes
 broken-when: sc-mic-recent below -100
 verdict: Your radio is transmitting, but its own microphone meter shows nothing arriving. Whatever this computer or your microphone is doing, the radio is not hearing it.
 fix: Check stage by stage above this one. The most common cause is that the radio has no mic profile selected, and the next is that the radio is listening to a different microphone input.
+# THE TWO CAUSES THE REMEDY NAMES ARE EXACTLY THE TWO THIS WALK HAS ALREADY
+# TESTED, at stage 9 and stage 8. On Don's radio both came back clean and this
+# sentence still sent him to re-check them (#448). Now it only says that while
+# at least one of them is still standing.
+cleared-by: no-mic-profile, mic-source-drifted-off-pc
+fix-when-cleared: Everything this check can see on the path is set correctly: the
+fix-when-cleared: radio has a mic profile loaded, and it is listening to the input
+fix-when-cleared: this computer sends to. So the fault is past what this computer
+fix-when-cleared: can watch, and there is nothing further to change at this end.
+fix-when-cleared: Send the readings below to Flex support — they say, in the
+fix-when-cleared: radio's own words, that it was asked for audio and reported
+fix-when-cleared: hearing none.
 evidence: mic-source, mic-profile, sc-mic-peak, sw-alc, codec-mic, pc-tx-loudness
 
 
@@ -475,7 +535,7 @@ evidence: mic-source, mic-profile, sc-mic-peak, sw-alc, codec-mic, pc-tx-loudnes
 
 stage: 12 radio frequency out of the radio
 about: Whether power actually left the radio, and whether the antenna accepted it.
-nothing-to-check: power and standing wave ratio can only be judged while transmitting, so transmit and run the test again.
+nothing-to-check: power and standing wave ratio can only be judged while transmitting, so this stage needs the radio keyed. The Audio Workshop's Audio Check keys it, and the Fixer Tool keys it and runs this whole walk while it is keyed.
 
 # MEASURED, and the number is not chosen here — it is FlexLib's own clamp.
 # Xvtr.MaxPower is a double in dBm limited to +15.00, so the most drive the
@@ -514,6 +574,39 @@ fix: Stop transmitting now, then check your transmit power setting and the drive
 evidence: tx-antenna, transverter-name, transverter-drive, transverter-drive-ceiling, rf-power-setting, tx-slice, tx-mode
 
 
+# ONE FAULT, REPORTED ONCE (#437).
+#
+# On Don's radio, 31 August 2026, in LSB with nothing reaching the radio's
+# microphone, this stage reported a SECOND fault: "your radio is transmitting
+# but almost no power is leaving it". It is not a second fault. In a voice mode
+# the radio makes its power out of the audio it is given, so with none arriving,
+# zero forward power is the CORRECT behaviour and there is nothing to fix here.
+#
+# Worse, the old advice was refuted twice over by the same document. It said to
+# check the power setting was not at the bottom — while its own guard below only
+# lets it fire when that setting is ABOVE zero — and stage 2's tune carrier, at
+# the same setting, on the same band and the same antenna, had already put 9.3
+# watts into an SWR of 1.25 a few lines earlier.
+#
+# Listed BEFORE no-power-out so this sentence wins, and guarded on tx-audio-mode
+# so it never claims this in CW, where the power does not come from audio at all
+# and the reasoning is simply false. That fact reads
+# TransmitStageSet.TransmitAudioModes — the one place this project says which
+# modes carry transmit audio — rather than restating the list here.
+rule: no-power-out-nothing-to-modulate
+in-stage: 12
+needs: transmitting is yes
+needs: dummy-load is no
+needs: transverter-path is no
+needs: tx-audio-mode is yes
+needs: rf-power-setting above 0
+broken-when: forward-power below 0.1
+broken-when: sc-mic-recent below -100
+verdict: Almost no power is leaving your radio — forward power reads {forward-power} — and that follows from the step above rather than being a second fault. In {tx-mode} the radio makes its power out of the audio it is given, and its own microphone meter says none is arriving, so there is nothing to transmit.
+fix: There is nothing to change here. Fix the silent transmit audio above and the power will follow. If it does not, this stage is worth reporting on its own.
+evidence: sc-mic-recent, rf-power-setting, tx-slice, tx-mode, tx-antenna, ptt-source
+
+
 # BENCH: 0.1 watts. Low enough that no real transmission sits under it, high
 # enough to clear meter noise around zero — but the floor a Flex reports on a
 # genuine dead-key has not been measured.
@@ -535,7 +628,11 @@ needs: transverter-path is no
 needs: rf-power-setting above 0
 broken-when: forward-power below 0.1
 verdict: Your radio is transmitting but almost no power is leaving it: forward power reads {forward-power}.
-fix: Check that your transmit power setting is not at the bottom, and that the transmit slice is on a band this radio can transmit on.
+# THE REMEDY NO LONGER NAMES THE POWER SETTING, and that is not a wording
+# preference (#437). This rule's own "rf-power-setting above 0" guard means it
+# can ONLY fire when the setting is off the bottom, so telling the operator to
+# go and check the bottom was a sentence refuted by the line above it.
+fix: Check that the transmit slice is on a band this radio can transmit on. Your power setting is not the cause of this one: it reads {rf-power-setting}, and this check only runs at all when it is above zero.
 evidence: rf-power-setting, tx-slice, tx-mode, ptt-source, tx-antenna, transverter-path
 
 # The one thing that CAN be judged on a transverter path, and the one that

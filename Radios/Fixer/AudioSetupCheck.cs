@@ -584,7 +584,8 @@ namespace Radios.Fixer
             sb.AppendLine("WASAPI available: " + (f.WasapiAvailable ? "yes" : "no"));
             sb.AppendLine("PC audio: " + (f.PcAudioOn ? "on" : "off")
                 + (f.RemoteRadio ? " (remote radio)" : " (local radio)"));
-            sb.AppendLine("Microphone profile: " + (f.MicProfileEmpty ? "empty" : "has settings"));
+            // Names whose profile (#446): this reads the RADIO's selection.
+            sb.AppendLine("Mic profile on the radio: " + (f.MicProfileEmpty ? "empty" : "has settings"));
             sb.AppendLine("Muted in Windows: " + Tristate(f.WindowsInputMuted));
             sb.AppendLine("Blocked by Windows privacy: " + Tristate(f.MicrophonePrivacyBlocked));
             sb.AppendLine("Device reports unplugged: " + Tristate(f.InputDeviceUnplugged));

@@ -158,7 +158,9 @@ namespace Radios.ChainChecks
             if (!referenceReported)
                 return new TxProbeSet.ProbeResult(TxProbeSet.Probe.ToneLadder,
                     TxProbeSet.Outcome.NotAttempted,
-                    "the " + SingleToneHz + " hertz reference never read on the SC_MIC meter, "
+                    // "measuring tone", not "reference" (#443) — see
+                    // TxToneLadder.Describe for why the word moved.
+                    "the " + SingleToneHz + " hertz measuring tone never read on the SC_MIC meter, "
                     + "so the ladder had nothing to measure its rungs against");
 
             if (inBand.Count == 0)

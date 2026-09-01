@@ -75,6 +75,6 @@ Any time your transmit audio wants to be different depending on what you are doi
 - **Ragchewing** — a wide filter and a natural, unprocessed voice for friends who will be listening to you for an hour.
 - **Contesting** — compression and a narrow filter so your call cuts through when everyone is shouting at once.
 - **DX chasing** — everything the processor has, concentrated into the frequencies that carry.
-- **Different microphones** — a hand mic and a boom mic rarely want the same gain and boost settings. A preset per mic works, but the better tool for this one is a **microphone profile**, which also carries your computer-side settings and follows the mic across radios — see the Microphone Profiles section of the Audio Workshop help page.
+- **Different microphones** — a hand mic and a boom mic rarely want the same gain and boost settings. A preset per mic works, but the better tool for this one is a **microphone setup**, which also carries your computer-side settings and follows the mic across radios — see the Microphone Setups section of the Audio Workshop help page.
 
 Set each one up once, prove it with an Audio Check, save it, and from then on changing hats is a `Ctrl+O` away.

@@ -485,8 +485,8 @@ namespace JJFlex.TxFactAudit
               Provenance.WireField, FactOwnership.StationGlobal, IdleHonesty.Fabricates,
               "Compare with transmit.rfpower on the wire. THIS is the reading to trust before keying — the app's copy is a mirror updated by an event, the wire is the radio.",
               RigField.Transmit("rfpower"),
-              idleReads: "0 percent",
-              concern: "A cached mirror updated only from a property-changed handler. Never seeded at connect, so if the change never fires it reads 0 percent, which is also a real setting.");
+              idleReads: "0 watts",
+              concern: "A cached mirror updated only from a property-changed handler. Never seeded at connect, so if the change never fires it reads 0, which is also a real setting. The UNIT is a second open question and a separate one (#444): FlexLib documents RFPower, TunePower and AMCarrierLevel alike as watts on a 0-to-100 scale, which is exactly what a percentage would look like, and on a hundred-watt radio the two readings coincide. The app now says watts in one place only — TxPowerPhrasing — so the bench answer moves every surface with one edit.");
 
             F("dummy-load", "Dummy load mode",
               "FlexBase.DummyLoadMode", "none — an app mode that zeroes RFPower",
@@ -520,6 +520,15 @@ namespace JJFlex.TxFactAudit
               idleReads: "empty",
               fixedHere: true,
               concern: "WAS: cached in a field only written when a slice property-change is seen for a slice already flagged as the transmit slice. Empty until then, and empty is published as an observed value rather than as an absence.");
+
+            F("tx-audio-mode", "This transmit mode carries audio",
+              "TransmitStageSet.IsTransmitAudioMode(FlexBase.TXMode)", "Slice.DemodMode of the transmit slice",
+              Provenance.WireField, FactOwnership.ClientOwned, IdleHonesty.Gated,
+              "Derived from tx-mode and nothing else, so it is provable from the same wire key. Stage 12 needs to know whether zero forward power is a CONSEQUENCE of silence upstream (#437) — true in a voice mode, where the radio makes its power out of the audio it is given, and simply false in CW, where there is no transmit audio path at all. The list of modes is TransmitStageSet.TransmitAudioModes and is not restated anywhere.",
+              RigField.Slice(0, "mode"),
+              idleReads: "absent",
+              fixedHere: true,
+              concern: "Inherits tx-mode's gate: an unread mode publishes ABSENT rather than 'no', so the rule that reads this reports as a check that could not be made rather than quietly declining to claim a consequence.");
 
             // ── Stage 12: which port, and what is on the end of it ────────
             //

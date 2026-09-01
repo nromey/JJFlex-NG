@@ -16,9 +16,11 @@ namespace Radios.Tests
     /// not, and the consequence was exact: the Fixer report of 2026-08-29 said
     /// <i>"Checks read from Receive audio check"</i> and carried no transmit walk
     /// at all, on a run diagnosing a transmit fault. Meanwhile the Audio
-    /// Workshop, which owns the walk, cannot key a radio — so its report says
-    /// "transmit and run the test again" three times on every run there has ever
-    /// been.
+    /// Workshop, which owns the walk, does not key as part of running it — so
+    /// its report leaves those three unmeasured on every run there has ever
+    /// been. (It CAN key: the Audio Check in the same dialog does. The claim
+    /// that it could not stood in a comment for weeks and shaped a design
+    /// decision — #440.)
     /// </para>
     /// <para>
     /// <b>The test of the design is a property, not a behaviour:</b> add a rule
@@ -179,17 +181,28 @@ namespace Radios.Tests
 
             // Three stages, three refusals, all of them the same sentence — and
             // that sentence is the whole of #400 in the operator's own words.
+            //
+            // IT NO LONGER SAYS "transmit and run the test again" (#440). That
+            // read as a limitation of the operator's own setup rather than as
+            // "this door cannot do that on its own; here are two that can", and
+            // those three stages were exactly the ones that mattered on Don's
+            // radio. The sentence now names both routes, and it is still one
+            // sentence appearing three times.
+            const string routing = "needs the radio keyed";
             int asks = 0;
             int from = 0;
             while (true)
             {
-                int at = idle.Walk.IndexOf("transmit and run the test again", from,
-                                           StringComparison.Ordinal);
+                int at = idle.Walk.IndexOf(routing, from, StringComparison.Ordinal);
                 if (at < 0) break;
                 asks++;
                 from = at + 1;
             }
             Assert.Equal(3, asks);
+
+            // And it names them BOTH, from either door.
+            Assert.Contains("Audio Workshop's Audio Check", idle.Walk);
+            Assert.Contains("Fixer Tool", idle.Walk);
         }
 
         // ── the guard against a second implementation ───────────────────────
