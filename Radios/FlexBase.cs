@@ -2984,6 +2984,23 @@ namespace Radios
         {
             Tracing.TraceLine("Disconnect:" + (string)((theRadio == null) ? "null" : theRadio.Serial), TraceLevel.Info);
             if (theRadio == null) return;
+
+            // Put this radio's own profiles back, FIRST, while the link is
+            // certainly still up and before the cancel flag below starts
+            // shortening waits (#450). Idempotent: the record is cleared once
+            // used, so the Dispose path reaching here later is a no-op.
+            //
+            // BEST-EFFORT AND NOTHING MAY ASSUME IT RAN. This is the clean
+            // disconnect; an unexpected drop never reaches this line at all,
+            // which is exactly why the restore point lives on the RADIO.
+            try { PutProfilesBackOnDisconnect(); }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "Disconnect: putting profiles back threw: " + ex.Message
+                    + ". The restore points stay on the radio.", TraceLevel.Error);
+            }
+
             // Signal the cancel flag too — if Start() is in-flight on another thread
             // (UI thread blocked in the station-name wait), it sees this and exits fast.
             _cancelRequested = true;
@@ -7297,6 +7314,26 @@ namespace Radios
                 if (theRadio != null)
                 {
                     saveNewGlobalProfile(); // if any
+
+                    // Put this radio's own profiles back BEFORE the connection
+                    // goes away, and after saveNewGlobalProfile so the two
+                    // cannot fight over the global selection (#450).
+                    //
+                    // BEST-EFFORT, AND NOTHING MAY ASSUME IT RAN. A remote
+                    // client cannot guarantee cleanup, because the process
+                    // that must clean up is the one that died — a power cut,
+                    // a killed process, a dropped link and this line is never
+                    // reached. That is the whole reason the restore point sits
+                    // on the RADIO: the next JJ Flexible client to connect,
+                    // ours or anyone's, sees it in the profile list and can
+                    // offer to put things right.
+                    try { PutProfilesBackOnDisconnect(); }
+                    catch (Exception ex)
+                    {
+                        Tracing.TraceLine(
+                            "FlexBase.Dispose: putting profiles back threw: " + ex.Message
+                            + ". The restore points stay on the radio.", TraceLevel.Error);
+                    }
 
                     Disconnect();
                 }
@@ -14667,6 +14704,686 @@ namespace Radios
             return rv;
         }
 
+        #region Profile stewardship — not our radio (#450, #451, #403)
+
+        // ══════════════════════════════════════════════════════════════════
+        // The guest half of the profile path. Every decision lives in
+        // Radios/ProfileStewardship.cs as a pure function; everything here is
+        // the part that genuinely needs a radio — reading its lists, sending
+        // the commands, waiting for the answers, and saying what happened.
+        //
+        // WHY THE SPLIT IS THE DELIVERABLE. The radio this protects is three
+        // states away and belongs to somebody else. There is no way to test a
+        // decision made inside this class against the case that matters, and
+        // the symptom of a wrong answer is that a man's microphone stops
+        // working at an unrelated hour weeks later. So the judgement sits
+        // where a test can put a radio state in and read an action list out,
+        // exactly as TransmitSafety does, and this file keeps only the wire.
+        //
+        // WHAT IT REPLACED: GetProfileInfo applied the OPERATOR's default
+        // global, transmit and microphone profiles to whatever radio
+        // connected, CREATING each on the radio when absent, and nothing put
+        // anything back at disconnect. The names came from one list per human
+        // — no radio in it and no account either, which is one scope COARSER
+        // than the account-scoped port write that took a tester's radio off
+        // the air for five hours (#397, #403).
+        // ══════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// What this session changed and what it left behind, so the way out
+        /// can put it back. Tier one of the ruled design — in this process,
+        /// which is precisely why it is not the only tier.
+        /// </summary>
+        private readonly List<ProfileSessionRecord> _profileSessionRecord =
+            new List<ProfileSessionRecord>();
+
+        /// <summary>Guards the record against the disconnect path and the
+        /// connect path overlapping.</summary>
+        private readonly object _profileRecordLock = new object();
+
+        /// <summary>
+        /// Restore points found on the radio at connect that this session did
+        /// not leave: an earlier session ended without putting this radio back.
+        /// READ ONLY — the offer is made to a human, and nothing acts on this
+        /// without one. Empty on every healthy connect.
+        /// </summary>
+        public IReadOnlyList<ProfileTypes> StrandedProfileRestorePoints { get; private set; }
+            = Array.Empty<ProfileTypes>();
+
+        /// <summary>
+        /// True when this radio is carrying restore points from a session that
+        /// ended without putting things back. The condition for OFFERING the
+        /// restore, and the condition for the menu item existing at all — a
+        /// verb that announces its own absence after the operator has navigated
+        /// to it and pressed is the stub-verb pattern this project refuses.
+        /// </summary>
+        public bool HasStrandedProfileRestorePoint => StrandedProfileRestorePoints.Count > 0;
+
+        /// <summary>
+        /// The global profile this connect asked the radio to load, or null
+        /// when none was asked for — which is the answer on every radio the
+        /// operator has not opted in. The connect sequence waits on the load
+        /// completing, and it needs the name to know what it is waiting for.
+        /// </summary>
+        internal string CurrentDesiredGlobalProfileName { get; private set; }
+
+        /// <summary>
+        /// The operator's per-radio profile answer for the connected radio.
+        /// NotAnswered when there is no radio.
+        /// </summary>
+        public ProfileGuestIntent ProfileIntent
+        {
+            get
+            {
+                var serial = theRadio?.Serial;
+                return string.IsNullOrEmpty(serial)
+                    ? ProfileGuestIntent.NotAnswered
+                    : RadioConfig.ProfileIntentOf(serial);
+            }
+        }
+
+        /// <summary>
+        /// Record the operator's answer for the connected radio. Takes effect
+        /// at the next connect: the profiles that would have been applied at
+        /// THIS one have already not been applied, and applying them now would
+        /// be acting on an answer given after the fact.
+        /// </summary>
+        public bool RecordProfileIntent(ProfileGuestIntent intent)
+        {
+            var serial = theRadio?.Serial;
+            if (string.IsNullOrEmpty(serial)) return false;
+            return RadioConfig.RecordProfileIntent(serial, intent);
+        }
+
+        /// <summary>
+        /// Read the radio's own profile state into the plain shape the
+        /// decisions take. One bounded read per type; nothing is written.
+        /// </summary>
+        /// <param name="wanted">What the operator wants loaded, by type.
+        /// Null for a read that is only asking what is there.</param>
+        /// <param name="freshAsk">
+        /// True to send a fresh <c>profile ... info</c> and wait for the
+        /// answer. Right on the CONNECT path, where the subscription may not
+        /// have landed and a few seconds are affordable.
+        /// <para><b>False on the DISCONNECT path, and that is not an
+        /// optimisation.</b> A fresh ask waits out its timeout whenever the
+        /// list has not CHANGED, which is the normal case at teardown — three
+        /// types would add up to fifteen seconds of a disconnect the operator
+        /// asked for, and a restore that makes leaving feel broken is a
+        /// restore that gets switched off. The session already holds the
+        /// radio's lists; a non-empty one is positive evidence the radio
+        /// reported it, because they are only ever filled from its own status
+        /// messages.</para>
+        /// </param>
+        internal ProfileSituation ReadProfileSituation(
+            Dictionary<ProfileTypes, string> wanted, bool freshAsk)
+        {
+            var radio = theRadio;
+            var situation = new ProfileSituation
+            {
+                Connected = radio != null && IsConnected,
+                ChangeNothingArmed = ChangeNothingActive,
+                OnlyStation = OnlyStation,
+                Ownership = radio == null
+                    ? RadioOwnership.Unset
+                    : RadioConfig.OwnershipOf(radio.Serial),
+                Intent = radio == null
+                    ? ProfileGuestIntent.NotAnswered
+                    : RadioConfig.ProfileIntentOf(radio.Serial),
+            };
+
+            foreach (var type in ProfileStewardship.GovernedTypes)
+            {
+                IReadOnlyList<string> names;
+                string selection;
+                bool reported;
+
+                if (freshAsk)
+                {
+                    var reading = ReadRadioProfileList(type, 2500);
+                    names = reading.Names;
+                    reported = reading.Reported && !reading.CouldNotAsk;
+                    // CouldNotAsk is the only case that is genuinely
+                    // unreadable. A radio that answers "" is telling us none
+                    // is loaded, which is a fact we can record and put back.
+                    selection = reading.CouldNotAsk ? null : (reading.Selection ?? "");
+                }
+                else
+                {
+                    names = ProfileNamesOnRadio(type);
+                    reported = names.Count > 0;
+                    selection = SelectionOnRadio(type);
+                }
+
+                situation.Types.Add(new ProfileTypeState
+                {
+                    ProfileType = type,
+                    Reported = reported,
+                    Names = names,
+                    Selection = selection,
+                    UnsavedChanges = UnsavedProfileChangesFor(type),
+                    Wanted = wanted != null && wanted.TryGetValue(type, out var w) ? (w ?? "") : "",
+                });
+            }
+
+            return situation;
+        }
+
+        /// <summary>
+        /// What the radio reports about unsaved work in progress for one
+        /// profile type. The radio itself answers this — <c>unsaved_changes_tx</c>
+        /// and <c>unsaved_changes_mic</c> in its profile status — and it is the
+        /// one question that must be asked BEFORE anything is captured:
+        /// freezing somebody's half-finished microphone edit into a restore
+        /// point is its own harm, distinct from and additional to overwriting
+        /// their selection.
+        ///
+        /// <para>Global profiles have no such report, so global reads false.
+        /// That is an honest gap, not a claim of safety.</para>
+        /// </summary>
+        public bool UnsavedProfileChangesFor(ProfileTypes type)
+        {
+            var radio = theRadio;
+            if (radio == null) return false;
+            switch (type)
+            {
+                case ProfileTypes.tx: return radio.UnsavedProfileChangesTX;
+                case ProfileTypes.mic: return radio.UnsavedProfileChangesMIC;
+                default: return false;
+            }
+        }
+
+        /// <summary>
+        /// What the operator wants loaded on THIS radio, by type: the per-radio
+        /// choice when there is one, otherwise their default list (#451).
+        ///
+        /// <para>The fall-through is deliberate and conservative. One default
+        /// for all radios cannot express what an operator with two stations
+        /// wants, but removing the fall-through would strand every radio
+        /// configured before per-radio choices existed.</para>
+        /// </summary>
+        internal Dictionary<ProfileTypes, string> WantedProfilesForThisRadio()
+        {
+            var wanted = new Dictionary<ProfileTypes, string>();
+            var serial = theRadio?.Serial;
+            var cfg = string.IsNullOrEmpty(serial) ? null : RadioConfig.LoadForRadio(serial);
+
+            foreach (var type in ProfileStewardship.GovernedTypes)
+            {
+                string choice = cfg?.ProfileChoiceFor(type) ?? "";
+                if (string.IsNullOrWhiteSpace(choice))
+                {
+                    var defaults = GetProfilesByType(type, GetDefaultProfiles());
+                    choice = defaults.Count > 0 ? defaults[0].Name : "";
+                }
+                wanted[type] = choice ?? "";
+            }
+            return wanted;
+        }
+
+        /// <summary>
+        /// The connect-time profile decision and its execution. Returns true
+        /// when the operator's global profile was loaded, which is the answer
+        /// the connect sequence has always used to decide between "we have a
+        /// station layout" and "set up from scratch".
+        /// </summary>
+        private bool ApplyProfileStewardshipOnConnect()
+        {
+            lock (_profileRecordLock) _profileSessionRecord.Clear();
+            StrandedProfileRestorePoints = Array.Empty<ProfileTypes>();
+
+            var situation = ReadProfileSituation(WantedProfilesForThisRadio(), freshAsk: true);
+            var plan = ProfileStewardship.PlanConnect(situation);
+
+            StrandedProfileRestorePoints = plan.StrandedRestorePoints.ToArray();
+
+            foreach (var skip in plan.Skips)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: left the " + ProfileStewardship.Label(skip.ProfileType)
+                    + " profile alone — " + skip.Reason
+                    + (string.IsNullOrEmpty(skip.ProfileName)
+                        ? "" : " (would have loaded '" + skip.ProfileName + "')"),
+                    TraceLevel.Info);
+            }
+
+            if (plan.AskWhoseRadioThisIs)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: this radio has no profile answer yet, so NOTHING was "
+                    + "loaded or created on it. Suggestion if asked: " + plan.Suggestion,
+                    TraceLevel.Warning);
+
+                // SAY IT, because the behaviour changed and silence would read
+                // as a fault. An operator whose profiles used to load and now
+                // do not needs to hear why and where to answer — a protection
+                // nobody can hear is how someone concludes the app is broken.
+                //
+                // Terse rather than Critical: it fires on every connect to an
+                // unanswered radio, so it must not survive "speech off" the
+                // way a safety warning does, and it stops for good the moment
+                // the question is answered either way.
+                //
+                // Not when there are stranded restore points to report. That
+                // sentence is longer, more urgent, and names the same menu, so
+                // saying both would bury the one that matters under the one
+                // that does not.
+                if (!SuppressSpeech && plan.StrandedRestorePoints.Count == 0)
+                {
+                    ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.profile_guest.left_alone"),
+                        Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+                }
+            }
+
+            if (plan.StrandedRestorePoints.Count > 0)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: this radio is carrying restore points left by a "
+                    + "session that ended without putting things back: "
+                    + string.Join(", ", plan.StrandedRestorePoints.Select(ProfileStewardship.Label))
+                    + ". OFFERING only — nothing is restored automatically, because the radio's "
+                    + "owner may have already put it right by hand.",
+                    TraceLevel.Warning);
+
+                // Critical, and it is the one sentence here that earns it: the
+                // radio is standing on somebody else's settings right now, and
+                // an operator with speech turned down still needs to know
+                // before they hand the radio back. Queued, at the tail of the
+                // connect series, so it does not cut off "Connected to ...".
+                if (!SuppressSpeech)
+                {
+                    ScreenReaderOutput.Speak(
+                        Lexicon.Get("settings.profile_guest.stranded"),
+                        Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+                }
+            }
+
+            bool globalLoaded = false;
+            CurrentDesiredGlobalProfileName = null;
+            foreach (var action in plan.Actions)
+            {
+                bool ok = RunProfileAction(action);
+                if (ok && action.Kind == ProfileActionKind.LoadOurs
+                    && action.ProfileType == ProfileTypes.global)
+                {
+                    globalLoaded = true;
+                    CurrentDesiredGlobalProfileName = action.ProfileName;
+                }
+                if (!ok && action.Kind == ProfileActionKind.CaptureRestorePoint)
+                {
+                    // The capture is the safety net for everything that
+                    // follows. Without it, loading ours would leave this radio
+                    // with no record of what it was on and no way back. So the
+                    // rest of the plan for this type is abandoned rather than
+                    // run half way.
+                    Tracing.TraceLine(
+                        "ProfileStewardship: the restore point for the "
+                        + ProfileStewardship.Label(action.ProfileType)
+                        + " profile did NOT take, so nothing is being changed for that type.",
+                        TraceLevel.Error);
+                    plan.Actions.RemoveAll(a => a.ProfileType == action.ProfileType
+                                                && a.Kind == ProfileActionKind.LoadOurs);
+                    lock (_profileRecordLock)
+                    {
+                        _profileSessionRecord.RemoveAll(r => r.ProfileType == action.ProfileType);
+                    }
+                }
+            }
+
+            lock (_profileRecordLock)
+            {
+                foreach (var rec in plan.Record)
+                {
+                    if (plan.Actions.Any(a => a.ProfileType == rec.ProfileType
+                                              && a.Kind == ProfileActionKind.LoadOurs))
+                    {
+                        _profileSessionRecord.Add(rec);
+                    }
+                }
+            }
+
+            return globalLoaded;
+        }
+
+        /// <summary>
+        /// Put this radio's own profiles back, at disconnect. Best-effort by
+        /// construction, and it must stay that way in the code as well as in
+        /// the comments: the process that must clean up is the one that dies,
+        /// so nothing downstream may assume this ran.
+        /// </summary>
+        private void PutProfilesBackOnDisconnect()
+        {
+            List<ProfileSessionRecord> record;
+            lock (_profileRecordLock)
+            {
+                if (_profileSessionRecord.Count == 0) return;
+                record = _profileSessionRecord.ToList();
+            }
+
+            ProfileSituation situation;
+            try
+            {
+                situation = ReadProfileSituation(null, freshAsk: false);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: could not read the radio on the way out ("
+                    + ex.Message + "). The restore points stay on the radio; the next "
+                    + "JJ Flexible client will see them.", TraceLevel.Error);
+                return;
+            }
+
+            var plan = ProfileStewardship.PlanPutBack(situation, record);
+
+            foreach (var skip in plan.Skips)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: did NOT put the "
+                    + ProfileStewardship.Label(skip.ProfileType) + " profile back — "
+                    + skip.Reason + ". The restore point stays on the radio.",
+                    TraceLevel.Warning);
+            }
+
+            foreach (var action in plan.Actions) RunProfileAction(action);
+
+            lock (_profileRecordLock) _profileSessionRecord.Clear();
+        }
+
+        /// <summary>
+        /// Run an OFFERED restore of the stranded restore points a previous
+        /// session left. The caller has already asked a human — this method
+        /// never decides to run.
+        /// </summary>
+        /// <returns>What happened, in a sentence the caller speaks.</returns>
+        public string RestoreStrandedProfiles(IEnumerable<ProfileTypes> accepted)
+        {
+            var situation = ReadProfileSituation(null, freshAsk: true);
+            var plan = ProfileStewardship.PlanOfferedRestore(situation, accepted);
+
+            foreach (var skip in plan.Skips)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: offered restore of the "
+                    + ProfileStewardship.Label(skip.ProfileType) + " profile did not run — "
+                    + skip.Reason, TraceLevel.Warning);
+            }
+
+            var done = new List<ProfileTypes>();
+            foreach (var action in plan.Actions)
+            {
+                if (RunProfileAction(action)) done.Add(action.ProfileType);
+            }
+
+            StrandedProfileRestorePoints =
+                StrandedProfileRestorePoints.Where(t => !done.Contains(t)).ToArray();
+
+            if (done.Count == 0)
+            {
+                return Lexicon.Get("settings.profile_guest.restore_none");
+            }
+            return Lexicon.Get("settings.profile_guest.restore_done",
+                ("types", string.Join(", ", done.Select(ProfileStewardship.Label))));
+        }
+
+        /// <summary>
+        /// Send one planned step and confirm it as far as the radio lets us.
+        ///
+        /// <para><b>A capture is confirmed by readback and a selection is
+        /// not</b>, and that asymmetry is deliberate rather than an oversight.
+        /// A restore point that did not actually get created is a safety net
+        /// that is not there, so the caller must know; the profile list is the
+        /// radio's own report and answers that question. A selection has no
+        /// equivalent readback that distinguishes "the radio applied it" from
+        /// "the radio acknowledged it" (#164), so this reports the command
+        /// going out and claims nothing more.</para>
+        /// </summary>
+        private bool RunProfileAction(ProfileAction action)
+        {
+            var radio = theRadio;
+            if (radio == null || action == null) return false;
+
+            Tracing.TraceLine(
+                "ProfileStewardship: " + action.Kind + " " + ProfileStewardship.Label(action.ProfileType)
+                + " '" + action.ProfileName + "' — " + action.Because, TraceLevel.Info);
+
+            switch (action.Kind)
+            {
+                case ProfileActionKind.CaptureRestorePoint:
+                    return CaptureProfileRestorePoint(radio, action.ProfileType, action.ProfileName);
+
+                case ProfileActionKind.LoadOurs:
+                case ProfileActionKind.LoadTheirNameBack:
+                case ProfileActionKind.LoadRestorePoint:
+                    ApplyProfileSelection(
+                        radio, action.ProfileType, action.ProfileName, action.MayCreate);
+                    return true;
+
+                case ProfileActionKind.RemoveRestorePoint:
+                    return RemoveProfileRestorePoint(radio, action.ProfileType, action.ProfileName);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Save the radio's CURRENT state under the restore-point name, and
+        /// confirm the radio lists it before returning true.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The transmit and microphone captures go through
+        /// <c>CreateTXProfile</c> and <c>CreateMICProfile</c>, not the Save
+        /// pair.</b> FlexLib 4.2.20 marks <c>SaveTXProfile</c> and
+        /// <c>SaveMICProfile</c> <c>[Obsolete(error: true)]</c> — calling
+        /// either is a compile error, and their message names Create as the
+        /// replacement. <c>SaveGlobalProfile</c> is not obsolete and is used
+        /// for global.</para>
+        /// <para><b>What is verified and what is not.</b> That the command goes
+        /// out and that the radio then lists the name are both confirmed here.
+        /// That <c>profile transmit create</c> snapshots the LIVE state rather
+        /// than writing a factory default is NOT verified against a radio, and
+        /// cannot be from this machine. It is the documented behaviour and it
+        /// is what the obsolete message implies, but treat it as unconfirmed.
+        /// The design does not rest on it: the restore point is the SECOND
+        /// record, and the disconnect path reaches for the remembered name
+        /// first and only falls back to the restore point when that name is
+        /// gone.</para>
+        /// </remarks>
+        private bool CaptureProfileRestorePoint(
+            Radio radio, ProfileTypes type, string name)
+        {
+            if (!ProfileRestorePoints.IsWellFormed(name))
+            {
+                // The one place this class creates a profile on a radio. A name
+                // from anywhere but ProfileRestorePoints.NameFor is a defect,
+                // and on a stranger's radio a defect that leaves litter behind.
+                Tracing.TraceLine(
+                    "ProfileStewardship: refusing to create '" + name + "' — not a "
+                    + "well-formed restore-point name. Nothing was written.", TraceLevel.Error);
+                return false;
+            }
+
+            try
+            {
+                switch (type)
+                {
+                    case ProfileTypes.global:
+                        q.Enqueue((FunctionDel)(() => radio.SaveGlobalProfile(name)),
+                            "capture global restore point", true);
+                        break;
+                    case ProfileTypes.tx:
+                        q.Enqueue((FunctionDel)(() => radio.CreateTXProfile(name)),
+                            "capture transmit restore point", true);
+                        break;
+                    case ProfileTypes.mic:
+                        q.Enqueue((FunctionDel)(() => radio.CreateMICProfile(name)),
+                            "capture microphone restore point", true);
+                        break;
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: capture of '" + name + "' threw: " + ex.Message,
+                    TraceLevel.Error);
+                return false;
+            }
+
+            bool listed = await(() => ProfileNamesOnRadio(type).Contains(name), 5000);
+            if (!listed)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: the radio did not list '" + name + "' within five "
+                    + "seconds. Treating the capture as FAILED — a restore point that may "
+                    + "not exist is worse than none, because the rest of the plan would "
+                    + "trust it.", TraceLevel.Error);
+            }
+            return listed;
+        }
+
+        /// <summary>
+        /// Delete a restore point, confirming it is gone. Used only after the
+        /// radio has been put back on its own profile by name, so the
+        /// restore point holds nothing that is not also live.
+        /// </summary>
+        private bool RemoveProfileRestorePoint(Radio radio, ProfileTypes type, string name)
+        {
+            if (!ProfileRestorePoints.IsRestorePoint(name))
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: refusing to delete '" + name + "' — it is not one "
+                    + "of ours. Nothing was deleted.", TraceLevel.Error);
+                return false;
+            }
+
+            try
+            {
+                switch (type)
+                {
+                    case ProfileTypes.global:
+                        q.Enqueue((FunctionDel)(() => radio.DeleteGlobalProfile(name)),
+                            "remove global restore point", true);
+                        break;
+                    case ProfileTypes.tx:
+                        q.Enqueue((FunctionDel)(() => radio.DeleteTXProfile(name)),
+                            "remove transmit restore point", true);
+                        break;
+                    case ProfileTypes.mic:
+                        q.Enqueue((FunctionDel)(() => radio.DeleteMICProfile(name)),
+                            "remove microphone restore point", true);
+                        break;
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: delete of '" + name + "' threw: " + ex.Message,
+                    TraceLevel.Warning);
+                return false;
+            }
+
+            // A SHORT wait, and deliberately shorter than the capture's. This
+            // runs on the way out, where every second is a second the operator
+            // waits for a disconnect they asked for — and unlike the capture,
+            // the answer changes nothing: the radio is already back on its own
+            // profile, so a restore point left behind is harmless clutter that
+            // the next session will recognise and skip. A restore that makes
+            // leaving feel broken is a restore that gets switched off.
+            bool gone = await(() => !ProfileNamesOnRadio(type).Contains(name), 1500);
+            if (!gone)
+            {
+                Tracing.TraceLine(
+                    "ProfileStewardship: '" + name + "' is still listed. It is harmless "
+                    + "clutter on the radio, not a fault — the radio is already back on its "
+                    + "own profile.", TraceLevel.Warning);
+            }
+            return gone;
+        }
+
+        /// <summary>
+        /// Select a profile, creating it first ONLY when the plan said so.
+        ///
+        /// <para><b><paramref name="mayCreate"/> is the whole difference
+        /// between this and what was here before.</b> The old connect path
+        /// created a missing transmit or microphone profile unconditionally,
+        /// from a list of names that had no radio in it and no account either
+        /// — the write #403 exists for. Here the decision has already been
+        /// made, by a function a test can reach, and it is false for every
+        /// radio the operator has not declared theirs and for every restore:
+        /// a restore that invents a profile is not a restore.</para>
+        /// </summary>
+        private void ApplyProfileSelection(
+            Radio radio, ProfileTypes type, string name, bool mayCreate)
+        {
+            switch (type)
+            {
+                case ProfileTypes.global:
+                    q.Enqueue((FunctionDel)(() => radio.ProfileGlobalSelection = name),
+                        "stewardship global selection", true);
+                    break;
+                case ProfileTypes.tx:
+                    q.Enqueue((FunctionDel)(() =>
+                    {
+                        if (!radio.ProfileTXList.Contains(name))
+                        {
+                            if (!mayCreate) return;
+                            radio.CreateTXProfile(name);
+                        }
+                        radio.ProfileTXSelection = name;
+                    }), "stewardship transmit selection", true);
+                    break;
+                case ProfileTypes.mic:
+                    q.Enqueue((FunctionDel)(() =>
+                    {
+                        if (!radio.ProfileMICList.Contains(name))
+                        {
+                            if (!mayCreate) return;
+                            radio.CreateMICProfile(name);
+                        }
+                        radio.ProfileMICSelection = name;
+                    }), "stewardship microphone selection", true);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// The radio's own current selection for one profile type, right now:
+        /// a name, "" when the radio says none is loaded, null when there is
+        /// no radio to ask.
+        /// </summary>
+        private string SelectionOnRadio(ProfileTypes type)
+        {
+            var radio = theRadio;
+            if (radio == null) return null;
+            switch (type)
+            {
+                case ProfileTypes.global: return radio.ProfileGlobalSelection ?? "";
+                case ProfileTypes.tx: return radio.ProfileTXSelection ?? "";
+                case ProfileTypes.mic: return radio.ProfileMICSelection ?? "";
+                default: return null;
+            }
+        }
+
+        /// <summary>The radio's own names for one profile type, right now.</summary>
+        private IReadOnlyList<string> ProfileNamesOnRadio(ProfileTypes type)
+        {
+            var radio = theRadio;
+            if (radio == null) return Array.Empty<string>();
+            switch (type)
+            {
+                case ProfileTypes.global: return radio.ProfileGlobalList?.ToList() ?? new List<string>();
+                case ProfileTypes.tx: return radio.ProfileTXList?.ToList() ?? new List<string>();
+                case ProfileTypes.mic: return radio.ProfileMICList?.ToList() ?? new List<string>();
+                default: return Array.Empty<string>();
+            }
+        }
+
+        #endregion
+
         // ══ Saving the station layout: the one-step verb (Sprint 33 Track K) ══
         //
         // #117 and #59. Sprint 32 Track H established that the transport works,
@@ -15014,9 +15731,21 @@ namespace Radios
             }
         }
 
+        /// <remarks>
+        /// <b>The gap the #397 write-path audit found here, and it is the
+        /// sharpest kind.</b> Under "change nothing on this radio" the operator
+        /// could still DELETE a profile off it, while the load and save verbs a
+        /// few hundred lines up both refused. A hold that stops two of three
+        /// writers is worse than none, because it will be trusted — and delete
+        /// is the most destructive of the three: a load is reversible and a
+        /// save overwrites one profile, while a delete removes the only copy of
+        /// somebody's station settings.
+        /// </remarks>
         public bool DeleteProfile(Profile_t prof, List<Profile_t> lst = null)
         {
+            if (GuardRefuses("settings.guard.action.profile_delete")) return false;
             Tracing.TraceLine("DeleteProfile:" + prof.Name + ' ' + prof.ProfileType.ToString(), TraceLevel.Info);
+
             bool rv = false;
             bool profileGone = false;
             if (lst == null) lst = Callouts.Profiles;
@@ -18283,45 +19012,70 @@ namespace Radios
             // reads or touches only session state and runs either way.
             if (!GuardSkips("default profile selection on connect (global, tx, mic)"))
             {
-                // Await to see if CurrentProfile is in the profile list.
-                Tracing.TraceLine("getProfileInfo:awaiting default profile in GlobalProfileList", TraceLevel.Info);
-                List<Profile_t> crnt = GetProfilesByType(ProfileTypes.global, GetDefaultProfiles());
-                if ((crnt.Count > 0) && await(() =>
+                // ── The connect-time profile decision now lives in
+                //    ProfileStewardship, and this is what changed (#450, #451).
+                //
+                // What used to be here applied the OPERATOR's default global,
+                // transmit and microphone profiles to whatever radio had just
+                // connected, creating the transmit and microphone ones on the
+                // radio when they were absent, and nothing put anything back
+                // at disconnect. The names came from a list with no radio in
+                // it and no account either — one scope COARSER than the
+                // account-keyed port write that took a tester's radio off the
+                // air for five hours.
+                //
+                // What is here now: a per-radio opt-in whose default is to
+                // change nothing, a restore point captured on the radio BEFORE
+                // anything is applied, and the radio's own report of unsaved
+                // work consulted first. The decisions are all in
+                // ProfileStewardship.PlanConnect, where a test reaches them
+                // without a radio.
+                bool loadedOurGlobal = ApplyProfileStewardshipOnConnect();
+
+                if (loadedOurGlobal)
                 {
-                    return (theRadio.ProfileGlobalList.Contains(crnt[0].Name));
-                }, 3000))
-                {
-                    // load the selected profile.
-                    Tracing.TraceLine("getProfileInfo:global profile present " + crnt[0].Name, TraceLevel.Info);
-                    // Select the current profile and wait til loaded.
-                    globalProfileDesired = crnt[0].Name;
+                    // Wait for the load to land, exactly as before — a global
+                    // profile carries the whole station and the connect
+                    // sequence downstream reads slices that do not exist yet.
+                    globalProfileDesired = CurrentDesiredGlobalProfileName;
                     globalProfileLoaded = false;
-                    SelectProfile(crnt[0]);
-                    // Wait til loaded. (long wait)
-                    if (await(() =>
+                    if (await(() => globalProfileLoaded, 20000))
                     {
-                        return (globalProfileLoaded);
-                    }, 20000))
-                    {
-                        Tracing.TraceLine("getProfileInfo:global profile loaded " + crnt[0].Name, TraceLevel.Info);
+                        Tracing.TraceLine(
+                            "getProfileInfo:global profile loaded " + globalProfileDesired,
+                            TraceLevel.Info);
                     }
                 }
                 else
                 {
-                    if (crnt.Count > 0)
+                    // ARMING THE DISCONNECT-TIME CREATE IS ITSELF A WRITE, and
+                    // it used to happen whenever the operator's default global
+                    // profile was merely ABSENT from the radio — which is the
+                    // normal state of somebody else's radio. Now it needs the
+                    // same opt-in as everything else here, plus ownership,
+                    // because it CREATES a profile rather than loading one.
+                    var serial = theRadio?.Serial;
+                    bool mayCreateHere =
+                        !string.IsNullOrEmpty(serial)
+                        && RadioConfig.ProfileIntentOf(serial) == ProfileGuestIntent.LoadMineAndPutBack
+                        && RadioConfig.OwnershipOf(serial) == RadioOwnership.Mine;
+
+                    List<Profile_t> crnt = GetProfilesByType(ProfileTypes.global, GetDefaultProfiles());
+                    if (crnt.Count > 0 && mayCreateHere
+                        && !theRadio.ProfileGlobalList.Contains(crnt[0].Name))
                     {
                         // new profile, will get saved.
                         Tracing.TraceLine("GetProfileInfo:new profile" + crnt[0].Name, TraceLevel.Info);
                         newGlobalProfile = crnt[0].Name;
                     }
+                    else if (crnt.Count > 0)
+                    {
+                        Tracing.TraceLine(
+                            "GetProfileInfo: NOT arming the disconnect-time create of '"
+                            + crnt[0].Name + "' — creating a profile is only for a radio the "
+                            + "operator has opted in AND declared theirs.", TraceLevel.Info);
+                    }
                 }
-
-                // Load other profiles
-                crnt = GetProfilesByType(ProfileTypes.tx, GetDefaultProfiles());
-                if (crnt.Count > 0) SelectProfile(crnt[0]);
-
-                crnt = GetProfilesByType(ProfileTypes.mic, GetDefaultProfiles());
-                if (crnt.Count > 0) SelectProfile(crnt[0]);
             }
 
             // The silent-transmit check (#99). This is where branch

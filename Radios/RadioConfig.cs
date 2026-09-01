@@ -711,6 +711,128 @@ namespace Radios
         }
 
         // ---------------------------------------------------------------
+        // Whose profiles load on this radio, and what gets put back
+        // (#450, #451, ruled 2026-09-01).
+        //
+        // Before this, the operator's default profiles were a single set of
+        // NAMES applied to whatever radio connected — global, then transmit,
+        // then microphone — CREATING each on the radio when it was absent, and
+        // nothing put anything back at disconnect. On a borrowed station that
+        // means its owner picks up his hand microphone that evening and
+        // transmits through settings meant for somebody else's studio
+        // interface, with nothing having told him.
+        //
+        // Two things live here, and they are deliberately separate. The
+        // INTENT is the per-radio opt-in: until the operator answers, this
+        // radio's profiles are not touched at all. The three CHOICES are what
+        // to load once they have — one per profile type, because the radio
+        // stores the three independently and "my microphone profile on my
+        // 8600" and "my microphone profile on Don's 6300" are different
+        // answers to the same question.
+        //
+        // NOT AN OWNERSHIP DUPLICATE. Ownership answers "may JJ Flex CREATE
+        // things here as housekeeping" and is consulted for exactly that,
+        // through MayCreateRadioSideState. This answers "load mine here and
+        // put theirs back", which is a different permission with a different
+        // blast radius. Collapsing them would make a radio marked Mine
+        // silently opt in, which is the inference this whole area exists to
+        // refuse.
+        //
+        // APPEND-ONLY like the blocks around it: absent elements deserialise
+        // to NotAnswered and empty strings, so a config.xml written before
+        // this shipped reads as "never answered" — and that is a behaviour
+        // CHANGE on purpose. A radio that used to have profiles applied
+        // silently now has none applied until the operator says so once.
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Whether JJ Flexible may load the operator's profiles on this radio
+        /// and put the radio's own back afterwards. Default NotAnswered — the
+        /// first connect to a radio changes nothing, and the question is
+        /// raised once.
+        /// </summary>
+        public ProfileGuestIntent ProfileIntent { get; set; } = ProfileGuestIntent.NotAnswered;
+
+        /// <summary>The global profile to load on THIS radio. Empty means no
+        /// per-radio choice; the operator's default list is used instead.</summary>
+        public string ProfileChoiceGlobal { get; set; } = "";
+
+        /// <summary>The transmit profile to load on THIS radio.</summary>
+        public string ProfileChoiceTransmit { get; set; } = "";
+
+        /// <summary>The microphone profile to load on THIS radio.</summary>
+        public string ProfileChoiceMicrophone { get; set; } = "";
+
+        /// <summary>
+        /// The per-radio choice for one profile type, or empty when the
+        /// operator has expressed none. Callers fall back to the operator's
+        /// default list; this method deliberately does not, because "no
+        /// per-radio choice" and "the operator's default" are different facts
+        /// and only the caller knows the second one.
+        /// </summary>
+        public string ProfileChoiceFor(ProfileTypes type)
+        {
+            switch (type)
+            {
+                case ProfileTypes.global: return ProfileChoiceGlobal ?? "";
+                case ProfileTypes.tx: return ProfileChoiceTransmit ?? "";
+                case ProfileTypes.mic: return ProfileChoiceMicrophone ?? "";
+                default: return "";
+            }
+        }
+
+        /// <summary>Set the per-radio choice for one profile type. Empty
+        /// clears it, restoring the fall-through to the operator's default.
+        /// </summary>
+        public void SetProfileChoiceFor(ProfileTypes type, string profileName)
+        {
+            string value = profileName ?? "";
+            switch (type)
+            {
+                case ProfileTypes.global: ProfileChoiceGlobal = value; break;
+                case ProfileTypes.tx: ProfileChoiceTransmit = value; break;
+                case ProfileTypes.mic: ProfileChoiceMicrophone = value; break;
+            }
+        }
+
+        /// <summary>
+        /// The profile intent for a radio id, without the caller loading a
+        /// whole config. Unknown ids read as NotAnswered, which is the safe
+        /// answer. Never throws: a failed read must not be able to turn into a
+        /// write to somebody's radio.
+        /// </summary>
+        public static ProfileGuestIntent ProfileIntentOf(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return ProfileGuestIntent.NotAnswered;
+            try { return LoadForRadio(radioId).ProfileIntent; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.ProfileIntentOf: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return ProfileGuestIntent.NotAnswered;
+            }
+        }
+
+        /// <summary>
+        /// Record the operator's profile answer for a radio. Skips the disk
+        /// write when nothing changed. Returns false only when the value could
+        /// not reach disk — callers should still honour the answer for this
+        /// session, per <see cref="SaveForRadio"/>'s contract.
+        /// </summary>
+        public static bool RecordProfileIntent(string radioId, ProfileGuestIntent value)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            var cfg = LoadForRadio(radioId);
+            if (cfg.ProfileIntent == value) return true;
+            cfg.ProfileIntent = value;
+            Tracing.TraceLine(
+                $"RadioConfig: profile intent for {radioId} declared {value} by the operator.",
+                System.Diagnostics.TraceLevel.Info);
+            return cfg.SaveForRadio(radioId);
+        }
+
+        // ---------------------------------------------------------------
         // What unit the S-meter is read in (Sprint 38 Track C, #337).
         //
         // The mode itself is old and was correct; what it never had was a

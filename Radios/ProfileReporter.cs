@@ -644,6 +644,40 @@ namespace Radios
                         + " so at least one exists that this list does not show.");
             }
 
+            // What a profile actually holds, and what it does not (#225).
+            //
+            // The honest limitation, stated where somebody will read it rather
+            // than only in a design document. An operator putting a radio back
+            // — their own or somebody else's — needs to know that a profile
+            // restores what a profile stores, and that the radio keeps a whole
+            // class of setting outside profile scope which nothing here puts
+            // back. Both halves are listed, because "what is covered" without
+            // "what is not" reads as a promise.
+            //
+            // The list lives in ProfileStewardship.RestorePointCoverage() so
+            // the report, the restore offer and the help cannot drift into
+            // three different answers.
+            sb.AppendLine();
+            sb.AppendLine(new string('=', 60));
+            sb.AppendLine("WHAT A PROFILE HOLDS");
+            sb.AppendLine(new string('=', 60));
+            sb.AppendLine("Loading a profile puts these back:");
+            foreach (var entry in ProfileStewardship.RestorePointCoverage()
+                                                    .Where(c => c.CoveredByAProfile))
+            {
+                sb.AppendLine("  " + entry.What
+                    + (string.IsNullOrEmpty(entry.Note) ? "" : " - " + entry.Note));
+            }
+            sb.AppendLine();
+            sb.AppendLine("It does NOT put these back. The radio keeps them whatever");
+            sb.AppendLine("profile is loaded:");
+            foreach (var entry in ProfileStewardship.RestorePointCoverage()
+                                                    .Where(c => !c.CoveredByAProfile))
+            {
+                sb.AppendLine("  " + entry.What
+                    + (string.IsNullOrEmpty(entry.Note) ? "" : " - " + entry.Note));
+            }
+
             // Capture current state
             sb.AppendLine();
             sb.AppendLine(new string('=', 60));
@@ -662,18 +696,49 @@ namespace Radios
             // read-only parts above still make a useful report; the report
             // says what was left out and why, so a shorter report reads as
             // the setting working rather than the feature breaking.
-            if (rig.ChangeNothingActive)
+            // #414: A REPORT MUST NOT MUTATE, and this one did. Two refusals
+            // now, and the second is the one the ruling added.
+            //
+            // The hold has always been checked here. What was not is the
+            // per-radio profile answer (#450): on a radio the operator has
+            // never opted in, walking every stored profile in turn is exactly
+            // the write the opt-in exists to prevent, dressed as an
+            // inspection. Worse than a plain write, because the verb is
+            // "report" — nobody pressing it expects the radio to change, and
+            // the walk's restore is best-effort by construction.
+            //
+            // The read-only sections above still run, so a shorter report
+            // reads as the setting working rather than the feature breaking.
+            bool guestRefusesWalk =
+                rig.ProfileIntent != ProfileGuestIntent.LoadMineAndPutBack;
+
+            if (rig.ChangeNothingActive || guestRefusesWalk)
             {
                 sb.AppendLine();
                 sb.AppendLine(new string('=', 60));
                 sb.AppendLine("PROFILE COMPARISON SKIPPED");
                 sb.AppendLine(new string('=', 60));
-                sb.AppendLine("Change nothing is on for this radio. Comparing profiles");
-                sb.AppendLine("means loading each one on the radio in turn, so that part");
-                sb.AppendLine("of the report was left out. The setting is in Settings,");
-                sb.AppendLine("under Radios.");
+                if (rig.ChangeNothingActive)
+                {
+                    sb.AppendLine("Change nothing is on for this radio. Comparing profiles");
+                    sb.AppendLine("means loading each one on the radio in turn, so that part");
+                    sb.AppendLine("of the report was left out. The setting is in Settings,");
+                    sb.AppendLine("under Radios.");
+                }
+                else
+                {
+                    sb.AppendLine("Comparing profiles means loading each one on the radio in");
+                    sb.AppendLine("turn, which changes what the radio is set to while it runs.");
+                    sb.AppendLine("JJ Flexible has not been told it may load profiles on this");
+                    sb.AppendLine("radio, so that part of the report was left out. Everything");
+                    sb.AppendLine("above was read without changing anything. The answer is in");
+                    sb.AppendLine("the Radio menu, under Load My Profiles on This Radio.");
+                }
                 Tracing.TraceLine(
-                    "ProfileReporter: comparison pass skipped — change nothing is on for this radio",
+                    "ProfileReporter: comparison pass skipped — "
+                    + (rig.ChangeNothingActive
+                        ? "change nothing is on for this radio"
+                        : "this radio has not been opted in to profile loading (#414/#450)"),
                     TraceLevel.Warning);
             }
             else

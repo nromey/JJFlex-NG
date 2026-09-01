@@ -209,6 +209,12 @@ namespace Radios.Tests
         [InlineData("public bool SelectProfile(", "GuardRefuses(\"settings.guard.action.profile_load\")", 1000)]
         [InlineData("public bool SelectMicProfileIfPresent(", "GuardRefuses(\"settings.guard.action.profile_load\")", 900)]
         [InlineData("public bool SaveProfile(", "GuardRefuses(\"settings.guard.action.profile_save\")", 800)]
+        // The gap the #397 write-path audit found in this very list: under the
+        // hold you could still DELETE a profile off the radio while loading and
+        // saving one both refused. Delete is the most destructive of the three
+        // — a load is reversible and a save overwrites one profile, while a
+        // delete removes the only copy of somebody's station settings.
+        [InlineData("public bool DeleteProfile(", "GuardRefuses(\"settings.guard.action.profile_delete\")", 800)]
         public void TheOperatorFacingWriterRefusesAndSpeaks(string signature, string guard, int window)
         {
             AssertGuardInside(FlexBase, signature, guard, window);
