@@ -2091,6 +2091,19 @@ Module globals
 
         Tracing.TraceLine("GetConfigInfo:" & BaseConfigDir, TraceLevel.Info)
 
+        ' #316: an interface appearing or disappearing under a live session is a
+        ' state this app does not survive — bringing a VPN up crashes it. It has
+        ' never been root-caused for one recorded reason: tracing was off when it
+        ' happened. And even with tracing on, nothing in the tree had ever
+        ' subscribed to network change notifications, so a reader would have had
+        ' to infer "a VPN came up" from the shape of the wreckage.
+        '
+        ' Started here rather than inside the BootTrace block because it must be
+        ' subscribed whether or not a log is running now — a detailed capture
+        ' started later then has the event too. Started BEFORE any connect,
+        ' because the whole point is the change nobody was expecting.
+        Radios.NetworkChangeWatch.Start()
+
         ' Which speech backend is driving the user's ears, and whether braille
         ' is reachable. ScreenReaderOutput picks
         ' this in ApplicationEvents, which runs BEFORE tracing exists, so
