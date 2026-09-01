@@ -307,9 +307,9 @@ namespace Radios.Fixer
                 int watts = tuneCarrier ? (s?.TunePowerWatts ?? -1) : (s?.RfPowerWatts ?? -1);
                 string port = s?.AntennaPort ?? "";
                 string t = "";
+                // The unit word is TxPowerPhrasing's, not this file's (#444).
                 if (watts >= 0)
-                    t += " at " + watts.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                       + (watts == 1 ? " watt" : " watts");
+                    t += " at " + ChainChecks.TxPowerPhrasing.Setting(watts);
                 if (!string.IsNullOrWhiteSpace(port)) t += " into " + port.Trim();
                 // The MODE is omitted for a tune carrier, and that is not
                 // tidiness: a tune carrier is the radio's own unmodulated

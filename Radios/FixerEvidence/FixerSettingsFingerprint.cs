@@ -199,10 +199,11 @@ namespace Radios.Fixer.Evidence
         {
             readers = readers ?? new TransmitSettingReaders();
 
+            // The unit word is TxPowerPhrasing's, not this file's (#444).
             string Watts(Func<int?> read)
             {
                 int? v = SafeRead(read);
-                return v == null ? "" : v.Value.ToString(CultureInfo.InvariantCulture) + " watts";
+                return v == null ? "" : ChainChecks.TxPowerPhrasing.Setting(v.Value);
             }
 
             string OnOff(Func<bool?> read)
@@ -233,7 +234,12 @@ namespace Radios.Fixer.Evidence
                         ? a.ConfiguredHostApi : a.OpenHostApi;
                 }),
                 new FixerSettingProbe(PcAudio, "PC audio", () => OnOff(readers.PcAudioOn)),
-                new FixerSettingProbe(MicProfile, "Microphone profile", () =>
+                // NAMES WHOSE PROFILE (#446). This probe reads the RADIO's mic
+                // profile selection and used to be labelled "Microphone
+                // profile" — our own words for a microphone on this computer.
+                // In one report an operator therefore read "Microphone profile:
+                // empty" a few lines from "Mic profiles this radio offers: 27".
+                new FixerSettingProbe(MicProfile, "Mic profile on the radio", () =>
                 {
                     bool? empty = SafeRead(readers.MicProfileEmpty);
                     return empty == null ? "" : empty.Value ? "empty" : "has settings";
