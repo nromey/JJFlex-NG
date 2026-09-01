@@ -532,6 +532,12 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
 3a. **Dev directory mirror:** `backup-dev-to-nas.ps1` mirrors `C:\dev` to NAS `historical\dev-mirror\` (single rolling snapshot, overwrites previous). Captures non-git-recoverable material: vendor research clones (smartsdr-extracted, Dot Pad SDK, AetherSDR), per-project `.claude\` state, uncommitted worktree work. Excludes build artifacts (bin/obj/.vs) and dependency caches (node_modules/packages/target). Recovery window is "today only" — git is the time machine for source repos, dated history for memory and private already exists.
 
 > **Invocation note for these (and any other repo-root) .ps1 scripts:** they live at the **repo root** (`C:\dev\JJFlex-NG\`), NOT in a `scripts/` subdirectory. Invoke with PowerShell's call operator: `& "C:\dev\JJFlex-NG\backup-memory-to-nas.ps1"`. Avoid `powershell -File <path>` — when the path is invalid the failure still looks like success, but **not for the reason this line used to give.** Measured 2026-08-27: the wrapper exits **-196608**, not 0. That matters because batch files test it with `if errorlevel 1`, which is a **greater-than-or-equal** test, so a negative exit code sails straight through it. Guard by testing the file exists before calling it, not by checking the exit code afterwards. The same applies to other repo-root .ps1 helpers (build scripts, publish scripts).
+>
+> **The repo-root `.bat` files have their own trap, hit 2026-08-31:** from the
+> Bash tool, `cmd //c build-debug.bat` reports *"is not recognized as an internal
+> or external command"* even standing in the repo root. Run them through the
+> **PowerShell tool** with the call operator instead — `& "C:\dev\JJFlex-NGuild-debug.bat"`
+> — which works and gives you the script's own output.
 3b. **Dependency vulnerability check:** run `dotnet list package --vulnerable
    --include-transitive` from the repo root. Two seconds, and it is the only
    security gate in the seal. Any `NU1902`/`NU1903` line names a package with a
