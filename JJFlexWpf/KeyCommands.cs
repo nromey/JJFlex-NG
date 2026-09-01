@@ -937,31 +937,34 @@ public class KeyCommands
         // Transmit is checked FIRST, and the unit does not change that: while
         // keyed, the S-meter is not describing anyone's signal, so either unit
         // answers with real forward power exactly as Ctrl+S always has.
-        bool dbm = rig.SmeterInDBM;
-        int smeter = (int)rig.SMeter;
-        string msg;
-        if (rig.Transmit)
-            // Real watts, with their unit. This read "Power 0" for 174 mW of
-            // measured RF, and never named a unit at all.
-            msg = Radios.Lexicon.Get("audio.smeter.power",
-                ("power", Radios.FlexBase.FormatForwardPowerSpoken(rig.ForwardPowerWatts)));
-        else if (dbm)
-            // RawSMeter, not SMeter: the meter as the radio sent it. SMeter
-            // returns dBm too when the mode is on, so the two agree here — but
-            // RawSMeter says what it means without depending on a mode being
-            // read twice, and it answered a permanent zero until #295 fixed
-            // the field that shadowed it.
-            msg = Radios.SMeterReading.SpokenDbm(rig.RawSMeter);
-        else if (Radios.SMeterReading.IsOverS9(smeter))
-            // The excess comes from the one place that knows the rule. It was
-            // computed inline here and inline again in the status builder, and
-            // the two drifted — this one multiplied by ten, that one by six,
-            // so 4 dB over S9 was announced as "S9 plus 40" on one surface and
-            // "S9 plus 24" on the other.
-            msg = Radios.Lexicon.Get("audio.smeter.over_s9",
-                                     ("over", Radios.SMeterReading.ExcessOverS9(smeter)));
-        else
-            msg = Radios.Lexicon.Get("audio.smeter.s_units", ("smeter", smeter));
+        // The whole composition moved into SMeterReading.Spoken (#353) so the
+        // Home S-meter field could stop rendering its own version. It read its
+        // DISPLAY back verbatim, which in dBm produced "S meter -97" and above
+        // S9 produced "S meter plus 4". Every branch below is preserved
+        // exactly; the words simply live in one place now.
+        //
+        // Transmit is checked FIRST in there, and the unit does not change it:
+        // while keyed the meter is not describing anyone's signal, so either
+        // unit answers with real forward power — this read "Power 0" for 174 mW
+        // of measured RF before it named a unit.
+        //
+        // dBm reads RawSMeter, not SMeter: the meter as the radio sent it.
+        // SMeter returns dBm too when the mode is on, so the two agree — but
+        // RawSMeter says what it means without depending on a mode being read
+        // twice, and it answered a permanent zero until #295 fixed the field
+        // that shadowed it.
+        //
+        // The over-S9 excess comes from the one place that knows the rule. It
+        // was computed inline here and inline again in the status builder, and
+        // the two drifted — this one multiplied by ten, that one by six, so
+        // 4 dB over S9 was announced as "S9 plus 40" on one surface and
+        // "S9 plus 24" on the other.
+        string msg = Radios.SMeterReading.Spoken(
+            rig.Transmit,
+            Radios.FlexBase.FormatForwardPowerSpoken(rig.ForwardPowerWatts),
+            rig.SmeterInDBM,
+            rig.RawSMeter,
+            (int)rig.SMeter);
 
         // LATEST: an S-meter reading superseded by a newer one has no value -
         // the operator wants the signal now, not a recital of the last five.
@@ -1337,7 +1340,17 @@ public class KeyCommands
     private void ShowStatusDialogHandler()
     {
         var rig = _context.GetRigControl();
-        var dialog = new Dialogs.StatusDialog { Rig = rig };
+        var mw = _context.GetMainWindow();
+        // #320: tuning mode and active preset, from the same two accessors
+        // SpeakStatusHandler reads. Handed over as suppliers because the
+        // dialog rebuilds itself every five seconds and both values move
+        // while it is open.
+        var dialog = new Dialogs.StatusDialog
+        {
+            Rig = rig,
+            TuningModeStatus = mw == null ? null : mw.GetTuningModeStatus,
+            FilterPresetStatus = mw == null ? null : mw.GetFilterPresetStatus,
+        };
         dialog.ShowDialog();
     }
 

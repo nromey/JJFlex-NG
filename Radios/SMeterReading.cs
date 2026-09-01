@@ -227,5 +227,64 @@ namespace Radios
                  + ExcessOverS9(smeter).ToString(CultureInfo.InvariantCulture)
                  + " dB";
         }
+
+        /// <summary>
+        /// The whole spoken answer to "what is the meter reading?", in every
+        /// state the meter has: transmitting, receiving in dBm, receiving in
+        /// S-units, and receiving above S9.
+        /// </summary>
+        /// <param name="transmitting">Keyed. The meter is not describing
+        /// anyone's signal, so the honest answer is forward power.</param>
+        /// <param name="spokenForwardPower">Forward power already rendered
+        /// with its unit — <c>FlexBase.FormatForwardPowerSpoken</c>. Passed in
+        /// rather than computed here so this class stays a pure function of
+        /// numbers and can be tested without a radio.</param>
+        /// <param name="inDbm">The operator's persisted unit choice for this
+        /// radio.</param>
+        /// <param name="rawDbm">The meter as the radio sent it. Used only when
+        /// <paramref name="inDbm"/>, and read from <c>RawSMeter</c> so it does
+        /// not depend on a mode being read twice.</param>
+        /// <param name="sUnits">The meter in the app's S-unit encoding — which
+        /// is dB-over-S9 plus 9 above S9. See the trap in this class's own
+        /// remarks.</param>
+        /// <remarks>
+        /// <para>
+        /// <b>Written because two surfaces answered the same question
+        /// differently and one of them was wrong (#353).</b> Ctrl+S composed
+        /// this correctly. The Home S-meter field read its own DISPLAY back
+        /// verbatim into "S meter {reading}", so in dBm it said "S meter -97"
+        /// — a hyphen-minus, at the mercy of the reader's punctuation level,
+        /// which speaks as "dash 97", "minus 97" or just "97" depending on
+        /// settings nobody in this app controls. A reading of "97" that means
+        /// minus 97 dBm is not a degraded announcement, it is a wrong one.
+        /// </para>
+        /// <para>
+        /// <b>The same read-back also broke above S9</b>, where the display
+        /// carries "+4" and the field spoke "S meter plus 4" — four of what,
+        /// over what. Both are the one defect: a surface rendering a
+        /// measurement instead of asking the thing that knows how.
+        /// </para>
+        /// <para>
+        /// <b>Why this matters more than it used to.</b> dBm was a mode with
+        /// no key, no Settings control and no persistence — nobody could stay
+        /// in it by accident or across a restart. Since #337 it persists per
+        /// radio, so an operator who prefers dBm lives there for months and
+        /// every press of Space on that field was wrong for all of them.
+        /// </para>
+        /// </remarks>
+        public static string Spoken(bool transmitting, string spokenForwardPower,
+                                    bool inDbm, int rawDbm, int sUnits)
+        {
+            // Transmit first, and the unit choice does not change it: while
+            // keyed the meter is not a signal report at all.
+            if (transmitting)
+                return Lexicon.Get("audio.smeter.power", ("power", spokenForwardPower));
+
+            if (inDbm) return SpokenDbm(rawDbm);
+
+            return IsOverS9(sUnits)
+                ? Lexicon.Get("audio.smeter.over_s9", ("over", ExcessOverS9(sUnits)))
+                : Lexicon.Get("audio.smeter.s_units", ("smeter", sUnits));
+        }
     }
 }
