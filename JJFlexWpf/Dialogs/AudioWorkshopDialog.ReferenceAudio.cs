@@ -277,20 +277,6 @@ public partial class AudioWorkshopDialog
             return;
         }
 
-        // The reference rides the PC-audio transmit path, exactly as the test
-        // tone does, so it needs the identical preconditions — and reuses the
-        // rig's own answer rather than growing a second opinion about them.
-        string pathTrouble = rig.TxTonePathTrouble;
-        if (!string.IsNullOrEmpty(pathTrouble))
-        {
-            SetReferenceArmSilently(false);
-            EarconPlayer.Warning2Beep();
-            ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.reference.not_armed", ("reason", pathTrouble)),
-                VerbosityLevel.Critical, interrupt: true);
-            return;
-        }
-
         if (rig.TxToneEngaged)
         {
             SetReferenceArmSilently(false);
@@ -302,9 +288,41 @@ public partial class AudioWorkshopDialog
             return;
         }
 
+        // The reference rides the PC-audio transmit path, exactly as the test
+        // tone does, so it needs the identical preconditions — and goes through
+        // the identical helper (#458) rather than growing a second opinion
+        // about them. Whatever that helper learns to clear, both arms inherit.
+        WithInjectionPath(rig,
+            whenReady: pathNote => ArmReferenceNow(rig, pathNote),
+            whenRefused: reason =>
+            {
+                SetReferenceArmSilently(false);
+                EarconPlayer.Warning2Beep();
+                ScreenReaderOutput.Speak(
+                    Lexicon.Get("audio.reference.not_armed", ("reason", reason)),
+                    VerbosityLevel.Critical, interrupt: true);
+            });
+    }
+
+    /// <summary>
+    /// Arm the reference for real: the path is clear and the radio has said so.
+    /// </summary>
+    private void ArmReferenceNow(FlexBase rig, string pathNote)
+    {
+        // Same guard as the tone's: clearing the path can take up to a second,
+        // and an arm nobody still wants must not go through.
+        if (!StillWantsToArm(rig, _refArmCheck))
+        {
+            RestoreInjectionPath(rig, out _);
+            return;
+        }
+
         if (!LoadSelectedReference())
         {
             SetReferenceArmSilently(false);
+            // Nothing is going out, so anything the path helper changed to get
+            // here has to go back.
+            RestoreInjectionPath(rig, out _);
             return;
         }
 
@@ -316,9 +334,9 @@ public partial class AudioWorkshopDialog
         // transmit path and must sound alike. Only the success path tones;
         // every declined path above reverts the checkbox and warns instead.
         EarconPlayer.FeatureOnTone();
-        ScreenReaderOutput.Speak(
-            Lexicon.Get("audio.reference.armed", ("recording", _refLastDescription)),
-            VerbosityLevel.Critical, interrupt: true);
+        string line = Lexicon.Get("audio.reference.armed", ("recording", _refLastDescription));
+        if (!string.IsNullOrEmpty(pathNote)) line += " " + pathNote;
+        ScreenReaderOutput.Speak(line, VerbosityLevel.Critical, interrupt: true);
         UpdateReferenceStatus();
     }
 
@@ -329,17 +347,22 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void DisarmReference(bool speak, FlexBase? rig = null)
     {
-        (rig ?? _rig)?.TxFileStop();
+        FlexBase? live = rig ?? _rig;
+        live?.TxFileStop();
         _refPassRunning = false;
         SetReferenceArmSilently(false);
+        // #458: put the transmit input back if arming moved it, on every exit
+        // path — same rule, same helper, as the test tone's release.
+        RestoreInjectionPath(live, out string pathNote);
         // #128: tone only on the spoken (operator-visible) path — the silent
         // callers are the recording finishing on its own, dialog close, and
         // radio teardown, none of which is the operator toggling (#58 rule).
         if (speak)
         {
             EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.reference.disarmed"),
-                VerbosityLevel.Critical, interrupt: true);
+            string line = Lexicon.Get("audio.reference.disarmed");
+            if (!string.IsNullOrEmpty(pathNote)) line += " " + pathNote;
+            ScreenReaderOutput.Speak(line, VerbosityLevel.Critical, interrupt: true);
         }
         UpdateReferenceStatus();
     }
@@ -385,9 +408,18 @@ public partial class AudioWorkshopDialog
     /// A take just landed. Put it in the list and select it, so the obvious
     /// next thing — sending it — is one arm away.
     /// </summary>
+    /// <remarks>
+    /// It also becomes the newest take, which is what Play last take now plays
+    /// (#455). Before that, the take an operator had this second was invisible
+    /// to the only button in the dialog offering to play one.
+    /// </remarks>
     private void OnRecordingSaved(string path)
     {
-        Dispatcher.BeginInvoke(new Action(() => RefreshReferenceList(selectPath: path)));
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            _newestTakeIsAFile = true;
+            RefreshReferenceList(selectPath: path);
+        }));
     }
 
     /// <summary>
@@ -399,6 +431,10 @@ public partial class AudioWorkshopDialog
     {
         var rig = _rig;
         if (rig == null || _refArmCheck == null) return;
+        // Same reason as the tone's sync: an arm waiting on the radio is a
+        // ticked box with nothing running yet, and correcting it here would
+        // cancel the arm the operator just asked for (#458).
+        if (InjectionArmPending) return;
 
         bool engaged = rig.TxFilePlaying;
         bool armed = _refArmCheck.IsChecked == true;
@@ -410,9 +446,15 @@ public partial class AudioWorkshopDialog
             // would happen, silently, at the next key-down.
             _refPassRunning = false;
             EarconPlayer.ConfirmTone();
-            ScreenReaderOutput.Speak(
-                Lexicon.Get("audio.reference.finished"),
-                VerbosityLevel.Terse, interrupt: false);
+            // "Your microphone is back" has to be TRUE, and since #458 an arm
+            // may have moved the transmit input to get here — so this path
+            // restores it too, exactly as the operator-initiated disarm does.
+            // Without this the sentence would have been the lie the whole
+            // finding is about.
+            RestoreInjectionPath(rig, out string pathNote);
+            string finished = Lexicon.Get("audio.reference.finished");
+            if (!string.IsNullOrEmpty(pathNote)) finished += " " + pathNote;
+            ScreenReaderOutput.Speak(finished, VerbosityLevel.Terse, interrupt: false);
             SetReferenceArmSilently(false);
             UpdateReferenceStatus();
             return;

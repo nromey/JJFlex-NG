@@ -160,6 +160,30 @@ public static class RecordingStore
     }
 
     /// <summary>
+    /// The most recent recording in the folder, or null when there is none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Task #455 — this exists so that two buttons cannot hold two opinions
+    /// about where takes live.</b> "Play last take" answered "no recording yet"
+    /// while "Open recordings folder", one section away in the same dialog,
+    /// showed the files and another program played them. The two were asking
+    /// different stores: the folder button asked this class, and the play
+    /// button asked the RADIO's quick-record buffer, which is empty unless an
+    /// audio check has just recorded into it. Nothing was broken in either
+    /// path; the word "take" simply meant two things.
+    /// <para>
+    /// So the question "what is the last take?" is asked HERE, of the store the
+    /// folder button opens, by every caller that needs it. Adding a caller does
+    /// not add an opinion.
+    /// </para>
+    /// </remarks>
+    public static RecordingFile? Newest()
+    {
+        var all = Enumerate();          // already sorted newest first
+        return all.Count > 0 ? all[0] : null;
+    }
+
+    /// <summary>
     /// Open the recordings folder in File Explorer, creating it first, so
     /// recordings can be played, renamed, shared or deleted with ordinary
     /// tools.

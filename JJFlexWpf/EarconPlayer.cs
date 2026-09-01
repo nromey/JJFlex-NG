@@ -483,6 +483,63 @@ namespace JJFlexWpf
 
         #endregion
 
+        #region Recording Playback (task #455)
+
+        /// <summary>
+        /// The mixer's own format. Anything handed to
+        /// <see cref="AddRecordingPlayback"/> must already be in it.
+        /// </summary>
+        internal static WaveFormat RecordingPlaybackFormat =>
+            WaveFormat.CreateIeeeFloatWaveFormat(SampleRate, MixerChannels);
+
+        /// <summary>
+        /// Put an operator's own recording onto the alert channel, so a take
+        /// they just made can be heard on this computer without a radio and
+        /// without another program (<see cref="RecordingPlayer"/> is the only
+        /// caller; task #455).
+        /// </summary>
+        /// <remarks>
+        /// <b>Deliberately NOT gated on <see cref="EarconsEnabled"/>.</b> That
+        /// switch turns off the application's own noises — the confirmations
+        /// and warnings it makes up. A recording of the operator's voice is not
+        /// one of those: it is content they asked to hear, and an operator who
+        /// has turned earcons off has said nothing about wanting their own
+        /// recordings silenced. It IS gated on the render gate, because that
+        /// one is the claim "this run makes no sound at all" and a playback
+        /// that escaped it would make that claim false.
+        /// </remarks>
+        internal static bool AddRecordingPlayback(ISampleProvider stereoProvider)
+        {
+            if (!Radios.OutputChannelRecorder.RenderEnabled) return false;
+            if (AlertMixer == null) return false;
+            try
+            {
+                AlertMixer.AddMixerInput(stereoProvider);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.AddRecordingPlayback failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Take a recording back off the alert channel. Safe to call for a
+        /// provider the mixer has already dropped at end of file.
+        /// </summary>
+        internal static void RemoveRecordingPlayback(ISampleProvider stereoProvider)
+        {
+            if (AlertMixer == null) return;
+            try { AlertMixer.RemoveMixerInput(stereoProvider); }
+            catch (Exception ex)
+            {
+                Trace.WriteLine($"EarconPlayer.RemoveRecordingPlayback failed: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         #region Device Selection & Volume
 
         /// <summary>
