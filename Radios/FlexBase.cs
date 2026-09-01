@@ -15950,6 +15950,131 @@ namespace Radios
             }
         }
 
+        #region Opus profile and buffering (Sprint 43 Track J, #460 / #462)
+        // Everything below is PLUMBING. Every default reproduces the shipped
+        // behaviour exactly, and nothing in the application sets any of it yet.
+        // That is deliberate: the honest-tx-audio arc established that our wire
+        // bytes are indistinguishable from a working client's, on three
+        // independent witnesses, and changing an encode parameter casually
+        // would undo that with no way to attribute the regression afterwards.
+        // These exist so the change can be made ONE knob at a time, each
+        // independently measurable.
+
+        private static OpusEncodeProfile _opusTxEncodeProfile = OpusEncodeProfile.Shipped;
+
+        /// <summary>
+        /// The Opus encoder settings the transmit stream is built with:
+        /// channels, bitrate, encoder bandwidth and frame duration.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>There is no receive counterpart, and that asymmetry is the
+        /// finding rather than a gap (#460).</b> All four of these are
+        /// properties of an ENCODE. On receive the radio encodes and we decode,
+        /// an Opus packet carries its own channel count, bandwidth and frame
+        /// size in the TOC byte, and FlexLib offers nothing to ask the radio
+        /// for a leaner stream — <c>RequestRXRemoteAudioStream</c> takes one
+        /// boolean, compressed or not. So the receive side's only levers are
+        /// the decode rate and <see cref="RxAudioCallbacksPerSecond"/>.
+        /// </para>
+        /// <para>
+        /// <b>The width knob is the one to reach for first on transmit.</b>
+        /// SuperWideband is 12 kHz of audio bandwidth, and it then meets an SSB
+        /// transmit filter at 2.7 to 3 kHz: bits are being spent on audio the
+        /// far end is guaranteed to discard. Receive can legitimately want the
+        /// width; transmit into an SSB filter cannot use it.
+        /// </para>
+        /// </remarks>
+        public static OpusEncodeProfile OpusTxEncodeProfile
+        {
+            get { return _opusTxEncodeProfile; }
+            set
+            {
+                if (value == null)
+                {
+                    Tracing.TraceLine("FlexBase.OpusTxEncodeProfile: refusing null;"
+                        + " keeping " + _opusTxEncodeProfile.Describe(), TraceLevel.Error);
+                    return;
+                }
+                Tracing.TraceLine("FlexBase.OpusTxEncodeProfile: " + value.Describe(),
+                    TraceLevel.Info);
+                _opusTxEncodeProfile = value;
+            }
+        }
+
+        private static int _txAudioCallbacksPerSecond = JJPortaudio.AudioBuffering.DefaultCallbacksPerSecond;
+        private static int _rxAudioCallbacksPerSecond = JJPortaudio.AudioBuffering.DefaultCallbacksPerSecond;
+
+        /// <summary>
+        /// Callbacks per second on the transmit capture stream. Ten is a 100 ms
+        /// buffer and is what has always shipped.
+        /// </summary>
+        /// <remarks>
+        /// <b>This is the dominant latency term, and until now it was a default
+        /// argument no caller had ever passed (#462).</b> Ten callbacks a second
+        /// wraps a 100 ms buffer around 10 ms Opus frames — an order of
+        /// magnitude more delay than the codec itself contributes, and codec
+        /// delay is what discussions of latency usually reach for. Raising this
+        /// lowers latency and lowers the tolerance for PC scheduling jitter;
+        /// they are the same trade seen from two ends.
+        /// </remarks>
+        public static int TxAudioCallbacksPerSecond
+        {
+            get { return _txAudioCallbacksPerSecond; }
+            set
+            {
+                _txAudioCallbacksPerSecond = ValidateCallbackRate(value, "transmit",
+                    _txAudioCallbacksPerSecond, OpusTxEncodeProfile.FrameDuration);
+            }
+        }
+
+        /// <summary>
+        /// Callbacks per second on the receive playback stream. Ten is a 100 ms
+        /// buffer and is what has always shipped.
+        /// </summary>
+        /// <remarks>
+        /// <b>Separate from the transmit figure on purpose, because the two
+        /// fail differently.</b> The playback callback must find a whole
+        /// buffer's worth of decoded audio queued at the instant it runs, and
+        /// fills the rest with silence when it does not. At 100 ms that is ten
+        /// consecutive 10 ms packets that all have to have arrived, and one
+        /// late packet costs 100 ms of silence rather than 10. Nothing primes
+        /// the queue before playback starts, so the reserve it runs on is
+        /// whatever the first moments happened to leave there.
+        /// </remarks>
+        public static int RxAudioCallbacksPerSecond
+        {
+            get { return _rxAudioCallbacksPerSecond; }
+            set
+            {
+                // The RADIO's frame duration bounds this one, not ours — see
+                // the receive stream's open. Hence the shipped profile here.
+                _rxAudioCallbacksPerSecond = ValidateCallbackRate(value, "receive",
+                    _rxAudioCallbacksPerSecond, OpusEncodeProfile.Shipped.FrameDuration);
+            }
+        }
+
+        /// <summary>
+        /// Refuse a callback rate that cannot hold one whole Opus frame, or one
+        /// below one callback a second. <c>Audio.Open</c> refuses too — this is
+        /// the early, nameable refusal, not the only one.
+        /// </summary>
+        private static int ValidateCallbackRate(int value, string direction, int current,
+            POpusCodec.Enums.Delay frameDuration)
+        {
+            double ceiling = JJPortaudio.AudioBuffering.PacketsPerSecond(frameDuration);
+            if (value < 1 || value > ceiling)
+            {
+                Tracing.TraceLine("FlexBase." + direction + " audio callbacks/second: " + value
+                    + " is outside 1 to " + ceiling.ToString("F0")
+                    + " (a buffer must hold at least one whole Opus frame); keeping "
+                    + current, TraceLevel.Error);
+                return current;
+            }
+            return value;
+        }
+        #endregion
+
         /// <summary>
         /// Resolve one end of the PC-audio path, speaking whenever the answer is
         /// not the one the operator configured.
@@ -16472,7 +16597,26 @@ namespace Radios
             }
             opusOutputChannel = new audioChannelData(rxStream, "JJFlexRadio.OpusOutputChan");
             opusOutputChannel.PortAudioStream = new JJAudioStream();
-            opusOutputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.output, opusRxSampleRate);
+            // Track J (#462): the callback rate is passed rather than defaulted.
+            // It was a default argument nobody had ever supplied, which is how
+            // the largest term in the latency budget came to be a number no one
+            // had chosen. The value is still 10 — a 100 ms buffer, exactly what
+            // has always shipped — but it is now named at the call site and
+            // settable per direction.
+            //
+            // The SHIPPED profile here, deliberately, and never the transmit
+            // one (#460). The only thing a profile contributes to an output
+            // stream is the frame duration it sizes buffers from, and on
+            // receive that duration belongs to the RADIO — it sends 10 ms
+            // packets and our choice of transmit frame has nothing to say about
+            // it. Passing the transmit profile would compile, behave
+            // identically today, and quietly make a transmit setting reach into
+            // the receive path. Everything else in a profile is an encode
+            // parameter, and we do not encode on this side: an Opus packet
+            // carries its own channel count, bandwidth and frame size, so the
+            // decoder reads all three off the wire.
+            opusOutputChannel.PortAudioStream.OpenOpus(Devices.DeviceTypes.output, opusRxSampleRate,
+                null, null, RxAudioCallbacksPerSecond, OpusEncodeProfile.Shipped);
             // Boost Opus output to compensate for low remote audio levels.
             // The Opus decode path bypasses FlexLib's RXGain scalar, so decoded audio
             // is at raw codec level which is typically too quiet for laptop speakers
@@ -16594,7 +16738,8 @@ namespace Radios
             // the wrong trade.
             uint txRate = OpusTxSampleRateSetting;
             opusInputAvailable = opusInputChannel.PortAudioStream.OpenOpus(
-                Devices.DeviceTypes.input, txRate, sendOpusInput);
+                Devices.DeviceTypes.input, txRate, sendOpusInput,
+                null, TxAudioCallbacksPerSecond, OpusTxEncodeProfile);
             if (!opusInputAvailable)
             {
                 Tracing.TraceLine("remoteAudioProc:opus input channel did not open;"

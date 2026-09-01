@@ -120,6 +120,48 @@ namespace JJPortaudio
         }
 
         /// <summary>
+        /// Log what PortAudio reports about a freshly opened stream: the
+        /// driver's own latency claim, and the rate it really settled on.
+        /// </summary>
+        /// <remarks>
+        /// Track J, 2026-09-01 (#462). Our side of the latency budget is
+        /// arithmetic and can be read off the source; the driver's side cannot,
+        /// and PortAudio has been offering it through <c>Pa_GetStreamInfo</c>
+        /// all along with nothing calling it. Logged once per open, so a
+        /// session's trace carries the figure without anyone having to
+        /// reproduce anything.
+        /// <para>
+        /// Reported latency is a CLAIM, not a measurement — WASAPI and MME
+        /// derive it differently and neither is obliged to be right. The
+        /// callback-timing figures in the close summary are the measurement;
+        /// this is what the driver said it would be.
+        /// </para>
+        /// </remarks>
+        private static void traceStreamLatency(Audio.StreamCB cb)
+        {
+            try
+            {
+                PortAudio.PaStreamInfo info = PortAudio.Pa_GetStreamInfo(cb.Stream);
+                bool isInput = (cb.Device.Type == Devices.DeviceTypes.input);
+                double reported = isInput ? info.inputLatency : info.outputLatency;
+                cb.ReportedDeviceLatency = reported;
+                Tracing.TraceLine("audio " + (isInput ? "input" : "output")
+                    + " stream latency: PortAudio reports "
+                    + (reported * 1000).ToString("F1") + " ms for the device,"
+                    + " on top of our own "
+                    + AudioBuffering.BufferMilliseconds(cb.BufferSize, cb.SampleRate).ToString("F1")
+                    + " ms buffer (stream rate " + info.sampleRate.ToString("F0") + " Hz)",
+                    TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                // Never fail an open over a diagnostic.
+                Tracing.TraceLine("audio stream latency: Pa_GetStreamInfo failed, "
+                    + ex.Message, TraceLevel.Info);
+            }
+        }
+
+        /// <summary>
         /// Channels to open on a saved device: stereo when it has two or more,
         /// mono when it genuinely has one. Mirrors
         /// <see cref="Devices.DeviceInfo.OpenChannels"/> for the persisted
@@ -414,6 +456,7 @@ namespace JJPortaudio
                                 else
                                 {
                                     item.StreamBlock.Open = true;
+                                    traceStreamLatency(item.StreamBlock);
                                 }
                             }
                         }
@@ -572,7 +615,14 @@ namespace JJPortaudio
                 set
                 {
                     _encoder = value;
-                    TxPipeline.Encode = (value != null) ? value.Encode : (Func<float[], byte[]>)null;
+                    // Track J, 2026-09-01 (#460): the encode step is now built
+                    // from the encoder rather than being its Encode method
+                    // directly, because a MONO encoder needs the pipeline's
+                    // interleaved-stereo frame folded first. The choice is
+                    // derived from the encoder's own InputChannels, so a stereo
+                    // encoder still gets exactly value.Encode and the two can
+                    // never disagree about which shape is in flight.
+                    TxPipeline.Encode = OpusEncodeProfile.BuildEncodeStep(value);
                 }
             }
             public OpusDecoder Decoder;
@@ -710,6 +760,27 @@ namespace JJPortaudio
             // TxStart and TxStop without correlating anything by hand.
             public long StarvationWindowTick;   // Environment.TickCount64 of the open window
             public long StarvationInWindow;     // starvations counted in it
+            // Track J, 2026-09-01 (#462): the device half of the latency
+            // budget, measured rather than assumed.
+            //
+            // PortAudio hands every callback a PaStreamCallbackTimeInfo, and
+            // both callbacks discarded it. It carries the only figure this
+            // side of the link cannot compute: how far ahead of the DAC we are
+            // writing (output), or how long ago the ADC captured what we are
+            // reading (input). Our own buffer arithmetic is exact and knowable
+            // from the source; the driver's is not.
+            //
+            // Min and max only, accumulated with two comparisons per callback
+            // and reported in the close summary. A per-callback line here is
+            // the trace flood that has cost this project two sessions.
+            public double DeviceLatencyMin = double.MaxValue;
+            public double DeviceLatencyMax;
+            public long DeviceLatencySamples;
+            // What PortAudio reported for the stream at open, in seconds. This
+            // is the driver's own claim about its buffering, separate from what
+            // the callback timing measures — the two disagreeing is itself
+            // worth seeing.
+            public double ReportedDeviceLatency;
         }
         internal class staticQueues
         {
@@ -834,9 +905,16 @@ namespace JJPortaudio
         /// <param name="useOpus">(optional) true if for opus input</param>
         /// <param name="outputCallback">(optional) output callback</param>
         /// <param name="cbPerSec">(optional) callbacks per sec, default 10</param>
+        /// <param name="profile">
+        /// (optional) the Opus ENCODER settings for this stream. Null means
+        /// <see cref="OpusEncodeProfile.Shipped"/>, which reproduces exactly
+        /// what this method built before the profile existed.
+        /// </param>
         /// <returns>new Device, null on failure</returns>
         internal bool Open(Devices.DeviceTypes inOut, uint rate, bool useOpus=false,
-            PortAudio.PaStreamCallbackDelegate outputCallback = null, int cbPerSec = 10)
+            PortAudio.PaStreamCallbackDelegate outputCallback = null,
+            int cbPerSec = AudioBuffering.DefaultCallbacksPerSecond,
+            OpusEncodeProfile profile = null)
         {
             CBData.Device = (inOut == Devices.DeviceTypes.input) ?
                 inDevice : outDevice;
@@ -911,14 +989,44 @@ namespace JJPortaudio
                             TraceLevel.Error);
                         return false;
                 }
+                // Track J, 2026-09-01 (#460): every encoder decision now comes
+                // from one profile instead of three literals written here.
+                // Passing null gives OpusEncodeProfile.Shipped, which builds
+                // the identical encoder these three lines did — stereo,
+                // SuperWideband, 10 ms frames, application Audio, no bitrate
+                // set. The old form constructed at 20 ms and then reassigned
+                // EncoderDelay; the state it left behind is the same state the
+                // four-argument constructor reaches directly.
+                var opusProfile = profile ?? OpusEncodeProfile.Shipped;
                 // always create the encoder to get values for bufSZ.
-                CBData.Encoder = new OpusEncoder(oRate, POpusCodec.Enums.Channels.Stereo);
-                CBData.Encoder.MaxBandwidth = POpusCodec.Enums.Bandwidth.SuperWideband;
-                CBData.Encoder.EncoderDelay = POpusCodec.Enums.Delay.Delay10ms;
-                CBData.OpusFrameSZ = (uint)CBData.Encoder.FrameSizePerChannel * 2;
-                // Get a buffer size to yield 10 callbacks/second.
-                float channelsPerDecisec = (float)openRate / (float)CBData.Encoder.FrameSizePerChannel / cbPerSec;
-                bufSZ = (uint)(channelsPerDecisec * (float)CBData.OpusFrameSZ);
+                CBData.Encoder = opusProfile.CreateEncoder(oRate);
+                // The PIPELINE's frame, not the codec's: the transmit chain is
+                // interleaved stereo end to end whatever the encoder's channel
+                // count is, and a mono encoder is fed by folding at the encode
+                // step (see OpusEncodeProfile.BuildEncodeStep). Writing
+                // Devices.StreamChannels rather than a bare 2 says which of the
+                // two channel counts this one is — the value is unchanged.
+                CBData.OpusFrameSZ = (uint)CBData.Encoder.FrameSizePerChannel
+                    * (uint)Devices.StreamChannels;
+                // The buffer that holds cbPerSec callbacks' worth of that.
+                // Extracted to AudioBuffering, float arithmetic and all, so the
+                // dominant latency term is nameable and testable (#462).
+                bufSZ = AudioBuffering.OpusBufferFloats(
+                    openRate, CBData.Encoder.FrameSizePerChannel, cbPerSec);
+                if (bufSZ < CBData.OpusFrameSZ)
+                {
+                    // Below one whole Opus frame per callback the arithmetic
+                    // above truncates toward zero, and a stream opened with a
+                    // buffer of nothing is an absent audio path rather than a
+                    // degraded one. Refuse, and say which number caused it.
+                    Tracing.TraceLine("Audio.Open:" + cbPerSec + " callbacks/second leaves "
+                        + bufSZ + " floats per buffer, less than the " + CBData.OpusFrameSZ
+                        + " one Opus frame needs at " + openRate + " Hz; refusing to open",
+                        TraceLevel.Error);
+                    CBData.Encoder.Dispose();
+                    CBData.Encoder = null;
+                    return false;
+                }
                 // We'll use bufSZ for input and output.
                 if (inOut == Devices.DeviceTypes.input)
                 {
@@ -928,8 +1036,26 @@ namespace JJPortaudio
                 {
                     CBData.Encoder.Dispose();
                     CBData.Encoder = null;
+                    // The decoder stays STEREO regardless of the profile, and
+                    // that is not an oversight (#460). Channel count is a
+                    // property of an encode: an Opus packet is self-describing
+                    // and a stereo decoder upmixes a mono packet transparently,
+                    // so this number describes the shape of OUR playback path —
+                    // the queue and the output callback are interleaved stereo —
+                    // and not anything about the wire. Making it mono would
+                    // halve every decoded buffer and desynchronise the queue.
                     CBData.Decoder = new OpusDecoder(oRate, POpusCodec.Enums.Channels.Stereo);
                 }
+                Tracing.TraceLine("Audio.Open:opus "
+                    + ((inOut == Devices.DeviceTypes.input) ? "encode" : "decode")
+                    + " at " + openRate + " Hz, " + opusProfile.Describe()
+                    + "; " + cbPerSec + " callback(s)/second = "
+                    + AudioBuffering.BufferMilliseconds(bufSZ, openRate).ToString("F1")
+                    + " ms of buffer, "
+                    + AudioBuffering.PacketsPerSecond(opusProfile.FrameDuration).ToString("F0")
+                    + " packets/second carrying "
+                    + (AudioBuffering.HeaderBitsPerSecond(opusProfile.FrameDuration) / 1000).ToString("F1")
+                    + " kbps of header before any audio", TraceLevel.Info);
             }
             else
             {
@@ -1020,7 +1146,15 @@ namespace JJPortaudio
 
             // Interleaved stereo: OpusFrameSZ counts floats across both
             // channels, the clock counts samples per channel.
-            int samplesPerFrame = (int)(cb.OpusFrameSZ / 2);
+            //
+            // Read from the encoder rather than divided out of OpusFrameSZ
+            // (Track J, 2026-09-01). Identical today and it stays identical
+            // under a mono profile, because the fold to mono happens at the
+            // encode step and the pipeline this clock feeds is stereo either
+            // way — whereas dividing by a literal 2 would have quietly become
+            // a claim about the CODEC's channel count rather than the
+            // pipeline's.
+            int samplesPerFrame = cb.Encoder.FrameSizePerChannel;
 
             // Noel, 2026-08-24: "make sure that the sample rate doesn't
             // change." A kept clock that no longer matches the stream would
@@ -1242,6 +1376,75 @@ namespace JJPortaudio
             Tracing.TraceLine(sb.ToString(), TraceLevel.Error);
         }
 
+        /// <summary>
+        /// Record the device-path latency PortAudio reports for THIS callback
+        /// (#462). Two comparisons and a counter; nothing is logged here.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// On output, <c>outputBufferDacTime - currentTime</c> is how far ahead
+        /// of the converter we are writing. On input,
+        /// <c>currentTime - inputBufferAdcTime</c> is how long ago the oldest
+        /// sample in this buffer was captured. Together with our own buffer
+        /// size — which is arithmetic, and exact — they are the whole of the
+        /// PC-side latency budget.
+        /// </para>
+        /// <para>
+        /// <b>Not every host API fills this in.</b> A zero, a negative or a
+        /// non-finite value means "not supplied", and is skipped rather than
+        /// averaged in: an instrument that quietly reports zero latency because
+        /// the driver declined to answer is worse than no instrument. The
+        /// summary says how many callbacks actually carried a figure.
+        /// </para>
+        /// </remarks>
+        private static void noteDeviceLatency(StreamCB data,
+            ref PortAudio.PaStreamCallbackTimeInfo timeInfo, bool isInput)
+        {
+            double seconds = isInput
+                ? timeInfo.currentTime - timeInfo.inputBufferAdcTime
+                : timeInfo.outputBufferDacTime - timeInfo.currentTime;
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds <= 0) return;
+            if (seconds < data.DeviceLatencyMin) data.DeviceLatencyMin = seconds;
+            if (seconds > data.DeviceLatencyMax) data.DeviceLatencyMax = seconds;
+            data.DeviceLatencySamples++;
+        }
+
+        /// <summary>
+        /// The latency companion to <see cref="traceStatusFlagSummary"/>,
+        /// logged when a stream's callback completes.
+        /// </summary>
+        /// <remarks>
+        /// Reports the measured device path, our own buffer, and their sum —
+        /// which is this computer's entire contribution to the delay an
+        /// operator hears. What it deliberately does NOT claim is an end-to-end
+        /// figure: the network and the radio are the other half, and neither is
+        /// visible from here. See the track report for the bench measurement
+        /// that closes the loop.
+        /// </remarks>
+        private static void traceLatencySummary(StreamCB data, string streamName)
+        {
+            double ourBufferMs = AudioBuffering.BufferMilliseconds(data.BufferSize, data.SampleRate);
+            if (data.DeviceLatencySamples == 0)
+            {
+                Tracing.TraceLine("audio " + streamName + " latency summary: this host API"
+                    + " supplied no callback timing, so only our own buffer is known — "
+                    + ourBufferMs.ToString("F1") + " ms, plus a device path PortAudio claimed"
+                    + " would be " + (data.ReportedDeviceLatency * 1000).ToString("F1") + " ms",
+                    TraceLevel.Info);
+                return;
+            }
+            double minMs = data.DeviceLatencyMin * 1000;
+            double maxMs = data.DeviceLatencyMax * 1000;
+            Tracing.TraceLine("audio " + streamName + " latency summary: device path measured "
+                + minMs.ToString("F1") + " to " + maxMs.ToString("F1") + " ms over "
+                + data.DeviceLatencySamples + " callbacks (PortAudio claimed "
+                + (data.ReportedDeviceLatency * 1000).ToString("F1") + " ms at open); our buffer "
+                + ourBufferMs.ToString("F1") + " ms; this computer contributes "
+                + (minMs + ourBufferMs).ToString("F1") + " to "
+                + (maxMs + ourBufferMs).ToString("F1")
+                + " ms, network and radio excluded", TraceLevel.Info);
+        }
+
         private static PortAudio.PaStreamCallbackResult inputCallback(IntPtr inbuf,
                 IntPtr outbuf,
                 uint frameCount,
@@ -1257,6 +1460,7 @@ namespace JJPortaudio
             // Threads Track: read the glitch report before anything else —
             // a final callback can carry flags too.
             noteStatusFlags(data, statusFlags, "input");
+            noteDeviceLatency(data, ref timeInfo, true);
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
             if (!data.Active)
@@ -1399,6 +1603,7 @@ namespace JJPortaudio
                 // Threads Track: the stream is completing — report the
                 // glitch totals for its whole life.
                 traceStatusFlagSummary(data, "input");
+                traceLatencySummary(data, "input");
             }
             return rv;
         }
@@ -1418,6 +1623,7 @@ namespace JJPortaudio
             // Threads Track: read the glitch report before anything else —
             // a final callback can carry flags too.
             noteStatusFlags(data, statusFlags, "output");
+            noteDeviceLatency(data, ref timeInfo, false);
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
             if (!data.Active)
@@ -1536,6 +1742,7 @@ namespace JJPortaudio
             if (rv != PortAudio.PaStreamCallbackResult.paContinue)
             {
                 traceStatusFlagSummary(data, "output");
+                traceLatencySummary(data, "output");
                 // Track B (#29): the queue-side companion summary. Zero
                 // starvation is evidence too — with statusFlags also clean it
                 // acquits the whole playback side and points the click hunt
