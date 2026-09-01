@@ -4708,8 +4708,22 @@ RadioConnected:
                 WpfMainWindow.RigControl = RigControl
                 WpfMainWindow.OpenParms = OpenParms
                 WpfMainWindow.CloseRadioCallback = AddressOf CloseTheRadio
+                ' #331. Wired BEFORE Start() is called, and _radioPowerOn goes
+                ' true inside Start() — so an SSL or SmartLink drop during the
+                ' connect raises this box while ConnectingForm is still up,
+                ' TopMost, and re-activating itself five times a second. The
+                ' connecting form is not closed until after Start() and all its
+                ' retries. The attention claim is what stands that timer down
+                ' and drops its TopMost for the duration; without it a blind
+                ' operator has a modal they cannot reach in front of an
+                ' application they cannot use.
                 WpfMainWindow.ShowErrorCallback = Sub(msg, title)
-                                                      MessageBox.Show(AppShellForm, msg, title, MessageBoxButtons.OK, MessageBoxIcon.Error)
+                                                      Radios.WindowFocusForcer.PushAttentionWindow()
+                                                      Try
+                                                          MessageBox.Show(AppShellForm, msg, title, MessageBoxButtons.OK, MessageBoxIcon.Error)
+                                                      Finally
+                                                          Radios.WindowFocusForcer.PopAttentionWindow()
+                                                      End Try
                                                   End Sub
                 ' The daily-trace call that used to sit here is gone. Nothing in
                 ' the app ever set KeepDailyTraceLogs, and the always-on log with
