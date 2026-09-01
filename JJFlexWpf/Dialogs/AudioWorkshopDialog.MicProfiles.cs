@@ -81,7 +81,15 @@ public partial class AudioWorkshopDialog
 
     private void BuildMicProfileSection()
     {
-        AddSectionHeader(ThisComputerContent, "Microphone Profiles");
+        // "MICROPHONE SETUPS", NOT "MICROPHONE PROFILES" (#446). Two different
+        // things were called a microphone profile a few controls apart: OUR
+        // saved settings for one microphone on THIS COMPUTER, and the radio's
+        // own stored transmit-audio chains. Noel: "audio workshop, it says no
+        // mic profiles are saved, there are actually 27 or so profiles on this
+        // radio." Both statements were true, which was the problem. The RADIO's
+        // keeps "mic profile" — it is FlexRadio's word, it is in SmartSDR, and
+        // hams already know it — and ours takes a different one.
+        AddSectionHeader(ThisComputerContent, "Microphone Setups");
 
         // The silent-transmit warning (#99) leads the section, because when it
         // applies it outranks everything below it: no microphone profile the
@@ -134,11 +142,12 @@ public partial class AudioWorkshopDialog
         _silentTxFixButton.Click += (s, e) => LoadMicProfileForSilentTx();
         AddToSection(ThisComputerContent, _silentTxFixButton);
 
-        _micProfileControl = MakeCycle("Microphone profile", new[] { NoMicProfilesOption });
+        _micProfileControl = MakeCycle("Microphone setup", new[] { NoMicProfilesOption });
         JJFlexHelp.SetText(_micProfileControl,
-            "A saved setup for one microphone: its computer settings plus, per "
-            + "radio, the radio's own mic profile to load. Apply puts it into "
-            + "effect; nothing changes until you do.");
+            "One microphone on this computer, saved by name: its computer "
+            + "settings, plus which of the radio's own mic profiles to load "
+            + "when you use it on that radio. These are stored here, not on any "
+            + "radio. Apply puts one into effect; nothing changes until you do.");
         AddToSection(ThisComputerContent, _micProfileControl);
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2) };
@@ -147,18 +156,18 @@ public partial class AudioWorkshopDialog
         // also match with Shift held, and every new letter here would need
         // auditing against the global Alt+Shift chords (see the toolbar note
         // at the top of the XAML).
-        var applyBtn = new Button { Content = "Apply Profile", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 4, 0) };
-        AutomationProperties.SetName(applyBtn, "Apply microphone profile");
+        var applyBtn = new Button { Content = "Apply Setup", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 4, 0) };
+        AutomationProperties.SetName(applyBtn, "Apply microphone setup");
         applyBtn.Click += (s, e) => ApplyMicProfile();
         buttons.Children.Add(applyBtn);
 
-        var saveBtn = new Button { Content = "Save Profile...", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 4, 0) };
-        AutomationProperties.SetName(saveBtn, "Save microphone profile");
+        var saveBtn = new Button { Content = "Save Setup...", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 0, 4, 0) };
+        AutomationProperties.SetName(saveBtn, "Save microphone setup");
         saveBtn.Click += (s, e) => SaveMicProfile();
         buttons.Children.Add(saveBtn);
 
-        var deleteBtn = new Button { Content = "Delete Profile", Padding = new Thickness(8, 4, 8, 4) };
-        AutomationProperties.SetName(deleteBtn, "Delete microphone profile");
+        var deleteBtn = new Button { Content = "Delete Setup", Padding = new Thickness(8, 4, 8, 4) };
+        AutomationProperties.SetName(deleteBtn, "Delete microphone setup");
         deleteBtn.Click += (s, e) => DeleteMicProfile();
         buttons.Children.Add(deleteBtn);
 
@@ -406,20 +415,20 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void SaveMicProfile()
     {
-        var dialog = new JJFlexDialog { Title = "Save Microphone Profile", Width = 480, Height = 320 };
+        var dialog = new JJFlexDialog { Title = "Save Microphone Setup", Width = 480, Height = 320 };
         dialog.ResizeMode = ResizeMode.NoResize;
         var panel = new StackPanel { Margin = new Thickness(12) };
 
         var prompt = new TextBlock
         {
-            Text = "Name this microphone (an existing name updates that profile):",
+            Text = "Name this microphone (an existing name updates that setup):",
             Margin = new Thickness(0, 0, 0, 8),
             TextWrapping = TextWrapping.Wrap,
         };
         panel.Children.Add(prompt);
 
         var nameBox = new TextBox { Margin = new Thickness(0, 0, 0, 8) };
-        AutomationProperties.SetName(nameBox, "Microphone profile name");
+        AutomationProperties.SetName(nameBox, "Microphone setup name");
         string current = _micProfileControl?.SelectedOption ?? "";
         if (!string.IsNullOrEmpty(current) && current != NoMicProfilesOption)
             nameBox.Text = current;
@@ -467,7 +476,7 @@ public partial class AudioWorkshopDialog
                     IsChecked = true,
                 };
                 JJFlexHelp.SetText(referenceOption,
-                    "The radio keeps its own mic profile; this profile just names "
+                    "The radio keeps its own mic profiles; this setup just names "
                     + "which one to load. Nothing is copied, so other clients and "
                     + "this app always agree.");
                 panel.Children.Add(referenceOption);
@@ -517,7 +526,7 @@ public partial class AudioWorkshopDialog
 
             snapshotOption = new RadioButton
             {
-                Content = "Snapshot the radio's TX settings into this profile",
+                Content = "Snapshot the radio's TX settings into this setup",
                 Margin = new Thickness(0, 2, 0, 2),
                 GroupName = "MicProfileRadioHalf",
                 // Snapshotting writes nothing to the radio — it copies the
@@ -530,11 +539,11 @@ public partial class AudioWorkshopDialog
             };
             JJFlexHelp.SetText(snapshotOption,
                 "Copies mic gain, EQ, compander, processor and filter values "
-                + "into the profile file. Nothing is written to the radio by "
-                + "saving — but applying this profile later would set those "
-                + "values on the radio, so on a radio that is not yours the "
+                + "into this setup, here on this computer. Nothing is written to "
+                + "the radio by saving — but applying this setup later would set "
+                + "those values on the radio, so on a radio that is not yours the "
                 + "computer-settings-only choice is the safe one. The shape "
-                + "used for radios that have no profile system of their own; "
+                + "used for radios that have no mic profiles of their own; "
                 + "on a Flex, referencing is usually the better choice.");
             panel.Children.Add(snapshotOption);
         }

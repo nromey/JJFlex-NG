@@ -69,20 +69,22 @@ Right below the Audio Check. Arm **Test tone instead of microphone** and a clean
 
 The tone rides the PC audio path, so it needs PC audio on and the radio's transmit input set to PC — if either is off, arming tells you exactly what to change instead of pretending to work. And in CW mode the PC transmit audio path does not run at all, so the tone waits for a voice mode.
 
-### Microphone Profiles — one name for everything a mic needs
+### Microphone Setups — one name for everything a mic needs
 
-Right after This Computer. A microphone profile is built around the microphone rather than the radio, because that is how the question actually arrives: "what does this headset need?" — and the answer travels with the mic, across every radio you use.
+Right after This Computer. A microphone setup is built around the microphone rather than the radio, because that is how the question actually arrives: "what does this headset need?" — and the answer travels with the mic, across every radio you use.
 
-Each profile carries two halves:
+**Two things are easy to confuse here, so this section is careful about which word it uses.** A **microphone setup** is yours and lives on this computer. A **mic profile** is the radio's own, lives on the radio, and is shared with SmartSDR and every other program connected to it. A Flex often holds a couple of dozen mic profiles while you have no microphone setups saved at all — both statements can be true at once, and neither is a fault.
+
+Each setup carries two halves:
 
 - **The computer half** — which Windows device the mic is, its input level, its boost, and your PC Cleanup settings (the noise reduction and noise gate that tidy the room before the radio hears it). This half always belongs to JJ Flexible Radio; a radio has nowhere to keep it.
-- **The radio half, per radio** — and here is the part worth understanding. Flex radios keep their own mic profiles, on the radio itself, shared with SmartSDR and every other client. So on a Flex, your microphone profile simply **names which of the radio's own mic profiles to load** — nothing is copied, so there is nothing to drift out of date and nothing fighting other programs over the same settings. On a radio with no profile system of its own (a road that is being paved for other makes), the profile carries the actual values instead.
+- **The radio half, per radio** — and here is the part worth understanding. Flex radios keep their own mic profiles, on the radio itself, shared with SmartSDR and every other client. So on a Flex, your microphone setup simply **names which of the radio's own mic profiles to load** — nothing is copied, so there is nothing to drift out of date and nothing fighting other programs over the same settings. On a radio with no mic profiles of its own (a road that is being paved for other makes), the setup carries the actual values instead.
 
-Pick a profile and press **Apply Profile**, and both halves go into effect — with plain words about anything that could not happen. If the radio does not have the referenced mic profile, JJ Flexible Radio says so and leaves the radio alone; it never guesses at a substitute and never creates profiles on a radio behind your back. If your computer is using a different microphone than the profile was made with, it says that too, and leaves the Windows level where it is rather than moving it for the wrong mic.
+Pick a setup and press **Apply Setup**, and both halves go into effect — with plain words about anything that could not happen. If the radio does not have the referenced mic profile, JJ Flexible Radio says so and leaves the radio alone; it never guesses at a substitute and never creates mic profiles on a radio behind your back. If your computer is using a different microphone than the setup was made with, it says that too, and leaves the Windows level where it is rather than moving it for the wrong mic.
 
-**Save Profile** captures your computer settings under the mic's name and asks what to store for the radio you are on: reference the radio's current mic profile (the usual right answer on a Flex), snapshot the radio's TX settings into the file, or store the computer half only. Creating a mic profile *on the radio* is offered right there when the radio has none loaded — offered, and only ever done because you chose it.
+**Save Setup** captures your computer settings under the mic's name and asks what to store for the radio you are on: reference the radio's current mic profile (the usual right answer on a Flex), snapshot the radio's TX settings into the file, or store the computer half only. Creating a mic profile *on the radio* is offered right there when the radio has none loaded — offered, and only ever done because you chose it.
 
-One profile, three radios? Save it once on each. The bindings live side by side inside the same profile, and applying it on any of them uses that radio's own half. On a radio you have never set it up on — a club rig, a friend's station over remote — Apply sets up your computer half and touches nothing of theirs. That is by design.
+One setup, three radios? Save it once on each. The bindings live side by side inside the same setup, and applying it on any of them uses that radio's own half. On a radio you have never set it up on — a club rig, a friend's station over remote — Apply sets up your computer half and touches nothing of theirs. That is by design.
 
 ### Transmit audio source
 
@@ -98,7 +100,7 @@ A line under the level names the exact Windows device being adjusted. If JJ Flex
 
 ### Moving around
 
-The three transmit categories are a walk-through, running outward from your computer to the radio to the air. This Computer holds the audio devices, your microphone profiles, and PC cleanup. Transmit Settings holds the microphone the radio listens to, processing, the TX filter, and the TX monitor. Hear Yourself holds the test tone, the reference recording, the audio check, and your mic gain.
+The three transmit categories are a walk-through, running outward from your computer to the radio to the air. This Computer holds the audio devices, your microphone setups, and PC cleanup. Transmit Settings holds the microphone the radio listens to, processing, the TX filter, and the TX monitor. Hear Yourself holds the test tone, the reference recording, the audio check, and your mic gain.
 
 Press **F6** to jump to the next section and **Shift+F6** to go back. Each jump
 names the section you arrived in, wraps around at the ends, and skips any
