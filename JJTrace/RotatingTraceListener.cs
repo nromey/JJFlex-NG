@@ -134,9 +134,58 @@ namespace JJTrace
             catch { return 0; }
         }
 
+        // ── Per-thread write cost, for the split stopwatch (#434) ───────────
+        //
+        // Thread-static rather than a field: the listener is called on the same
+        // thread that called Trace.WriteLine, so this is exact and needs no
+        // synchronisation, and it stays correct while another thread is blocked
+        // on the global trace lock. Tracing.Emit opens a window around the
+        // dispatch and reads it back, which separates "our file listener was
+        // slow" from "something else in the listener set was slow" — the whole
+        // question #434 could not answer while it was happening.
+        [ThreadStatic] private static long _threadWriteTicks;
+
+        /// <summary>Start accounting this thread's time inside this listener.</summary>
+        internal static void BeginThreadCostWindow() { _threadWriteTicks = 0; }
+
+        /// <summary>
+        /// Stopwatch ticks this thread spent inside this listener since
+        /// <see cref="BeginThreadCostWindow"/>. Closes the window.
+        /// </summary>
+        internal static long EndThreadCostWindow()
+        {
+            long t = _threadWriteTicks;
+            _threadWriteTicks = 0;
+            return t;
+        }
+
+        /// <summary>
+        /// Fold one measured span into this thread's window. A static helper so
+        /// the instance methods that measure themselves are not writing static
+        /// state directly — the accumulator is per THREAD, not per listener, and
+        /// this keeps that visible at every call site.
+        /// </summary>
+        private static void AddThreadCost(long enteredStamp)
+        {
+            _threadWriteTicks += Stopwatch.GetTimestamp() - enteredStamp;
+        }
+
         public override void Write(string message)
         {
             if (message == null) return;
+            long entered = Stopwatch.GetTimestamp();
+            try
+            {
+                WriteCore(message);
+            }
+            finally
+            {
+                AddThreadCost(entered);
+            }
+        }
+
+        private void WriteCore(string message)
+        {
             lock (_sync)
             {
                 if (_closed) return;
@@ -231,11 +280,23 @@ namespace JJTrace
 
         public override void Flush()
         {
-            lock (_sync)
+            // Counted into the same per-thread window as Write: Trace.AutoFlush
+            // is on, so the flush happens inside the same dispatch and is where
+            // the real file I/O lands. Leaving it out would understate our own
+            // cost and misattribute it to the rest of the listener set.
+            long entered = Stopwatch.GetTimestamp();
+            try
             {
-                if (_closed) return;
-                try { _writer.Flush(); }
-                catch { CloseInternal(); }
+                lock (_sync)
+                {
+                    if (_closed) return;
+                    try { _writer.Flush(); }
+                    catch { CloseInternal(); }
+                }
+            }
+            finally
+            {
+                AddThreadCost(entered);
             }
         }
 

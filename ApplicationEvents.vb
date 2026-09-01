@@ -34,6 +34,19 @@ Namespace My
             ' three 45-second station-name waits (#402).
             UiThreadId = Environment.CurrentManagedThreadId
 
+            ' Take the framework's DefaultTraceListener out of Trace.Listeners
+            ' before anything can write a line. Its only output is
+            ' OutputDebugStringW, which nobody reads unless a debugger is
+            ' attached - and which waits up to 10,000 ms on DBWIN_BUFFER_READY
+            ' when a debug monitor has registered and stopped servicing the
+            ' buffer. That is #434: a launch where every single trace line cost
+            ' exactly ten seconds, so the main window was about 85 minutes away
+            ' and never appeared. JJTrace's own static constructor does this
+            ' too; the explicit call is here because other assemblies call
+            ' System.Diagnostics.Trace.WriteLine directly and this is the first
+            ' line of the process.
+            JJTrace.Tracing.DetachDefaultListener()
+
             ' Initialize native library resolver FIRST (enables x86/x64 DLL loading)
             NativeLoader.Initialize()
 

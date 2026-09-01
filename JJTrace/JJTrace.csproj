@@ -17,6 +17,7 @@
 
   <!-- Explicitly include source files (excludes JJTraceNet2.0 subfolder and backup files) -->
   <ItemGroup>
+    <Compile Include="DebugMonitorProbe.cs" />
     <Compile Include="ErrMessageTrace.cs" />
     <Compile Include="RotatingTraceListener.cs" />
     <Compile Include="SessionArchive.cs" />

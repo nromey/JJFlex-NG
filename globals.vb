@@ -2073,6 +2073,14 @@ Module globals
             If ConfigDirRefusal IsNot Nothing Then
                 Tracing.TraceLine("ConfigLocation: " & ConfigDirRefusal, TraceLevel.Warning)
             End If
+            ' Whether this machine has a debug monitor registered, and whether
+            ' this process can be hurt by one. #434 was a launch that took ten
+            ' seconds PER TRACE LINE, diagnosed only by reconstructing tick
+            ' deltas afterwards, and the cause was environmental and gone by the
+            ' time anyone looked. One line here means the next stall trace
+            ' answers the question by itself. The probe only ever OPENS the
+            ' event - creating it is what induces the fault, machine-wide.
+            Tracing.TraceLine(JJTrace.DebugMonitorProbe.Describe(), TraceLevel.Warning)
             ' The boot header above identifies the build; this states the log's
             ' state in the machine-readable form every later session also gets.
             ' Post-boot sessions (captures, resumes) have ONLY the CaptureState
