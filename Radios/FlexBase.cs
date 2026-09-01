@@ -16362,6 +16362,32 @@ namespace Radios
 
         private void remoteAudioProc()
         {
+            // ── #422: the boundary catch for a bare thread ──────────────────
+            //
+            // This runs on a Thread with no handler above it, so before this
+            // guard existed ANY exception here terminated the process — no
+            // window, no speech, nothing said. For a blind operator that is
+            // strictly less evidence than a spoken error, not more.
+            //
+            // A catch-all belongs here because the failure domain is cleanly
+            // separable: audio dies, and the radio session, the UI and logging
+            // all survive. The masking is bounded to one catch with no retry
+            // loop, and the thread still exits, so a recurring fault still
+            // recurs loudly on every start rather than being swallowed.
+            //
+            // The catch falls THROUGH to remoteDone, which is why the try ends
+            // where it does: that teardown is already defensive and
+            // null-guarded, and skipping it would leave PortAudio streams and
+            // radio-side streams open with no owner. `goto remoteDone` from
+            // inside the try exits it, which C# permits, so every existing exit
+            // path is unchanged.
+            //
+            // THE BODY BELOW IS DELIBERATELY NOT RE-INDENTED. Shifting four
+            // hundred lines by four spaces would make every one of them a
+            // change in a file three other tracks are editing at the same time,
+            // for a purely cosmetic gain. The guard is two inserted lines.
+            try
+            {
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
             opusOutputChannel = null;
             opusInputChannel = null;
@@ -16811,6 +16837,29 @@ namespace Radios
             }
 
             Tracing.TraceLine("remoteAudioProc:stopping remote audio", TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                // ToString, not Message: this is the one record that will exist
+                // of a fault that used to kill the process silently, and the
+                // stack is the whole of its value.
+                Tracing.TraceLine("remoteAudioProc: unhandled exception on the audio thread — "
+                    + "PC audio is stopping; the radio session is unaffected. " + ex, TraceLevel.Error);
+
+                // Said out loud, because the alternative is audio that simply
+                // stops. Critical so it is heard at every verbosity; the
+                // operator cannot act on what they were not told.
+                try
+                {
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.pc_audio.internal_error"),
+                                             VerbosityLevel.Critical, true);
+                }
+                catch (Exception speakEx)
+                {
+                    Tracing.TraceLine("remoteAudioProc: could not announce the audio failure: "
+                        + speakEx.Message, TraceLevel.Error);
+                }
+            }
 
             remoteDone:
             // Both exits pass through here, so the continuity totals are
