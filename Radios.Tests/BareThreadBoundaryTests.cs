@@ -23,9 +23,18 @@ namespace Radios.Tests
     /// it says something, and the operator is told — and that is exactly what a
     /// future editor deleting a try block would break.</para>
     /// </summary>
+    /// <remarks>
+    /// Task #319 is the same defect one file over: <c>knobThreadProc</c> caught
+    /// <c>ThreadInterruptedException</c> and nothing else, so anything thrown by
+    /// <c>New FlexKnob</c> — and the original BUG-004 fault was a
+    /// <c>FileNotFoundException</c> out of a serial-port assembly, exactly that
+    /// shape — was unhandled on a thread with nothing above it. That thread
+    /// starts whether or not a knob is attached, which is most installs.
+    /// </remarks>
     public sealed class BareThreadBoundaryTests
     {
         private const string FlexBase = "Radios/FlexBase.cs";
+        private const string Globals = "globals.vb";
 
         /// <summary>
         /// The guard is present, catches everything, and does the three things
@@ -90,6 +99,66 @@ namespace Radios.Tests
         }
 
         // ------------------------------------------------------------------
+        // #319 — the knob thread's construction half
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// <c>knobThreadProc</c> catches broadly, not just the interrupt it
+        /// uses for shutdown.
+        ///
+        /// <para>The narrow catch is the whole bug: the shutdown half of
+        /// BUG-004 was properly fixed and the construction half was never
+        /// covered, and the audit only found it because somebody checked the
+        /// fix rather than assuming it. An unhandled exception on this thread
+        /// ends the process at startup with no dialog and no speech.</para>
+        /// </summary>
+        [Fact]
+        public void TheKnobThreadCatchesMoreThanTheInterrupt()
+        {
+            string body = VbMethodBody("Private Sub knobThreadProc()");
+
+            Assert.Contains("Catch ex As ThreadInterruptedException", body, StringComparison.Ordinal);
+            Assert.Contains("Catch ex As Exception", body, StringComparison.Ordinal);
+
+            // Says what happened. A contained failure nobody records is only a
+            // quieter version of the same problem.
+            Assert.Contains("TraceLevel.Error", body, StringComparison.Ordinal);
+
+            // Leaves the app in the state every operator without a knob is
+            // already in, rather than holding a half-built one.
+            Assert.Contains("Knob = Nothing", body, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Positive control for the VB scan, for the same reason as the C# one.
+        /// </summary>
+        [Fact]
+        public void TheVbScannerReallyReadsTheMethod()
+        {
+            string body = VbMethodBody("Private Sub knobThreadProc()");
+
+            Assert.Contains("New FlexKnob", body, StringComparison.Ordinal);
+            Assert.Contains("Timeout.Infinite", body, StringComparison.Ordinal);
+        }
+
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Text of a VB Sub, from its signature to its <c>End Sub</c>.
+        /// </summary>
+        private static string VbMethodBody(string signature)
+        {
+            string source = File.ReadAllText(
+                Path.Combine(RepoRoot(), Globals.Replace('/', Path.DirectorySeparatorChar)));
+
+            int start = source.IndexOf(signature, StringComparison.Ordinal);
+            if (start < 0) return string.Empty;
+
+            int end = source.IndexOf("\n    End Sub", start, StringComparison.Ordinal);
+            if (end < 0) end = source.Length;
+
+            return source.Substring(start, end - start);
+        }
 
         /// <summary>
         /// Text from a method's signature to the start of the next member

@@ -2714,6 +2714,30 @@ Module globals
         End If
     End Sub
 
+    ''' <summary>
+    ''' The FlexControl knob's own thread: build the knob, then park until
+    ''' StopKnob interrupts.
+    '''
+    ''' #319, the residual of BUG-004. The shutdown half was genuinely fixed —
+    ''' FlexKnob.Dispose has the catch-all that covers the unguarded
+    ''' Serial.Close(). The CONSTRUCTION half never was: the only catch here
+    ''' was ThreadInterruptedException, so anything else thrown by
+    ''' New FlexKnob was unhandled on a thread with nothing above it, and an
+    ''' unhandled exception on any thread ends the process. No dialog, no
+    ''' speech, nothing said — at startup, before the operator has anything to
+    ''' work with.
+    '''
+    ''' It is not theoretical. The original BUG-004 fault was a
+    ''' FileNotFoundException out of a serial-port assembly, which is exactly
+    ''' this shape, and this thread starts whether or not a knob is plugged in
+    ''' — which is most installs.
+    '''
+    ''' So: catch broadly, say what happened in the log, and leave Knob as
+    ''' Nothing, which is the state every operator without a knob already runs
+    ''' in. Nothing is spoken, deliberately: we cannot tell from here whether
+    ''' the operator owns a knob, and an announcement most people cannot act on
+    ''' is noise — and noise is how a warning that matters gets ignored.
+    ''' </summary>
     Private Sub knobThreadProc()
         Try
             ' setup the knob and let it run
@@ -2725,6 +2749,23 @@ Module globals
                 Knob.Dispose()
                 Knob = Nothing
             End If
+        Catch ex As Exception
+            ' #319: containment, and a trace that survives. Everything in here
+            ' is itself guarded — a failure while REPORTING a failure would put
+            ' the process back exactly where this catch was added to rescue it
+            ' from.
+            Try
+                Tracing.TraceLine(
+                    "knobThreadProc: the FlexControl knob could not be set up, so this " &
+                    "session runs without one — the same as every install with no knob " &
+                    "attached (#319). " & ex.ToString(), TraceLevel.Error)
+            Catch
+            End Try
+            Try
+                If Knob IsNot Nothing Then Knob.Dispose()
+            Catch
+            End Try
+            Knob = Nothing
         End Try
     End Sub
 
