@@ -57,6 +57,12 @@ Press `Ctrl+Alt+V` to hear the current meter readings spoken out loud. You will 
 
 Press `Ctrl+Shift+S` to hear the full radio status report, which includes the S-Meter reading spoken as a number (like "S7" or "20 over 9").
 
+`Ctrl+S` reads the meter on its own, and Space on the S Meter field on the Home does the same thing. Both of them say what the number counts, so you never get a bare figure: "S 7", or "S 9 plus 20 dB" once you are over S9, or "S meter minus 97 dBm" if you have set this radio to dBm. The word "minus" is spoken as a word rather than left as a dash, because a dash reads differently on every voice and punctuation setting and your signal strength is not a thing to guess at.
+
+Which unit you get is your choice per radio, and it stays chosen until you change it — `Ctrl+S` switches between S-units and dBm, and the Radios tab in Settings shows where it stands. One S-unit is 6 dB, so "S7" covers a lot of ground; dBm is the one to reach for when you are asking whether an antenna change actually helped.
+
+While you are transmitting, the same key answers with real forward power in watts instead. Keyed up, the S-meter is not describing anybody's signal.
+
 ## Auto-Enable on Tune
 
 When you start a tune carrier (`Ctrl+Shift+T`), the meter tones automatically activate so you can hear your SWR and power levels while you are tuning. When you stop tuning, meter tones return to whatever state they were in before.

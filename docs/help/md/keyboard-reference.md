@@ -344,7 +344,7 @@ No letter on the Home surface is ever silent. Press a letter that isn't bound on
 When focused on the Slice field specifically:
 
 - **Space** — Cycle to the next slice (wraps around)
-- **Up / Down** — Next or previous slice
+- **Up / Down** — Next or previous slice. Down goes A, B, C — the way the list reads. If you would rather have it the other way round, the Accessibility tab in Settings holds a Slice arrow direction choice, and it applies to the Slice Operations field too
 - **0-9 or A-H** — Jump directly to the desired slice by number or letter (you'll hear "not created" if it doesn't exist yet, and "no such slice" for a number past what any radio holds)
 - **T** — Make this slice the TX slice
 - **. (period)** — Create a new slice
