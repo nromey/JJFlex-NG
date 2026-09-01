@@ -100,6 +100,11 @@ public partial class AudioWorkshopDialog
         // at this tab still needs to hear that their microphone came back.
         SyncReferenceUi();
 
+        // Play last take relabels itself while the RADIO is playing its own
+        // record buffer (#455). The local half follows the player's own event,
+        // which also covers the no-radio case this tick returns before reaching.
+        SyncPlayTakeLabel();
+
         // The mic reading refreshes on every tick regardless of tab so a
         // review command always reads fresh the moment the operator lands
         // on it.

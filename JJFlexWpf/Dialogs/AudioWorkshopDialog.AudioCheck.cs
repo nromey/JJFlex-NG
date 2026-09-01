@@ -196,8 +196,21 @@ public partial class AudioWorkshopDialog
             Margin = new Thickness(2)
         };
         AutomationProperties.SetName(_playTakeButton, "Play last take");
+        JJFlexHelp.SetText(_playTakeButton,
+            "Plays your most recent take back to you. That is whichever came "
+            + "last: the recording the radio made of your transmission during "
+            + "a Record and play back check, which carries your full "
+            + "processing chain, or a take you recorded yourself in Reference "
+            + "Audio above, which is your voice as this computer captured it. "
+            + "Press it again to stop. It says which of the two it is playing, "
+            + "and a take you recorded yourself plays with no radio connected.");
         _playTakeButton.Click += (s, e) => PlayLastTake();
         AddToSection(HearYourselfContent, _playTakeButton);
+
+        // Follow local playback so the button says what pressing it will do.
+        // The radio-buffer half is followed from the meter tick, which is where
+        // every other piece of radio state in this dialog is read.
+        RecordingPlayer.StateChanged += OnTakePlaybackStateChanged;
 
         // Loopback check — real RF through the transverter port, inside one
         // radio, no antennas. Doubles as a transmitter self-test: "check my
@@ -390,33 +403,137 @@ public partial class AudioWorkshopDialog
         }
     }
 
+    /// <summary>
+    /// True when the newest take is a FILE in the recordings folder rather than
+    /// the radio's own record buffer. Set when a recording is saved, cleared
+    /// when a Record and play back check fills the buffer.
+    /// </summary>
+    /// <remarks>
+    /// The radio's buffer carries no timestamp, so "which is newer" cannot be
+    /// asked of the two stores directly; this remembers which one last received
+    /// something. It starts false, which makes a freshly opened Workshop prefer
+    /// the radio buffer if it holds anything — the take that carries the
+    /// processing chain is the more valuable of the two, so it wins the tie.
+    /// </remarks>
+    private bool _newestTakeIsAFile;
+
+    /// <summary>
+    /// Play the operator's most recent take, or stop the one playing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Task #455, and the whole point of it is that this asks BOTH stores.</b>
+    /// Don, 2026-09-01: he recorded a take, pressed Stop recording, pressed this
+    /// button, and heard "no recordings yet" — while Open recordings folder, one
+    /// section up in this same dialog, showed the files and another program
+    /// played them. Nothing was broken. This method asked the RADIO's quick
+    /// record buffer, which only an audio check ever fills; the folder button
+    /// asked <see cref="RecordingStore"/>, which is where the recorder writes.
+    /// Two buttons, two stores, one word — "take" — and the operator had no way
+    /// to know the word meant different things a few tab stops apart.
+    /// </para>
+    /// <para>
+    /// So there is one question now: what is the last take, wherever it is. The
+    /// radio's buffer is preferred when it is the newer of the two, because it
+    /// carries the full processing chain and that is the more useful answer;
+    /// otherwise the newest file plays here on this computer through
+    /// <see cref="RecordingPlayer"/>. The spoken line always says WHICH, because
+    /// they are recordings of genuinely different things and an operator
+    /// comparing them must never be left guessing which one they just heard.
+    /// </para>
+    /// <para>
+    /// <b>No radio is required.</b> It used to refuse outright without one,
+    /// which was another version of the same disagreement: the recordings folder
+    /// opens with no radio, the files play in other programs with no radio, and
+    /// this is the same folder.
+    /// </para>
+    /// </remarks>
     private void PlayLastTake()
     {
-        if (_rig == null)
+        // Press again to stop, whichever thing is playing.
+        if (RecordingPlayer.IsPlaying)
         {
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical);
+            RecordingPlayer.Stop();
             return;
         }
+        if (_rig != null && _rig.SlicePlayOn)
+        {
+            _rig.SlicePlayOn = false;
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playback_stopped"),
+                VerbosityLevel.Terse, interrupt: true);
+            SyncPlayTakeLabel();
+            return;
+        }
+
         if (_session != null && _session.EscapeStopsTransmit)
         {
             ScreenReaderOutput.Speak(Lexicon.Get("audio.check.still_transmitting"),
                 VerbosityLevel.Critical, interrupt: true);
             return;
         }
-        if (_rig.SlicePlayOn)
+
+        bool radioHasTake = _rig?.SlicePlayEnabled == true;
+        RecordingStore.RecordingFile? file = RecordingStore.Newest();
+
+        if (!radioHasTake && file == null)
         {
-            _rig.SlicePlayOn = false;
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playback_stopped"), VerbosityLevel.Terse, interrupt: true);
-            return;
-        }
-        if (!_rig.SlicePlayEnabled)
-        {
+            // The one message that used to be a lie. It now names both places
+            // it looked, so an operator who can see files in the folder is
+            // never told they have none.
             ScreenReaderOutput.Speak(Lexicon.Get("audio.check.no_recording_yet"),
                 VerbosityLevel.Terse, interrupt: true);
             return;
         }
-        _rig.SlicePlayOn = true;
-        ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"), VerbosityLevel.Terse, interrupt: true);
+
+        bool preferFile = file != null && (!radioHasTake || _newestTakeIsAFile);
+        if (preferFile)
+        {
+            RecordingPlayer.Play(file!.Path);   // speaks for itself, success or not
+            return;
+        }
+
+        _rig!.SlicePlayOn = true;
+        ScreenReaderOutput.Speak(Lexicon.Get("audio.check.playing_take"),
+            VerbosityLevel.Terse, interrupt: true);
+        SyncPlayTakeLabel();
+    }
+
+    /// <summary>
+    /// Local playback started or stopped. Relabel on the UI thread — the player
+    /// raises this from whatever thread noticed, including the audio thread at
+    /// end of file.
+    /// </summary>
+    private void OnTakePlaybackStateChanged()
+    {
+        Dispatcher.BeginInvoke(new Action(SyncPlayTakeLabel));
+    }
+
+    /// <summary>
+    /// Make the button say what pressing it will do. Both stores count: a
+    /// button that says "Play last take" while a take is playing would be the
+    /// third version of this dialog's recurring defect — a control describing
+    /// something other than what it does.
+    /// </summary>
+    private void SyncPlayTakeLabel()
+    {
+        if (_playTakeButton == null) return;
+        bool playing = RecordingPlayer.IsPlaying || _rig?.SlicePlayOn == true;
+        string label = playing ? "Stop playing" : "Play last take";
+        if ((_playTakeButton.Content as string) == label) return;
+        _playTakeButton.Content = label;
+        AutomationProperties.SetName(_playTakeButton, label);
+    }
+
+    /// <summary>
+    /// Stop following the player, and stop any playback this dialog started.
+    /// Called from the dialog's teardown: a closed Workshop must not go on
+    /// relabelling a button that is gone, and a take must not outlive the
+    /// window that played it.
+    /// </summary>
+    private void DetachTakePlayback()
+    {
+        RecordingPlayer.StateChanged -= OnTakePlaybackStateChanged;
+        if (RecordingPlayer.IsPlaying) RecordingPlayer.Stop();
     }
 
     #endregion
@@ -758,6 +875,9 @@ public partial class AudioWorkshopDialog
                 {
                     rig.SliceRecordOn = false;
                     msg.Append(' ').Append(Lexicon.Get("audio.check.playing_take_shortly"));
+                    // The radio just took a take, so it is now the newer of the
+                    // two stores Play last take chooses between (#455).
+                    _owner._newestTakeIsAFile = false;
                 }
 
                 // The verdict — the whole point of the check. Peak SC_MIC over

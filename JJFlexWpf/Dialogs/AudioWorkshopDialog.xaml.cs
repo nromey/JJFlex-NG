@@ -218,6 +218,10 @@ public partial class AudioWorkshopDialog : JJFlexDialog
             // that no longer exists.
             DisarmReference(speak: false);
             DetachReferenceAudio();
+            // And local take playback (#455): the player is static and would
+            // otherwise keep sounding, and keep calling back into a button that
+            // no longer exists, after the window is gone.
+            DetachTakePlayback();
             _meterTimer.Stop();
             // The Core Audio endpoint and its volume callback must not
             // outlive the dialog that subscribed them.

@@ -298,13 +298,36 @@ public partial class AudioWorkshopDialog
             ScreenReaderOutput.Speak(Lexicon.Get("audio.no_radio_connected"), VerbosityLevel.Critical, interrupt: true);
             return;
         }
-        string pathTrouble = rig.TxTonePathTrouble;
-        if (!string.IsNullOrEmpty(pathTrouble))
+        // #458: the transmit input is set HERE if it is the only thing in the
+        // way, rather than sending the operator to another category to set it
+        // and come back. Everything below runs once the radio confirms.
+        WithInjectionPath(rig,
+            whenReady: pathNote => ArmToneNow(rig, pathNote),
+            whenRefused: reason =>
+            {
+                SetToneCheckSilently(false);
+                EarconPlayer.Warning2Beep();
+                ScreenReaderOutput.Speak(Lexicon.Get("audio.tone.not_armed", ("reason", reason)),
+                    VerbosityLevel.Critical, interrupt: true);
+            });
+    }
+
+    /// <summary>
+    /// Arm the tone for real: the path is clear and the radio has said so.
+    /// </summary>
+    /// <param name="pathNote">
+    /// What was changed to clear the path, or empty. It rides the arm
+    /// announcement rather than being spoken separately — one arm, one sentence.
+    /// </param>
+    private void ArmToneNow(FlexBase rig, string pathNote)
+    {
+        // Clearing the path can take up to a second, which is long enough for
+        // the operator to untick the box or for the radio to go away. Arming
+        // after either would replace a microphone nobody currently wants
+        // replaced.
+        if (!StillWantsToArm(rig, _toneCheck))
         {
-            SetToneCheckSilently(false);
-            EarconPlayer.Warning2Beep();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.tone.not_armed", ("reason", pathTrouble)),
-                VerbosityLevel.Critical, interrupt: true);
+            RestoreInjectionPath(rig, out _);
             return;
         }
 
@@ -321,6 +344,7 @@ public partial class AudioWorkshopDialog
         line.Append(Lexicon.Get("audio.tone.armed", ("freq", freq), ("level", level)));
         line.Append(' ');
         line.Append(Lexicon.Get("audio.tone.armed_replaces_mic"));
+        if (!string.IsNullOrEmpty(pathNote)) line.Append(' ').Append(pathNote);
         string pb = PassbandCheck(freq, out bool outside);
         if (!string.IsNullOrEmpty(pb)) line.Append(' ').Append(pb);
         _toneOutsideWarned = outside;
@@ -343,11 +367,16 @@ public partial class AudioWorkshopDialog
     /// </summary>
     private void DisarmTone(bool speak, FlexBase? rig = null)
     {
-        (rig ?? _rig)?.TxToneStop();
+        FlexBase? live = rig ?? _rig;
+        live?.TxToneStop();
         PttSafetyController.KeyDownAnnouncementExtra = null;
         EarconPlayer.StopTxToneMonitor();
         _toneMonitorSounding = false;
         _toneMonitorProvider = null;
+        // #458: if arming moved the transmit input to this computer, release
+        // puts it back — on every exit path, including dialog close and radio
+        // teardown, the same rule the tone generator itself follows.
+        RestoreInjectionPath(live, out string pathNote);
         // #128: tone only on the spoken (operator-visible) path. The silent
         // callers are dialog close and radio teardown, where a feature-off
         // chime would narrate housekeeping — the #58 rule. The chord road
@@ -355,8 +384,9 @@ public partial class AudioWorkshopDialog
         if (speak)
         {
             EarconPlayer.FeatureOffTone();
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.tone.disarmed"),
-                VerbosityLevel.Critical, interrupt: true);
+            string line = Lexicon.Get("audio.tone.disarmed");
+            if (!string.IsNullOrEmpty(pathNote)) line += " " + pathNote;
+            ScreenReaderOutput.Speak(line, VerbosityLevel.Critical, interrupt: true);
         }
     }
 
@@ -385,14 +415,27 @@ public partial class AudioWorkshopDialog
     {
         var rig = _rig;
         if (rig == null || _toneCheck == null) return;
+        // An arm waiting on the radio LOOKS exactly like a box out of step with
+        // the engine — ticked, not yet running — and correcting it here would
+        // cancel the arm half a second after the operator asked for it (#458).
+        if (InjectionArmPending) return;
         bool engaged = rig.TxToneEngaged;
         if ((_toneCheck.IsChecked == true) == engaged) return;
 
         SetToneCheckSilently(engaged);
         if (engaged)
+        {
             PttSafetyController.KeyDownAnnouncementExtra = () => _instance?.BuildToneAnnouncement();
+        }
         else
+        {
             PttSafetyController.KeyDownAnnouncementExtra = null;
+            // Released from outside this dialog (the Ctrl+J, G chord). If an
+            // arm here had moved the transmit input, put it back — #458's
+            // restore has to cover every road out of the armed state, not only
+            // the checkbox. Silently: the chord spoke for itself.
+            RestoreInjectionPath(rig, out _);
+        }
         UpdateToneStatus(speakIfNewlyOutside: false);
     }
 
