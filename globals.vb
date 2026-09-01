@@ -2073,6 +2073,14 @@ Module globals
             If ConfigDirRefusal IsNot Nothing Then
                 Tracing.TraceLine("ConfigLocation: " & ConfigDirRefusal, TraceLevel.Warning)
             End If
+            ' Whether this machine has a debug monitor registered, and whether
+            ' this process can be hurt by one. #434 was a launch that took ten
+            ' seconds PER TRACE LINE, diagnosed only by reconstructing tick
+            ' deltas afterwards, and the cause was environmental and gone by the
+            ' time anyone looked. One line here means the next stall trace
+            ' answers the question by itself. The probe only ever OPENS the
+            ' event - creating it is what induces the fault, machine-wide.
+            Tracing.TraceLine(JJTrace.DebugMonitorProbe.Describe(), TraceLevel.Warning)
             ' The boot header above identifies the build; this states the log's
             ' state in the machine-readable form every later session also gets.
             ' Post-boot sessions (captures, resumes) have ONLY the CaptureState
@@ -2082,6 +2090,19 @@ Module globals
         End If
 
         Tracing.TraceLine("GetConfigInfo:" & BaseConfigDir, TraceLevel.Info)
+
+        ' #316: an interface appearing or disappearing under a live session is a
+        ' state this app does not survive — bringing a VPN up crashes it. It has
+        ' never been root-caused for one recorded reason: tracing was off when it
+        ' happened. And even with tracing on, nothing in the tree had ever
+        ' subscribed to network change notifications, so a reader would have had
+        ' to infer "a VPN came up" from the shape of the wreckage.
+        '
+        ' Started here rather than inside the BootTrace block because it must be
+        ' subscribed whether or not a log is running now — a detailed capture
+        ' started later then has the event too. Started BEFORE any connect,
+        ' because the whole point is the change nobody was expecting.
+        Radios.NetworkChangeWatch.Start()
 
         ' Which speech backend is driving the user's ears, and whether braille
         ' is reachable. ScreenReaderOutput picks
@@ -2715,6 +2736,30 @@ Module globals
         End If
     End Sub
 
+    ''' <summary>
+    ''' The FlexControl knob's own thread: build the knob, then park until
+    ''' StopKnob interrupts.
+    '''
+    ''' #319, the residual of BUG-004. The shutdown half was genuinely fixed —
+    ''' FlexKnob.Dispose has the catch-all that covers the unguarded
+    ''' Serial.Close(). The CONSTRUCTION half never was: the only catch here
+    ''' was ThreadInterruptedException, so anything else thrown by
+    ''' New FlexKnob was unhandled on a thread with nothing above it, and an
+    ''' unhandled exception on any thread ends the process. No dialog, no
+    ''' speech, nothing said — at startup, before the operator has anything to
+    ''' work with.
+    '''
+    ''' It is not theoretical. The original BUG-004 fault was a
+    ''' FileNotFoundException out of a serial-port assembly, which is exactly
+    ''' this shape, and this thread starts whether or not a knob is plugged in
+    ''' — which is most installs.
+    '''
+    ''' So: catch broadly, say what happened in the log, and leave Knob as
+    ''' Nothing, which is the state every operator without a knob already runs
+    ''' in. Nothing is spoken, deliberately: we cannot tell from here whether
+    ''' the operator owns a knob, and an announcement most people cannot act on
+    ''' is noise — and noise is how a warning that matters gets ignored.
+    ''' </summary>
     Private Sub knobThreadProc()
         Try
             ' setup the knob and let it run
@@ -2726,6 +2771,23 @@ Module globals
                 Knob.Dispose()
                 Knob = Nothing
             End If
+        Catch ex As Exception
+            ' #319: containment, and a trace that survives. Everything in here
+            ' is itself guarded — a failure while REPORTING a failure would put
+            ' the process back exactly where this catch was added to rescue it
+            ' from.
+            Try
+                Tracing.TraceLine(
+                    "knobThreadProc: the FlexControl knob could not be set up, so this " &
+                    "session runs without one — the same as every install with no knob " &
+                    "attached (#319). " & ex.ToString(), TraceLevel.Error)
+            Catch
+            End Try
+            Try
+                If Knob IsNot Nothing Then Knob.Dispose()
+            Catch
+            End Try
+            Knob = Nothing
         End Try
     End Sub
 
@@ -4731,8 +4793,22 @@ RadioConnected:
                 WpfMainWindow.RigControl = RigControl
                 WpfMainWindow.OpenParms = OpenParms
                 WpfMainWindow.CloseRadioCallback = AddressOf CloseTheRadio
+                ' #331. Wired BEFORE Start() is called, and _radioPowerOn goes
+                ' true inside Start() — so an SSL or SmartLink drop during the
+                ' connect raises this box while ConnectingForm is still up,
+                ' TopMost, and re-activating itself five times a second. The
+                ' connecting form is not closed until after Start() and all its
+                ' retries. The attention claim is what stands that timer down
+                ' and drops its TopMost for the duration; without it a blind
+                ' operator has a modal they cannot reach in front of an
+                ' application they cannot use.
                 WpfMainWindow.ShowErrorCallback = Sub(msg, title)
-                                                      MessageBox.Show(AppShellForm, msg, title, MessageBoxButtons.OK, MessageBoxIcon.Error)
+                                                      Radios.WindowFocusForcer.PushAttentionWindow()
+                                                      Try
+                                                          MessageBox.Show(AppShellForm, msg, title, MessageBoxButtons.OK, MessageBoxIcon.Error)
+                                                      Finally
+                                                          Radios.WindowFocusForcer.PopAttentionWindow()
+                                                      End Try
                                                   End Sub
                 ' The daily-trace call that used to sit here is gone. Nothing in
                 ' the app ever set KeepDailyTraceLogs, and the always-on log with

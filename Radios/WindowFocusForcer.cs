@@ -48,6 +48,60 @@ namespace Radios
         public static void PopSignInWindow() =>
             System.Threading.Interlocked.Decrement(ref _signInWindowsOpen);
 
+        // ===================================================================
+        // #331 — the armistice was only ever offered to sign-in windows, and
+        // it needed to be offered to every modal we raise.
+        //
+        // THE FAILURE, in order. ShowErrorCallback is wired before Start() is
+        // called. _radioPowerOn goes true inside Start(), so an SSL or
+        // SmartLink drop DURING the connect satisfies the disconnect guard and
+        // raises a modal error box owned by AppShellForm — while ConnectingForm
+        // is still up, TopMost, and re-activating itself five times a second
+        // with no stand-down condition but SignInWindowOpen. The connecting
+        // form is not closed until after Start() and all its retries.
+        //
+        // An error dialog behind a top-most window that re-activates itself
+        // five times a second is the original taskkill-class hang in miniature,
+        // and for a blind operator it is worse than a hang: a modal that cannot
+        // be reached is an application that is unusable AND unexplainable.
+        //
+        // A counter, like the sign-in one, so overlapping dialogs cannot clear
+        // each other's claim. Deliberately a SECOND counter rather than a
+        // rename of the first: the sign-in flag means "the operator's keyboard
+        // belongs somewhere else", this one means "we ourselves put a modal in
+        // front of them", and a future reader deserves to be able to tell which
+        // stood a reclaim loop down.
+        // ===================================================================
+
+        private static int _attentionWindowsOpen;
+
+        /// <summary>
+        /// True while a modal dialog we raised is waiting on the operator.
+        /// </summary>
+        public static bool AttentionWindowOpen =>
+            System.Threading.Volatile.Read(ref _attentionWindowsOpen) > 0;
+
+        /// <summary>
+        /// Claim the operator's attention for a modal. ALWAYS pair with
+        /// <see cref="PopAttentionWindow"/> in a finally — a leaked claim
+        /// leaves every focus-reclaim loop stood down for the rest of the
+        /// session, which is a quieter bug than the one it prevents but a
+        /// longer-lived one.
+        /// </summary>
+        public static void PushAttentionWindow() =>
+            System.Threading.Interlocked.Increment(ref _attentionWindowsOpen);
+
+        /// <summary>Release a claim taken by <see cref="PushAttentionWindow"/>.</summary>
+        public static void PopAttentionWindow() =>
+            System.Threading.Interlocked.Decrement(ref _attentionWindowsOpen);
+
+        /// <summary>
+        /// The one question a focus-reclaim loop should ask: is something in
+        /// front of the operator that has a better claim on their keyboard than
+        /// I do? True for sign-in windows and for any modal of ours.
+        /// </summary>
+        public static bool FocusReclaimShouldYield => SignInWindowOpen || AttentionWindowOpen;
+
         /// <summary>
         /// Returns true when the window verifiably holds the foreground.
         /// False after all attempts means the caller should tell the user

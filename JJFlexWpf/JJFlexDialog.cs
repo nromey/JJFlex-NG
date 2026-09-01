@@ -503,6 +503,20 @@ namespace JJFlexWpf
         /// </summary>
         public bool? ShowModalDialog()
         {
+            // #331. Every modal of ours claims the operator's attention while
+            // it is up, and the claim is made HERE because this is the one
+            // chokepoint every WPF dialog in the app goes through — one place
+            // to state the rule instead of one per dialog, none of which would
+            // be remembered by the next author.
+            //
+            // What the claim buys: ConnectingForm's 200 ms focus-reclaim timer
+            // stands down and drops its TopMost, so a dialog raised during a
+            // connect can actually be reached. Before this, a modal error box
+            // raised by a mid-connect disconnect sat underneath a top-most
+            // window that re-activated itself five times a second — which for a
+            // blind operator is an application that is unusable and
+            // unexplainable at the same time.
+            Radios.WindowFocusForcer.PushAttentionWindow();
             try
             {
                 return ShowDialog();
@@ -511,6 +525,10 @@ namespace JJFlexWpf
             {
                 // Can happen if window was already closed or owner is invalid
                 return false;
+            }
+            finally
+            {
+                Radios.WindowFocusForcer.PopAttentionWindow();
             }
         }
     }

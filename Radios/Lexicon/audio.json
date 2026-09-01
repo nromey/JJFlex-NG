@@ -500,6 +500,7 @@
   "audio.pan_mode.wrong_axis": "Pan uses left and right",
   "audio.pc_audio.could_not_start": "PC audio could not start, still off",
   "audio.pc_audio.could_not_start_home": "PC audio could not start, still off.",
+  "audio.pc_audio.internal_error": "PC audio stopped because of an internal error. The radio connection is unaffected. Turn PC audio on again.",
   "audio.pc_audio.off": "PC audio off",
   "audio.pc_audio.off_because": "PC audio off, {reason}.",
   "audio.pc_audio.off_because_remote": "PC audio off, {reason}. On a remote connection there is no other way to hear the radio.",

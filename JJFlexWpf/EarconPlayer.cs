@@ -2085,6 +2085,51 @@ namespace JJFlexWpf
             PlayVoiced(EarconVoices.Alarm, 800, 750, VolumeStrong);
         }
 
+        /// <summary>
+        /// The application has no speech at all — <c>prism.dll</c> did not load
+        /// (#321). The warning alarm, sounded twice.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This is the only earcon in the app that ignores the switches, and
+        /// the exception is deliberate.</b> Every other sound here answers to
+        /// <see cref="EarconsEnabled"/> and to its category, because an operator
+        /// who says "no alarm tones" means it. This one fires in the single
+        /// state where the application has no other voice of its own: the
+        /// speech library failed to load, so nothing can be announced, and an
+        /// earcon the operator switched off last month would leave a blind
+        /// operator with an app that launched into silence and no way to learn
+        /// why. Silencing the report of a total speech failure is the one
+        /// preference that cannot be honoured without defeating itself.
+        /// </para>
+        /// <para>
+        /// <b>No new sound.</b> It is <see cref="WarningAlarmTone"/>'s voice,
+        /// pitch and length exactly, twice with a gap. An operator who knows the
+        /// alarm knows this, and the repeat is what separates "something is
+        /// wrong" from "the program cannot talk to you" — at launch, where
+        /// nothing else is sounding, a doubled alarm is unmistakable.
+        /// </para>
+        /// <para>
+        /// It is the ALARM, not the explanation. The explanation is the dialog
+        /// raised beside it, which the operator's own screen reader reads
+        /// perfectly well — their reader is not the broken part.
+        /// </para>
+        /// </remarks>
+        [Earcon("Speech unavailable", EarconCategory.Warnings, Order = 3,
+            Description = "The warning alarm twice over. The program could not load the "
+                        + "library it speaks through, so it cannot announce anything this "
+                        + "session. The only sound that plays even with earcons switched off.")]
+        public static void SpeechUnavailableAlarm()
+        {
+            // Deliberately no Gate() call. See the remarks above. _currentTrimDb
+            // is armed by Gate for every other earcon, so it is set explicitly
+            // here rather than left holding whatever the previous sound used.
+            _currentTrimDb = GetLevelTrimDb(nameof(SpeechUnavailableAlarm));
+            RxDuck.RequestFor(1900);
+            PlayVoicedSequenceCore(EarconVoices.Alarm,
+                new[] { (800, 750), (0, 400), (800, 750) }, VolumeStrong);
+        }
+
         /// <summary>Low buzz — invalid leader key.</summary>
         [Earcon("JJ key not recognised", EarconCategory.CommandsAndConfirmations, Order = 24,
             Description = "Low thunk. That key means nothing in the leader layer.")]
@@ -3478,6 +3523,24 @@ namespace JJFlexWpf
             float volume, float pan = 0f)
         {
             if (!EarconsEnabled) return;
+            PlayVoicedSequenceCore(voice, steps, volume, pan);
+        }
+
+        /// <summary>
+        /// <see cref="PlayVoicedSequence"/> without the master mute check.
+        ///
+        /// <para><b>Exactly one caller, and it must stay that way:</b>
+        /// <see cref="SpeechUnavailableAlarm"/>, which fires when the speech
+        /// library failed to load and the application therefore has no voice of
+        /// its own. That is the one state where honouring "all earcons off"
+        /// leaves a blind operator with silence and no way to learn why. Every
+        /// other sound in this file goes through <see cref="Gate"/> and
+        /// <see cref="PlayVoicedSequence"/>, and an operator's mute means what
+        /// it says.</para>
+        /// </summary>
+        private static void PlayVoicedSequenceCore(MeterVoice voice, (int freq, int ms)[] steps,
+            float volume, float pan = 0f)
+        {
             if (AlertMixer == null)
             {
                 int first = 800, ms = 150;

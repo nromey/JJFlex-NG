@@ -7313,29 +7313,58 @@ namespace Radios
 
                 if (theRadio != null)
                 {
-                    saveNewGlobalProfile(); // if any
-
-                    // Put this radio's own profiles back BEFORE the connection
-                    // goes away, and after saveNewGlobalProfile so the two
-                    // cannot fight over the global selection (#450).
+                    // #423. Teardown must not be able to abandon itself half
+                    // way, and on the finalizer thread it must not be able to
+                    // take the process with it. The measured case: theRadio
+                    // non-null with Callouts.Profiles null sent
+                    // saveNewGlobalProfile into GetDefaultProfiles, which
+                    // walked a null list — and when that fired from the
+                    // finalizer it took down the whole test host. 2098 tests
+                    // never saw it because no prior test had attached a radio
+                    // to a FlexBase.
                     //
-                    // BEST-EFFORT, AND NOTHING MAY ASSUME IT RAN. A remote
-                    // client cannot guarantee cleanup, because the process
-                    // that must clean up is the one that died — a power cut,
-                    // a killed process, a dropped link and this line is never
-                    // reached. That is the whole reason the restore point sits
-                    // on the RADIO: the next JJ Flexible client to connect,
-                    // ours or anyone's, sees it in the profile list and can
-                    // offer to put things right.
-                    try { PutProfilesBackOnDisconnect(); }
+                    // The null-list confusion itself is fixed at its source in
+                    // GetDefaultProfiles. This is the second lock: whatever
+                    // else these two steps ever throw, the rest of Dispose
+                    // still runs, `disposed` is still set, and the failure is
+                    // named rather than being an unattributable death on a
+                    // thread nobody was watching.
+                    try
+                    {
+                        saveNewGlobalProfile(); // if any
+
+                        // Put this radio's own profiles back BEFORE the connection
+                        // goes away, and after saveNewGlobalProfile so the two
+                        // cannot fight over the global selection (#450).
+                        //
+                        // BEST-EFFORT, AND NOTHING MAY ASSUME IT RAN. A remote
+                        // client cannot guarantee cleanup, because the process
+                        // that must clean up is the one that died - a power cut,
+                        // a killed process, a dropped link and this line is never
+                        // reached. That is the whole reason the restore point sits
+                        // on the RADIO: the next JJ Flexible client to connect,
+                        // ours or anyone's, sees it in the profile list and can
+                        // offer to put things right.
+                        try { PutProfilesBackOnDisconnect(); }
+                        catch (Exception ex)
+                        {
+                            Tracing.TraceLine(
+                                "FlexBase.Dispose: putting profiles back threw: " + ex.Message
+                                + ". The restore points stay on the radio.", TraceLevel.Error);
+                        }
+
+                        Disconnect();
+                    }
                     catch (Exception ex)
                     {
-                        Tracing.TraceLine(
-                            "FlexBase.Dispose: putting profiles back threw: " + ex.Message
-                            + ". The restore points stay on the radio.", TraceLevel.Error);
+                        try
+                        {
+                            Tracing.TraceLine("FlexBase.Dispose: radio teardown failed and was "
+                                + "contained so the rest of Dispose could finish (disposing="
+                                + disposing.ToString() + "). " + ex, TraceLevel.Error);
+                        }
+                        catch { /* a trace failing here must not become the fault */ }
                     }
-
-                    Disconnect();
                 }
 
                 // Sprint 26 Phase 4: coordinator owns session lifecycle; FlexBase
@@ -7361,9 +7390,46 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// #423. Nothing may leave a finalizer.
+        /// </summary>
+        /// <remarks>
+        /// <para>An exception escaping here is unhandled ON THE GC THREAD: the
+        /// process dies, there is no window to say so, no speech, and the
+        /// stack belongs to the collector rather than to whatever caused it.
+        /// <b>Unrecoverable and unattributable</b> is the worst pair of
+        /// properties a failure can have, and it is the pair a blind operator
+        /// is least able to work around.</para>
+        ///
+        /// <para>So this catches everything, and the trace is wrapped too —
+        /// finalization can run at process exit with the trace file already
+        /// closed, and a diagnostic that throws while reporting a fault would
+        /// reproduce the exact failure it exists to prevent.</para>
+        ///
+        /// <para><b>Reported, not fixed here (out of this track's region):</b>
+        /// <c>Dispose(false)</c> reaches a great deal of managed work —
+        /// <c>saveNewGlobalProfile</c> talks to the radio, <c>Disconnect</c>
+        /// and <c>API.CloseSession</c> do network I/O, <c>RigFields.Close</c>
+        /// touches UI. A finalizer is not the place for any of that, and it may
+        /// be running against objects that were already collected. This guard
+        /// stops that being fatal; it does not make it correct.</para>
+        /// </remarks>
         ~FlexBase()
         {
-            Dispose(false);
+            try
+            {
+                Dispose(false);
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    Tracing.TraceLine("FlexBase finalizer: exception contained on the GC thread. "
+                        + "Unhandled here it would have ended the process with no window, no "
+                        + "speech and no attribution (#423). " + ex, TraceLevel.Error);
+                }
+                catch { /* the report must never become the fault */ }
+            }
         }
         #endregion
 
@@ -14128,6 +14194,28 @@ namespace Radios
             List<Profile_t> rv = new List<Profile_t>();
             // Any default profile must be in Callouts.Profiles.
             if (lst == null) lst = Callouts.Profiles;
+
+            // #423. A null profile list and an empty one are DIFFERENT STATES,
+            // and this used to collapse them by walking straight into the
+            // foreach. The answer to "which profiles are marked default" is the
+            // same either way — none — so returning the empty list is right;
+            // what was wrong was arriving there by way of a
+            // NullReferenceException. It fires during Dispose with a radio
+            // attached, and on the finalizer thread that is process death with
+            // no diagnosis: it took down a whole test host when it was found.
+            //
+            // Traced rather than swallowed, because "the profile list was never
+            // loaded" and "this station has no default profiles" want different
+            // answers from whoever is reading the log, and only one of them is
+            // ordinary.
+            if (lst == null)
+            {
+                Tracing.TraceLine("GetDefaultProfiles: no profile list — Callouts.Profiles is "
+                    + "null, which is not the same as empty. Reporting no default profiles "
+                    + "(#423).", TraceLevel.Warning);
+                return rv;
+            }
+
             foreach (Profile_t p in lst)
             {
                 if (p.Default)
@@ -17405,6 +17493,32 @@ namespace Radios
 
         private void remoteAudioProc()
         {
+            // ── #422: the boundary catch for a bare thread ──────────────────
+            //
+            // This runs on a Thread with no handler above it, so before this
+            // guard existed ANY exception here terminated the process — no
+            // window, no speech, nothing said. For a blind operator that is
+            // strictly less evidence than a spoken error, not more.
+            //
+            // A catch-all belongs here because the failure domain is cleanly
+            // separable: audio dies, and the radio session, the UI and logging
+            // all survive. The masking is bounded to one catch with no retry
+            // loop, and the thread still exits, so a recurring fault still
+            // recurs loudly on every start rather than being swallowed.
+            //
+            // The catch falls THROUGH to remoteDone, which is why the try ends
+            // where it does: that teardown is already defensive and
+            // null-guarded, and skipping it would leave PortAudio streams and
+            // radio-side streams open with no owner. `goto remoteDone` from
+            // inside the try exits it, which C# permits, so every existing exit
+            // path is unchanged.
+            //
+            // THE BODY BELOW IS DELIBERATELY NOT RE-INDENTED. Shifting four
+            // hundred lines by four spaces would make every one of them a
+            // change in a file three other tracks are editing at the same time,
+            // for a purely cosmetic gain. The guard is two inserted lines.
+            try
+            {
             Tracing.TraceLine("remoteAudioProc is WAN=" + RemoteRig.ToString(), TraceLevel.Info);
             opusOutputChannel = null;
             opusInputChannel = null;
@@ -17854,6 +17968,29 @@ namespace Radios
             }
 
             Tracing.TraceLine("remoteAudioProc:stopping remote audio", TraceLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                // ToString, not Message: this is the one record that will exist
+                // of a fault that used to kill the process silently, and the
+                // stack is the whole of its value.
+                Tracing.TraceLine("remoteAudioProc: unhandled exception on the audio thread — "
+                    + "PC audio is stopping; the radio session is unaffected. " + ex, TraceLevel.Error);
+
+                // Said out loud, because the alternative is audio that simply
+                // stops. Critical so it is heard at every verbosity; the
+                // operator cannot act on what they were not told.
+                try
+                {
+                    ScreenReaderOutput.Speak(Lexicon.Get("audio.pc_audio.internal_error"),
+                                             VerbosityLevel.Critical, true);
+                }
+                catch (Exception speakEx)
+                {
+                    Tracing.TraceLine("remoteAudioProc: could not announce the audio failure: "
+                        + speakEx.Message, TraceLevel.Error);
+                }
+            }
 
             remoteDone:
             // Both exits pass through here, so the continuity totals are

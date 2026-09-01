@@ -117,10 +117,27 @@ Public Class ConnectingForm
         ' focus watchdog four times a second — "sm connec sm connec sm connec
         ' ... connecting" heard live. Sign-in windows are friendly now; the
         ' operator's keyboard belongs in them.
+        '
+        ' #331 widened the stand-down from sign-in windows to EVERY modal we
+        ' raise, and made it cover z-order as well as focus. Standing the timer
+        ' down alone is not enough: this form is TopMost, so a message box owned
+        ' by the shell sits UNDERNEATH it however the focus argument comes out.
+        ' A screen reader would still read the dialog, which is the half that
+        ' matters most here — but a sighted helper looking at the same screen
+        ' would see a connecting box and no explanation at all.
+        '
+        ' Our own escalation prompt is the exception, and it is checked first:
+        ' it is owned by this form specifically so it INHERITS topmost, so
+        ' dropping topmost for it would undo the thing that makes it reachable.
+        ' _escalationActive is already the flag for "our own prompt is up".
         _focusTimer = New System.Windows.Forms.Timer() With {.Interval = 200}
         AddHandler _focusTimer.Tick, Sub(s, e)
-                                         If Visible AndAlso Not ContainsFocus AndAlso
-                                            Not Radios.WindowFocusForcer.SignInWindowOpen Then
+                                         If _escalationActive Then Return
+
+                                         Dim standDown = Radios.WindowFocusForcer.FocusReclaimShouldYield
+                                         If TopMost = standDown Then TopMost = Not standDown
+
+                                         If Visible AndAlso Not ContainsFocus AndAlso Not standDown Then
                                              Activate()
                                          End If
                                      End Sub
@@ -224,10 +241,14 @@ Public Class ConnectingForm
     ''' When a sign-in window is already up as this form appears, don't take
     ''' focus even once on Show — the half-second-later focus squash was the
     ''' whole round 25 problem. The user's keyboard stays in the sign-in form.
+    '''
+    ''' <para>#331 widened this from sign-in windows to any modal of ours that
+    ''' is already in front of the operator, for the same reason and by the same
+    ''' rule the reclaim timer now uses. One question, asked in both places.</para>
     ''' </summary>
     Protected Overrides ReadOnly Property ShowWithoutActivation As Boolean
         Get
-            Return Radios.WindowFocusForcer.SignInWindowOpen
+            Return Radios.WindowFocusForcer.FocusReclaimShouldYield
         End Get
     End Property
 
