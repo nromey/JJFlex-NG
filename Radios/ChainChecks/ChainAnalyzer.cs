@@ -75,6 +75,19 @@ namespace Radios.ChainChecks
         /// empty when a rule offers no remedy.</summary>
         public string Remedy { get; internal set; } = "";
 
+        /// <summary>
+        /// True when <see cref="Remedy"/> is the rule's <c>fix-when-cleared</c>
+        /// text rather than its ordinary one, because every cause the ordinary
+        /// remedy names was checked in this same walk and came back clean.
+        /// </summary>
+        /// <remarks>
+        /// Exposed so the evidence block can say which remedy an operator was
+        /// given and why, and so a test can prove the clearing actually happened
+        /// rather than inferring it from prose that anyone may reword. See
+        /// <see cref="DiagnosticRule.ClearedBy"/>.
+        /// </remarks>
+        public bool RemedyCleared { get; internal set; }
+
         /// <summary>Why this stage could not be checked, or why it is not in the
         /// path. One entry per distinct reason, in the operator's words.</summary>
         public List<string> Reasons { get; } = new List<string>();
@@ -600,6 +613,22 @@ namespace Radios.ChainChecks
             facts = facts ?? new DiagnosticFacts();
             var report = new ChainReport(rules, facts);
 
+            // WHAT EVERY RULE CAME OUT AS, KEPT RATHER THAN THROWN AWAY (#448).
+            //
+            // This is the whole structural point. A remedy used to be a static
+            // string chosen by rule id and written with no access to anything
+            // the rest of the walk found — so stage 11 could tell an operator to
+            // check their mic profile and their microphone input a few lines
+            // under stage 9 and stage 8 reporting both "checked, nothing wrong".
+            // No operation failed. The stages were right, the rule was right,
+            // and the sentence was still false, because nothing connected them.
+            //
+            // The walk already knows. Keeping the answers is what lets a remedy
+            // read the run's own evidence, and phrasing moves to a second pass
+            // so that the ORDER of the rules stops mattering: a stage 3 rule may
+            // name a cause stage 12 clears just as legitimately as the reverse.
+            var outcomes = new Dictionary<string, RuleOutcome>(StringComparer.OrdinalIgnoreCase);
+
             foreach (DiagnosticStage stage in rules.Stages)
             {
                 var result = new StageResult(stage, rules.ChainName);
@@ -656,6 +685,7 @@ namespace Radios.ChainChecks
                 foreach (DiagnosticRule rule in rules.RulesFor(stage.Number))
                 {
                     RuleOutcome outcome = Evaluate(rule, facts, out string why);
+                    Record(outcomes, rule.Id, outcome);
                     switch (outcome)
                     {
                         case RuleOutcome.Unreadable:
@@ -675,12 +705,11 @@ namespace Radios.ChainChecks
                             // First rule to fire in file order speaks for the
                             // stage. Later ones are usually the same fault seen
                             // from further along.
-                            if (result.Rule == null)
-                            {
-                                result.Rule = rule;
-                                result.Message = facts.Fill(rule.Verdict);
-                                result.Remedy = facts.Fill(rule.Fix);
-                            }
+                            // The rule is remembered; its WORDS are chosen in the
+                            // second pass, once every other rule's answer is
+                            // known. Phrasing here would make a remedy's honesty
+                            // depend on file order.
+                            if (result.Rule == null) result.Rule = rule;
                             break;
 
                         // NotApplicable costs nothing and is counted nowhere: it
@@ -708,12 +737,67 @@ namespace Radios.ChainChecks
                 }
             }
 
+            // ── SECOND PASS: the words ───────────────────────────────────────
+            //
+            // Now, and only now, is it safe to write a remedy, because the whole
+            // walk's evidence exists. A rule that declares cleared-by gets its
+            // ordinary remedy only while at least one named cause is still
+            // standing; once every one of them has been TESTED AND PASSED, the
+            // remedy that names them would be sending an operator to re-check
+            // what this same document has already cleared.
+            foreach (StageResult s in report.Stages)
+            {
+                if (s.Verdict != StageVerdict.Broken || s.Rule == null) continue;
+                s.Message = facts.Fill(s.Rule.Verdict);
+                s.RemedyCleared = EveryCauseCleared(s.Rule, outcomes);
+                s.Remedy = facts.Fill(s.RemedyCleared ? s.Rule.FixWhenCleared : s.Rule.Fix);
+            }
+
             foreach (StageResult s in report.Stages)
             {
                 if (s.Verdict == StageVerdict.Broken) { report.FirstBroken = s; break; }
             }
 
             return report;
+        }
+
+        /// <summary>
+        /// Remember what one rule came out as. A rule id appearing twice keeps
+        /// the answer that is NOT a clean pass, so a duplicate can never clear a
+        /// cause on the strength of one of its two halves.
+        /// </summary>
+        private static void Record(Dictionary<string, RuleOutcome> outcomes,
+                                   string id, RuleOutcome outcome)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            if (outcomes.TryGetValue(id, out RuleOutcome had) && had != RuleOutcome.Passed) return;
+            outcomes[id] = outcome;
+        }
+
+        /// <summary>
+        /// True when every rule this one names in <c>cleared-by</c> was actually
+        /// made and did not fire.
+        /// </summary>
+        /// <remarks>
+        /// <b>Passed is the only outcome that clears</b>, and the three that do
+        /// not are the point. A named rule that FIRED obviously leaves its cause
+        /// standing. One that did not APPLY was never about this operator's
+        /// setup, so it excluded nothing. One that was UNREADABLE is the case
+        /// this whole engine exists to refuse: a check we could not make must
+        /// never be spent as a check that passed.
+        /// </remarks>
+        private static bool EveryCauseCleared(DiagnosticRule rule,
+                                              Dictionary<string, RuleOutcome> outcomes)
+        {
+            if (rule.ClearedBy.Count == 0) return false;
+            if (rule.FixWhenCleared.Length == 0) return false;
+
+            foreach (string id in rule.ClearedBy)
+            {
+                if (!outcomes.TryGetValue(id, out RuleOutcome o)) return false;
+                if (o != RuleOutcome.Passed) return false;
+            }
+            return true;
         }
 
         private static RuleOutcome Evaluate(DiagnosticRule rule, DiagnosticFacts facts, out string why)

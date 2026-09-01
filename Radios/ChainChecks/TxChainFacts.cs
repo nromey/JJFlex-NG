@@ -835,9 +835,16 @@ namespace Radios.ChainChecks
                 return DiagnosticFact.Measure("swr", "Standing wave ratio",
                         rig.SWRValue, "to 1", "the radio's SWR meter");
             });
+            // The unit comes from TxPowerPhrasing and nowhere else (#444). This
+            // line said "percent" while the stage sentence beside it in the same
+            // report said "at 10 watts into ANT1", off ONE reading of ONE
+            // property. Whether watts or percent is the true unit is a bench
+            // question and is still open; what is settled is that this document
+            // may not answer it two ways.
             Probe(f, "rf-power-setting", "Transmit power setting",
                   () => DiagnosticFact.Measure("rf-power-setting", "Transmit power setting",
-                                               rig.XmitPower, "percent", "the radio"));
+                                               rig.XmitPower, TxPowerPhrasing.SettingUnits,
+                                               "the radio"));
             // Stands the power and standing-wave rules down while the tuner is
             // working. A tune cycle transmits into a deliberately bad match and
             // walks toward a good one, so high reflected power during one is the
@@ -871,6 +878,34 @@ namespace Radios.ChainChecks
                         "the transmit slice has not reported its mode to this computer yet", "the radio");
                 }
                 return DiagnosticFact.Text("tx-mode", "Transmit mode", mode, "the radio");
+            });
+            // WHETHER THIS MODE MAKES ITS POWER OUT OF AUDIO (#437).
+            //
+            // In a voice mode a radio with nothing arriving at its microphone
+            // has nothing to modulate, so zero forward power is the CORRECT
+            // behaviour and reporting it as a second, independent fault sends an
+            // operator to check a transmitter that is working exactly as
+            // designed. In CW there is no transmit audio path at all and the
+            // same reasoning is simply false.
+            //
+            // The list is NOT restated here. TransmitStageSet.TransmitAudioModes
+            // is the one place this project says which modes have a real
+            // transmit-audio path — ruled by Noel 2026-08-30 — and a second copy
+            // of it would be exactly the duplication that produces two
+            // vocabularies for one idea. An unread mode stays ABSENT rather than
+            // guessing "no": the rule that reads this then reports as a check
+            // that could not be made, which is the honest answer.
+            Probe(f, "tx-audio-mode", "This transmit mode carries audio", () =>
+            {
+                string mode = rig.TXMode ?? "";
+                if (mode.Length == 0)
+                {
+                    return DiagnosticFact.Absent("tx-audio-mode", "This transmit mode carries audio",
+                        "the transmit slice has not reported its mode to this computer yet, so there "
+                        + "is no way to tell whether power here comes from audio", "the radio");
+                }
+                return DiagnosticFact.Flag("tx-audio-mode", "This transmit mode carries audio",
+                    Fixer.TransmitStageSet.IsTransmitAudioMode(mode), "the radio");
             });
 
             return f;
@@ -945,6 +980,7 @@ namespace Radios.ChainChecks
             yield return "ptt-hardware";
             yield return "tx-slice";
             yield return "tx-mode";
+            yield return "tx-audio-mode";
         }
 
         /// <summary>

@@ -252,6 +252,38 @@ namespace Radios.ChainChecks
         /// follow without knowing how the radio works.</summary>
         public string Fix { get; internal set; } = "";
 
+        /// <summary>
+        /// The other rules in this walk whose PASSING refutes the causes
+        /// <see cref="Fix"/> names. When every one of them was actually made and
+        /// did not fire, <see cref="FixWhenCleared"/> is said instead.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>#448, and #437 is the same shape.</b> A remedy is a static string
+        /// chosen by rule id, written with no access to what the rest of the
+        /// walk found — so stage 11 could tell an operator to check the mic
+        /// profile and the microphone input a few lines under stage 9 and stage
+        /// 8 reporting both <i>checked, nothing wrong</i>. Nothing failed: the
+        /// stages were right, the rule was right, and the sentence was still
+        /// false.
+        /// </para>
+        /// <para>
+        /// <b>Passed is the only outcome that clears.</b> A named rule that
+        /// fired, that did not apply, or that could not be read has NOT excluded
+        /// its cause, and the ordinary remedy stands. Clearing on anything
+        /// weaker would turn "we never looked" into "we ruled it out", which is
+        /// the same lie the three-answer rule exists to prevent.
+        /// </para>
+        /// </remarks>
+        public List<string> ClearedBy { get; } = new List<string>();
+
+        /// <summary>
+        /// The remedy to say when every rule in <see cref="ClearedBy"/> was made
+        /// and passed. Where the walk has excluded every cause it can name, the
+        /// honest instruction is to say so rather than to list them again.
+        /// </summary>
+        public string FixWhenCleared { get; internal set; } = "";
+
         /// <summary>Extra facts worth quoting in the evidence block when this
         /// rule fires, beyond the ones it tests.</summary>
         public List<string> Evidence { get; } = new List<string>();
@@ -579,6 +611,20 @@ namespace Radios.ChainChecks
                             rule.Fix = Join(rule.Fix, value);
                             continue;
 
+                        case "cleared-by":
+                            if (rule == null) { set.Problems.Add(WrongPlace(lineNo, key, "a rule")); continue; }
+                            foreach (string part in value.Split(','))
+                            {
+                                string p = part.Trim();
+                                if (p.Length != 0 && !rule.ClearedBy.Contains(p)) rule.ClearedBy.Add(p);
+                            }
+                            continue;
+
+                        case "fix-when-cleared":
+                            if (rule == null) { set.Problems.Add(WrongPlace(lineNo, key, "a rule")); continue; }
+                            rule.FixWhenCleared = Join(rule.FixWhenCleared, value);
+                            continue;
+
                         case "evidence":
                             if (rule == null) { set.Problems.Add(WrongPlace(lineNo, key, "a rule")); continue; }
                             foreach (string part in value.Split(','))
@@ -656,6 +702,16 @@ namespace Radios.ChainChecks
                 i--;
             }
 
+            // A rule id has to be unique, because cleared-by resolves a cause to
+            // the rule that excludes it BY NAME, and the evidence block traces a
+            // verdict back the same way. Two rules sharing an id would make both
+            // ambiguous silently.
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (DiagnosticRule r in Rules)
+                if (r.Id.Length != 0 && !ids.Add(r.Id))
+                    Problems.Add("Rule " + r.Id + " is declared more than once, so naming it "
+                        + "in a cleared-by line or in the evidence block is ambiguous.");
+
             foreach (DiagnosticRule r in Rules)
             {
                 if (!known.Contains(r.StageNumber))
@@ -664,6 +720,27 @@ namespace Radios.ChainChecks
                     Problems.Add("Rule " + r.Id + " has no broken-when test, so it can never fire.");
                 if (r.Verdict.Length == 0)
                     Problems.Add("Rule " + r.Id + " has no verdict, so it would fire and say nothing.");
+
+                // A cleared-by naming a rule that does not exist can NEVER
+                // clear, so the ordinary remedy stands for ever and the author
+                // believes they fixed it. Say so out loud.
+                foreach (string cleared in r.ClearedBy)
+                {
+                    if (string.Equals(cleared, r.Id, StringComparison.OrdinalIgnoreCase))
+                        Problems.Add("Rule " + r.Id + " names itself in cleared-by, which can never "
+                            + "hold: a rule that fired did not pass.");
+                    else if (!ids.Contains(cleared))
+                        Problems.Add("Rule " + r.Id + " says it is cleared by " + cleared
+                            + ", which is not a rule in this file, so its remedy can never clear.");
+                }
+
+                if (r.ClearedBy.Count != 0 && r.FixWhenCleared.Length == 0)
+                    Problems.Add("Rule " + r.Id + " has a cleared-by line and no fix-when-cleared, "
+                        + "so there is nothing to say once those checks come back clean.");
+
+                if (r.ClearedBy.Count == 0 && r.FixWhenCleared.Length != 0)
+                    Problems.Add("Rule " + r.Id + " has a fix-when-cleared and no cleared-by, "
+                        + "so nothing can ever make it the remedy.");
             }
 
             Stages.Sort((a, b) => a.Number.CompareTo(b.Number));

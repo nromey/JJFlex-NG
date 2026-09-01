@@ -78,6 +78,9 @@ namespace Radios.Tests
             f.Add(DiagnosticFact.Text("tx-antenna", "Transmit antenna port", "ANT1"));
             f.Add(DiagnosticFact.Text("rx-antenna", "Receive antenna port", "ANT1"));
             f.Add(DiagnosticFact.Flag("transverter-path", "Transmitting through a transverter", false));
+            // Voice mode, so stage 12 can judge whether zero power is a
+            // consequence of silence upstream rather than a fault (#437).
+            f.Add(DiagnosticFact.Flag("tx-audio-mode", "This transmit mode carries audio", true));
             return f;
         }
 
@@ -299,7 +302,10 @@ namespace Radios.Tests
             Assert.True(r.StagesPending > 0);
             Assert.True(r.StagesBlind > 0);
             Assert.Equal(r.StagesUnobservable, r.StagesPending + r.StagesBlind);
-            Assert.Contains("transmit and run the test again", Stage(r, 11).Line());
+            // #440: the three keying-only stages now name WHERE to go
+            // rather than saying "transmit and run the test again", which
+            // read as a limitation of the operator's setup.
+            Assert.Contains("needs the radio keyed", Stage(r, 11).Line());
         }
 
         [Fact]
