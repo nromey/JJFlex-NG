@@ -1559,6 +1559,39 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose(Radios.Lexicon.Get("settings.operators.unavailable"));
         });
         AddWired(radio, "Profiles", () => ShowManageProfilesDialog());
+        // ── Whose profiles load here, and putting the radio's own back
+        //    (#450, #451). The Settings Radios tab is the better long-term
+        //    home for the per-radio choice — that is #451's own work — but the
+        //    answer needs SOMEWHERE to be given now, because the connect
+        //    announcement names it and a sentence that names a place the
+        //    operator cannot find is a receipt for a dead end.
+        if (Rig != null && Rig.IsConnected)
+        {
+            AddChecked(radio, "Load My Profiles on This Radio", () =>
+            {
+                bool nowOn = Rig.ProfileIntent != Radios.ProfileGuestIntent.LoadMineAndPutBack;
+                Rig.RecordProfileIntent(nowOn
+                    ? Radios.ProfileGuestIntent.LoadMineAndPutBack
+                    : Radios.ProfileGuestIntent.LeaveAlone);
+                EarconPlayer.ToggleTone(nowOn);
+                SpeakAfterMenuClose(Radios.Lexicon.Get(nowOn
+                    ? "settings.profile_guest.opted_in"
+                    : "settings.profile_guest.opted_out"));
+            }, () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LoadMineAndPutBack);
+
+            // Present ONLY when there is something to put back. A verb that
+            // announces its own absence after the operator has navigated to it
+            // and pressed is the stub-verb pattern (#121), and this one would
+            // be absent almost always.
+            if (Rig.HasStrandedProfileRestorePoint)
+            {
+                AddWired(radio, "Put This Radio's Own Profiles Back", () =>
+                {
+                    var types = Rig.StrandedProfileRestorePoints.ToList();
+                    SpeakAfterMenuClose(Rig.RestoreStrandedProfiles(types));
+                });
+            }
+        }
         AddWired(radio, "Connected Stations", () => ShowConnectedStations());
         // LocalPTT is a one-way claim: FlexLib only supports granting local
         // PTT to this client, never releasing it from here — hence "On".
