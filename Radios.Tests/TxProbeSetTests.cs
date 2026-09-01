@@ -379,7 +379,9 @@ namespace Radios.Tests
             // reference is the reading an operator can act on.
             string d = Ladder.Describe(Ref, HealthyFilter());
 
-            Assert.Contains("against the reference", d);
+            // "measuring tone", not "reference" — the word was doing two jobs
+            // a few lines apart in one report (#443).
+            Assert.Contains("against the measuring tone", d);
             // The control frequencies are derived from the operator's filter,
             // so name them from the ladder rather than from memory — that is
             // the whole point of the change (#221).

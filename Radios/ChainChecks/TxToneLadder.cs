@@ -389,9 +389,44 @@ namespace Radios.ChainChecks
             var got = (readings ?? Array.Empty<RungReading>()).ToList();
             var lines = new List<string>
             {
-                "Reference tone at " + ReferenceHz + " hertz read "
+                // "MEASURING TONE", NOT "REFERENCE TONE" (#443). The word
+                // "reference" was doing two jobs a few lines apart in one
+                // report: this 1000 hertz yardstick, and the shipped reference
+                // recording the same stage plays through the transmitter. Heard
+                // aloud, one word meant two things. The recording keeps the name
+                // — it is a shipped file, a picker label and a spoken script —
+                // and the tone, which appears in three sentences, gives it up.
+                "The " + ReferenceHz + " hertz measuring tone read "
                 + reference.ToString("0.#", CultureInfo.CurrentCulture) + ".",
             };
+
+            // NOTHING ARRIVED: SAY SO ONCE, DO NOT READ OUT THE FLOOR (#443).
+            //
+            // Noel, running this on Don's radio: "the reference voice says that
+            // it's a reference and didn't transmit and starts reading hertz
+            // which is weird." The report announced that no rung rose above the
+            // arrival line, then read five rungs that were every one of them at
+            // the meter floor and identical to one another, then said it could
+            // not be read. Three statements of one fact, two of them made of
+            // numbers that carry none.
+            //
+            // The trailing verdict is dropped here too, and that is the more
+            // important half. Its wording — "run it again with the radio fully
+            // up, so its meters are reporting" — blames the meters, and the
+            // meters WERE reporting: −150 is a reading. Sending an operator to
+            // re-key a transmitter over a false diagnosis costs them RF.
+            bool anythingArrived = got.Any(r => r.Reported && r.Db > TxDifferential.ReachedRadioDbfs);
+            if (got.Count > 0 && !anythingArrived)
+            {
+                lines.Add("Nothing came back from any rung of the ladder: all "
+                    + got.Count.ToString(CultureInfo.CurrentCulture)
+                    + " read at or below "
+                    + TxDifferential.ReachedRadioDbfs.ToString("0.#", CultureInfo.CurrentCulture)
+                    + " dBFS, which is the level this check treats as nothing arriving. They are "
+                    + "not listed one by one, because at the floor every rung says the same thing "
+                    + "and none of them says anything about your transmit filter.");
+                return string.Join(Environment.NewLine, lines);
+            }
 
             foreach (RungReading r in got.OrderBy(r => r.Rung.Hz))
             {
@@ -403,7 +438,7 @@ namespace Radios.ChainChecks
                 double rel = r.Db - reference;
                 lines.Add(r.Rung.Hz + " hertz: " + r.Db.ToString("0.#", CultureInfo.CurrentCulture)
                         + " (" + (rel >= 0 ? "+" : "") + rel.ToString("0.#", CultureInfo.CurrentCulture)
-                        + " against the reference) — " + r.Rung.Purpose + ".");
+                        + " against the measuring tone) — " + r.Rung.Purpose + ".");
             }
 
             lines.Add("");
