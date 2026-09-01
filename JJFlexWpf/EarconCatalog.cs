@@ -195,10 +195,18 @@ namespace JJFlexWpf
         /// <summary>One line saying what a family covers, for the section header.</summary>
         public static string CategoryDescription(EarconPlayer.EarconCategory? category) => category switch
         {
+            // #383: this said "One, two and three tones" while the application
+            // has never once played the one-tone rung, and after Noel's ruling
+            // of 2026-08-29 it never will. A real connect starts at step 2, so
+            // that is what the family header says now. Keep this sentence in
+            // step with ConnectPhase1Tone's Description — the two are the only
+            // operator-facing statements about the ladder, and they were both
+            // wrong in the same way.
             EarconPlayer.EarconCategory.Connection =>
-                "The connect ladder. One, two and three tones mark how far a connect has got, "
+                "The connect ladder. The number of tones marks how far a connect has got, "
                 + "climbing in pitch as it goes, and the pair at the top — higher again, and the "
-                + "only loud one — means you are connected.",
+                + "only loud one — means you are connected. A real connect starts at step 2; "
+                + "step 1 is here to audition, not something you will hear.",
             EarconPlayer.EarconCategory.Transmit =>
                 "Transmit start and stop, the PTT warning family, tune carrier and ATU.",
             EarconPlayer.EarconCategory.DialogsAndPanels =>

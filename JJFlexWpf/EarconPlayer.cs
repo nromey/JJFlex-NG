@@ -1238,18 +1238,29 @@ namespace JJFlexWpf
         /// Connect phase 1 — one tone at the bottom of the ladder.
         /// </summary>
         /// <remarks>
-        /// Audition-only in practice. <c>ConnectNarration</c> starts at phase 1
-        /// and only announces TRANSITIONS, so nothing on a live connect calls
-        /// this; the first tone an operator hears is phase 2. Kept because the
-        /// bottom rung is what makes the ladder legible on the bench, and
-        /// because the day the connecting window does announce its opening
-        /// phase, the sound for it should already exist and already fit.
+        /// <para>
+        /// Audition-only, and now audition-only BY RULING rather than by
+        /// accident. <c>ConnectNarration</c> starts at phase 1 and only
+        /// announces TRANSITIONS, so nothing on a live connect calls this; the
+        /// first tone an operator hears is phase 2. That was filed as #383,
+        /// and Noel ruled on 2026-08-29 — <i>"No, I don't think it's
+        /// necessary"</i> — so the bottom rung does NOT sound, permanently. Do
+        /// not "fix" this by making phase 1 fire.
+        /// </para>
+        /// <para>
+        /// Kept because the bottom rung is what makes the ladder legible when
+        /// you audition it, and because the day the connecting window does
+        /// announce its opening phase, the sound for it should already exist
+        /// and already fit. The row says so out loud — see the Description
+        /// below, which is the operator-facing half of this decision and has
+        /// to keep agreeing with it.
+        /// </para>
         /// </remarks>
         [Earcon("Connect step 1", EarconCategory.Connection, Order = 1,
-            Description = "One tone at 560 hertz, the bottom of the connect ladder. The opening "
-                        + "stage — which the connecting window treats as where it starts rather "
-                        + "than something to announce, so you hear this rung here more than on "
-                        + "a real connect.")]
+            Description = "One tone at 560 hertz, the bottom of the connect ladder. You will "
+                        + "only ever hear it here: a real connect starts at step 2, because the "
+                        + "connecting window treats the opening stage as where it begins rather "
+                        + "than as something to announce.")]
         public static void ConnectPhase1Tone()
         {
             if (!Gate(EarconCategory.Connection)) return;

@@ -359,7 +359,13 @@ Public Class ConnectingForm
             End Try
         End If
 
-        ' Counting earcon for the new phase (1 / 1+1 / 1+1+1).
+        ' Counting earcon for the new phase. In practice that is TWO tones or
+        ' THREE, never one: ConnectNarrator only announces transitions, and it
+        ' starts at phase 1, so phase 1 never arrives as a transition. #383
+        ' filed that; Noel ruled 2026-08-29 that the bottom rung should not
+        ' sound, so this is settled rather than outstanding. The comment used to
+        ' say "1 / 1+1 / 1+1+1" and described a sound the application has never
+        ' emitted.
         If step_.PlayPhaseTone Then
             Try
                 JJFlexWpf.EarconPlayer.ConnectPhaseTone(step_.Phase)
