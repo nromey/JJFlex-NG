@@ -1,5 +1,28 @@
 ﻿Imports JJTrace
 
+''' <summary>
+''' SUPERSEDED 2026-09-01 by JJFlexWpf.Dialogs.CWMessageAddDialog (#329), and
+''' left here on purpose rather than deleted in the same change.
+''' </summary>
+''' <remarks>
+''' Nothing constructs this form any more: CWMessages.Add and .Update drove it
+''' until the WPF editor was wired, and they now build the WPF one. Its
+''' companion CWMessageUpdate had already lost its last caller in the migration,
+''' which is what made the whole feature unreachable.
+'''
+''' RECORDED RATHER THAN DELETED because that is the half of this defect class
+''' that actually bites. #457 - the equalisers a tester reported missing - went
+''' dark in exactly this shape: Sprint 8 orphaned the control that hosted them,
+''' and Sprint 11 then deleted FlexEq.cs as a "dead WinForms file", which it
+''' truthfully was, without anyone connecting the two facts. Deleting this is
+''' right and should happen; doing it in the same breath as orphaning it is how
+''' the reason gets lost.
+'''
+''' Read it as the reference for what the WPF editor is a port OF. The
+''' behaviour it defines - a key already bound to any command is refused rather
+''' than stolen, and a message needs a key, a label and some text - is Jim's,
+''' and is carried over unchanged.
+''' </remarks>
 Public Class CWMessageAdd
     Private Const addTitle As String = "Add a CW Message"
     Private Const updateTitle As String = "Update this CW Message"

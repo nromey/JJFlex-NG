@@ -1,5 +1,19 @@
 ﻿Imports JJTrace
 
+''' <summary>
+''' SUPERSEDED by JJFlexWpf.Dialogs.CWMessageUpdateDialog (#329), and dead long
+''' before that.
+''' </summary>
+''' <remarks>
+''' This form lost its last caller during the WPF migration and nothing has
+''' constructed it since, which is what made CW message management unreachable:
+''' it was the only door to CWMessages.Add, .Update and .Remove, and the Tools
+''' menu item that should have opened it said "not yet implemented" instead. The
+''' list dialog that replaced it is now wired through CWMessages.Manage.
+'''
+''' Kept for the same reason as CWMessageAdd - see that file's header for why
+''' the record matters more than the deletion.
+''' </remarks>
 Public Class CWMessageUpdate
     Private Const noMessages As String = "There are no CW Messages"
     Private wasActive As Boolean
