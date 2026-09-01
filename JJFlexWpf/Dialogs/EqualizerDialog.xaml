@@ -3,69 +3,22 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JJFlexWpf"
         Title="Equalizer"
-        Width="600" SizeToContent="Height"
+        Width="380" SizeToContent="Height"
         ResizeMode="NoResize">
 
     <StackPanel Margin="12">
-        <!-- EQ Band Controls -->
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-            <StackPanel Margin="0,0,12,0" Width="55">
-                <TextBlock Text="63 Hz" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                <TextBox x:Name="Level63Box" HorizontalAlignment="Stretch"
-                         AutomationProperties.Name="63 Hz level"
-                         PreviewKeyDown="LevelBox_PreviewKeyDown" LostFocus="LevelBox_LostFocus"
-                         Tag="0"/>
-            </StackPanel>
-            <StackPanel Margin="0,0,12,0" Width="55">
-                <TextBlock Text="125 Hz" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                <TextBox x:Name="Level125Box" HorizontalAlignment="Stretch"
-                         AutomationProperties.Name="125 Hz level"
-                         PreviewKeyDown="LevelBox_PreviewKeyDown" LostFocus="LevelBox_LostFocus"
-                         Tag="1"/>
-            </StackPanel>
-            <StackPanel Margin="0,0,12,0" Width="55">
-                <TextBlock Text="250 Hz" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                <TextBox x:Name="Level250Box" HorizontalAlignment="Stretch"
-                         AutomationProperties.Name="250 Hz level"
-                         PreviewKeyDown="LevelBox_PreviewKeyDown" LostFocus="LevelBox_LostFocus"
-                         Tag="2"/>
-            </StackPanel>
-            <StackPanel Margin="0,0,12,0" Width="55">
-                <TextBlock Text="500 Hz" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                <TextBox x:Name="Level500Box" HorizontalAlignment="Stretch"
-                         AutomationProperties.Name="500 Hz level"
-                         PreviewKeyDown="LevelBox_PreviewKeyDown" LostFocus="LevelBox_LostFocus"
-                         Tag="3"/>
-            </StackPanel>
-            <StackPanel Margin="0,0,12,0" Width="55">
-                <TextBlock Text="1 kHz" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                <TextBox x:Name="Level1000Box" HorizontalAlignment="Stretch"
-                         AutomationProperties.Name="1000 Hz level"
-                         PreviewKeyDown="LevelBox_PreviewKeyDown" LostFocus="LevelBox_LostFocus"
-                         Tag="4"/>
-            </StackPanel>
-            <StackPanel Margin="0,0,12,0" Width="55">
-                <TextBlock Text="2 kHz" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                <TextBox x:Name="Level2000Box" HorizontalAlignment="Stretch"
-                         AutomationProperties.Name="2000 Hz level"
-                         PreviewKeyDown="LevelBox_PreviewKeyDown" LostFocus="LevelBox_LostFocus"
-                         Tag="5"/>
-            </StackPanel>
-            <StackPanel Margin="0,0,12,0" Width="55">
-                <TextBlock Text="4 kHz" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                <TextBox x:Name="Level4000Box" HorizontalAlignment="Stretch"
-                         AutomationProperties.Name="4000 Hz level"
-                         PreviewKeyDown="LevelBox_PreviewKeyDown" LostFocus="LevelBox_LostFocus"
-                         Tag="6"/>
-            </StackPanel>
-            <StackPanel Width="55">
-                <TextBlock Text="8 kHz" HorizontalAlignment="Center" Margin="0,0,0,2"/>
-                <TextBox x:Name="Level8000Box" HorizontalAlignment="Stretch"
-                         AutomationProperties.Name="8000 Hz level"
-                         PreviewKeyDown="LevelBox_PreviewKeyDown" LostFocus="LevelBox_LostFocus"
-                         Tag="7"/>
-            </StackPanel>
-        </StackPanel>
+
+        <!-- Whether the equalizer is switched on at all. First in the tab
+             order on purpose: bands set on a switched-off equalizer change
+             nothing the operator can hear, and finding that out last is the
+             worst version of it. -->
+        <CheckBox x:Name="EnabledCheck" Margin="0,0,0,10"
+                  Checked="EnabledCheck_Changed" Unchecked="EnabledCheck_Changed"/>
+
+        <!-- The nine bands, built in code-behind from FlexBase.EqBandHz so the
+             count and the frequencies cannot drift from the radio's. Vertical,
+             lowest at the top: the reading order IS the frequency order. -->
+        <StackPanel x:Name="BandsPanel" Margin="0,0,0,12"/>
 
         <!-- Buttons -->
         <StackPanel Orientation="Horizontal">

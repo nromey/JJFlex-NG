@@ -12791,7 +12791,8 @@ namespace Radios
             }
         }
 
-        // ── TX equalizer (Track F, 2026-08-16) ──
+        // ── Equalizers, TX and RX (Track F 2026-08-16; RX and 32 Hz added
+        //    Sprint 43 Track C, 2026-09-01, #431/#457) ──
         //
         // The TX EQ was the one piece of the radio's TX audio chain this class
         // never wrapped, which is why audio presets shipped without it (#50 —
@@ -12800,17 +12801,47 @@ namespace Radios
         // info" round trip, so callers who want a capture should call
         // RequestTxEqualizer() early (the Audio Workshop does it when it gets
         // a rig) and treat a null GetTxEq() as "the radio has not answered
-        // yet", not as "the radio has no EQ".
+        // yet", not as "the radio has no EQ". All of that is equally true of
+        // the RX side, which the radio carries identically and this class did
+        // not wrap at all until now.
+        //
+        // NINE bands, not eight — ruled by Noel 2026-09-01. The reasoning is
+        // not that 32 Hz is useful for voice (on transmit it sits below what
+        // an SSB filter passes): it is that "the surface covers the radio" is
+        // a rule anyone can verify, and "we left one out on purpose" is a
+        // decision nobody remembers in six months.
+        //
+        // WHAT THIS REGION USED TO CLAIM, AND WHY IT IS NOT REPEATED HERE.
+        // It said the radio "does not honor" 32 Hz, citing FlexLib. That
+        // citation is real — Equalizer.cs's level_32Hz setter carries
+        // "Currently 32Hz is not a valid EQ Control in the radio" — but it is
+        // a FlexRadio comment in a file stamped 2012-2017, and the same file
+        // both SENDS "eq <sel>sc 32Hz=" and PARSES a "32Hz" key back out of
+        // the radio's own status reply. A parser is written for a key
+        // something sends. So the vendor comment and the vendor code
+        // disagree, and neither is a measurement.
+        //
+        // UNVERIFIED, DELIBERATELY: nobody here has watched a radio answer.
+        // Track C had no authorised radio. If a Flex silently drops the
+        // 32 Hz write, this wrapper reports the value we sent rather than
+        // the value the radio kept — FlexLib updates its own field
+        // optimistically in the setter, so a readback cannot tell us. The
+        // honest test is one line on a bench: set 32 Hz away from zero,
+        // call RequestTxEqualizer(), and see whether the status reply comes
+        // back with what was sent. Until someone does that, treat the bottom
+        // band as "sent, not confirmed".
 
         /// <summary>
-        /// A snapshot of the radio's TX equalizer: enabled plus the eight
-        /// usable bands (63 Hz – 8 kHz), each in dB, radio range ±10. FlexLib
-        /// carries a 32 Hz member too, but the radio itself does not honor it
-        /// (FlexLib's own comment), so it is not modeled here.
+        /// The nine equalizer bands the radio carries — 32 Hz through 8 kHz,
+        /// each in dB over the radio's ±10 range — plus whether the equalizer
+        /// is switched on. Shared shape; the TX and RX snapshots below are
+        /// distinct types so an RX curve cannot be handed to the TX apply by
+        /// accident.
         /// </summary>
-        public sealed class TxEqSettings
+        public abstract class EqSettings
         {
             public bool Enabled;
+            public int Hz32;
             public int Hz63;
             public int Hz125;
             public int Hz250;
@@ -12821,28 +12852,160 @@ namespace Radios
             public int Hz8000;
         }
 
+        /// <summary>A snapshot of the radio's TRANSMIT equalizer.</summary>
+        public sealed class TxEqSettings : EqSettings
+        {
+        }
+
+        /// <summary>A snapshot of the radio's RECEIVE equalizer.</summary>
+        public sealed class RxEqSettings : EqSettings
+        {
+        }
+
+        /// <summary>
+        /// The nine band centre frequencies in Hz, in the order every EQ
+        /// surface presents them — lowest first. One list so a dialog, a
+        /// preset and a test cannot drift into disagreeing about what the
+        /// bands are or how many there are.
+        /// </summary>
+        public static readonly int[] EqBandHz =
+            { 32, 63, 125, 250, 500, 1000, 2000, 4000, 8000 };
+
+        /// <summary>Lowest level the radio accepts on any band, in dB.</summary>
+        public const int EqLevelMin = -10;
+
+        /// <summary>Highest level the radio accepts on any band, in dB.</summary>
+        public const int EqLevelMax = 10;
+
+        /// <summary>
+        /// Read a band by its index into <see cref="EqBandHz"/>. Out-of-range
+        /// indexes read 0 rather than throwing — a UI asking for a band that
+        /// does not exist is a bug to find in a test, not a crash to hand an
+        /// operator mid-QSO.
+        /// </summary>
+        public static int GetEqBand(EqSettings s, int index)
+        {
+            if (s == null) return 0;
+            switch (index)
+            {
+                case 0: return s.Hz32;
+                case 1: return s.Hz63;
+                case 2: return s.Hz125;
+                case 3: return s.Hz250;
+                case 4: return s.Hz500;
+                case 5: return s.Hz1000;
+                case 6: return s.Hz2000;
+                case 7: return s.Hz4000;
+                case 8: return s.Hz8000;
+                default: return 0;
+            }
+        }
+
+        /// <summary>
+        /// Write a band by its index into <see cref="EqBandHz"/>, clamped to
+        /// the radio's range. Out-of-range indexes are ignored.
+        /// </summary>
+        public static void SetEqBand(EqSettings s, int index, int level)
+        {
+            if (s == null) return;
+            int v = Math.Max(EqLevelMin, Math.Min(EqLevelMax, level));
+            switch (index)
+            {
+                case 0: s.Hz32 = v; break;
+                case 1: s.Hz63 = v; break;
+                case 2: s.Hz125 = v; break;
+                case 3: s.Hz250 = v; break;
+                case 4: s.Hz500 = v; break;
+                case 5: s.Hz1000 = v; break;
+                case 6: s.Hz2000 = v; break;
+                case 7: s.Hz4000 = v; break;
+                case 8: s.Hz8000 = v; break;
+            }
+        }
+
+        // ── The one place the FlexLib mapping is written ──
+        // Every band name appears exactly twice below, once each way. TX and
+        // RX both go through here, so a band cannot be wired on one side and
+        // forgotten on the other — which is the shape the 32 Hz gap had.
+
+        private static void FillEqFrom(Equalizer eq, EqSettings s)
+        {
+            s.Enabled = eq.EQ_enabled;
+            s.Hz32 = eq.level_32Hz;
+            s.Hz63 = eq.level_63Hz;
+            s.Hz125 = eq.level_125Hz;
+            s.Hz250 = eq.level_250Hz;
+            s.Hz500 = eq.level_500Hz;
+            s.Hz1000 = eq.level_1000Hz;
+            s.Hz2000 = eq.level_2000Hz;
+            s.Hz4000 = eq.level_4000Hz;
+            s.Hz8000 = eq.level_8000Hz;
+        }
+
+        private static void PushEqTo(Equalizer eq, EqSettings s)
+        {
+            static int Clamp(int v) => Math.Max(EqLevelMin, Math.Min(EqLevelMax, v));
+            eq.level_32Hz = Clamp(s.Hz32);
+            eq.level_63Hz = Clamp(s.Hz63);
+            eq.level_125Hz = Clamp(s.Hz125);
+            eq.level_250Hz = Clamp(s.Hz250);
+            eq.level_500Hz = Clamp(s.Hz500);
+            eq.level_1000Hz = Clamp(s.Hz1000);
+            eq.level_2000Hz = Clamp(s.Hz2000);
+            eq.level_4000Hz = Clamp(s.Hz4000);
+            eq.level_8000Hz = Clamp(s.Hz8000);
+            eq.EQ_enabled = s.Enabled;
+        }
+
+        private void RequestEqualizer(EqualizerSelect which, string traceName)
+        {
+            q.Enqueue((FunctionDel)(() =>
+            {
+                if (theRadio == null) return;
+                var eq = theRadio.FindEqualizerByEQSelect(which);
+                if (eq == null)
+                {
+                    // CreateEqualizer hands back an unregistered object; the
+                    // RequestEqualizerFromRadio round trip is what registers
+                    // it (and fills its levels) once the radio replies.
+                    theRadio.CreateEqualizer(which)?.RequestEqualizerFromRadio();
+                }
+                else
+                {
+                    eq.RequestEqualizerInfo();
+                }
+            }), traceName);
+        }
+
+        private T GetEqualizerSnapshot<T>(EqualizerSelect which) where T : EqSettings, new()
+        {
+            var eq = theRadio?.FindEqualizerByEQSelect(which);
+            if (eq == null) return null;
+            var s = new T();
+            FillEqFrom(eq, s);
+            return s;
+        }
+
+        private bool ApplyEqualizerSnapshot(EqualizerSelect which, EqSettings s, string traceName)
+        {
+            if (s == null) return false;
+            if (theRadio?.FindEqualizerByEQSelect(which) == null) return false;
+            q.Enqueue((FunctionDel)(() =>
+            {
+                var eq = theRadio?.FindEqualizerByEQSelect(which);
+                if (eq == null) return;
+                PushEqTo(eq, s);
+            }), traceName);
+            return true;
+        }
+
         /// <summary>
         /// Ask the radio for its TX equalizer state. Idempotent; safe with no
         /// radio. Until the answer arrives, <see cref="GetTxEq"/> returns null.
         /// </summary>
         public void RequestTxEqualizer()
         {
-            q.Enqueue((FunctionDel)(() =>
-            {
-                if (theRadio == null) return;
-                var eq = theRadio.FindEqualizerByEQSelect(EqualizerSelect.TX);
-                if (eq == null)
-                {
-                    // CreateEqualizer hands back an unregistered object; the
-                    // RequestEqualizerFromRadio round trip is what registers
-                    // it (and fills its levels) once the radio replies.
-                    theRadio.CreateEqualizer(EqualizerSelect.TX)?.RequestEqualizerFromRadio();
-                }
-                else
-                {
-                    eq.RequestEqualizerInfo();
-                }
-            }), "RequestTxEqualizer");
+            RequestEqualizer(EqualizerSelect.TX, "RequestTxEqualizer");
         }
 
         /// <summary>
@@ -12851,20 +13014,7 @@ namespace Radios
         /// </summary>
         public TxEqSettings GetTxEq()
         {
-            var eq = theRadio?.FindEqualizerByEQSelect(EqualizerSelect.TX);
-            if (eq == null) return null;
-            return new TxEqSettings
-            {
-                Enabled = eq.EQ_enabled,
-                Hz63 = eq.level_63Hz,
-                Hz125 = eq.level_125Hz,
-                Hz250 = eq.level_250Hz,
-                Hz500 = eq.level_500Hz,
-                Hz1000 = eq.level_1000Hz,
-                Hz2000 = eq.level_2000Hz,
-                Hz4000 = eq.level_4000Hz,
-                Hz8000 = eq.level_8000Hz,
-            };
+            return GetEqualizerSnapshot<TxEqSettings>(EqualizerSelect.TX);
         }
 
         /// <summary>
@@ -12874,24 +13024,35 @@ namespace Radios
         /// </summary>
         public bool ApplyTxEq(TxEqSettings s)
         {
-            if (s == null) return false;
-            if (theRadio?.FindEqualizerByEQSelect(EqualizerSelect.TX) == null) return false;
-            q.Enqueue((FunctionDel)(() =>
-            {
-                var eq = theRadio?.FindEqualizerByEQSelect(EqualizerSelect.TX);
-                if (eq == null) return;
-                static int Clamp(int v) => Math.Max(-10, Math.Min(10, v));
-                eq.level_63Hz = Clamp(s.Hz63);
-                eq.level_125Hz = Clamp(s.Hz125);
-                eq.level_250Hz = Clamp(s.Hz250);
-                eq.level_500Hz = Clamp(s.Hz500);
-                eq.level_1000Hz = Clamp(s.Hz1000);
-                eq.level_2000Hz = Clamp(s.Hz2000);
-                eq.level_4000Hz = Clamp(s.Hz4000);
-                eq.level_8000Hz = Clamp(s.Hz8000);
-                eq.EQ_enabled = s.Enabled;
-            }), "ApplyTxEq");
-            return true;
+            return ApplyEqualizerSnapshot(EqualizerSelect.TX, s, "ApplyTxEq");
+        }
+
+        /// <summary>
+        /// Ask the radio for its RX equalizer state. Idempotent; safe with no
+        /// radio. Until the answer arrives, <see cref="GetRxEq"/> returns null.
+        /// </summary>
+        public void RequestRxEqualizer()
+        {
+            RequestEqualizer(EqualizerSelect.RX, "RequestRxEqualizer");
+        }
+
+        /// <summary>
+        /// Current RX equalizer state, or null when the radio has not
+        /// reported it yet (see <see cref="RequestRxEqualizer"/>).
+        /// </summary>
+        public RxEqSettings GetRxEq()
+        {
+            return GetEqualizerSnapshot<RxEqSettings>(EqualizerSelect.RX);
+        }
+
+        /// <summary>
+        /// Apply an RX equalizer snapshot. Returns false (and changes nothing)
+        /// when the radio's equalizer object is not available yet — callers
+        /// own saying so rather than pretending the EQ was set.
+        /// </summary>
+        public bool ApplyRxEq(RxEqSettings s)
+        {
+            return ApplyEqualizerSnapshot(EqualizerSelect.RX, s, "ApplyRxEq");
         }
 
         // ── Audio Check / hear-yourself support (QB Track G, 2026-08-07) ──
