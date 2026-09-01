@@ -644,6 +644,40 @@ namespace Radios
                         + " so at least one exists that this list does not show.");
             }
 
+            // What a profile actually holds, and what it does not (#225).
+            //
+            // The honest limitation, stated where somebody will read it rather
+            // than only in a design document. An operator putting a radio back
+            // — their own or somebody else's — needs to know that a profile
+            // restores what a profile stores, and that the radio keeps a whole
+            // class of setting outside profile scope which nothing here puts
+            // back. Both halves are listed, because "what is covered" without
+            // "what is not" reads as a promise.
+            //
+            // The list lives in ProfileStewardship.RestorePointCoverage() so
+            // the report, the restore offer and the help cannot drift into
+            // three different answers.
+            sb.AppendLine();
+            sb.AppendLine(new string('=', 60));
+            sb.AppendLine("WHAT A PROFILE HOLDS");
+            sb.AppendLine(new string('=', 60));
+            sb.AppendLine("Loading a profile puts these back:");
+            foreach (var entry in ProfileStewardship.RestorePointCoverage()
+                                                    .Where(c => c.CoveredByAProfile))
+            {
+                sb.AppendLine("  " + entry.What
+                    + (string.IsNullOrEmpty(entry.Note) ? "" : " - " + entry.Note));
+            }
+            sb.AppendLine();
+            sb.AppendLine("It does NOT put these back. The radio keeps them whatever");
+            sb.AppendLine("profile is loaded:");
+            foreach (var entry in ProfileStewardship.RestorePointCoverage()
+                                                    .Where(c => !c.CoveredByAProfile))
+            {
+                sb.AppendLine("  " + entry.What
+                    + (string.IsNullOrEmpty(entry.Note) ? "" : " - " + entry.Note));
+            }
+
             // Capture current state
             sb.AppendLine();
             sb.AppendLine(new string('=', 60));

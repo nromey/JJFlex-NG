@@ -823,21 +823,12 @@ namespace Radios
             new CoverageEntry { What = "Firmware", CoveredByAProfile = false, Note = "nothing here can put firmware back" },
         };
 
-        /// <summary>
-        /// The sentence an operator needs before accepting a restore: what it
-        /// will and will not put back. Drafted, and flagged for human review
-        /// like all user-facing prose.
-        /// </summary>
-        public static string CoverageSentence()
-        {
-            int notCovered = RestorePointCoverage().Count(c => !c.CoveredByAProfile);
-            return "Putting the profiles back restores what a profile holds: which "
-                 + "profiles are loaded, the microphone and transmit settings they "
-                 + "carry, and the slice layout. It does not restore anything the "
-                 + "radio keeps outside a profile — its ports, its remote power "
-                 + "setting, its name, or its network. There are " + notCovered
-                 + " such settings, and none of them is changed unless you change it.";
-        }
+        // A SPOKEN form of the coverage list deliberately does not exist here.
+        // Eleven caveats is not a sentence, it is a page, and a page read
+        // aloud at the moment somebody presses a button is noise — which is
+        // how a caveat gets ignored. The list belongs in the profile report,
+        // where an operator arrows through it at their own pace, and that is
+        // its one consumer.
 
         // ------------------------------------------------------------------
 

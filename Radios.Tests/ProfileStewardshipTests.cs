@@ -691,10 +691,29 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void TheCoverageSentenceSaysWhatIsNotRestored()
+        public void TheCoverageListReachesSomewhereAnOperatorCanReadIt()
         {
-            var sentence = ProfileStewardship.CoverageSentence();
-            Assert.Contains("does not restore", sentence);
+            // A list nobody renders is a design document pretending to be
+            // code. Its one consumer is the profile report — pinned here
+            // because the honest-limitation half of #225 is the half that
+            // quietly stops being printed.
+            var reporter = File.ReadAllText(Path.Combine(
+                RepoRootFor(nameof(ProfileStewardshipTests)),
+                "Radios", "ProfileReporter.cs"));
+            Assert.Contains("ProfileStewardship.RestorePointCoverage()", reporter,
+                StringComparison.Ordinal);
+            Assert.Contains("It does NOT put these back", reporter, StringComparison.Ordinal);
+        }
+
+        private static string RepoRootFor(string _)
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln")))
+            {
+                dir = dir.Parent;
+            }
+            Assert.NotNull(dir);
+            return dir!.FullName;
         }
 
         // ==================================================================
