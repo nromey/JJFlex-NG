@@ -1742,6 +1742,35 @@
                             </RadioButton>
                         </StackPanel>
                     </GroupBox>
+
+                    <!-- Sprint 43 Track E, #318. The slice list read
+                         bottom-to-top: Down-arrow walked backwards through the
+                         alphabet. Noel ruled it a setting rather than a flip —
+                         better default, operator keeps the choice. -->
+                    <TextBlock Text="Slice list" FontWeight="SemiBold"
+                               Style="{StaticResource DialogLabel}" Margin="0,8,0,4"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Which way the up and down arrows walk the slice letters, on the Slice field and the Slice Operations field. This does not change what any key is bound to — only which slice each arrow reaches."/>
+
+                    <GroupBox Header="Slice arrow direction" Margin="0,0,0,8"
+                              AutomationProperties.Name="Slice arrow direction">
+                        <StackPanel Margin="4">
+                            <RadioButton x:Name="SliceOrderTopToBottomRadio"
+                                         GroupName="SliceArrowOrder"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Down arrow moves toward slice B"
+                                         Checked="SliceArrowOrderRadio_Checked">
+                                <TextBlock Text="Down arrow goes A to B to C (recommended)"/>
+                            </RadioButton>
+                            <RadioButton x:Name="SliceOrderBottomToTopRadio"
+                                         GroupName="SliceArrowOrder"
+                                         Margin="0,4,0,4"
+                                         AutomationProperties.Name="Up arrow moves toward slice B"
+                                         Checked="SliceArrowOrderRadio_Checked">
+                                <TextBlock Text="Up arrow goes A to B to C (previous behaviour)"/>
+                            </RadioButton>
+                        </StackPanel>
+                    </GroupBox>
                 </StackPanel>
                 </ScrollViewer>
             </TabItem>

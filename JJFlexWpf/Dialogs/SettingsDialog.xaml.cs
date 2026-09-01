@@ -473,6 +473,13 @@ namespace JJFlexWpf.Dialogs
                         DoubleTapNormalRadio.IsChecked = true;
                         break;
                 }
+
+                // Sprint 43 Track E (#318) — slice arrow direction, same tab,
+                // same suppression window.
+                if (AccessibilityConfig.Current.SliceArrowOrder == SliceArrowOrder.BottomToTop)
+                    SliceOrderBottomToTopRadio.IsChecked = true;
+                else
+                    SliceOrderTopToBottomRadio.IsChecked = true;
             }
             finally
             {
@@ -518,6 +525,28 @@ namespace JJFlexWpf.Dialogs
             if (DoubleTapLeisurelyRadio?.IsChecked == true) return DoubleTapTolerance.Leisurely;
             return DoubleTapTolerance.Normal;
         }
+
+        /// <summary>
+        /// Sprint 43 Track E (#318) — shared handler for the slice arrow
+        /// direction pair. Silent for the same reason
+        /// <see cref="DoubleTapToleranceRadio_Checked"/> is: each button's
+        /// AutomationProperties.Name already says what it does, the reader
+        /// announces it on selection, and speaking here would interrupt that
+        /// fuller sentence to deliver a shorter one on every arrow press
+        /// through the group.
+        /// </summary>
+        private void SliceArrowOrderRadio_Checked(object sender, RoutedEventArgs e)
+        {
+        }
+
+        /// <summary>
+        /// Read the slice arrow direction group. Falls through to the reading
+        /// order default if neither button is checked.
+        /// </summary>
+        private SliceArrowOrder GetSelectedSliceArrowOrder()
+            => SliceOrderBottomToTopRadio?.IsChecked == true
+                ? SliceArrowOrder.BottomToTop
+                : SliceArrowOrder.TopToBottom;
 
         /// <summary>
         /// Populate the Network tab from the connected radio's current state.
@@ -1480,6 +1509,9 @@ namespace JJFlexWpf.Dialogs
             // Save updates AccessibilityConfig.Current as a side effect, so any consumer
             // reading the static Current accessor sees the new value after this returns.
             AccessibilityConfig.Current.DoubleTapTolerance = GetSelectedDoubleTapTolerance();
+            // Sprint 43 Track E (#318). Committed alongside the tolerance so
+            // the whole Accessibility tab saves or does not save together.
+            AccessibilityConfig.Current.SliceArrowOrder = GetSelectedSliceArrowOrder();
             if (!string.IsNullOrEmpty(ConfigDirectory) && !string.IsNullOrEmpty(OperatorName))
             {
                 AccessibilityConfig.Current.Save(ConfigDirectory, OperatorName);

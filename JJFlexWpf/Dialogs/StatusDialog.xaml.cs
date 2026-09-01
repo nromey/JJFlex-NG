@@ -19,6 +19,36 @@ public partial class StatusDialog : JJFlexDialog
     /// <summary>Radio instance. Null when not connected.</summary>
     public FlexBase? Rig { get; set; }
 
+    /// <summary>
+    /// The live tuning mode sentence, and the active filter preset sentence —
+    /// the two fields this dialog's own specification named and never got
+    /// (#320, from Don's 2026-03-12 feedback).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Suppliers, not strings, because the readout refreshes every five
+    /// seconds</b> and both of these change while the dialog is open: the
+    /// tuning mode has a hotkey, and the filter preset changes the moment the
+    /// operator walks the filter. A snapshot captured at construction would go
+    /// stale in the one surface whose entire job is being current.
+    /// </para>
+    /// <para>
+    /// <b>Both come from accessors that already exist</b> —
+    /// <c>MainWindow.GetTuningModeStatus</c> and
+    /// <c>MainWindow.GetFilterPresetStatus</c>, the same two the Speak Status
+    /// key reads. Nothing here derives either value; a second derivation is
+    /// how the meters ended up with two answers to one question.
+    /// </para>
+    /// <para>
+    /// Null-returning is normal and means "no named preset" / "no handler
+    /// yet", not an error.
+    /// </para>
+    /// </remarks>
+    public Func<string?>? TuningModeStatus { get; set; }
+
+    /// <inheritdoc cref="TuningModeStatus"/>
+    public Func<string?>? FilterPresetStatus { get; set; }
+
     private readonly DispatcherTimer _refreshTimer;
 
     public StatusDialog()
@@ -97,6 +127,33 @@ public partial class StatusDialog : JJFlexDialog
             ? Lexicon.Get("connect.status.via_smartlink")
             : Lexicon.Get("connect.status.via_local"));
 
+        // Operating section — #320. The rebuild that produced this dialog had
+        // both of these on its own field list and shipped without them, and
+        // nothing recorded the gap.
+        //
+        // TUNING MODE is the one worth arguing for: Classic and Modern have
+        // different field sets and different key meanings, operators lose
+        // track of which one they are in, and until now the cheapest way to
+        // find out was to CHANGE mode and listen to the announcement — an
+        // answer that destroys the thing it was asked about.
+        string? tuning = TuningModeStatus?.Invoke();
+        string? preset = FilterPresetStatus?.Invoke();
+        if (tuning != null || FilterPresetStatus != null)
+        {
+            AddSection(Lexicon.Get("connect.status.section_operating"));
+            if (tuning != null) AddItem(SentenceCase(tuning));
+            if (FilterPresetStatus != null)
+            {
+                // A named preset says which; no named preset says so out loud
+                // rather than leaving a hole. Silence here is indistinguishable
+                // from a line that failed to render, and that ambiguity is what
+                // the roster's occupancy clause was rewritten to remove (#394).
+                AddItem(preset != null
+                    ? SentenceCase(preset)
+                    : Lexicon.Get("connect.status.no_filter_preset"));
+            }
+        }
+
         // Slice section
         int numSlices = Rig.MyNumSlices;
         AddSection(Lexicon.Get("connect.status.section_slices", ("numSlices", numSlices)));
@@ -157,6 +214,21 @@ public partial class StatusDialog : JJFlexDialog
 
         CommitLines();
     }
+
+    /// <summary>
+    /// First letter up, nothing else touched.
+    /// </summary>
+    /// <remarks>
+    /// The two accessors this dialog borrows were written for the middle of a
+    /// spoken sentence ("... , modern tuning mode, coarse 5 kilohertz"), so
+    /// they start lowercase. This readout is also READ, by sighted operators
+    /// and by anyone pasting the clipboard copy into an email. Capitalising
+    /// here rather than rewording there keeps one source for the words: a
+    /// second copy of "modern tuning mode" is precisely how the meters ended
+    /// up disagreeing with themselves.
+    /// </remarks>
+    private static string SentenceCase(string text)
+        => string.IsNullOrEmpty(text) ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     private void AddSection(string heading)
     {

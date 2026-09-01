@@ -30,6 +30,36 @@ namespace Radios
     }
 
     /// <summary>
+    /// Which way the Slice field's Up and Down arrows walk the slice letters.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Noticed by Noel 2026-08-11 (#318):</b> the slice list navigated
+    /// bottom-to-top — you arrowed UP to go A, B, C — so Down-arrow walked
+    /// backwards through the alphabet. Reading order says Down should do that,
+    /// and a list is the one control where a screen-reader operator has no
+    /// visual layout to correct the mismatch against.
+    /// </para>
+    /// <para>
+    /// <b>His ruling the same day was to make it a setting, not to flip it.</b>
+    /// We pick the better default; the operator keeps the choice. Anyone who
+    /// has spent months with the old direction in their fingers keeps it with
+    /// one radio button, and nobody's muscle memory is confiscated by our
+    /// opinion about reading order.
+    /// </para>
+    /// </remarks>
+    public enum SliceArrowOrder
+    {
+        /// <summary>Down-arrow moves A to B to C. Reading order, and the
+        /// default.</summary>
+        TopToBottom = 0,
+
+        /// <summary>Up-arrow moves A to B to C — how the field behaved before
+        /// this setting existed.</summary>
+        BottomToTop = 1
+    }
+
+    /// <summary>
     /// Per-operator accessibility preferences — input timing, UI pacing, and other
     /// accessibility-tuning knobs that may accumulate in future sprints (Sprint 28 ships
     /// this with just DoubleTapTolerance; future phases may add hold-to-repeat delay,
@@ -61,6 +91,29 @@ namespace Radios
         /// </summary>
         [XmlIgnore]
         public int DoubleTapToleranceMs => (int)DoubleTapTolerance;
+
+        /// <summary>
+        /// Which way the Slice field's arrows walk the letters. Default
+        /// <see cref="Radios.SliceArrowOrder.TopToBottom"/> — Down goes A, B, C.
+        /// </summary>
+        public SliceArrowOrder SliceArrowOrder { get; set; } = SliceArrowOrder.TopToBottom;
+
+        /// <summary>
+        /// The step Down-arrow should pass to the slice cycler: +1 toward the
+        /// next letter, -1 toward the previous one. Up-arrow takes the
+        /// negation.
+        /// </summary>
+        /// <remarks>
+        /// A property rather than a conditional at each key handler, because
+        /// there are two Up/Down slice sites in the app — the Slice field and
+        /// the Slice Operations field — and a setting honoured by one of them
+        /// is worse than no setting at all: it would be lying about what it
+        /// controls. Derived, so it is never serialised and can never disagree
+        /// with <see cref="SliceArrowOrder"/>.
+        /// </remarks>
+        [XmlIgnore]
+        public int SliceStepForDownArrow =>
+            SliceArrowOrder == SliceArrowOrder.TopToBottom ? 1 : -1;
 
         /// <summary>
         /// The active (most recently loaded or saved) accessibility config. UI-layer
@@ -134,6 +187,9 @@ namespace Radios
         {
             if (!Enum.IsDefined(typeof(DoubleTapTolerance), DoubleTapTolerance))
                 DoubleTapTolerance = DoubleTapTolerance.Normal;
+
+            if (!Enum.IsDefined(typeof(SliceArrowOrder), SliceArrowOrder))
+                SliceArrowOrder = SliceArrowOrder.TopToBottom;
         }
 
         private static AccessibilityConfig CreateDefault()

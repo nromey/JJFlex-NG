@@ -55,6 +55,24 @@ The maximum number of slices depends on your radio model:
 
 Keep in mind that in MultiFlex mode (when multiple operators share a single radio), the available slices are split among the connected clients.
 
+## Which Way the Arrows Go
+
+On the Slice field and the Slice Operations field, Down arrow walks you A, B, C
+— the same direction the list reads. Up arrow walks back the other way.
+
+It used to be the other way round, and if that is the direction your fingers
+learned, you can have it back. Open **Tools > Settings**, go to the
+**Accessibility** tab, and look for **Slice arrow direction**. There are two
+choices:
+
+- **Down arrow goes A to B to C** — the default, and reading order.
+- **Up arrow goes A to B to C** — how the field behaved before.
+
+Whichever you pick applies to both fields, so the two never disagree with each
+other. Nothing else changes: Space still cycles forward and wraps, `V` still
+moves to the next slice from anywhere on the Home, and the number and letter
+keys still jump straight to the slice you name.
+
 ## Enhanced Slice Status
 
 Press `Ctrl+Shift+S` for a detailed slice status report. When you have two or more slices active, you will hear something like this:

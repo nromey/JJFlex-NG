@@ -13,6 +13,7 @@ The Status dialog is organised into expandable categories. Arrow Up and Arrow Do
 
 Typical categories you will see include:
 
+- **Operating** — which tuning mode you are in, Classic or Modern, with your coarse and fine steps when you are in Modern; and the filter preset you are sitting on, or a plain "no named filter preset" when you have walked the filter off one. The tuning mode is the one people come here for: Classic and Modern give some keys different jobs, and until this line existed the only way to find out which one you were in was to switch and listen to the announcement.
 - **VFO and slice state** — frequency, mode, and filter width for each active slice.
 - **Meters** — S-meter, SWR, ALC, forward power, power-amplifier temperature, voltage.
 - **DSP state** — which of NR, NB, APF, and the preselector are active, and their current settings.

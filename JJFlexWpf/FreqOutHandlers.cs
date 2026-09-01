@@ -522,11 +522,7 @@ public class FreqOutHandlers
                 else if (ch == 'M')
                 {
                     // Mute / unmute the active slice
-                    bool newMute = !Rig.SliceMute;
-                    Rig.SliceMute = newMute;
-                    if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(
-                        newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse, true);
+                    ToggleSliceMuteAndAnnounce(interrupt: true);
                     e.Handled = true;
                 }
                 else if (ch == 'R')
@@ -972,11 +968,11 @@ public class FreqOutHandlers
         switch (key)
         {
             case Key.Up:
-                CycleVFO(1);
+                CycleVFO(SliceStepForUpArrow);
                 e.Handled = true;
                 break;
             case Key.Down:
-                CycleVFO(-1);
+                CycleVFO(SliceStepForDownArrow);
                 e.Handled = true;
                 break;
             default:
@@ -1011,6 +1007,35 @@ public class FreqOutHandlers
                 break;
         }
     }
+
+    /// <summary>
+    /// The slice step Down-arrow means, and Up-arrow's negation of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The list read bottom-to-top (#318):</b> Down-arrow walked backwards
+    /// through the alphabet, so reaching Slice C from Slice A meant arrowing
+    /// UP twice. Noel found it 2026-08-11 and ruled the same day that it
+    /// should become a setting rather than a flip — we pick the better
+    /// default, the operator keeps the choice.
+    /// </para>
+    /// <para>
+    /// <b>Both slice fields read it, deliberately.</b> The Slice field and the
+    /// Slice Operations field both bind Up/Down to this cycler, and a setting
+    /// honoured by one of them would be lying about what it controls. The
+    /// letter keys, the number keys, V and Space are unaffected — they select
+    /// by identity or cycle forward, and neither has a direction to get wrong.
+    /// </para>
+    /// <para>
+    /// <b>NOT a key binding change.</b> Up and Down keep the meanings the key
+    /// inventory records for them, "next or previous slice"; what moves is
+    /// which letter each one reaches.
+    /// </para>
+    /// </remarks>
+    private static int SliceStepForDownArrow =>
+        Radios.AccessibilityConfig.Current.SliceStepForDownArrow;
+
+    private static int SliceStepForUpArrow => -SliceStepForDownArrow;
 
     private void CycleVFO(int direction, bool wrap = false)
     {
@@ -1176,12 +1201,7 @@ public class FreqOutHandlers
                 break;
             case 'M':
                 // Toggle mute on current slice — same property as menu checkmark
-                {
-                    bool newMute = !Rig.SliceMute;
-                    Rig.SliceMute = newMute;
-                    if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    Radios.ScreenReaderOutput.Speak(newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse);
-                }
+                ToggleSliceMuteAndAnnounce(interrupt: false);
                 e.Handled = true;
                 break;
             case 'T':
@@ -1312,11 +1332,11 @@ public class FreqOutHandlers
                 switch (key)
                 {
                     case Key.Up:
-                        CycleVFO(1);
+                        CycleVFO(SliceStepForUpArrow);
                         e.Handled = true;
                         break;
                     case Key.Down:
-                        CycleVFO(-1);
+                        CycleVFO(SliceStepForDownArrow);
                         e.Handled = true;
                         break;
                     // Sprint 28 Phase 5 — pan triad moved from L/C/R letter keys
@@ -1494,15 +1514,10 @@ public class FreqOutHandlers
                 if (ch == ' ')
                 {
                     // Toggle mute — fastest path, Jim's "space bar" pattern.
-                    bool newMute = !Rig.SliceMute;
-                    Rig.SliceMute = newMute;
-                    if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                    string letter = Rig.VFOToLetter(vfo);
-                    Radios.ScreenReaderOutput.Speak(
-                        newMute
-                            ? Lexicon.Get("settings.slice.muted_named", ("letter", letter))
-                            : Lexicon.Get("settings.slice.unmuted_named", ("letter", letter)),
-                        VerbosityLevel.Terse, true);
+                    // This site already named its slice; it now shares the one
+                    // helper with the other five so a future wording change
+                    // cannot land on some of them (#313).
+                    ToggleSliceMuteAndAnnounce(interrupt: true);
                     e.Handled = true;
                 }
                 else if (ch == 'M')
@@ -2217,11 +2232,7 @@ public class FreqOutHandlers
 
         if (ch == 'M')
         {
-            bool newMute = !Rig.SliceMute;
-            Rig.SliceMute = newMute;
-            if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(
-                newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse, true);
+            ToggleSliceMuteAndAnnounce(interrupt: true);
             e.Handled = true;
             return true;
         }
@@ -2444,15 +2455,25 @@ public class FreqOutHandlers
         var key = RawKey(e);
         if (key == Key.Space)
         {
-            // On transmit this field carries forward power, not a signal
-            // reading, so name it and name its unit. It used to read the
-            // display field back verbatim — "S meter .050" while the radio
-            // transmitted 50 milliwatts.
-            string spoken = Rig != null && Rig.Transmit
-                ? Lexicon.Get("settings.home.power_reading",
-                    ("power", Radios.FlexBase.FormatForwardPowerSpoken(Rig.ForwardPowerWatts)))
-                : Lexicon.Get("settings.home.smeter_reading",
-                    ("reading", _window.FreqOut.Read("SMeter").Trim()));
+            // ASK THE METER, DO NOT READ THE SCREEN BACK (#353).
+            //
+            // This used to speak whatever string the display happened to be
+            // showing. On transmit that was "S meter .050" while the radio
+            // put out 50 milliwatts; in dBm it was "S meter -97", a
+            // hyphen-minus whose reading depends entirely on the operator's
+            // punctuation level — "minus 97", "dash 97", or "97"; and above
+            // S9 it was "S meter plus 4", four of what over what.
+            //
+            // Same composer as Ctrl+S, so the two surfaces cannot answer the
+            // same question differently again. dBm PERSISTS per radio now
+            // (#337), so an operator who prefers it lives there and paid for
+            // this on every press.
+            string spoken = Radios.SMeterReading.Spoken(
+                Rig.Transmit,
+                Radios.FlexBase.FormatForwardPowerSpoken(Rig.ForwardPowerWatts),
+                Rig.SmeterInDBM,
+                Rig.RawSMeter,
+                (int)Rig.SMeter);
             Radios.ScreenReaderOutput.Speak(spoken, VerbosityLevel.Terse);
             e.Handled = true;
         }
@@ -2469,6 +2490,48 @@ public class FreqOutHandlers
     #region AdjustMute
 
     /// <summary>
+    /// Toggle mute on the active slice, tone it, and say WHICH SLICE it
+    /// happened to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Five copies of this were writing a bare "Muted" (#313).</b> On a
+    /// multi-slice radio "which one" is the whole question the operator is
+    /// asking, and "Muted" answers the one they did not ask. Worse, the
+    /// answer depended on the door: the mute HOTKEY has named its slice since
+    /// it was written, and the Slice Operations field's Space key named its
+    /// slice too, so the same operation announced itself two different ways
+    /// depending on how it was invoked.
+    /// </para>
+    /// <para>
+    /// <b>The named strings already existed.</b> <c>settings.slice.muted_named</c>
+    /// and <c>settings.slice.unmuted_named</c> were sitting in the lexicon
+    /// unused by four of these five sites — somebody added the right string
+    /// and did not finish the sweep. Nothing new is written here; the fix is
+    /// to stop reaching past what is already there.
+    /// </para>
+    /// <para>
+    /// <b>The slice is read BEFORE the write.</b> <c>SliceMute</c> queues its
+    /// command, so the announcement must name the slice the operator
+    /// addressed rather than whatever is active by the time the queue runs —
+    /// the same identity-at-set-time rule <c>RXVFO</c> follows.
+    /// </para>
+    /// </remarks>
+    private void ToggleSliceMuteAndAnnounce(bool interrupt)
+    {
+        if (Rig == null) return;
+        bool newMute = !Rig.SliceMute;
+        string letter = Rig.VFOToLetter(Rig.RXVFO);
+        Rig.SliceMute = newMute;
+        if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+        Radios.ScreenReaderOutput.Speak(
+            newMute
+                ? Lexicon.Get("settings.slice.muted_named", ("letter", letter))
+                : Lexicon.Get("settings.slice.unmuted_named", ("letter", letter)),
+            VerbosityLevel.Terse, interrupt);
+    }
+
+    /// <summary>
     /// Mute field handler — Space/M toggles mute on the current active slice.
     /// </summary>
     public void AdjustMute(FrequencyDisplay.DisplayField field, KeyEventArgs e)
@@ -2481,10 +2544,7 @@ public class FreqOutHandlers
         // as a single-slice mute toggle, hiding the universal Shift+M = mute-all.
         if (key == Key.Space || (ch == 'M' && Keyboard.Modifiers == ModifierKeys.None))
         {
-            bool newMute = !Rig.SliceMute;
-            Rig.SliceMute = newMute;
-            if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-            Radios.ScreenReaderOutput.Speak(newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse);
+            ToggleSliceMuteAndAnnounce(interrupt: false);
             e.Handled = true;
         }
 
@@ -2745,14 +2805,7 @@ public class FreqOutHandlers
                 else if (ch == 'M')
                 {
                     // Mute/unmute active slice
-                    if (Rig != null)
-                    {
-                        bool newMute = !Rig.SliceMute;
-                        Rig.SliceMute = newMute;
-                        if (newMute) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
-                        Radios.ScreenReaderOutput.Speak(
-                            newMute ? Lexicon.Get("settings.slice.muted") : Lexicon.Get("settings.slice.unmuted"), VerbosityLevel.Terse, true);
-                    }
+                    ToggleSliceMuteAndAnnounce(interrupt: true);
                     e.Handled = true;
                 }
                 else if (ch == 'V')

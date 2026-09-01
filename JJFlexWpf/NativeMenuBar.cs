@@ -94,6 +94,27 @@ public class NativeMenuBar : IDisposable
     private readonly Dictionary<int, string> _itemNames = new();
     // Items with dynamic checkmarks: menu item ID → (parent HMENU, state getter)
     private readonly List<(IntPtr popup, int id, Func<bool> stateGetter, string baseText, bool enabled)> _checkItems = new();
+    /// <summary>
+    /// Ids of check items that belong to a MUTUALLY EXCLUSIVE group — one of
+    /// N is on, the rest are off — rather than being independent toggles.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// These get the checkmark and NOT the ": On" / ": Off" text suffix that
+    /// <see cref="HandleInitMenuPopup"/> writes onto a toggle. On a toggle the
+    /// suffix is the whole state; in a group of ten modes it is nine "Off"s
+    /// the operator arrows through to reach one "On", which is exactly the
+    /// noise that teaches somebody to stop listening. The checkmark itself is
+    /// what a screen reader reports as "checked", and in a radio group that is
+    /// the complete answer (#311).
+    /// </para>
+    /// <para>
+    /// It also cannot be written safely on these items: a mode row's text is
+    /// <c>"USB\tAlt+U"</c>, and appending to that puts the state inside the
+    /// accelerator column.
+    /// </para>
+    /// </remarks>
+    private readonly HashSet<int> _radioGroupItems = new();
     // Top-level popup handle → menu name (for screen reader announcement on open)
     private readonly Dictionary<IntPtr, string> _popupNames = new();
     /// <summary>
@@ -183,6 +204,7 @@ public class NativeMenuBar : IDisposable
         _handlers.Clear();
         _itemNames.Clear();
         _checkItems.Clear();
+        _radioGroupItems.Clear();
         _popupNames.Clear();
 
         // NOT reset — see the remarks on _nextId. Wrapped only at the 16-bit
@@ -347,6 +369,13 @@ public class NativeMenuBar : IDisposable
             {
                 bool isOn = stateGetter();
                 CheckMenuItem(itemPopup, (uint)id, MF_BYCOMMAND | (isOn ? MF_CHECKED : MF_UNCHECKED));
+
+                // One of N, not on-or-off: the mark IS the state, and a row
+                // that also said ": Off" would spend nine announcements
+                // telling the operator what they did not pick. See the remarks
+                // on _radioGroupItems (#311).
+                if (_radioGroupItems.Contains(id)) continue;
+
                 // Update text with state suffix so screen readers always announce on/off
                 string stateText = isOn ? "On" : "Off";
                 ModifyMenuW(itemPopup, (uint)id, MF_BYCOMMAND | MF_STRING, (UIntPtr)id, $"{baseText}: {stateText}");
@@ -895,9 +924,17 @@ public class NativeMenuBar : IDisposable
         // below this has always toned too, which is what makes the
         // omission here read as an oversight rather than a decision.
         EarconPlayer.ToggleTone(newMute);
+        // The slice is NAMED here, through the same two strings the hotkey
+        // uses (KeyCommands.MuteSliceHandler). On a multi-slice radio "which
+        // one" is the entire question the operator is asking, and a bare
+        // "Muted" answers the one they did not ask. The named strings already
+        // existed and only this call site reached past them, so the same
+        // operation announced itself two different ways depending on which
+        // door it came through (#313).
+        string letter = Rig.VFOToLetter(Rig.RXVFO);
         SpeakAfterMenuClose(newMute
-            ? Radios.Lexicon.Get("audio.mute.muted")
-            : Radios.Lexicon.Get("audio.mute.unmuted"));
+            ? Radios.Lexicon.Get("audio.mute.slice_muted", ("letter", letter))
+            : Radios.Lexicon.Get("audio.mute.slice_unmuted", ("letter", letter)));
     }
 
     private void MenuMuteAllSlices()
@@ -1783,12 +1820,18 @@ public class NativeMenuBar : IDisposable
                     "DIGL" => "\tAlt+Shift+D",
                     _ => ""
                 };
-                AddWired(modeSub, m + accel, () =>
+                // Marked, so the menu can answer "what mode am I in?" (#311).
+                // It went in through AddWired for eighteen sprints, which takes
+                // no state getter — so no mode row could ever carry MF_CHECKED
+                // and a screen reader had nothing to announce. The operator had
+                // to leave the menu to find out, then come back.
+                AddRadioChecked(modeSub, m + accel, () =>
                 {
                     if (Rig == null) { SpeakNoRadio(); return; }
                     Rig.Mode = m;
                     SpeakAfterMenuClose(Radios.Lexicon.Get("settings.mode.selected", ("m", m)));
-                });
+                },
+                () => string.Equals(Rig?.Mode, m, StringComparison.OrdinalIgnoreCase));
             }
             AddSep(modeSub);
             AddWired(modeSub, "Next Mode\tAlt+M", () => _window.CycleMode(1));
@@ -2450,6 +2493,43 @@ public class NativeMenuBar : IDisposable
         _handlers[id] = handler;
         _itemNames[id] = text;
         _checkItems.Add((popup, id, stateGetter, text, enabled));
+    }
+
+    /// <summary>
+    /// Add one member of a mutually exclusive group — a mode, a band, a
+    /// selection. Checkmark only: the row's text is never rewritten with a
+    /// state suffix.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this exists rather than an <see cref="AddChecked"/> call
+    /// (#311).</b> The slice Mode submenu had no state at all — every entry
+    /// went in through <c>AddWired</c>, which takes no state getter, so
+    /// nothing could ever set MF_CHECKED and a screen reader had nothing to
+    /// report. Arrowing the menu was a guess-and-exit loop: leave to hear what
+    /// mode you are in, then go back in. Every neighbouring submenu — slice
+    /// select, TX slice, Classic tuning, the band jumps — already marked its
+    /// state, which is what made this one surprising.
+    /// </para>
+    /// <para>
+    /// <b>But it is not the toggle case.</b> <c>AddChecked</c> also rewrites
+    /// the row as "{text}: On" or "{text}: Off" so a toggle announces its
+    /// state in words. Applied to ten modes that reads out nine "Off"s on the
+    /// way to one "On", and on a row whose text is <c>"USB\tAlt+U"</c> the
+    /// suffix lands inside the accelerator column. The checkmark alone is what
+    /// a radio group needs, and it is what the reader already speaks.
+    /// </para>
+    /// </remarks>
+    private void AddRadioChecked(IntPtr popup, string text, Action handler, Func<bool> stateGetter,
+                                 bool enabled = true)
+    {
+        AddChecked(popup, text, handler, stateGetter, enabled);
+        // The id AddChecked just allocated, taken from the row it just
+        // registered rather than predicted from _nextId. Predicting it works
+        // today and would silently mark the wrong row the day id allocation
+        // changes — and a wrong row here is a mode that announces itself
+        // "checked" when it is not.
+        _radioGroupItems.Add(_checkItems[^1].id);
     }
 
     // ── Verbs that are not there yet, and how they should say so ──
