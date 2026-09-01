@@ -82,6 +82,26 @@ namespace POpusCodec
             }
         }
 
+        /// <summary>
+        /// The encoder's lookahead in samples — the codec's algorithmic delay
+        /// on top of the frame duration. Read-only; libopus decides it from the
+        /// mode it chose.
+        /// </summary>
+        /// <remarks>
+        /// JJFlex addition, Sprint 43 Track J (#462). libopus has always
+        /// answered OPUS_GET_LOOKAHEAD and this wrapper had no way to ask, so
+        /// the codec's contribution to latency could only ever be quoted as a
+        /// range from the specification. It is a fact the encoder knows about
+        /// itself; one getter turns it into a logged figure.
+        /// </remarks>
+        public int Lookahead
+        {
+            get
+            {
+                return Wrapper.get_opus_encoder_ctl(_handle, OpusCtlGetRequest.LookAhead);
+            }
+        }
+
         public Bandwidth MaxBandwidth
         {
             get

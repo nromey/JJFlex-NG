@@ -146,7 +146,8 @@ namespace JJPortaudio
         /// <param name="cbPerSec">(optional) callbacks per second, default 10</param>
         /// <returns>true on success</returns>
         public bool OpenAudio(Devices.DeviceTypes inOut, uint rate, Audio.WavCallback inCallback = null,
-            PortAudio.PaStreamCallbackDelegate audioCallback = null, int cbPerSec = 10)
+            PortAudio.PaStreamCallbackDelegate audioCallback = null,
+            int cbPerSec = AudioBuffering.DefaultCallbacksPerSecond)
         {
             Tracing.TraceLine("audioStream.open:" + inOut.ToString() + ' ' + rate, TraceLevel.Info);
             aud = new Audio();
@@ -167,16 +168,26 @@ namespace JJPortaudio
         /// <param name="inCallback">called with input data, type input only</param>
         /// <param name="audioCallback">(optional) audio callback</param>
         /// <param name="cbPerSec">(optional) callbacks per second, default 10</param>
+        /// <param name="profile">
+        /// (optional) Opus ENCODER settings. Null means
+        /// <see cref="OpusEncodeProfile.Shipped"/> — the proven profile, byte
+        /// for byte what this path built before profiles existed. Ignored on an
+        /// output stream in every respect except the frame duration, which sets
+        /// the buffer granularity; decoding takes all its parameters from the
+        /// packets themselves (#460).
+        /// </param>
         /// <returns>true on success</returns>
         public bool OpenOpus(Devices.DeviceTypes inOut, uint sampleRate, Audio.OpusCallback inCallback = null,
-            PortAudio.PaStreamCallbackDelegate audioCallback=null, int cbPerSec = 10)
+            PortAudio.PaStreamCallbackDelegate audioCallback=null,
+            int cbPerSec = AudioBuffering.DefaultCallbacksPerSecond,
+            OpusEncodeProfile profile = null)
         {
             Tracing.TraceLine("audioStream.OpenOpus:" + sampleRate, TraceLevel.Info);
 
             // Open the device.
             aud = new Audio();
             aud.OpusInputHandler = inCallback;
-            if (!aud.Open(inOut, sampleRate, true, audioCallback, cbPerSec))
+            if (!aud.Open(inOut, sampleRate, true, audioCallback, cbPerSec, profile))
             {
                 return false;
             }

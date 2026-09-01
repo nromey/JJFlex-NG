@@ -125,6 +125,23 @@ This app carries a small, non-breaking shim to enforce TLS 1.2+ without editing 
     per-connection class prevents any client from running more than one
     SmartLink session; SmartSDR never does, which is presumably why it survives.
 
+## Other vendored trees — NOT FlexLib, but they carry patches too
+
+FlexLib is not the only vendor code in this repo, and a patch in one of the
+others is easier to lose precisely because nobody is looking for it during a
+FlexLib drop. Recorded here so a future upgrade of the tree in question finds it.
+
+- **`P-Opus-master` — read-only `Lookahead` on the encoder (applied 2026-09-01,
+  Sprint 43 Track J, #462).** `P-Opus-master/OpusEncoder.cs` gains one getter
+  reading `OpusCtlGetRequest.LookAhead`, which the vendor enum already listed
+  and no property exposed. Purely additive; no vendor line is modified. It
+  exists because the codec's algorithmic delay — the frame duration plus the
+  lookahead — could otherwise only ever be quoted as a range from the Opus
+  specification, while libopus has always been willing to state it exactly. The
+  figure is logged once per stream open by `JJPortaudio/JJPortaudio/Audio.cs`,
+  alongside the bitrate libopus chose. Re-apply after any P-Opus drop; nothing
+  breaks without it except the honesty of that trace line.
+
 ## Upgrade procedure that worked for 4.2.18 → 4.2.20 (2026-08-03)
 
 Rather than a fresh vendor copy + manual patch reapply, use git for a 3-way merge per changed file:
