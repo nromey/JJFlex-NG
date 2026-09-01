@@ -18,11 +18,16 @@ namespace Radios.ChainChecks
     /// <para>
     /// <b>The two doors have opposite problems, and each has what the other
     /// needs.</b> The Audio Workshop's Diagnostics tab can walk all thirteen
-    /// stages and <i>cannot transmit</i>, so the three stages that only exist
+    /// stages and does not key on its own, so the three stages that only exist
     /// during a transmission — stage 2, the microphone actually capturing;
     /// stage 11, what the radio says it hears; stage 12, radio frequency out of
-    /// the radio — come back as "transmit and run the test again", three times,
-    /// every time. The Fixer keys the radio, injects a known tone at
+    /// the radio — come back unmeasured unless something else is transmitting.
+    /// (Something else CAN be: the Audio Check in the same dialog keys through
+    /// the PTT safety controller, and running the walk while it transmits fills
+    /// all three. The claim that this room could never key a radio was wrong and
+    /// shaped a design decision for weeks — see #440. Those three stages now
+    /// name both routes in the rule file, so the answer reaches whichever door
+    /// is reading.) The Fixer keys the radio, injects a known tone at
     /// −10 dBFS, holds for eight seconds and replaces the microphone at the
     /// injection point, and <i>did not run the walk</i>. Noel, after five hours
     /// diagnosing Don's radio by hand: <i>"The fix tool's useless for Don's

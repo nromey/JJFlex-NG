@@ -307,10 +307,12 @@ namespace Radios.ChainChecks
         /// <b>The moment is the whole point.</b> Three stages of the walk can
         /// only be measured during a transmission — stage 2, the microphone
         /// actually capturing; stage 11, what the radio says it hears; stage 12,
-        /// radio frequency out of the radio — and the Audio Workshop, which is
-        /// the only place that ever ran the walk, cannot key a radio. Its report
-        /// says <i>"transmit and run the test again"</i> three times, on every
-        /// run, for ever. This is the transmit.
+        /// radio frequency out of the radio — and the Audio Workshop, which was
+        /// for a long time the only place that ever ran the walk, does not key
+        /// as part of running it. This is the transmit. (Its Audio Check does
+        /// key, so those three stages are reachable from there too if the walk
+        /// is run while it transmits; the line that used to stand here said flatly
+        /// that the room could not key a radio, and that was false — #440.)
         /// </para>
         /// <para>
         /// <b>It is called from inside the keyed block on purpose, and it must

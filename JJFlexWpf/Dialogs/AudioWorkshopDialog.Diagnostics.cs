@@ -409,14 +409,28 @@ public partial class AudioWorkshopDialog
             // stays a call rather than a copy. The receive half was joined this
             // way on 2026-08-28 (#367); this is the other half.
             //
-            // AND THE TWO DOORS ARE NOT INTERCHANGEABLE, which is why joining
-            // them mattered. Nothing in this room can key a radio, so the three
-            // stages that only exist during a transmission — stage 2, the
-            // microphone actually capturing; stage 11, what the radio says it
-            // hears; stage 12, radio frequency out of the radio — will report
-            // "transmit and run the test again" from here for ever. The Fixer
-            // fills exactly those three, and until now it did not run the walk
-            // at all.
+            // THE TWO DOORS ARE NOT INTERCHANGEABLE, which is why joining them
+            // mattered. Three of the thirteen stages only exist during a
+            // transmission — stage 2, the microphone actually capturing; stage
+            // 11, what the radio says it hears; stage 12, radio frequency out of
+            // the radio — and those three were exactly the ones that mattered on
+            // Don's radio. The Fixer keys, walks, and fills them.
+            //
+            // THIS COMMENT USED TO SAY "Nothing in this room can key a radio, so
+            // [those three] will report 'transmit and run the test again' from
+            // here for ever." THAT IS FALSE (#440), and it was a confident
+            // sentence shaping a design decision. The Audio Check a few controls
+            // away keys through PttSafetyController like every other check, and
+            // Noel, 2026-08-31: "I can key up to get the transmission chain test
+            // ... ctrl+enter does it." Run this walk while the Audio Check is
+            // transmitting and all three fill from here.
+            //
+            // The routing now lives where both doors read it: the three stages'
+            // nothing-to-check lines in tx-chain-rules.txt name the Audio Check
+            // AND the Fixer Tool, rather than saying "transmit and run the test
+            // again" — which reads as a limitation of the operator's setup
+            // instead of as "this door cannot do that on its own; here are two
+            // that can".
             walk = TransmitChainCheck.Run(rig, pcFacts);
             _lastTxWalk = walk;
         }
