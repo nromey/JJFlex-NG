@@ -2667,6 +2667,14 @@ namespace JJFlexWpf.Dialogs
                 RadioAudioConfigured =
                     _devices.GetConfiguredDevice(Devices.DeviceTypes.output) != null
                     && _devices.GetConfiguredDevice(Devices.DeviceTypes.input) != null;
+
+                // The transmit-audio check remembers for ten minutes that audio
+                // was seen to arrive, so a working station is not re-examined on
+                // every over (#459). A device change makes that memory a
+                // statement about a path that no longer exists — and a stale
+                // proof would silently suppress the warning on the one change
+                // most likely to have broken transmit audio.
+                Radios.MicPathVerification.Invalidate("the audio devices were changed");
             }
 
             if (_audioConfig != null)

@@ -102,6 +102,13 @@ public class MicrophoneProfile
     /// </remarks>
     public MicProfileApplyResult ApplyRadioHalf(FlexBase? rig, string radioId)
     {
+        // Applying a profile re-points the transmit chain, so an earlier proof
+        // that transmit audio was arriving no longer describes it (#459).
+        // Dropped up front rather than per branch: every path out of here has
+        // already changed the computer half, including the ones that decline to
+        // touch the radio.
+        MicPathVerification.Invalidate("a microphone profile was applied");
+
         if (rig == null)
         {
             return new MicProfileApplyResult

@@ -109,6 +109,30 @@ namespace JJFlexWpf
         private bool _healthReflectedWarned;
 
         /// <summary>
+        /// This transmission's reflected-power state (#453): the forward peak
+        /// that sets the floor below which a reflected share means nothing, and
+        /// the run of bad judgeable samples the warning needs behind it. Reset
+        /// alongside <see cref="_healthReflectedWarned"/>.
+        /// </summary>
+        private readonly ReflectedPowerRun _reflectedRun = new ReflectedPowerRun();
+
+        /// <summary>
+        /// True once THIS transmission has been shown to be carrying audio
+        /// (#459) — the peak-hold rose above the floor sentinel, so something
+        /// arrived. Latching the SUCCESS is the whole shape of the fix: the old
+        /// code latched the FAILURE at five seconds, and because the peak-hold
+        /// only ever grows, a verdict of "silent" could be contradicted by the
+        /// meter before the sentence finished being spoken.
+        /// </summary>
+        private bool _healthMicVerified;
+
+        /// <summary>
+        /// True once the level advice has been given, so it is said at most
+        /// once per transmission.
+        /// </summary>
+        private bool _healthMicLevelAdvised;
+
+        /// <summary>
         /// Seconds transmitting in ANY state, unlike <c>_healthLockSeconds</c>
         /// which counts only a locked transmission. The reflected-power warning
         /// runs on this one because a held PTT into a dead antenna port is
@@ -227,6 +251,7 @@ namespace JJFlexWpf
             if (State == PttState.Idle)
             {
                 _healthReflectedWarned = false;
+                _reflectedRun.Reset();
                 _healthTxSeconds = 0;
                 StartAlcTimer();
             }
@@ -460,6 +485,7 @@ namespace JJFlexWpf
                     ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.announce_transmitting"), VerbosityLevel.Critical, interrupt: true);
                 SpeakKeyDownExtra(); // armed test tone, etc. — always speaks
                 _healthReflectedWarned = false;
+                _reflectedRun.Reset();
                 _healthTxSeconds = 0;
                 // A held PTT used to get NO transmit monitoring at all — the
                 // tick returned early and stopped its own timer. That was fine
@@ -558,6 +584,9 @@ namespace JJFlexWpf
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
             _healthReflectedWarned = false;
+            _healthMicVerified = false;
+            _healthMicLevelAdvised = false;
+            _reflectedRun.Reset();
             _healthTxSeconds = 0;
             _healthLockSeconds = 0;
             StartFreshAudioSample(); // SC_MIC peak-hold and LUFS sample both start here
@@ -580,11 +609,21 @@ namespace JJFlexWpf
             SetTx(false);
             if (_config.ChirpEnabled) EarconPlayer.TxStopTone();
 
+            // Read the transmission's audio verdict BEFORE the counters below
+            // are cleared. Only on an ordinary unkey: forceSpeech marks the
+            // three paths that are a safety outcome — timeout, hard kill, ALC
+            // release — and an operator who has just been unkeyed by the
+            // software does not also need to hear about their microphone gain.
+            string levelAdvice = forceSpeech ? "" : MicLevelAdviceOrEmpty(_getRigControl(), wasState);
+
             StopAllTimers();
             _alcZeroConsecutiveSeconds = 0;
             _healthSilentMicWarned = false;
             _healthAlcHighWarned = false;
             _healthReflectedWarned = false;
+            _healthMicVerified = false;
+            _healthMicLevelAdvised = false;
+            _reflectedRun.Reset();
             _healthTxSeconds = 0;
             _healthLockSeconds = 0;
 
@@ -593,9 +632,15 @@ namespace JJFlexWpf
             // transmit timeout, hard kill, and ALC release. Those are safety
             // outcomes and get the flushing tier; an ordinary release does not
             // need to tear down the queue.
-            if ((forceSpeech || _config.SpeechEnabled) && !string.IsNullOrEmpty(speechMessage))
+            string unkeyMessage = string.IsNullOrEmpty(levelAdvice)
+                ? speechMessage
+                : (string.IsNullOrEmpty(speechMessage)
+                    ? levelAdvice
+                    : speechMessage + ". " + levelAdvice);
+
+            if ((forceSpeech || _config.SpeechEnabled) && !string.IsNullOrEmpty(unkeyMessage))
                 ScreenReaderOutput.Speak(
-                    speechMessage,
+                    unkeyMessage,
                     forceSpeech
                         ? Radios.Speech.SpeechIntent.Urgent
                         : Radios.Speech.SpeechIntent.Interrupt,
@@ -813,23 +858,14 @@ namespace JJFlexWpf
                 _alcZeroConsecutiveSeconds = 0;
             }
 
-            // TX health monitor — warn after 5 seconds of locked TX
+            // TX health monitor
             _healthLockSeconds++;
+
+            // Transmit audio, on its own schedule — see MonitorTransmitAudio.
+            MonitorTransmitAudio(rig);
+
             if (_healthLockSeconds >= 5)
             {
-                // Silent mic: the loudest moment of transmit audio over the whole
-                // locked window never rose above the floor. SC_MIC reflects PC
-                // audio AND the analog mic; the peak-hold ignores the quiet gaps
-                // between words. (Old code read MicData — the COD-/MIC meter, dead
-                // for PC audio — and compared dBFS against a linear 0.01, so it
-                // cried wolf on every PC-audio transmit.)
-                if (!_healthSilentMicWarned && rig.ScMicMaxDb < SilentMicDbfs)
-                {
-                    _healthSilentMicWarned = true;
-                    ScreenReaderOutput.Speak(Lexicon.Get("audio.ptt.check_microphone"), VerbosityLevel.Critical);
-                    Tracing.TraceLine($"PTT: Health warning — silent mic (SC_MIC peak {rig.ScMicMaxDb:F1} dBFS)", TraceLevel.Info);
-                }
-
                 if (!_healthAlcHighWarned && rig.SwAlcDb > AlcHotDbfs)
                 {
                     _healthAlcHighWarned = true;
@@ -837,6 +873,151 @@ namespace JJFlexWpf
                     Tracing.TraceLine($"PTT: Health warning — ALC pegging (SW ALC {rig.SwAlcDb:F1} dBFS)", TraceLevel.Info);
                 }
             }
+        }
+
+        /// <summary>
+        /// Everything that decides which path transmit audio takes, as one
+        /// comparable string, so a proof taken on one path is never trusted on
+        /// another.
+        /// </summary>
+        /// <remarks>
+        /// <b>The Windows capture device is deliberately empty here, and that is
+        /// a real gap worth knowing about.</b> Nothing reachable from this class
+        /// reports the device the audio engine actually opened — the saved
+        /// selection lives in <c>audioDevices.xml</c> and the live one is
+        /// internal to JJPortaudio. The operator changing devices through the
+        /// audio devices dialog is covered instead by an explicit
+        /// <see cref="MicPathVerification.Invalidate"/> there, which is the
+        /// route a change is actually made through. What is NOT covered is a
+        /// microphone physically unplugged, or swapped in Windows' own sound
+        /// settings, part-way through a proven ten minutes. The parameter is
+        /// kept so that whoever exposes the live device has one place to put it.
+        /// </remarks>
+        private static string MicPathSignatureFor(FlexBase rig) =>
+            TransmitSafety.MicPathSignature(
+                rig.ConnectedSerial, rig.MicSource, rig.PCAudio, audioDeviceId: "");
+
+        /// <summary>
+        /// Watch whether transmit audio is arriving, and latch the SUCCESS
+        /// (#459).
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>What was here before, and why it fired on a working station.</b>
+        /// The check ran on the first tick where the locked window reached five
+        /// seconds, asked whether the SC_MIC peak-hold had risen above
+        /// <c>-45 dBFS</c>, and latched the answer forever. Two things follow
+        /// from that, and both bit a real operator on the air.
+        /// </para>
+        /// <para>
+        /// First, it was a LEVEL test standing in for a PRESENCE test. An
+        /// operator measured at -92.59 dBFS while audible on the air and making
+        /// contacts sits 47 dB below that threshold, so he was told his
+        /// microphone was dead on every transmission. The meter already
+        /// distinguishes the two faults: nothing arriving at all reads the
+        /// -150 floor sentinel, and -92 is emphatically not -150. So the test
+        /// is now "did anything arrive", and the level is a separate, quieter
+        /// question answered at the end of the over.
+        /// </para>
+        /// <para>
+        /// Second, it latched the FAILURE. Because the peak-hold only ever
+        /// grows, a verdict of "silent" at five seconds could be false by six —
+        /// the warning could be contradicted by the meter before the sentence
+        /// finished being spoken. An operator who keys up, gathers his thoughts
+        /// for five seconds and then talks for four minutes was told his
+        /// microphone was dead. Latching the success instead cannot go wrong
+        /// that way: once audio has arrived, that answer can never become
+        /// false. So the window is watched to its end rather than judged at a
+        /// moment, and it is ten seconds rather than five, because five is a
+        /// normal amount of time to think before speaking.
+        /// </para>
+        /// <para>
+        /// The proof then outlives the transmission for ten minutes
+        /// (<see cref="MicPathVerification"/>), so a working station is not
+        /// re-examined on every over — but only for as long as the audio path
+        /// is unchanged.
+        /// </para>
+        /// </remarks>
+        private void MonitorTransmitAudio(FlexBase rig)
+        {
+            if (_healthMicVerified || _healthSilentMicWarned) return;
+
+            string signature = MicPathSignatureFor(rig);
+
+            // Proven recently, on this same path: say nothing and stop looking.
+            if (MicPathVerification.Holds(signature))
+            {
+                _healthMicVerified = true;
+                return;
+            }
+
+            switch (TransmitSafety.JudgeMicPath(rig.ScMicMaxDb, _healthLockSeconds))
+            {
+                case TransmitSafety.MicPathVerdict.Verified:
+                    _healthMicVerified = true;
+                    MicPathVerification.NoteVerified(signature);
+                    Tracing.TraceLine(
+                        $"PTT: transmit audio is arriving (SC_MIC peak {rig.ScMicMaxDb:F1} dBFS "
+                        + $"after {_healthLockSeconds}s) — nothing said, and the path is proven "
+                        + "until it changes", TraceLevel.Info);
+                    break;
+
+                case TransmitSafety.MicPathVerdict.NothingArrived:
+                    _healthSilentMicWarned = true;
+                    // Urgent, and worded for the fault it actually is: nothing
+                    // reached the radio, which means the device, the profile or
+                    // the microphone itself — not a level to nudge.
+                    ScreenReaderOutput.Speak(
+                        Lexicon.Get("audio.ptt.no_transmit_audio"),
+                        Radios.Speech.SpeechIntent.Urgent,
+                        VerbosityLevel.Critical);
+                    Tracing.TraceLine(
+                        $"PTT: no transmit audio at all — SC_MIC peak still at the "
+                        + $"{TransmitSafety.MicNothingArrivedDbfs:F0} dBFS floor after "
+                        + $"{_healthLockSeconds}s", TraceLevel.Warning);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// The gain-staging advice, if this transmission earned it: audio DID
+        /// arrive, so nothing is wrong with the path, but it never got anywhere
+        /// near a usable level.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Deliberately at unkey rather than mid-transmission, and deliberately
+        /// not urgent (#459). A level is something the operator adjusts next
+        /// over; interrupting them to say so is the noise that teaches people to
+        /// stop listening to this whole class of warning. Waiting to the end
+        /// also means the peak-hold has seen the entire window, so the advice
+        /// cannot be contradicted a second after it is given — which is the
+        /// same mistake, in miniature, that the silent-mic warning was making.
+        /// </para>
+        /// <para>
+        /// The threshold is still <see cref="SilentMicDbfs"/> and it is still
+        /// -45. Noel ruled on 2026-09-01 that the shape is fixed now and the
+        /// NUMBER is set later from measurement across both radios: the one
+        /// spoken reading we hold came from a window that may have had very
+        /// little talking in it, and guessing a second number is how the first
+        /// one got here.
+        /// </para>
+        /// </remarks>
+        private string MicLevelAdviceOrEmpty(FlexBase? rig, PttState wasState)
+        {
+            if (rig == null) return "";
+            if (wasState != PttState.Locked) return "";
+            if (_healthMicLevelAdvised || !_healthMicVerified) return "";
+            // Too short a window to have heard the operator's real peaks.
+            if (_healthLockSeconds < 5) return "";
+            if (!TransmitSafety.ShouldAdviseMicLevel(rig.ScMicMaxDb, SilentMicDbfs)) return "";
+
+            _healthMicLevelAdvised = true;
+            Tracing.TraceLine(
+                $"PTT: transmit audio arrived but stayed low (SC_MIC peak {rig.ScMicMaxDb:F1} "
+                + $"dBFS over {_healthLockSeconds}s) — level advice at unkey, not an alarm",
+                TraceLevel.Info);
+            return Lexicon.Get("audio.ptt.mic_level_low");
         }
 
         /// <summary>
@@ -870,8 +1051,24 @@ namespace JJFlexWpf
         /// </remarks>
         private void CheckReflectedPower(FlexBase rig)
         {
-            float forward = rig.ForwardPowerWatts;
-            float reflected = rig.ReflectedPowerWatts;
+            // ONE reading, not two property gets (#453). Forward and reflected
+            // arrive as two separate meter callbacks into two separate fields,
+            // so reading them one after the other samples two different
+            // instants — and on a speech envelope, where forward power plunges
+            // toward zero between syllables many times a second, that puts a
+            // small forward reading underneath a slightly older, larger
+            // reflected one and spikes the ratio. It ended real transmissions
+            // on a correctly matched antenna, and only ever on voice, never on
+            // a tune: a tune is a steady carrier, so there is no envelope and
+            // no skew.
+            TransmitPowerReading reading = rig.ReadTransmitPower();
+
+            int inconsistentBefore = _reflectedRun.IncoherentSamples;
+            _reflectedRun.Observe(reading);
+            if (_reflectedRun.IncoherentSamples == 1 && inconsistentBefore == 0)
+                Tracing.TraceLine(
+                    "PTT: declining to judge reflected power — " + reading.WhyNotCoherent,
+                    TraceLevel.Info);
 
             // The CUT (#224): after the alarm has fired, a further bad sample
             // at real power ends the transmission — when, and only when, the
@@ -887,12 +1084,12 @@ namespace JJFlexWpf
             if (State != PttState.Idle
                 && TransmitSafety.ShouldCutReflected(
                     _config.CutTransmitOnReflectedAlarm, _healthReflectedWarned,
-                    forward, reflected, rig.ATUTuneInProgress))
+                    reading, rig.ATUTuneInProgress))
             {
-                float cutBack = TransmitSafety.ReflectedFractionOf(forward, reflected);
+                float cutBack = reading.ReflectedShare;
                 Tracing.TraceLine(
                     $"PTT: reflected-power CUT — {cutBack * 100f:F0}% back at "
-                    + $"{forward:F1} W forward, setting is on", TraceLevel.Warning);
+                    + $"{reading.ForwardWatts:F1} W forward, setting is on", TraceLevel.Warning);
                 // A blind operator has no visual cue their transmit ended and
                 // will keep talking: warning earcon first, then GoIdle's
                 // Urgent speech says what happened, why, and that they are no
@@ -904,13 +1101,13 @@ namespace JJFlexWpf
             }
 
             if (!TransmitSafety.ShouldWarnReflected(
-                    forward, reflected, _healthTxSeconds,
+                    reading, _reflectedRun, _healthTxSeconds,
                     rig.ATUTuneInProgress, _healthReflectedWarned))
                 return;
 
             _healthReflectedWarned = true;
 
-            float back = TransmitSafety.ReflectedFractionOf(forward, reflected);
+            float back = reading.ReflectedShare;
             string antenna = rig.TXAntennaName ?? "";
 
             EarconPlayer.WarningAlarmTone();
@@ -939,7 +1136,7 @@ namespace JJFlexWpf
                 VerbosityLevel.Critical);
             Tracing.TraceLine(
                 $"PTT: Health warning — reflected power {back * 100f:F0}% "
-                + $"(fwd {forward:F1} W, refl {reflected:F2} W, "
+                + $"({reading}, {_reflectedRun}, "
                 + $"computed SWR {rig.ComputedSWR:F2}, meter said {rig.SWRValue:F3}, "
                 + $"antenna {(antenna.Length == 0 ? "unknown" : antenna)})",
                 TraceLevel.Info);

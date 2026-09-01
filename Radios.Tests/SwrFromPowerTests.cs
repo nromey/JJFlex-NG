@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using System.IO;
 using Xunit;
 
 namespace Radios.Tests
@@ -132,6 +134,122 @@ namespace Radios.Tests
             Assert.Equal(-25f, FlexBase.SWRNoReading);
             Assert.True(FlexBase.SWRNoReading < 1.0f,
                 "which is exactly why a bare 'swr < 1.5 means fine' test is unsafe");
+        }
+
+        [Fact]
+        public void The_calculation_can_never_produce_a_number_below_one()
+        {
+            // The property that makes "below 1 is not a measurement" a safe
+            // rule for the display to apply. Reflection coefficient is a
+            // square root of a non-negative ratio, so the result is 1 or more
+            // or it is NaN — there is no third answer, and anything below 1
+            // reaching an operator therefore came from the raw meter.
+            foreach (float fwd in new[] { 20f, 35f, 42.43f, 50.05f, 60f })
+                foreach (float refl in new[] { -40f, 0f, 17.33f, 30f, 41f, 45f, 61f })
+                {
+                    float swr = FlexBase.SwrFromPower(fwd, refl);
+                    Assert.True(float.IsNaN(swr) || swr >= 1.0f,
+                        $"SwrFromPower({fwd}, {refl}) produced {swr}");
+                }
+        }
+    }
+
+    /// <summary>
+    /// The SWR the operator is actually shown, on the manual-tuner button
+    /// (#454).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Source-read, because the thing under test is private and needs a
+    /// live FlexBase.</b> That is the whole reason the defect survived:
+    /// <c>SWRText</c> was <c>_SWR.ToString("f1")</c> — the raw radio meter
+    /// straight to a string with no test for the sentinel — so the radio's
+    /// −25 "I have no reading" was displayed as <b>"-25.0"</b>, and the same
+    /// meter's reassuring 1.008 was displayed while 76 percent of the power was
+    /// coming back off an empty port. Nothing could reach it to prove
+    /// otherwise, so nothing did.
+    /// </para>
+    /// <para>
+    /// The sweep proves it found the method before it proves anything about
+    /// the method — a path or a rename that empties it must fail loudly rather
+    /// than report a clean bill of health.
+    /// </para>
+    /// </remarks>
+    [Collection(RadioConfigStaticsCollection.Name)]
+    public sealed class SwrDisplayTests
+    {
+        private static string SwrTextBody()
+        {
+            string path = Path.Combine(RepoRoot(), "Radios", "FlexBase.cs");
+            Assert.True(File.Exists(path),
+                "The sweep cannot find FlexBase.cs — fix the path, do not delete the test.");
+
+            string text = File.ReadAllText(path);
+            int at = text.IndexOf("private string SWRText()", StringComparison.Ordinal);
+
+            // POSITIVE CONTROL.
+            Assert.True(at >= 0,
+                "SWRText was not found in FlexBase.cs. If the SWR display moved, move this "
+                + "test with it — do not let a missing method read as a passing check.");
+
+            int open = text.IndexOf('{', at);
+            int depth = 1;
+            int i = open + 1;
+            while (i < text.Length && depth > 0)
+            {
+                if (text[i] == '{') depth++;
+                else if (text[i] == '}') depth--;
+                i++;
+            }
+            return text.Substring(open, i - open);
+        }
+
+        [Fact]
+        public void The_display_does_not_read_the_raw_radio_meter()
+        {
+            string body = SwrTextBody();
+
+            Assert.DoesNotContain("_SWR", body);
+            Assert.Contains("ComputedSWR", body);
+        }
+
+        [Fact]
+        public void The_display_refuses_to_render_anything_below_one_as_a_number()
+        {
+            // A standing wave ratio cannot be negative, and cannot be under 1.
+            // Anything below 1 is by construction not a measurement, so the
+            // guard is written against 1 rather than against the −25 sentinel
+            // specifically: a future sentinel, or a meter glitch, lands in the
+            // same net.
+            string body = SwrTextBody();
+
+            Assert.Contains("IsNaN", body);
+            Assert.Contains("< 1f", body);
+            Assert.Contains("audio.tune.swr_no_reading", body);
+        }
+
+        [Fact]
+        public void The_no_reading_wording_is_words_and_not_a_number()
+        {
+            string words = Lexicon.Get("audio.tune.swr_no_reading");
+
+            Assert.False(string.IsNullOrWhiteSpace(words));
+            Assert.DoesNotContain("{", words);
+            Assert.False(float.TryParse(words, NumberStyles.Float, CultureInfo.InvariantCulture,
+                                        out _),
+                "a no-reading label that parses as a number is the defect again");
+            Assert.DoesNotContain("-25", words);
+        }
+
+        private static string RepoRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "JJFlexRadio.sln"))) return dir.FullName;
+                dir = dir.Parent;
+            }
+            return AppContext.BaseDirectory;
         }
     }
 }

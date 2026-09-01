@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Threading;
 using JJTrace;
@@ -116,6 +116,16 @@ namespace Radios
         private static string _what = "";
         private static bool _carrierRaised;
         private static bool _reflectedWarned;
+
+        /// <summary>
+        /// This armed transmission's reflected-power state: the forward peak
+        /// that sets the floor, and the run of bad judgeable samples the
+        /// warning needs behind it (#453). Reset wherever
+        /// <see cref="_reflectedWarned"/> is, or a previous transmission's peak
+        /// sets this one's floor. Guarded by <see cref="Gate"/>.
+        /// </summary>
+        private static readonly ReflectedPowerRun _run = new ReflectedPowerRun();
+
         private static Stopwatch _armedFor;
 
         private static volatile bool _killRequested;
@@ -202,6 +212,7 @@ namespace Radios
                     _what = string.IsNullOrWhiteSpace(what) ? "a transmit check" : what.Trim();
                     _carrierRaised = false;
                     _reflectedWarned = false;
+                    _run.Reset();
                     _killRequested = false;
                     _armedFor = Stopwatch.StartNew();
                 }
@@ -227,6 +238,7 @@ namespace Radios
                     _what = "";
                     _carrierRaised = false;
                     _reflectedWarned = false;
+                    _run.Reset();
                     _killRequested = false;
                     _armedFor = null;
                 }
@@ -611,39 +623,62 @@ namespace Radios
             }
             if (rig == null) return;
 
-            float forward, reflected;
+            TransmitPowerReading reading;
             bool tuning;
             string antenna;
             bool dummy;
             try
             {
-                forward = rig.ForwardPowerWatts;
-                reflected = rig.ReflectedPowerWatts;
+                // ONE reading, not two property gets (#453). See
+                // TransmitPowerReading for why two gets of two independently
+                // updated fields is not a sample of one instant, and why on
+                // speech it is not a rare edge case.
+                reading = rig.ReadTransmitPower();
                 tuning = rig.ATUTuneInProgress;
                 antenna = rig.TXAntennaName ?? "";
                 dummy = rig.DummyLoadMode;
             }
             catch { return; }   // a meter that cannot be read judges nothing
 
-            if (TransmitSafety.ShouldCutReflected(
-                    CutEnabled(), warned, forward, reflected, tuning))
+            bool firstDecline;
+            lock (Gate)
             {
-                float back = TransmitSafety.ReflectedFractionOf(forward, reflected);
+                int before = _run.IncoherentSamples;
+                _run.Observe(reading);
+                firstDecline = _run.IncoherentSamples == 1 && before == 0;
+            }
+            // Say so ONCE per armed transmission when the two meters do not
+            // arrive together. A guard that silently declines to judge is
+            // indistinguishable from one that is watching and seeing nothing
+            // wrong, and if some radio ever delivers these meters in separate
+            // bursts this is the only thing that would say the alarm had
+            // stopped working.
+            if (firstDecline)
+                Tracing.TraceLine(
+                    "TransmitKillSwitch: declining to judge reflected power — "
+                    + reading.WhyNotCoherent, TraceLevel.Info);
+
+            if (TransmitSafety.ShouldCutReflected(CutEnabled(), warned, reading, tuning))
+            {
+                float back = reading.ReflectedShare;
                 Tracing.TraceLine(
                     "TransmitKillSwitch: reflected-power CUT during " + WhatIsArmed + " — "
-                    + (back * 100f).ToString("F0") + "% back at " + forward.ToString("F1")
+                    + (back * 100f).ToString("F0") + "% back at "
+                    + reading.ForwardWatts.ToString("F1")
                     + " W forward", TraceLevel.Warning);
                 Request(Source.ReflectedPower, TransmitSafety.ReflectedCutText(back, antenna));
                 return;
             }
 
-            if (!TransmitSafety.ShouldWarnReflected(
-                    forward, reflected, (int)seconds, tuning, warned))
-                return;
+            lock (Gate)
+            {
+                if (!TransmitSafety.ShouldWarnReflected(
+                        reading, _run, (int)seconds, tuning, warned))
+                    return;
+                _reflectedWarned = true;
+            }
 
-            lock (Gate) { _reflectedWarned = true; }
-
-            float share = TransmitSafety.ReflectedFractionOf(forward, reflected);
+            float share = reading.ReflectedShare;
             try { Alarm?.Invoke(); } catch { }
             // cutDisarmed: with the cutoff off — the operator's setting, or a
             // hook nobody wired, which cuts nothing just the same — this
@@ -653,8 +688,7 @@ namespace Radios
                 cutDisarmed: !CutEnabled()));
             Tracing.TraceLine(
                 "TransmitKillSwitch: reflected power " + (share * 100f).ToString("F0")
-                + "% during " + WhatIsArmed + " (fwd " + forward.ToString("F1")
-                + " W, refl " + reflected.ToString("F2") + " W, antenna "
+                + "% during " + WhatIsArmed + " (" + reading + ", " + _run + ", antenna "
                 + (antenna.Length == 0 ? "unknown" : antenna) + ")", TraceLevel.Info);
         }
 
@@ -680,6 +714,7 @@ namespace Radios
                 _what = "";
                 _carrierRaised = false;
                 _reflectedWarned = false;
+                _run.Reset();
                 _killRequested = false;
                 _armedFor = null;
                 _watching = false;
