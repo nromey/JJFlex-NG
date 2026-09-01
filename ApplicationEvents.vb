@@ -333,8 +333,9 @@ Namespace My
                 handlers.SetSplitVFOs = Sub(v) SplitVFOs = v
                 handlers.GetShowXmitFrequency = Function() ShowXMITFrequency
                 handlers.SetShowXmitFrequency = Sub(v) ShowXMITFrequency = v
-                handlers.GetMemoryMode = Function() MemoryMode
-                handlers.SetMemoryMode = Sub(v) MemoryMode = v
+                ' GetMemoryMode / SetMemoryMode removed with AdjustVFO (#357).
+                ' The only writer was a key handler no keystroke could reach,
+                ' and the global they wrote to had no reader anywhere.
                 handlers.GetRXFrequency = Function() RXFrequency
                 handlers.SetRXFrequency = Sub(v) RXFrequency = v
                 ' These lambdas access RigControl at call time (module variable),

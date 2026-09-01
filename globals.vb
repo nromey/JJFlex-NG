@@ -3233,7 +3233,9 @@ Module globals
         End If
     End Sub
 
-    Friend Property MemoryMode As Boolean
+    ' MemoryMode removed with AdjustVFO (#357): it had a setter delegate, a
+    ' getter delegate, and no reader in the tree. Note AllRadios has its OWN
+    ' unrelated MemoryMode derived from CurVFO - that one is live.
 #End Region
 
     ' Region remote audio

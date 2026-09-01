@@ -29,8 +29,14 @@ public class FreqOutHandlers
     public Action<bool>? SetSplitVFOs { get; set; }
     public Func<bool>? GetShowXmitFrequency { get; set; }
     public Action<bool>? SetShowXmitFrequency { get; set; }
-    public Func<bool>? GetMemoryMode { get; set; }
-    public Action<bool>? SetMemoryMode { get; set; }
+    // GetMemoryMode / SetMemoryMode WERE HERE AND ARE DELETED (#357), with
+    // their assignments in ApplicationEvents.vb and the `MemoryMode` global
+    // they wrote to. The whole chain was inert: SetMemoryMode's only callers
+    // were AdjustVFO's M and V keys, which no keystroke could reach, and
+    // GetMemoryMode was never invoked from anywhere at all. The global itself
+    // had a setter, a getter, and no reader in the entire tree — so even on
+    // the four days in February when AdjustVFO WAS routed, pressing M there
+    // set a value nothing ever looked at.
     public Func<ulong>? GetRXFrequency { get; set; }
     public Action<ulong>? SetRXFrequency { get; set; }
     public Func<string, string>? FormatFreq { get; set; }
@@ -958,59 +964,33 @@ public class FreqOutHandlers
 
     #endregion
 
-    #region AdjustVFO
+    #region Slice cycling
 
-    /// <summary>
-    /// VFO field handler — cycle slices, enter memory mode.
-    /// </summary>
-    public void AdjustVFO(FrequencyDisplay.DisplayField field, KeyEventArgs e)
-    {
-        if (Rig == null) return;
-        var key = RawKey(e);
-        char ch = KeyToChar(e);
-
-        switch (key)
-        {
-            case Key.Up:
-                CycleVFO(1);
-                e.Handled = true;
-                break;
-            case Key.Down:
-                CycleVFO(-1);
-                e.Handled = true;
-                break;
-            default:
-                if (ch >= '0' && ch <= '9')
-                {
-                    int slice = ch - '0';
-                    if (Rig.ValidVFO(slice))
-                    {
-                        Rig.RXVFO = slice;
-                        Radios.ScreenReaderOutput.Speak(
-                            Lexicon.Get("settings.slice.name", ("letter", Rig.VFOToLetter(slice))),
-                            VerbosityLevel.Terse);
-                        e.Handled = true;
-                    }
-                }
-                else if (ch >= 'A' && ch <= 'H')
-                {
-                    // Direct slice select by letter — identity, not position.
-                    SelectSliceByLetter(ch);
-                    e.Handled = true;
-                }
-                else if (ch == 'M')
-                {
-                    SetMemoryMode?.Invoke(true);
-                    e.Handled = true;
-                }
-                else if (ch == 'V')
-                {
-                    SetMemoryMode?.Invoke(false);
-                    e.Handled = true;
-                }
-                break;
-        }
-    }
+    // AdjustVFO WAS HERE AND IS DELETED (#357).
+    //
+    // It was born wired: a5e55501 (2026-02-15) added the handler and the
+    // `case "VFO":` in the same commit. Four days later 7f3fd111 renamed the
+    // Home strip's "VFO" field to "Slice", wrote AdjustSlice for it, and
+    // correctly removed the route — and left the method. It has been
+    // unreachable since 2026-02-19. AdjustSlice (below) is its SUCCESSOR, not
+    // its sibling; anything AdjustVFO did that still matters lives there.
+    //
+    // Dead handlers in this file are worse than ordinary dead code because
+    // THEY READ AS EVIDENCE. This one carried a full letter map, and anyone
+    // reading FreqOutHandlers.cs to learn the Home key layout found bindings
+    // no keystroke could reach. That already happened: AdjustSliceOps was
+    // written to mirror AdjustVFO's letter jump, and its comment still says so.
+    //
+    // Two of those bindings were actively wrong. AdjustVFO bound M to
+    // memory-mode ON and V to memory-mode OFF, while M means mute and V means
+    // cycle-slice from EVERY field in the Home strip (KeyInventory's
+    // UniversalHome table, and TryHandleUniversalHomeKey below). V was
+    // deliberately taken away from AdjustVFO on 2026-04-24 for exactly that
+    // reason - see the comment in AdjustFreq - and memory-mode access moved to
+    // the leader chord Ctrl+J, M. So the last copy of a semantic the project
+    // had already ruled against was sitting one `case` away from being live.
+    // Restoring a VFO or memory field by pattern-matching this file must NOT
+    // bring M and V back with it.
 
     private void CycleVFO(int direction, bool wrap = false)
     {
@@ -2579,38 +2559,22 @@ public class FreqOutHandlers
 
     #endregion
 
-    #region AdjustMem
-
-    /// <summary>
-    /// Memory field handler — navigate memories via CurrentMemoryChannel.
-    /// </summary>
-    public void AdjustMem(FrequencyDisplay.DisplayField field, KeyEventArgs e)
-    {
-        if (Rig == null) return;
-        var key = RawKey(e);
-
-        switch (key)
-        {
-            case Key.Up:
-                Rig.CurrentMemoryChannel++;
-                Rig.SelectMemory();
-                Radios.ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.memory.channel", ("channel", Rig.CurrentMemoryChannel)),
-                    VerbosityLevel.Terse);
-                e.Handled = true;
-                break;
-            case Key.Down:
-                Rig.CurrentMemoryChannel--;
-                Rig.SelectMemory();
-                Radios.ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.memory.channel", ("channel", Rig.CurrentMemoryChannel)),
-                    VerbosityLevel.Terse);
-                e.Handled = true;
-                break;
-        }
-    }
-
-    #endregion
+    // AdjustMem WAS HERE AND IS DELETED (#357).
+    //
+    // Dead from birth, and provably so: a5e55501 (2026-02-15) is the only
+    // commit in this repository's entire history that contains the string
+    // AdjustMem, and the dispatch switch it added in that same commit did not
+    // route it. `git log --all -S 'AdjustMem(field'` returns nothing on any
+    // branch. No "Mem" field key has ever been constructed by
+    // SetupFreqoutClassic or SetupFreqoutModern, so it was written for a Home
+    // strip field that was planned and never built, and was unreachable for
+    // every one of its six and a half months.
+    //
+    // Memory is not lost with it. Ctrl+J then M opens the memories dialog
+    // (KeyCommands' unbound roster records the chord against
+    // CommandValues.ShowMemory), and the Radio menu reaches the same dialog.
+    //
+    // See also the comment above CycleVFO: the two deletions are one finding.
 
     #region Modern Mode Tuning — Sprint 13B
 
