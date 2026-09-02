@@ -795,6 +795,141 @@ namespace Radios
             }
         }
 
+        // ---------------------------------------------------------------
+        // The middle: my own transmit audio, live, nothing else (#499, #501,
+        // 2026-09-02).
+        //
+        // The operator's transmit-audio profile is kept on THIS COMPUTER (an
+        // AudioChainPreset in the per-operator store) and applied to the
+        // radio's live state. Nothing on the radio is created, selected or
+        // saved. Two things are remembered here per radio: WHICH local profile
+        // to apply, and whether a session of ours turned the radio's own
+        // profile autosave OFF and has not yet turned it back on — the one
+        // change a crash can leave behind, and the one any client must be able
+        // to detect and offer to reverse in a single press.
+        //
+        // APPEND-ONLY like the blocks around it: absent elements deserialise
+        // to empty and false, which is "no choice" and "we owe nothing".
+        // ---------------------------------------------------------------
+
+        /// <summary>The local transmit-audio profile (by name, in the
+        /// operator's own store) to apply live on THIS radio when
+        /// <see cref="ProfileIntent"/> is
+        /// <see cref="ProfileGuestIntent.UseMyTransmitAudio"/>.</summary>
+        public string LocalTransmitAudioProfile { get; set; } = "";
+
+        /// <summary>
+        /// True while a session of ours has turned this radio's profile
+        /// autosave OFF and not yet restored it. Set at the moment the command
+        /// goes out — before anything else is changed — and cleared when the
+        /// radio confirms autosave is on again. If this is true at the next
+        /// connect, that session ended without putting things back.
+        /// </summary>
+        public bool AutosaveTurnedOffByUs { get; set; }
+
+        /// <summary>When <see cref="AutosaveTurnedOffByUs"/> was set, UTC.
+        /// MinValue when it is not set.</summary>
+        public DateTime AutosaveTurnedOffUtc { get; set; } = DateTime.MinValue;
+
+        /// <summary>
+        /// Record the operator's choice of local transmit-audio profile for a
+        /// radio, and with it the intent to use it. One write for both so the
+        /// two can never disagree on disk. Empty clears the choice and leaves
+        /// the intent as it is — the caller says what the intent becomes.
+        /// </summary>
+        public static bool RecordLocalTransmitAudioChoice(string radioId, string presetName)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            var cfg = LoadForRadio(radioId);
+            string value = presetName ?? "";
+            var intent = string.IsNullOrWhiteSpace(value)
+                ? cfg.ProfileIntent
+                : ProfileGuestIntent.UseMyTransmitAudio;
+            if (cfg.LocalTransmitAudioProfile == value && cfg.ProfileIntent == intent) return true;
+            cfg.LocalTransmitAudioProfile = value;
+            cfg.ProfileIntent = intent;
+            Tracing.TraceLine(
+                $"RadioConfig: local transmit-audio profile for {radioId} set to '{value}' "
+                + $"by the operator (intent {intent}).",
+                System.Diagnostics.TraceLevel.Info);
+            return cfg.SaveForRadio(radioId);
+        }
+
+        /// <summary>The local transmit-audio profile chosen for a radio id, or
+        /// empty. Never throws.</summary>
+        public static string LocalTransmitAudioChoiceOf(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return "";
+            try { return LoadForRadio(radioId).LocalTransmitAudioProfile ?? ""; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.LocalTransmitAudioChoiceOf: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Remember that a session of ours turned this radio's autosave off
+        /// (<paramref name="off"/> true) or gave it back (false). Written
+        /// synchronously and BEFORE the next change, because it is the record
+        /// a crash leaves behind. Never throws.
+        /// </summary>
+        public static bool RecordAutosaveTurnedOffByUs(string radioId, bool off)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            try
+            {
+                var cfg = LoadForRadio(radioId);
+                if (cfg.AutosaveTurnedOffByUs == off) return true;
+                cfg.AutosaveTurnedOffByUs = off;
+                cfg.AutosaveTurnedOffUtc = off ? DateTime.UtcNow : DateTime.MinValue;
+                Tracing.TraceLine(
+                    off
+                        ? $"RadioConfig: JJ Flexible turned profile autosave OFF on {radioId}; recorded so it can be owed back."
+                        : $"RadioConfig: profile autosave on {radioId} is the owner's again; the record is cleared.",
+                    System.Diagnostics.TraceLevel.Info);
+                return cfg.SaveForRadio(radioId);
+            }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.RecordAutosaveTurnedOffByUs: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>True when a session of ours owes this radio its autosave
+        /// back. Unknown ids read as false. Never throws.</summary>
+        public static bool AutosaveTurnedOffByUsOn(string radioId)
+        {
+            if (string.IsNullOrEmpty(radioId)) return false;
+            try { return LoadForRadio(radioId).AutosaveTurnedOffByUs; }
+            catch (Exception ex)
+            {
+                Tracing.TraceLine(
+                    "RadioConfig.AutosaveTurnedOffByUsOn: " + ex.Message,
+                    System.Diagnostics.TraceLevel.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The per-radio directory (<c>{base}\radios\{id}</c>) for files that
+        /// belong beside a radio's config — the live transmit-audio snapshot
+        /// lives there. Null when there is no config root or the id is
+        /// malformed. Does not create it.
+        /// </summary>
+        public static string? RadioDirectory(string radioId)
+        {
+            if (!IsWellFormedRadioId(radioId)) return null;
+            var dir = ResolveBaseDirectory();
+            if (string.IsNullOrEmpty(dir)) return null;
+            return Path.Combine(dir, "radios", SanitizeRadioId(radioId));
+        }
+
         /// <summary>
         /// The profile intent for a radio id, without the caller loading a
         /// whole config. Unknown ids read as NotAnswered, which is the safe

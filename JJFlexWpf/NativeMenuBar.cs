@@ -484,6 +484,66 @@ public class NativeMenuBar : IDisposable
     }
 
     /// <summary>
+    /// Record the operator's answer to "what may JJ Flexible do to this
+    /// radio's profiles?" (#450, #451, #499, #501). Takes effect at the next
+    /// connect — the profiles that would have been touched at THIS one already
+    /// were not, and acting now would be acting on an answer given after the
+    /// fact.
+    /// </summary>
+    private void SetGuestProfileIntent(Radios.ProfileGuestIntent intent)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        Rig.RecordProfileIntent(intent);
+        EarconPlayer.ToggleTone(intent != Radios.ProfileGuestIntent.LeaveAlone);
+
+        switch (intent)
+        {
+            case Radios.ProfileGuestIntent.UseMyTransmitAudio:
+                var chosen = Rig.LocalTransmitAudioProfileChoice;
+                if (string.IsNullOrEmpty(chosen))
+                {
+                    // No profile chosen yet: send them straight to the picker
+                    // rather than leaving a dead intent.
+                    SpeakAfterMenuClose(Radios.Lexicon.Get(
+                        Rig.LocalTransmitAudioProfileNames().Count == 0
+                            ? "settings.profile_guest.no_presets"
+                            : "settings.profile_guest.why.no_local_profile"));
+                }
+                else
+                {
+                    SpeakAfterMenuClose(Radios.Lexicon.Get(
+                        "settings.profile_guest.live_audio_chosen", ("preset", chosen)));
+                }
+                break;
+            case Radios.ProfileGuestIntent.LoadMineAndPutBack:
+                SpeakAfterMenuClose(Radios.Lexicon.Get(
+                    Rig.RadioIsMine
+                        ? "settings.profile_guest.opted_in_mine"
+                        : "settings.profile_guest.opted_in"));
+                break;
+            default:
+                SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.opted_out"));
+                break;
+        }
+        RebuildCurrentMenu();
+    }
+
+    /// <summary>
+    /// Record which of the operator's transmit-audio profiles to apply live on
+    /// this radio, and switch the intent to "use my transmit audio" so the
+    /// choice is not left inert. Takes effect at the next connect.
+    /// </summary>
+    private void SetGuestTransmitAudioProfile(string presetName)
+    {
+        if (Rig == null) { SpeakNoRadio(); return; }
+        Rig.SetLocalTransmitAudioChoice(presetName);
+        EarconPlayer.ToggleTone(true);
+        SpeakAfterMenuClose(Radios.Lexicon.Get(
+            "settings.profile_guest.live_audio_chosen", ("preset", presetName)));
+        RebuildCurrentMenu();
+    }
+
+    /// <summary>
     /// Build ScreenFields DSP submenu (shared between Classic and Modern DSP menus).
     /// </summary>
     private void BuildDSPItems(IntPtr parent)
@@ -1596,40 +1656,99 @@ public class NativeMenuBar : IDisposable
                 SpeakAfterMenuClose(Radios.Lexicon.Get("settings.operators.unavailable"));
         });
         AddWired(radio, "Profiles", () => ShowManageProfilesDialog());
-        // ── Whose profiles load here, and putting the radio's own back
-        //    (#450, #451). The Settings Radios tab is the better long-term
-        //    home for the per-radio choice — that is #451's own work — but the
-        //    answer needs SOMEWHERE to be given now, because the connect
-        //    announcement names it and a sentence that names a place the
-        //    operator cannot find is a receipt for a dead end.
+        // ── Profiles on This Radio (#450, #451, #499, #501) ──
+        //    The Settings Radios tab is the better long-term home for the
+        //    per-radio choice — that is #451's own work — but the answer needs
+        //    SOMEWHERE to be given now, because the connect announcement names
+        //    it and a sentence that names a place the operator cannot find is a
+        //    receipt for a dead end.
+        //
+        //    THE GRANULARITY IS THE POINT (#501). Until now the only lever was
+        //    "load ALL my profiles", which rewrites a borrowed radio's setup —
+        //    so an operator who correctly declines it cannot operate at all.
+        //    The middle answer, "use my transmit audio here and nothing else",
+        //    is applied to the radio's LIVE state and saves nothing on it.
         if (Rig != null && Rig.IsConnected)
         {
-            AddChecked(radio, "Load My Profiles on This Radio", () =>
-            {
-                bool nowOn = Rig.ProfileIntent != Radios.ProfileGuestIntent.LoadMineAndPutBack;
-                Rig.RecordProfileIntent(nowOn
-                    ? Radios.ProfileGuestIntent.LoadMineAndPutBack
-                    : Radios.ProfileGuestIntent.LeaveAlone);
-                EarconPlayer.ToggleTone(nowOn);
-                SpeakAfterMenuClose(Radios.Lexicon.Get(nowOn
-                    ? "settings.profile_guest.opted_in"
-                    : "settings.profile_guest.opted_out"));
-            }, () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LoadMineAndPutBack);
+            var profilesSub = AddSubmenu(radio, "Profiles on This Radio");
 
-            // Present ONLY when there is something to put back. A verb that
-            // announces its own absence after the operator has navigated to it
-            // and pressed is the stub-verb pattern (#121), and this one would
-            // be absent almost always.
+            // The three answers, mutually exclusive. Checkmark only; the row
+            // text is never rewritten with a state suffix.
+            AddChecked(profilesSub, "Use My Transmit Audio Here",
+                () => SetGuestProfileIntent(Radios.ProfileGuestIntent.UseMyTransmitAudio),
+                () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.UseMyTransmitAudio);
+            AddChecked(profilesSub, "Load All My Profiles Here",
+                () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LoadMineAndPutBack),
+                () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LoadMineAndPutBack);
+            AddChecked(profilesSub, "Leave This Radio's Profiles Alone",
+                () => SetGuestProfileIntent(Radios.ProfileGuestIntent.LeaveAlone),
+                () => Rig?.ProfileIntent == Radios.ProfileGuestIntent.LeaveAlone);
+
+            // Which of the operator's transmit-audio profiles to use.
+            var whichSub = AddSubmenu(profilesSub, "Which Transmit Audio");
+            var presetNames = Rig.LocalTransmitAudioProfileNames();
+            if (presetNames.Count == 0)
+            {
+                AddWired(whichSub, "No transmit audio profiles saved yet", () =>
+                    SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.no_presets")),
+                    enabled: false);
+            }
+            else
+            {
+                foreach (var name in presetNames)
+                {
+                    var n = name; // capture per iteration
+                    AddChecked(whichSub, n, () => SetGuestTransmitAudioProfile(n),
+                        () => string.Equals(Rig?.LocalTransmitAudioProfileChoice, n,
+                                            System.StringComparison.OrdinalIgnoreCase));
+                }
+            }
+
+            // The one-press restore of an autosave a prior session left off
+            // (#499). Present ONLY when actually owed, so it is never a verb
+            // that announces its own absence (#121).
+            if (Rig.RadioProfileAutosaveOwedBackOn)
+            {
+                AddWired(radio, "Turn Profile Autosave Back On", () =>
+                {
+                    switch (Rig.TurnRadioProfileAutosaveBackOn())
+                    {
+                        case Radios.GuardedOutcome.Done:
+                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.autosave_restored"));
+                            break;
+                        case Radios.GuardedOutcome.Skipped:
+                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.autosave_already_on"));
+                            break;
+                        case Radios.GuardedOutcome.Refused:
+                            break; // the guard already spoke
+                        default:
+                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile_guest.autosave_restore_failed"));
+                            break;
+                    }
+                    RebuildCurrentMenu();
+                });
+            }
+
+            // Offered put-back of a live transmit-audio snapshot a prior
+            // session left (#499). Present only when there is one.
+            if (Rig.HasStrandedLiveTransmitAudioSnapshot)
+            {
+                AddWired(radio, "Put This Radio's Own Transmit Audio Back", () =>
+                {
+                    SpeakAfterMenuClose(Rig.RestoreStrandedLiveTransmitAudio());
+                    RebuildCurrentMenu();
+                });
+            }
+
+            // Offered put-back of an EARLIER BUILD's restore point (the marker
+            // design, superseded but still recognised). Present only when one
+            // is on the radio.
             if (Rig.HasStrandedProfileRestorePoint)
             {
                 AddWired(radio, "Put This Radio's Own Profiles Back", () =>
                 {
                     var types = Rig.StrandedProfileRestorePoints.ToList();
                     SpeakAfterMenuClose(Rig.RestoreStrandedProfiles(types));
-                    // Take the item away once it has done its job. Left in
-                    // place it becomes a verb that announces its own absence
-                    // the second time it is pressed, which is the pattern the
-                    // condition above exists to avoid.
                     RebuildCurrentMenu();
                 });
             }
@@ -3370,23 +3489,50 @@ public class NativeMenuBar : IDisposable
             },
             OnDelete = (profileData) =>
             {
+                if (Rig == null) { SpeakNoRadio(); return null; }
                 if (profileData is Radios.Profile_t profile)
                 {
-                    bool ok = Rig.DeleteProfile(profile);
-                    return ok ? null : "Could not delete profile";
+                    // #486: a refusal is not a failure. When the change-nothing
+                    // guard declines, it has ALREADY spoken (naming the setting
+                    // and the route); returning an error string here would
+                    // overwrite that with a generic one and send the operator
+                    // to a bug report instead of to Settings. Only a genuine
+                    // failure returns a message.
+                    switch (Rig.DeleteProfileGuarded(profile))
+                    {
+                        case Radios.GuardedOutcome.Done:
+                        case Radios.GuardedOutcome.Refused:
+                            return null;
+                        default:
+                            return Radios.Lexicon.Get("settings.profile.delete_failed",
+                                ("profile", profile.Name));
+                    }
                 }
-                return "Invalid profile data";
+                return Radios.Lexicon.Get("settings.profile.invalid_data");
             },
             OnSelect = (profileData) =>
             {
+                if (Rig == null) { SpeakNoRadio(); return null; }
                 if (profileData is Radios.Profile_t profile)
                 {
-                    bool ok = Rig.SelectProfile(profile);
-                    if (ok)
-                        SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.selected", ("profile", profile.Name)));
-                    return ok ? null : "Could not select profile";
+                    // #486, the exact case Noel hit: the guard refused, spoke
+                    // its explanation, and then a generic could-not-select
+                    // message won and sent him to a bug report.
+                    switch (Rig.SelectProfileGuarded(profile))
+                    {
+                        case Radios.GuardedOutcome.Done:
+                            SpeakAfterMenuClose(Radios.Lexicon.Get("settings.profile.selected",
+                                ("profile", profile.Name)));
+                            return null;
+                        case Radios.GuardedOutcome.Refused:
+                            // The guard already spoke; say nothing more.
+                            return null;
+                        default:
+                            return Radios.Lexicon.Get("settings.profile.select_failed",
+                                ("profile", profile.Name));
+                    }
                 }
-                return "Invalid profile data";
+                return Radios.Lexicon.Get("settings.profile.invalid_data");
             },
             OnSave = (profileData) =>
             {
