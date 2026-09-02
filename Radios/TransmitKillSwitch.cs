@@ -634,6 +634,15 @@ namespace Radios
                 // updated fields is not a sample of one instant, and why on
                 // speech it is not a rare edge case.
                 reading = rig.ReadTransmitPower();
+                // The radio's ATU cycle only — deliberately NOT the tune
+                // carrier, unlike the PTT controller. A transmit check's own
+                // probe IS a tune carrier (RaiseCarrier(Carrier.Tune) above),
+                // raised precisely to measure what the antenna does with
+                // power; standing down on it would switch this watch off for
+                // every tune probe, and a load disconnected under a keyed
+                // check is exactly what it exists to catch. The settling rule
+                // in JudgeReflected covers a remote tuner hunting under a
+                // probe without any flag at all.
                 tuning = rig.ATUTuneInProgress;
                 antenna = rig.TXAntennaName ?? "";
                 dummy = rig.DummyLoadMode;
@@ -641,11 +650,13 @@ namespace Radios
             catch { return; }   // a meter that cannot be read judges nothing
 
             bool firstDecline;
+            bool recovered;
             lock (Gate)
             {
                 int before = _run.IncoherentSamples;
-                _run.Observe(reading);
+                _run.Observe(reading, seconds);
                 firstDecline = _run.IncoherentSamples == 1 && before == 0;
+                recovered = _run.JustRecovered;
             }
             // Say so ONCE per armed transmission when the two meters do not
             // arrive together. A guard that silently declines to judge is
@@ -657,6 +668,17 @@ namespace Radios
                 Tracing.TraceLine(
                     "TransmitKillSwitch: declining to judge reflected power — "
                     + reading.WhyNotCoherent, TraceLevel.Info);
+
+            // A sustained bad run that ended in a good sample: the match went
+            // from bad to fine under the carrier, which is what a remote tuner
+            // finding its match looks like from here. Nothing is said to the
+            // operator; the trace is the corroboration a tester's "my tuner
+            // said 1.7" never had (#453).
+            if (recovered)
+                Tracing.TraceLine(
+                    "TransmitKillSwitch: reflected power settled during " + WhatIsArmed
+                    + " — " + _run.LastRecovery + " — nothing said; that is what a tuner "
+                    + "finding its match looks like", TraceLevel.Info);
 
             if (TransmitSafety.ShouldCutReflected(CutEnabled(), warned, reading, tuning))
             {
@@ -670,13 +692,33 @@ namespace Radios
                 return;
             }
 
+            TransmitSafety.ReflectedVerdict verdict;
+            int deferrals = 0;
             lock (Gate)
             {
-                if (!TransmitSafety.ShouldWarnReflected(
-                        reading, _run, (int)seconds, tuning, warned))
-                    return;
-                _reflectedWarned = true;
+                verdict = TransmitSafety.JudgeReflected(reading, _run, seconds, tuning, warned);
+                if (verdict == TransmitSafety.ReflectedVerdict.Deferred)
+                    deferrals = _run.NoteDeferred();
+                else if (verdict == TransmitSafety.ReflectedVerdict.Warn)
+                    _reflectedWarned = true;
             }
+
+            // The settling rule (#453): high, sustained, and still MOVING.
+            // Said once per streak, at Info, so a bundle shows the alarm was
+            // held off on purpose rather than asleep — the two look identical
+            // from the operator's chair.
+            if (verdict == TransmitSafety.ReflectedVerdict.Deferred)
+            {
+                if (deferrals == 1)
+                    Tracing.TraceLine(
+                        "TransmitKillSwitch: reflected power is high but still CHANGING during "
+                        + WhatIsArmed + " (" + reading + ", " + _run + ") — alarm deferred while "
+                        + "it settles, for up to " + TransmitSafety.ReflectedSettleBoundSeconds.ToString("F0")
+                        + " s; a tuner hunting looks like this and a bad antenna holds still",
+                        TraceLevel.Info);
+                return;
+            }
+            if (verdict != TransmitSafety.ReflectedVerdict.Warn) return;
 
             float share = reading.ReflectedShare;
             try { Alarm?.Invoke(); } catch { }

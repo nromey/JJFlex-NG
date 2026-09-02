@@ -52,7 +52,10 @@ namespace Radios.Tests
             int samples = TransmitSafety.ReflectedWarnSustainedSamples)
         {
             var run = new ReflectedPowerRun();
-            for (int i = 0; i < samples; i++) run.Observe(reading);
+            // One sample a second, the PTT controller's cadence. Identical
+            // readings make a SETTLED streak, so the settling rule (#453) has
+            // nothing to defer and these tests exercise the level rule alone.
+            for (int i = 0; i < samples; i++) run.Observe(reading, i + 1);
             return run;
         }
 
@@ -158,7 +161,7 @@ namespace Radios.Tests
                 "a pair that was not sampled together has no share to report");
 
             var run = new ReflectedPowerRun();
-            for (int i = 0; i < 20; i++) run.Observe(skewed);
+            for (int i = 0; i < 20; i++) run.Observe(skewed, i + 1);
 
             Assert.Equal(0, run.JudgedSamples);
             Assert.Equal(20, run.IncoherentSamples);
@@ -280,10 +283,10 @@ namespace Radios.Tests
             // somehow coherent, it is not near the envelope peak and the
             // measurement there means nothing.
             var run = new ReflectedPowerRun();
-            run.Observe(Pair(100f, 1f));          // the peak this over reached
+            run.Observe(Pair(100f, 1f), 1);       // the peak this over reached
             Assert.Equal(10f, run.FloorWatts, 3);
 
-            Assert.False(run.Observe(Pair(2f, 1f)),
+            Assert.False(run.Observe(Pair(2f, 1f), 2),
                 "2 W is nothing on a hundred-watt envelope");
             Assert.Equal(0, run.BadSamples);
         }
@@ -324,17 +327,17 @@ namespace Radios.Tests
             var goodMatch = Pair(OpenForward, 0.02f);
             var belowFloor = Pair(0.5f, 0.4f);
 
-            run.Observe(bad);
-            run.Observe(bad);
+            run.Observe(bad, 1);
+            run.Observe(bad, 2);
             Assert.Equal(2, run.BadSamples);
 
-            run.Observe(belowFloor);
+            run.Observe(belowFloor, 3);
             Assert.Equal(2, run.BadSamples);
 
-            run.Observe(Pair(2f, 1f, skewMs: 80f));
+            run.Observe(Pair(2f, 1f, skewMs: 80f), 4);
             Assert.Equal(2, run.BadSamples);
 
-            run.Observe(goodMatch);
+            run.Observe(goodMatch, 5);
             Assert.Equal(0, run.BadSamples);
         }
 
@@ -838,6 +841,56 @@ namespace Radios.Tests
                         + Condense(args));
                 }
             }
+        }
+
+        /// <summary>
+        /// The manual-tune half of #453: both live alarm paths read
+        /// <c>tuning</c> from the RADIO'S live state, every tick, and neither
+        /// subscribes to the tuner start/stop event.
+        /// </summary>
+        /// <remarks>
+        /// The event carries a start for the operator's tune carrier and no
+        /// stop — the stop is raised only inside <c>FlexTunerOn</c>, which the
+        /// carrier toggle does not go through — so a flag latched from it
+        /// would silence the alarm permanently the first time a carrier was
+        /// dropped by the kill switch, the radio's own timeout or another
+        /// client. A behavioural test cannot reach either site (both need a
+        /// FlexBase), and the pure rule's own no-memory test cannot see how it
+        /// is fed. This reads the feed.
+        /// </remarks>
+        [Fact]
+        public void Every_live_alarm_path_reads_tuning_from_the_radio_and_never_from_the_event()
+        {
+            string root = RepoRoot();
+            foreach (string rel in LiveAlarmFiles)
+            {
+                string path = Path.Combine(root, rel.Replace('/', Path.DirectorySeparatorChar));
+                Assert.True(File.Exists(path),
+                    "The sweep cannot find " + rel + " — fix the path, do not delete the test.");
+                string text = File.ReadAllText(path);
+
+                // Positive control: the alarm is still judged in this file.
+                Assert.True(text.Contains("JudgeReflected("),
+                    rel + " no longer calls JudgeReflected; if the alarm moved, move this sweep with it.");
+
+                Assert.True(text.Contains("rig.ATUTuneInProgress"),
+                    rel + " no longer reads the radio's ATU cycle state for the tuning flag.");
+                // The SUBSCRIPTION form, not the bare name: both files are
+                // allowed — expected, even — to say in a comment why the
+                // event is not used.
+                Assert.False(System.Text.RegularExpressions.Regex.IsMatch(
+                        text, @"FlexAntTunerStartStop\s*\+="),
+                    rel + " subscribes to FlexAntTunerStartStop. That event has no stop for the "
+                    + "operator's tune carrier, so anything latched from it disables the alarm "
+                    + "for good (#453). Read rig.TxTune instead — the radio's state cannot latch.");
+            }
+
+            // The operator's own tune carrier is consulted where the operator's
+            // transmission is judged — and only there. The kill switch's probe
+            // carrier IS a tune carrier, and standing down on it would switch
+            // the check watch off for every tune probe.
+            string ptt = File.ReadAllText(Path.Combine(root, "JJFlexWpf", "PttSafetyController.cs"));
+            Assert.Contains("rig.TxTune", ptt);
         }
 
         /// <summary>The argument text of each call, to the matching close paren.</summary>
