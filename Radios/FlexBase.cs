@@ -16813,7 +16813,8 @@ namespace Radios
             ScreenReaderOutput.Speak(
                 ProvisionalSliceChangeReceipt,
                 Speech.SpeechIntent.Queue,
-                VerbosityLevel.Terse);
+                VerbosityLevel.Terse,
+                subject: Speech.SpeechSubject.ProvisionalReceipt);
         }
 
         /// <summary>
@@ -16996,7 +16997,8 @@ namespace Radios
             ScreenReaderOutput.Speak(
                 ProvisionalSliceChangeReceipt,
                 Speech.SpeechIntent.Queue,
-                VerbosityLevel.Terse);
+                VerbosityLevel.Terse,
+                subject: Speech.SpeechSubject.ProvisionalReceipt);
         }
 
         // ══ Where you left this radio (Sprint 35 Track I, #226) ══
@@ -18347,8 +18349,12 @@ namespace Radios
                 // operator cannot act on what they were not told.
                 try
                 {
+                    // Keyed pc-audio (#503): this is the newest statement about
+                    // PC audio, and a "PC audio on." still queued behind it
+                    // must not be rescued behind the line saying it stopped.
                     ScreenReaderOutput.Speak(Lexicon.Get("audio.pc_audio.internal_error"),
-                                             VerbosityLevel.Critical, true);
+                                             Speech.SpeechIntent.Interrupt, VerbosityLevel.Critical,
+                                             subject: Speech.SpeechSubject.PcAudio);
                 }
                 catch (Exception speakEx)
                 {

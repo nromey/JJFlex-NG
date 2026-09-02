@@ -255,12 +255,42 @@ namespace Radios
         /// query key. Query does everything the flag did and also carries the
         /// part it could not express: that the press was never a sweep.
         /// </param>
+        /// <param name="subject">
+        /// What the utterance is ABOUT — a <see cref="Speech.SpeechSubject"/>.
+        /// Utterances sharing a subject replace one another: a newer one
+        /// makes an older, still-unheard one not worth rescuing after an
+        /// interrupt. Declare it for a state fact ("PC audio on.", the SWR a
+        /// tune measured) so it survives until something actually replaces
+        /// it, instead of until a timer sized by its word count runs out —
+        /// and for progress and typed-digit echoes so they do NOT survive the
+        /// line that covers them (#503).
+        ///
+        /// Optional, and an unkeyed utterance keeps the old word-count bound
+        /// rather than living longer: the arbiter cannot know what supersedes
+        /// something whose emitter declared nothing, and guessing from the
+        /// text or the call site is the description-drift trap.
+        ///
+        /// For <see cref="Speech.SpeechIntent.Latest"/> the coalesce key IS
+        /// the subject unless one is given — same idea, one stage earlier.
+        /// (Two parameter names for one identity is a known wrinkle; folding
+        /// <paramref name="coalesceKey"/> into this one is a rename across
+        /// the nine sites that pass it, queued for a quiet moment.)
+        /// </param>
+        /// <param name="additive">
+        /// True when the utterance ADDS to its subject rather than restating
+        /// it — a digit echoed while a value is typed. It can be retired by a
+        /// later restating utterance or by <see cref="Supersede"/>, but it
+        /// retires nothing itself, so an interrupt mid-entry re-speaks every
+        /// digit typed so far, in order, rather than only the last one.
+        /// </param>
         public static void Speak(
             string message,
             Speech.SpeechIntent intent,
             VerbosityLevel level = VerbosityLevel.Terse,
             string? coalesceKey = null,
             Speech.SpeechCoalesceKind kind = Speech.SpeechCoalesceKind.Value,
+            string? subject = null,
+            bool additive = false,
             [CallerFilePath] string callerFile = "",
             [CallerLineNumber] int callerLine = 0,
             [CallerMemberName] string callerMember = "")
@@ -291,20 +321,43 @@ namespace Radios
                             $"ScreenReaderOutput: Latest without a coalesce key - "
                             + $"treating as Interrupt: '{message}'",
                             TraceLevel.Warning);
-                        _arbiter.Emit(message, interrupt: true, intent, level, origin);
+                        _arbiter.Emit(message, interrupt: true, intent, level, origin, subject, additive);
                         return;
                     }
-                    _arbiter.Latest(coalesceKey!, message, level, kind, origin);
+                    _arbiter.Latest(coalesceKey!, message, level, kind, origin, subject);
                     return;
 
                 case Speech.SpeechIntent.Queue:
-                    _arbiter.Emit(message, interrupt: false, intent, level, origin);
+                    _arbiter.Emit(message, interrupt: false, intent, level, origin, subject, additive);
                     return;
 
                 default:
-                    _arbiter.Emit(message, interrupt: true, intent, level, origin);
+                    _arbiter.Emit(message, interrupt: true, intent, level, origin, subject, additive);
                     return;
             }
+        }
+
+        /// <summary>
+        /// Declare that <paramref name="subject"/> is covered without saying
+        /// anything: the operation it narrated ended, or the state it
+        /// described was replaced by something announced elsewhere. Anything
+        /// still believed unheard on that subject will not be rescued by the
+        /// next interrupt, and the drop trace will carry <paramref name="by"/>
+        /// as the reason.
+        ///
+        /// Supersession is not always an utterance. A progress voice's last
+        /// "still looking" is made worthless by the dialog that answers it,
+        /// and that dialog's title is not a progress line — so the voice says
+        /// so here when it stops (#503).
+        /// </summary>
+        /// <param name="by">Plain prose, as it should read after "superseded … by" in the trace.</param>
+        public static void Supersede(string subject, string by,
+            [CallerFilePath] string callerFile = "",
+            [CallerLineNumber] int callerLine = 0,
+            [CallerMemberName] string callerMember = "")
+        {
+            if (string.IsNullOrEmpty(subject)) return;
+            _arbiter.Supersede(subject, by, FormatOrigin(callerFile, callerLine, callerMember));
         }
 
         /// <summary>

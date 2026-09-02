@@ -706,5 +706,432 @@ namespace Radios.Tests
 
             Assert.DoesNotContain(_calls, c => c.Salvaged);
         }
+
+        // ── #503: a rescue is refused by SUPERSESSION, not by age ──
+        //
+        //  Measured across every trace of 2026-09-01: 89 dropped salvages,
+        //  52 of them never re-spoken even once. The bound was twice the
+        //  utterance's own word-count estimate, so "SWR 1.7" — seven
+        //  characters, the answer to the tune the operator had just run —
+        //  was allowed 1,600 ms and binned at 3,863 ms by the operator
+        //  pressing Tune AGAIN because they had heard nothing. Nothing in the
+        //  arbiter expires on its own clock; an entry is judged only when the
+        //  next interrupt arrives, so the retry a lost answer provokes was
+        //  the very event that destroyed the answer.
+        //
+        //  Now an entry is worthless when something newer covers its SUBJECT
+        //  (SpeechSubject), under an absolute ceiling — and an entry that
+        //  declared no subject keeps the old bound, because for it the
+        //  arbiter cannot know what would supersede it. Every test below has
+        //  a control at identical timings without the subject, so a green
+        //  result cannot come from the timings alone.
+        //
+        //  Several tests queue a long line AHEAD of the short one under test.
+        //  That is not decoration: it is what was in the reader's queue on
+        //  the day, and it is what keeps a short line believed pending past
+        //  its own estimate. Without it the ordinary prune removes the entry
+        //  as heard and no bound is consulted at all.
+
+        /// <summary>The connect summary that sat ahead of "PC audio on." in the 213210 session.</summary>
+        private const string ConnectSummary =
+            "Connected to FLEX-6300, SmartLink. 2 slices. Slice A, yours, transmit, "
+            + "14.100 megahertz, USB, pan center.";
+
+        /// <summary>The launch greeting, ahead of the discovery narration at every start.</summary>
+        private const string Greeting =
+            "JJ Flexible Radio Access. Press F1 on any control for help, "
+            + "or Control slash to find a command.";
+
+        /// <summary>The 300-character courtesy the old bound gave thirty seconds, verbatim from the day.</summary>
+        private const string MicProfileHeadsUp =
+            "Heads up: this radio has no mic profile selected. Until one is loaded, audio from "
+            + "your computer will not be transmitted through your radio — you would key up and "
+            + "nobody would hear you. Nothing you did caused it, and receive is unaffected. The "
+            + "Audio Workshop has the details.";
+
+        [Fact]
+        public void Swr17_TheRetryDeliversTheAnswerInsteadOfDestroyingIt()
+        {
+            // JJFlexRadioTrace-20260901-213333.txt, ticks 5264910 to 5268774,
+            // replayed at its own offsets: "Tune off"; the reading queued one
+            // millisecond later; an unrelated interrupt at +1,015 ms that
+            // rescued it once; and Tune pressed again at +3,863 ms — the
+            // operator's retry — which found it 3,863 ms old against a
+            // 1,600 ms bound and binned it. That session did not record
+            // utterance text, so the +1,015 interrupter here is a stand-in;
+            // it is long enough to keep the reading believed pending, as the
+            // real one must have been for the drop line to exist at all.
+            var a = NewArbiter();
+            a.Emit("Tune off", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(1);
+            a.Emit("SWR 1.7", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
+                subject: SpeechSubject.SwrAfterTune);
+            _clock.Advance(1015);
+            a.Emit("Receiver controls collapsed, twelve fields hidden", true,
+                SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(3863 - 1015);
+            a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+
+            var rescues = _calls.Where(c => c.Salvaged && c.Message == "SWR 1.7").ToList();
+            Assert.Equal(new double[] { 1016, 3864 }, rescues.Select(c => c.AtMs));
+
+            // The answer is the last thing handed over — behind the retry,
+            // which is exactly where an operator who pressed Tune again
+            // because they heard nothing needs it.
+            Assert.Equal("SWR 1.7", _calls[^1].Message);
+            Assert.True(_calls[^1].Salvaged);
+        }
+
+        [Fact]
+        public void Swr17_TheControl_UnkeyedTheSameSequenceStillLosesIt()
+        {
+            // Identical timings, no subject. This is the 2026-09-01 outcome,
+            // and it must STAY the outcome for an utterance whose emitter
+            // declared nothing: the arbiter has no honest way to know that a
+            // seven-character message is a state fact rather than a stale
+            // digit, so it keeps the conservative bound. If this went green
+            // with two rescues, the test above would be measuring nothing.
+            var a = NewArbiter();
+            a.Emit("Tune off", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(1);
+            a.Emit("SWR 1.7", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(1015);
+            a.Emit("Receiver controls collapsed, twelve fields hidden", true,
+                SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(3863 - 1015);
+            a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+
+            var rescues = _calls.Where(c => c.Salvaged && c.Message == "SWR 1.7").ToList();
+            Assert.Equal(new double[] { 1016 }, rescues.Select(c => c.AtMs));
+            Assert.Equal("Tune on", _calls[^1].Message);
+        }
+
+        [Fact]
+        public void Salvage_KeyedStateFact_SurvivesALaterUnrelatedInterrupt()
+        {
+            // "PC audio on." is twelve characters — a 1,920 ms bound under
+            // the old policy — and was dropped five times on 2026-09-01
+            // between 2.2 and 5.6 s old, never re-spoken, on a remote
+            // connection where it is the only reason the operator can hear
+            // the radio at all. Timings from the 204423 session, tick 2677826.
+            var a = NewArbiter();
+            a.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
+            a.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
+                subject: SpeechSubject.PcAudio);
+            _clock.Advance(3291);
+            a.Emit("JJ Flexible Home, slice, 14.100.000", true, SpeechIntent.Interrupt,
+                VerbosityLevel.Terse, "Home");
+
+            Assert.Contains(_calls, c => c.Salvaged && c.Message == "PC audio on.");
+        }
+
+        [Fact]
+        public void Salvage_UnkeyedStateFact_TheControl_IsStillDroppedByTheWordCountBound()
+        {
+            var a = NewArbiter();
+            a.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
+            a.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(3291);
+            a.Emit("JJ Flexible Home, slice, 14.100.000", true, SpeechIntent.Interrupt,
+                VerbosityLevel.Terse, "Home");
+
+            Assert.DoesNotContain(_calls, c => c.Salvaged && c.Message == "PC audio on.");
+
+            // The summary ahead of it is unkeyed too, and long: its bound is
+            // far off, so it IS rescued. That is the inversion #503 names —
+            // the paragraph lives, the fact dies — and it is deliberately
+            // left in place for unkeyed utterances rather than replaced by a
+            // guess about which of them are facts.
+            Assert.Contains(_calls, c => c.Salvaged && c.Message == ConnectSummary);
+        }
+
+        [Fact]
+        public void Salvage_TypedDigits_DoNotSurviveTheValueTheyBuilt()
+        {
+            // JJFlexRadioTrace-20260901-202636.txt, ticks 88490 to 90147:
+            // "1", "5", Enter, "Tune Power 15", then Tune. The digits were
+            // dropped that day too — at 1,656 and 1,607 ms against a
+            // 1,600 ms bound, by luck of arithmetic. Here the interrupt
+            // comes 300 ms after the first digit, well inside the old bound,
+            // and they are STILL not rescued: the entry has ended in a value
+            // and the value covers them. The reason is the value, not the
+            // clock.
+            string entry = SpeechSubject.ValueEntry("Tune Power");
+            string field = SpeechSubject.ValueField("Tune Power");
+            var a = NewArbiter();
+            a.Emit("Enter Tune Power value", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "field");
+            _clock.Advance(1);
+            a.Emit("1", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field",
+                subject: entry, additive: true);
+            _clock.Advance(48);
+            a.Emit("5", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field",
+                subject: entry, additive: true);
+            _clock.Advance(208);
+            a.Supersede(entry, "the entry ending as 'Tune Power 15'", "field");
+            a.Emit("Tune Power 15", false, SpeechIntent.Queue, VerbosityLevel.Terse, "field",
+                subject: field);
+            _clock.Advance(43);
+            a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+
+            Assert.Equal(new[] { "Tune Power 15" },
+                _calls.Where(c => c.Salvaged).Select(c => c.Message));
+        }
+
+        [Fact]
+        public void Salvage_TypedDigits_MidEntry_AreAllRescuedInOrder()
+        {
+            // Why the echoes are ADDITIVE: a digit must NOT supersede the
+            // digit before it. Interrupted mid-entry, an operator who has
+            // typed "1" then "5" needs to hear "1, 5" again — not a lone "5"
+            // over a field that reads 15. The first version of this policy
+            // got exactly that wrong, and this test is what caught it.
+            string entry = SpeechSubject.ValueEntry("Tune Power");
+            var a = NewArbiter();
+            a.Emit("Enter Tune Power value", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "field");
+            _clock.Advance(1);
+            a.Emit("1", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field",
+                subject: entry, additive: true);
+            _clock.Advance(48);
+            a.Emit("5", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field",
+                subject: entry, additive: true);
+            _clock.Advance(251);
+            a.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+
+            Assert.Equal(new[] { "1", "5" },
+                _calls.Where(c => c.Salvaged).Select(c => c.Message));
+        }
+
+        [Fact]
+        public void Salvage_TypedDigits_TheControl_RestatingEchoesWouldLoseTheFirst()
+        {
+            // The same two digits emitted as restatements: "5" covers "1" and
+            // only "5" comes back. This is the wrong behaviour for an entry,
+            // pinned here so the additive flag cannot quietly become a no-op.
+            string entry = SpeechSubject.ValueEntry("Tune Power");
+            var a = NewArbiter();
+            a.Emit("Enter Tune Power value", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "field");
+            _clock.Advance(1);
+            a.Emit("1", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field", subject: entry);
+            _clock.Advance(48);
+            a.Emit("5", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field", subject: entry);
+            _clock.Advance(251);
+            a.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+
+            Assert.Equal(new[] { "5" },
+                _calls.Where(c => c.Salvaged).Select(c => c.Message));
+        }
+
+        [Fact]
+        public void Salvage_TypedDigits_TheControl_UnkeyedYoungDigitsAreRescuedOverTheValue()
+        {
+            // Identical timings, nothing keyed and nothing retired: the old
+            // outcome for digits younger than their bound — all three
+            // re-spoken, "1", "5" and then the value, which is precisely the
+            // stale echo the supersession above exists to stop.
+            var a = NewArbiter();
+            a.Emit("Enter Tune Power value", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "field");
+            _clock.Advance(1);
+            a.Emit("1", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field");
+            _clock.Advance(48);
+            a.Emit("5", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field");
+            _clock.Advance(208);
+            a.Emit("Tune Power 15", false, SpeechIntent.Queue, VerbosityLevel.Terse, "field");
+            _clock.Advance(43);
+            a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+
+            Assert.Equal(new[] { "1", "5", "Tune Power 15" },
+                _calls.Where(c => c.Salvaged).Select(c => c.Message));
+        }
+
+        [Fact]
+        public void Salvage_ProgressLine_DoesNotSurviveTheNextProgressLine()
+        {
+            // 2026-09-01, four sessions in a row: "Looking for radios on your
+            // network." dropped between 9.1 and 9.8 s old and "Still looking
+            // for radios." between 5.1 and 5.8 s, all by the interrupt that
+            // ended discovery. Correctly dropped — and now for the right
+            // reason: each line covers the one before it.
+            var a = NewArbiter();
+            a.Emit(Greeting, false, SpeechIntent.Queue, VerbosityLevel.Terse, "launch");
+            a.Emit("Looking for radios on your network.", false, SpeechIntent.Queue,
+                VerbosityLevel.Terse, "ProgressVoice", subject: SpeechSubject.Progress);
+            _clock.Advance(4000);
+            a.Emit("Still looking for radios.", false, SpeechIntent.Queue,
+                VerbosityLevel.Terse, "ProgressVoice", subject: SpeechSubject.Progress);
+            _clock.Advance(1000);
+            a.Emit("Discovering radios", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "dialog");
+
+            var rescued = _calls.Where(c => c.Salvaged).Select(c => c.Message).ToList();
+            Assert.DoesNotContain("Looking for radios on your network.", rescued);
+            Assert.Contains("Still looking for radios.", rescued);
+        }
+
+        [Fact]
+        public void Supersede_RetiresTheLastProgressLine_WhenTheWaitEnds()
+        {
+            // The last "still looking" is covered by nothing that is itself a
+            // progress line — the dialog that answers it does that. So the
+            // voice says so explicitly when it stops, and the next interrupt
+            // rescues neither line. The greeting, unkeyed and unrelated, is
+            // still rescued: retiring one subject burns nothing else.
+            var a = NewArbiter();
+            a.Emit(Greeting, false, SpeechIntent.Queue, VerbosityLevel.Terse, "launch");
+            a.Emit("Looking for radios on your network.", false, SpeechIntent.Queue,
+                VerbosityLevel.Terse, "ProgressVoice", subject: SpeechSubject.Progress);
+            _clock.Advance(4000);
+            a.Emit("Still looking for radios.", false, SpeechIntent.Queue,
+                VerbosityLevel.Terse, "ProgressVoice", subject: SpeechSubject.Progress);
+            _clock.Advance(1000);
+            a.Supersede(SpeechSubject.Progress,
+                "the end of the wait for 'local discovery' (dialog announced: Discovering radios)",
+                "ProgressVoice");
+            _clock.Advance(500);
+            a.Emit("Discovering radios", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "dialog");
+
+            Assert.Equal(new[] { Greeting },
+                _calls.Where(c => c.Salvaged).Select(c => c.Message));
+        }
+
+        [Fact]
+        public void Salvage_ProgressLines_TheControl_UnkeyedBothAreRescuedByTheirOwnBounds()
+        {
+            // Same timings, no subject. "Looking…" is 35 characters, a
+            // 5,600 ms bound, and 5,000 ms old: rescued. "Still looking…"
+            // is 25, a 4,000 ms bound, and 1,000 ms old: rescued. Both are
+            // re-spoken behind the dialog that made them meaningless. The
+            // old policy dropped them on the day only because discovery
+            // happened to run past the arithmetic.
+            var a = NewArbiter();
+            a.Emit(Greeting, false, SpeechIntent.Queue, VerbosityLevel.Terse, "launch");
+            a.Emit("Looking for radios on your network.", false, SpeechIntent.Queue,
+                VerbosityLevel.Terse, "ProgressVoice");
+            _clock.Advance(4000);
+            a.Emit("Still looking for radios.", false, SpeechIntent.Queue,
+                VerbosityLevel.Terse, "ProgressVoice");
+            _clock.Advance(1000);
+            a.Emit("Discovering radios", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "dialog");
+
+            var rescued = _calls.Where(c => c.Salvaged).Select(c => c.Message).ToList();
+            Assert.Contains("Looking for radios on your network.", rescued);
+            Assert.Contains("Still looking for radios.", rescued);
+        }
+
+        [Fact]
+        public void Interrupt_WithTheSameSubject_IsItselfTheSuperseder()
+        {
+            // The newest statement about a subject may be the interrupter
+            // itself — "PC audio stopped because of an internal error" over a
+            // "PC audio on." still queued. The queued line must not be
+            // rescued behind the very line that retired it; the unrelated
+            // summary still is.
+            var a = NewArbiter();
+            a.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
+            a.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
+                subject: SpeechSubject.PcAudio);
+            _clock.Advance(500);
+            a.Emit("PC audio stopped because of an internal error.", true, SpeechIntent.Interrupt,
+                VerbosityLevel.Critical, "FlexBase", subject: SpeechSubject.PcAudio);
+
+            Assert.DoesNotContain(_calls, c => c.Salvaged && c.Message == "PC audio on.");
+            Assert.Contains(_calls, c => c.Salvaged && c.Message == ConnectSummary);
+        }
+
+        [Fact]
+        public void LatestSweep_SupersedesTheFieldsQueuedCommittedValue()
+        {
+            // A Latest coalesce key is a subject by definition. The committed
+            // "TX Power 5" is still queued when the operator starts sweeping
+            // the same field; the sweep's lead is the newer statement, and
+            // the committed value is not rescued behind it.
+            string field = SpeechSubject.ValueField("TX Power");
+            var a = NewArbiter();
+            a.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
+            a.Emit("TX Power 5", false, SpeechIntent.Queue, VerbosityLevel.Terse, "field",
+                subject: field);
+            _clock.Advance(500);
+            a.Latest(field, "TX Power 6", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "field");
+
+            Assert.DoesNotContain(_calls, c => c.Salvaged && c.Message == "TX Power 5");
+            Assert.Contains(_calls, c => c.Salvaged && c.Message == ConnectSummary);
+        }
+
+        [Fact]
+        public void Supersession_ByAnEmissionTheReaderNeverGot_DoesNotCount()
+        {
+            // A superseder that was suppressed, or found no backend, covered
+            // nothing anyone could hear. The earlier line is still the newest
+            // thing the reader was actually given, and is still rescued.
+            var a = NewArbiter();
+            a.Emit(ConnectSummary, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
+            a.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
+                subject: SpeechSubject.PcAudio);
+            _clock.Advance(100);
+            _sinkResult = false;
+            a.Emit("PC audio off", false, SpeechIntent.Queue, VerbosityLevel.Terse, "KeyCommands",
+                subject: SpeechSubject.PcAudio);
+            _sinkResult = true;
+            _clock.Advance(100);
+            a.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+
+            Assert.Contains(_calls, c => c.Salvaged && c.Message == "PC audio on.");
+        }
+
+        [Fact]
+        public void Salvage_ProvisionalReceipt_TheNewestCoversTheOlder()
+        {
+            // #442 seen from the ledger. Two changes in quick succession each
+            // queue the receipt; an interrupt then rescues ONE reminder — the
+            // newer — instead of repeating the sentence twice.
+            const string receipt = "Changes to the radio will not survive disconnect unless you save the profile.";
+            var a = NewArbiter();
+            a.Emit(receipt, false, SpeechIntent.Queue, VerbosityLevel.Terse, "FlexBase",
+                subject: SpeechSubject.ProvisionalReceipt);
+            _clock.Advance(1000);
+            a.Emit(receipt, false, SpeechIntent.Queue, VerbosityLevel.Terse, "FlexBase",
+                subject: SpeechSubject.ProvisionalReceipt);
+            _clock.Advance(500);
+            a.Emit("Slice B released, 2 active", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+
+            Assert.Equal(1, _calls.Count(c => c.Salvaged && c.Message == receipt));
+        }
+
+        [Fact]
+        public void Salvage_KeyedEntry_StillDiesAtTheCeiling()
+        {
+            // Supersession alone would let a subject nobody revisits live
+            // forever. The mic-profile paragraph ahead of it keeps "PC audio
+            // on." believed pending past fifteen seconds; at 14,999 ms it is
+            // rescued, at 15,001 it is not — keyed or not, because the
+            // ceiling is absolute. The paragraph, unkeyed, is refused at
+            // 15,001 as well: under the old policy its bound was thirty
+            // seconds, which is the other end of the inversion.
+            var early = NewArbiter();
+            early.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
+            early.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
+                subject: SpeechSubject.PcAudio);
+            _clock.Advance(SpeechArbiter.SalvageCeilingMs - 1);
+            early.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            Assert.Contains(_calls, c => c.Salvaged && c.Message == "PC audio on.");
+            Assert.Contains(_calls, c => c.Salvaged && c.Message == MicProfileHeadsUp);
+
+            _calls.Clear();
+            var late = NewArbiter();
+            late.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
+            late.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
+                subject: SpeechSubject.PcAudio);
+            _clock.Advance(SpeechArbiter.SalvageCeilingMs + 1);
+            late.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            Assert.DoesNotContain(_calls, c => c.Salvaged);
+        }
+
+        [Fact]
+        public void TheCeilingIsTheEstimateCap_AndBothAreFifteenSeconds()
+        {
+            // Pinned, with the equality: the longest anything is estimated to
+            // take to say is also the longest anything may wait to be said
+            // about "now". Moving one without the other needs a reason here.
+            Assert.Equal(15000, SpeechArbiter.SalvageCeilingMs);
+            Assert.Equal(SpeechArbiter.SalvageCapMs, SpeechArbiter.SalvageCeilingMs);
+        }
     }
 }

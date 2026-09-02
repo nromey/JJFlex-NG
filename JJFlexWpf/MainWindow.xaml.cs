@@ -4175,7 +4175,14 @@ public partial class MainWindow : UserControl
             isFailure ? "audio.tune.swr_failed" : "audio.tune.swr",
             ("swr", $"{swr:F1}"));
         VerbosityLevel level = isFailure ? VerbosityLevel.Critical : VerbosityLevel.Terse;
-        Radios.ScreenReaderOutput.Speak(text, level);
+        // Keyed as the answer to the tune that just ended (#503). On
+        // 2026-09-01 this reading was queued behind "Tune off", flushed by
+        // an unrelated interrupt, and then discarded as "stale" at 3.9 s —
+        // by the operator pressing Tune again because they had heard
+        // nothing. Only the next tune's reading covers this one; a retry
+        // must deliver it, not destroy it.
+        Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue, level,
+            subject: Radios.Speech.SpeechSubject.SwrAfterTune);
     }
 
     private void ConnectedEventHandler(object sender, FlexBase.ConnectedArg e)
@@ -4593,8 +4600,16 @@ public partial class MainWindow : UserControl
             // connects arrive here already on). Still say so when it's on —
             // audio should now be flowing, and hearing nothing after this
             // announcement is itself a useful signal.
+            // Every PC-audio announcement below carries the pc-audio subject
+            // (#503): "PC audio on." stays worth hearing until "off" or
+            // "could not start" replaces it, whatever else interrupts. It was
+            // dropped five times on 2026-09-01 against a 1.9 s word-count
+            // bound, never re-spoken, on a remote connection where it is the
+            // only reason the operator can hear the radio at all.
             if (before)
-                ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_audio.on_home"), VerbosityLevel.Terse);
+                ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_audio.on_home"),
+                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                    subject: Radios.Speech.SpeechSubject.PcAudio);
             return;
         }
 
@@ -4614,13 +4629,15 @@ public partial class MainWindow : UserControl
             // usual cause). The audio path speaks its own failure detail;
             // this names the consequence.
             ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_audio.could_not_start_home"),
-                VerbosityLevel.Critical);
+                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                subject: Radios.Speech.SpeechSubject.PcAudio);
         }
         else if (actual)
         {
             ScreenReaderOutput.Speak(
                 Radios.Lexicon.Get("audio.pc_audio.on_because", ("reason", reason)),
-                VerbosityLevel.Terse);
+                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.PcAudio);
         }
         else if (before)
         {
@@ -4631,7 +4648,8 @@ public partial class MainWindow : UserControl
                     ? "audio.pc_audio.off_because_remote"
                     : "audio.pc_audio.off_because",
                     ("reason", reason)),
-                VerbosityLevel.Terse);
+                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                subject: Radios.Speech.SpeechSubject.PcAudio);
         }
         // Off and already off: nothing flipped, nothing to hear — stay quiet.
     }

@@ -364,7 +364,15 @@ Public Class ConnectingForm
         If step_.Speak AndAlso step_.StatusText IsNot Nothing _
            AndAlso Radios.ScreenReaderOutput.SpeakConnectionProgressEnabled Then
             Try
-                Radios.ScreenReaderOutput.Speak(step_.StatusText, VerbosityLevel.Chatty)
+                ' Keyed as progress (#503): "Connected to X. Waiting for
+                ' slice..." is covered by the next phase, and by this window
+                ' closing. It was dropped five times on 2026-09-01 as
+                ' "stale" - correctly, but for the wrong reason - and under
+                ' the subject it is retired because something newer covers
+                ' it, not because its word count ran out.
+                Radios.ScreenReaderOutput.Speak(step_.StatusText,
+                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Chatty,
+                    subject:=Radios.Speech.SpeechSubject.Progress)
             Catch
             End Try
         End If
@@ -436,6 +444,16 @@ Public Class ConnectingForm
 
     Protected Overrides Sub OnFormClosed(e As FormClosedEventArgs)
         StopTimers()
+        ' However the connect ended, the phase line still queued is about a
+        ' wait that no longer exists. Whatever speaks next - the connected
+        ' summary, or the reason it failed - must not have it rescued behind
+        ' it (#503). ProgressVoice.Stop covers this only while a wait voice
+        ' was actually running; the last phase line needs saying explicitly.
+        Try
+            Radios.ScreenReaderOutput.Supersede(Radios.Speech.SpeechSubject.Progress,
+                "the connect window closing")
+        Catch
+        End Try
         If _profiler IsNot Nothing AndAlso _profilerHandler IsNot Nothing Then
             Try
                 RemoveHandler _profiler.EventRecorded, _profilerHandler
