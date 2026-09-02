@@ -134,6 +134,7 @@
   "connect.home.connected_with_slices": "Connected to {model}, {connType}. {status}",
   "connect.home.disconnected_after": "{msg}. Disconnected from the radio.",
   "connect.home.entering_logging": "Entering Logging Mode, Call Sign",
+  "connect.home.fields_panel_missing": "The field panel is hidden. Press Alt N and choose Show Field Panel to bring it back.",
   "connect.home.frequency": "Frequency {freqText}, slice {slice}",
   "connect.home.frequency_steps": ", coarse {coarse}, fine {fine}",
   "connect.home.frequency_unavailable": "Frequency unavailable",

@@ -2016,7 +2016,14 @@ public class NativeMenuBar : IDisposable
             bool newVisible = panel.Visibility != Visibility.Visible;
             panel.Visibility = newVisible ? Visibility.Visible : Visibility.Collapsed;
             _window.FieldsPanelUserVisible = newVisible;
-            _window.SaveFieldsPanelVisibleCallback?.Invoke(newVisible);
+            // Traced because this menu item is the ONLY operator-facing control
+            // for the panel, so it is the first thing a "where did my fields go"
+            // investigation must be able to rule in or out. On 2026-09-01 it was
+            // suspected, wrongly, and the capture could not say (#500).
+            // The SaveFieldsPanelVisibleCallback?.Invoke that stood here was a
+            // no-op: the callback was never assigned anywhere. Deleted with it.
+            Tracing.TraceLine($"ScreenFields: Show Field Panel toggled to {newVisible}",
+                TraceLevel.Info);
             EarconPlayer.ToggleTone(newVisible);
             SpeakAfterMenuClose(newVisible
                 ? Radios.Lexicon.Get("settings.field_panel.shown")
