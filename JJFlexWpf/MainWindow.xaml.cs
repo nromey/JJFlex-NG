@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -1254,6 +1254,7 @@ public partial class MainWindow : UserControl
     {
         if (_rescueMode || RigControl != null) return;
         _rescueMode = true;
+        _rescueReason = "startup finished with no radio";
         Tracing.TraceLine(
             "Rescue Home: startup finished with no radio — showing the limited page",
             TraceLevel.Info);
@@ -1266,6 +1267,120 @@ public partial class MainWindow : UserControl
     /// switch made while disconnected cannot quietly un-hide the radio
     /// controls behind the page.
     /// </summary>
+    /// <summary>
+    /// Why rescue mode engaged, for the trace. Set by whichever entry point
+    /// raised <see cref="_rescueMode"/>.
+    /// <para>#500 — the collapse had no reason attached to it anywhere, so even
+    /// if a line had been written it could only have said THAT panels went, not
+    /// why.</para>
+    /// </summary>
+    private string _rescueReason = "not recorded";
+
+    /// <summary>
+    /// Name the Home panels a screen-reader user can no longer Tab to, for the
+    /// trace. Sprint 44 Track E (#500).
+    /// <para>Reports the panels' ACTUAL state rather than what a method
+    /// intended, so a line written after a collapse and a line written after a
+    /// reconnect are directly comparable.</para>
+    /// </summary>
+    private string DescribeHomePanelVisibility()
+    {
+        static string One(string name, UIElement e)
+            => name + "=" + (e.Visibility == Visibility.Visible ? "visible" : "collapsed");
+        try
+        {
+            return One("RadioControls", RadioControlsPanel)
+                + " " + One("Fields", FieldsPanel)
+                + " " + One("Meters", MetersPanel)
+                + " " + One("Panadapter", PanadapterPanel)
+                + " " + One("Content", ContentArea)
+                + " " + One("Logging", LoggingPanel);
+        }
+        catch (Exception ex)
+        {
+            // Never let the instrument be the thing that throws.
+            return "unreadable: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// True when a radio is present but the operating surface is not. This is
+    /// the #500 state exactly: a working radio and roughly a third of the
+    /// interface missing, with nothing said and nothing logged.
+    /// </summary>
+    private bool HomePanelsCollapsedWithRadio =>
+        RigControl != null
+        && ActiveUIMode != UIMode.Logging
+        && FieldsPanel.Visibility != Visibility.Visible
+        && FieldsPanelUserVisible;
+
+    /// <summary>
+    /// A panel that vanishes without a word is indistinguishable from a crash
+    /// to someone who cannot see the screen. Sprint 44 Track E (#500).
+    /// </summary>
+    /// <remarks>
+    /// <para>Two instruments, because they answer different questions and one
+    /// of them is not always available. The TRACE always runs and is what makes
+    /// the state diagnosable after the fact; the SPEECH only runs when the
+    /// operator is actually the one affected, and tells them the way back.</para>
+    /// <para><b>Why the speech is deferred to Background priority.</b> This is
+    /// reached from OnRadioStarted, in the middle of the connect flow, and the
+    /// connect flow is a sequence of window changes — every one of which
+    /// flushes a screen reader's queue. An utterance made on this line would be
+    /// discarded before anyone heard it, which is the exact trap
+    /// project_speech_flushes_on_window_change describes and the reason the
+    /// rescue page carries its lead on a panel name instead of speaking it.
+    /// Deferring lets the connect narration finish and the windows settle.</para>
+    /// <para><b>And the condition is re-tested at that point</b>, so if
+    /// anything did restore the panels in between, nothing is said. An
+    /// announcement that is wrong by the time it is heard is worse than
+    /// silence.</para>
+    /// </remarks>
+    private void ReportHomePanelsMissing()
+    {
+        // Wrapped because this sits on the connect path. An instrument that can
+        // take down the thing it is watching is worse than no instrument, and
+        // this one runs inside ExitRescueMode, which OnRadioStarted calls before
+        // the rest of the radio is wired up.
+        try
+        {
+            ReportHomePanelsMissingCore();
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ReportHomePanelsMissing: " + ex.Message, TraceLevel.Warning);
+        }
+    }
+
+    private void ReportHomePanelsMissingCore()
+    {
+        if (!HomePanelsCollapsedWithRadio) return;
+
+        Tracing.TraceLine(
+            "Home panels missing with a radio present (#500/#410): ExitRescueMode returned early"
+            + " because rescue mode was never entered, so ApplyUIMode never ran to restore them."
+            + " | state: " + DescribeHomePanelVisibility()
+            + " | FieldsPanelUserVisible=" + FieldsPanelUserVisible,
+            TraceLevel.Error);
+
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (!HomePanelsCollapsedWithRadio)
+            {
+                Tracing.TraceLine(
+                    "Home panels missing: recovered before the announcement — saying nothing",
+                    TraceLevel.Info);
+                return;
+            }
+            string msg = Radios.Lexicon.Get("connect.home.fields_panel_missing");
+            Tracing.TraceLine("Home panels missing: announcing — " + msg, TraceLevel.Info);
+            // Critical so a quiet verbosity cannot filter out the one message
+            // that explains a third of the interface being gone. Not an
+            // interrupt: it must never cut the connect narration it follows.
+            Radios.ScreenReaderOutput.Speak(msg, VerbosityLevel.Critical);
+        }));
+    }
+
     private void ApplyRescueVisibility()
     {
         if (!_rescueMode) return;
@@ -1283,6 +1398,24 @@ public partial class MainWindow : UserControl
             return;
         }
 
+        // #500 — SAY WHAT IS ABOUT TO GO, AND WHY.
+        //
+        // On 2026-09-01 this method removed all five expanders of the fields
+        // panel from Noel's reach mid-session and the capture recorded
+        // NOTHING: no exception, no line about the panel, nothing spoken. The
+        // register's words are "the app lost roughly a third of its operating
+        // surface and said nothing, and the diagnostic log cannot even confirm
+        // it happened." Collapsing a panel is not an error, so nothing
+        // reported it — which is exactly why it has to be reported on purpose.
+        //
+        // Before AND after, deliberately: the "before" state is the only record
+        // of what the operator actually lost, and it is gone the moment the
+        // next line runs.
+        Tracing.TraceLine(
+            "Rescue Home: collapsing the operating surface — reason: " + _rescueReason
+            + " | before: " + DescribeHomePanelVisibility(),
+            TraceLevel.Info);
+
         RescuePanel.Visibility = Visibility.Visible;
         RadioControlsPanel.Visibility = Visibility.Collapsed;
         FieldsPanel.Visibility = Visibility.Collapsed;
@@ -1291,6 +1424,11 @@ public partial class MainWindow : UserControl
         ContentArea.Visibility = Visibility.Collapsed;
         LoggingPanel.Visibility = Visibility.Collapsed;
         StatusText.Text = Radios.Lexicon.Get("connect.home.status_ready_no_radio");
+
+        Tracing.TraceLine(
+            "Rescue Home: collapsed — after: " + DescribeHomePanelVisibility()
+            + " | route back: a radio connecting, which runs ExitRescueMode",
+            TraceLevel.Info);
     }
 
     /// <summary>
@@ -1303,7 +1441,29 @@ public partial class MainWindow : UserControl
     public void ExitRescueMode()
     {
         CancelRescueCountdown();
-        if (!_rescueMode) return;
+        if (!_rescueMode)
+        {
+            // #500 — THIS EARLY RETURN IS THE SILENT MOMENT, and it is the one
+            // the evening of 2026-09-01 actually landed in.
+            //
+            // A disconnect runs RestoreNoRadioShell, which collapses Fields,
+            // Meters and Panadapter WITHOUT entering rescue mode, and starts a
+            // three-minute countdown. A radio arriving before that countdown
+            // fires reaches here with _rescueMode still false, returns on this
+            // line, and NEVER RUNS ApplyUIMode — which is the only thing that
+            // un-collapses those three panels. ApplyUIMode is called on startup
+            // and on an operator change; nothing on a reconnect calls it.
+            //
+            // So the operator gets a working radio with a third of the
+            // interface gone, it survives further reconnects because
+            // reconnecting is not what restores it, and a restart appears to
+            // fix it. That is #410's mechanism seen from this side, and
+            // repairing it is #410's job, not this track's.
+            //
+            // What this track owes it is that it stop being invisible.
+            ReportHomePanelsMissing();
+            return;
+        }
         _rescueMode = false;
         Tracing.TraceLine("Rescue Home: radio arrived — restoring the full page", TraceLevel.Info);
 
@@ -1434,6 +1594,7 @@ public partial class MainWindow : UserControl
     {
         if (_rescueMode || RigControl != null) return;
         _rescueMode = true;
+        _rescueReason = "mid-session: " + lead;
         Tracing.TraceLine($"Rescue Home: entering mid-session — {lead}", TraceLevel.Info);
 
         RescuePanel.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, lead + " " + RescuePanelBaseName);
@@ -2047,17 +2208,26 @@ public partial class MainWindow : UserControl
     public UIMode ActiveUIMode { get; private set; } = UIMode.Modern;
 
     /// <summary>
-    /// User's preference for field panel visibility in Classic mode.
-    /// Persisted to operator profile via SaveFieldsPanelVisibleCallback.
-    /// Sprint 15 Track D.
+    /// The operator's field-panel preference, remembered across mode switches
+    /// so that going Classic → Modern → Classic does not silently re-show a
+    /// panel they hid. Sprint 15 Track D.
     /// </summary>
+    /// <remarks>
+    /// <para><b>SESSION-SCOPED. It is not persisted, and this doc comment said
+    /// it was until 2026-09-02</b> — "Persisted to operator profile via
+    /// SaveFieldsPanelVisibleCallback". That callback and its Load counterpart
+    /// were declared here in Sprint 15, invoked from three places, and
+    /// <b>never assigned anywhere in the solution</b>, so both were permanently
+    /// null and the load branch that read the profile never once executed.
+    /// They are deleted rather than wired; see the Track E report and the
+    /// register note on #500 for why. In short: nothing has depended on them
+    /// for eighteen sprints, and persisting this particular preference would
+    /// make the Alt+N trap permanent instead of survivable.</para>
+    /// <para>The practical consequence, and it is the one the #500 entry got
+    /// backwards: a restart brings the panel back because this defaults to
+    /// true, NOT because a saved value was reloaded.</para>
+    /// </remarks>
     public bool FieldsPanelUserVisible { get; set; } = true;
-
-    /// <summary>Callback to persist field panel visibility to operator profile.</summary>
-    public Action<bool>? SaveFieldsPanelVisibleCallback { get; set; }
-
-    /// <summary>Callback to load field panel visibility from operator profile. Called on mode switch.</summary>
-    public Func<bool>? LoadFieldsPanelVisibleCallback { get; set; }
 
     /// <summary>
     /// Last non-logging mode (Classic or Modern). Restored when exiting Logging Mode.
@@ -2105,9 +2275,10 @@ public partial class MainWindow : UserControl
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
 
-        // Restore user's field panel preference (Sprint 15 Track D)
-        if (LoadFieldsPanelVisibleCallback != null)
-            FieldsPanelUserVisible = LoadFieldsPanelVisibleCallback();
+        // Restore user's field panel preference (Sprint 15 Track D). The
+        // LoadFieldsPanelVisibleCallback branch that used to stand here was
+        // dead — the callback was never assigned — so this line is what has
+        // always decided the panel's visibility.
         FieldsPanel.Visibility = FieldsPanelUserVisible ? Visibility.Visible : Visibility.Collapsed;
 
         SetTextAreasVisible(true);
@@ -2126,9 +2297,8 @@ public partial class MainWindow : UserControl
     {
         RadioControlsPanel.Visibility = Visibility.Visible;
 
-        // Respect user's field panel preference (same as Classic)
-        if (LoadFieldsPanelVisibleCallback != null)
-            FieldsPanelUserVisible = LoadFieldsPanelVisibleCallback();
+        // Respect user's field panel preference (same as Classic; the dead
+        // LoadFieldsPanelVisibleCallback branch removed 2026-09-02).
         FieldsPanel.Visibility = FieldsPanelUserVisible ? Visibility.Visible : Visibility.Collapsed;
 
         SetTextAreasVisible(true);
@@ -3197,6 +3367,17 @@ public partial class MainWindow : UserControl
     {
         try
         {
+            // #500, and this is the SECOND collapse route — the one the
+            // register did not name. ApplyRescueVisibility collapses six panels
+            // and only runs in rescue mode; this collapses three of the same
+            // six on every disconnect, rescue mode or not, and is therefore the
+            // route that most often takes the fields panel away. It traced
+            // nothing at all until 2026-09-02.
+            Tracing.TraceLine(
+                "RestoreNoRadioShell: collapsing Fields, Meters and Panadapter on disconnect"
+                + " | before: " + DescribeHomePanelVisibility(),
+                TraceLevel.Info);
+
             RadioControlsPanel.Visibility = Visibility.Visible;
             FieldsPanel.Visibility = Visibility.Collapsed;
             MetersPanel.Visibility = Visibility.Collapsed;
@@ -4139,8 +4320,20 @@ public partial class MainWindow : UserControl
     /// </summary>
     private async void AnnounceSettledSwrAfterTune(bool isFailure)
     {
-        if (CurrentAudioConfig?.AnnounceSwrAfterTune == false) return;
-        if (RigControl == null) return;
+        // Both early exits trace. A tune that announces nothing and records
+        // nothing is indistinguishable from a tune whose announcement was lost
+        // downstream, and that is the #409 inference all over again.
+        if (CurrentAudioConfig?.AnnounceSwrAfterTune == false)
+        {
+            Tracing.TraceLine("tuneSpoken: suppressed, AnnounceSwrAfterTune is off",
+                TraceLevel.Info);
+            return;
+        }
+        if (RigControl == null)
+        {
+            Tracing.TraceLine("tuneSpoken: suppressed, no rig", TraceLevel.Info);
+            return;
+        }
 
         try
         {
@@ -4163,7 +4356,13 @@ public partial class MainWindow : UserControl
     /// </summary>
     private void AnnounceCapturedSwrAfterTune(bool isFailure, float capturedSwr)
     {
-        if (CurrentAudioConfig?.AnnounceSwrAfterTune == false) return;
+        if (CurrentAudioConfig?.AnnounceSwrAfterTune == false)
+        {
+            Tracing.TraceLine(
+                $"tuneSpoken: suppressed, AnnounceSwrAfterTune is off (captured {capturedSwr:F2})",
+                TraceLevel.Info);
+            return;
+        }
         SpeakSwrAfterTune(isFailure, capturedSwr);
     }
 
@@ -4175,12 +4374,34 @@ public partial class MainWindow : UserControl
             isFailure ? "audio.tune.swr_failed" : "audio.tune.swr",
             ("swr", $"{swr:F1}"));
         VerbosityLevel level = isFailure ? VerbosityLevel.Critical : VerbosityLevel.Terse;
+
+        // Sprint 44 Track E — WRITE DOWN THE NUMBER WE SAY OUT LOUD.
+        //
+        // This method is the single funnel for the settled SWR: the auto-ATU
+        // path arrives through AnnounceSettledSwrAfterTune and the manual
+        // carrier through AnnounceCapturedSwrAfterTune, and both end here. Until
+        // 2026-09-02 the value was spoken and never recorded, so a tester's "my
+        // tuner said 1.7" could not be corroborated from a diagnostic bundle —
+        // which was the entirety of Don's report, and a day went into a number
+        // the application had already computed and discarded.
+        //
+        // Deliberately separate from FlexBase's tuneResult line rather than
+        // folded into it. That one records what the RADIO settled at; this one
+        // records what the OPERATOR was told. They are supposed to agree, and
+        // the day they do not, having both is the whole diagnosis.
+        Tracing.TraceLine(
+            $"tuneSpoken: swr={swr:F2} spokenAs={swr:F1} failure={isFailure} level={level}",
+            TraceLevel.Info);
+
         // Keyed as the answer to the tune that just ended (#503). On
         // 2026-09-01 this reading was queued behind "Tune off", flushed by
         // an unrelated interrupt, and then discarded as "stale" at 3.9 s —
         // by the operator pressing Tune again because they had heard
         // nothing. Only the next tune's reading covers this one; a retry
         // must deliver it, not destroy it.
+        //
+        // The trace above and this line are the pair: what we recorded and
+        // what we actually delivered. Before Sprint 44 neither existed.
         Radios.ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue, level,
             subject: Radios.Speech.SpeechSubject.SwrAfterTune);
     }

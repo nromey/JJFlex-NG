@@ -196,9 +196,13 @@ namespace JJFlexWpf
         /// question and its answer land in the output transcript first: earcon
         /// NAME (the public method, via CallerMemberName), its category, and
         /// whether the gates let it through. The gate/rendered pair is the
-        /// point - an event with gate false is "fired but gated off", an
-        /// absent event is "never fired". Those sound identical (like nothing)
-        /// and need different fixes.
+        /// point - an event with gate false is "fired but gated off", and those
+        /// two sound identical (like nothing) while needing different fixes.
+        /// <para>An event MISSING from a transcript is "never fired" only
+        /// within a transcript that was being written. The recorder is gated by
+        /// <c>OutputChannelRecorder.RecordEnabled</c>, so read that the same way
+        /// #409 says to read the trace level: establish that the instrument was
+        /// running before reading a silence in it as an answer.</para>
         /// </summary>
         private static bool Gate(EarconCategory category, [CallerMemberName] string earconName = "")
             => GateCore(category, earconName, null);
@@ -241,16 +245,44 @@ namespace JJFlexWpf
             // skipped" and "the tone played and nobody heard it" were
             // indistinguishable from every instrument this project owns — the
             // reader-side capture records speech and braille and never sees an
-            // earcon. One Verbose line, at the single point every gated earcon
-            // passes through: the earcon's name, its category, whether the
-            // gates let it through, and whether a live mixer exists to render
-            // it. gate=True mixer=False is "fired but nothing could sound it";
-            // an absent line is "never fired". Those are different defects and
-            // this line is what tells them apart.
+            // earcon. One line, at the single point every gated earcon passes
+            // through: the earcon's name, its category, whether the gates let
+            // it through, and whether a live mixer exists to render it.
+            // gate=True mixer=False is "fired but nothing could sound it".
+            //
+            // #409 — AND THE LEVEL IS THE WHOLE POINT. This line was Verbose
+            // until 2026-09-02, and the boot default is Info, so on an ordinary
+            // capture it was never written AT ALL. The comment that used to sit
+            // here said "an absent line is 'never fired'". THAT IS FALSE, and
+            // it is measured false: JJFlexRadioTrace-20260901-213333.txt holds
+            // sixteen TXTune:True lines — sixteen tune carriers, each of which
+            // calls TuneOnTone and then TuneOffTone unconditionally — and ZERO
+            // Earcon lines. Thirty-two sounds fired and the instrument recorded
+            // none of them. Eight of the fifteen captures that evening look
+            // identical, and three diagnoses were run off the wrong end of that
+            // inference before anyone checked the level.
+            //
+            // So: Info, which is the level an ordinary capture keeps.
+            //
+            // WHAT AN ABSENT LINE MEANS NOW, stated exactly, because the last
+            // attempt at this sentence is what cost the evening. At Info or
+            // finer, an absent line means the earcon never reached this method.
+            // At any coarser level it means NOTHING WHATSOEVER — read the
+            // CaptureState marker at the head of the file and find out what
+            // level was in force before drawing any conclusion from a silence.
+            //
+            // Unthrottled and one line per fire, deliberately. Earcons are
+            // user-action one-shots, not a sampled stream, and the cost was
+            // measured rather than guessed: across the 2026-09-01 captures the
+            // busiest Verbose session carried 38 Earcon lines in 11,369 — a
+            // third of one percent. That is not the meter-stream flood class
+            // and does not need the coalescing MeterTraceStream needs, and a
+            // lossy line here would reintroduce exactly the ambiguity this
+            // whole comment exists to remove.
             JJTrace.Tracing.TraceLine(
                 $"Earcon: {earconName} category={category} gate={on} mixer={AlertMixer != null}"
                     + (detail == null ? "" : " " + detail),
-                TraceLevel.Verbose);
+                TraceLevel.Info);
 
             if (Radios.OutputChannelRecorder.RecordEnabled)
             {

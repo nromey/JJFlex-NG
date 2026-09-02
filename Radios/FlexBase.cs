@@ -7979,6 +7979,9 @@ namespace Radios
                 case "TXTune":
                     {
                         Tracing.TraceLine("TXTune:" + r.TXTune.ToString(), TraceLevel.Info);
+                        // Both edges, so a manual carrier gets a tuneResult line.
+                        // Only the rising edge raises FlexAntTuneStartStop below.
+                        noteTuneCarrier(r.TXTune);
                         if (r.TXTune)
                         {
                             // Report status if starting up.
@@ -9398,6 +9401,14 @@ namespace Radios
                 _PowerDBM = data;
                 _forwardStamp = Stopwatch.GetTimestamp();
             }
+            // Sprint 44 Track E — the pulse that makes txMeters fire during a
+            // TUNE. SC_MIC and ALC drive traceTxMeters during keyed transmit,
+            // and neither of them moves while the ATU sweeps or a bare carrier
+            // is up, so the whole 75 m tuning walk on 2026-09-01 produced no
+            // meter data at all. Forward power streams throughout a tune, which
+            // makes it the honest clock for that state. Outside the lock on
+            // purpose: ReflectedFraction and ComputedSWR read the pair.
+            if (_tuneCycleActive) traceTxMeters();
         }
 
         protected float _SWR;
@@ -9417,6 +9428,9 @@ namespace Radios
         {
             meterTrace.Report("SWRData:", data);
             _SWR = data;
+            // Latch the settled value while the tune is still running; reading
+            // it afterwards gives the meter's idle rest value. See noteTuneSwr.
+            noteTuneSwr(data);
         }
 
         /// <summary>
@@ -10011,7 +10025,8 @@ namespace Radios
 
         /// <summary>
         /// A correlated SC_MIC / SW ALC / forward-power snapshot, at most once a
-        /// second while transmitting.
+        /// second while transmitting and every 250 ms during a tune cycle. The
+        /// line names which of the two it was sampled in.
         /// <para>Both handlers stored their value and traced nothing, so with PC
         /// audio running there was no way to tell from a trace whether the radio
         /// was seeing any transmit drive at all — a blind spot that cost a
@@ -10023,9 +10038,23 @@ namespace Radios
         /// </summary>
         private void traceTxMeters()
         {
-            if (!Transmit) return;
+            // #Track E — a TUNE counts, and until 2026-09-02 it did not.
+            // "if (!Transmit) return" is true throughout an ATU sweep and
+            // throughout a manual carrier, because neither raises Mox, so the
+            // one state where reflected power is most interesting was the one
+            // state carrying no meter data whatsoever.
+            bool tuning = _tuneCycleActive;
+            if (!Transmit && !tuning) return;
+
+            // Rate-limited by STATE, chosen rather than inherited. Keyed
+            // transmit can run for minutes and one line a second is plenty; a
+            // tune is over in a few seconds, and at one line a second a whole
+            // tune is three or four samples — too coarse to see a match
+            // converging. 250 ms during a tune gives roughly 12-40 lines for a
+            // typical cycle, which is a bounded burst and not a stream.
+            int interval = tuning ? 250 : 1000;
             int now = System.Environment.TickCount;
-            if ((now - _txMeterTraceTime) < 1000) return;
+            if ((now - _txMeterTraceTime) < interval) return;
             _txMeterTraceTime = now;
             // Reflected, both SWR figures and the derived share are here
             // BECAUSE THEY WERE NOT, and their absence cost an evening.
@@ -10042,7 +10071,21 @@ namespace Radios
             // the two disagreeing IS the diagnosis, and one alone hides it.
             float refl = _ReflectedPower;
             float back = ReflectedFraction;
-            Tracing.TraceLine("txMeters: SC_MIC=" + ScMicDb.ToString("F1")
+            // The state is ON THE LINE. Two states now feed this one format,
+            // and a reader who cannot tell a tune sample from a transmit sample
+            // will read a tune's reflected power as a transmit fault. SC_MIC
+            // and SWALC are also meaningless during a tune — nobody is talking
+            // — and naming the state is what stops them being read as a dead
+            // mic. state=tune+tx is both at once: an ATU sweep that keyed Mox.
+            //
+            // The readings are the ELECTED copy's, not the raw fields: on a
+            // radio publishing several SC_MIC copies the raw field is whichever
+            // one FlexLib happened to return first, which is the #502 defect
+            // this line exists to make visible. "via" names the copy so a
+            // floor reading can be told from a floor METER.
+            string state = (Transmit && tuning) ? "tune+tx" : (tuning ? "tune" : "tx");
+            Tracing.TraceLine("txMeters: state=" + state
+                + " SC_MIC=" + ScMicDb.ToString("F1")
                 + " (peak " + ScMicMaxDb.ToString("F1") + ")"
                 + " via " + (_scMicElection.Elected?.Label ?? "no copy has reported")
                 + " SWALC=" + SwAlcDb.ToString("F1")
@@ -20668,6 +20711,13 @@ namespace Radios
         public event FlexAntTunerStartStopDel FlexAntTunerStartStop;
         internal void RaiseFlexAntTuneStartStop(FlexAntTunerArg arg)
         {
+            // Record the tune cycle BEFORE the subscriber check, and outside
+            // it. A tune that nobody is listening to is still a tune that
+            // happened, and the "not raised" branch below writes a Verbose line
+            // that an ordinary capture never keeps — so on the no-subscriber
+            // path the whole event used to vanish.
+            noteTuneStatus(arg);
+
             if (FlexAntTunerStartStop != null)
             {
                 Tracing.TraceLine("FlexAntTunerStartStop raised:" + arg.Type + ' ' + arg.Status + ' ' + arg.SWR, TraceLevel.Info);
@@ -20675,6 +20725,162 @@ namespace Radios
             }
             else Tracing.TraceLine("FlexAntTunerStartStop not raised", TraceLevel.Verbose);
         }
+
+        #region Tune cycle instrumentation — Sprint 44 Track E
+
+        /// <summary>
+        /// THE TUNE RESULT WAS SPOKEN AND WRITTEN DOWN NOWHERE, and this region
+        /// exists to end that.
+        ///
+        /// <para>Measured, not asserted. Across all fifteen
+        /// <c>JJFlexRadioTrace-20260901-*.txt</c> captures there are
+        /// <b>26 <c>FlexAntTunerStartStop raised:manual InProgress</c> lines and
+        /// not one terminal status</b> — 26 tunes started, 0 tunes finished, as
+        /// far as any diagnostic bundle we ship is concerned. The only lines in
+        /// the whole evening containing the string SWR are the meter inventory
+        /// announcing that an SWR meter exists.</para>
+        ///
+        /// <para>Why the terminal line is missing: the manual carrier
+        /// (Ctrl+Shift+T) sets <c>TxTune</c> straight on the radio and never
+        /// touches <see cref="FlexTunerOn"/>, so the falling edge raises no
+        /// event — MainWindow.ToggleTuneCarrier says exactly this in a comment
+        /// and then speaks the number instead of recording it. Don's entire
+        /// report was "my tuner said 1.7"; a number the application had already
+        /// computed, spoken, and thrown away.</para>
+        ///
+        /// <para>So the cycle is tracked here, at the one place both routes
+        /// pass through the radio object, and closed with a single
+        /// <c>tuneResult:</c> line carrying type, outcome, the settled SWR, the
+        /// power pair behind it, and elapsed time.</para>
+        /// </summary>
+        /// <remarks>
+        /// Volatile: written on mainThread (the property-change handlers) and
+        /// read on the Meter Packet Processing Thread, which is what pulses
+        /// <see cref="traceTxMeters"/> during a tune. A stale read here costs
+        /// at most a trace line at either end of a cycle, but there is no
+        /// reason to accept even that when the fix is one keyword.
+        /// </remarks>
+        private volatile bool _tuneCycleActive;
+        private int _tuneCycleStartTick;
+        private string _tuneCycleType = "unknown";
+        private float _tuneCycleLastValidSwr = float.NaN;
+
+        /// <summary>
+        /// True while a tune cycle is running — either the ATU sweeping or an
+        /// operator-held carrier. Read by <see cref="traceTxMeters"/>, which
+        /// otherwise samples nothing during the one state where reflected power
+        /// is most interesting.
+        /// </summary>
+        internal bool TuneCycleActive => _tuneCycleActive;
+
+        /// <summary>
+        /// Latch the last SWR the radio reported that was not its no-reading
+        /// sentinel. Called from <c>sWRData</c> on every SWR packet.
+        /// <para>This is the number that answers "what did the tuner settle
+        /// at". Reading <c>_SWR</c> when the cycle ENDS gives the idle rest
+        /// value, because the meter snaps back the instant forward power drops
+        /// — the same trap MainWindow documents as Don's "SWR 1.0 to 1 every
+        /// time" bug, arriving from the radio side instead of the UI side.</para>
+        /// </summary>
+        private void noteTuneSwr(float data)
+        {
+            if (!_tuneCycleActive) return;
+            if (data <= SWRNoReading) return;
+            _tuneCycleLastValidSwr = data;
+        }
+
+        /// <summary>
+        /// The manual carrier's rising and falling edge, from the radio's own
+        /// TXTune property change.
+        /// </summary>
+        private void noteTuneCarrier(bool on)
+        {
+            if (on) beginTuneCycle("carrier");
+            else endTuneCycle("CarrierOff");
+        }
+
+        /// <summary>
+        /// The ATU's own status stream. <c>InProgress</c> opens a cycle;
+        /// every other status is terminal for one.
+        /// </summary>
+        private void noteTuneStatus(FlexAntTunerArg arg)
+        {
+            if (arg == null) return;
+            string status = arg.Status ?? "unknown";
+            if (status == ATUTuneStatus.InProgress.ToString())
+            {
+                beginTuneCycle(arg.Type ?? "unknown");
+                return;
+            }
+            // NotStarted arrives on paths that never opened a cycle; endTuneCycle
+            // ignores those rather than inventing a zero-length tune.
+            endTuneCycle(status);
+        }
+
+        private void beginTuneCycle(string type)
+        {
+            if (_tuneCycleActive)
+            {
+                // Both signals open the SAME cycle, and they arrive in either
+                // order. A manual-tuner tune sets TXTune (opening the cycle as
+                // "carrier") and then raises InProgress carrying the real tuner
+                // type, so first-wins would throw away the more specific of the
+                // two. Refine instead of ignoring — "manual+carrier" says both
+                // things and neither is lost.
+                if (_tuneCycleType == "carrier" && type != "carrier" && type != "unknown")
+                {
+                    _tuneCycleType = type + "+carrier";
+                }
+                return;
+            }
+            _tuneCycleActive = true;
+            _tuneCycleStartTick = System.Environment.TickCount;
+            _tuneCycleType = type;
+            _tuneCycleLastValidSwr = float.NaN;
+            Tracing.TraceLine("tuneStart: type=" + type
+                + " swrAtStart=" + _SWR.ToString("F2")
+                + " fwdW=" + ForwardPowerWatts.ToString("F2"),
+                TraceLevel.Info);
+        }
+
+        /// <summary>
+        /// Close the cycle and write the one line the evening of 2026-09-01
+        /// went without.
+        /// </summary>
+        /// <remarks>
+        /// <c>outcome</c> is whichever signal closed the cycle FIRST, and the
+        /// carrier's falling edge can beat the ATU's own status to it — so
+        /// <c>outcome=CarrierOff</c> on an auto tune means "TXTune dropped
+        /// before a status arrived", not "the ATU reported nothing". The
+        /// adjacent <c>ATUTuneStatus:</c> line carries that. Reported rather
+        /// than second-guessed: an instrument that decides which of two real
+        /// events was the important one is an instrument that can be wrong
+        /// silently.
+        /// </remarks>
+        private void endTuneCycle(string outcome)
+        {
+            if (!_tuneCycleActive) return;
+            _tuneCycleActive = false;
+            int elapsed = System.Environment.TickCount - _tuneCycleStartTick;
+            float settled = _tuneCycleLastValidSwr;
+            float back = ReflectedFraction;
+            // swrSettled is the latched in-cycle reading and swrNow is what the
+            // meter says at this instant. They are BOTH here because they
+            // disagree by design, and a reader who sees only one of them cannot
+            // tell a good match from a meter that has already gone home.
+            Tracing.TraceLine("tuneResult: type=" + _tuneCycleType
+                + " outcome=" + outcome
+                + " swrSettled=" + (float.IsNaN(settled) ? "n/a" : settled.ToString("F2"))
+                + " swrNow=" + _SWR.ToString("F2")
+                + " swrCalc=" + (float.IsNaN(ComputedSWR) ? "n/a" : ComputedSWR.ToString("F2"))
+                + " fwdW=" + ForwardPowerWatts.ToString("F2")
+                + " reflW=" + ReflectedPowerWatts.ToString("F3")
+                + " back=" + (float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1") + "%")
+                + " elapsed=" + elapsed.ToString() + "ms",
+                TraceLevel.Info);
+        }
+
+        #endregion
 
         /// <summary>
         /// Argument for CapsChangeEvent
