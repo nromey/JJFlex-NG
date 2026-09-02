@@ -15075,9 +15075,18 @@ namespace Radios
                 if (applied)
                 {
                     if (SuppressSpeech) return;
-                    ScreenReaderOutput.Speak(
+                    // Handed to the connect briefing rather than spoken here
+                    // (#510). At connect this is one clause of the composed
+                    // statement — the short form, because a repair already
+                    // made needs no explanation to act on — and the full
+                    // sentence stays readable in the briefing's reference.
+                    // Off a connect it is spoken in full at once, as before.
+                    ConnectBriefing.Current.Note(new ConnectFact(
+                        ConnectFactKind.MicProfileOnRadio,
                         Lexicon.Get("audio.silent_tx.repaired", ("candidate", candidate)),
-                        Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+                        Lexicon.Get("audio.silent_tx.repaired_brief", ("candidate", candidate)),
+                        VerbosityLevel.Critical,
+                        Speech.SpeechSubject.MicProfileOnRadio));
                     return;
                 }
 
@@ -15107,17 +15116,23 @@ namespace Radios
             // rather than filed with the rest of the connect chatter. Not on
             // the repair branch above: that one reports a fixed condition, and
             // an alarm for something already handled teaches the operator to
-            // ignore alarms. Null when the WPF layer has not started — silence,
-            // not a crash, on a connect path.
-            ScreenReaderOutput.PlayWarningAlarmEarcon?.Invoke();
-
-            // Queued, not interrupting: this is the tail of the connect series,
-            // and cutting off "Connected to ..." to deliver it would cost the
-            // operator the message they were actually waiting for.
-            ScreenReaderOutput.Speak(
+            // ignore alarms. The briefing plays the alarm immediately before
+            // the sentence, whether that is at the connect's settle or, off a
+            // connect, right now — so the coupling survives composition.
+            //
+            // The warning is the one fact the connect briefing exists to
+            // deliver (#510): an operator who cannot be heard on the air is
+            // the reason to speak at all. In the composed statement it takes
+            // the Critical tier — the shortest form that still carries the
+            // consequence — and the operator's own verbosity tier in full
+            // stays in the reference and in the off-connect path.
+            ConnectBriefing.Current.Note(new ConnectFact(
+                ConnectFactKind.MicProfileOnRadio,
                 SilentTxSpokenWarning(ScreenReaderOutput.CurrentVerbosity),
-                Speech.SpeechIntent.Queue,
-                VerbosityLevel.Critical);
+                SilentTxSpokenWarning(VerbosityLevel.Critical),
+                VerbosityLevel.Critical,
+                Speech.SpeechSubject.MicProfileOnRadio,
+                alarm: true));
         }
 
         // ── The radio's own save-on-change concept (Sprint 32 Track H, #117) ──
@@ -15736,10 +15751,7 @@ namespace Radios
                 Tracing.TraceLine(
                     "ProfileStewardship: a previous session left this radio's autosave off. "
                     + "Offering the one-press restore.", TraceLevel.Warning);
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.profile_guest.autosave_left_off_by_us"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
-                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
+                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.autosave_left_off_by_us"), VerbosityLevel.Critical, volunteered: true);
                 return;
             }
 
@@ -15748,10 +15760,7 @@ namespace Radios
                 Tracing.TraceLine(
                     "ProfileStewardship: this radio has a transmit-audio snapshot from a session "
                     + "that ended without putting it back. Offering only.", TraceLevel.Warning);
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.profile_guest.live_audio_stranded"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
-                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
+                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_stranded"), VerbosityLevel.Critical, volunteered: true);
                 return;
             }
 
@@ -15762,10 +15771,7 @@ namespace Radios
                     + "build's session: "
                     + string.Join(", ", plan.StrandedRestorePoints.Select(ProfileStewardship.Label))
                     + ". OFFERING only.", TraceLevel.Warning);
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.profile_guest.stranded"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
-                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
+                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.stranded"), VerbosityLevel.Critical, volunteered: true);
                 return;
             }
 
@@ -15775,12 +15781,9 @@ namespace Radios
                 s.ProfileType == ProfileTypes.tx && IsLiveAudioSkip(s.Reason));
             if (situation.Intent == ProfileGuestIntent.UseMyTransmitAudio && liveSkip != null)
             {
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.profile_guest.live_audio_not_applied",
+                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_not_applied",
                         ("why", Lexicon.Get(LiveAudioSkipKey(liveSkip.Reason),
-                            ("preset", liveSkip.ProfileName)))),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
-                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
+                            ("preset", liveSkip.ProfileName)))), VerbosityLevel.Terse, volunteered: true);
                 return;
             }
 
@@ -15788,11 +15791,8 @@ namespace Radios
             if (situation.Intent == ProfileGuestIntent.UseMyTransmitAudio
                 && plan.Actions.Any(a => a.Kind == ProfileActionKind.ApplyLocalTransmitAudio))
             {
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.profile_guest.live_audio_applied",
-                        ("preset", situation.LocalTransmitAudioProfile)),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
-                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
+                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.live_audio_applied",
+                        ("preset", situation.LocalTransmitAudioProfile)), VerbosityLevel.Terse, volunteered: true);
                 return;
             }
 
@@ -15801,10 +15801,7 @@ namespace Radios
                 Tracing.TraceLine(
                     "ProfileStewardship: this radio has no profile answer yet, so NOTHING was "
                     + "loaded on it. Suggestion if asked: " + plan.Suggestion, TraceLevel.Warning);
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.profile_guest.left_alone"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
-                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
+                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.left_alone"), VerbosityLevel.Terse, volunteered: true);
                 return;
             }
 
@@ -15813,11 +15810,29 @@ namespace Radios
                 // A radio we already knew: its profiles loaded, as they always
                 // have. Chatty — nothing changed for this operator, so it is a
                 // reassurance, not news.
-                ScreenReaderOutput.Speak(
-                    Lexicon.Get("settings.profile_guest.pre_answered"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Chatty,
-                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
+                NoteProfileVerdict(Lexicon.Get("settings.profile_guest.pre_answered"), VerbosityLevel.Chatty, volunteered: false);
             }
+        }
+
+
+        /// <summary>
+        /// Hand one profile verdict to the connect briefing (#510). Every
+        /// verdict but the pre-answered reassurance is volunteered in full:
+        /// each is either a hazard on the radio or the answer to something the
+        /// operator asked for, and none of them is where the 711 characters
+        /// were. The pre-answered line — "your profiles load on this radio, as
+        /// they always have" — restates the default outcome; it goes to the
+        /// briefing's reference and is not spoken in the connect burst.
+        /// </summary>
+        private static void NoteProfileVerdict(
+            string sentence, VerbosityLevel level, bool volunteered,
+            [System.Runtime.CompilerServices.CallerFilePath] string file = "",
+            [System.Runtime.CompilerServices.CallerLineNumber] int line = 0,
+            [System.Runtime.CompilerServices.CallerMemberName] string member = "")
+        {
+            ConnectBriefing.Current.Note(new ConnectFact(
+                ConnectFactKind.ProfileStewardship, sentence, volunteered ? sentence : null,
+                level, Speech.SpeechSubject.ProfileGuestOutcome, alarm: false, file, line, member));
         }
 
         private static bool IsLiveAudioSkip(ProfileSkipReason r) =>

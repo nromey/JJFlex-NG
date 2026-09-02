@@ -924,21 +924,38 @@ public partial class FrequencyDisplay : UserControl
             _suppressNextFocusPrefix = false;
             return;
         }
-        if (SuppressFocusPrefix?.Invoke() == true)
+
+        // #511 — decided one dispatcher beat later, not now. When a native
+        // menu closes on a command, Windows restores keyboard focus to this
+        // box and raises this event BEFORE the command's WM_COMMAND is
+        // handled: on 2026-09-01 the prefix spoke "JJ Flexible Home, XIT"
+        // one millisecond before the Connect command opened the connect
+        // flow — Home announcing itself and then jumping to the radio list,
+        // in Noel's words. Posting the decision lets the command run first;
+        // the callback re-checks that focus is still here and that no flow
+        // has since claimed the operator's ears. For an ordinary Tab into
+        // Home the beat is a few milliseconds and inaudible. Normal
+        // priority: it runs as soon as the current message returns, ahead
+        // of any further input.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Normal, new System.Action(() =>
         {
-            JJTrace.Tracing.TraceLine(
-                "FrequencyDisplay: focus prefix suppressed (connect quiet scope)",
-                System.Diagnostics.TraceLevel.Info);
-            return;
-        }
-        try
-        {
-            SpeakHomeDestinationPrefix();
-        }
-        catch (System.Exception ex)
-        {
-            System.Diagnostics.Trace.WriteLine($"DisplayBox_GotKeyboardFocus failed: {ex.Message}");
-        }
+            if (!DisplayBox.IsKeyboardFocused) return;
+            if (SuppressFocusPrefix?.Invoke() == true)
+            {
+                JJTrace.Tracing.TraceLine(
+                    "FrequencyDisplay: focus prefix suppressed (connect quiet scope)",
+                    System.Diagnostics.TraceLevel.Info);
+                return;
+            }
+            try
+            {
+                SpeakHomeDestinationPrefix();
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Trace.WriteLine($"DisplayBox_GotKeyboardFocus failed: {ex.Message}");
+            }
+        }));
     }
 
     /// <summary>
@@ -974,8 +991,12 @@ public partial class FrequencyDisplay : UserControl
             announcement = Radios.Lexicon.Get("settings.home.destination_terse", ("field", fieldLabel));
         }
 
+        // Keyed as "where you are" (#511): an arrival or an earlier prefix
+        // still unheard when this one speaks is covered by it, rather than
+        // expiring on a word-count timer.
         Radios.ScreenReaderOutput.Speak(
-            announcement, Radios.VerbosityLevel.Terse, interrupt: true);
+            announcement, Radios.Speech.SpeechIntent.Interrupt, Radios.VerbosityLevel.Terse,
+            subject: Radios.Speech.SpeechSubject.WhereYouAre);
     }
 
     /// <summary>
