@@ -380,10 +380,10 @@ namespace Radios.ChainChecks
             // EVERY ONE of these three scalars is gated on its meter really
             // existing, and that gate is load-bearing.
             //
-            // FlexBase initialises all three to -150 and only ever moves them
-            // from a DataReady handler it attaches IF hookTxMeters finds the
-            // meter by name. "SC_MIC NOT FOUND" and a missing plain "ALC" are
-            // both states FlexBase traces on purpose — a FLEX-8600 publishes
+            // FlexBase reads all three at -150 until a copy of the meter has
+            // reported and been elected (TransmitMeterElection). "SC_MIC NOT
+            // FOUND" and a missing plain "ALC" are both states FlexBase traces
+            // on purpose — a FLEX-8600 publishes
             // MIC, MICPEAK and HWALC and may carry no plain ALC at all, and
             // FlexBase's own comment says SwAlcDb then never moves. Without
             // this gate the accessor hands back an initialiser the radio has
@@ -396,19 +396,22 @@ namespace Radios.ChainChecks
             // because -150 from a meter that IS reporting is real information.
             //
             // The gate below is on the meter having REPORTED, not merely on the
-            // meter existing, and the difference is not academic. FlexBase moves
-            // these scalars from a handler it attaches in hookTxMeters, which
-            // runs only from the MIC meter's own callback and looks the meters up
-            // through FlexLib's CASE-SENSITIVE FindMeterByName. The gate here asks
-            // the inventory, which matches case-INSENSITIVELY. So "the meter
+            // meter existing, and the difference is not academic. "The meter
             // exists" and "the field behind this fact is being written" are two
             // different conditions, and gating on the first while publishing the
             // second is how an untouched initialiser reaches an operator wearing
             // the units of a real measurement.
             //
-            // MeterInventory tracks readings for EVERY meter off the generic
-            // MeterData feed, independent of that lazy hook, so HasReading is the
-            // one signal that cannot disagree with itself.
+            // Until 2026-09-02 the gate was the inventory's HasReading for the
+            // FIRST meter of that name, while the value came from FlexBase — and
+            // on a radio that publishes several copies (#502: Don's 6300 has
+            // three SC_MIC, the first of which never reports) those are two
+            // different meters. The gate said "not reported yet" while the
+            // elected copy was streaming his voice: the same wrong "the radio
+            // hears nothing" this comment was written to prevent, from the
+            // other direction. So the gate now asks FlexBase whether the copy
+            // BEHIND THE VALUE has reported; the inventory still answers whether
+            // the radio publishes the meter at all.
             MeterInventory inv = SafeInventory(rig);
             MeterReading scMicMeter = inv?.Find("SC_MIC");
             MeterReading alcMeter = inv?.Find("ALC");
@@ -436,7 +439,7 @@ namespace Radios.ChainChecks
                 if (!haveScMic)
                     return DiagnosticFact.Absent("sc-mic-peak",
                         "Loudest transmit audio the radio has heard", noScMic, "the radio");
-                if (!scMicMeter.HasReading)
+                if (!rig.ScMicHasReported)
                     return DiagnosticFact.Silent("sc-mic-peak", "Loudest transmit audio the radio has heard",
                         "the radio lists its transmit mic meter but has not reported a reading from it yet",
                         "the radio's SC_MIC meter");
@@ -469,7 +472,7 @@ namespace Radios.ChainChecks
                 // still passes here and still publishes -150, which is the
                 // finding this fact exists for; what cannot pass is a field the
                 // radio has never touched.
-                if (!scMicMeter.HasReading)
+                if (!rig.ScMicHasReported)
                     return DiagnosticFact.Silent("sc-mic-recent",
                         "Transmit audio the radio heard in the last second and a half",
                         "the radio lists its transmit mic meter but has not reported a reading from it yet; "
@@ -487,7 +490,7 @@ namespace Radios.ChainChecks
                         "the radio is not currently publishing a plain ALC meter, so transmit drive "
                         + "cannot be read right now — like SC_MIC, it appears with the transmit chain",
                         "the radio");
-                if (!alcMeter.HasReading)
+                if (!rig.SwAlcHasReported)
                     return DiagnosticFact.Silent("sw-alc", "Transmit drive after the radio's own levelling",
                         "the radio lists its ALC meter but has not reported a reading from it yet; "
                         + "transmit to measure",
@@ -1107,6 +1110,12 @@ namespace Radios.ChainChecks
             Line("Connection", () => rig.RemoteRig ? "SmartLink (over the internet)" : "local network");
             Line("Meters published", () => (rig.MeterInventory?.Count ?? 0)
                                            .ToString(CultureInfo.CurrentCulture));
+            // Which copy of each transmit meter the readings above came from,
+            // and what every other copy did. On a radio with several copies
+            // this is the line that says whether "the radio hears nothing" was
+            // measured or merely never connected (#502).
+            Line("Transmit mic meter", () => rig.ScMicElectionText);
+            Line("Transmit drive meter", () => rig.SwAlcElectionText);
             return lines;
         }
     }

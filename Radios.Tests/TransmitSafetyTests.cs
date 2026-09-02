@@ -594,6 +594,67 @@ namespace Radios.Tests
         private const float DonSpeaking = -92.59f;
         private const float InjectedTone = -31.81f;
 
+        /// <summary>
+        /// The tests written before 2026-09-02 all describe a meter that HAS
+        /// reported — which is what <c>meterReported: true</c> asserts. The
+        /// tests under "a floor is not a silence" are the ones about a meter
+        /// that has not (#502).
+        /// </summary>
+        private static TransmitSafety.MicPathVerdict Judge(float peak, double txSeconds) =>
+            TransmitSafety.JudgeMicPath(peak, txSeconds, meterReported: true);
+
+        // ---- a floor is not a silence (#502) ----
+
+        [Fact]
+        public void A_meter_that_never_reported_is_not_evidence_of_silence()
+        {
+            // THE regression test for #502. Don's 6300 publishes three SC_MIC
+            // copies and the app was bound to one that never delivers a sample,
+            // so the peak sat at the -150 floor through a transmission whose
+            // audio the transmit monitor was playing back. The old rule read
+            // that floor as "nothing arrived" and told a working operator his
+            // microphone was dead.
+            Assert.NotEqual(TransmitSafety.MicPathVerdict.NothingArrived,
+                TransmitSafety.JudgeMicPath(NothingArrived,
+                    TransmitSafety.MicVerifyWindowSeconds, meterReported: false));
+            Assert.NotEqual(TransmitSafety.MicPathVerdict.NothingArrived,
+                TransmitSafety.JudgeMicPath(NothingArrived,
+                    TransmitSafety.MicVerifyWindowSeconds * 100, meterReported: false));
+        }
+
+        [Fact]
+        public void Without_telemetry_the_window_ends_in_no_verdict_not_a_warning()
+        {
+            Assert.Equal(TransmitSafety.MicPathVerdict.KeepWatching,
+                TransmitSafety.JudgeMicPath(NothingArrived, txSeconds: 5, meterReported: false));
+            Assert.Equal(TransmitSafety.MicPathVerdict.NoTelemetry,
+                TransmitSafety.JudgeMicPath(NothingArrived,
+                    TransmitSafety.MicVerifyWindowSeconds, meterReported: false));
+        }
+
+        [Fact]
+        public void A_peak_without_a_sample_behind_it_is_not_believed_either()
+        {
+            // A peak is a claim about samples. If the caller says none arrived,
+            // the number is stale or fabricated, and it verifies nothing.
+            Assert.Equal(TransmitSafety.MicPathVerdict.KeepWatching,
+                TransmitSafety.JudgeMicPath(DonSpeaking, txSeconds: 1, meterReported: false));
+            Assert.Equal(TransmitSafety.MicPathVerdict.NoTelemetry,
+                TransmitSafety.JudgeMicPath(DonSpeaking,
+                    TransmitSafety.MicVerifyWindowSeconds, meterReported: false));
+        }
+
+        [Fact]
+        public void The_floor_from_a_meter_that_IS_reporting_still_warns()
+        {
+            // The positive control for the telemetry gate: making the warning
+            // refuse to fire without a sample is only defensible if a real
+            // floor — a meter streaming -150 while keyed — still gets through.
+            Assert.Equal(TransmitSafety.MicPathVerdict.NothingArrived,
+                TransmitSafety.JudgeMicPath(NothingArrived,
+                    TransmitSafety.MicVerifyWindowSeconds, meterReported: true));
+        }
+
         // The threshold the old warning judged by. Left here as a fact about
         // the defect, not as a rule: the presence test does not use it.
         private const float OldSilentMicDbfs = -45f;
@@ -608,9 +669,9 @@ namespace Radios.Tests
                 "the measurement really is below the old threshold — that is the defect");
 
             Assert.Equal(TransmitSafety.MicPathVerdict.Verified,
-                TransmitSafety.JudgeMicPath(DonSpeaking, txSeconds: 0.5));
+                Judge(DonSpeaking, txSeconds: 0.5));
             Assert.Equal(TransmitSafety.MicPathVerdict.Verified,
-                TransmitSafety.JudgeMicPath(DonSpeaking,
+                Judge(DonSpeaking,
                     TransmitSafety.MicVerifyWindowSeconds * 100));
         }
 
@@ -619,7 +680,7 @@ namespace Radios.Tests
         {
             // The other end of the same run, on the same radio, minutes apart.
             Assert.Equal(TransmitSafety.MicPathVerdict.Verified,
-                TransmitSafety.JudgeMicPath(InjectedTone, txSeconds: 1));
+                Judge(InjectedTone, txSeconds: 1));
         }
 
         [Fact]
@@ -631,10 +692,10 @@ namespace Radios.Tests
             // profile or the microphone is wrong, and the operator is putting
             // out a carrier with no audio on it.
             Assert.Equal(TransmitSafety.MicPathVerdict.NothingArrived,
-                TransmitSafety.JudgeMicPath(NothingArrived,
+                Judge(NothingArrived,
                     TransmitSafety.MicVerifyWindowSeconds));
             Assert.Equal(TransmitSafety.MicPathVerdict.NothingArrived,
-                TransmitSafety.JudgeMicPath(NothingArrived,
+                Judge(NothingArrived,
                     TransmitSafety.MicVerifyWindowSeconds + 30));
         }
 
@@ -646,9 +707,9 @@ namespace Radios.Tests
             // window is ten seconds now and nothing is said until it is out.
             Assert.True(TransmitSafety.MicVerifyWindowSeconds >= 10.0);
             Assert.Equal(TransmitSafety.MicPathVerdict.KeepWatching,
-                TransmitSafety.JudgeMicPath(NothingArrived, txSeconds: 5));
+                Judge(NothingArrived, txSeconds: 5));
             Assert.Equal(TransmitSafety.MicPathVerdict.KeepWatching,
-                TransmitSafety.JudgeMicPath(NothingArrived,
+                Judge(NothingArrived,
                     TransmitSafety.MicVerifyWindowSeconds - 0.1));
         }
 
@@ -670,7 +731,7 @@ namespace Radios.Tests
 
             var verdicts = new List<TransmitSafety.MicPathVerdict>();
             foreach (var r in readings)
-                verdicts.Add(TransmitSafety.JudgeMicPath(r.peak, r.at));
+                verdicts.Add(Judge(r.peak, r.at));
 
             Assert.Equal(TransmitSafety.MicPathVerdict.KeepWatching, verdicts[0]);
             Assert.Equal(TransmitSafety.MicPathVerdict.KeepWatching, verdicts[1]);

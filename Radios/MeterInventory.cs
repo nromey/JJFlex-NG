@@ -304,37 +304,72 @@ namespace Radios
         /// <b>Both lookup paths take the first match and neither knows the
         /// others exist.</b> The <see cref="Rebuild"/> loop below is
         /// first-name-wins, and FlexLib's own <c>Radio.FindMeterByName</c> is a
-        /// <c>FirstOrDefault</c>. <c>FlexBase.hookTxMeters</c> therefore
-        /// subscribes to index 24 and never sees 48, 72 or 91.
+        /// <c>FirstOrDefault</c>. FlexBase's transmit-meter hook therefore
+        /// subscribed to index 24 and never saw 48, 72 or 91 — until 2026-09-02,
+        /// when the election described below replaced that hook entirely.
         /// </para>
         /// <para>
-        /// <b>It works today because the first copy happens to be the one that
-        /// streams</b> — confirmed by a real keying on 2026-08-20, where SC_MIC
-        /// moved from its floor to -10.8 dBFS. Nothing guarantees that. On a
-        /// radio, a firmware, or a slice arrangement where the streaming copy is
-        /// not the lowest-indexed one, <c>ScMicDb</c> would sit at its sentinel
-        /// forever while three identical meters reported normally, and the
-        /// analyzer would say the radio hears nothing. That is the same
-        /// silent-wrong-instrument shape as reading the codec MIC meter for a
-        /// PC-audio operator, which cost this project two days — one level down,
-        /// and currently invisible because it is masked by an ordering
-        /// coincidence.
+        /// <b>It worked on the bench because the first copy happened to be the
+        /// one that streams</b> — confirmed by a real keying on 2026-08-20, where
+        /// SC_MIC moved from its floor to -10.8 dBFS. This paragraph then said:
+        /// on a radio, a firmware, or a slice arrangement where the streaming
+        /// copy is not the lowest-indexed one, <c>ScMicDb</c> would sit at its
+        /// sentinel forever while identical meters reported normally, and the
+        /// analyzer would say the radio hears nothing.
         /// </para>
         /// <para>
-        /// <b>Not fixed here, deliberately.</b> Choosing among identical
-        /// descriptors needs a rule nobody has established yet — most likely
-        /// "the copy belonging to the transmit slice", which means correlating
-        /// meter index against slice ownership, and that is a design decision
-        /// rather than a wiring correction. A caller that needs certainty should
-        /// use <see cref="All"/> and pick deliberately. Anything relying on
-        /// <see cref="Find"/> for a transmit-chain meter is relying on the
-        /// ordering coincidence above.
+        /// <b>That is exactly what happened on Don's FLEX-6300 on 2026-09-01
+        /// (#502).</b> It publishes three SC_MIC copies — <c>[17] TX-:8</c>,
+        /// <c>[21] TX-:8</c>, <c>[43] TX-:9</c> — and the first never delivers a
+        /// sample. The peak sat at -150 through two transmissions while the
+        /// transmit monitor played his voice back, and the mic warning told a
+        /// working operator that no transmit audio was reaching the radio.
+        /// Note the source index: it VARIES on his radio and is constant on
+        /// the 8600, so it is not a slice number and cannot be the key.
+        /// </para>
+        /// <para>
+        /// <b>The rule this paragraph said nobody had established now exists:
+        /// <see cref="TransmitMeterElection"/>.</b> The copy that streams while
+        /// keyed is the one believed, nothing is believed until a copy has
+        /// reported, and every election is traced with its reason. FlexBase
+        /// registers every copy from this same inventory and publishes the
+        /// elected copy's readings as <c>ScMicDb</c>, <c>ScMicMaxDb</c> and
+        /// <c>SwAlcDb</c>, with <c>ScMicReportedSinceReset</c> as the telemetry
+        /// test a floor must pass before it means silence. The descriptors
+        /// could not resolve the choice ("the copy belonging to the transmit
+        /// slice" has no descriptor field to correlate), so it is resolved by
+        /// observation — sound because transmit is a mutex on the radio, so
+        /// the copy that rises while this client is keyed is this client's.
+        /// </para>
+        /// <para>
+        /// This method is still first-name-wins, because for the hundred-odd
+        /// meters the radio publishes once that is simply "the meter". For a
+        /// transmit-chain meter use FlexBase's elected readings, or
+        /// <see cref="FindAll"/> and choose deliberately; and never gate a value
+        /// taken from one copy on <see cref="MeterReading.HasReading"/> of
+        /// another, which is how the transmit chain check came to disagree
+        /// with itself.
         /// </para>
         /// </remarks>
         public MeterReading Find(string name)
         {
             if (string.IsNullOrEmpty(name)) return null;
             return _byName.TryGetValue(name, out MeterReading r) ? r : null;
+        }
+
+        /// <summary>
+        /// Every meter with this name, in the radio's index order — all the
+        /// copies, where <see cref="Find"/> returns only the first. Empty when
+        /// there are none. Case-insensitive, like <see cref="Find"/>.
+        /// </summary>
+        public IReadOnlyList<MeterReading> FindAll(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return Array.Empty<MeterReading>();
+            var found = new List<MeterReading>();
+            foreach (MeterReading r in _all)
+                if (string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))
+                    found.Add(r);
+            return found;
         }
 
         /// <summary>The meters of one source, or an empty list. Pass the handle
@@ -403,9 +438,10 @@ namespace Radios
                     // rather than a formality: an 8600 with four slices open
                     // publishes FOUR byte-identical SC_MIC descriptors (indices
                     // 24, 48, 72, 91 as measured 2026-08-20), all claiming
-                    // source TX- index 0. See the remarks on Find for why this
-                    // currently works and why it is fragile. The full list still
-                    // carries every copy, so a caller that needs to choose can.
+                    // source TX- index 0, and Don's 6300 three (#502). See the
+                    // remarks on Find: the choice among copies is made by
+                    // TransmitMeterElection, not here. The full list still
+                    // carries every copy, and FindAll returns them.
                     if (r.Name.Length != 0 && !byName.ContainsKey(r.Name))
                         byName[r.Name] = r;
                 }

@@ -8184,11 +8184,11 @@ namespace Radios
                     // See the ReportAntennaChange remarks for what a silent
                     // radio does and does not prove.
                     case "RXAnt":
-                        ReportAntennaChange(s, "RX", s.RXAnt, _rxAntRequested);
+                        ReportAntennaChange(s, "RX", s.RXAnt, _rxAntRequested, _rxAntRequestedSlice);
                         break;
 
                     case "TXAnt":
-                        ReportAntennaChange(s, "TX", s.TXAnt, _txAntRequested);
+                        ReportAntennaChange(s, "TX", s.TXAnt, _txAntRequested, _txAntRequestedSlice);
                         break;
                 }
             }
@@ -9583,10 +9583,10 @@ namespace Radios
         private void micData(float data)
         {
             _MicData = data;
-            // Inventory first so the trace reads in order: what the radio has,
-            // then which of the two TX meters we managed to hook out of it.
+            // The inventory reconcile is also what registers every SC_MIC and
+            // ALC copy with the transmit-meter elections — there is no separate
+            // FindMeterByName hook any more (#502).
             syncMeterInventory(); // cheap no-op unless the meter set has changed
-            hookTxMeters(); // lazy: SC_MIC / SW ALC meters register late
             meterTrace.Report("micData:", data);
         }
 
@@ -9623,9 +9623,8 @@ namespace Radios
             meterTrace.Report("hwALCData:", data);
         }
 
-        // --- Transmit-audio meters (2026-08-11) ------------------------------
-        // FlexLib raises no dedicated event for SC_MIC or the SW ALC meter, so
-        // we hook their DataReady directly via FindMeterByName. Why these:
+        // --- Transmit-audio meters (2026-08-11; elections 2026-09-02) --------
+        // Why these two meters:
         //   * SC_MIC ("MIC output") sits downstream of mic SELECTION, so it
         //     reflects transmit audio from EITHER source — the analog mic AND
         //     PC/codec audio. MicData (the COD-/MIC meter, "MIC in CODEC") is the
@@ -9635,36 +9634,70 @@ namespace Radios
         //     HWALC, the external-amp jack).
         // Proven with a two-source meter truth table on the bench 2026-08-11.
         // All values dBFS.
-        // Tracked independently, one flag per meter. They used to share a
-        // single "hooked" flag that was only set when BOTH were found, so a
-        // radio reporting one and not the other re-subscribed to the one it
-        // DID find on every subsequent mic-meter event — an unbounded handler
-        // leak, with every event firing N times and N growing forever. On the
-        // bench 8600 both meters arrive in the same instant so it never bit
-        // (two "NOT FOUND" passes, then "found, found"), which is exactly why
-        // it survived: the failure needs a radio we have not tested on.
-        private bool _scMicHooked;
-        private bool _swAlcHooked;
-        private bool _txMetersHooked => _scMicHooked && _swAlcHooked;
-        private string _txMeterHookState = "";
-        private float _scMicDb = -150f, _scMicMaxDb = -150f, _swAlcDb = -150f;
+        //
+        // The radio publishes each of them ONCE PER TRANSMIT SOURCE, with
+        // byte-identical descriptors, and this code used to subscribe to the
+        // first copy FlexLib's FindMeterByName returned. On Don's 6300 that
+        // copy never delivers a sample (#502): three SC_MIC copies, the first
+        // silent, and the operator was told no transmit audio was reaching the
+        // radio while the transmit monitor was playing his voice back to him.
+        // MeterInventory.Find's remarks predicted exactly this on 2026-08-20.
+        //
+        // So every copy is now registered with a TransmitMeterElection (fed
+        // from the one generic meter feed, onMeterDataReady), and the values
+        // below are the ELECTED copy's — the one that streams while keyed.
+        // Until some copy reports, nothing is elected and the readings sit at
+        // the -150 floor, which is why ScMicReportedSinceReset exists: the mic
+        // warning must not read that floor as silence (#459).
+        private readonly TransmitMeterElection _scMicElection = new TransmitMeterElection("SC_MIC");
+        private readonly TransmitMeterElection _swAlcElection = new TransmitMeterElection("ALC");
+        private string _txMeterCensus = "";
         private float _scMicRecentDb = -150f;
         private int _scMicRecentTime;
-        /// <summary>Instantaneous SC_MIC — transmit mic audio from any source, dBFS.</summary>
-        public float ScMicDb => _scMicDb;
+        private const float TxMeterFloorDbfs = -150f;
+        private static float floorIfNone(float v) => float.IsNaN(v) ? TxMeterFloorDbfs : v;
+        /// <summary>Instantaneous SC_MIC — transmit mic audio from any source, dBFS,
+        /// from the elected copy. -150 until a copy reports.</summary>
+        public float ScMicDb => floorIfNone(_scMicElection.ElectedLast);
         /// <summary>Max SC_MIC since the last <see cref="ResetScMicMax"/> — a peak-hold
         /// across a transmit window so the gaps between spoken words don't read as silence.
-        /// Use for the silent-mic warning and end-of-check verdict.</summary>
-        public float ScMicMaxDb => _scMicMaxDb;
+        /// Use for the silent-mic warning and end-of-check verdict — together with
+        /// <see cref="ScMicReportedSinceReset"/>, because -150 here means "no sample",
+        /// not "silence".</summary>
+        public float ScMicMaxDb => floorIfNone(_scMicElection.ElectedPeakSinceReset);
         /// <summary>Peak SC_MIC over a rolling ~1.5 s window, dBFS. Follows the level down
         /// after ~1.5 s, so a LIVE "how's my audio" query tracks mic-gain changes mid-transmit
         /// (where <see cref="ScMicMaxDb"/> only ever grows).</summary>
         public float ScMicRecentDb => _scMicRecentDb;
-        /// <summary>SW ALC — transmit drive after software ALC (SSB peak), dBFS. Distinct from
-        /// <see cref="ALC"/> (=HWALC, the external-amplifier jack).</summary>
-        public float SwAlcDb => _swAlcDb;
-        /// <summary>Reset the SC_MIC peak-hold. Call at transmit start.</summary>
-        public void ResetScMicMax() => _scMicMaxDb = -150f;
+        /// <summary>SW ALC — transmit drive after software ALC (SSB peak), dBFS, from the
+        /// elected copy. Distinct from <see cref="ALC"/> (=HWALC, the external-amplifier jack).</summary>
+        public float SwAlcDb => floorIfNone(_swAlcElection.ElectedLast);
+        /// <summary>True once some SC_MIC copy has ever delivered a sample — the gate for
+        /// publishing <see cref="ScMicDb"/> and friends as measurements at all.</summary>
+        public bool ScMicHasReported => _scMicElection.HasElected;
+        /// <summary>True when the elected SC_MIC copy has delivered a sample since the last
+        /// <see cref="ResetScMicMax"/> — since key-down. <b>The telemetry test</b> (#459, #502):
+        /// without it a floor reading is not evidence of silence, only of not being
+        /// connected to the instrument, and the mic warning must not fire on it.</summary>
+        public bool ScMicReportedSinceReset => _scMicElection.ElectedReportedSinceReset;
+        /// <summary>True once some plain ALC copy has ever delivered a sample.</summary>
+        public bool SwAlcHasReported => _swAlcElection.HasElected;
+        /// <summary>How many SC_MIC copies the radio publishes: one on the bench 8600 alone,
+        /// four with a station client and four slices open, three on Don's 6300.</summary>
+        public int ScMicCopies => _scMicElection.CandidateCount;
+        /// <summary>The SC_MIC election in words: every copy, which is believed, and why.
+        /// For traces and diagnostic reports; never spoken.</summary>
+        public string ScMicElectionText => _scMicElection.Describe(System.Environment.TickCount);
+        /// <summary>The ALC election in words. See <see cref="ScMicElectionText"/>.</summary>
+        public string SwAlcElectionText => _swAlcElection.Describe(System.Environment.TickCount);
+        /// <summary>Reset the SC_MIC peak-hold and the since-key-down counts of every
+        /// transmit-meter copy. Call at transmit start.</summary>
+        public void ResetScMicMax()
+        {
+            _scMicElection.ResetPeaks();
+            _swAlcElection.ResetPeaks();
+            _scMicRecentDb = -150f;
+        }
         private int _meterInventoryCount = -1;
 
         // --- The whole meter inventory, identity preserved (Sprint 32 Track A) ---
@@ -9778,6 +9811,7 @@ namespace Radios
             // Outside the lock. Tracing 102 lines is 102 file writes, and a
             // handler on MeterInventoryChanged is somebody else's code.
             traceMeterInventory(snapshot);
+            reconcileTxMeterCandidates(snapshot);
             MeterInventoryChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -9790,6 +9824,7 @@ namespace Radios
         private void onMeterDataReady(Meter meter, float data)
         {
             MeterData?.Invoke(this, meter, data);
+            routeTxMeterSample(meter, data);
             syncMeterInventory();
         }
 
@@ -9805,6 +9840,9 @@ namespace Radios
                 _meterInventoryCount = -1;
                 _meterSyncTime = 0;
             }
+            _scMicElection.Clear();
+            _swAlcElection.Clear();
+            _txMeterCensus = "";
         }
 
         /// <summary>
@@ -9856,65 +9894,102 @@ namespace Radios
             }
         }
 
+        private static bool isScMic(Meter m) =>
+            string.Equals(m?.Name, "SC_MIC", StringComparison.OrdinalIgnoreCase);
+        private static bool isSwAlc(Meter m) =>
+            string.Equals(m?.Name, "ALC", StringComparison.OrdinalIgnoreCase);
+        private static string txMeterLabel(Meter m) =>
+            "[" + m.Index + "] " + m.Source + ":" + m.SourceIndex;
+
         /// <summary>
-        /// Subscribe to SC_MIC and SW ALC, lazily — the TX meters register
-        /// late, so this retries on each mic-meter event until both are found.
-        /// <para>Each meter is claimed at most once, and only ever looked up
-        /// while it is still missing. Anything else re-subscribes the meter
-        /// that IS present every time the retry runs.</para>
+        /// Register every SC_MIC and plain-ALC copy in the radio's meter list
+        /// with its election, drop the ones the radio withdrew, and trace the
+        /// census whenever it changes.
+        /// <para>This replaces hookTxMeters, which looked each meter up ONCE
+        /// through FlexLib's FindMeterByName — a FirstOrDefault — and subscribed
+        /// to whichever copy came first. The generic feed already subscribes to
+        /// every meter (syncMeterInventory), so the copies need only be told
+        /// apart, not hooked again.</para>
+        /// <para>Case-insensitive on purpose. FindMeterByName was case-sensitive
+        /// while MeterInventory is not, and the diagnostic gate and the value it
+        /// gated were therefore answering two different questions.</para>
         /// </summary>
-        private void hookTxMeters()
+        private void reconcileTxMeterCandidates(ImmutableList<Meter> snapshot)
         {
-            if (_txMetersHooked || theRadio == null) return;
-
-            // Look up only what is still missing, and claim it in the same
-            // step as subscribing so a retry can never double-hook it.
-            if (!_scMicHooked)
+            try
             {
-                var sc = theRadio.FindMeterByName("SC_MIC");
-                if (sc != null)
+                var present = new HashSet<Meter>();
+                foreach (Meter m in snapshot)
                 {
-                    _scMicHooked = true;
-                    sc.DataReady += (m, d) =>
-                    {
-                        _scMicDb = d;
-                        if (d > _scMicMaxDb) _scMicMaxDb = d;
-                        int now = System.Environment.TickCount;
-                        if (d >= _scMicRecentDb || (now - _scMicRecentTime) > 1500) { _scMicRecentDb = d; _scMicRecentTime = now; }
-                        traceTxMeters();
-                    };
+                    if (m == null) continue;
+                    if (isScMic(m)) { present.Add(m); _scMicElection.Register(m, txMeterLabel(m), m.Index); }
+                    else if (isSwAlc(m)) { present.Add(m); _swAlcElection.Register(m, txMeterLabel(m), m.Index); }
+                }
+                _scMicElection.KeepOnly(k => k is Meter m && present.Contains(m));
+                _swAlcElection.KeepOnly(k => k is Meter m && present.Contains(m));
+
+                // Say plainly what the radio offers, once per change. A radio
+                // may carry MIC, MICPEAK and HWALC and no plain ALC at all, in
+                // which case SwAlcDb never moves; the trace should not make
+                // anyone guess why. And on a radio with several copies, this is
+                // the line that tells a reader which labels to look for in the
+                // election traces that follow.
+                string census = _scMicElection.Census() + "; " + _swAlcElection.Census();
+                if (census != _txMeterCensus)
+                {
+                    _txMeterCensus = census;
+                    Tracing.TraceLine("txMeters: " + census, TraceLevel.Info);
                 }
             }
-
-            if (!_swAlcHooked)
+            catch (Exception ex)
             {
-                var alc = theRadio.FindMeterByName("ALC");
-                if (alc != null)
-                {
-                    _swAlcHooked = true;
-                    alc.DataReady += (m, d) => { _swAlcDb = d; traceTxMeters(); };
-                }
+                Tracing.TraceLine("reconcileTxMeterCandidates: " + ex.Message, TraceLevel.Warning);
             }
+        }
 
-            // Say plainly which of the two we actually found. On a FLEX-8600 the
-            // radio's meter list carries MIC, MICPEAK and HWALC — a plain "ALC"
-            // may not be there at all, in which case SwAlcDb never moves and the
-            // "TX drive (ALC)" readout shows a number that will never change,
-            // silently. Whichever way it goes, the trace should not make anyone
-            // guess.
-            //
-            // Only when the answer CHANGES, though. This retry runs on every
-            // mic-meter event, so an unconditional line here traces at meter
-            // rate forever on a radio missing one of the two — the same flood
-            // fixed in startOpusInputChannel, from a different direction.
-            string state = (_scMicHooked ? "found" : "NOT FOUND")
-                + "|" + (_swAlcHooked ? "found" : "NOT FOUND");
-            if (state != _txMeterHookState)
+        /// <summary>
+        /// Feed one sample to the election it belongs to and publish it only
+        /// if it came from the elected copy. Runs for every sample of every
+        /// meter, on FlexLib's meter thread: two short string compares for the
+        /// hundred-odd meters that are neither.
+        /// </summary>
+        private void routeTxMeterSample(Meter meter, float data)
+        {
+            if (meter == null) return;
+            bool scMic = isScMic(meter);
+            if (!scMic && !isSwAlc(meter)) return;
+
+            TransmitMeterElection election = scMic ? _scMicElection : _swAlcElection;
+            int now = System.Environment.TickCount;
+            var outcome = election.Report(meter, data, now);
+            if (outcome == TransmitMeterElection.Outcome.Unknown)
             {
-                _txMeterHookState = state;
-                Tracing.TraceLine("hookTxMeters: SC_MIC " + (_scMicHooked ? "found" : "NOT FOUND")
-                    + ", ALC " + (_swAlcHooked ? "found" : "NOT FOUND"), TraceLevel.Info);
+                // A sample can arrive before the inventory pass that registers
+                // the copy. Introduce it and try again — dropping it would be
+                // harmless, but a copy must never be silently uncounted.
+                election.Register(meter, txMeterLabel(meter), meter.Index);
+                outcome = election.Report(meter, data, now);
             }
+            if (outcome == TransmitMeterElection.Outcome.Ignored) return;
+
+            if (outcome == TransmitMeterElection.Outcome.Elected
+                || outcome == TransmitMeterElection.Outcome.Displaced)
+            {
+                // The choice, explicitly, every time it is made. This is the
+                // line the MeterInventory remarks asked for: a human can read
+                // which copy is believed and why, rather than inferring it from
+                // an ordering.
+                Tracing.TraceLine("txMeters: " + election.MeterName + " "
+                    + (outcome == TransmitMeterElection.Outcome.Elected ? "elected " : "re-elected ")
+                    + election.Elected?.Label + " — " + election.LastElectionReason
+                    + ". " + election.Describe(now), TraceLevel.Info);
+                if (scMic) { _scMicRecentDb = data; _scMicRecentTime = now; }
+            }
+            else if (scMic)
+            {
+                if (data >= _scMicRecentDb || (now - _scMicRecentTime) > 1500) { _scMicRecentDb = data; _scMicRecentTime = now; }
+            }
+            traceTxMeters();
         }
 
         private int _txMeterTraceTime;
@@ -9952,9 +10027,10 @@ namespace Radios
             // the two disagreeing IS the diagnosis, and one alone hides it.
             float refl = _ReflectedPower;
             float back = ReflectedFraction;
-            Tracing.TraceLine("txMeters: SC_MIC=" + _scMicDb.ToString("F1")
-                + " (peak " + _scMicMaxDb.ToString("F1") + ")"
-                + " SWALC=" + _swAlcDb.ToString("F1")
+            Tracing.TraceLine("txMeters: SC_MIC=" + ScMicDb.ToString("F1")
+                + " (peak " + ScMicMaxDb.ToString("F1") + ")"
+                + " via " + (_scMicElection.Elected?.Label ?? "no copy has reported")
+                + " SWALC=" + SwAlcDb.ToString("F1")
                 + " fwd=" + _PowerDBM.ToString("F1") + " dBm"
                 + " refl=" + refl.ToString("F1") + " dBm"
                 + " fwdW=" + ForwardPowerWatts.ToString("F2")
@@ -10593,6 +10669,11 @@ namespace Radios
         // produces the same event as a change that never took.
         private string _rxAntRequested;
         private string _txAntRequested;
+        // WHICH slice each request went to. The transmit-side echo is only a
+        // confirmation when it comes from the slice we asked AND that slice is
+        // the one the radio transmits from (#496).
+        private int _rxAntRequestedSlice = -1;
+        private int _txAntRequestedSlice = -1;
 
         /// <summary>Current RX antenna name for active slice (e.g. "ANT1", "ANT2", "RX_A").</summary>
         public string RXAntennaName
@@ -10611,72 +10692,177 @@ namespace Radios
                                   TraceLevel.Info);
                 NoteOperatorChangedRadioSetting("RXAntennaName");
                 _rxAntRequested = value;
+                _rxAntRequestedSlice = s.Index;
                 s.RXAnt = value;
             }
         }
 
-        /// <summary>Current TX antenna name for active slice.</summary>
+        /// <summary>
+        /// The transmit antenna — of the TRANSMIT slice, which is where the RF
+        /// leaves the radio, not of the slice the operator happens to be
+        /// looking at. Falls back to the selected slice only when no slice is
+        /// transmitting, and says so in the trace.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>#496, confirmed at the bench 2026-09-01.</b> This bound to
+        /// <c>ActiveSlice</c> — the SELECTED slice. On a multi-slice radio that
+        /// is a different object from the transmit slice, so the request went
+        /// to slice 3, slice 3 truthfully echoed the change, and the RF kept
+        /// leaving slice 0 by the old port. Two hours and four wrong
+        /// hypotheses, because 100 W into what was believed to be a bare port
+        /// came back at 0.1% reflected with no foldback — impossible into an
+        /// open circuit, and the clue: the radio was seeing a good match, so
+        /// the RF was in a good load. With an amplifier or a band-specific
+        /// antenna in the path this is equipment damage, not a wrong reading.</para>
+        /// <para>Same class as #502, the SC_MIC copy that never streams: bind
+        /// to one instance of a per-slice thing, the radio uses another, every
+        /// echo reports success, and the symptom is silence. The rule for both
+        /// is the transmit chain's instance — here resolved by
+        /// <see cref="SliceForTransmitSetting()"/>, there by
+        /// <see cref="TransmitMeterElection"/>.</para>
+        /// </remarks>
         public string TXAntennaName
         {
-            get => theRadio?.ActiveSlice?.TXAnt ?? "ANT1";
+            get => SliceForTransmitSetting()?.TXAnt ?? "ANT1";
             set
             {
-                var s = theRadio?.ActiveSlice;
+                Slice s = SliceForTransmitSetting(out string basis);
                 if (s == null)
                 {
-                    Tracing.TraceLine($"Antenna:TX request '{value}' dropped — no active slice",
+                    Tracing.TraceLine($"Antenna:TX request '{value}' dropped — no slice to apply it to",
                                       TraceLevel.Warning);
                     return;
                 }
-                Tracing.TraceLine($"Antenna:TX request slice {s.Index}: '{s.TXAnt}' -> '{value}'",
+                Tracing.TraceLine($"Antenna:TX request slice {s.Index} ({basis}): '{s.TXAnt}' -> '{value}'",
                                   TraceLevel.Info);
                 NoteOperatorChangedRadioSetting("TXAntennaName");
                 _txAntRequested = value;
+                _txAntRequestedSlice = s.Index;
                 s.TXAnt = value;
             }
         }
 
         /// <summary>
         /// Trace what the radio now reports an antenna to be, against what this
-        /// app last asked for. Called from the slice property-changed handler
-        /// for RXAnt and TXAnt.
+        /// app last asked for — and, for the transmit port, against WHICH slice
+        /// it asked. Called from the slice property-changed handler for RXAnt
+        /// and TXAnt.
         /// </summary>
         /// <remarks>
-        /// Wording is deliberately observational. "Requested and reported
+        /// <para>Wording is deliberately observational. "Requested and reported
         /// disagree" is a thing we watched happen; "the change did not take"
         /// would be a conclusion, and another GUI client moving the port
-        /// produces the identical event.
+        /// produces the identical event.</para>
+        /// <para><b>A match is not a confirmation unless it is the transmit
+        /// slice matching (#496).</b> On 2026-09-01 this line reported "matches
+        /// the last request from here" on every antenna change, and every one
+        /// of them was true — of slice 3, while the RF left slice 0. So the
+        /// transmit-side line now says which slice the radio transmits from and
+        /// which port that slice is on, and a match on any other slice is
+        /// traced as a warning, because that is the exact shape of the defect.</para>
         /// </remarks>
-        private void ReportAntennaChange(Slice s, string direction, string reported, string requested)
+        private void ReportAntennaChange(Slice s, string direction, string reported, string requested,
+                                         int requestedSlice)
         {
             string now = string.IsNullOrEmpty(reported) ? "(empty)" : reported;
+            string head = $"Antenna:{direction} slice {s.Index} now '{now}'";
+            bool tx = string.Equals(direction, "TX", StringComparison.Ordinal);
+            string chain = tx ? TransmitChainNote(s) : "";
 
             if (string.IsNullOrEmpty(requested))
             {
-                Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
-                    + " — not requested from here", TraceLevel.Info);
+                Tracing.TraceLine(head + " — not requested from here" + chain, TraceLevel.Info);
+                return;
+            }
+
+            if (requestedSlice >= 0 && requestedSlice != s.Index)
+            {
+                Tracing.TraceLine(head + $" — the last request from here ('{requested}') was for slice "
+                    + $"{requestedSlice}, not this one" + chain, TraceLevel.Info);
                 return;
             }
 
             if (string.Equals(requested, reported, StringComparison.OrdinalIgnoreCase))
             {
-                Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
-                    + " — matches the last request from here", TraceLevel.Info);
+                bool matchOnWrongSlice = tx && !IsTransmitChainSlice(s);
+                Tracing.TraceLine(head + " — matches the last request from here" + chain,
+                    matchOnWrongSlice ? TraceLevel.Warning : TraceLevel.Info);
                 return;
             }
 
-            Tracing.TraceLine($"Antenna:{direction} slice {s.Index} now '{now}'"
-                + $" but '{requested}' was requested from here — requested and reported disagree",
-                TraceLevel.Warning);
+            Tracing.TraceLine(head + $" but '{requested}' was requested from here — requested and reported disagree"
+                + chain, TraceLevel.Warning);
+        }
+
+        /// <summary>For a transmit-port trace: is this the slice the RF leaves
+        /// by, and if not, which is and on what port.</summary>
+        private string TransmitChainNote(Slice s)
+        {
+            Slice tx = TransmitChainSliceOrNull();
+            if (tx == null) return "; no slice is transmitting";
+            if (tx.Index == s.Index) return "; this is the transmit slice, so this is the port the RF leaves by";
+            return $"; NOT the transmit slice — the RF leaves slice {tx.Index} by '{tx.TXAnt}'";
+        }
+
+        private bool IsTransmitChainSlice(Slice s)
+        {
+            Slice tx = TransmitChainSliceOrNull();
+            return tx != null && s != null && tx.Index == s.Index;
+        }
+
+        /// <summary>
+        /// The slice the radio transmits from, for this client, or null when
+        /// none does. FlexLib's own answer first (the slice flagged tx that
+        /// belongs to our client handle), then the VFO this app tracks —
+        /// checked against the slice's own flag, so a stale VFO cannot name a
+        /// slice that has stopped transmitting.
+        /// </summary>
+        internal Slice TransmitChainSliceOrNull()
+        {
+            Radio r = theRadio;
+            if (r == null) return null;
+            Slice s = null;
+            try { s = r.TransmitSlice; }
+            catch (Exception ex) { Tracing.TraceLine("TransmitChainSlice: " + ex.Message, TraceLevel.Warning); }
+            if (s == null && ValidVFO(TXVFO))
+            {
+                Slice tracked = VFOToSlice(TXVFO);
+                if (tracked != null && tracked.IsTransmitSlice) s = tracked;
+            }
+            return s;
+        }
+
+        /// <summary>
+        /// The slice a transmit-chain setting goes to — antenna, transmit
+        /// offset, the transverter band — resolved by
+        /// <see cref="TransmitSettingTarget"/>: the transmit slice, or the
+        /// selected slice only when nothing transmits. Never the selected
+        /// slice while a transmit slice exists; that was #496.
+        /// </summary>
+        internal Slice SliceForTransmitSetting() => SliceForTransmitSetting(out _);
+
+        /// <summary>
+        /// As <see cref="SliceForTransmitSetting()"/>, with the basis in words
+        /// for the trace, naming the selected slice whenever it is a different
+        /// slice from the one the setting went to.
+        /// </summary>
+        internal Slice SliceForTransmitSetting(out string basis)
+        {
+            Slice tx = TransmitChainSliceOrNull();
+            Slice selected = theRadio?.ActiveSlice;
+            Slice target = TransmitSettingTarget.Resolve(tx, selected, out TransmitSettingTarget.Basis b);
+            basis = TransmitSettingTarget.Describe(b, tx?.Index ?? -1, selected?.Index ?? -1);
+            return target;
         }
 
         /// <summary>Available RX antenna list from the active slice. Dynamic per radio model.</summary>
         public List<string> RXAntennaList =>
             theRadio?.ActiveSlice?.RXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
 
-        /// <summary>Available TX antenna list from the active slice. Dynamic per radio model.</summary>
+        /// <summary>Available TX antenna list — from the transmit slice, or the selected
+        /// slice when nothing transmits, like <see cref="TXAntennaName"/>. Dynamic per radio model.</summary>
         public List<string> TXAntennaList =>
-            theRadio?.ActiveSlice?.TXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
+            SliceForTransmitSetting()?.TXAntList?.ToList() ?? new List<string> { "ANT1", "ANT2" };
 
         #endregion
 
@@ -10707,7 +10893,7 @@ namespace Radios
         }
 
         /// <summary>
-        /// True when the active slice's TX antenna is the transverter port.
+        /// True when the transmit slice's TX antenna is the transverter port.
         /// Power surfaces switch from watts to dBm drive in this state — mixer
         /// overdrive is the classic transverter killer, and the radio's own
         /// design puts fine drive control (hundredths of a dB) only here.
@@ -10716,8 +10902,12 @@ namespace Radios
             string.Equals(TXAntennaName, "XVTR", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// The transverter definition covering the active slice's frequency, or
-        /// null. Selection: among valid XVTRs whose RF start frequency is at or
+        /// The transverter definition covering the transmit slice's frequency
+        /// (the selected slice's when nothing transmits — see
+        /// <see cref="SliceForTransmitSetting()"/>), or null. It is the transmit
+        /// slice's band that the drive in dBm goes to, so it must be the
+        /// transmit slice's frequency that names the band.
+        /// Selection: among valid XVTRs whose RF start frequency is at or
         /// below the slice frequency, the highest start wins (an XVTR band has a
         /// start but no reported width). Falls back to the only defined XVTR
         /// when exactly one exists.
@@ -10726,7 +10916,7 @@ namespace Radios
         {
             get
             {
-                double freqMHz = theRadio?.ActiveSlice?.Freq ?? 0.0;
+                double freqMHz = SliceForTransmitSetting()?.Freq ?? 0.0;
                 lock (myXvtrs)
                 {
                     if (myXvtrs.Count == 0) return null;
@@ -12731,11 +12921,19 @@ namespace Radios
             }
             set
             {
-                // _XIT set in PropertyChangedHandler
+                // _XIT set in PropertyChangedHandler.
+                // The transmit offset is a transmit-chain setting, so it goes
+                // to the transmit slice (#496 class): XIT on a slice that is
+                // not transmitting moves nothing on the air. Captured at set
+                // time, like the antenna, so the queued command cannot retarget.
+                Slice s = SliceForTransmitSetting(out string basis);
+                if (s == null) return;
+                Tracing.TraceLine($"XIT request slice {s.Index} ({basis}): on={value.Active} offset={value.Value}",
+                                  TraceLevel.Info);
                 lock (_XIT)
                 {
-                    if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.XITFreq = value.Value; }));
-                    if (HasActiveSlice) q.Enqueue((FunctionDel)(() => { theRadio.ActiveSlice.XITOn = value.Active; }));
+                    q.Enqueue((FunctionDel)(() => { s.XITFreq = value.Value; }), "XITFreq");
+                    q.Enqueue((FunctionDel)(() => { s.XITOn = value.Active; }), "XITOn");
                 }
             }
         }
@@ -13517,7 +13715,7 @@ namespace Radios
                 {
                     if (mySlices.Count > preCount) ears = mySlices[preCount];
                 }
-                var tx = theRadio?.ActiveSlice;
+                var tx = SliceForTransmitSetting(); // the transmit slice, not the selected one (#496)
                 if (ears == null || tx == null || ReferenceEquals(ears, tx))
                 {
                     Tracing.TraceLine("Loopback ears slice config: slice missing", TraceLevel.Error);
