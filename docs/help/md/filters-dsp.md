@@ -46,7 +46,7 @@ Spectral NR works in the frequency domain to reduce steady-state noise. It is of
 
 ## Auto Notch Filter (ANF)
 
-The Auto Notch automatically finds and removes carriers and tones — great for eliminating that annoying heterodyne on a busy band. Toggle it with `Ctrl+J`, then `A`.
+The Auto Notch automatically finds and removes carriers and tones — great for eliminating that annoying heterodyne on a busy band. Toggle it with `Ctrl+J`, then `Ctrl+A`.
 
 ## Audio Peak Filter (APF)
 

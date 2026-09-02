@@ -24,6 +24,8 @@ namespace Radios.Tests
         [InlineData("Ctrl+Shift+T", Keys.T | Keys.Control | Keys.Shift)]
         [InlineData("Escape", Keys.Escape)]
         [InlineData("Ctrl+J, Shift+F", Keys.F | Keys.Shift)]   // prefix stripped
+        [InlineData("/", Keys.Oem2)]                            // the explorer's door (#519)
+        [InlineData("Ctrl+J, /", Keys.Oem2)]
         public void A_chord_string_parses_to_its_keys_value(string text, Keys expected)
         {
             Assert.True(LeaderChordParser.TryParseChord(text, out Keys chord), text);
@@ -70,6 +72,20 @@ namespace Radios.Tests
             Assert.Contains(Keys.Oem2 | Keys.Shift, chords);
             Assert.Contains(Keys.Oem2, chords);
             Assert.Equal(3, chords.Count);
+        }
+
+        [Fact]
+        public void The_slash_key_yields_both_arrival_forms_like_the_question_mark()
+        {
+            // "/" is the explorer's door (#519). It is the same physical key
+            // as "?", the dispatcher carries both cases, and the consistency
+            // sweep must see both advertised — or the Shift form would read as
+            // handled-but-unadvertised on every run.
+            var chords = LeaderChordParser.ParseDisplay("Ctrl+J, /");
+
+            Assert.Contains(Keys.Oem2, chords);
+            Assert.Contains(Keys.Oem2 | Keys.Shift, chords);
+            Assert.Equal(2, chords.Count);
         }
 
         [Fact]

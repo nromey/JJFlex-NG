@@ -6,6 +6,6 @@
   "leader.unknown_key": {
     "critical": "Unknown key. H for the list, Escape to cancel.",
     "terse": "Unknown key. H for the list, Escape to cancel.",
-    "chatty": "Unknown key. Press H, or Shift slash, for the list of JJ key commands. Escape to cancel."
+    "chatty": "Unknown key. Press H for the list of JJ key commands, or slash for the JJ key explorer. Escape to cancel."
   }
 }

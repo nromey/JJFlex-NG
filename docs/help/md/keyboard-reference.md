@@ -34,7 +34,9 @@ This application's got a problem. We own it, it's true. There's a ton of keyboar
 
 The JJ Key, `Ctrl+J` in JJ Flexible Radio Access, can be used to activate various toggles, options, and other commands throughout the JJ Flexible Radio Access application. Similar to pressing layered commands in JAWS (JAWS Key+J then another key), the JJ key is our flavor of command-key layering you can use to access functions we couldn't fit onto single-keypress hotkeys. The JJ Command layer is our secret cheat code — it lets you reach commands we couldn't squeeze into a single keypress. We hope the JJ layer keeps you from needing to use three fingers on one hand, your right pinky finger, and your left big toe to activate neural noise mitigation or turn on the audio peak meter. Who wants to be a contortionist — both physically and mentally — when you're trying to rack up points in a busy contest or chase DX? I know I sure don't.
 
-Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
+Press `Ctrl+J` and then release it to enter the JJ key layer. You'll hear a rising tone to let you know that you've opened the layer and it's ready for you to press one of these keys to perform an action in the app.
+
+The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter toggles the thing whose initial it is — `Ctrl+P` is PC audio, `Ctrl+A` is Auto Notch. Alt plus a letter is everything that is neither, like `Alt+V` for the version. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. Some plain letters below still carry a single toggle from before the grammar; they keep working until each one finds its layer, and the list shrinks as they do.
 
 <!-- LEADER-KEY-TABLE: every key line from here to the END marker is checked against KeyInventory.LeaderCommands by Radios.Tests/LeaderDocCoverageTests. Add a chord to the layer and this list fails until it has a line; delete a chord and a leftover line fails too. The wording is yours — only the set of keys is checked. The six groups below, and their order, match leader-key.md on purpose: it is the same list twice, so it should be the same walk twice.
 
@@ -61,7 +63,7 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 - **Shift+R** — Toggle PC Neural Noise Reduction (runs on your computer, works on every radio)
 - **Shift+S** — Toggle PC Spectral Noise Reduction (runs on your computer, works on every radio)
 - **Q** — Capture a noise profile for PC Spectral NR — press Q again while it runs to cancel (see "Noise capture" below)
-- **A** — Toggle Auto Notch
+- **Ctrl+A** — Toggle Auto Notch. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
 - **P** — Toggle Audio Peak Filter (APF, CW only)
 
 ### Audio and transmit
@@ -71,15 +73,15 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else (see below)
 - **G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **C** — Toggle Compander
-- **Ctrl+A** — Turn PC audio on or off — whether radio audio plays through this computer at all. (`Ctrl+J`, `V`, `P` rides how *loud* it plays; this is the switch, and it tells you which way it went)
+- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` until now. (`Ctrl+J`, `V`, `P` rides how *loud* it plays; this is the switch, and it tells you which way it went)
 - **Shift+P** — Toggle Speech Processor
 - **E** — Echo the CW notifications you just heard — press again to step further back (see "CW echo" below)
 
 ### Filter information
 
-- **F** — Speak the TX filter width
-- **Shift+F** — Speak the RX filter width
 - **Ctrl+F** — Enter a frequency
+
+The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F` is the filter layer's door now and `Shift+F` is slice F, so both readouts have moved inside the filter layer. The receive width still answers to the flat `Ctrl+Alt+F` from anywhere in radio mode.
 
 ### Meter and tuning
 
@@ -98,20 +100,21 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 - **Alt+V** — Speak the version, the build type and the date this copy was built (see "Which build am I on" below)
 - **L** — Speak log statistics
 - **M** — Open the memories dialog
-- **Shift+A through Shift+H** — Jump to that slice from anywhere (Shift+F is reserved for the RX filter readout)
+- **Shift+A through Shift+H** — Jump to that slice from anywhere, even from inside a layer — the letter is the slice, all eight of them
 
 ### Help
 
-- **? or H** — List all JJ Command layer commands
-- **Escape** — Close the JJ Command layer
+- **H** — Open the list of JJ key commands, one per row, to arrow through at your own pace
+- **/** — Open the JJ key explorer — every layer and its keys, at your own pace. The same key with Shift held, the question mark, does the same thing
+- **Escape** — Close the JJ key layer
 
 <!-- END LEADER-KEY-TABLE -->
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible Radio. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
-Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for those three keys only: `H` and `Shift slash` read you the command list, `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. The full story is on the JJ Key Commands page.
+Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for three keys only: `H` opens the command list, the slash key opens the JJ key explorer, and `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. The full story is on the JJ Key Commands page.
 
-One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `Shift slash`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
+One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H`) opens the list of every command in the JJ key layer, one per row, and `Ctrl+J` then the slash key opens the JJ key explorer — the same map as a tree, layer by layer, so you can move through it at your own pace. If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement ends by pointing you at both.
 
 ### Volume mode — Ctrl+J, then V
 
@@ -624,9 +627,11 @@ Some commands ship without a key, and it is worth knowing that this is not one l
 
 **Already have a key, just not their own one.** These answer to the JJ key, so
 you may not need to bind anything: show memories (`Ctrl+J`, `M`), log
-statistics (`Ctrl+J`, `L`), speak TX filter width (`Ctrl+J`, `F`), toggle meter
-tones (`Ctrl+J`, `T`), PC audio on/off (`Ctrl+J`, `Ctrl+A`), echo recent CW
-(`Ctrl+J`, `E`), and speak the version and build (`Ctrl+J`, `Alt+V`).
+statistics (`Ctrl+J`, `L`), toggle meter tones (`Ctrl+J`, `T`), PC audio on/off
+(`Ctrl+J`, `Ctrl+P`), echo recent CW (`Ctrl+J`, `E`), and speak the version and
+build (`Ctrl+J`, `Alt+V`). Speak TX filter width used to be `Ctrl+J`, `F`; that
+letter is the filter layer's door now and the readout lives inside the layer —
+until it lands, the Radio menu's TX Filter submenu has a Read TX Filter item.
 
 **Live somewhere better than a key.** Audio devices, ATU memories, reboot
 radio, and transmit controls all open something, and the menu that opens them

@@ -1,6 +1,8 @@
 # JJ Key Commands
 
-The JJ key — `Ctrl+J`, J for JJ — gives you quick access to DSP toggles, audio controls, meter controls, status readouts, and other frequently used features of JJ Flexible Radio Access without having to memorise dozens of hotkeys. You press `Ctrl+J` and then a single letter (sometimes with Shift). The set of commands it opens up is the JJ Command layer.
+The JJ key — `Ctrl+J`, J for JJ — gives you quick access to DSP toggles, audio controls, meter controls, status readouts, and other frequently used features of JJ Flexible Radio Access without having to memorise dozens of hotkeys. You press `Ctrl+J` and then a second key. The set of commands it opens up is the JJ key layer.
+
+The second key follows a grammar, and the grammar is the point: you work out a chord instead of memorising it. A plain letter opens a layer — a set of keys about one thing, like the filter or your audio, with arrows to adjust and Escape to put things back. Shift plus a letter jumps to that slice, from anywhere, even from inside a layer: `Shift+C` is slice C and never anything else. Ctrl plus a letter toggles the thing whose initial it is — `Ctrl+P` is PC audio, `Ctrl+A` is Auto Notch. Alt plus a letter is everything that is neither, like `Alt+V` for the version. Inside any layer, `H` reads that layer's keys and the slash key opens the JJ key explorer. Some plain letters below still carry a single toggle from before the grammar; they keep working until each one finds its layer, and the list shrinks as they do.
 
 ## How It Works
 
@@ -37,7 +39,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 - **Shift+R** — Toggle PC Neural Noise Reduction on or off (runs on your computer, every radio)
 - **Shift+S** — Toggle PC Spectral Noise Reduction on or off (runs on your computer, every radio)
 - **Q** — Capture a noise profile for PC Spectral NR — Q for "quiet." Press Q again while it runs to cancel. See the PC-Side Noise Reduction help page.
-- **A** — Toggle Auto Notch Filter on or off
+- **Ctrl+A** — Toggle Auto Notch Filter on or off. It was plain `A` until the grammar arrived; plain `A` is the audio layer's door now
 - **P** — Toggle Audio Peak Filter on or off (CW mode only)
 
 ## Audio and Transmit
@@ -47,15 +49,15 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else
 - **G** — Arm or disarm the TX test tone (replaces your microphone while transmitting)
 - **C** — Toggle Compander on or off
-- **Ctrl+A** — Turn PC audio on or off — whether radio audio plays through this computer at all. It reads the radio back before answering, so if turning it on could not find a sound device it says that rather than claiming success. `V` then `P` rides how loud it plays; this is the switch
+- **Ctrl+P** — Turn PC audio on or off — whether radio audio plays through this computer at all. P for PC; it was `Ctrl+A` until now. It reads the radio back before answering, so if turning it on could not find a sound device it says that rather than claiming success. `V` then `P` rides how loud it plays; this is the switch
 - **Shift+P** — Toggle Speech Processor on or off
 - **E** — Re-send the CW notifications you just heard — E for echo. Press E again to step back to an earlier one
 
 ## Filter Information
 
-- **F** — Speak the current TX filter width
-- **Shift+F** — Speak the current RX filter width
 - **Ctrl+F** — Open the direct frequency-entry box
+
+The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F` is the filter layer's door now and `Shift+F` is slice F, so both readouts have moved inside the filter layer. The receive width still answers to the flat `Ctrl+Alt+F`.
 
 ## Meter and Tuning
 
@@ -74,26 +76,27 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 - **Alt+V** — Speak the version, the build type and the date this copy was built. The answer to "which build are you on?" without leaving what you are doing
 - **L** — Speak log statistics
 - **M** — Display Flex memory list
-- **Shift+A through Shift+H** — Jump straight to that slice from anywhere (Shift+F is reserved for the RX filter readout)
+- **Shift+A through Shift+H** — Jump straight to that slice from anywhere, even from inside a layer — the letter is the slice, all eight of them
 
 ## Help
 
-- **? or H** — List all JJ Command layer commands aloud
-- **Escape** — Close the JJ Command layer
+- **H** — Open the list of JJ key commands, one per row, to read at your own pace
+- **/** — Open the JJ key explorer — every layer and its keys, at your own pace. The same key with Shift held, the question mark, does the same thing
+- **Escape** — Close the JJ key layer
 
 <!-- END LEADER-KEY-TABLE -->
 
 ## When the JJ layer doesn't know the key you pressed
 
-Press `Ctrl+J` and then something the layer has no command for, and you'll hear a buzz followed by "Unknown key. H for the list, Escape to cancel." Turn verbosity up and it spells the whole thing out: "Unknown key. Press H, or Shift slash, for the list of JJ key commands. Escape to cancel."
+Press `Ctrl+J` and then something the layer has no command for, and you'll hear a buzz followed by "Unknown key. H for the list, Escape to cancel." Turn verbosity up and it spells the whole thing out: "Unknown key. Press H for the list of JJ key commands, or slash for the JJ key explorer. Escape to cancel."
 
 Here's the part that matters, because it used to be a small lie. That sentence tells you to press `H` — and until now, by the time it finished saying so, the layer had already closed behind you. `H` did whatever `H` does wherever you happened to be standing. You were told to do the one thing that couldn't work.
 
-Now the layer waits. After an unknown key it stays open for exactly three keys: `H` and `Shift slash`, which both read you the command list, and `Escape`, which closes it. Press any other key and the layer is already gone — that key does the ordinary thing it always does, nothing swallowed, nothing surprising.
+Now the layer waits. After an unknown key it stays open for exactly three keys: `H`, which opens the command list, the slash key, which opens the JJ key explorer, and `Escape`, which closes it. Press any other key and the layer is already gone — that key does the ordinary thing it always does, nothing swallowed, nothing surprising.
 
-Three keys and no more, on purpose. A layer that keeps hold of your keyboard without saying so is a trap, and you can't see whether you're still in one. These three all lead *out*: two to the list, one to the door. There's no way to get stuck, and the layer only ever lingers right after it has told you it's doing so.
+Three keys and no more, on purpose. A layer that keeps hold of your keyboard without saying so is a trap, and you can't see whether you're still in one. These three all lead *out*: two to help, one to the door. There's no way to get stuck, and the layer only ever lingers right after it has told you it's doing so.
 
-A note on how these keys get spoken. You'll notice the app says "Shift slash" rather than "question mark" or the bare `?` character. That's deliberate. If your screen reader's punctuation level is set low, a lone `?` may not be spoken at all — so an instruction can quietly lose the very key it's naming. "Shift slash" also just describes what your hands do, which is the whole job of an instruction. You'll see the same wording anywhere the app asks you to press a punctuation key.
+A note on how these keys get spoken. You'll notice the app says "slash" or "Shift slash" rather than "question mark" or a bare `?` character. That's deliberate. If your screen reader's punctuation level is set low, a lone `?` may not be spoken at all — so an instruction can quietly lose the very key it's naming. Naming the key also just describes what your hands do, which is the whole job of an instruction. You'll see the same wording anywhere the app asks you to press a punctuation key.
 
 ## Audio Feedback
 

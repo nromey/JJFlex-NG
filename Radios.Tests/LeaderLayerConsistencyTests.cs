@@ -106,9 +106,9 @@ namespace Radios.Tests
             const string sample = @"
     private static readonly FixedKeyEntry[] LeaderCommands =
     {
-        new(""Leader"", ""Leader key"", ""Ctrl+J, N"", ""Toggle a thing"",
+        new(""Leader"", ""JJ key"", ""Ctrl+J, N"", ""Toggle a thing"",
             new[] { ""thing"" }, ""Radio"", ""DSP""),
-        new(""Leader"", ""Leader key"", ""Ctrl+J, Shift+A through Shift+C"", ""Jump"",
+        new(""Leader"", ""JJ key"", ""Ctrl+J, Shift+A through Shift+C"", ""Jump"",
             new[] { ""jump"" }, ""Radio"", ""General"")
             { ExcludedKeys = new[] { ""Ctrl+J, Shift+B"" } },
     };";

@@ -1156,7 +1156,8 @@ public class KeyCommands
     /// Command Finder — where an operator chose "PC audio on/off", heard
     /// nothing at all, and had no way to learn whether the audio they could
     /// not hear was off on purpose. Task #130 puts a chord on this command
-    /// (Ctrl+J, Ctrl+A), which would have shipped the same silence.
+    /// (Ctrl+J, Ctrl+A then; Ctrl+J, Ctrl+P since Sprint 44), which would have
+    /// shipped the same silence.
     ///
     /// <para>The wording is lifted from the Radio menu's own PC Audio item so
     /// the two surfaces speak with one vocabulary, INCLUDING its third case:
@@ -1701,10 +1702,15 @@ public class KeyCommands
             + "stub that answers 'not yet implemented in this version' while this chord "
             + "has worked for sprints. Reported by Sprint 32 Track G, not fixed here — "
             + "the logging menu is not this track's file."),
-        [CommandValues.SpeakTXFilter] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, F speaks the TX filter width. The Radio menu's TX Filter submenu also "
-            + "has a 'Read TX Filter' item, which reaches the same answer by its own inline "
-            + "route rather than through this command."),
+        // Sprint 44 Track J: plain F became the filter layer's door under the
+        // four-tier grammar (#512, #515), and this readout moves inside the
+        // layer, on its S key, with Track I. Until the layer lands the menu
+        // is the only route, so the reason is honest for this build.
+        [CommandValues.SpeakTXFilter] = new(UnboundReason.MenuOrDialog,
+            "The Radio menu's TX Filter submenu has a 'Read TX Filter' item, which reaches "
+            + "the same answer by its own inline route rather than through this command. The "
+            + "JJ key chord this once had, plain F, is the filter layer's door now, and the "
+            + "readout lives inside that layer."),
         [CommandValues.ToggleMeterTonesGlobal] = new(UnboundReason.LeaderLayer,
             "Ctrl+J, T toggles meter tones."),
         [CommandValues.RepeatLastCw] = new(UnboundReason.LeaderLayer,
@@ -1724,9 +1730,10 @@ public class KeyCommands
             + "want the Version. Help, About carries the same facts in full, including the "
             + "commit."),
         [CommandValues.RemoteAudio] = new(UnboundReason.LeaderLayer,
-            "Ctrl+J, Ctrl+A turns PC audio on and off — added Sprint 32 Track G. Noel named "
-            + "this one specifically: 'No hotkey for PC audio on and off available that I "
-            + "know of, you have to do it in the menu.' Also on the Radio menu under Audio."),
+            "Ctrl+J, Ctrl+P turns PC audio on and off — P for PC, ruled in Sprint 44; it was "
+            + "Ctrl+A from Sprint 32 Track G until then. Noel named this one specifically: "
+            + "'No hotkey for PC audio on and off available that I know of, you have to do it "
+            + "in the menu.' Also on the Radio menu under Audio."),
         // Task #337 made this the unit toggle. The citation is HERE and not in
         // the Detail string below: KeyManifest writes every Detail verbatim
         // into the key list the operator exports from the Hotkey Editor, so a
@@ -1882,7 +1889,7 @@ public class KeyCommands
         new(Keys.None, CommandValues.HeadphonesDown, KeyScope.Radio), // unbound: Reserved
         new(Keys.None, CommandValues.LineoutUp, KeyScope.Radio), // unbound: Reserved
         new(Keys.None, CommandValues.LineoutDown, KeyScope.Radio), // unbound: Reserved
-        new(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+A
+        new(Keys.None, CommandValues.RemoteAudio, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, Ctrl+P
         new(Keys.None, CommandValues.AudioSetup, KeyScope.Radio), // unbound: MenuOrDialog
         new(Keys.None, CommandValues.ATUMemories, KeyScope.Radio), // unbound: MenuOrDialog
         new(Keys.None, CommandValues.Reboot, KeyScope.Radio), // unbound: MenuOrDialog
@@ -1954,7 +1961,7 @@ public class KeyCommands
         new(Keys.OemCloseBrackets | Keys.Control | Keys.Shift, CommandValues.TXFilterLowUp, KeyScope.Radio),
         new(Keys.OemOpenBrackets | Keys.Control | Keys.Alt, CommandValues.TXFilterHighDown, KeyScope.Radio),
         new(Keys.OemCloseBrackets | Keys.Control | Keys.Alt, CommandValues.TXFilterHighUp, KeyScope.Radio),
-        new(Keys.None, CommandValues.SpeakTXFilter, KeyScope.Radio), // unbound: LeaderLayer — Ctrl+J, F
+        new(Keys.None, CommandValues.SpeakTXFilter, KeyScope.Radio), // unbound: MenuOrDialog — Radio menu, Read TX Filter; the JJ key F chord is the filter layer's door now
 
         // Audio Workshop, Tune, ATU, Meters
         new(Keys.W | Keys.Control | Keys.Shift, CommandValues.OpenAudioWorkshop, KeyScope.Global),
@@ -2965,7 +2972,10 @@ public class KeyCommands
             }
             if (IsLeaderHelpKey(k))
             {
-                LeaderKeyHelp();
+                // H lists, the slash key explores — the same two doors the
+                // switch offers, so the armed layer cannot answer a key
+                // differently from the open one.
+                if (k == Keys.H) LeaderKeyHelp(); else OpenKeyExplorer();
                 return true;
             }
             // Anything else: the layer has let go, and this key is NOT
@@ -3648,11 +3658,12 @@ public class KeyCommands
                 SmeterDisplayHandler();
                 break;
 
-            case Keys.A:
-                if (rig == null) LeaderNoRadio();
-                else ToggleLeaderDSP("Auto Notch",
-                    () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v);
-                break;
+            // JJ key A — the audio layer (#514, #515). Under the four-tier
+            // grammar a plain letter opens a layer, and A is ruled for audio.
+            // Auto Notch, which held plain A, is on Ctrl+A below. The layer
+            // itself is Sprint 44 Track I's; its entry case lands here, in
+            // this gap, when the layer does. Until then plain A is unbound on
+            // purpose and the near-miss names its neighbours.
             case Keys.P:
                 if (rig == null)
                     LeaderNoRadio();
@@ -3681,14 +3692,14 @@ public class KeyCommands
 
             // Sprint 37 Track C (#304): Alt+P enters pan mode — the value
             // sub-layer pattern (#305), proven on pan. Plain P is the Audio
-            // Peak Filter and Shift+P the Speech Processor; Ctrl+P is skipped
-            // ON PURPOSE even though it is free in the layer, because flat
-            // Ctrl+P is already "go to the panning field" — FREQUENCY
-            // panning, which shares a word with stereo pan and nothing else,
-            // and giving the two the same second key would teach exactly that
-            // confusion. Alt+V is the in-layer precedent for an Alt-modified
-            // follow-on, and WpfKeyConverter resolves Key.System before this
-            // switch sees the press.
+            // Peak Filter and Shift+P the Speech Processor. Ctrl+P was skipped
+            // here in Sprint 37 because flat Ctrl+P is the FREQUENCY panning
+            // field and the two share only a word; #513 has since put PC
+            // audio on Ctrl+P by ruling, which settles it. Under #514 pan
+            // belongs inside the audio layer (JJ key A) — Track I's move; this
+            // door stays open until it lands. Alt+V is the in-layer precedent
+            // for an Alt-modified follow-on, and WpfKeyConverter resolves
+            // Key.System before this switch sees the press.
             case Keys.P | Keys.Alt:
                 EnterPanMode();
                 break;
@@ -3713,8 +3724,12 @@ public class KeyCommands
                     () => rig.Compander, v => rig.Compander = v);
                 break;
 
-            // Ctrl+A = PC audio on or off (Sprint 32 Track G, task #130).
+            // Ctrl+P = PC audio on or off. Ruled #513, Noel 2026-09-01: "p for
+            // pc makes more sense." Under the four-tier grammar (#515) Ctrl is
+            // the toggle tier and the letter is the toggle's own initial — P
+            // for PC audio — so the chord is derived, not memorised.
             //
+            // It was Ctrl+A from Sprint 32 Track G (#130) until Sprint 44.
             // Noel, on the survey of commands with no key: "No hotkey for PC
             // audio on and off available that I know of, you have to do it in
             // the menu." Of the twenty-nine unbound commands this is the one
@@ -3722,20 +3737,38 @@ public class KeyCommands
             // dark, when you cannot hear something, and a menu is the wrong
             // instrument for that.
             //
-            // In the leader layer rather than as a new flat chord, per the
-            // house rule. Ctrl+A rather than plain A because plain A is Auto
-            // Notch; Ctrl+F, Ctrl+D and Ctrl+R are the precedent for reaching
-            // for the Ctrl-modified form when the letter you want is taken,
-            // and A is the letter anyone would reach for. Note Ctrl+J, V, P
-            // rides the PC output LEVEL — this is the on/off switch, and they
-            // sit one keystroke apart on purpose.
+            // #513 kept Ctrl+A as a courtesy alias "with the caveat that if we
+            // need A somewhere else we use it." We need it: plain A is the
+            // audio layer's door now, and Auto Notch — the toggle whose
+            // initial IS A — had to leave it. So Ctrl+A is Auto Notch, below,
+            // and the alias expired the day it was granted. A slip onto it is
+            // audible and reversible: it announces itself by name and a second
+            // press undoes it.
+            //
+            // Flat Ctrl+P is the FREQUENCY panning field. Different layer,
+            // shares a word and nothing else; the pan-mode comment below
+            // records the earlier worry, now overridden by the ruling. Note
+            // Ctrl+J, V, P rides the PC output LEVEL — this is the on/off
+            // switch, and they sit one keystroke apart on purpose.
             //
             // Nothing is duplicated here: the handler is the registry command's
             // own, so this chord, the Command Finder and the Hotkey Editor all
             // do the identical thing and say the identical words.
-            case Keys.A | Keys.Control:
+            case Keys.P | Keys.Control:
                 if (rig == null) LeaderNoRadio();
                 else PCAudioHandler();
+                break;
+
+            // Ctrl+A = Auto Notch. Moved from plain A in Sprint 44 Track J,
+            // when the four-tier grammar (#515) made plain letters layer doors
+            // and A became the audio layer. Ctrl is the toggle tier and A is
+            // Auto Notch's own initial, so the chord derives itself. It will
+            // also live inside the noise layer once that layer has a letter —
+            // a common toggle gets two doors, the rule of threes.
+            case Keys.A | Keys.Control:
+                if (rig == null) LeaderNoRadio();
+                else ToggleLeaderDSP("Auto Notch",
+                    () => rig.AutoNotchFFT, v => rig.AutoNotchFFT = v);
                 break;
 
             case Keys.P | Keys.Shift:
@@ -3744,17 +3777,23 @@ public class KeyCommands
                     () => rig.ProcessorOn, v => rig.ProcessorOn = v);
                 break;
 
-            // TX Filter (F), RX Filter (Shift+F), Enter Frequency (Ctrl+F)
+            // Ctrl+F = enter a frequency. Predates the four-tier grammar and
+            // is not a toggle — on the grammar it belongs to the Alt tier.
+            // Left where every operator's fingers know it; Noel walks the
+            // letters one at a time and this one has not come up.
             case Keys.F | Keys.Control:
                 if (rig == null) LeaderNoRadio();
                 else _context.WriteFreq();
                 break;
-            case Keys.F | Keys.Shift:
-                SpeakRXFilterWidth();
-                break;
-            case Keys.F:
-                SpeakTXFilterWidth();
-                break;
+
+            // JJ key F — the filter layer (#512, #516). Plain F spoke the TX
+            // filter width and Shift+F the RX width until Sprint 44; both
+            // readouts move INSIDE the layer, on its S key, and that freed
+            // Shift+F for slice F (#504 — in the slice row below). The layer
+            // itself is Sprint 44 Track I's; its entry case lands here, in
+            // this gap, when the layer does. Until then plain F is unbound on
+            // purpose: the RX width still answers to the flat Ctrl+Alt+F, and
+            // the TX width to the Radio menu's Read TX Filter item.
 
             // Tuning debounce toggle
             case Keys.D:
@@ -3869,39 +3908,46 @@ public class KeyCommands
                 SpeakVersionHandler();
                 break;
 
-            // Help
+            // The two help doors every layer has (#514, #519): H lists this
+            // layer's commands, the slash key opens the JJ key explorer.
             //
-            // BOTH forms, and the Shift one is the one that actually fires.
-            // "?" is Shift+/ on a US keyboard, so it arrives here as
-            // Keys.Oem2 | Keys.Shift — this switch carries modifier bits (see
-            // the Keys.H | Keys.Shift slice-jump cases below). A bare
-            // Keys.Oem2 therefore never matched, and every "?" fell through to
-            // the unknown-command arm since the day it was written, while the
-            // leader help text advertised "H or ?" the whole time.
-            //
-            // Found 2026-08-22 by Noel pressing it. Same family as the Alt+L
+            // BOTH arrival forms of the slash key, and the Shift one is the
+            // one "?" produces. "?" is Shift+/ on a US keyboard, so it arrives
+            // here as Keys.Oem2 | Keys.Shift — this switch carries modifier
+            // bits (see the slice-jump row below). A bare Keys.Oem2 case alone
+            // therefore never matched, and every "?" fell through to the
+            // unknown-command arm from the day it was written until
+            // 2026-08-22, while the help text advertised "H or ?" the whole
+            // time. Found by Noel pressing it; same family as the Alt+L
             // binding that shipped dead on 2026-08-13: it compiles, it reads
-            // correctly, and only the keypress tells you.
+            // correctly, and only the keypress tells you. The physical key
+            // means one thing whether or not Shift is down.
             case Keys.Oem2:
             case Keys.Oem2 | Keys.Shift:
-                LeaderKeyHelp();
+                OpenKeyExplorer();
                 break;
             case Keys.H:
                 LeaderKeyHelp();
                 break;
 
-            // Universal slice-jump: Ctrl+J Shift+<A-H> jumps to that slice
-            // from any focus position. Re-frames Ctrl+J as a "jump to" leader
-            // when paired with a Shift-modified letter — see TODO entry.
-            // Skipping Shift+F: collides with the existing Shift+F = RX filter
-            // width binding at line 2010. Slice F (index 5) is only available
-            // on FLEX-6700; current testers don't have one. Defer the F
-            // collision until a 6700 user appears.
+            // The Shift tier (#515): Shift+<letter> jumps to that slice, from
+            // any focus position, and means nothing else. All eight, A to H —
+            // the letter IS the radio's slice index, so the row is complete by
+            // construction, and JjKeyGrammarTests holds it to that.
+            //
+            // Slice F was missing from this row from the day it was written
+            // until Sprint 44 (#504). Shift+F was the RX filter readout, bound
+            // earlier in this switch, so it won outright — and the comment
+            // here claimed A-H regardless. Only a six-slice radio, a 6700 or
+            // 6700R, can reach index 5; neither test radio can, so no bench
+            // session would ever have found it. The readout moved into the
+            // filter layer (#512) and Shift+F came back for free.
             case Keys.A | Keys.Shift: JumpToSlice(0); break;
             case Keys.B | Keys.Shift: JumpToSlice(1); break;
             case Keys.C | Keys.Shift: JumpToSlice(2); break;
             case Keys.D | Keys.Shift: JumpToSlice(3); break;
             case Keys.E | Keys.Shift: JumpToSlice(4); break;
+            case Keys.F | Keys.Shift: JumpToSlice(5); break;
             case Keys.G | Keys.Shift: JumpToSlice(6); break;
             case Keys.H | Keys.Shift: JumpToSlice(7); break;
 
@@ -3910,7 +3956,7 @@ public class KeyCommands
                 EarconPlayer.LeaderInvalidTone();
                 // #206: a near-miss gets named instead of a dead end. The
                 // layer mixes bare, Shift and Ctrl tiers on the same letters
-                // (A vs Ctrl+A, D vs Ctrl+D), so a slipped modifier is the
+                // (D vs Ctrl+D, Q vs Ctrl+Q), so a slipped modifier is the
                 // layer's own most predictable mistake — and the recovery
                 // information is already in the inventory. "Ctrl+G is not a
                 // command. G: arm or disarm the TX test tone" turns a
@@ -3924,11 +3970,14 @@ public class KeyCommands
                         Radios.Lexicon.Get("leader.near_miss",
                             ("pressed", KeyManifest.FormatKey(k)),
                             ("alt", nearKey),
-                            ("what", nearWhat)), true);
+                            ("what", nearWhat)),
+                        Radios.Speech.SpeechIntent.Interrupt,
+                        Radios.VerbosityLevel.Critical,
+                        subject: Radios.Speech.SpeechSubject.JjKeyHelp);
                 }
                 else
                 {
-                    // #303. The layer stays armed for H, Shift slash and
+                    // #303. The layer stays armed for H, the slash key and
                     // Escape — but ONLY on this branch, because this is the
                     // branch that says so. The near-miss above names a chord
                     // to retry and says nothing about help, so leaving the
@@ -3938,13 +3987,16 @@ public class KeyCommands
                     _leaderHelpArmed = true;
 
                     // Verbosity picks the wording. Terse: "H for the list."
-                    // Chatty spells out Shift slash and what the list is. Both
-                    // name the KEYSTROKE and never the glyph — a literal "?"
-                    // may not be voiced at all with punctuation set low, which
+                    // Chatty adds the slash key and what it opens. Both name
+                    // the KEYSTROKE and never the glyph — a literal "?" may
+                    // not be voiced at all with punctuation set low, which
                     // would silently drop the very key being recommended.
                     Radios.ScreenReaderOutput.Speak(
                         Radios.Lexicon.Get("leader.unknown_key",
-                            Radios.ScreenReaderOutput.CurrentVerbosity), true);
+                            Radios.ScreenReaderOutput.CurrentVerbosity),
+                        Radios.Speech.SpeechIntent.Interrupt,
+                        Radios.VerbosityLevel.Critical,
+                        subject: Radios.Speech.SpeechSubject.JjKeyHelp);
                 }
                 break;
         }
@@ -4727,17 +4779,18 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// The two keys that open the leader's own command list. ONE COMMAND, not
-    /// two: the inventory row reads "Ctrl+J, H or ?", and both keys do the
-    /// same thing, so nothing may offer them as alternatives with different
-    /// descriptions.
+    /// The keys that open the JJ key's two help doors (#514, #519): H lists
+    /// the commands, the slash key opens the explorer. These, and Escape, are
+    /// the only keys the layer stays armed for after an unknown key (#303),
+    /// because they are the keys the unknown-key sentence names — and all of
+    /// them lead OUT.
     /// </summary>
     /// <remarks>
-    /// Both arrival forms of the glyph, deliberately. "?" is Shift+/ on a US
-    /// layout and arrives as <c>Oem2 | Shift</c>; the bare <c>Oem2</c> twin is
-    /// carried for the same reason <see cref="DoLeaderCommand"/> carries it —
-    /// a bare Oem case alone never fires, which is exactly how the advertised
-    /// "?" sat dead for months (#183).
+    /// Both arrival forms of the slash key, deliberately. "?" is Shift+/ on a
+    /// US layout and arrives as <c>Oem2 | Shift</c>; the bare <c>Oem2</c> twin
+    /// is carried for the same reason <see cref="DoLeaderCommand"/> carries
+    /// it — a bare Oem case alone never fires, which is exactly how the
+    /// advertised "?" sat dead for months (#183).
     /// </remarks>
     private static bool IsLeaderHelpKey(Keys k) =>
         k == Keys.H || k == Keys.Oem2 || k == (Keys.Oem2 | Keys.Shift);
@@ -4754,6 +4807,36 @@ public class KeyCommands
             Radios.Lexicon.Get("leader.cancelled"), Radios.VerbosityLevel.Terse, true);
     }
 
+    /// <summary>
+    /// JJ key slash — the JJ key explorer (#519): a map of every layer and
+    /// its keys that an operator moves through at their own pace, the answer
+    /// to "what can I press?" that a one-breath recitation cannot be (#158).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Sprint 44 Track K built the explorer on its own branch, and
+    /// its published entry point is <c>KeyExplorerDialog.Open()</c>; this
+    /// method is where that call goes at the merge.</b> Track J owns the
+    /// binding (the slash key in <see cref="DoLeaderCommand"/> and in the
+    /// help-armed dispatch), Track K owns the surface, and the two branches
+    /// cannot see each other — so until they meet, the slash key gives the
+    /// same list H gives, the explorer's content in the only shape this
+    /// branch has, rather than dead-ending. Replace the body, keep the name:
+    /// both call sites and JjKeyGrammarTests depend on it. Marshal onto the
+    /// main window's dispatcher the way Track K's <c>LeaderKeyHelp</c> does,
+    /// because this can be reached from a dialog's key handler.</para>
+    /// <para>The inventory row already describes the destination, so the
+    /// Command Finder, the Keys dialog and the explorer itself (which reads
+    /// the inventory) need no re-wording when the body changes.</para>
+    /// </remarks>
+    private void OpenKeyExplorer()
+    {
+        LeaderKeyHelp();
+    }
+
+    /// <summary>
+    /// JJ key H — this layer's commands. Under #519 (Sprint 44 Track K) this
+    /// becomes a navigable list rather than a recitation.
+    /// </summary>
     private void LeaderKeyHelp()
     {
         EarconPlayer.LeaderHelpTone();

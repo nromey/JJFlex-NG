@@ -116,6 +116,20 @@ namespace Radios.Speech
         public const string ProfileGuestOutcome = "profile-guest-outcome";
 
         /// <summary>
+        /// What the JJ key offers from here — the command list behind
+        /// <c>JJ key H</c>, the explorer behind <c>JJ key slash</c>, and the
+        /// layer's own answers to a key it did not know (the near miss, the
+        /// unknown-key sentence). One subject because they answer one
+        /// question, "what can I press?", and only the newest answer is worth
+        /// hearing: an operator who presses H twice wants the list from the
+        /// top, not the tail of the first reading and then the second, and an
+        /// unknown-key sentence still queued when the list starts has done
+        /// its job. Nothing else supersedes it — a toggle, a slice jump or a
+        /// tune leaves the map exactly as true as it was.
+        /// </summary>
+        public const string JjKeyHelp = "jj-key-help";
+
+        /// <summary>
         /// The value of one field, named by its label — the committed value
         /// and the swept value share it, so a committed value still queued
         /// when the operator starts sweeping is covered by the sweep. This is

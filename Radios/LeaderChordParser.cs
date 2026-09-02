@@ -6,7 +6,7 @@ namespace Radios;
 
 /// <summary>
 /// Parses the human-readable chord strings the leader-key inventory carries
-/// ("Ctrl+J, Shift+N", "Ctrl+J, H or ?", "Ctrl+J, Shift+A through Shift+H")
+/// ("Ctrl+J, Shift+N", "Ctrl+J, /", "Ctrl+J, H or ?", "Ctrl+J, Shift+A through Shift+H")
 /// into the <see cref="Keys"/> values the dispatcher actually switches on.
 /// </summary>
 /// <remarks>
@@ -77,14 +77,17 @@ public static class LeaderChordParser
         else
         {
             // Alternate form: "H or ?". Each alternate is one chord — except
-            // "?", which contributes BOTH Oem2|Shift and bare Oem2: the glyph
-            // is the shifted form on a US layout, and the dispatcher carries
-            // both cases so the key lands with or without Shift. Advertising
-            // both keeps the consistency test honest in both directions.
+            // the slash key, written "/" or "?", which contributes BOTH
+            // Oem2|Shift and bare Oem2: "?" is the shifted form of that key on
+            // a US layout, and the dispatcher carries both cases so the key
+            // lands with or without Shift. Advertising both keeps the
+            // consistency test honest in both directions. "/" is the JJ key
+            // explorer's door (#519) and gets the same pair for the same
+            // reason: the physical key means one thing however it arrives.
             foreach (string alt in body.Split(new[] { " or " }, StringSplitOptions.RemoveEmptyEntries))
             {
                 string a = alt.Trim();
-                if (a == "?")
+                if (a == "?" || a == "/")
                 {
                     result.Add(Keys.Oem2 | Keys.Shift);
                     result.Add(Keys.Oem2);
@@ -110,8 +113,9 @@ public static class LeaderChordParser
 
     /// <summary>
     /// One chord: "N", "Shift+N", "Ctrl+A", "Escape". "?" parses as
-    /// Oem2|Shift (its US-layout arrival form) — the bare-Oem2 twin is
-    /// <see cref="ParseDisplay"/>'s business, not this method's.
+    /// Oem2|Shift (its US-layout arrival form) and "/" as bare Oem2 — the
+    /// other twin of each is <see cref="ParseDisplay"/>'s business, not this
+    /// method's.
     /// </summary>
     public static bool TryParseChord(string text, out Keys chord)
     {
@@ -138,6 +142,11 @@ public static class LeaderChordParser
         if (keyName == "?")
         {
             chord = Keys.Oem2 | Keys.Shift | mods;
+            return true;
+        }
+        if (keyName == "/")
+        {
+            chord = Keys.Oem2 | mods;
             return true;
         }
         if (keyName.Length == 1 && keyName[0] >= 'A' && keyName[0] <= 'Z')
