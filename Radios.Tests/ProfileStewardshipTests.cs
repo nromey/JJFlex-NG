@@ -155,30 +155,29 @@ namespace Radios.Tests
         // ==================================================================
 
         [Fact]
-        public void AnOptedInRadio_CapturesFirstAndLoadsSecond()
+        public void AnOptedInRadio_LoadsOursAndWritesNoProfileToTheRadio()
         {
+            // #499 superseded the marker scheme: nothing is SAVED or CREATED on
+            // a radio that is not ours. On a "load my profiles" opt-in the only
+            // actions are selections of profiles the radio ALREADY lists, and a
+            // profile absent from a not-ours radio is refused rather than
+            // invented (pinned separately below).
             var plan = ProfileStewardship.PlanConnect(Situation());
 
             Assert.NotEmpty(plan.Actions);
+            Assert.All(plan.Actions, a =>
+            {
+                Assert.Equal(ProfileActionKind.LoadOurs, a.Kind);
+                Assert.False(a.MayCreate);
+            });
             foreach (var type in ProfileStewardship.GovernedTypes)
             {
-                var capture = Only(plan, ProfileActionKind.CaptureRestorePoint, type);
-                var load = Only(plan, ProfileActionKind.LoadOurs, type);
-
-                // ORDER IS THE SAFETY PROPERTY. A restore point captured after
-                // the state it records has been overwritten holds OUR settings,
-                // which is worse than no restore point at all because it looks
-                // like a rescue.
-                Assert.True(plan.Actions.IndexOf(capture) < plan.Actions.IndexOf(load),
-                    "the restore point must be captured before ours is loaded");
-
-                Assert.Equal(ProfileRestorePoints.NameFor(type), capture.ProfileName);
-                Assert.Equal("K5NER", load.ProfileName);
+                Assert.Equal("K5NER", Only(plan, ProfileActionKind.LoadOurs, type).ProfileName);
             }
         }
 
         [Fact]
-        public void AnOptedInRadio_RecordsTheNameItWasOn()
+        public void AnOptedInRadio_RecordsTheNameItWasOn_WithNoRestorePoint()
         {
             var plan = ProfileStewardship.PlanConnect(Situation());
 
@@ -187,7 +186,9 @@ namespace Radios.Tests
                 var rec = plan.Record.Single(r => r.ProfileType == type);
                 Assert.Equal("Default", rec.TheirSelection);
                 Assert.Equal("K5NER", rec.WeLoaded);
-                Assert.True(rec.RestorePointLeft);
+                // No marker profile is left on the radio any more (#499).
+                Assert.False(rec.RestorePointLeft);
+                Assert.False(rec.LiveTransmitAudio);
             }
         }
 
@@ -198,9 +199,9 @@ namespace Radios.Tests
         [Fact]
         public void UnsavedWorkOnTheRadio_StopsEverythingForThatType()
         {
-            // The radio itself reports this. Capturing a restore point over
-            // somebody's half-finished microphone edit freezes the unfinished
-            // state; applying ours discards it. Both are harm.
+            // The radio itself reports this. Applying ours over somebody's
+            // half-finished microphone edit discards it — so this type is left
+            // alone, while the others are untouched by the refusal.
             var s = Situation(types: new[]
             {
                 Type(ProfileTypes.global),
@@ -714,6 +715,244 @@ namespace Radios.Tests
             }
             Assert.NotNull(dir);
             return dir!.FullName;
+        }
+
+        // ==================================================================
+        // #499 / #501 — the middle: my own transmit audio, live, nothing else
+        // ==================================================================
+
+        private static ProfileSituation LiveAudioSituation(
+            RadioOwnership ownership = RadioOwnership.SomeoneElses,
+            bool? radioAutosave = true,
+            string local = "EVO8",
+            bool localExists = true,
+            bool onlyStation = true,
+            bool changeNothing = false,
+            bool connected = true,
+            bool txUnsaved = false,
+            bool micUnsaved = false)
+        {
+            var s = new ProfileSituation
+            {
+                Intent = ProfileGuestIntent.UseMyTransmitAudio,
+                Ownership = ownership,
+                ChangeNothingArmed = changeNothing,
+                OnlyStation = onlyStation,
+                Connected = connected,
+                RadioAutosave = radioAutosave,
+                LocalTransmitAudioProfile = local,
+                LocalTransmitAudioProfileExists = localExists,
+            };
+            s.Types.Add(Type(ProfileTypes.global, wanted: ""));
+            s.Types.Add(Type(ProfileTypes.tx, selection: "Default", wanted: "", unsaved: txUnsaved));
+            s.Types.Add(Type(ProfileTypes.mic, selection: "Default", wanted: "", unsaved: micUnsaved));
+            return s;
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_AppliesLiveAndWritesNoProfileToTheRadio()
+        {
+            var plan = ProfileStewardship.PlanConnect(LiveAudioSituation());
+
+            // The headline (#501): the operator gets their transmit audio and
+            // nothing else is disturbed. NO profile is created, selected, saved
+            // or deleted on the radio.
+            Assert.DoesNotContain(plan.Actions, a =>
+                a.Kind == ProfileActionKind.LoadOurs
+                || a.Kind == ProfileActionKind.LoadTheirNameBack
+                || a.Kind == ProfileActionKind.LoadRestorePoint
+                || a.Kind == ProfileActionKind.RemoveRestorePoint);
+
+            Assert.Contains(plan.Actions, a => a.Kind == ProfileActionKind.ApplyLocalTransmitAudio);
+            var rec = Assert.Single(plan.Record);
+            Assert.True(rec.LiveTransmitAudio);
+            Assert.Equal("EVO8", rec.WeLoaded);
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_OnANotOursRadio_TurnsAutosaveOffFirstThenCapturesThenApplies()
+        {
+            var plan = ProfileStewardship.PlanConnect(LiveAudioSituation());
+
+            int off = plan.Actions.FindIndex(a => a.Kind == ProfileActionKind.TurnAutosaveOff);
+            int cap = plan.Actions.FindIndex(a => a.Kind == ProfileActionKind.CaptureLiveTransmitAudio);
+            int app = plan.Actions.FindIndex(a => a.Kind == ProfileActionKind.ApplyLocalTransmitAudio);
+
+            Assert.True(off >= 0, "autosave must be turned off on a radio that is not ours");
+            Assert.True(off < cap, "autosave off must come before the capture");
+            Assert.True(cap < app, "the capture must come before the apply");
+            Assert.True(plan.TurnsAutosaveOff);
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_OnOurOwnRadio_DoesNotTouchAutosave()
+        {
+            var plan = ProfileStewardship.PlanConnect(
+                LiveAudioSituation(ownership: RadioOwnership.Mine));
+
+            Assert.DoesNotContain(plan.Actions, a => a.Kind == ProfileActionKind.TurnAutosaveOff);
+            // …but it still applies, because the operator asked for it here.
+            Assert.Contains(plan.Actions, a => a.Kind == ProfileActionKind.ApplyLocalTransmitAudio);
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_OnANotOursRadioWithAutosaveUnknown_ChangesNothing()
+        {
+            // On a radio that is not ours we do not know whether a live change
+            // will be written into the owner's profile by the radio itself, so
+            // nothing is changed until it has said.
+            var plan = ProfileStewardship.PlanConnect(
+                LiveAudioSituation(radioAutosave: null));
+
+            Assert.True(plan.ChangesNothing);
+            Assert.True(plan.Skipped(ProfileTypes.tx, ProfileSkipReason.RadioDidNotReportAutosave));
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_WithNoProfileChosen_ChangesNothing()
+        {
+            var plan = ProfileStewardship.PlanConnect(LiveAudioSituation(local: ""));
+
+            Assert.True(plan.ChangesNothing);
+            Assert.True(plan.Skipped(ProfileTypes.tx, ProfileSkipReason.NoLocalTransmitAudioChosen));
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_WithAChosenProfileThatIsGone_ChangesNothing()
+        {
+            var plan = ProfileStewardship.PlanConnect(LiveAudioSituation(localExists: false));
+
+            Assert.True(plan.ChangesNothing);
+            Assert.True(plan.Skipped(ProfileTypes.tx, ProfileSkipReason.LocalTransmitAudioProfileNotFound));
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_WithAnotherOperatorOn_ChangesNothing()
+        {
+            var plan = ProfileStewardship.PlanConnect(LiveAudioSituation(onlyStation: false));
+
+            Assert.True(plan.ChangesNothing);
+            Assert.True(plan.Skipped(ProfileTypes.tx, ProfileSkipReason.AnotherOperatorIsConnected));
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_WithOwnerUnsavedWork_ChangesNothing()
+        {
+            // Their unsaved transmit or mic edits exist ONLY live, so a session
+            // that ends badly loses them outright — strictly worse than the
+            // saved case, so it refuses.
+            var plan = ProfileStewardship.PlanConnect(LiveAudioSituation(micUnsaved: true));
+
+            Assert.True(plan.ChangesNothing);
+            Assert.True(plan.Skipped(ProfileTypes.tx, ProfileSkipReason.OwnerHasUnsavedWork));
+        }
+
+        [Fact]
+        public void UseMyTransmitAudio_UnderTheHold_ChangesNothing()
+        {
+            var plan = ProfileStewardship.PlanConnect(LiveAudioSituation(changeNothing: true));
+            Assert.True(plan.ChangesNothing);
+        }
+
+        // ---- putting the live transmit audio back ----
+
+        private static List<ProfileSessionRecord> LiveRecord() =>
+            new List<ProfileSessionRecord>
+            {
+                new ProfileSessionRecord
+                {
+                    ProfileType = ProfileTypes.tx,
+                    LiveTransmitAudio = true,
+                    TheirSelection = "Default",
+                    WeLoaded = "EVO8",
+                },
+            };
+
+        [Fact]
+        public void PutBack_RestoresLiveAudioThenTurnsAutosaveBackOnLast()
+        {
+            var s = LiveAudioSituation();
+            var plan = ProfileStewardship.PlanPutBack(s, LiveRecord(), autosaveWeTurnedOff: true);
+
+            int restore = plan.Actions.FindIndex(a => a.Kind == ProfileActionKind.RestoreLiveTransmitAudio);
+            int on = plan.Actions.FindIndex(a => a.Kind == ProfileActionKind.TurnAutosaveOn);
+
+            Assert.True(restore >= 0, "the radio's own live audio must be put back");
+            Assert.True(on >= 0, "autosave must be given back");
+            Assert.True(restore < on, "autosave must go on ONLY after our change is put back");
+        }
+
+        [Fact]
+        public void PutBack_LeavesAutosaveOffWhenSomethingCouldNotBePutBack()
+        {
+            // Another operator arrived mid-session, so the live audio cannot be
+            // put back without changing the station under them. Turning autosave
+            // on now could commit our change to the owner's profile — the one
+            // outcome the design exists to prevent — so autosave is left OFF,
+            // detectable and one press to fix.
+            var s = LiveAudioSituation(onlyStation: false);
+            var plan = ProfileStewardship.PlanPutBack(s, LiveRecord(), autosaveWeTurnedOff: true);
+
+            Assert.DoesNotContain(plan.Actions, a => a.Kind == ProfileActionKind.TurnAutosaveOn);
+            Assert.True(plan.Skipped(ProfileTypes.tx, ProfileSkipReason.AnotherOperatorIsConnected));
+        }
+
+        [Fact]
+        public void OfferedLiveAudioRestore_RunsOnlyWhenAccepted_AndRefusesUnderTheUsualHazards()
+        {
+            var okSituation = LiveAudioSituation();
+            okSituation.StrandedLiveTransmitAudioSnapshot = true;
+            var ok = ProfileStewardship.PlanOfferedLiveTransmitAudioRestore(okSituation);
+            Assert.Contains(ok.Actions, a => a.Kind == ProfileActionKind.RestoreLiveTransmitAudio);
+
+            var busySituation = LiveAudioSituation(onlyStation: false);
+            busySituation.StrandedLiveTransmitAudioSnapshot = true;
+            var busy = ProfileStewardship.PlanOfferedLiveTransmitAudioRestore(busySituation);
+            Assert.Empty(busy.Actions);
+        }
+
+        // ==================================================================
+        // #495 — a radio we already know is not a stranger
+        // ==================================================================
+
+        [Fact]
+        public void KnownRadioMarkedMine_IsPreAnsweredToLoadMine_NotAsked()
+        {
+            Assert.Equal(ProfileGuestIntent.LoadMineAndPutBack,
+                ProfileStewardship.PreAnswerForKnownRadio(
+                    RadioOwnership.Mine, hasConnectedBefore: true,
+                    current: ProfileGuestIntent.NotAnswered));
+        }
+
+        [Fact]
+        public void AnUnsetRadioWithHistory_IsStillAsked()
+        {
+            // History is evidence of use, not of ownership. Ownership cannot be
+            // inferred, so an unset radio stays unset however long we have used
+            // it — and the right guest answer is usually the middle, which only
+            // the operator can choose (#501).
+            Assert.Null(ProfileStewardship.PreAnswerForKnownRadio(
+                RadioOwnership.Unset, hasConnectedBefore: true,
+                current: ProfileGuestIntent.NotAnswered));
+            Assert.Null(ProfileStewardship.PreAnswerForKnownRadio(
+                RadioOwnership.SomeoneElses, hasConnectedBefore: true,
+                current: ProfileGuestIntent.NotAnswered));
+        }
+
+        [Fact]
+        public void AMineRadioWithNoHistory_IsStillAsked()
+        {
+            Assert.Null(ProfileStewardship.PreAnswerForKnownRadio(
+                RadioOwnership.Mine, hasConnectedBefore: false,
+                current: ProfileGuestIntent.NotAnswered));
+        }
+
+        [Fact]
+        public void AnAlreadyAnsweredRadio_IsNeverReAnswered()
+        {
+            Assert.Null(ProfileStewardship.PreAnswerForKnownRadio(
+                RadioOwnership.Mine, hasConnectedBefore: true,
+                current: ProfileGuestIntent.LeaveAlone));
         }
 
         // ==================================================================

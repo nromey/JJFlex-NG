@@ -102,7 +102,15 @@ public class AudioChainPreset
     /// mismatch the operator should hear about. Callers append it to their
     /// own announcement.
     /// </summary>
-    public string ApplyTo(FlexBase rig)
+    public string ApplyTo(FlexBase rig) => ApplyTo(rig, applyEq: true);
+
+    /// <summary>
+    /// The same apply with the equaliser part optional. The guest-radio live
+    /// path (#499) passes <paramref name="applyEq"/> false when the snapshot it
+    /// took of the radio's own settings could not read the radio's EQ — a
+    /// setting that cannot be put back must not be changed in the first place.
+    /// </summary>
+    public string ApplyTo(FlexBase rig, bool applyEq)
     {
         rig.MicGain = MicGain;
         rig.MicBoost = MicBoost ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
@@ -119,7 +127,7 @@ public class AudioChainPreset
 
         var notes = new List<string>();
 
-        if (TxEqCaptured)
+        if (TxEqCaptured && applyEq)
         {
             // A version 1 file carries eight bands. Its 32 Hz reads 0 because
             // the element was not there, not because anyone chose 0 — so send

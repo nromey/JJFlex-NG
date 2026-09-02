@@ -92,27 +92,58 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void TheRestorePointIsCapturedBeforeAnythingIsLoaded()
+        public void TheExecutorRunsThePlansActionsInOrder()
         {
-            // The order is enforced by the plan and pinned by
-            // ProfileStewardshipTests; this pins that the executor runs the
-            // plan's actions IN ORDER rather than sorting or grouping them.
+            // The ordering guarantees are enforced by the plan and pinned by
+            // ProfileStewardshipTests; this pins that the executor RUNS the
+            // plan's actions in order rather than sorting or grouping them, so
+            // autosave-off precedes the capture and the capture precedes the
+            // apply on the wire, not just in the plan.
             var text = Read(FlexBase);
-            int capture = text.IndexOf("case ProfileActionKind.CaptureRestorePoint:", StringComparison.Ordinal);
-            int load = text.IndexOf("case ProfileActionKind.LoadOurs:", StringComparison.Ordinal);
-            Assert.True(capture > 0 && load > capture,
-                "RunProfileAction must handle a capture, and the plan's order must be preserved");
             Assert.Contains("foreach (var action in plan.Actions)", text, StringComparison.Ordinal);
         }
 
         [Fact]
-        public void AFailedCaptureAbandonsTheRestOfThePlanForThatType()
+        public void AFailedSafetyStepAbandonsTheRestOfTheConnectPlan()
         {
-            // Without the restore point, loading ours leaves the radio with no
-            // record of what it was on and no way back.
-            Assert.Contains(
-                "plan.Actions.RemoveAll(a => a.ProfileType == action.ProfileType",
-                Read(FlexBase), StringComparison.Ordinal);
+            // A half-applied guest change is worse than none: if autosave will
+            // not turn off, or the live capture fails, nothing is applied. And
+            // if we already turned autosave off, we give it straight back.
+            var text = Read(FlexBase);
+            Assert.Contains("abort = true", text, StringComparison.Ordinal);
+            Assert.Contains("RestoreRadioAutosaveAfterAbort()", text, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void NothingSavesOrCreatesAProfileOnTheGuestPath()
+        {
+            // #499: the whole point. No build after 2026-09-02 captures a
+            // marker profile, so the executor no longer references the create
+            // and save calls that used to write to a radio that is not ours.
+            // (SelectProfile keeps its create for a radio the operator declared
+            // theirs; that is a different, opted-in write.)
+            var text = Read(FlexBase);
+            Assert.DoesNotContain("case ProfileActionKind.CaptureRestorePoint:", text,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("CaptureProfileRestorePoint(", text, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ARefusalIsNotReportedAsAFailure()
+        {
+            // #486: the guarded select/delete return an outcome a caller can
+            // tell apart, and the menu call sites branch on Refused so a good
+            // explanation the guard already spoke is not overwritten by a
+            // generic error. The old hardcoded literal is gone.
+            var flex = Read(FlexBase);
+            Assert.Contains("public GuardedOutcome SelectProfileGuarded(", flex, StringComparison.Ordinal);
+            Assert.Contains("public GuardedOutcome DeleteProfileGuarded(", flex, StringComparison.Ordinal);
+
+            var menu = Read(Menu);
+            Assert.Contains("SelectProfileGuarded(profile)", menu, StringComparison.Ordinal);
+            Assert.Contains("GuardedOutcome.Refused", menu, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"Could not select profile\"", menu, StringComparison.Ordinal);
+            Assert.DoesNotContain("\"Could not delete profile\"", menu, StringComparison.Ordinal);
         }
 
         // ------------------------------------------------------------------
@@ -168,11 +199,19 @@ namespace Radios.Tests
             // for the profile-save procedure.
             var menu = Read(Menu);
             Assert.Contains("Put This Radio's Own Profiles Back", menu, StringComparison.Ordinal);
-            Assert.Contains("Load My Profiles on This Radio", menu, StringComparison.Ordinal);
 
-            // …and the item that would usually have nothing to do is only
-            // built when it has something to do (#121, the stub-verb pattern).
+            // The three granular answers exist as somewhere to give the answer
+            // the connect announcement names — including the middle (#501) that
+            // was missing and cost an evening.
+            Assert.Contains("Use My Transmit Audio Here", menu, StringComparison.Ordinal);
+            Assert.Contains("Load All My Profiles Here", menu, StringComparison.Ordinal);
+            Assert.Contains("Leave This Radio's Profiles Alone", menu, StringComparison.Ordinal);
+
+            // …and the items that would usually have nothing to do are only
+            // built when they have something to do (#121, the stub-verb pattern).
             Assert.Contains("if (Rig.HasStrandedProfileRestorePoint)", menu, StringComparison.Ordinal);
+            Assert.Contains("if (Rig.HasStrandedLiveTransmitAudioSnapshot)", menu, StringComparison.Ordinal);
+            Assert.Contains("if (Rig.RadioProfileAutosaveOwedBackOn)", menu, StringComparison.Ordinal);
         }
 
         // ------------------------------------------------------------------
