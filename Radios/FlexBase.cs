@@ -17530,150 +17530,22 @@ namespace Radios
             }
         }
 
-        // ── Receive-continuity meter state ──
+        // ── Receive-continuity meter ──
         //
-        // Track B, 2026-08-18 (#29) built this by differencing consecutive
-        // packet timestamps. Rewritten 2026-09-02 (#473), because the timestamps
-        // will not carry that weight and the old form was reporting hundreds of
-        // audible clicks a session that did not happen.
+        // Extracted to Radios.ReceiveContinuityMeter on 2026-09-02 (#473),
+        // both so the arithmetic could be tested without a radio and so this
+        // file — which four tracks are editing at once — carries three lines
+        // of it rather than eighty. That class documents why the old
+        // timestamp-differencing form reported 852.7 ms gaps that never
+        // happened, and what replaced it.
         //
-        // WHAT THE KEY IS. FlexLib forms it as
-        // `TimestampInt + TimestampFrac / 2^16` (RXAudioStream.AddRXData). The
-        // integer half is UTC seconds — the 2026-09-01 captures print keys such
-        // as 1788304852.0000153, and 1788304852 is that evening. The fractional
-        // half is NOT a fraction of a second: measured against the wall clock in
-        // those same captures it advances only about 0.147 over a second of
-        // audio, so a step in it converts to nothing, least of all to
-        // milliseconds.
-        //
-        // WHAT THAT COST. At each UTC second the key therefore jumps by the
-        // ~0.853 the fraction never covered, and the old meter reported that
-        // jump as "consumed packet timestamps stepped 852.7 ms — audio between
-        // those timestamps never arrived". It is the figure #473 asked to be
-        // accounted for, and the account is that it is not a gap. Three
-        // confirmations, from the evening's own traces:
-        //   - the discontinuity COUNT equals the stream's length in seconds,
-        //     exactly: 12,772 packets and 128 discontinuities; 76,881 and 768;
-        //     2,607 and 26. One per second, on every stream;
-        //   - largest step + 99 x nominal step ~= 1.000 on every stream, which
-        //     is what a second boundary looks like and what a lost-audio gap
-        //     does not;
-        //   - taken at face value it claims 108 of 128 seconds of audio never
-        //     arrived, in a stream whose playback queue starved six times.
-        // The "nominal" it compared against was a running MINIMUM, so one
-        // anomalously small step poisoned it for the rest of the session — one
-        // capture ended up flagging 119,428 of 130,067 packets.
-        //
-        // WHAT THIS MEASURES INSTEAD. Only the integer half is trusted, and it
-        // is used as a clock rather than as a ruler: count packets consumed
-        // within each UTC second. Every complete second should hold exactly as
-        // many as the busiest one did, and a second holding fewer lost that many
-        // packets of audio. No calibration, no assumed packet rate, no unit
-        // conversion that can be wrong — and it answers the question the old
-        // meter was asked, "how much receive audio never arrived", in
-        // milliseconds that mean milliseconds.
-        //
-        // One remoteAudioProc runs at a time, so plain fields are safe. Reset at
-        // the top of every run; summarized at remoteDone.
-        private long _opusRxSecond;              // UTC second being counted, 0 = not started
-        private long _opusRxInSecond;            // packets consumed in it
-        private long _opusRxPeakPerSecond;       // busiest complete second = the packet rate
-        private long _opusRxSecondsJudged;       // complete seconds counted (the first is partial)
-        private long _opusRxPacketsJudged;       // packets in those seconds
-        private long _opusRxShortSeconds;        // complete seconds that came up short
-        private long _opusRxSkippedSeconds;      // whole seconds the key stepped over
-        private bool _opusRxFirstSecondClosed;   // the leading partial second is done
-        private bool _opusRxShortLogged;
-        private long _opusRxPacketCount;         // total packets consumed
+        // One remoteAudioProc runs at a time, so a plain field is safe.
+        private readonly ReceiveContinuityMeter _opusRxContinuity =
+            new ReceiveContinuityMeter();
 
-        /// <summary>
-        /// Close out the UTC second the meter was counting, and start
-        /// <paramref name="nextSecond"/>. Called on the receive poll thread.
-        /// </summary>
-        private void CloseOpusRxSecond(long nextSecond)
-        {
-            if (!_opusRxFirstSecondClosed)
-            {
-                // The first second is partial — the stream started part way
-                // through it — so it is closed and discarded rather than judged
-                // against seconds that were whole.
-                _opusRxFirstSecondClosed = true;
-            }
-            else
-            {
-                _opusRxSecondsJudged++;
-                _opusRxPacketsJudged += _opusRxInSecond;
-                if (_opusRxInSecond > _opusRxPeakPerSecond) _opusRxPeakPerSecond = _opusRxInSecond;
-                if (_opusRxPeakPerSecond > 0 && _opusRxInSecond < _opusRxPeakPerSecond)
-                {
-                    _opusRxShortSeconds++;
-                    if (!_opusRxShortLogged)
-                    {
-                        _opusRxShortLogged = true;
-                        Tracing.TraceLine("remoteAudioProc: first short second on the receive stream"
-                            + " — " + _opusRxInSecond + " packets consumed where "
-                            + _opusRxPeakPerSecond + " is this stream's full second, so about "
-                            + ((_opusRxPeakPerSecond - _opusRxInSecond) * 1000.0
-                               / _opusRxPeakPerSecond).ToString("F0")
-                            + " ms of audio never arrived. Splicing across it is audible as a click."
-                            + " Further short seconds are counted silently; totals are logged when"
-                            + " the stream stops.", TraceLevel.Error);
-                    }
-                }
-            }
-
-            long skipped = nextSecond - _opusRxSecond - 1;
-            if (skipped > 0)
-            {
-                // The key stepped over whole UTC seconds. That is a real outage
-                // and it is measured in seconds, not inferred from a fraction.
-                _opusRxSkippedSeconds += skipped;
-                Tracing.TraceLine("remoteAudioProc: the receive stream skipped " + skipped
-                    + " whole second(s) of audio — the packet timestamps went from "
-                    + _opusRxSecond + " to " + nextSecond, TraceLevel.Error);
-            }
-
-            _opusRxSecond = nextSecond;
-            _opusRxInSecond = 0;
-        }
-
-        /// <summary>
-        /// One line at stream shutdown: was the receive stream continuous?
-        /// A clean run is evidence too — it acquits the network and points the
-        /// click hunt at the playback side (PortAudio statusFlags and the output
-        /// queue's own silence meters cover that side).
-        /// </summary>
         private void TraceOpusRxContinuitySummary()
         {
-            if (_opusRxPacketCount == 0)
-            {
-                Tracing.TraceLine("remoteAudioProc continuity summary: no receive packets consumed",
-                    TraceLevel.Info);
-                return;
-            }
-            if (_opusRxSecondsJudged == 0 || _opusRxPeakPerSecond == 0)
-            {
-                Tracing.TraceLine("remoteAudioProc continuity summary: "
-                    + _opusRxPacketCount + " packets consumed, but the stream did not last a whole"
-                    + " UTC second, so there is nothing to judge its continuity against",
-                    TraceLevel.Info);
-                return;
-            }
-
-            long expected = _opusRxSecondsJudged * _opusRxPeakPerSecond;
-            long missing = expected - _opusRxPacketsJudged;
-            if (missing < 0) missing = 0;
-            double missingMs = missing * 1000.0 / _opusRxPeakPerSecond;
-
-            Tracing.TraceLine("remoteAudioProc continuity summary: "
-                + _opusRxPacketCount + " packets consumed, "
-                + _opusRxPeakPerSecond + " packets in a full second, "
-                + _opusRxSecondsJudged + " whole second(s) judged; "
-                + _opusRxShortSeconds + " came up short and "
-                + _opusRxSkippedSeconds + " whole second(s) were skipped entirely — "
-                + missingMs.ToString("F0") + " ms of receive audio never arrived"
-                + (missing == 0 ? " (the network delivered a continuous stream)" : ""),
-                missing == 0 && _opusRxSkippedSeconds == 0 ? TraceLevel.Info : TraceLevel.Error);
+            _opusRxContinuity.TraceSummary();
         }
 
         // ── #419: why a wait for a pending remote-audio stream ended ──
@@ -17788,16 +17660,7 @@ namespace Radios
             opusOutputChannel = null;
             opusInputChannel = null;
             opusInputAvailable = false;
-            _opusRxSecond = 0;
-            _opusRxInSecond = 0;
-            _opusRxPeakPerSecond = 0;
-            _opusRxSecondsJudged = 0;
-            _opusRxPacketsJudged = 0;
-            _opusRxShortSeconds = 0;
-            _opusRxSkippedSeconds = 0;
-            _opusRxFirstSecondClosed = false;
-            _opusRxShortLogged = false;
-            _opusRxPacketCount = 0;
+            _opusRxContinuity.Reset();
 #if CWMonitor
             CWMon = null;
 #endif
@@ -17953,6 +17816,12 @@ namespace Radios
                 Tracing.TraceLine("remoteAudioProc: opus output channel not started.", TraceLevel.Error);
                 goto remoteDone;
             }
+            // #473: the playback stream is now running and its callback is
+            // filling the device with silence, but NOTHING FEEDS IT until the
+            // poll loop far below starts — and everything between here and
+            // there is transmit setup. Time that stretch, because it is the
+            // real startup gap and nothing has ever measured it.
+            long rxPlaybackStartedTick = Environment.TickCount64;
 
             // Setup the transmit audio, after the rx audio, but don't start the I/O.
             //
@@ -18085,6 +17954,22 @@ namespace Radios
             CWMonInit();
 #endif
 
+            // #473: say how long receive audio was silent waiting for the
+            // transmit side to finish opening. It is silent for the whole of
+            // it: the playback stream started before the transmit setup began
+            // and the loop that feeds it starts after.
+            //
+            // On 2026-09-01 one connect spent 5.36 seconds here — the
+            // microphone was a WASAPI device whose shared-mode format offered
+            // no Opus-legal rate, so its open ran to the five-second bound and
+            // failed, and the operator heard nothing at all until it did. The
+            // trace recorded 53 silent device buffers and no reason for them.
+            long rxPlaybackWaitMs = Environment.TickCount64 - rxPlaybackStartedTick;
+            Tracing.TraceLine("remoteAudioProc: receive playback has been running for "
+                + rxPlaybackWaitMs + " ms with nothing feeding it — that is how long the"
+                + " transmit setup took, and it is silence the operator hears on every connect",
+                rxPlaybackWaitMs > 500 ? TraceLevel.Error : TraceLevel.Info);
+
             // Main audio loop.
             // Note that we must pole for opus output.
             while (!stopRemoteAudio)
@@ -18193,7 +18078,7 @@ namespace Radios
                             {
                                 opusOutputChannel.JustStarted = false;
                                 stream.LastOpusTimestampConsumed = stream._opusRXList.Keys[lastID];
-                                _opusRxSecond = 0; // re-arm the continuity meter
+                                _opusRxContinuity.Rearm(); // the second we land in is partial
                             }
                         }
                         else
@@ -18214,30 +18099,11 @@ namespace Radios
                 }
                 if (opusBuf != null)
                 {
-                    // ── receive-continuity meter (#29, rewritten for #473) ──
-                    // A packet the NETWORK lost never reaches PortAudio, so
-                    // statusFlags cannot see it: our decoder simply splices two
-                    // non-adjacent 10 ms packets together, and the waveform step
-                    // at the splice IS a click. This is the only instrument that
-                    // sees that.
-                    //
-                    // It counts packets per UTC SECOND rather than differencing
-                    // consecutive timestamps, because only the integer half of
-                    // the timestamp key is time — see the field declarations for
-                    // what differencing the fractional half was actually
-                    // reporting, and for the three ways the evening's own traces
-                    // prove it.
-                    long consumedSecond = (long)Math.Floor(consumedTs);
-                    _opusRxPacketCount++;
-                    if (_opusRxSecond == 0)
-                    {
-                        _opusRxSecond = consumedSecond;
-                    }
-                    else if (consumedSecond != _opusRxSecond)
-                    {
-                        CloseOpusRxSecond(consumedSecond);
-                    }
-                    _opusRxInSecond++;
+                    // Receive-continuity meter (#29, rewritten for #473): how
+                    // much audio never arrived, counted per UTC second rather
+                    // than differenced between timestamps. See
+                    // ReceiveContinuityMeter for why the difference matters.
+                    _opusRxContinuity.Consume(consumedTs);
                     opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
                 }
                 else

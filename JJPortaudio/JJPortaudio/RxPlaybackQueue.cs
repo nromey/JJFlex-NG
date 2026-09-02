@@ -299,13 +299,12 @@ namespace JJPortaudio
         /// </summary>
         /// <remarks>
         /// <b>The shortfall is measured, not assumed to be a whole buffer.</b>
-        /// The register (#473) and <c>AudioBuffering</c>'s own remarks both said
-        /// "one late packet costs 100 ms of silence, not 10". Reading the loop
-        /// says otherwise: it consumes every queued packet that fits and only
-        /// then fills what is left, so nine packets present out of ten costs ten
-        /// milliseconds of silence. The old counter reported one "silent fill"
-        /// either way, which is why the claim survived — it counted events, and
-        /// a 10 ms event and a 100 ms event were the same event.
+        /// The claim this retires, and the evidence against it, are recorded
+        /// once — in <see cref="AudioBuffering"/>'s remarks, where the claim
+        /// itself used to live. What matters here is why nobody caught it: the
+        /// old counter reported one "silent fill" whatever the size of the gap,
+        /// so a 10 ms shortfall and a 100 ms shortfall were the same number in
+        /// every trace anybody read.
         /// </remarks>
         public void NotePlayed(int buffersConsumed, long silentFrames)
         {
