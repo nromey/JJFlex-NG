@@ -48,6 +48,19 @@ namespace Radios.Tests
         private VerbosityLevel _verbosity = VerbosityLevel.Chatty;
         private bool _sinkResult = true;
 
+        /// <summary>
+        /// The salvage settle window (#507). Since 2026-09-02 an interrupt's
+        /// backlog is NOT handed over inside the interrupt's own call: it is
+        /// held this long so the action's own follow-ups go first, and lands
+        /// when the window closes. Every salvage assertion below therefore
+        /// advances the clock by this much after the interrupt that rescued
+        /// it — the rescue still happens, one window later, and the tests
+        /// that pinned "synchronously" now pin "at exactly the window". The
+        /// window itself, and what it is for, is pinned in
+        /// SalvageSettleWindowTests.
+        /// </summary>
+        private const int Settle = SpeechArbiter.SalvageSettleMs;
+
         private SpeechArbiter NewArbiter() => new SpeechArbiter(
             _clock,
             () => _verbosity,
@@ -430,6 +443,12 @@ namespace Radios.Tests
             // all three while the trace said "Spoke". The policy now: the
             // interrupter speaks first, and everything believed unspoken is
             // re-queued behind it, in its original order, marked salvaged.
+            //
+            // Since #507 "behind it" means behind the window, not inside the
+            // call: the interrupter goes out at once, the backlog is held for
+            // the settle window so the action's own follow-ups can go first,
+            // and it lands, in order, when the window closes — at 599 ms
+            // after the interrupt nothing, at 600 all three.
             var a = NewArbiter();
             a.Emit("Disconnected", false, null, VerbosityLevel.Terse, "MainWindow");
             _clock.Advance(2);
@@ -440,7 +459,7 @@ namespace Radios.Tests
             a.Emit("No SmartLink radios available. The remote radio may be turned off.",
                 true, null, VerbosityLevel.Critical, "FlexBase");
 
-            Assert.Equal(7, _calls.Count);
+            Assert.Equal(4, _calls.Count);
             Assert.Equal(
                 new[] { "Disconnected", "Session closed", "6300inshack went offline." },
                 _calls.Take(3).Select(c => c.Message));
@@ -450,6 +469,12 @@ namespace Radios.Tests
             Assert.True(interrupter.Interrupt);
             Assert.StartsWith("No SmartLink radios available", interrupter.Message);
             Assert.False(interrupter.Salvaged);
+            Assert.Equal(670, interrupter.AtMs);
+
+            _clock.Advance(Settle - 1);
+            Assert.Equal(4, _calls.Count);
+            _clock.Advance(1);
+            Assert.Equal(7, _calls.Count);
 
             Assert.Equal(
                 new[] { "Disconnected", "Session closed", "6300inshack went offline." },
@@ -458,6 +483,7 @@ namespace Radios.Tests
             {
                 Assert.True(c.Salvaged);
                 Assert.False(c.Interrupt);
+                Assert.Equal(670 + Settle, c.AtMs);
             });
         }
 
@@ -472,6 +498,7 @@ namespace Radios.Tests
             _clock.Advance(5000);
             a.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
 
+            _clock.Advance(Settle);
             Assert.Equal(2, _calls.Count);
             Assert.DoesNotContain(_calls, c => c.Salvaged);
         }
@@ -499,14 +526,23 @@ namespace Radios.Tests
             // Nine presses, TEN salvages of one sentence, each arriving later
             // than the last, and nothing in the mechanism would have stopped
             // it.
+            //
+            // The presses are spaced PAST the settle window (#507), so each
+            // one lands after the previous hand-over and is a rescue the cap
+            // can count. Presses inside one window are a burst, and a burst
+            // spends one rescue between them — that is a different property,
+            // pinned in SalvageSettleWindowTests, and it must not be what
+            // makes this test green.
+            int cadence = Settle + 100;
             var a = NewArbiter();
             a.Emit(CaptureStarted, false, null, VerbosityLevel.Terse, "TraceAdmin");
 
             for (int i = 1; i <= 9; i++)
             {
-                _clock.Advance(600);
+                _clock.Advance(cadence);
                 a.Emit("S " + i, true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "KeyCommands");
             }
+            _clock.Advance(Settle);
 
             // Every reading still speaks — the readings were never the problem.
             Assert.Equal(9, _calls.Count(c => !c.Salvaged && c.Interrupt));
@@ -519,10 +555,11 @@ namespace Radios.Tests
             Assert.Equal(Radios.Speech.SpeechArbiter.MaxSalvages, salvaged.Count);
             Assert.All(salvaged, c => Assert.Equal(CaptureStarted, c.Message));
 
-            // And it stops EARLY, not merely eventually: both rescues land in
-            // the first two presses, and presses three through nine carry
-            // nothing stale behind them at all.
-            Assert.Equal(new double[] { 600, 1200 }, salvaged.Select(c => c.AtMs));
+            // And it stops EARLY, not merely eventually: both rescues land one
+            // window after the first two presses, and presses three through
+            // nine carry nothing stale behind them at all.
+            Assert.Equal(new double[] { cadence + Settle, 2 * cadence + Settle },
+                salvaged.Select(c => c.AtMs));
         }
 
         [Fact]
@@ -541,10 +578,12 @@ namespace Radios.Tests
             var a = NewArbiter();
             a.Emit(CaptureStarted, false, null, VerbosityLevel.Terse, "TraceAdmin");
 
-            // Just before the first estimate expires: rescued, count now 1.
+            // Just before the first estimate expires: rescued — held through
+            // the settle window, then handed over — count now 1.
             int firstInterruptAt = est - 100;
             _clock.Advance(firstInterruptAt);
             a.Emit("Now", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
             Assert.Single(_calls.Where(c => c.Salvaged));
 
             // That rescue re-entered the ledger with a fresh lease, which is
@@ -552,6 +591,12 @@ namespace Radios.Tests
             // So the entry is still believed pending here, which is precisely
             // the window the runaway lived in. What it does NOT get back is its
             // age: it is now older than twice its own duration, and it goes.
+            //
+            // The lease stacks onto the interrupter's own estimate, which is
+            // longer than the window the hand-over waited, so the finish is
+            // the same instant it was before #507.
+            Assert.True(interrupterMs >= Settle,
+                "the lease arithmetic below assumes the interrupter outlasts the settle window");
             int reLeasedFinish = firstInterruptAt + interrupterMs + est;
             int secondInterruptAt = 2 * est + 350;
             Assert.True(secondInterruptAt > ageBound,
@@ -560,8 +605,9 @@ namespace Radios.Tests
                 "and inside the lease the rescue itself renewed, or the ordinary prune would "
                 + "have removed the entry and the age bound would never be consulted");
 
-            _clock.Advance(secondInterruptAt - firstInterruptAt);
+            _clock.Advance(secondInterruptAt - firstInterruptAt - Settle);
             a.Emit("Later", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
 
             Assert.Single(_calls.Where(c => c.Salvaged));
         }
@@ -573,13 +619,20 @@ namespace Radios.Tests
             // interrupts, same arbiter — only the spacing differs. If this went
             // green with one salvage too, the previous test would be measuring
             // something other than the age bound and neither would be evidence.
+            //
+            // "Quick succession" here means each interrupt lands after the
+            // previous hand-over, well inside the age bound. Two interrupts
+            // inside ONE settle window are a burst (#507) and spend a single
+            // rescue between them — which would also produce one salvage, for
+            // the wrong reason, so the second press is placed past the window.
             var a = NewArbiter();
             a.Emit(CaptureStarted, false, null, VerbosityLevel.Terse, "TraceAdmin");
 
             _clock.Advance(100);
             a.Emit("Now", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
-            _clock.Advance(100);
+            _clock.Advance(Settle + 100);
             a.Emit("Later", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
 
             Assert.Equal(2, _calls.Count(c => c.Salvaged));
         }
@@ -587,14 +640,17 @@ namespace Radios.Tests
         [Fact]
         public void SecondInterrupt_SalvagesTheSalvage()
         {
-            // A salvaged utterance re-enters the ledger, so back-to-back
+            // A salvaged utterance re-enters the ledger, so consecutive
             // interrupts cannot do by twos what one is no longer allowed to.
+            // The second interrupt comes after the first hand-over; inside the
+            // window it would be a burst and find the entry still held.
             var a = NewArbiter();
             a.Emit("Session closed", false, null, VerbosityLevel.Terse, "t");
             _clock.Advance(100);
             a.Emit("First", true, SpeechIntent.Interrupt, null, "t");
-            _clock.Advance(100);
+            _clock.Advance(Settle + 100);
             a.Emit("Second", true, SpeechIntent.Interrupt, null, "t");
+            _clock.Advance(Settle);
 
             Assert.Equal(2, _calls.Count(c => c.Salvaged && c.Message == "Session closed"));
         }
@@ -609,10 +665,14 @@ namespace Radios.Tests
             _clock.Advance(100);
             a.Latest("tx", "TX Power 50", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "t");
 
-            Assert.Equal(3, _calls.Count);
+            Assert.Equal(2, _calls.Count);
             Assert.Equal("TX Power 50", _calls[1].Message);
+
+            _clock.Advance(Settle);
+            Assert.Equal(3, _calls.Count);
             Assert.True(_calls[2].Salvaged);
             Assert.Equal("Session closed", _calls[2].Message);
+            Assert.Equal(100 + Settle, _calls[2].AtMs);
         }
 
         [Fact]
@@ -630,11 +690,13 @@ namespace Radios.Tests
             Assert.Equal(2, _calls.Count);
             Assert.True(_calls[1].Interrupt);
             Assert.Equal(SpeechIntent.Urgent, _calls[1].Intent);
+            _clock.Advance(Settle);
             Assert.DoesNotContain(_calls, c => c.Salvaged);
 
             // And the backlog stays gone: a later interrupt finds nothing.
             _clock.Advance(100);
             a.Emit("Receiving", true, SpeechIntent.Interrupt, VerbosityLevel.Critical, "t");
+            _clock.Advance(Settle);
             Assert.DoesNotContain(_calls, c => c.Salvaged);
         }
 
@@ -670,12 +732,14 @@ namespace Radios.Tests
 
             _sinkResult = false;   // SuppressSpeech / no backend
             a.Emit("Suppressed", true, SpeechIntent.Interrupt, null, "t");
+            _clock.Advance(Settle);
             Assert.DoesNotContain(_calls, c => c.Salvaged);
 
             // The ledger survived, so a real interrupt still protects it.
             _sinkResult = true;
             _clock.Advance(100);
             a.Emit("Real", true, SpeechIntent.Interrupt, null, "t");
+            _clock.Advance(Settle);
             Assert.Contains(_calls, c => c.Salvaged && c.Message == "Session closed");
         }
 
@@ -689,6 +753,7 @@ namespace Radios.Tests
             _sinkResult = true;
             _clock.Advance(100);
             a.Emit("Interrupter", true, SpeechIntent.Interrupt, null, "t");
+            _clock.Advance(Settle);
             Assert.DoesNotContain(_calls, c => c.Salvaged);
         }
 
@@ -703,6 +768,7 @@ namespace Radios.Tests
             a.OnSilenced();
             _clock.Advance(100);
             a.Emit("Interrupter", true, SpeechIntent.Interrupt, null, "t");
+            _clock.Advance(Settle);
 
             Assert.DoesNotContain(_calls, c => c.Salvaged);
         }
@@ -761,6 +827,11 @@ namespace Radios.Tests
             // utterance text, so the +1,015 interrupter here is a stand-in;
             // it is long enough to keep the reading believed pending, as the
             // real one must have been for the drop line to exist at all.
+            //
+            // Each rescue lands one settle window after the interrupt that
+            // made it (#507): held so the interrupter's own follow-ups can go
+            // first, then handed over. Neither hand-over is a drop, and the
+            // retry's is the one that matters.
             var a = NewArbiter();
             a.Emit("Tune off", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
             _clock.Advance(1);
@@ -771,9 +842,10 @@ namespace Radios.Tests
                 SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
             _clock.Advance(3863 - 1015);
             a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(Settle);
 
             var rescues = _calls.Where(c => c.Salvaged && c.Message == "SWR 1.7").ToList();
-            Assert.Equal(new double[] { 1016, 3864 }, rescues.Select(c => c.AtMs));
+            Assert.Equal(new double[] { 1016 + Settle, 3864 + Settle }, rescues.Select(c => c.AtMs));
 
             // The answer is the last thing handed over — behind the retry,
             // which is exactly where an operator who pressed Tune again
@@ -791,6 +863,14 @@ namespace Radios.Tests
             // seven-character message is a state fact rather than a stale
             // digit, so it keeps the conservative bound. If this went green
             // with two rescues, the test above would be measuring nothing.
+            //
+            // The first rescue survives the settle window: the reading is
+            // 1,015 ms old against its 1,600 ms bound at the interrupt, and
+            // 1,615 when it is actually handed over. The bound is judged at
+            // the interrupt only (#507) — the first cut of the window judged
+            // it again at the release and binned the reading for being
+            // fifteen milliseconds too old, a drop the arbiter's own delay
+            // had manufactured.
             var a = NewArbiter();
             a.Emit("Tune off", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
             _clock.Advance(1);
@@ -800,9 +880,10 @@ namespace Radios.Tests
                 SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
             _clock.Advance(3863 - 1015);
             a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(Settle);
 
             var rescues = _calls.Where(c => c.Salvaged && c.Message == "SWR 1.7").ToList();
-            Assert.Equal(new double[] { 1016 }, rescues.Select(c => c.AtMs));
+            Assert.Equal(new double[] { 1016 + Settle }, rescues.Select(c => c.AtMs));
             Assert.Equal("Tune on", _calls[^1].Message);
         }
 
@@ -821,6 +902,7 @@ namespace Radios.Tests
             _clock.Advance(3291);
             a.Emit("JJ Flexible Home, slice, 14.100.000", true, SpeechIntent.Interrupt,
                 VerbosityLevel.Terse, "Home");
+            _clock.Advance(Settle);
 
             Assert.Contains(_calls, c => c.Salvaged && c.Message == "PC audio on.");
         }
@@ -834,6 +916,7 @@ namespace Radios.Tests
             _clock.Advance(3291);
             a.Emit("JJ Flexible Home, slice, 14.100.000", true, SpeechIntent.Interrupt,
                 VerbosityLevel.Terse, "Home");
+            _clock.Advance(Settle);
 
             Assert.DoesNotContain(_calls, c => c.Salvaged && c.Message == "PC audio on.");
 
@@ -872,6 +955,7 @@ namespace Radios.Tests
                 subject: field);
             _clock.Advance(43);
             a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(Settle);
 
             Assert.Equal(new[] { "Tune Power 15" },
                 _calls.Where(c => c.Salvaged).Select(c => c.Message));
@@ -896,6 +980,7 @@ namespace Radios.Tests
                 subject: entry, additive: true);
             _clock.Advance(251);
             a.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
 
             Assert.Equal(new[] { "1", "5" },
                 _calls.Where(c => c.Salvaged).Select(c => c.Message));
@@ -916,6 +1001,7 @@ namespace Radios.Tests
             a.Emit("5", false, SpeechIntent.Queue, VerbosityLevel.Critical, "field", subject: entry);
             _clock.Advance(251);
             a.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
 
             Assert.Equal(new[] { "5" },
                 _calls.Where(c => c.Salvaged).Select(c => c.Message));
@@ -938,6 +1024,7 @@ namespace Radios.Tests
             a.Emit("Tune Power 15", false, SpeechIntent.Queue, VerbosityLevel.Terse, "field");
             _clock.Advance(43);
             a.Emit("Tune on", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "MainWindow");
+            _clock.Advance(Settle);
 
             Assert.Equal(new[] { "1", "5", "Tune Power 15" },
                 _calls.Where(c => c.Salvaged).Select(c => c.Message));
@@ -960,6 +1047,7 @@ namespace Radios.Tests
                 VerbosityLevel.Terse, "ProgressVoice", subject: SpeechSubject.Progress);
             _clock.Advance(1000);
             a.Emit("Discovering radios", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "dialog");
+            _clock.Advance(Settle);
 
             var rescued = _calls.Where(c => c.Salvaged).Select(c => c.Message).ToList();
             Assert.DoesNotContain("Looking for radios on your network.", rescued);
@@ -987,6 +1075,7 @@ namespace Radios.Tests
                 "ProgressVoice");
             _clock.Advance(500);
             a.Emit("Discovering radios", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "dialog");
+            _clock.Advance(Settle);
 
             Assert.Equal(new[] { Greeting },
                 _calls.Where(c => c.Salvaged).Select(c => c.Message));
@@ -996,11 +1085,17 @@ namespace Radios.Tests
         public void Salvage_ProgressLines_TheControl_UnkeyedBothAreRescuedByTheirOwnBounds()
         {
             // Same timings, no subject. "Looking…" is 35 characters, a
-            // 5,600 ms bound, and 5,000 ms old: rescued. "Still looking…"
-            // is 25, a 4,000 ms bound, and 1,000 ms old: rescued. Both are
-            // re-spoken behind the dialog that made them meaningless. The
-            // old policy dropped them on the day only because discovery
-            // happened to run past the arithmetic.
+            // 5,600 ms bound, and 5,000 ms old at the interrupt: rescued.
+            // "Still looking…" is 25, a 4,000 ms bound, and 1,000 ms old:
+            // rescued. Both are re-spoken behind the dialog that made them
+            // meaningless. The old policy dropped them on the day only
+            // because discovery happened to run past the arithmetic.
+            //
+            // The word-count bound is judged at the interrupt, not again at
+            // the hand-over one settle window later (#507): "Looking…" is
+            // 5,600 ms old when it actually goes back to the reader, and
+            // that is not held against it, because the wait was the
+            // arbiter's own.
             var a = NewArbiter();
             a.Emit(Greeting, false, SpeechIntent.Queue, VerbosityLevel.Terse, "launch");
             a.Emit("Looking for radios on your network.", false, SpeechIntent.Queue,
@@ -1010,6 +1105,7 @@ namespace Radios.Tests
                 VerbosityLevel.Terse, "ProgressVoice");
             _clock.Advance(1000);
             a.Emit("Discovering radios", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "dialog");
+            _clock.Advance(Settle);
 
             var rescued = _calls.Where(c => c.Salvaged).Select(c => c.Message).ToList();
             Assert.Contains("Looking for radios on your network.", rescued);
@@ -1031,6 +1127,7 @@ namespace Radios.Tests
             _clock.Advance(500);
             a.Emit("PC audio stopped because of an internal error.", true, SpeechIntent.Interrupt,
                 VerbosityLevel.Critical, "FlexBase", subject: SpeechSubject.PcAudio);
+            _clock.Advance(Settle);
 
             Assert.DoesNotContain(_calls, c => c.Salvaged && c.Message == "PC audio on.");
             Assert.Contains(_calls, c => c.Salvaged && c.Message == ConnectSummary);
@@ -1050,6 +1147,7 @@ namespace Radios.Tests
                 subject: field);
             _clock.Advance(500);
             a.Latest(field, "TX Power 6", VerbosityLevel.Terse, SpeechCoalesceKind.Value, "field");
+            _clock.Advance(Settle);
 
             Assert.DoesNotContain(_calls, c => c.Salvaged && c.Message == "TX Power 5");
             Assert.Contains(_calls, c => c.Salvaged && c.Message == ConnectSummary);
@@ -1072,6 +1170,7 @@ namespace Radios.Tests
             _sinkResult = true;
             _clock.Advance(100);
             a.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
 
             Assert.Contains(_calls, c => c.Salvaged && c.Message == "PC audio on.");
         }
@@ -1091,6 +1190,7 @@ namespace Radios.Tests
                 subject: SpeechSubject.ProvisionalReceipt);
             _clock.Advance(500);
             a.Emit("Slice B released, 2 active", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
 
             Assert.Equal(1, _calls.Count(c => c.Salvaged && c.Message == receipt));
         }
@@ -1100,20 +1200,52 @@ namespace Radios.Tests
         {
             // Supersession alone would let a subject nobody revisits live
             // forever. The mic-profile paragraph ahead of it keeps "PC audio
-            // on." believed pending past fifteen seconds; at 14,999 ms it is
-            // rescued, at 15,001 it is not — keyed or not, because the
-            // ceiling is absolute. The paragraph, unkeyed, is refused at
-            // 15,001 as well: under the old policy its bound was thirty
-            // seconds, which is the other end of the inversion.
+            // on." believed pending past fifteen seconds; handed over at
+            // 14,999 ms it is rescued, at 15,001 it is not — keyed or not,
+            // because the ceiling is absolute. The paragraph, unkeyed, is
+            // refused at 15,001 as well: under the old policy its bound was
+            // thirty seconds, which is the other end of the inversion.
+            //
+            // "Handed over", not "interrupted": since #507 an entry is judged
+            // when the settle window closes and it actually goes back to the
+            // reader, so the last interrupt that can still rescue it is one
+            // window before the ceiling. The ceiling itself has not moved; an
+            // entry that crosses it while it waits is refused at the release,
+            // with the ceiling named as the reason. Judging at the interrupt
+            // and then speaking past the ceiling would be the ledger saying
+            // "now" about something fifteen seconds gone, which is exactly
+            // what the ceiling forbids.
+            int lastRescuableInterrupt = SpeechArbiter.SalvageCeilingMs - Settle - 1;
+
             var early = NewArbiter();
             early.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
             early.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
                 subject: SpeechSubject.PcAudio);
-            _clock.Advance(SpeechArbiter.SalvageCeilingMs - 1);
+            _clock.Advance(lastRescuableInterrupt);
             early.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
             Assert.Contains(_calls, c => c.Salvaged && c.Message == "PC audio on.");
             Assert.Contains(_calls, c => c.Salvaged && c.Message == MicProfileHeadsUp);
+            Assert.All(_calls.Where(c => c.Salvaged),
+                c => Assert.Equal(SpeechArbiter.SalvageCeilingMs - 1, c.AtMs));
 
+            // Interrupted two milliseconds later: held, then refused at the
+            // release because the window carried it across the ceiling.
+            _calls.Clear();
+            var crossing = NewArbiter();
+            double t0 = _clock.ElapsedMs;
+            crossing.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
+            crossing.Emit("PC audio on.", false, SpeechIntent.Queue, VerbosityLevel.Terse, "MainWindow",
+                subject: SpeechSubject.PcAudio);
+            _clock.Advance(lastRescuableInterrupt + 2);
+            crossing.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            Assert.DoesNotContain(_calls, c => c.Salvaged);          // held, not yet handed over
+            _clock.Advance(Settle);
+            Assert.DoesNotContain(_calls, c => c.Salvaged);          // and refused at the release
+            Assert.Equal(t0 + SpeechArbiter.SalvageCeilingMs + 1, _clock.ElapsedMs);
+
+            // Interrupted past the ceiling outright: refused at the interrupt,
+            // as before, and nothing arrives later either.
             _calls.Clear();
             var late = NewArbiter();
             late.Emit(MicProfileHeadsUp, false, SpeechIntent.Queue, VerbosityLevel.Terse, "connect");
@@ -1121,6 +1253,7 @@ namespace Radios.Tests
                 subject: SpeechSubject.PcAudio);
             _clock.Advance(SpeechArbiter.SalvageCeilingMs + 1);
             late.Emit("Band changed", true, SpeechIntent.Interrupt, VerbosityLevel.Terse, "t");
+            _clock.Advance(Settle);
             Assert.DoesNotContain(_calls, c => c.Salvaged);
         }
 
