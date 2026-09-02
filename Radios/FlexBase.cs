@@ -19920,7 +19920,14 @@ namespace Radios
         /// <c>tuneResult:</c> line carrying type, outcome, the settled SWR, the
         /// power pair behind it, and elapsed time.</para>
         /// </summary>
-        private bool _tuneCycleActive;
+        /// <remarks>
+        /// Volatile: written on mainThread (the property-change handlers) and
+        /// read on the Meter Packet Processing Thread, which is what pulses
+        /// <see cref="traceTxMeters"/> during a tune. A stale read here costs
+        /// at most a trace line at either end of a cycle, but there is no
+        /// reason to accept even that when the fix is one keyword.
+        /// </remarks>
+        private volatile bool _tuneCycleActive;
         private int _tuneCycleStartTick;
         private string _tuneCycleType = "unknown";
         private float _tuneCycleLastValidSwr = float.NaN;
@@ -19979,7 +19986,20 @@ namespace Radios
 
         private void beginTuneCycle(string type)
         {
-            if (_tuneCycleActive) return;
+            if (_tuneCycleActive)
+            {
+                // Both signals open the SAME cycle, and they arrive in either
+                // order. A manual-tuner tune sets TXTune (opening the cycle as
+                // "carrier") and then raises InProgress carrying the real tuner
+                // type, so first-wins would throw away the more specific of the
+                // two. Refine instead of ignoring — "manual+carrier" says both
+                // things and neither is lost.
+                if (_tuneCycleType == "carrier" && type != "carrier" && type != "unknown")
+                {
+                    _tuneCycleType = type + "+carrier";
+                }
+                return;
+            }
             _tuneCycleActive = true;
             _tuneCycleStartTick = System.Environment.TickCount;
             _tuneCycleType = type;
@@ -19990,6 +20010,20 @@ namespace Radios
                 TraceLevel.Info);
         }
 
+        /// <summary>
+        /// Close the cycle and write the one line the evening of 2026-09-01
+        /// went without.
+        /// </summary>
+        /// <remarks>
+        /// <c>outcome</c> is whichever signal closed the cycle FIRST, and the
+        /// carrier's falling edge can beat the ATU's own status to it — so
+        /// <c>outcome=CarrierOff</c> on an auto tune means "TXTune dropped
+        /// before a status arrived", not "the ATU reported nothing". The
+        /// adjacent <c>ATUTuneStatus:</c> line carries that. Reported rather
+        /// than second-guessed: an instrument that decides which of two real
+        /// events was the important one is an instrument that can be wrong
+        /// silently.
+        /// </remarks>
         private void endTuneCycle(string outcome)
         {
             if (!_tuneCycleActive) return;
