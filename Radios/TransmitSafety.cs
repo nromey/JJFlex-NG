@@ -459,7 +459,12 @@ namespace Radios
 
             /// <summary>The window elapsed with nothing at all. Wrong device,
             /// wrong profile, unplugged microphone: act now.</summary>
-            NothingArrived
+            NothingArrived,
+
+            /// <summary>The window elapsed and the meter never delivered a
+            /// sample, so there is no reading to judge. Say nothing to the
+            /// operator; trace it for the person who reads traces (#502).</summary>
+            NoTelemetry
         }
 
         /// <summary>
@@ -479,14 +484,35 @@ namespace Radios
         /// Inverting it removes that whole class: once audio has arrived the
         /// answer can never become wrong, so it is the answer worth keeping.
         /// </para>
+        /// <para>
+        /// <b>A floor is not a silence (#502).</b> The peak-hold reads its
+        /// -150 floor both when the meter reported silence and when the meter
+        /// never reported at all — and on a radio that publishes several
+        /// copies of SC_MIC the app was bound to a copy that never reports, so
+        /// this fired on a working station whose transmit monitor was playing
+        /// the operator's own voice. <paramref name="meterReported"/> is the
+        /// distinction: without a sample since key-down there is no reading,
+        /// and the only honest verdict is that nothing can be judged.
+        /// </para>
         /// </remarks>
         /// <param name="micPeakDbfs">
         /// The SC_MIC peak-hold since key-down (<c>FlexBase.ScMicMaxDb</c>),
         /// which only ever grows, so a pause between words cannot lower it.
         /// </param>
         /// <param name="txSeconds">Seconds since key-down.</param>
-        public static MicPathVerdict JudgeMicPath(float micPeakDbfs, double txSeconds)
+        /// <param name="meterReported">
+        /// Whether the meter behind <paramref name="micPeakDbfs"/> has delivered
+        /// at least one sample since key-down (<c>FlexBase.ScMicReportedSinceReset</c>).
+        /// A peak is a claim about samples; without one it is not evidence of
+        /// anything, in either direction.
+        /// </param>
+        public static MicPathVerdict JudgeMicPath(float micPeakDbfs, double txSeconds, bool meterReported)
         {
+            if (!meterReported)
+                return txSeconds >= MicVerifyWindowSeconds
+                    ? MicPathVerdict.NoTelemetry
+                    : MicPathVerdict.KeepWatching;
+
             if (!float.IsNaN(micPeakDbfs) && micPeakDbfs > MicNothingArrivedDbfs)
                 return MicPathVerdict.Verified;
 

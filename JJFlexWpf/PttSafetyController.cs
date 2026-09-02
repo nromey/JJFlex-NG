@@ -133,6 +133,13 @@ namespace JJFlexWpf
         private bool _healthMicLevelAdvised;
 
         /// <summary>
+        /// True once this transmission has been traced as unjudgeable — the
+        /// SC_MIC meter delivered no sample at all — so the trace line is
+        /// written once, not every second (#502).
+        /// </summary>
+        private bool _healthMicTelemetryMissingTraced;
+
+        /// <summary>
         /// Seconds transmitting in ANY state, unlike <c>_healthLockSeconds</c>
         /// which counts only a locked transmission. The reflected-power warning
         /// runs on this one because a held PTT into a dead antenna port is
@@ -586,6 +593,7 @@ namespace JJFlexWpf
             _healthReflectedWarned = false;
             _healthMicVerified = false;
             _healthMicLevelAdvised = false;
+            _healthMicTelemetryMissingTraced = false;
             _reflectedRun.Reset();
             _healthTxSeconds = 0;
             _healthLockSeconds = 0;
@@ -623,6 +631,7 @@ namespace JJFlexWpf
             _healthReflectedWarned = false;
             _healthMicVerified = false;
             _healthMicLevelAdvised = false;
+            _healthMicTelemetryMissingTraced = false;
             _reflectedRun.Reset();
             _healthTxSeconds = 0;
             _healthLockSeconds = 0;
@@ -951,7 +960,8 @@ namespace JJFlexWpf
                 return;
             }
 
-            switch (TransmitSafety.JudgeMicPath(rig.ScMicMaxDb, _healthLockSeconds))
+            switch (TransmitSafety.JudgeMicPath(rig.ScMicMaxDb, _healthLockSeconds,
+                                                 rig.ScMicReportedSinceReset))
             {
                 case TransmitSafety.MicPathVerdict.Verified:
                     _healthMicVerified = true;
@@ -974,7 +984,23 @@ namespace JJFlexWpf
                     Tracing.TraceLine(
                         $"PTT: no transmit audio at all — SC_MIC peak still at the "
                         + $"{TransmitSafety.MicNothingArrivedDbfs:F0} dBFS floor after "
-                        + $"{_healthLockSeconds}s", TraceLevel.Warning);
+                        + $"{_healthLockSeconds}s, from a meter copy that IS reporting. "
+                        + rig.ScMicElectionText, TraceLevel.Warning);
+                    break;
+
+                case TransmitSafety.MicPathVerdict.NoTelemetry:
+                    // Nothing is said. A floor from a meter that never reported
+                    // is not silence, it is not being connected to the
+                    // instrument — the warning that fired on Don's working
+                    // station on 2026-09-01 (#502). Traced once, with the whole
+                    // election, so the person reading the trace can see which
+                    // copies exist and that none of them spoke.
+                    if (_healthMicTelemetryMissingTraced) break;
+                    _healthMicTelemetryMissingTraced = true;
+                    Tracing.TraceLine(
+                        $"PTT: cannot judge transmit audio — no SC_MIC sample since key-down "
+                        + $"after {_healthLockSeconds}s, so the floor is not evidence and nothing is said. "
+                        + rig.ScMicElectionText, TraceLevel.Warning);
                     break;
             }
         }
