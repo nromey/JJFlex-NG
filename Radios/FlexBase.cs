@@ -17356,7 +17356,14 @@ namespace Radios
         }
 
         private static int _txAudioCallbacksPerSecond = JJPortaudio.AudioBuffering.DefaultCallbacksPerSecond;
-        private static int _rxAudioCallbacksPerSecond = JJPortaudio.AudioBuffering.DefaultCallbacksPerSecond;
+        // #473: still ten unless JJFLEX_RX_CALLBACKS_PER_SEC says otherwise for
+        // this launch. The shipped default does NOT change — see
+        // AudioBuffering.RxCallbackRateEnvironmentVariable for why the argument
+        // for halving it is sound and the evidence for it does not exist — but
+        // measuring 50 ms or 20 ms against 100 ms must not need a rebuild, least
+        // of all on a tester's machine.
+        private static int _rxAudioCallbacksPerSecond =
+            JJPortaudio.AudioBuffering.ConfiguredRxCallbacksPerSecond();
 
         /// <summary>
         /// Callbacks per second on the transmit capture stream. Ten is a 100 ms
@@ -17723,39 +17730,22 @@ namespace Radios
             }
         }
 
-        // ── Track B, 2026-08-18 (#29): receive-continuity meter state ──
-        // One remoteAudioProc runs at a time, so plain fields are safe. Reset
-        // at the top of every run; summarized at remoteDone. See the meter
-        // itself in the polling loop for what these mean.
-        private double _opusRxPrevTs;
-        private double _opusRxMinDelta;
-        private double _opusRxMaxDelta;
-        private long _opusRxPacketCount;
-        private long _opusRxGapCount;
+        // ── Receive-continuity meter ──
+        //
+        // Extracted to Radios.ReceiveContinuityMeter on 2026-09-02 (#473),
+        // both so the arithmetic could be tested without a radio and so this
+        // file — which four tracks are editing at once — carries three lines
+        // of it rather than eighty. That class documents why the old
+        // timestamp-differencing form reported 852.7 ms gaps that never
+        // happened, and what replaced it.
+        //
+        // One remoteAudioProc runs at a time, so a plain field is safe.
+        private readonly ReceiveContinuityMeter _opusRxContinuity =
+            new ReceiveContinuityMeter();
 
-        /// <summary>
-        /// One line at stream shutdown: was the receive stream continuous?
-        /// A zero-gap run is evidence too — it acquits the network and points
-        /// the click hunt at the playback side (PortAudio statusFlags and the
-        /// output queue's own silence counters cover that side).
-        /// </summary>
         private void TraceOpusRxContinuitySummary()
         {
-            if (_opusRxPacketCount == 0)
-            {
-                Tracing.TraceLine("remoteAudioProc continuity summary: no receive packets consumed",
-                    TraceLevel.Info);
-                return;
-            }
-            string nominal = _opusRxMinDelta < double.MaxValue
-                ? (_opusRxMinDelta * 1000).ToString("F1") : "unknown";
-            Tracing.TraceLine("remoteAudioProc continuity summary: "
-                + _opusRxPacketCount + " packets consumed, nominal step " + nominal
-                + " ms, largest step " + (_opusRxMaxDelta * 1000).ToString("F1") + " ms, "
-                + _opusRxGapCount + " discontinuit" + (_opusRxGapCount == 1 ? "y" : "ies")
-                + (_opusRxGapCount == 0 ? " (the network delivered a continuous stream)"
-                    : " (each one splices non-adjacent audio and is audible as a click)"),
-                _opusRxGapCount == 0 ? TraceLevel.Info : TraceLevel.Error);
+            _opusRxContinuity.TraceSummary();
         }
 
         // ── #419: why a wait for a pending remote-audio stream ended ──
@@ -17870,11 +17860,7 @@ namespace Radios
             opusOutputChannel = null;
             opusInputChannel = null;
             opusInputAvailable = false;
-            _opusRxPrevTs = 0;
-            _opusRxMinDelta = double.MaxValue;
-            _opusRxMaxDelta = 0;
-            _opusRxPacketCount = 0;
-            _opusRxGapCount = 0;
+            _opusRxContinuity.Reset();
 #if CWMonitor
             CWMon = null;
 #endif
@@ -18030,6 +18016,12 @@ namespace Radios
                 Tracing.TraceLine("remoteAudioProc: opus output channel not started.", TraceLevel.Error);
                 goto remoteDone;
             }
+            // #473: the playback stream is now running and its callback is
+            // filling the device with silence, but NOTHING FEEDS IT until the
+            // poll loop far below starts — and everything between here and
+            // there is transmit setup. Time that stretch, because it is the
+            // real startup gap and nothing has ever measured it.
+            long rxPlaybackStartedTick = Environment.TickCount64;
 
             // Setup the transmit audio, after the rx audio, but don't start the I/O.
             //
@@ -18162,6 +18154,22 @@ namespace Radios
             CWMonInit();
 #endif
 
+            // #473: say how long receive audio was silent waiting for the
+            // transmit side to finish opening. It is silent for the whole of
+            // it: the playback stream started before the transmit setup began
+            // and the loop that feeds it starts after.
+            //
+            // On 2026-09-01 one connect spent 5.36 seconds here — the
+            // microphone was a WASAPI device whose shared-mode format offered
+            // no Opus-legal rate, so its open ran to the five-second bound and
+            // failed, and the operator heard nothing at all until it did. The
+            // trace recorded 53 silent device buffers and no reason for them.
+            long rxPlaybackWaitMs = Environment.TickCount64 - rxPlaybackStartedTick;
+            Tracing.TraceLine("remoteAudioProc: receive playback has been running for "
+                + rxPlaybackWaitMs + " ms with nothing feeding it — that is how long the"
+                + " transmit setup took, and it is silence the operator hears on every connect",
+                rxPlaybackWaitMs > 500 ? TraceLevel.Error : TraceLevel.Info);
+
             // Main audio loop.
             // Note that we must pole for opus output.
             while (!stopRemoteAudio)
@@ -18270,7 +18278,7 @@ namespace Radios
                             {
                                 opusOutputChannel.JustStarted = false;
                                 stream.LastOpusTimestampConsumed = stream._opusRXList.Keys[lastID];
-                                _opusRxPrevTs = 0; // re-arm the continuity meter
+                                _opusRxContinuity.Rearm(); // the second we land in is partial
                             }
                         }
                         else
@@ -18291,41 +18299,11 @@ namespace Radios
                 }
                 if (opusBuf != null)
                 {
-                    // ── Track B, 2026-08-18 (#29): receive-continuity meter ──
-                    // The tone-monitor clicks appear only when TX and RX
-                    // streams run together, and PortAudio's statusFlags can
-                    // only see glitches PortAudio itself caused. A packet the
-                    // NETWORK lost never reaches PortAudio: our decoder just
-                    // splices two non-adjacent 10 ms packets together, and the
-                    // waveform step at the splice IS a click — invisible to
-                    // every instrument this path had. The radio's timestamps
-                    // are media time, so consecutive consumed packets should
-                    // step by exactly one packet duration; the smallest step
-                    // seen this session estimates that duration, and any step
-                    // over 1.5x it counts as a splice discontinuity. Totals at
-                    // stream close; first occurrence logged so the trace shows
-                    // WHEN it began (transmit start is the interesting case).
-                    if (_opusRxPrevTs > 0 && consumedTs > _opusRxPrevTs)
-                    {
-                        double delta = consumedTs - _opusRxPrevTs;
-                        _opusRxPacketCount++;
-                        if (delta < _opusRxMinDelta) _opusRxMinDelta = delta;
-                        if (delta > _opusRxMaxDelta) _opusRxMaxDelta = delta;
-                        if (_opusRxMinDelta < double.MaxValue && delta > _opusRxMinDelta * 1.5)
-                        {
-                            _opusRxGapCount++;
-                            if (_opusRxGapCount == 1)
-                            {
-                                Tracing.TraceLine("remoteAudioProc: first receive-stream "
-                                    + "discontinuity — consumed packet timestamps stepped "
-                                    + $"{delta * 1000:F1} ms where {_opusRxMinDelta * 1000:F1} ms is nominal. "
-                                    + "Audio between those timestamps never arrived; the splice "
-                                    + "is audible as a click. Further gaps are counted silently; "
-                                    + "totals are logged when the stream stops.", TraceLevel.Error);
-                            }
-                        }
-                    }
-                    _opusRxPrevTs = consumedTs;
+                    // Receive-continuity meter (#29, rewritten for #473): how
+                    // much audio never arrived, counted per UTC second rather
+                    // than differenced between timestamps. See
+                    // ReceiveContinuityMeter for why the difference matters.
+                    _opusRxContinuity.Consume(consumedTs);
                     opusOutputChannel.PortAudioStream.WriteOpus(opusBuf);
                 }
                 else

@@ -310,7 +310,13 @@ namespace JJPortaudio
         {
             Tracing.TraceLine("Morse", TraceLevel.Info);
             aud = new JJAudioStream();
-            if (!aud.OpenAudio(Devices.DeviceTypes.output, sampleRate))
+            // Named, because this is the SECOND output stream a connected
+            // session opens and its trace lines were indistinguishable from the
+            // receive stream's (#473). It is fed only while somebody is keying,
+            // so it spends most of a session filling the device with silence —
+            // which is exactly what a starving receive stream also looks like.
+            if (!aud.OpenAudio(Devices.DeviceTypes.output, sampleRate,
+                    streamName: "CW monitor"))
             {
                 Tracing.TraceLine("Morse:stream didn't open", TraceLevel.Error);
                 aud = null;
