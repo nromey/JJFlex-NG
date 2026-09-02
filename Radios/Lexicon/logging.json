@@ -204,6 +204,7 @@
   "logging.running.qso_capture": "watching the S-meter for {duration}, {count} readings",
   "logging.running.since": "started {clock}",
   "logging.running.startup": "Recording is on. {list}",
+  "logging.running.startup_brief": "Recording is on.",
   "logging.running.stay_open": "_Stay open",
   "logging.running.stop_and_close": "_Turn these off and close",
   "logging.running.stopped": "Turned off {names}.",

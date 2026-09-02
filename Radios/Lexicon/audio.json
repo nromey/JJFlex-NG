@@ -504,6 +504,7 @@
   "audio.pc_audio.off": "PC audio off",
   "audio.pc_audio.off_because": "PC audio off, {reason}.",
   "audio.pc_audio.off_because_remote": "PC audio off, {reason}. On a remote connection there is no other way to hear the radio.",
+  "audio.pc_audio.off_home": "PC audio off.",
   "audio.pc_audio.on": "PC audio on",
   "audio.pc_audio.on_because": "PC audio on, {reason}.",
   "audio.pc_audio.on_home": "PC audio on.",
@@ -636,6 +637,7 @@
   "audio.silent_tx.advisory": "This radio has no mic profile selected. A mic profile is the radio's own transmit-audio chain, and without one loaded, audio sent from this computer has nothing to travel through — you would key up and nobody would hear you. Receiving is unaffected, and nothing you did caused it: a radio arrives this way from the factory, and loading a global profile that carries no mic profile leaves it this way too.",
   "audio.silent_tx.advisory_suggestion": " This radio offers a mic profile named {pick}.",
   "audio.silent_tx.repaired": "This radio had no mic profile selected, so audio from your computer would not have been transmitted through your radio. I loaded {candidate} on the radio.",
+  "audio.silent_tx.repaired_brief": "This radio had no mic profile, so I loaded {candidate}.",
   "audio.silent_tx.warning": {
     "critical": "No mic profile on this radio. Audio from your computer will not be transmitted.",
     "terse": "This radio has no mic profile selected, so audio from your computer will not be transmitted through your radio. Nothing you did caused it.",

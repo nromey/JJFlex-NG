@@ -127,6 +127,19 @@ public partial class StatusDialog : JJFlexDialog
             ? Lexicon.Get("connect.status.via_smartlink")
             : Lexicon.Get("connect.status.via_local"));
 
+        // At connect — #510. The connect narration now volunteers a short
+        // composed statement; the full sentences it stands in for (the slice
+        // census, the profile verdict, the mic-profile outcome, the PC audio
+        // reason, the recording detail) live here, so a fact that stopped
+        // being spoken at connect can still be found where status lives.
+        var atConnect = ConnectBriefing.Current.Reference;
+        if (atConnect.Count > 0)
+        {
+            AddSection(Lexicon.Get("connect.status.section_at_connect"));
+            foreach (string sentence in atConnect)
+                AddItem(sentence.TrimEnd('.'));
+        }
+
         // Operating section — #320. The rebuild that produced this dialog had
         // both of these on its own field list and shipped without them, and
         // nothing recorded the gap.

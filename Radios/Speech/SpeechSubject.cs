@@ -116,6 +116,39 @@ namespace Radios.Speech
         public const string ProfileGuestOutcome = "profile-guest-outcome";
 
         /// <summary>
+        /// The radio the operator is on, as stated by the connect briefing's
+        /// lead — "Connected to FLEX-8600, SmartLink, 4 slices." One
+        /// connection at a time, so the next connect's lead replaces an
+        /// unheard one. Emitted by <see cref="ConnectBriefing"/> at the
+        /// settle moment, never by a call site of its own (#510).
+        /// </summary>
+        public const string ConnectLead = "connect-lead";
+
+        /// <summary>
+        /// Where the operator is — the Home arrival ("JJ Flexible Home,
+        /// Modern tuning mode") and the Home landing prefix ("JJ Flexible
+        /// Home, slice, 14.100.000"). Only the newest is true: an arrival
+        /// still unheard when a landing prefix speaks is covered by it.
+        /// Dialog titles are deliberately NOT here — see the #503 notes on
+        /// why "where focus is" across every window is a design of its own.
+        /// </summary>
+        public const string WhereYouAre = "where-you-are";
+
+        /// <summary>
+        /// The radio's own mic-profile selection at connect — repaired by
+        /// loading one, or found empty and warned about. Two verdicts on one
+        /// radio cannot both be true, so the newer replaces the older.
+        /// </summary>
+        public const string MicProfileOnRadio = "mic-profile-on-radio";
+
+        /// <summary>
+        /// Instrumentation running that the operator cannot see — "Recording
+        /// is on." (#194 by way of #253). Superseded by the next notice about
+        /// what is running.
+        /// </summary>
+        public const string RunningInstrumentation = "running-instrumentation";
+
+        /// <summary>
         /// The value of one field, named by its label — the committed value
         /// and the swept value share it, so a committed value still queued
         /// when the operator starts sweeping is covered by the sweep. This is

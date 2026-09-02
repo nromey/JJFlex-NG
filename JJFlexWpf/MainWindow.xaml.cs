@@ -124,7 +124,11 @@ public partial class MainWindow : UserControl
         // its focus-landing prefix. During a connect the activation churn
         // restores focus to it repeatedly, and each landing said "JJ Flexible
         // Home, slice" into the middle of the connect narration.
-        FreqOut.SuppressFocusPrefix = () => _connectQuiet.IsQuiet;
+        // #511: and while the connect briefing is in flight — which outlives
+        // the scope's door on the menu route (the door closes with the
+        // Connecting window; power-on and the settle come seconds later) and
+        // covers the discovery a menu command starts.
+        FreqOut.SuppressFocusPrefix = () => _connectQuiet.IsQuiet || Radios.ConnectBriefing.Current.InFlight;
 
         // Audio Workshop hooks that must NOT wait for a radio (2026-08-12).
         // The workshop's "This Computer" section and its preset toolbar both
@@ -576,27 +580,39 @@ public partial class MainWindow : UserControl
         try { runningNotice = Radios.RunningCostRegister.DescribeNotableForSpeech(); }
         catch { /* never let a diagnostics read cost somebody their arrival announcement */ }
 
-        if (_advisorySequenceActive)
-        {
-            _welcomeFocusPending = true;
-            _deferredStartupSpeech.Add((message, null));
-            if (runningNotice != null)
-                _deferredStartupSpeech.Add((runningNotice, Radios.VerbosityLevel.Critical));
-            return;
-        }
-
         // Land on the frequency display at startup — or on the rescue page's
         // first button when there is no radio and the display is collapsed.
-        FocusHome();
-        Radios.ScreenReaderOutput.Speak(
-            message, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Terse);
+        // The grab waits while an advisory is up (it would yank keyboard
+        // focus out of the modal); the chain replays it when the last
+        // advisory closes.
+        if (_advisorySequenceActive)
+            _welcomeFocusPending = true;
+        else
+            FocusHome();
+
+        // #511 — Home arrives LAST, once the connect settles. With a connect
+        // in flight the arrival is held by the briefing and released behind
+        // the composed connect statement, and the running-instrumentation
+        // notice becomes one clause of that statement (its size and start
+        // time stay in the reference). With no connect in flight — the
+        // startup connect was cancelled or failed and Home is the rescue
+        // page — both speak now, because Home IS the settled place the
+        // operator is. Until 2026-09-02 the arrival spoke here, 250 ms after
+        // the shell was shown, which put it in the MIDDLE of the connect
+        // narration with profile talk on both sides of it.
+        var briefing = Radios.ConnectBriefing.Current;
+        briefing.RequestHomeArrival(message, Radios.VerbosityLevel.Terse);
         if (runningNotice != null)
         {
-            // Critical, and queued behind the arrival. Critical because the
-            // operator did not ask and cannot see it; queued because it is the
-            // second half of arriving, not an interruption of it.
-            Radios.ScreenReaderOutput.Speak(
-                runningNotice, Radios.Speech.SpeechIntent.Queue, Radios.VerbosityLevel.Critical);
+            // Critical because the operator did not ask and cannot see it.
+            // Brief at connect because "Recording is on." is the part that
+            // changes what they do next; the rest is reference.
+            briefing.Note(new Radios.ConnectFact(
+                Radios.ConnectFactKind.RunningInstrumentation,
+                runningNotice,
+                Radios.Lexicon.Get("logging.running.startup_brief"),
+                Radios.VerbosityLevel.Critical,
+                Radios.Speech.SpeechSubject.RunningInstrumentation));
         }
     }
 
@@ -617,24 +633,36 @@ public partial class MainWindow : UserControl
                 string connType = Radios.Lexicon.Get(RigControl.RemoteRig
                     ? "connect.home.link_smartlink" : "connect.home.link_local");
 
-                // Slices may not have populated yet even after the 1.5s delay;
-                // when that's true, BuildFullSliceStatus falls back to a bare
-                // "Connected to X", which through this path would come out
-                // duplicate-prefixed. (Until #348 that fallback also said "no
-                // active slice" — untrue within two seconds; the builder now
-                // applies this same MyNumSlices test itself.) Speak the
-                // connection portion alone in that case and trust subsequent
-                // operations to reveal slice state as the user navigates.
-                string message;
-                if (RigControl.MyNumSlices > 0)
+                // #510 — this is the SETTLE moment, and the briefing composes
+                // from here. The lead names the radio, the link and the slice
+                // count; the four-slice census it used to carry (267
+                // characters, 21 seconds of speech this morning) is a
+                // reference, not an announcement — it goes into the
+                // briefing's reference and stays a keypress away in Speak
+                // Status and the Status dialog.
+                //
+                // Slices may not have populated yet even after the 1.5s delay
+                // (until #348 the fallback also said "no active slice" — untrue
+                // within two seconds). Name the connection alone in that case
+                // and trust subsequent operations to reveal slice state as the
+                // user navigates.
+                string lead;
+                string? censusFull = null;
+                int numSlices = RigControl.MyNumSlices;
+                if (numSlices > 0)
                 {
-                    string status = Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl);
-                    message = Radios.Lexicon.Get("connect.home.connected_with_slices",
-                        ("model", model), ("connType", connType), ("status", status));
+                    string slices = numSlices == 1
+                        ? Radios.Lexicon.Get("connect.briefing.slice_one")
+                        : Radios.Lexicon.Get("connect.briefing.slices", ("count", numSlices));
+                    lead = Radios.Lexicon.Get("connect.briefing.lead",
+                        ("model", model), ("connType", connType), ("slices", slices));
+                    censusFull = Radios.Lexicon.Get("connect.home.connected_with_slices",
+                        ("model", model), ("connType", connType),
+                        ("status", Radios.RadioStatusBuilder.BuildFullSliceStatus(RigControl)));
                 }
                 else
                 {
-                    message = Radios.Lexicon.Get("connect.home.connected",
+                    lead = Radios.Lexicon.Get("connect.briefing.lead_no_slices",
                         ("model", model), ("connType", connType));
 
                     // #359 — this sentence carries no slice information, so
@@ -646,16 +674,19 @@ public partial class MainWindow : UserControl
                     RigControl.ConnectSentenceFellBackToConnectionOnly();
                 }
 
-                // A startup advisory may be up (or about to be) — speaking the
-                // slice rundown now would stomp the dialog the user is reading.
-                // Park it; RunStartupAdvisories speaks it when the last
-                // advisory closes.
+                // A startup advisory may be up (or about to be) — settling now
+                // would speak the whole statement over the dialog the user is
+                // reading. Park the settle; RunStartupAdvisories runs it when
+                // the last advisory closes. One policy for every bring-up
+                // path: the Home arrival and the instrumentation notice are
+                // already inside the briefing, so parking the settle parks
+                // them with it.
                 if (_advisorySequenceActive)
                 {
-                    _deferredStartupSpeech.Add((message, VerbosityLevel.Critical));
+                    _pendingSettle = (lead, censusFull);
                     return;
                 }
-                Radios.ScreenReaderOutput.Speak(message, VerbosityLevel.Critical);
+                Radios.ConnectBriefing.Current.Settle(lead, censusFull);
             });
         });
     }
@@ -1757,6 +1788,11 @@ public partial class MainWindow : UserControl
     /// </summary>
     internal void BeginConnectFlowQuiet(string reason, bool door = false)
     {
+        // #511 — the briefing's flight opens with the scope's: from here
+        // until the connect settles (or ends with no radio) Home is not the
+        // settled place the operator is, and neither of its
+        // self-announcements may speak.
+        Radios.ConnectBriefing.Current.FlowBegan();
         var kind = _connectQuiet.Begin(door);
         if (kind == Radios.ConnectQuietScope.BeginKind.Fresh)
         {
@@ -1869,6 +1905,12 @@ public partial class MainWindow : UserControl
         _connectQuiet.Close();
         Tracing.TraceLine("ConnectQuiet: finish - no power-on, running the return-to-app landing",
             TraceLevel.Info);
+        // #511 — a flow that ends with no radio settles Home here: the held
+        // arrival, if any, is released. The briefing ignores this when a
+        // chosen radio is still starting (the menu door closes as soon as
+        // the Connecting window does, seconds before power-on), so the
+        // arrival cannot be released mid-connect by an early door.
+        Radios.ConnectBriefing.Current.FlowEndedWithoutRadio();
         RunReturnToAppLanding(fromFailsafe ? QuietScopeRescueLead : null);
     }
 
@@ -2902,6 +2944,9 @@ public partial class MainWindow : UserControl
         // and the retry ladder's fresh legs, which never pass through the menu
         // or the rescue button. Idempotent when a door already opened it.
         BeginConnectFlowQuiet("radio events wired");
+        // #510 — a radio is chosen and starting: the briefing starts
+        // collecting this radio's facts for the composed statement.
+        Radios.ConnectBriefing.Current.RadioChosen();
 
         RigControl.PowerStatus += PowerStatusHandler;
         RigControl.NoSliceError += NoSliceErrorHandler;
@@ -2964,41 +3009,41 @@ public partial class MainWindow : UserControl
         {
             _advisorySequenceActive = false;
 
-            // Bring-up speech that arrived while the chain was active gets its
-            // turn now that the user is done reading — focus first (the parked
-            // welcome focus grab), then each parked announcement in arrival
-            // order. One policy for every bring-up path, not per-path patches.
+            // Bring-up that arrived while the chain was active gets its turn
+            // now that the user is done reading — focus first (the parked
+            // welcome focus grab), then the parked connect settle, which
+            // speaks the composed statement and releases the Home arrival
+            // behind it. One policy for every bring-up path, not per-path
+            // patches.
             if (_welcomeFocusPending)
             {
                 _welcomeFocusPending = false;
                 try { FocusHome(); } catch { /* window may be closing */ }
             }
-            foreach (var (message, level) in _deferredStartupSpeech)
+            if (_pendingSettle is { } settle)
             {
-                if (level.HasValue)
-                    Radios.ScreenReaderOutput.Speak(message, level.Value);
-                else
-                    Radios.ScreenReaderOutput.Speak(message);
+                _pendingSettle = null;
+                Radios.ConnectBriefing.Current.Settle(settle.lead, settle.censusFull);
             }
-            _deferredStartupSpeech.Clear();
         }
     }
 
     /// <summary>
     /// True while the startup-advisory chain is running. Every main-window
-    /// bring-up speech path checks it — the welcome line and the connect-time
-    /// slice rundown both queue into <see cref="_deferredStartupSpeech"/>
-    /// instead of talking over an open advisory (ordering policy, 2026-08-07;
-    /// the connect rundown got this treatment first and the welcome line was
-    /// a separate un-parked path). All on the dispatcher thread, no locking.
+    /// bring-up speech path checks it — the welcome focus grab and the
+    /// connect settle both wait instead of talking over an open advisory
+    /// (ordering policy, 2026-08-07; the connect rundown got this treatment
+    /// first and the welcome line was a separate un-parked path). All on the
+    /// dispatcher thread, no locking.
     /// </summary>
     private bool _advisorySequenceActive;
 
     /// <summary>
-    /// Parked bring-up announcements, in arrival order. Null level means
-    /// speak at the default verbosity.
+    /// A connect settle that arrived while an advisory was up (#510). The
+    /// composed statement, the Home arrival and every collected fact ride
+    /// behind it, so parking this one call parks the whole bring-up.
     /// </summary>
-    private readonly List<(string message, VerbosityLevel? level)> _deferredStartupSpeech = new();
+    private (string lead, string? censusFull)? _pendingSettle;
 
     /// <summary>
     /// SpeakWelcome's FreqOut focus grab was deferred because an advisory was
@@ -3323,6 +3368,9 @@ public partial class MainWindow : UserControl
         // WireRadioEvents re-raises the scope and its generation counter
         // makes this end request a no-op too.
         EndConnectFlowQuiet("radio events unwired");
+        // #510 — facts collected for a radio that is gone describe nothing;
+        // the flight stays open for a retry leg to choose again.
+        Radios.ConnectBriefing.Current.RadioGone();
 
         if (RigControl != null)
         {
@@ -4828,9 +4876,8 @@ public partial class MainWindow : UserControl
             // bound, never re-spoken, on a remote connection where it is the
             // only reason the operator can hear the radio at all.
             if (before)
-                ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_audio.on_home"),
-                    Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
-                    subject: Radios.Speech.SpeechSubject.PcAudio);
+                NotePcAudio(Radios.Lexicon.Get("audio.pc_audio.on_home"),
+                    Radios.Lexicon.Get("audio.pc_audio.on_home"), VerbosityLevel.Terse);
             return;
         }
 
@@ -4849,31 +4896,44 @@ public partial class MainWindow : UserControl
             // Wanted on, could not start (no usable sound device is the
             // usual cause). The audio path speaks its own failure detail;
             // this names the consequence.
-            ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.pc_audio.could_not_start_home"),
-                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
-                subject: Radios.Speech.SpeechSubject.PcAudio);
+            NotePcAudio(Radios.Lexicon.Get("audio.pc_audio.could_not_start_home"),
+                Radios.Lexicon.Get("audio.pc_audio.could_not_start_home"), VerbosityLevel.Critical);
         }
         else if (actual)
         {
-            ScreenReaderOutput.Speak(
+            NotePcAudio(
                 Radios.Lexicon.Get("audio.pc_audio.on_because", ("reason", reason)),
-                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
-                subject: Radios.Speech.SpeechSubject.PcAudio);
+                Radios.Lexicon.Get("audio.pc_audio.on_home"), VerbosityLevel.Terse);
         }
         else if (before)
         {
             // The policy just turned it off. Over remote that costs
             // everything, and that must never be a silent surprise.
-            ScreenReaderOutput.Speak(
+            NotePcAudio(
                 Radios.Lexicon.Get(rig.RemoteRig
                     ? "audio.pc_audio.off_because_remote"
                     : "audio.pc_audio.off_because",
                     ("reason", reason)),
-                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
-                subject: Radios.Speech.SpeechSubject.PcAudio);
+                Radios.Lexicon.Get("audio.pc_audio.off_home"), VerbosityLevel.Terse);
         }
         // Off and already off: nothing flipped, nothing to hear — stay quiet.
     }
+
+    /// <summary>
+    /// Hand a PC-audio outcome to the connect briefing (#510): at connect it
+    /// is one clause of the composed statement — the state without its
+    /// reason, which stays in the reference — and off a connect the full
+    /// sentence is spoken at once, as before. Every one keeps the pc-audio
+    /// subject (#503) so "PC audio on." stays worth hearing until "off" or
+    /// "could not start" replaces it, whatever else interrupts.
+    /// </summary>
+    private static void NotePcAudio(string full, string brief, VerbosityLevel level,
+        [System.Runtime.CompilerServices.CallerFilePath] string file = "",
+        [System.Runtime.CompilerServices.CallerLineNumber] int line = 0,
+        [System.Runtime.CompilerServices.CallerMemberName] string member = "")
+        => Radios.ConnectBriefing.Current.Note(new Radios.ConnectFact(
+            Radios.ConnectFactKind.PcAudio, full, brief, level,
+            Radios.Speech.SpeechSubject.PcAudio, alarm: false, file, line, member));
 
     /// <summary>
     /// Per-radio REM ON queued intent (Track C, settings that stick). REM ON
@@ -4930,6 +4990,7 @@ public partial class MainWindow : UserControl
     private void PowerNowOffInternal()
     {
         Tracing.TraceLine("MainWindow PowerNowOff", TraceLevel.Info);
+        Radios.ConnectBriefing.Current.RadioGone();
 
         if (RigControl != null)
         {
