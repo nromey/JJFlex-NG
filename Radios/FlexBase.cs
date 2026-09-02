@@ -9937,10 +9937,32 @@ namespace Radios
             int now = System.Environment.TickCount;
             if ((now - _txMeterTraceTime) < 1000) return;
             _txMeterTraceTime = now;
+            // Reflected, both SWR figures and the derived share are here
+            // BECAUSE THEY WERE NOT, and their absence cost an evening.
+            // On 2026-09-01 four transmissions were captured at Verbose while
+            // hunting a reflected-power alarm that never fired, and this line
+            // — the transmit diagnostic — printed forward power and omitted the
+            // one number the alarm actually judges. An instrument that shows
+            // everything except the quantity under investigation sends the
+            // reader off inventing mechanisms; it produced three wrong
+            // hypotheses before the operator's own memory corrected it.
+            //
+            // Raw AND computed SWR, deliberately: the radio's own meter reads
+            // 1.008 with 76% of the power coming back (see ComputedSWR), so
+            // the two disagreeing IS the diagnosis, and one alone hides it.
+            float refl = _ReflectedPower;
+            float back = ReflectedFraction;
             Tracing.TraceLine("txMeters: SC_MIC=" + _scMicDb.ToString("F1")
                 + " (peak " + _scMicMaxDb.ToString("F1") + ")"
                 + " SWALC=" + _swAlcDb.ToString("F1")
-                + " fwd=" + _PowerDBM.ToString("F1") + " dBm", TraceLevel.Info);
+                + " fwd=" + _PowerDBM.ToString("F1") + " dBm"
+                + " refl=" + refl.ToString("F1") + " dBm"
+                + " fwdW=" + ForwardPowerWatts.ToString("F2")
+                + " reflW=" + ReflectedPowerWatts.ToString("F3")
+                + " back=" + (float.IsNaN(back) ? "n/a" : (back * 100f).ToString("F1") + "%")
+                + " SWRraw=" + _SWR.ToString("F2")
+                + " SWRcalc=" + (float.IsNaN(ComputedSWR) ? "n/a" : ComputedSWR.ToString("F2")),
+                TraceLevel.Info);
         }
 
         // --- PC-side transmit loudness, LUFS (Engine Track, 2026-08-11) ------

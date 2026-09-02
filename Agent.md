@@ -9,6 +9,141 @@ This document captures the current state of JJ-Flex repository and active work.
 
 *Superseded history, kept for context: main was reverted off `track/flexlib-42` on 2026-05-15 after Don's LAN trace exposed a vendor-side station-name regression; that era's notes are `memory/project_flexlib_4218_*.md` and `memory/project_main_branch_41_posture.md`. 4.2.20 supersedes all of it and works.*
 
+## END-OF-DAY SEAL — 2026-09-01 — TWELVE TRACKS SHIPPED, AND AN EVENING AT THE RADIO FOUND WHAT NONE OF THEM COULD
+
+**Sealed 22:35. 53 commits in JJFlex-NG, 56 in jjf-private. Rigmeter +14,476 /
+-925, net +13,551 across 120 files — both figures agree, so nothing was
+reverted. Twelve parallel tracks built, merged, green: 0 build errors, 2,389
+tests passing. Eighteen findings registered, #485 through #502. NO build
+shipped — deliberately.**
+
+### The headline
+
+**Twelve tracks ran and merged cleanly, and then four hours of live operating
+produced findings none of them could have reached.** Every agent worked without a
+radio; every one of the evening's most consequential defects was invisible
+without one.
+
+**The single most important thing found: the speech channel is lossy.** Nine
+messages were generated and never delivered in one session — `Connected to
+K5NER. Waiting…`, `This radio's profiles we…`, `Heads up: this radio has…`,
+`PC audio on.`, `Entering 10 meter band`, and **`SWR 1.7`**, the tuner reading an
+hour had been spent trying to obtain. **In an application where speech IS the
+interface, the primary output channel is dropping about nine messages a session,
+several of them safety-relevant.** It also means past findings need re-reading:
+how often has "the app didn't tell me X" actually been "the app told you and the
+arbiter binned it"?
+
+### What the twelve tracks delivered
+
+Track A rebuilt the reflected-power alarm on paired readings and rewrote the mic
+warning to Noel's latch-the-success design. Track B built guest-radio profile
+stewardship. Track C found the equaliser dialog built in February and never
+wired, and connected it — nine bands, ruled by Noel. Track D inventoried the
+unwired surfaces and found the **Tracking Notch Filter has no operator surface at
+all**. Track E swept eight speech-correctness defects. Track F shipped the
+startup-stall fix — proven by deliberate reproduction, 0.020 ms baseline against
+**10,003.542 ms** with the fault induced. Track G found the Fixer's remedy text
+was a static string with no access to the walk's own findings, and gave rules a
+way to retract. Track H fixed playback and the injection path. Track I found
+#436's premise false and refused to execute it. Track J found the receive queue
+**ratchets** — silence inserted on starvation is never reclaimed. Track K swept
+the changelog. Track L found the disclosure question underneath the housekeeping
+one.
+
+### The evening at the radio
+
+**Four hours, four wrong hypotheses of mine, and every correction came from
+Noel.**
+
+The reflected-power alarm appeared broken. It was not: **the transmit antenna was
+being applied to a slice that was not transmitting**, so every measurement into
+what he believed was a bare port was actually going into a matched load. 100 W,
+0.1% reflected, no foldback — physically impossible into an open circuit, and the
+radio's own protection not acting is what proved it.
+
+Corrected, the alarm **fired exactly as designed**: 5 W into a genuine open port,
+**76% reflected — matching the 2026-08-22 bench figure precisely** — with
+`skew 0 ms`, `floor 1.0 W`, three judged samples. Track A's work is validated on
+real measurements.
+
+Then the same defect in another subsystem: **`FindMeterByName` is
+`FirstOrDefault`**, and Don's 6300 publishes **three SC_MIC meters across two
+transmit sources.** We bound to an arbitrary one, read −150, and reported "no
+transmit audio" while the transmit monitor proved audio was arriving. **Bind to
+one instance of a per-source thing, the radio uses another, everything reports
+success, and the symptom is silence** — twice, in unrelated code.
+
+### The explanation for Don's bug, arrived at by Noel
+
+**His 6300 has no internal ATU.** He drives a remote tuner by transmitting a
+carrier — so `ATUTuneInProgress`, the flag the alarm stands down on, **is never
+set on his station.** He keys, the remote tuner hunts, reflected power is
+genuinely high, the alarm fires and cuts, the tuner settles to 1.7, and he sees
+1.7 and concludes the alarm was wrong. **It was not wrong. It was unsuppressed.**
+
+And the rule that follows is better than any threshold: **a bad antenna's
+reflected power is STABLE; a tuner searching produces reflected power that
+CHANGES and TRENDS DOWN.** That needs no declaration, no timer, and no visibility
+into a tuner we do not own.
+
+### Decisions
+
+**No build shipped.** Noel: *"I don't want to ship the profile stuff until we're
+absolutely sure it's right."* Don has the workaround already in his notes, and
+the band was unusable anyway.
+
+**Nine bands for the equalisers**, not eight — *"the surface covers the radio"* is
+verifiable; *"we left one out on purpose"* is not remembered.
+
+**The guest-radio design is replaced** (#499): profiles kept locally, applied to
+live state, nothing saved, no marker profile. Noel's headline finding is that the
+current implementation *"is way more intrusive than it has to be"* — demonstrated
+when he needed one transmit setting and the only lever was "load all my
+profiles."
+
+**The transmit-slice fact gets three channels and extends the EXISTING
+announcement** rather than adding one.
+
+### Cross-surface activity
+
+No memory files modified today. Twelve worktrees, all merged and contained.
+jjf-private took 56 commits — the entire finding register. **Freight Fate still
+holds 16 unpushed commits, unchanged, still Noel's call; Civ VI clean.** No
+external infrastructure work. Dependency check: **no vulnerable packages.**
+`MEMORY.md` is at **12,016 bytes — at the seal threshold**, worth a sweep.
+
+### Setup for tomorrow
+
+Plan written: `planning/agile/ragchew-splatter-hamburger.md`. **Ordered by what
+needs Noel at the radio rather than by severity**, because he wants to test early
+and has an appointment in the afternoon.
+
+**Speech channel first** — not because it is the worst, but because every other
+observation is measured through it.
+
+Then the binding class as one defect, then the alarm's settling rule. Guest-radio
+granularity and the missing instrumentation run alongside. Features last, and the
+best of them is **speaking SWR while the tuner settles** — a sighted operator
+watches the needle fall, and right now a blind one gets one number at the end.
+
+**Still blocked on one ruling: the layer letter allocation.** The Sprint 43
+proposal was checked against the inventory and **nine of ten toggle moves
+collided** — rework from what is actually free, then walk it with Noel one letter
+at a time.
+
+### Rigmeter snapshot — end of 2026-09-01
+
+Plus 14,476, minus 925, net **+13,551** across 120 files and 53 commits. Both
+figures agree. By type: **C# +13,633 / −653 across 98 files**, VB +434/−39,
+markdown +203/−149, plus XAML, text and JSON. Roughly **10.5 hours read aloud**;
+290 printed pages. Snapshot on the NAS at `2026-09-01-7ac257b1.json`.
+
+**Branch-scope caveat, and it matters today:** this counts JJFlex-NG only. The
+**56 jjf-private commits — the entire eighteen-finding register, the Sprint 43
+and 44 plans, and the layer design** — live in a separate repository and are not
+in that number.
+
 ## END-OF-DAY SEAL — 2026-08-31 — DON'S RADIO TRANSMITS, AND IT WAS NEVER OURS TO FIX
 
 **Sealed 21:20. Fourteen commits in JJFlexRadio-NG, 27 in jjf-private. Rigmeter
