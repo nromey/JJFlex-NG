@@ -15333,6 +15333,7 @@ namespace Radios
             StrandedProfileRestorePoints = Array.Empty<ProfileTypes>();
             _autosaveTurnedOffThisSession = false;
             _liveTxSnapshot = null;
+            _pendingLiveTxApplyPreset = null;
 
             // #495: a radio we already know is not a stranger. Before this,
             // the change-nothing-until-answered default — right for a radio we
