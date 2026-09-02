@@ -1089,11 +1089,48 @@ namespace JJFlexWpf
             // no skew.
             TransmitPowerReading reading = rig.ReadTransmitPower();
 
+            // Tuning, read FRESH from the radio every tick and remembered by
+            // nobody (#453, the manual-tune half). Two things count:
+            //
+            //  - The radio's own ATU cycle, as before.
+            //  - The operator's tune carrier (Ctrl+Shift+T) while THIS
+            //    controller owns the transmission. A tester's 6300 has no
+            //    internal tuner; he drives a remote one with that carrier, so
+            //    the ATU flag never fires on his station. The carrier state
+            //    comes from the radio (FlexBase.TxTune reads FlexLib's TXTune)
+            //    and NOT from the FlexAntTunerStartStop event, which carries a
+            //    start for this path and no stop — the stop is raised only
+            //    inside FlexTunerOn, which the carrier toggle does not go
+            //    through. A flag latched from that event would silence this
+            //    alarm for good the first time a carrier was dropped by the
+            //    kill switch, the radio's own timeout or another client. The
+            //    radio's state cannot latch: whatever drops the carrier clears
+            //    it. Owned transmissions only, because during an external
+            //    watch the carrier up is a transmit check's own probe, which
+            //    is a measurement and must be judged.
+            //
+            // Unreadable means NOT tuning: an unknown must never silence a
+            // safety alarm.
+            bool tuneCarrierUp;
+            try { tuneCarrierUp = rig.TxTune; } catch { tuneCarrierUp = false; }
+            bool tuning = rig.ATUTuneInProgress || (State != PttState.Idle && tuneCarrierUp);
+
             int inconsistentBefore = _reflectedRun.IncoherentSamples;
-            _reflectedRun.Observe(reading);
+            _reflectedRun.Observe(reading, _healthTxSeconds);
             if (_reflectedRun.IncoherentSamples == 1 && inconsistentBefore == 0)
                 Tracing.TraceLine(
                     "PTT: declining to judge reflected power — " + reading.WhyNotCoherent,
+                    TraceLevel.Info);
+
+            // A sustained bad run that ended in a good sample: the match went
+            // from bad to fine while the operator kept transmitting, which is
+            // what a remote tuner finding its match looks like from here.
+            // Nothing is said; the trace is the corroboration a tester's "my
+            // tuner said 1.7" never had (#453).
+            if (_reflectedRun.JustRecovered)
+                Tracing.TraceLine(
+                    "PTT: reflected power settled — " + _reflectedRun.LastRecovery
+                    + " — nothing said; that is what a tuner finding its match looks like",
                     TraceLevel.Info);
 
             // The CUT (#224): after the alarm has fired, a further bad sample
@@ -1110,7 +1147,7 @@ namespace JJFlexWpf
             if (State != PttState.Idle
                 && TransmitSafety.ShouldCutReflected(
                     _config.CutTransmitOnReflectedAlarm, _healthReflectedWarned,
-                    reading, rig.ATUTuneInProgress))
+                    reading, tuning))
             {
                 float cutBack = reading.ReflectedShare;
                 Tracing.TraceLine(
@@ -1126,10 +1163,27 @@ namespace JJFlexWpf
                 return;
             }
 
-            if (!TransmitSafety.ShouldWarnReflected(
-                    reading, _reflectedRun, _healthTxSeconds,
-                    rig.ATUTuneInProgress, _healthReflectedWarned))
+            TransmitSafety.ReflectedVerdict verdict = TransmitSafety.JudgeReflected(
+                reading, _reflectedRun, _healthTxSeconds, tuning, _healthReflectedWarned);
+
+            // The settling rule (#453): high, sustained, and still MOVING —
+            // a tuner hunting, or something else moving the match. The alarm
+            // is held off while the share changes, for up to the bound, and
+            // then judged on level alone. Said once per streak, at Info, so a
+            // bundle shows the alarm was held off on purpose rather than
+            // asleep; the two look identical from the operator's chair.
+            if (verdict == TransmitSafety.ReflectedVerdict.Deferred)
+            {
+                if (_reflectedRun.NoteDeferred() == 1)
+                    Tracing.TraceLine(
+                        $"PTT: reflected power is high but still CHANGING ({reading}, {_reflectedRun}) "
+                        + "— alarm deferred while it settles, for up to "
+                        + $"{TransmitSafety.ReflectedSettleBoundSeconds:F0} s; a tuner hunting looks "
+                        + "like this and a bad antenna holds still",
+                        TraceLevel.Info);
                 return;
+            }
+            if (verdict != TransmitSafety.ReflectedVerdict.Warn) return;
 
             _healthReflectedWarned = true;
 

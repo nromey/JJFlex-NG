@@ -158,6 +158,90 @@ namespace Radios
         /// </remarks>
         public const int ReflectedWarnSustainedSamples = 3;
 
+        // ==================================================================
+        // The settling rule (#453): judge the SHAPE, not only the level
+        // ==================================================================
+        //
+        // A tester's 6300 has no internal tuner. He drives a remote tuner by
+        // transmitting into it, so ATUTuneInProgress — the flag the alarm
+        // stands down on — is never set on his station, and the alarm cut him
+        // off while his tuner was still hunting, a second before it settled to
+        // 1.7. He saw 1.7 and reasonably concluded the alarm was wrong. It was
+        // not wrong; it was unsuppressed. Noel's discriminator, which needs no
+        // declaration, no timer and no visibility into a tuner we do not own:
+        //
+        //   A bad antenna's reflected power is STABLE. A tuner searching
+        //   produces reflected power that CHANGES and trends down.
+        //
+        // So: falling and settling defers; high and stable alarms; and a
+        // deferral is not a cancellation — if the share is still high when it
+        // stops moving, or the outer bound passes, the alarm fires. A tuner
+        // that never finds a match is precisely the case the operator most
+        // needs telling about.
+
+        /// <summary>
+        /// How far apart the reflected shares in the settle window may be —
+        /// highest minus lowest — and still count as holding still.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Ten points of share. The two measured stable faults — 17.5 W with
+        /// 13.4 W back on 2026-08-22, 4.1 W with 3.10 W back on 2026-09-01 —
+        /// both read 76 percent, sample after sample, weeks apart at different
+        /// powers; a stable mismatch does not wander by ten points. A tuner
+        /// hunting through relay combinations above the threshold moves the
+        /// share by tens of points per step, because the combinations are
+        /// coarse where the match is bad. The band between is wide, which is
+        /// what makes this a boundary rather than a guess — but it has been
+        /// measured only on stable loads so far. <b>Still to be measured on the
+        /// bench:</b> the spread a hunting tuner actually produces at one
+        /// sample a second; the trace carries the recent shares for exactly
+        /// that.
+        /// </para>
+        /// <para>
+        /// <b>Not named <c>...Fraction</c> on purpose.</b> This is a DIFFERENCE
+        /// between two shares, not a share of forward power, and
+        /// <c>IntegrationPassRuleTests.Every_reflected_power_threshold_is_the_same_number</c>
+        /// rightly requires anything with that suffix to equal
+        /// <see cref="ReflectedWarnFraction"/>.
+        /// </para>
+        /// </remarks>
+        public const float ReflectedSettleSpan = 0.10f;
+
+        /// <summary>
+        /// How much of the current bad streak the shape is judged over: the
+        /// last two seconds of it, and never fewer than
+        /// <see cref="ReflectedWarnSustainedSamples"/> samples.
+        /// </summary>
+        /// <remarks>
+        /// "The last second or two" is the whole of the specification, and
+        /// two rather than one because the kill switch samples four times a
+        /// second: three samples there cover under a second, and a tuner
+        /// stepping once a second would look settled between steps. The
+        /// sample minimum is for speech at one a second, where most ticks are
+        /// not judgeable and the last three judged samples may be six seconds
+        /// apart. See <see cref="ReflectedPowerRun.RecentShares"/>.
+        /// </remarks>
+        public const double ReflectedSettleWindowSeconds = 2.0;
+
+        /// <summary>
+        /// How long a changing reflected share may hold the alarm off, counted
+        /// from the first bad sample of the streak. Past it, the level alone
+        /// decides.
+        /// </summary>
+        /// <remarks>
+        /// Twenty seconds. The tester's own figure for his tuner is ten; a
+        /// minute is not a tune, it is a fault that happens to be moving. The
+        /// published worst cases for the common outboard tuners sit at or
+        /// under fifteen, so twenty covers a hard match with margin and still
+        /// ends, for a tuner that never finds one, well inside the time an
+        /// operator would wonder why nothing had been said. Counted from the
+        /// streak's start rather than key-down so that a re-hunt three minutes
+        /// into a transmission gets the same patience as one at key-down —
+        /// see <see cref="ReflectedPowerRun.BadStreakStartSeconds"/>.
+        /// </remarks>
+        public const double ReflectedSettleBoundSeconds = 20.0;
+
         /// <summary>
         /// The forward power below which a reflected share is not judged, given
         /// how much power this transmission has actually managed to make.
@@ -194,14 +278,37 @@ namespace Radios
         }
 
         /// <summary>
+        /// What the reflected-power rule concluded about one tick.
+        /// </summary>
+        public enum ReflectedVerdict
+        {
+            /// <summary>Nothing to say: already warned, meters still settling,
+            /// a tune cycle running, the sample unjudgeable or good, or the
+            /// run not yet sustained.</summary>
+            Quiet,
+
+            /// <summary>The share is high and has been for long enough to
+            /// believe — but it is still CHANGING, and the outer bound has not
+            /// passed. Something is moving the match; wait for it to stop.
+            /// Callers should record this with
+            /// <see cref="ReflectedPowerRun.NoteDeferred"/> and trace the
+            /// first one.</summary>
+            Deferred,
+
+            /// <summary>Tell the operator now.</summary>
+            Warn,
+        }
+
+        /// <summary>
         /// Whether the operator should be told, right now, that their power is
-        /// coming back instead of leaving.
+        /// coming back instead of leaving — and if not, whether that is because
+        /// the alarm is being HELD OFF while the match moves.
         /// </summary>
         /// <remarks>
         /// <para>
         /// <b>It takes a paired reading and a run, not two loose numbers, and
-        /// that is the whole of #453.</b> The signature that used to be here
-        /// accepted a forward float and a reflected float, and both live
+        /// that is the first half of #453.</b> The signature that used to be
+        /// here accepted a forward float and a reflected float, and both live
         /// callers filled them with two independent property gets of two
         /// independently-updated fields. Every judgement was therefore made on
         /// a pair that might have been sampled at different instants, and on
@@ -210,57 +317,110 @@ namespace Radios
         /// defect available to the next caller.
         /// </para>
         /// <para>
-        /// The rule itself is unchanged: over
-        /// <see cref="ReflectedWarnPercent"/> of the power coming back, once
-        /// the meters have settled, not during a tune, once per transmission.
-        /// What is added is that the sample must be one sample, must be near
-        /// the transmission's own envelope peak, and must be corroborated by
-        /// its neighbours.
+        /// <b>The settling rule is the second half, and it is the layer ABOVE
+        /// the pairing and the floor, which stand.</b> Everything up to
+        /// <see cref="ReflectedPowerRun.Sustained"/> is the rule that was
+        /// validated on real measurements on 2026-09-01 — 4.1 W into a genuine
+        /// open port, 76 percent back, three judged samples, alarm as
+        /// designed. What is added after it: a sustained bad run whose recent
+        /// shares are still CHANGING is deferred rather than announced, for up
+        /// to <see cref="ReflectedSettleBoundSeconds"/> from the streak's first
+        /// bad sample. A high share that holds still warns at once — the three
+        /// identical samples of 2026-09-01 are exactly that, and this function
+        /// warns on them at the same tick it did before. A share that settles
+        /// high warns when it settles. A share still moving at the bound warns
+        /// at the bound. Nothing here can turn a warning into silence; it can
+        /// only move it later, and never past the bound.
+        /// </para>
+        /// <para>
+        /// <b>The deferral does not know whether a tuner exists, on purpose.</b>
+        /// An operator who never told us about their tuner gets the same rule,
+        /// because the shape of the last two seconds is evidence and a
+        /// declaration is not. Equally, nothing here remembers that the match
+        /// has always been fine: an antenna that has always been fine is
+        /// precisely the one to be told about the day it stops.
+        /// </para>
+        /// <para>
+        /// <b><paramref name="tuning"/> is read fresh every tick and remembered
+        /// by nobody.</b> The manual-tune half of #453 wires it from the
+        /// radio's own live tune-carrier state (<c>FlexBase.TxTune</c>) rather
+        /// than from the <c>FlexAntTunerStartStop</c> event, because that event
+        /// carries a start for the operator's tune carrier and no stop — the
+        /// stop is raised only inside <c>FlexTunerOn</c>, which the carrier
+        /// toggle does not go through. A flag latched from it would disable
+        /// this alarm permanently the first time a carrier was dropped by any
+        /// other route. The radio's state cannot latch: it is cleared by
+        /// whatever drops the carrier, including the radio itself.
         /// </para>
         /// </remarks>
         /// <param name="reading">Forward and reflected as ONE reading.</param>
         /// <param name="run">
         /// This transmission's accumulated state — the forward peak that sets
-        /// the floor and the run of bad judgeable samples.
+        /// the floor, the run of bad judgeable samples, and their shape.
         /// <see cref="ReflectedPowerRun.Observe"/> must already have been given
-        /// this reading.
+        /// this reading, with this same clock.
         /// </param>
-        /// <param name="txSeconds">Seconds transmitting, in any keying state.</param>
-        /// <param name="tuning">True while the antenna tuner is running a cycle.</param>
+        /// <param name="txSeconds">Seconds transmitting, in any keying state —
+        /// the same clock the run was observed with.</param>
+        /// <param name="tuning">True while the antenna tuner is running a cycle,
+        /// or the operator's own tune carrier is up.</param>
         /// <param name="alreadyWarned">True once this transmission has spoken.</param>
-        public static bool ShouldWarnReflected(
+        public static ReflectedVerdict JudgeReflected(
             in TransmitPowerReading reading, ReflectedPowerRun run,
-            int txSeconds, bool tuning, bool alreadyWarned)
+            double txSeconds, bool tuning, bool alreadyWarned)
         {
             // Once per transmission. A warning that repeats every second while
             // the operator is trying to act on it is noise, and noise is how a
             // warning gets switched off.
-            if (alreadyWarned) return false;
+            if (alreadyWarned) return ReflectedVerdict.Quiet;
 
-            if (txSeconds < ReflectedWarnSeconds) return false;
+            if (txSeconds < ReflectedWarnSeconds) return ReflectedVerdict.Quiet;
 
             // A tune cycle transmits into a deliberately bad match and walks
             // toward a good one, so high reflected power during one is the tuner
             // doing its job. Without this, every routine tune-up would announce
             // a disconnected antenna — and an operator who has learned to ignore
             // a warning is worse off than one who never had it.
-            if (tuning) return false;
+            if (tuning) return ReflectedVerdict.Quiet;
 
-            if (run == null) return false;
+            if (run == null) return ReflectedVerdict.Quiet;
 
             // The current sample must itself be judgeable and bad. The run
             // carries the corroboration; it must not carry the verdict on its
             // own, or a warning could fire off three old samples after the
             // meters had already recovered.
-            if (!reading.IsCoherent) return false;
+            if (!reading.IsCoherent) return ReflectedVerdict.Quiet;
             if (float.IsNaN(reading.ForwardWatts)
-                || reading.ForwardWatts < run.FloorWatts) return false;
+                || reading.ForwardWatts < run.FloorWatts) return ReflectedVerdict.Quiet;
 
             float back = reading.ReflectedShare;
-            if (float.IsNaN(back)) return false;
-            if (back <= ReflectedWarnFraction) return false;
+            if (float.IsNaN(back)) return ReflectedVerdict.Quiet;
+            if (back <= ReflectedWarnFraction) return ReflectedVerdict.Quiet;
 
-            return run.Sustained;
+            if (!run.Sustained) return ReflectedVerdict.Quiet;
+
+            // The settling rule. Only Changing defers: TooFew cannot coincide
+            // with Sustained today, and if a future edit made it possible the
+            // safe reading of "cannot tell the shape" is to judge on level,
+            // not to wait.
+            if (run.Shape == ReflectedShape.Changing
+                && run.BadStreakSeconds(txSeconds) < ReflectedSettleBoundSeconds)
+                return ReflectedVerdict.Deferred;
+
+            return ReflectedVerdict.Warn;
+        }
+
+        /// <summary>
+        /// <see cref="JudgeReflected"/> as a plain yes or no. The live paths
+        /// use the verdict so they can trace a deferral; this remains for
+        /// callers and tests that only need the answer.
+        /// </summary>
+        public static bool ShouldWarnReflected(
+            in TransmitPowerReading reading, ReflectedPowerRun run,
+            int txSeconds, bool tuning, bool alreadyWarned)
+        {
+            return JudgeReflected(reading, run, txSeconds, tuning, alreadyWarned)
+                   == ReflectedVerdict.Warn;
         }
 
         /// <summary>
