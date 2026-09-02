@@ -1,0 +1,22 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.KeyExplorerDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="JJ key explorer"
+        Width="640" Height="500"
+        ResizeMode="CanResizeWithGrip">
+    <DockPanel Margin="12">
+        <TextBlock x:Name="HintText" DockPanel.Dock="Top"
+                   TextWrapping="Wrap" Margin="0,0,0,8" />
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="_Close" IsCancel="True" MinWidth="80" Height="28"
+                    AutomationProperties.Name="Close"
+                    AutomationProperties.AccessKey="Alt+C"
+                    AutomationProperties.AcceleratorKey="Alt+C" />
+        </StackPanel>
+        <TreeView x:Name="Tree"
+                  AutomationProperties.Name="JJ key structure"
+                  PreviewKeyDown="Tree_PreviewKeyDown" />
+    </DockPanel>
+</local:JJFlexDialog>

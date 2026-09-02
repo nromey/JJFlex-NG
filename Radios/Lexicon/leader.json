@@ -7,5 +7,26 @@
     "critical": "Unknown key. H for the list, Escape to cancel.",
     "terse": "Unknown key. H for the list, Escape to cancel.",
     "chatty": "Unknown key. Press H, or Shift slash, for the list of JJ key commands. Escape to cancel."
-  }
+  },
+  "leader.help.layer_name": "the JJ key layer",
+  "leader.help.layer_title": "JJ key layer",
+  "leader.help.spoken": "{count} keys in {layer}: {rows}.",
+  "leader.help.row": "{key}, {description}",
+  "leader.help.list_title": "{layer}, {count} keys",
+  "leader.help.empty": "No keys are listed for {layer}.",
+  "leader.help.explore_button": "E_xplore the JJ key",
+  "leader.explorer.title": "JJ key explorer, {count} keys, {layers} layers",
+  "leader.explorer.tree_name": "JJ key structure",
+  "leader.explorer.root": "JJ key: Control J, then one of {count} keys",
+  "leader.explorer.tier": "{tier}, {count} keys",
+  "leader.explorer.tier.plain": "Plain letter",
+  "leader.explorer.tier.shift": "Shift plus a letter",
+  "leader.explorer.tier.ctrl": "Control plus a letter",
+  "leader.explorer.tier.alt": "Alt plus a letter",
+  "leader.explorer.tier.help": "Help, and leaving the layer",
+  "leader.explorer.tier.other": "Other keys",
+  "leader.explorer.chord": "{key}, {description}",
+  "leader.explorer.layer": "{key}, {description}. {count} keys inside",
+  "leader.explorer.hint": "Right arrow opens a branch, Left arrow closes it, Enter does either. Type a letter to jump to that key. Escape closes the explorer.",
+  "leader.explorer.no_match": "Nothing starts with {letter} in the open branches."
 }

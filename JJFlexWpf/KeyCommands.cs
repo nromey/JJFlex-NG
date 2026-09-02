@@ -3162,6 +3162,18 @@ public class KeyCommands
                 return;
             }
         }
+        else if (KeyHelpSurfaces.IsOpen && !kc._leaderKeyActive)
+        {
+            // Sprint 44 Track K: a key help surface is open over a persistent
+            // mode (volume mode, a value sub-layer). The surface owns the
+            // keyboard — its arrows move its rows, its letters jump, its
+            // Escape closes IT — and the mode is still there when it closes.
+            // Without this, a list of volume mode's keys opened from inside
+            // volume mode would have its arrows adjust the volume. Only the
+            // one-shot leader still tunnels, so Ctrl+J inside the surface
+            // works exactly as it does in every other dialog.
+            return;
+        }
         var raw = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
 
         // PTT safety wins over mode cancel: while transmitting, let Escape
@@ -3239,7 +3251,16 @@ public class KeyCommands
         // this is what makes the Ctrl+J mic check usable from inside the
         // Audio Workshop, precisely where an operator rides mic gain.
         if (_volumeModeActive || _leaderKeyActive || _valueLayer != null)
+        {
+            // Sprint 44 Track K: while a key help surface is open, a persistent
+            // mode does not take the surface's keys on the bubble path either
+            // — same rule as the preview handler, stated for the path a dialog
+            // reaches when it leaves a key unhandled. Ctrl+J itself still
+            // arms, and an armed leader still fires.
+            if (KeyHelpSurfaces.IsOpen && !_leaderKeyActive && k != (Keys.J | Keys.Control))
+                return false;
             return DoCommand(k, fromDialog: true);
+        }
 
         // Help-armed (#303) claims only the three keys that lead out of the
         // layer. The preview handler above normally gets there first and
@@ -4757,12 +4778,18 @@ public class KeyCommands
     private void LeaderKeyHelp()
     {
         EarconPlayer.LeaderHelpTone();
-        // Generated from KeyInventory.LeaderCommands — the same table that
-        // feeds the Keys dialog, the Command Finder, and the exported key
-        // list — so this announcement can no longer drift from reality. The
-        // hand-written string it replaces was missing six commands
-        // (2026-05-11 JJ+H audit, companion keyboard-reference audit).
-        Radios.ScreenReaderOutput.Speak(KeyInventory.LeaderHelpSpeech());
+        // Sprint 44 Track K (#158, #519): a navigable list, no longer a
+        // recitation. Until now this spoke KeyInventory.LeaderHelpSpeech() —
+        // 1,576 characters, 255 words, thirty items, 51 to 85 seconds of
+        // speech with no way back. KeyLayerHelp reads the same table, says
+        // the count first, speaks a short layer and lists a long one. This
+        // layer is long. The tone stays here: it is this chord's cue, and a
+        // layer's own H plays its own.
+        var mw = _context.GetMainWindow();
+        if (mw != null)
+            mw.Dispatcher.Invoke(() => KeyLayerHelp.Present(KeyLayerHelp.LeaderContext));
+        else
+            KeyLayerHelp.Present(KeyLayerHelp.LeaderContext);
     }
 
     // ────────────────────────────────────────────────────────────────
