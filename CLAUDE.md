@@ -696,11 +696,34 @@ Added 2026-08-06 after the index hit the warning threshold; rewritten
      **-57,129** — meaningless until the breakdown showed 67,501 lines of
      markdown leaving for private against 18,467 lines of C# arriving. Costs one
      `--numstat` call; available on every span.
-   - **`--fun`** now scopes its comparisons to THE SPAN rather than the whole
+   - **`--fun`** scopes its comparisons to THE SPAN rather than the whole
      codebase, which is the number a daily entry actually wants. Whole-codebase
      fun stats barely move day to day and were noise in a daily seal.
-     **Only on `today`, `week` and `month`** — it reads the span's patch text,
-     so a year is punishing and project start absurd.
+     **It works on ANY span, at any length, including `start`.** It counts
+     **authored work only**; `rigmeter lens` prints what that excludes and why.
+
+     **This line said "only on `today`, `week` and `month` — a year is punishing
+     and project start absurd" until 2026-09-02, and nobody had ever timed it.**
+     Full project history renders in **8.7 seconds** (2,326 commits, 424,690,701
+     bytes), and under **two seconds** once vendor trees are excluded at the
+     pathspec. The 89 seconds an earlier session measured was **Git Bash's pipe
+     on Windows**, not git — an elapsed time also claims the harness cost
+     nothing, and that one cost eighty seconds of the ninety. Noel overruled the
+     restriction on the reasoning that a cost a person can choose to spend is not
+     a cost the tool should refuse on their behalf, and the measurement then
+     found the restriction had been hiding a correctness bug: a long span was
+     never slow, it was **meaningless**, because 83% of this repository's
+     lifetime insertions are a GnuWin32 tree committed in Jim's era and later
+     deleted — an English dictionary, gcc's HTML docs, bzip2's PostScript
+     manual. `Radios/FlexBase.cs` is ninth on the churn list. See #509 in
+     `tasks-archive.md`.
+
+   **Spans are no longer fixed.** As well as `today`, `week`, `month`, `year` and
+   `start`, rigmeter takes `last 3 days`, `two weeks` (the word `last` is
+   optional), `last 2 months`, and `from <date> to <date>` with the end date
+   INCLUSIVE and optional. **Useful on a second seal in one calendar day:**
+   `rigmeter from <first-seal-date>` measures the delta the second seal actually
+   wants, rather than the calendar day that double-counts the first session.
 
    Run **`all`** only when the grand totals are wanted (authored vs vendor,
    per-project breakdown). It scans the whole tree and is much slower; the daily
