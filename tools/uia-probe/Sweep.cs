@@ -129,7 +129,7 @@ internal static class Sweep
 
     /// <summary>Contexts that work from anywhere on Home — no field seek needed.</summary>
     private static readonly HashSet<string> HomeWideContexts =
-        new(StringComparer.Ordinal) { "Home", "HomeNav", "Leader", "VolumeMode", "Filter", "PTT" };
+        new(StringComparer.Ordinal) { "Home", "HomeNav", "Leader", "Filter", "PTT" };
 
     /// <summary>Contexts that live in a dialog or another surface this sweep
     /// does not open. Reported honestly rather than pressed into Home and
@@ -141,6 +141,13 @@ internal static class Sweep
         ["ValueField"] = "inside a Home field group (expander)",
         ["LoggingPane"] = "inside the logging radio pane",
         ["CWMessages"] = "in the CW message slots, which key the transmitter",
+        // Sprint 44 Track I: the in-layer keys of the two value layers. Their
+        // rows are bare keys that mean something only while the layer is
+        // live, so pressing them on Home would write up a working layer as
+        // dead. (VolumeMode, whose rows were full chords, was retired with
+        // volume mode itself.)
+        ["AudioLayer"] = "inside the audio layer (Ctrl+J, V)",
+        ["FilterLayer"] = "inside the filter layer (Ctrl+J, F)",
     };
 
     /// <summary>

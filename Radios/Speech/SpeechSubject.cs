@@ -183,5 +183,31 @@ namespace Radios.Speech
         /// "1" and "5" worthless once "Tune Power 15" is said.
         /// </summary>
         public static string ValueEntry(string label) => "value-entry:" + label;
+
+        /// <summary>
+        /// One target inside a value sub-layer (<see cref="ValueSubLayer"/>),
+        /// named by the layer and the target — the audio layer's pan, the
+        /// filter layer's low edge. Every nudge, every selection announcement
+        /// and every spoken answer about that target share it, so a held
+        /// arrow settles to the tail value and the answer to "S" is covered
+        /// by the next move. This is also the target's Latest coalesce key,
+        /// for the same reason <see cref="ValueField"/> is: they were always
+        /// one identity. A single-value layer passes an empty target and
+        /// gets the layer's own name.
+        /// </summary>
+        public static string ValueLayer(string layerId, string targetId = "")
+            => string.IsNullOrEmpty(targetId)
+                ? "value-layer:" + layerId
+                : "value-layer:" + layerId + ":" + targetId;
+
+        /// <summary>
+        /// The state of a value sub-layer as a whole — entered, which group
+        /// is active, the in-layer help, closed, restored. One of these is
+        /// true at a time: "Audio layer closed" makes an unheard entry
+        /// sentence worthless, and the help re-states everything the entry
+        /// said. Kept apart from <see cref="ValueLayer"/> so closing the layer
+        /// cannot retire a value announcement that is still true.
+        /// </summary>
+        public static string ValueLayerStatus(string layerId) => "value-layer-status:" + layerId;
     }
 }

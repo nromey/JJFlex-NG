@@ -2851,9 +2851,22 @@ public class FreqOutHandlers
     internal static string FormatStepForSpeech(int hz) => Radios.TuningSteps.FormatForSpeech(hz);
 
     /// <summary>
+    /// The narrowest a receive filter may be squeezed, in hertz — the
+    /// bracket chords' rail and the filter layer's (Sprint 44 Track I).
+    /// </summary>
+    internal const int MinFilterWidthHz = 50;
+
+    /// <summary>
     /// Adaptive filter step: 10 Hz below 200 Hz bandwidth, 25 Hz below 500 Hz, 50 Hz default.
     /// </summary>
-    private static int GetAdaptiveFilterStep(int low, int high)
+    /// <remarks>
+    /// Internal since Sprint 44 Track I: the filter layer (JJ key F, #516)
+    /// walks the same receive edges these bracket chords do, and the two
+    /// doors must step by the same rule or an operator learns two. The step
+    /// is chosen by the current WIDTH, never by how fast a key repeats — an
+    /// edge is placed by number, and the number must not accelerate.
+    /// </remarks>
+    internal static int GetAdaptiveFilterStep(int low, int high)
     {
         int width = high - low;
         if (width < 200) return 10;
@@ -2883,7 +2896,7 @@ public class FreqOutHandlers
         bool shift = (mods & ModifierKeys.Shift) != 0;
         bool ctrl = (mods & ModifierKeys.Control) != 0;
         bool alt = (mods & ModifierKeys.Alt) != 0;
-        const int minWidth = 50;
+        int minWidth = MinFilterWidthHz;
 
         // Alt+bracket = preset cycling (handled in Phase 4)
         if (alt && !ctrl && !shift)
@@ -3214,7 +3227,18 @@ public class FreqOutHandlers
     private (int lowMin, int highMax) GetFilterBounds()
     {
         if (Rig == null) return (0, 12000);
-        string mode = Rig.Mode?.ToUpperInvariant() ?? "USB";
+        return FilterBoundsForMode(Rig.Mode);
+    }
+
+    /// <summary>
+    /// The receive filter's outer bounds for a mode — the same table the
+    /// bracket chords clamp against, made reachable so the filter layer
+    /// (Sprint 44 Track I, #516) clamps against it too rather than carrying
+    /// a second copy.
+    /// </summary>
+    internal static (int lowMin, int highMax) FilterBoundsForMode(string? rigMode)
+    {
+        string mode = rigMode?.ToUpperInvariant() ?? "USB";
         return mode switch
         {
             "LSB" or "DIGL" => (-12000, 0),

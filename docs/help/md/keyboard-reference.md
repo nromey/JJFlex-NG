@@ -68,8 +68,8 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 
 ### Audio and transmit
 
-- **V** — Enter volume mode — pick what to adjust, ride the arrows (see "Volume mode" below)
-- **Alt+P** — Enter pan mode — Left and Right place the slice you're on in the stereo field, Shift moves by one, Home or C centers, Enter keeps it, Escape puts it back. Speaks positions in words at chatty verbosity and numbers at terse
+- **V** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Enter keeps it, Escape puts it back (see "The audio layer" below)
+- **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, Home centers, Enter keeps it, Escape puts it back. Speaks positions in words at chatty verbosity and numbers at terse
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else (see below)
 - **G** — Arm or disarm the TX test tone (it replaces your microphone while transmitting)
 - **C** — Toggle Compander
@@ -118,40 +118,58 @@ One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H`) use
 
 If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement ends by pointing you at both.
 
-### Volume mode — Ctrl+J, then V
+### The audio layer — Ctrl+J, then V (Alt+P lands you on pan)
 
-Every volume in the app, one gesture. Press `Ctrl+J`, then `V`, and you're in volume mode: pick a target with a single letter, then ride Up and Down. Every press speaks the new value. The mode stays put while you adjust and even while you switch targets — set your mic, hop to PC output, nudge it, hop back — and only Escape ends it. If you're a JAWS or NVDA user this layered-keystroke pattern will feel like home.
+Volume mode and pan mode were two doors into the same room, so they're one layer now. Press `Ctrl+J`, then `V`, and you're in the audio layer: pick a target with a letter, then ride Up and Down. Every press speaks the new value. The layer stays put while you adjust and while you switch targets — set your mic, hop to PC output, nudge it, hop back — and Enter or Escape ends it. If you're a JAWS or NVDA user this layered-keystroke pattern will feel like home.
 
 The targets:
 
-- **H** — on-radio headphone volume. The headphone jack on the radio itself.
+- **Ctrl+H** — on-radio headphone volume. The headphone jack on the radio itself. Plain `H` is help in this layer and in every layer, so headphone wears Ctrl.
 - **P** — PC output volume, in dB of boost. This is how loud radio audio plays *through your computer* — the one remote operators actually want. Ranges 0 to 24 dB; the long-time default is 12 dB.
 - **M** — mic level, your transmit audio level. Applies to PC audio too.
 - **L** — on-radio line out volume. The line out jacks on the radio itself.
 - **C** — compander level. (Toggle the compander itself with `Ctrl+J`, `C`.)
 - **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
+- **Ctrl+P** — pan, for the slice you're on. Plain `P` is PC output, so pan wears Ctrl. Left and Right move it too — for pan, direction means something real — and Home snaps it to center.
 
-Press `?` inside volume mode to hear the target list again. Escape exits and announces it. A quick word on "on-radio": those two targets move the radio's own jacks — if you're listening over PC audio from across town, they won't change what you hear, and now they say so right in their names.
+And the keys that work on whatever you've picked:
 
-### Pan mode — Ctrl+J, then Alt+P
+- **Up and Down** — adjust it. Shift moves by one. Hold an arrow and it sweeps.
+- **Shift+A through Shift+H** — jump to that slice without leaving the layer. Pan follows you to it; whatever you'd already done on the old slice stays done.
+- **Enter** — keep everything and leave.
+- **Escape** — put back *everything* you moved in the layer, out loud, and leave. Overshot three things? One key.
+- **H** — list the layer's keys, count first. `Shift slash` does the same for now; it opens the JJ key explorer once that exists.
+- Any other key keeps your changes, announces the layer closed, and then does its normal job — you can't get stuck in here.
 
-Stereo placement is how you keep two signals apart: slice A a little left, slice B a little right, and a pileup turns into two conversations instead of one mush. Hard left and hard right aren't separation, they're exile — what you usually want is *slightly* off center, and that's exactly what this mode is for.
+`Ctrl+J`, then `Alt+P` opens the same layer with pan already picked, so the old pan mode is one keystroke shorter rather than gone. Stereo placement is how you keep two signals apart — slice A a little left, slice B a little right, and a pileup turns into two conversations instead of one mush. Hard left and hard right aren't separation, they're exile; what you want is *slightly* off center, and that's what the fine control is for. It speaks in positions at chatty verbosity — "slightly left", "center", "hard right" — and in numbers at terse: "Pan 40" on a 0-to-100 scale where 0 is hard left, 50 is center, and 100 is hard right, precise enough to jot down and dial in again tomorrow. Cycle verbosity with `Ctrl+Shift+V` inside the layer and the very next nudge speaks in the other form.
 
-Press `Ctrl+J`, then `Alt+P`, and you're in pan mode for the slice you're on. The keys:
+Two things changed from pan mode, both on purpose: `C` now picks the compander rather than centering — Home still centers — and Escape puts back everything you moved in the layer, not only the pan. The coarse keys on the Slice field are untouched: Page Up still slams hard right, Home centers, and Page Down slams hard left, and the Slice Operations field still nudges with Page Up and Page Down.
 
-- **Left and Right arrows** — nudge the slice through the stereo field. Hold an arrow and it sweeps.
-- **Shift with an arrow** — move by one, for placing it exactly.
-- **Home or C** — snap to center. It's the value you come back to, so it's one key away.
-- **Enter** — keep the new pan and leave the mode.
-- **Escape** — put the pan back where it was when you entered, out loud, and leave. Overshot? This is the way back.
-- **?** — hear where you are, where Escape would take you, and the keys.
-- Any other key keeps the pan, announces the mode closed, and then does its normal job — you can't get stuck in here.
+A quick word on "on-radio": those two targets move the radio's own jacks — if you're listening over PC audio from across town, they won't change what you hear, and their names say so. Pan is per slice and lives in the radio, not in this app; like the rest of your slice layout, "Save Station Setup to Radio" on the Slice menu is what makes an arrangement survive.
 
-What it speaks follows your speech verbosity. At chatty it talks in positions — "slightly left", "center", "hard right" — the words you want when you're placing a signal by ear. At terse it gives you the number — "Pan 40" on a 0-to-100 scale where 0 is hard left, 50 is center, and 100 is hard right — precise and repeatable, for jotting down an arrangement you like and dialing it in again tomorrow. Cycle verbosity with `Ctrl+Shift+V` right inside the mode and the very next nudge speaks in the other form.
+### The filter layer — Ctrl+J, then F
 
-The coarse keys you already know are untouched: on the Slice field, Page Up still slams hard right, Home centers, and Page Down slams hard left, and the Slice Operations field still nudges with Page Up and Page Down. Pan mode is the fine control beside them — reachable from anywhere, not just those two fields.
+This one feels like turning knobs. The modifier picks *what* you're holding, and the key says *what to do with it*: Left Shift is the low edge of the filter, Right Shift is the high edge, and no Shift at all is the whole filter. The left Shift key is on the left of your keyboard and grabs the left edge — that isn't something to memorise, it's something your hands already know.
 
-Pan is per slice, and it lives in the radio, not in this app. Like the rest of your slice layout, "Save Station Setup to Radio" on the Slice menu is what makes an arrangement survive.
+Press `Ctrl+J`, then `F`, and you're on the receive filter of the slice you're on. The keys:
+
+- **Left Shift with Left or Right** — walk the low edge down or up.
+- **Right Shift with Left or Right** — walk the high edge down or up.
+- **Up and Down**, or plain **Left and Right** — slide the whole filter, width intact.
+- **Ctrl+Up and Ctrl+Down** — widen or narrow it about its center.
+- **S** — speak the whole filter. `Left Shift+S` speaks the low edge, `Right Shift+S` the high edge. Ask twice, get two answers.
+- **T** — work on the transmit filter instead. There's one for the whole radio, so it's the same whichever slice you're on.
+- **R** — back to the receive filter. The layer starts here, because receive is where you live and transmit is a visit.
+- **Shift+A through Shift+H** — jump to that slice without leaving the layer. The receive filter follows you to it.
+- **Enter** — keep everything and leave.
+- **Escape** — put back everything you moved, on both sides, out loud, and leave.
+- **H** — list the layer's keys, count first. `Shift slash` does the same for now.
+
+The edges step by a fixed amount and never speed up, however long you hold the key — an edge is placed by the number, and your ear won't tell you when you've reached 2,700 hertz. The step is the same one the bracket keys use, chosen by how wide the filter is right now: 10 hertz under 200 wide, 25 under 500, 50 under 2,000, 100 under 5,000, and 200 above that. The transmit side steps by 50 hertz, which is what the radio accepts.
+
+When an edge can't go any further it says so — "Low edge 2650, at the limit" — rather than going quiet, because a control that silently refuses to move sounds exactly like a broken one. The transmit edges are constrained against each other by the radio: the low edge stops 50 hertz short of the high edge, and narrowing hits that rail. If you hold a Shift and the app can't tell which one — both, or none — it asks rather than guessing, because walking the wrong edge without saying so is the one thing this layer must never do.
+
+The bracket keys you already know are untouched: `[` and `]` still widen, `Shift` slides, `Ctrl` squeezes and pulls, `Alt` cycles your presets, and a double-tap still grabs a single edge. The layer is a second door into the same filter, not a replacement.
 
 ### Mic check — Ctrl+J, then K
 
@@ -247,7 +265,7 @@ There's more to it than the key. If something you left on grows past a sensible 
 
 ### Which build am I on — Ctrl+J, then Alt+V
 
-V for Version, with Alt on it because plain `V` has been volume mode for a while now and isn't moving.
+V for Version, with Alt on it because plain `V` opens the audio layer (it was volume mode for a long while) and isn't moving.
 
 Press `Ctrl+J` then `Alt+V` and JJ Flexible Radio says the version number, whether it's a test build or a release build, and the date it was built: "Version 4.1.16.1024, Debug, built August 27, 2026." That's it — short enough to read straight back to me in an email.
 
@@ -649,7 +667,7 @@ the Audio Workshop, which is where you are when you want it.
 **Deliberately empty.** The six audio-level slots (`Alt+Page Up` and friends)
 are held open rather than reassigned, so a future feature has to make its case
 before claiming them. Audio levels live in the Audio expander (`Ctrl+Shift+U`)
-and volume mode (`Ctrl+J`, `V`).
+and the audio layer (`Ctrl+J`, `V`).
 
 **Honestly unbound.** Memory scan and speak frequency each once claimed a chord
 that another command was quietly eating first. Rather than leave a key listed
