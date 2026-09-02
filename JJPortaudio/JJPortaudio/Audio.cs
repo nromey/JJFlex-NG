@@ -639,6 +639,29 @@ namespace JJPortaudio
                 IsActive = () => Active;
             }
             public Queue Q = Queue.Synchronized(new Queue());
+            /// <summary>
+            /// What this stream is FOR, in the words a trace reader needs:
+            /// "receive", "transmit", "CW monitor". Every line the callbacks
+            /// write names it.
+            /// </summary>
+            /// <remarks>
+            /// <b>Every output line said "audio output stream" until 2026-09-02,
+            /// and a connected session has TWO output streams</b> — the receive
+            /// audio and the CW monitor, both opened on the same device by
+            /// remoteAudioProc. The 2026-09-01 captures therefore carry pairs of
+            /// summaries such as "1277 silent fill(s), of which 0 were mid-stream
+            /// starvation" (the CW monitor, which is fed only while somebody is
+            /// keying) sitting beside "8 silent fill(s), of which 6 were
+            /// mid-stream starvation" (the receive stream), with nothing in the
+            /// line to say which was which. Attributing a starvation to the wrong
+            /// stream is the whole cost of that.
+            /// </remarks>
+            public string StreamName = "output";
+            /// <summary>
+            /// The playback queue's policy and meters, on output streams only
+            /// (#473). Null on input streams.
+            /// </summary>
+            public RxPlaybackQueue Playback;
             public uint Offset = 0; // outputCallback's buffer offset
             public float[] Buffer; // for output data
             public uint BufferSize;
@@ -729,37 +752,13 @@ namespace JJPortaudio
             public long StatusCallbackCount;    // callbacks observed on this stream
             public long FlaggedCallbackCount;   // callbacks carrying any status flag
             public readonly long[] StatusFlagCounts = new long[5]; // per flag, bit order
-            // Track B, 2026-08-18 (#29): output-queue silence instrumentation.
-            // statusFlags only reports glitches PORTAUDIO caused. When OUR
-            // queue runs dry the output callback fills the device buffer with
-            // zeros itself — PortAudio was fed on time, no flag is raised, and
-            // the operator still hears a gap with a click at each edge. These
-            // count that blind spot. Priming silence (before the first queued
-            // buffer ever arrives) is expected and counted separately from
-            // mid-stream starvation, which is the audible defect.
-            public long SilenceFills;           // total silent device buffers while Active
-            public long StarvationFills;        // silent buffers AFTER data had been flowing
-            public bool OutputDataSeen;         // a queued buffer has been consumed
-            public bool StarvationLogged;       // first-occurrence line emitted
-            // #196, 2026-08-23: WHEN the starvations happen, not just how many.
-            // The 2026-08-22 capture reported "20 mid-stream starvation" at
-            // stream close and nothing else — enough to name the galloping
-            // monitor tone as queue starvation, and not enough to say whether
-            // the twenty were spread evenly or clustered inside the seconds
-            // the operator was transmitting. Those point at different causes:
-            // clustered means something about transmitting starves the
-            // playback path, evenly spread means the jitter buffer is simply
-            // too shallow.
+            // Track B, 2026-08-18 (#29) and #196, 2026-08-23: the output-queue
+            // silence instrumentation used to live here as six fields walked by
+            // hand inside the callback. It moved into RxPlaybackQueue on
+            // 2026-09-02 (#473) so the arithmetic could be driven by a test
+            // rather than by a radio, and so the shortfall could be measured in
+            // milliseconds instead of counted in events. See Playback above.
             //
-            // Rate-limited to at most one line per second, and only in a
-            // second that actually had one. That is the same discipline the
-            // coalesced meter stream uses, and it keeps the audio callback out
-            // of the flooding failure the status-flag comment above describes.
-            // The trace's own leading timestamp shares a time base with the
-            // output transcript, so these lines can be read directly against
-            // TxStart and TxStop without correlating anything by hand.
-            public long StarvationWindowTick;   // Environment.TickCount64 of the open window
-            public long StarvationInWindow;     // starvations counted in it
             // Track J, 2026-09-01 (#462): the device half of the latency
             // budget, measured rather than assumed.
             //
@@ -781,21 +780,6 @@ namespace JJPortaudio
             // the callback timing measures — the two disagreeing is itself
             // worth seeing.
             public double ReportedDeviceLatency;
-            // Track J, 2026-09-01 (#462): how much decoded audio is standing in
-            // the playback queue when a callback arrives.
-            //
-            // This is the receive path's OWN latency, and until now nothing
-            // reported it. It is not a constant: the output callback consumes
-            // at most one buffer's worth per call and fills the remainder with
-            // silence when the queue is short, so a starvation leaves the
-            // backlog DEEPER than it found it — and nothing anywhere drains it
-            // back down. Whether that ratchet actually happens in the field is
-            // exactly what these three numbers answer.
-            //
-            // Sampled at callback entry, before anything is dequeued.
-            public int QueueDepthMin = int.MaxValue;
-            public int QueueDepthMax;
-            public int QueueDepthLast;
         }
         internal class staticQueues
         {
@@ -929,10 +913,19 @@ namespace JJPortaudio
         internal bool Open(Devices.DeviceTypes inOut, uint rate, bool useOpus=false,
             PortAudio.PaStreamCallbackDelegate outputCallback = null,
             int cbPerSec = AudioBuffering.DefaultCallbacksPerSecond,
-            OpusEncodeProfile profile = null)
+            OpusEncodeProfile profile = null,
+            string streamName = null)
         {
             CBData.Device = (inOut == Devices.DeviceTypes.input) ?
                 inDevice : outDevice;
+            // Name the stream before anything can trace about it. A connected
+            // session has two OUTPUT streams — receive audio and the CW monitor
+            // — and until 2026-09-02 every line either of them wrote said only
+            // "audio output stream" (#473).
+            CBData.StreamName = !string.IsNullOrWhiteSpace(streamName) ? streamName
+                : (inOut == Devices.DeviceTypes.input
+                    ? (useOpus ? "transmit" : "capture")
+                    : (useOpus ? "receive" : "output"));
             CBData.Channels = AudioAnchor.channelsFor(CBData.Device);
             // The host API belongs on this line. It was absent, and the device
             // NAME is identical under all four APIs, so nothing in the trace
@@ -1111,6 +1104,35 @@ namespace JJPortaudio
             }
             Tracing.TraceLine("Audio.Open buffer size set to:" + bufSZ, TraceLevel.Info);
             CBData.BufferSize = bufSZ;
+
+            // ── #473: the playback queue gets a policy, not just a meter ──
+            //
+            // Output streams only, and OPUS output streams only. The CW monitor
+            // is the other output stream in a connected session, and it is fed
+            // on demand rather than continuously: holding its first buffers back
+            // to build a reserve would delay the sidetone, which is the one
+            // thing that must not be delayed. It still gets the meters — it is
+            // the stream whose 1,277 silent fills were being read as receive
+            // audio starving — it just never primes.
+            if (inOut == Devices.DeviceTypes.output)
+            {
+                int buffersPerCallback = 1;
+                double bufferMs = 0;
+                double reserveMs = 0;
+                if (useOpus && CBData.OpusFrameSZ > 0)
+                {
+                    buffersPerCallback = (int)Math.Max(1, bufSZ / CBData.OpusFrameSZ);
+                    bufferMs = AudioBuffering.BufferMilliseconds(CBData.OpusFrameSZ, openRate);
+                    reserveMs = RxPlaybackQueue.ConfiguredReserveMilliseconds();
+                }
+                CBData.Playback = new RxPlaybackQueue(CBData.StreamName, buffersPerCallback,
+                    bufferMs > 0 ? bufferMs : AudioBuffering.BufferMilliseconds(bufSZ, openRate),
+                    openRate, reserveMs);
+                Tracing.TraceLine("Audio.Open:" + CBData.StreamName + " playback queue primes to "
+                    + CBData.Playback.PrimeTarget + " buffer(s) ("
+                    + CBData.Playback.ReserveBuffers + " of reserve) and trims above "
+                    + CBData.Playback.DrainCeiling, TraceLevel.Info);
+            }
 
             AudioAnchor.work.Add(new AudioAnchor.workItem(AudioAnchor.workItems.open, CBData));
 
@@ -1499,7 +1521,7 @@ namespace JJPortaudio
 
             // Threads Track: read the glitch report before anything else —
             // a final callback can carry flags too.
-            noteStatusFlags(data, statusFlags, "input");
+            noteStatusFlags(data, statusFlags, data.StreamName);
             noteDeviceLatency(data, ref timeInfo, true);
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
@@ -1642,8 +1664,8 @@ namespace JJPortaudio
                 Tracing.TraceLine("InputCallback:" + data.diagBufCount + ' ' + data.diagByteCount, TraceLevel.Verbose);
                 // Threads Track: the stream is completing — report the
                 // glitch totals for its whole life.
-                traceStatusFlagSummary(data, "input");
-                traceLatencySummary(data, "input");
+                traceStatusFlagSummary(data, data.StreamName);
+                traceLatencySummary(data, data.StreamName);
             }
             return rv;
         }
@@ -1662,7 +1684,7 @@ namespace JJPortaudio
 
             // Threads Track: read the glitch report before anything else —
             // a final callback can carry flags too.
-            noteStatusFlags(data, statusFlags, "output");
+            noteStatusFlags(data, statusFlags, data.StreamName);
             noteDeviceLatency(data, ref timeInfo, false);
 
             PortAudio.PaStreamCallbackResult rv = PortAudio.PaStreamCallbackResult.paContinue;
@@ -1673,22 +1695,46 @@ namespace JJPortaudio
             }
             data.SilentPeriod = false;
 
-            // The standing backlog, read before a single buffer is dequeued
-            // (#462). One lock on an uncontended synchronized queue, against a
-            // callback that is about to take the same lock up to ten times.
-            int depth = data.Q.Count;
-            if (depth < data.QueueDepthMin) data.QueueDepthMin = depth;
-            if (depth > data.QueueDepthMax) data.QueueDepthMax = depth;
-            data.QueueDepthLast = depth;
-
             // A mono playback device takes half the samples for the same number
             // of frames, so the queued stereo pair is mixed down to one. The
             // same argument as mono capture applies: refusing to play through
             // somebody's only speaker because it has one channel is not a
             // policy, it is a missing few lines.
             bool monoOut = (data.Channels == 1);
+            int floatsPerFrame = monoOut ? 1 : Devices.StreamChannels;
             float* outptr = (float*)outbuf;
             float* endptr = outptr + (monoOut ? data.BufferSize / 2 : data.BufferSize);
+
+            // ── #473: decide before touching the queue ──
+            //
+            // The standing backlog is read here, before a single buffer is
+            // dequeued (#462). One lock on an uncontended synchronized queue,
+            // against a callback that is about to take the same lock up to ten
+            // times.
+            //
+            // Begin() answers two questions this callback could not previously
+            // ask. Is the reserve still being built, in which case play silence
+            // and consume nothing rather than starting on empty? And has the
+            // backlog ratcheted past the point where it is only latency, in
+            // which case trim it — because the callback CANNOT catch up by
+            // consuming faster: PortAudio sizes the output buffer, and no
+            // callback can write more than it is given.
+            RxPlaybackQueue queue = data.Playback;
+            long silentFrames = 0;
+            int buffersConsumed = 0;
+            if (queue != null)
+            {
+                RxCallbackPlan plan = queue.Begin(data.Q.Count, data.Offset != 0);
+                for (int i = 0; i < plan.Discard && data.Q.Count > 0; i++) data.Q.Dequeue();
+                if (plan.HoldForPrime)
+                {
+                    long primingFrames = (endptr - outptr) / floatsPerFrame;
+                    while (outptr != endptr) *(outptr++) = 0f;
+                    queue.NotePrimingBuffer(primingFrames);
+                    goto outCallbackDone;
+                }
+            }
+
             while (data.Active)
             {
                 bool silence = false;
@@ -1699,51 +1745,21 @@ namespace JJPortaudio
                     {
                         Tracing.TraceLine("silence", TraceLevel.Verbose);
                         silence = true;
-                        // Track B (#29): count the self-inflicted gap. See the
+                        // Track B (#29): measure the self-inflicted gap. See the
                         // field comments — this is the glitch statusFlags
                         // cannot see, because we fed the device on time, with
-                        // zeros.
-                        data.SilenceFills++;
-                        if (data.OutputDataSeen)
-                        {
-                            data.StarvationFills++;
-
-                            // #196: rate-limited "when". Environment.TickCount64
-                            // is a cheap read with no allocation, safe from the
-                            // realtime callback; the string is built at most
-                            // once a second and only while something is wrong.
-                            long nowTick = Environment.TickCount64;
-                            if (data.StarvationWindowTick == 0) data.StarvationWindowTick = nowTick;
-                            data.StarvationInWindow++;
-                            if (nowTick - data.StarvationWindowTick >= 1000)
-                            {
-                                Tracing.TraceLine("audio output stream: "
-                                    + data.StarvationInWindow + " starvation(s) in the last "
-                                    + (nowTick - data.StarvationWindowTick) + " ms"
-                                    + " (running total " + data.StarvationFills
-                                    + ", callback " + data.StatusCallbackCount + ")",
-                                    TraceLevel.Error);
-                                data.StarvationWindowTick = nowTick;
-                                data.StarvationInWindow = 0;
-                            }
-
-                            if (!data.StarvationLogged)
-                            {
-                                data.StarvationLogged = true;
-                                Tracing.TraceLine("audio output stream: the playback queue ran dry "
-                                    + "mid-stream at callback " + data.StatusCallbackCount
-                                    + " — a device buffer was filled with silence, audible as a gap "
-                                    + "with a click at each edge. PortAudio raises no flag for this "
-                                    + "(we supplied the zeros ourselves). Further occurrences are "
-                                    + "counted silently; totals logged when the stream closes.",
-                                    TraceLevel.Error);
-                            }
-                        }
+                        // zeros. It is measured in FRAMES rather than counted as
+                        // an event, because the loop above has already played
+                        // every packet that was there: nine packets present out
+                        // of ten costs ten milliseconds of silence, not a
+                        // hundred, and counting events could not tell those
+                        // apart.
+                        silentFrames += (endptr - outptr) / floatsPerFrame;
                     }
                     else
                     {
                         data.Buffer = (float[])data.Q.Dequeue();
-                        data.OutputDataSeen = true;
+                        buffersConsumed++;
                     }
                 }
                 // else still data in this buffer.
@@ -1782,6 +1798,11 @@ namespace JJPortaudio
                     break;
                 }
             }
+            // #473: one report per callback, with the shortfall MEASURED. A
+            // non-zero shortfall is a starvation, and it also spends the
+            // reserve — NotePlayed re-enters priming so the margin is rebuilt
+            // rather than left at zero until the stream ends.
+            queue?.NotePlayed(buffersConsumed, silentFrames);
 
             outCallbackDone:
             if (rv == PortAudio.PaStreamCallbackResult.paContinue) rv = (data.Active) ? PortAudio.PaStreamCallbackResult.paContinue : PortAudio.PaStreamCallbackResult.paComplete;
@@ -1789,50 +1810,13 @@ namespace JJPortaudio
             // for its whole life.
             if (rv != PortAudio.PaStreamCallbackResult.paContinue)
             {
-                traceStatusFlagSummary(data, "output");
-                traceLatencySummary(data, "output");
-                // Track B (#29): the queue-side companion summary. Zero
+                traceStatusFlagSummary(data, data.StreamName);
+                traceLatencySummary(data, data.StreamName);
+                // Track B (#29): the queue-side companion summaries. Zero
                 // starvation is evidence too — with statusFlags also clean it
                 // acquits the whole playback side and points the click hunt
                 // upstream (see the receive-continuity meter in FlexBase).
-                // #196: flush a partial window, so starvations in the final
-                // second are reported rather than silently discarded at close.
-                if (data.StarvationInWindow > 0)
-                {
-                    Tracing.TraceLine("audio output stream: "
-                        + data.StarvationInWindow + " starvation(s) in the final partial second"
-                        + " (callback " + data.StatusCallbackCount + ")",
-                        TraceLevel.Error);
-                    data.StarvationInWindow = 0;
-                }
-                Tracing.TraceLine("audio output queue summary: "
-                    + data.SilenceFills + " silent fill(s), of which "
-                    + data.StarvationFills + " were mid-stream starvation"
-                    + (data.StarvationFills == 0
-                        ? " (the queue never ran dry while playing)" : ""),
-                    data.StarvationFills == 0 ? TraceLevel.Info : TraceLevel.Error);
-                // #462: the standing backlog those starvations left behind.
-                // The queue IS the receive path's jitter buffer, nothing primes
-                // it and nothing drains it, so the spread between the smallest
-                // and the largest depth is the receive latency this session
-                // accumulated. A final depth well above the smallest one is the
-                // ratchet: silence inserted during a starvation is never
-                // reclaimed, so every dropout leaves the operator permanently
-                // further behind the radio.
-                if (data.QueueDepthMin != int.MaxValue && data.OpusFrameSZ > 0 && data.SampleRate > 0)
-                {
-                    double msPerBuffer = (data.OpusFrameSZ / (double)Devices.StreamChannels)
-                        * 1000.0 / data.SampleRate;
-                    Tracing.TraceLine("audio output queue depth: "
-                        + data.QueueDepthMin + " to " + data.QueueDepthMax
-                        + " buffers standing at callback entry, "
-                        + data.QueueDepthLast + " at close — "
-                        + (data.QueueDepthMin * msPerBuffer).ToString("F0") + " to "
-                        + (data.QueueDepthMax * msPerBuffer).ToString("F0")
-                        + " ms of receive latency, ending at "
-                        + (data.QueueDepthLast * msPerBuffer).ToString("F0") + " ms",
-                        TraceLevel.Info);
-                }
+                data.Playback?.TraceSummary();
             }
             if ((rv == PortAudio.PaStreamCallbackResult.paContinue) &
                 (data.Q.Count == 0))

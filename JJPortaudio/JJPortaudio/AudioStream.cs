@@ -147,12 +147,13 @@ namespace JJPortaudio
         /// <returns>true on success</returns>
         public bool OpenAudio(Devices.DeviceTypes inOut, uint rate, Audio.WavCallback inCallback = null,
             PortAudio.PaStreamCallbackDelegate audioCallback = null,
-            int cbPerSec = AudioBuffering.DefaultCallbacksPerSecond)
+            int cbPerSec = AudioBuffering.DefaultCallbacksPerSecond,
+            string streamName = null)
         {
             Tracing.TraceLine("audioStream.open:" + inOut.ToString() + ' ' + rate, TraceLevel.Info);
             aud = new Audio();
             aud.WavInputHandler = inCallback;
-            bool rv = aud.Open(inOut, rate, false, audioCallback, cbPerSec);
+            bool rv = aud.Open(inOut, rate, false, audioCallback, cbPerSec, null, streamName);
             if (!rv)
             {
                 aud.Finished();
@@ -180,14 +181,15 @@ namespace JJPortaudio
         public bool OpenOpus(Devices.DeviceTypes inOut, uint sampleRate, Audio.OpusCallback inCallback = null,
             PortAudio.PaStreamCallbackDelegate audioCallback=null,
             int cbPerSec = AudioBuffering.DefaultCallbacksPerSecond,
-            OpusEncodeProfile profile = null)
+            OpusEncodeProfile profile = null,
+            string streamName = null)
         {
             Tracing.TraceLine("audioStream.OpenOpus:" + sampleRate, TraceLevel.Info);
 
             // Open the device.
             aud = new Audio();
             aud.OpusInputHandler = inCallback;
-            if (!aud.Open(inOut, sampleRate, true, audioCallback, cbPerSec, profile))
+            if (!aud.Open(inOut, sampleRate, true, audioCallback, cbPerSec, profile, streamName))
             {
                 return false;
             }
@@ -260,9 +262,23 @@ namespace JJPortaudio
         /// <returns>True on success</returns>
         public bool StopAudio()
         {
-            aud.TheQ.Clear();
             Tracing.TraceLine("audioStream.Stop", TraceLevel.Info);
             aud.Stop();
+            // Clear AFTER the stop, not before it (#473).
+            //
+            // This line used to run first, and the stop it precedes is not
+            // instantaneous: it posts a work item, the server flips Active, and
+            // the callback keeps running until PortAudio notices. Every callback
+            // in that window found an empty queue and recorded a starvation —
+            // which is why every receive stream captured on 2026-09-01 ended
+            // with "4 starvation(s) in the final partial second" and similar,
+            // four to five of a stream's six-to-nine total starvations
+            // manufactured by its own teardown. Nothing was audible; the meter
+            // was reporting the shutdown.
+            //
+            // Nothing is lost by moving it: workItems.start clears the queue
+            // again on the way in, so a restart still cannot play stale audio.
+            aud.TheQ.Clear();
             return true;
         }
 
