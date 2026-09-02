@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 namespace Radios.Speech
 {
     /// <summary>
@@ -86,6 +86,34 @@ namespace Radios.Speech
         /// newest change's receipt covers every earlier one.
         /// </summary>
         public const string ProvisionalReceipt = "provisional-receipt";
+
+        /// <summary>
+        /// What this application decided to do about the PROFILES on the radio
+        /// just connected to — applied the operator's transmit audio, loaded
+        /// their whole set, left everything alone, or could not and why.
+        ///
+        /// <para><b>Exactly one of these is true at a time</b>, which is what
+        /// makes them one subject: a later verdict does not merely follow the
+        /// earlier one, it REPLACES it. "Your transmit audio is applied" and
+        /// "this radio's profiles were left alone" cannot both describe the
+        /// same connection, so an unheard one is worthless the moment the
+        /// other exists.</para>
+        ///
+        /// <para><b>Keyed after the Sprint 44 integration pass, not by the
+        /// track that wrote them.</b> Track D authored seven of these against
+        /// the API as it stood before Track A landed, so they were unkeyed —
+        /// and one of them, "This radio's profiles were left alone…", is a
+        /// message the 2026-09-01 traces show being DROPPED three times. The
+        /// sprint that fixed the channel would otherwise have shipped seven
+        /// new emitters that did not use the fix, which is exactly the
+        /// confound it existed to remove: an announcement that goes missing
+        /// during a guest-radio test must not leave the operator unable to
+        /// tell a broken feature from a dropped sentence.</para>
+        ///
+        /// <para>These fire at connect, in a burst, across window changes —
+        /// the worst case the arbiter has.</para>
+        /// </summary>
+        public const string ProfileGuestOutcome = "profile-guest-outcome";
 
         /// <summary>
         /// The value of one field, named by its label — the committed value

@@ -15738,7 +15738,8 @@ namespace Radios
                     + "Offering the one-press restore.", TraceLevel.Warning);
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("settings.profile_guest.autosave_left_off_by_us"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
                 return;
             }
 
@@ -15749,7 +15750,8 @@ namespace Radios
                     + "that ended without putting it back. Offering only.", TraceLevel.Warning);
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("settings.profile_guest.live_audio_stranded"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
                 return;
             }
 
@@ -15762,7 +15764,8 @@ namespace Radios
                     + ". OFFERING only.", TraceLevel.Warning);
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("settings.profile_guest.stranded"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical);
+                    Speech.SpeechIntent.Queue, VerbosityLevel.Critical,
+                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
                 return;
             }
 
@@ -15776,7 +15779,8 @@ namespace Radios
                     Lexicon.Get("settings.profile_guest.live_audio_not_applied",
                         ("why", Lexicon.Get(LiveAudioSkipKey(liveSkip.Reason),
                             ("preset", liveSkip.ProfileName)))),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
                 return;
             }
 
@@ -15787,7 +15791,8 @@ namespace Radios
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("settings.profile_guest.live_audio_applied",
                         ("preset", situation.LocalTransmitAudioProfile)),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
                 return;
             }
 
@@ -15798,7 +15803,8 @@ namespace Radios
                     + "loaded on it. Suggestion if asked: " + plan.Suggestion, TraceLevel.Warning);
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("settings.profile_guest.left_alone"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+                    Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
                 return;
             }
 
@@ -15809,7 +15815,8 @@ namespace Radios
                 // reassurance, not news.
                 ScreenReaderOutput.Speak(
                     Lexicon.Get("settings.profile_guest.pre_answered"),
-                    Speech.SpeechIntent.Queue, VerbosityLevel.Chatty);
+                    Speech.SpeechIntent.Queue, VerbosityLevel.Chatty,
+                    subject: Speech.SpeechSubject.ProfileGuestOutcome);
             }
         }
 
