@@ -472,3 +472,13 @@ read-trace*.ps1
 # fine; the pattern below targets build output by name.
 /docs/**/JJFlex_*.zip
 /docs/**/Setup*.zip
+
+# Sprint track briefs. Six tracks carry a DIFFERENT file at this same path, so
+# committing it collides at merge for no gain (9103cf16). They also name
+# testers, quote the operator and cite private planning paths, and this repo is
+# PUBLIC — so this rule is a safety net, not tidiness.
+#
+# This lives here rather than only in .git/info/exclude so it TRAVELS. The
+# exclude is local and uncommitted: a fresh clone had no such rule, and a
+# `git add -A` there would have published them.
+TRACK-INSTRUCTIONS.md

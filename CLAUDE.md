@@ -1065,7 +1065,30 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    git worktree remove ../jjflex-Nc
    ```
 2. **Delete track branches** (optional, after merge is confirmed good)
-3. **Delete TRACK-INSTRUCTIONS.md** files (they're in git history if needed)
+3. **Do NOT delete TRACK-INSTRUCTIONS.md files. They are NOT in git history and
+   deleting one destroys the only copy.** This step said "delete them, they're in
+   git history if needed" until 2026-09-02, and that was false from Sprint 34
+   onward.
+
+   **Where the exclusion lives:** `.git/info/exclude` in the COMMON gitdir, added
+   in `9103cf16` because six tracks carry a different file at the same path and
+   committing it collides at merge for no gain. (That commit also records the
+   trap it hit first: an exclude placed in a *worktree's* gitdir is not read —
+   git reads the common one.)
+
+   **Two consequences that matter more than the deletion:**
+
+   - **The exclusion is LOCAL and UNCOMMITTED, so it does not travel.** A fresh
+     clone has no such rule, and a `git add -A` there would commit the briefs.
+     They name testers, quote the operator, and cite private planning paths, and
+     **this repo is PUBLIC** — so the standing "stage specific files, never
+     `-A`" rule is load-bearing here, not merely tidy.
+   - **Anything from before Sprint 34 IS in history**, which is why the old
+     sentence looked true to anyone who checked casually. Verify against the
+     sprint you are actually in.
+
+   Keep the briefs, or copy them to `JJFlex-private/planning/agile/` if a
+   worktree is being removed.
 4. **Final cleanup phase** (sprint-specific: delete dead code, update docs, etc.)
 5. **Clean build** both x64 and x86, verify installers
 6. **Update Agent.md** with sprint completion status
