@@ -30,6 +30,12 @@ namespace Radios.Tests
     {
         internal sealed record InventoryEntry(string Display, string Description, List<string> Excluded);
 
+        /// <summary>
+        /// One arm of the dispatcher's switch: the chords its consecutive case
+        /// labels name, and the code that follows them up to the next label.
+        /// </summary>
+        internal sealed record SwitchArm(List<Keys> Labels, string Body);
+
         internal static HashSet<Keys> RealAdvertised(out int entryCount)
         {
             var entries = InventoryEntries(ReadSource(Path.Combine("JJFlexWpf", "KeyInventory.cs")));
@@ -42,6 +48,9 @@ namespace Radios.Tests
 
         internal static HashSet<Keys> RealHandled()
             => SwitchCases(ReadSource(Path.Combine("JJFlexWpf", "KeyCommands.cs")), "DoLeaderCommand");
+
+        internal static List<SwitchArm> RealSwitchArms()
+            => SwitchArms(ReadSource(Path.Combine("JJFlexWpf", "KeyCommands.cs")), "DoLeaderCommand");
 
         internal static HashSet<Keys> Advertised(List<InventoryEntry> entries)
         {
@@ -77,7 +86,7 @@ namespace Radios.Tests
             // an ExcludedKeys initializer stays with ITS entry — applying the
             // exclusion globally would delete the separately-advertised
             // Shift+F row along with the range's gap.
-            var starts = Regex.Matches(region, @"new\s*\(\s*""Leader""\s*,\s*""Leader key""\s*,")
+            var starts = Regex.Matches(region, @"new\s*\(\s*""Leader""\s*,\s*""JJ key""\s*,")
                 .Cast<Match>().ToList();
             for (int i = 0; i < starts.Count; i++)
             {
@@ -88,7 +97,7 @@ namespace Radios.Tests
                 // Display AND description in one match: entries wrap across
                 // lines, so \s (which matches newlines in .NET) does the work.
                 var display = Regex.Match(chunk,
-                    @"new\s*\(\s*""Leader""\s*,\s*""Leader key""\s*,\s*""([^""]+)""\s*,\s*""([^""]+)""");
+                    @"new\s*\(\s*""Leader""\s*,\s*""JJ key""\s*,\s*""([^""]+)""\s*,\s*""([^""]+)""");
                 if (!display.Success) continue;
 
                 var excluded = new List<string>();
@@ -142,6 +151,96 @@ namespace Radios.Tests
                 if (ok && chord != Keys.None) result.Add(chord);
             }
             return result;
+        }
+
+        /// <summary>
+        /// Every arm of the first <c>switch</c> in the named method, in source
+        /// order — what <see cref="SwitchCases"/> returns, but with each arm's
+        /// BODY kept beside its labels, because the grammar checks (#515) ask
+        /// what a chord DOES, not only whether it exists: Shift+F was in every
+        /// set and only its meaning was wrong (#504).
+        /// </summary>
+        /// <remarks>
+        /// Only labels at the switch's own brace depth count, so a nested
+        /// switch inside an arm cannot split it. Consecutive labels with
+        /// nothing but whitespace between them share one arm. The
+        /// <c>default</c> arm is skipped. Strings and comments are blanked
+        /// first, exactly as for <see cref="SwitchCases"/>.
+        /// </remarks>
+        internal static List<SwitchArm> SwitchArms(string source, string methodName)
+        {
+            var arms = new List<SwitchArm>();
+
+            int sig = source.IndexOf(methodName + "(Keys k)", StringComparison.Ordinal);
+            if (sig < 0) return arms;
+
+            string clean = BlankStringsAndComments(source);
+            int sw = clean.IndexOf("switch", sig, StringComparison.Ordinal);
+            if (sw < 0) return arms;
+            int open = clean.IndexOf('{', sw);
+            if (open < 0) return arms;
+
+            int depth = 0, close = -1;
+            for (int i = open; i < clean.Length; i++)
+            {
+                if (clean[i] == '{') depth++;
+                else if (clean[i] == '}' && --depth == 0) { close = i; break; }
+            }
+            if (close < 0) return arms;
+            string body = clean.Substring(open + 1, close - open - 1);
+
+            // Brace depth at every position, so a label inside a nested block
+            // is recognisable as not this switch's.
+            var depthAt = new int[body.Length];
+            depth = 0;
+            for (int i = 0; i < body.Length; i++)
+            {
+                if (body[i] == '{') depth++;
+                depthAt[i] = depth;
+                if (body[i] == '}') depth--;
+            }
+
+            var labels = Regex.Matches(body, @"\b(?:case\s+((?:Keys\.\w+\s*\|?\s*)+):|default\s*:)")
+                .Cast<Match>()
+                .Where(m => depthAt[m.Index] == 0)
+                .ToList();
+
+            // Group consecutive labels, then the body runs to the next group.
+            var groups = new List<List<Match>>();
+            foreach (var m in labels)
+            {
+                if (groups.Count > 0)
+                {
+                    var last = groups[^1][^1];
+                    string between = body.Substring(last.Index + last.Length, m.Index - last.Index - last.Length);
+                    if (between.Trim().Length == 0) { groups[^1].Add(m); continue; }
+                }
+                groups.Add(new List<Match> { m });
+            }
+
+            for (int g = 0; g < groups.Count; g++)
+            {
+                var group = groups[g];
+                var chords = new List<Keys>();
+                foreach (var m in group)
+                {
+                    if (!m.Groups[1].Success) continue; // default:
+                    Keys chord = Keys.None;
+                    bool ok = true;
+                    foreach (Match token in Regex.Matches(m.Groups[1].Value, @"Keys\.(\w+)"))
+                    {
+                        if (Enum.TryParse(token.Groups[1].Value, out Keys part)) chord |= part;
+                        else ok = false;
+                    }
+                    if (ok && chord != Keys.None) chords.Add(chord);
+                }
+                if (chords.Count == 0) continue;
+
+                int from = group[^1].Index + group[^1].Length;
+                int to = g + 1 < groups.Count ? groups[g + 1][0].Index : body.Length;
+                arms.Add(new SwitchArm(chords, body.Substring(from, to - from)));
+            }
+            return arms;
         }
 
         /// <summary>

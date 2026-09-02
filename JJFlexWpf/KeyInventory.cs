@@ -421,33 +421,49 @@ public static class KeyInventory
     };
 
     // ────────────────────────────────────────────────────────────────
-    //  Leader key commands (Ctrl+J, then one more key). Truth source:
-    //  KeyCommands.DoLeaderCommand.
+    //  The JJ key (Ctrl+J, then one more key). Truth source:
+    //  KeyCommands.DoLeaderCommand; the two are checked against each other
+    //  both ways by Radios.Tests/LeaderLayerConsistencyTests, and against
+    //  the four-tier grammar by Radios.Tests/JjKeyGrammarTests.
+    //
+    //  THE GRAMMAR (#515, Noel's ruling, 2026-09-02) — so a chord is derived
+    //  rather than memorised:
+    //    plain letter  — opens a LAYER (JJ key A audio, JJ key F filter)
+    //    Shift+letter  — JUMPS TO THAT SLICE, from anywhere, in any layer
+    //    Ctrl+letter   — TOGGLES the thing whose initial it is
+    //    Alt+letter    — everything else (speak the version)
+    //  Every layer answers H with its own list and the slash key with the
+    //  explorer. The plain-letter one-shots below predate the grammar and
+    //  keep working until Noel walks each letter; the grammar test carries
+    //  that list as recorded debt, so it can only shrink.
+    //
+    //  Context stays "Leader" — a machine key other code matches on — and
+    //  the label is "JJ key", which is what the thing is called (#512).
     // ────────────────────────────────────────────────────────────────
     private static readonly FixedKeyEntry[] LeaderCommands =
     {
-        new("Leader", "Leader key", "Ctrl+J, Ctrl+C", "Copy the message the history walk is sitting on",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+C", "Copy the message the history walk is sitting on",
             new[] { "copy", "clipboard", "paste", "spoken", "speech", "message", "report",
                     "text", "share", "leader" }, "Global", "General"),
-        new("Leader", "Leader key", "Ctrl+J, N", "Toggle legacy Noise Reduction",
+        new("Leader", "JJ key", "Ctrl+J, N", "Toggle legacy Noise Reduction",
             new[] { "nr", "noise", "reduction", "leader", "toggle" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, B", "Toggle Noise Blanker",
+        new("Leader", "JJ key", "Ctrl+J, B", "Toggle Noise Blanker",
             new[] { "nb", "noise", "blanker", "leader", "toggle" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, W", "Toggle Wideband Noise Blanker",
+        new("Leader", "JJ key", "Ctrl+J, W", "Toggle Wideband Noise Blanker",
             new[] { "wnb", "wideband", "noise", "blanker", "leader" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, R", "Toggle On-Radio Neural Noise Reduction (the radio's own DSP)",
+        new("Leader", "JJ key", "Ctrl+J, R", "Toggle On-Radio Neural Noise Reduction (the radio's own DSP)",
             new[] { "rnn", "neural", "noise", "reduction", "on-radio", "leader" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, S", "Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)",
+        new("Leader", "JJ key", "Ctrl+J, S", "Toggle On-Radio Spectral Noise Reduction (the radio's own DSP)",
             new[] { "nrs", "spectral", "noise", "reduction", "on-radio", "leader" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, Shift+N", "Toggle NR Filter",
+        new("Leader", "JJ key", "Ctrl+J, Shift+N", "Toggle NR Filter",
             new[] { "nr", "filter", "noise", "leader" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, Shift+R", "Toggle PC Neural Noise Reduction (runs on your computer)",
+        new("Leader", "JJ key", "Ctrl+J, Shift+R", "Toggle PC Neural Noise Reduction (runs on your computer)",
             new[] { "pc", "neural", "noise", "reduction", "leader" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, Shift+S", "Toggle PC Spectral Noise Reduction (runs on your computer)",
+        new("Leader", "JJ key", "Ctrl+J, Shift+S", "Toggle PC Spectral Noise Reduction (runs on your computer)",
             new[] { "pc", "spectral", "noise", "reduction", "leader" }, "Radio", "DSP"),
         // DSP controls track (2026-08-11) — Q for "quiet": capture what the
         // band sounds like with nobody talking, so Spectral NR can subtract it.
-        new("Leader", "Leader key", "Ctrl+J, Q", "Capture a noise profile for PC Spectral NR (press Q again to cancel)",
+        new("Leader", "JJ key", "Ctrl+J, Q", "Capture a noise profile for PC Spectral NR (press Q again to cancel)",
             new[] { "noise", "profile", "capture", "quiet", "qrn", "sample", "spectral", "sub",
                     "subtraction", "baseline", "leader" }, "Radio", "DSP"),
         // Sprint 36 Track C (#271) — the QSO signal analyzer. Ctrl+Q because
@@ -455,7 +471,7 @@ public static class KeyInventory
         // Ctrl+F, Ctrl+D and Ctrl+R are the precedent for the Ctrl-modified
         // form when the letter you want is taken. The two capture chords sit
         // side by side on purpose.
-        new("Leader", "Leader key", "Ctrl+J, Ctrl+Q",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+Q",
             "Start or stop the QSO signal analyzer — watch the S-meter, then hear what the signal did, QSB and all (press it again to stop and hear the report)",
             new[] { "qso", "signal", "analyzer", "analyse", "analyze", "capture", "watch",
                     "qsb", "fade", "fading", "fades", "flutter", "swing", "strength",
@@ -470,66 +486,72 @@ public static class KeyInventory
         // For one day (#306, Sprint 37 Track G) this chord took a one-shot dBm
         // reading instead. Noel ruled the second reading out of scope on
         // 2026-08-28 — one unit is live at a time.
-        new("Leader", "Leader key", "Ctrl+J, Ctrl+S",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+S",
             "Switch the S-meter between S-units and dBm — remembered for this radio",
             new[] { "dbm", "db", "signal", "strength", "smeter", "meter", "s-meter", "level",
                     "units", "unit", "toggle", "switch", "change", "s", "reading",
                     "precise", "precision", "fine", "exact",
                     "antenna", "compare", "comparison", "weak", "strong", "leader" },
             "Radio", "General"),
-        new("Leader", "Leader key", "Ctrl+J, A", "Toggle Auto Notch",
-            new[] { "anf", "auto", "notch", "leader" }, "Radio", "DSP"),
-        new("Leader", "Leader key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
+        // Sprint 44 Track J: Ctrl+A, not plain A. Plain letters open layers
+        // under the four-tier grammar and A is the audio layer (#514, #515);
+        // Ctrl is the toggle tier and A is Auto Notch's own initial.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+A", "Toggle Auto Notch",
+            new[] { "anf", "auto", "notch", "carrier", "heterodyne", "tone", "leader", "toggle" }, "Radio", "DSP"),
+        new("Leader", "JJ key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
             new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
         // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
-        new("Leader", "Leader key", "Ctrl+J, V", "Enter volume mode: pick a target letter, arrows adjust, Escape exits",
+        new("Leader", "JJ key", "Ctrl+J, V", "Enter volume mode: pick a target letter, arrows adjust, Escape exits",
             new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "adjust", "mode", "leader" }, "Radio", "Audio")
             { OpensLayer = "VolumeMode" },
         // Sprint 37 Track C (#304) — the fine stereo-pan control, as a value
         // sub-layer (#305). Alt+P: plain P is APF, Shift+P the Speech
-        // Processor, and Ctrl+P is skipped on purpose — flat Ctrl+P is the
-        // FREQUENCY panning field, which shares a word with stereo pan and
-        // nothing else.
-        new("Leader", "Leader key", "Ctrl+J, Alt+P",
+        // Processor, and Ctrl+P is PC audio (#513). Pan belongs inside the
+        // audio layer under #514 — Track I's move; this door stays open until
+        // it lands.
+        new("Leader", "JJ key", "Ctrl+J, Alt+P",
             "Enter pan mode: left and right arrows place the slice in the stereo field, Enter keeps it, Escape puts it back",
             new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
                     "placement", "position", "field", "audio", "slice", "separate", "separation",
                     "apart", "ear", "mode", "leader" }, "Radio", "Audio")
             { OpensLayer = "PanMode" },
         // Audio Arc Keys Track (2026-08-11) — the mic check and the tone generator.
-        new("Leader", "Leader key", "Ctrl+J, K", "Mic check: speak your mic-audio verdict and level, nothing else",
+        new("Leader", "JJ key", "Ctrl+J, K", "Mic check: speak your mic-audio verdict and level, nothing else",
             new[] { "mic", "check", "microphone", "audio", "level", "verdict", "gain", "query",
                     "how", "sound", "hot", "peak", "dbfs", "leader" }, "Radio", "Audio"),
-        new("Leader", "Leader key", "Ctrl+J, G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
+        new("Leader", "JJ key", "Ctrl+J, G", "Arm or disarm the TX test tone (replaces your microphone while transmitting)",
             new[] { "tone", "test", "generator", "arm", "disarm", "440", "transmit", "tx",
                     "audio", "check", "calibrate", "leader" }, "Radio", "Audio"),
-        // Sprint 32 Track G (task #130). Ctrl+A for Audio, because plain A is
-        // Auto Notch — Ctrl+F, Ctrl+D and Ctrl+R are the precedent for reaching
-        // for the Ctrl-modified form when the letter you want is taken. Noel
-        // named this one on the unbound-command survey: "No hotkey for PC audio
-        // on and off available that I know of, you have to do it in the menu."
-        // It sits one keystroke from Ctrl+J, V, P, which rides the PC output
-        // LEVEL; this is the on/off switch, and the pairing is deliberate.
-        new("Leader", "Leader key", "Ctrl+J, Ctrl+A", "Turn PC audio on or off — whether radio audio plays through this computer",
+        // Ctrl+P — P for PC, ruled #513 (Noel, 2026-09-01: "p for pc makes
+        // more sense"). Ctrl is the toggle tier of the four-tier grammar and
+        // P is the toggle's own initial. It was Ctrl+A from Sprint 32 Track G
+        // (#130), when Noel named it on the unbound-command survey: "No hotkey
+        // for PC audio on and off available that I know of, you have to do it
+        // in the menu." Ctrl+A belongs to Auto Notch now, the toggle whose
+        // initial it is. Sits one keystroke from Ctrl+J, V, P, which rides the
+        // PC output LEVEL; this is the on/off switch, and the pairing is
+        // deliberate.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+P", "Turn PC audio on or off — whether radio audio plays through this computer",
             new[] { "pc", "audio", "on", "off", "toggle", "remote", "sound", "mute", "unmute",
                     "computer", "playback", "hear", "silence", "quiet", "leader" }, "Radio", "Audio"),
-        new("Leader", "Leader key", "Ctrl+J, C", "Toggle Compander",
+        new("Leader", "JJ key", "Ctrl+J, C", "Toggle Compander",
             new[] { "compander", "compression", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
-        new("Leader", "Leader key", "Ctrl+J, Shift+P", "Toggle Speech Processor",
+        new("Leader", "JJ key", "Ctrl+J, Shift+P", "Toggle Speech Processor",
             new[] { "speech", "processor", "proc", "tx", "transmit", "voice", "leader", "toggle" }, "Radio", "Transmit"),
-        new("Leader", "Leader key", "Ctrl+J, F", "Speak the TX filter width",
-            new[] { "tx", "filter", "width", "speak", "leader" }, "Radio", "audio"),
-        new("Leader", "Leader key", "Ctrl+J, Shift+F", "Speak the RX filter width",
-            new[] { "rx", "filter", "width", "speak", "leader" }, "Radio", "audio"),
-        new("Leader", "Leader key", "Ctrl+J, Ctrl+F", "Enter a frequency",
+        // Plain F and Shift+F spoke the TX and RX filter widths until Sprint
+        // 44. Plain F is the filter layer's door now (#512) and both readouts
+        // live inside it; Shift+F is slice F, per the Shift tier (#504). The
+        // RX readout keeps its flat Ctrl+Alt+F, and the TX one is on the Radio
+        // menu until the layer lands.
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+F", "Enter a frequency",
             new[] { "frequency", "enter", "leader" }, "Radio", "General"),
-        new("Leader", "Leader key", "Ctrl+J, D", "Toggle tuning speech debounce",
+        new("Leader", "JJ key", "Ctrl+J, D", "Toggle tuning speech debounce",
             new[] { "debounce", "tuning", "speech", "leader" }, "Global", "General"),
         // Sprint 30 Track D. Ctrl+D, not plain D — plain D has been debounce
         // since before the diagnostic-log design was written — and not Shift+D,
         // which sits inside the Shift+A-Shift+H slice-jump range. Ctrl+J, Ctrl+F
         // is the in-layer precedent for a Ctrl-modified follow-on key.
-        new("Leader", "Leader key", "Ctrl+J, Ctrl+D",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+D",
             "Start or stop a detailed capture — everything the app is doing",
             new[] { "capture", "detailed", "diagnostic", "diagnostics", "trace", "tracing", "log",
                     "record", "bug", "problem", "report", "verbose", "leader" }, "Global", "General"),
@@ -539,7 +561,7 @@ public static class KeyInventory
         // Plain R is On-Radio Neural NR and Shift+R is its PC namesake, so
         // Ctrl+R is the only free R in the layer — and Ctrl+D and Ctrl+F are
         // the precedent for a Ctrl-modified follow-on key.
-        new("Leader", "Leader key", "Ctrl+J, Ctrl+R",
+        new("Leader", "JJ key", "Ctrl+J, Ctrl+R",
             "Read the problems recorded this session",
             new[] { "problem", "problems", "recorded", "failure", "failed", "error", "errors",
                     "wrong", "issue", "issues", "went", "missed", "notification", "diagnostic",
@@ -550,7 +572,7 @@ public static class KeyInventory
         // one answers what is running and costing something right now. Plain O
         // rather than a Ctrl form because O was free in every variant, so there
         // was no taken letter to reach around.
-        new("Leader", "Leader key", "Ctrl+J, O",
+        new("Leader", "JJ key", "Ctrl+J, O",
             "Say what is still running and what it is costing — recording, captures, meter tones",
             new[] { "running", "on", "still", "what", "recording", "record", "instrumentation",
                     "capture", "meter", "stream", "transcript", "tones", "cost", "costing",
@@ -561,37 +583,44 @@ public static class KeyInventory
         // layer — WpfKeyConverter resolves Key.System before the switch sees
         // it, so the trap that killed the 2026-08-13 Alt+L binding does not
         // reach here.
-        new("Leader", "Leader key", "Ctrl+J, Alt+V",
+        new("Leader", "JJ key", "Ctrl+J, Alt+V",
             "Speak the version and build date of this copy",
             new[] { "version", "build", "which", "number", "release", "debug", "nightly",
                     "date", "built", "tester", "report", "identify", "about", "copy",
                     "running", "installed", "update", "updated", "leader" }, "Global", "General"),
-        new("Leader", "Leader key", "Ctrl+J, L", "Speak log statistics",
+        new("Leader", "JJ key", "Ctrl+J, L", "Speak log statistics",
             new[] { "log", "statistics", "stats", "leader" }, "Global", "Logging"),
-        new("Leader", "Leader key", "Ctrl+J, M", "Open the memories dialog",
+        new("Leader", "JJ key", "Ctrl+J, M", "Open the memories dialog",
             new[] { "memory", "memories", "leader" }, "Radio", "Dialog"),
-        new("Leader", "Leader key", "Ctrl+J, T", "Toggle meter tones",
+        new("Leader", "JJ key", "Ctrl+J, T", "Toggle meter tones",
             new[] { "meter", "tones", "leader", "toggle" }, "Global", "Audio"),
         // Sprint 33 Track F (#153). E for echo, and E is a single dit — the
         // smallest character in Morse, for the one chord that only ever answers
         // in Morse. Plain E was the last obvious free letter; Shift+E belongs to
         // the slice-jump row.
-        new("Leader", "Leader key", "Ctrl+J, E", "Re-send recent CW notifications — press again for earlier ones",
+        new("Leader", "JJ key", "Ctrl+J, E", "Re-send recent CW notifications — press again for earlier ones",
             new[] { "repeat", "cw", "morse", "echo", "again", "history", "recent", "earlier",
                     "back", "previous", "missed", "resend", "code", "leader" }, "Global", "Audio"),
-        new("Leader", "Leader key", "Ctrl+J, Shift+T", "Toggle alert sounds (earcons)",
+        new("Leader", "JJ key", "Ctrl+J, Shift+T", "Toggle alert sounds (earcons)",
             new[] { "earcon", "alert", "sounds", "leader", "toggle" }, "Global", "Audio"),
-        new("Leader", "Leader key", "Ctrl+J, Shift+A through Shift+H", "Jump to that slice from anywhere (Shift+F is reserved)",
-            new[] { "slice", "jump", "leader", "letter" }, "Radio", "General")
-            { ExcludedKeys = new[] { "Ctrl+J, Shift+F" } },
-        // ONE command, two keys — never two rows and never two descriptions,
-        // or an operator presses one expecting something other than the other.
-        // KeyDisplay keeps the glyph because LeaderChordParser reads it; the
-        // spoken form names the keystroke (#303).
-        new("Leader", "Leader key", "Ctrl+J, H or ?", "List the leader key commands",
-            new[] { "leader", "help", "list", "question", "shift slash" }, "Global", "help")
-            { KeySpoken = "Ctrl+J, H or Shift slash" },
-        new("Leader", "Leader key", "Ctrl+J, Escape", "Cancel leader mode",
+        // The Shift tier (#515): Shift+letter is that slice, from anywhere,
+        // inside any layer, and nothing else — all eight, F included (#504).
+        new("Leader", "JJ key", "Ctrl+J, Shift+A through Shift+H", "Jump to that slice from anywhere — the letter is the slice",
+            new[] { "slice", "jump", "leader", "letter", "go", "switch", "select" }, "Radio", "General"),
+        // The two help doors every layer has (#514, #519). H lists this
+        // layer's commands; the slash key opens the JJ key explorer, a map of
+        // every layer you move through at your own pace. Two rows because they
+        // are two surfaces — "?" was once a second door to the list and is the
+        // explorer's now, so the physical key means one thing however it
+        // arrives. KeyDisplay keeps the glyph because LeaderChordParser reads
+        // it; the spoken form names the keystroke (#303).
+        new("Leader", "JJ key", "Ctrl+J, H", "Open the list of JJ key commands — one per row, to arrow through at your own pace",
+            new[] { "leader", "jj", "help", "list", "commands", "keys", "what" }, "Global", "help"),
+        new("Leader", "JJ key", "Ctrl+J, /", "Open the JJ key explorer — every layer and its keys, at your own pace",
+            new[] { "leader", "jj", "help", "explorer", "explore", "browse", "tree", "map",
+                    "layer", "layers", "keys", "slash", "question", "shift slash" }, "Global", "help")
+            { KeySpoken = "Ctrl+J, slash" },
+        new("Leader", "JJ key", "Ctrl+J, Escape", "Close the JJ key layer",
             new[] { "leader", "cancel", "escape" }, "Global", "help"),
     };
 
@@ -945,7 +974,7 @@ public static class KeyInventory
     }
 
     /// <summary>
-    /// The Ctrl+J, H spoken help, generated from the LeaderCommands table so
+    /// The JJ key H spoken help, generated from the LeaderCommands table so
     /// it can never drift from the inventory again (the pre-2026-08-11
     /// hand-written string had quietly dropped six commands). Ends with the
     /// pointer to the two other help surfaces, per the 2026-05-11 JJ+H audit:
@@ -953,7 +982,7 @@ public static class KeyInventory
     /// </summary>
     public static string LeaderHelpSpeech()
     {
-        var sb = new StringBuilder("Leader key commands: ");
+        var sb = new StringBuilder("JJ key commands: ");
         bool first = true;
         foreach (var e in LeaderCommands)
         {

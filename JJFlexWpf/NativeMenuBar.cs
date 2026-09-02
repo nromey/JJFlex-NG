@@ -675,7 +675,7 @@ public class NativeMenuBar : IDisposable
 
         // === Auto Notch ===
         var anfSub = AddSubmenu(parent, "Auto Notch");
-        AddChecked(anfSub, "FFT Auto-Notch\tCtrl+J, A", () =>
+        AddChecked(anfSub, "FFT Auto-Notch\tCtrl+J, Ctrl+A", () =>
             ToggleDSP("FFT Auto-Notch", () => Rig.AutoNotchFFT, v => Rig.AutoNotchFFT = v),
             () => Rig?.AutoNotchFFT == FlexBase.OffOnValues.on);
         AddChecked(anfSub, "Legacy Auto-Notch", () =>

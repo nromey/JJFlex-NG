@@ -56,6 +56,7 @@ This release is about the space where you actually spend your time in the app �
 - **["Which build are you on?" is one key away now](#speak-the-build)** — `Ctrl+J` then `Alt+V` speaks the version, whether it's a test build or a release build, and the day it was built. No more opening About in the middle of writing up a problem.
 - [The JJ key list is complete again](#jj-key-list-complete). Three JJ keys were working and written down nowhere; they're documented now, the help and the app check each other from here on, and a near miss in the layer tells you which key you nearly pressed instead of just "Unknown command."
 - **[The JJ layer waits for you after an unknown key](#jj-layer-waits).** "Press H for help" was advice you couldn't take — the layer had already closed by the time it finished saying so. Now it stays open for `H`, `Shift slash` and `Escape`, and nothing else, so the sentence is finally true. It's also shorter.
+- **[The JJ key has a grammar now](#jj-key-grammar).** A plain letter opens a layer, Shift plus a letter jumps to that slice, Ctrl plus a letter toggles, Alt plus a letter is everything else — so you can work out a chord instead of memorising it. Three things moved because of it: PC audio is `Ctrl+J` then `Ctrl+P`, Auto Notch is `Ctrl+J` then `Ctrl+A`, and `Shift+F` finally jumps to slice F.
 - **[Audio Workshop has its own letter on the Audio menu](#audio-workshop-w).** Two rows starting with "Audio" is one too many for a single letter to sort out. `A` reaches Audio Devices, `W` reaches Audio Workshop. Nothing is renamed.
 - [Escape](#escape-does-its-job) now closes screen field categories. Press Escape once inside an open field group to close it. Press Escape twice quickly (about half a second between presses) to collapse all open field categories at once. Once the categories are collapsed, you'll be back at Home — because there's no place like home ... there's no place like home ... what? Sorry, fell asleep there for a second, no idea why. This suggestion came from Don, who got really tired of tabbing through large fields just to close them. You've done it right if you hear two tones — can't miss 'em.
 - **The [key map across Home](#universal-keys-from-home) makes sense now.** R toggles RIT from anywhere you press it. X toggles XIT. The `=` key does the old transceive thing (which freed X to do what most hams expect). Pan moves to Page Up / Home / Page Down instead of letter keys, so if your finger slips you don't pan to Patagonia.
@@ -499,6 +500,31 @@ Three and no more, deliberately. A layer that quietly keeps hold of your keyboar
 The nice part is that keeping the layer alive made the message **shorter**, not longer. The old sentence was never badly worded; it was delivered one keystroke after it stopped being true. Now you hear "Unknown key. H for the list, Escape to cancel." — or, with verbosity turned up, "Unknown key. Press H, or Shift slash, for the list of JJ key commands. Escape to cancel."
 
 And one more small thing hiding in there. You'll notice it says "Shift slash" rather than "question mark" or a bare `?`. If your screen reader's punctuation level is set low, a lone `?` may not be spoken at all — so an instruction telling you to press it can silently lose the very key it's naming. "Shift slash" is also just what your hands do, which is the entire point of an instruction. That's the rule everywhere in the app now, not only here: if JJ Flexible Radio asks you to press a punctuation key, it names the keystroke.
+
+[Return to version headlines](#unreleased-headlines)
+
+### The JJ key has a grammar now {#jj-key-grammar}
+
+Here's a confession. The JJ key layer grew one chord at a time, and every one of them made sense on the day it was added. `A` was Auto Notch because A is for auto notch. Then PC audio needed a key and A was taken, so it became `Ctrl+A`. Then the noise capture wanted Q, and the signal analyzer wanted Q, and so it went — forty-odd chords later, every single one of them was reasonable and not one of them was *guessable*. You learned the JJ key the way you learn a phone number: by repetition, or by asking.
+
+So the layer has rules now. Four of them, one per modifier, and once you know the rules you can work out a chord instead of remembering it:
+
+- **A plain letter opens a layer** — a set of keys about one thing, like the filter or your audio, where the arrows do the adjusting and Escape puts things back.
+- **Shift plus a letter jumps to that slice.** From anywhere, including from inside a layer. `Shift+C` is slice C, and it is never anything else.
+- **Ctrl plus a letter toggles the thing whose initial it is.** `Ctrl+P` is PC audio — P for PC — and `Ctrl+A` is Auto Notch.
+- **Alt plus a letter is everything else.** `Alt+V` speaks the version.
+
+And in every layer, `H` reads that layer's keys, and the slash key opens the JJ key explorer — a map of the whole JJ key you can move through at your own pace instead of sitting through the list.
+
+Three things changed under your fingers because of this, and you'll want to know about all of them:
+
+- **PC audio is `Ctrl+J` then `Ctrl+P` now.** It was `Ctrl+A`. P for PC makes more sense, and honestly it always did.
+- **Auto Notch is `Ctrl+J` then `Ctrl+A`.** It was plain `A`, and plain `A` is the audio layer's door now. If your fingers still go to `Ctrl+A` for PC audio, you'll hear "Auto Notch on" — press it again to put it back, then `Ctrl+P`.
+- **`Shift+F` jumps to slice F.** It used to read the receive filter width, which meant the row that claimed to jump to any slice A through H was quietly missing F. Only a six-slice radio could ever have noticed — a 6700 — so nobody did. The receive width readout is still on `Ctrl+Alt+F`, and both width readouts are moving into the filter layer.
+
+The plain letters that still carry a single toggle — the noise blanker, the noise reduction family, the compander and friends — keep working exactly as they do today. They'll find their layers one at a time, and the help will say so as each one moves.
+
+One more thing, for the record. The help pages, the app's own key list and the code that actually handles the keys were already checked against each other. They're now checked against the grammar itself, too: a slice row that skips a letter, or a new one-shot command dropped onto a plain letter, is a broken build on my end from here on. That's how slice F should have been caught two months ago, and how the next one will be.
 
 [Return to version headlines](#unreleased-headlines)
 

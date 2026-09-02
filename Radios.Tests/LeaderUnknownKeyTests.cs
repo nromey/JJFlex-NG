@@ -100,7 +100,7 @@ namespace Radios.Tests
                 Lexicon.Get("leader.unknown_key", VerbosityLevel.Terse));
 
             Assert.Equal(
-                "Unknown key. Press H, or Shift slash, for the list of JJ key commands. Escape to cancel.",
+                "Unknown key. Press H for the list of JJ key commands, or slash for the JJ key explorer. Escape to cancel.",
                 Lexicon.Get("leader.unknown_key", VerbosityLevel.Chatty));
         }
 
@@ -152,8 +152,9 @@ namespace Radios.Tests
                 Assert.DoesNotContain("question mark", text, StringComparison.OrdinalIgnoreCase);
             }
 
-            // And the verbose tier names the keystroke it replaced it with.
-            Assert.Contains("Shift slash",
+            // And the verbose tier names the keystroke it replaced it with —
+            // the slash key, which is the explorer's door now (#519).
+            Assert.Contains("slash",
                 Lexicon.Get("leader.unknown_key", VerbosityLevel.Chatty), StringComparison.Ordinal);
         }
 
@@ -208,7 +209,7 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Only_H_shift_slash_and_escape_keep_the_layer_armed()
+        public void Only_H_the_slash_key_and_escape_keep_the_layer_armed()
         {
             string src = Source(KeyCommandsFile);
             string helpKeys = MethodBody(src, "private static bool IsLeaderHelpKey(Keys k)");
@@ -243,6 +244,7 @@ namespace Radios.Tests
 
             Assert.Contains("_leaderHelpArmed = false", block);
             Assert.Contains("LeaderKeyHelp()", block);
+            Assert.Contains("OpenKeyExplorer()", block);   // the second door (#519)
             Assert.Contains("LeaderCancel()", block);
             Assert.DoesNotContain("DoLeaderCommand", block);
         }
@@ -278,8 +280,12 @@ namespace Radios.Tests
             // very check that caught the dead "?" (#183). Hence two strings.
             string src = Source(KeyInventoryFile);
 
-            Assert.Contains("\"Ctrl+J, H or ?\"", src);
-            Assert.Contains("KeySpoken = \"Ctrl+J, H or Shift slash\"", src);
+            // The explorer row (#519) carries the glyph, so it carries the
+            // spoken form. The H row no longer shares a key with it and needs
+            // none of its own.
+            Assert.Contains("\"Ctrl+J, /\"", src);
+            Assert.Contains("KeySpoken = \"Ctrl+J, slash\"", src);
+            Assert.Contains("\"Ctrl+J, H\"", src);
             Assert.Contains("KeySpoken = \"Shift slash\"", src);
 
             // And the spoken generators must actually reach for it.
