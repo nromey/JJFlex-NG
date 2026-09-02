@@ -68,6 +68,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 
 ### Audio and transmit
 
+- **A** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Enter keeps it, Escape puts it back (see "The audio layer" below)
 - **V** — Enter the audio layer — a letter picks what to adjust, the arrows adjust it, Enter keeps it, Escape puts it back (see "The audio layer" below)
 - **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, Home centers, Enter keeps it, Escape puts it back. Speaks positions in words at chatty verbosity and numbers at terse
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else (see below)
@@ -79,6 +80,7 @@ The second key follows a grammar, and the grammar is the point: you work out a c
 
 ### Filter information
 
+- **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, `T` and `R` switch between the transmit and receive filters, and `S` speaks it (see "The filter layer" below)
 - **Ctrl+F** — Enter a frequency
 
 The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F` is the filter layer's door now and `Shift+F` is slice F, so both readouts have moved inside the filter layer. The receive width still answers to the flat `Ctrl+Alt+F` from anywhere in radio mode.

@@ -3658,9 +3658,13 @@ public class KeyCommands
             // JJ key A — the audio layer (#514, #515). Under the four-tier
             // grammar a plain letter opens a layer, and A is ruled for audio.
             // Auto Notch, which held plain A, is on Ctrl+A below. The layer
-            // itself is Sprint 44 Track I's; its entry case lands here, in
-            // this gap, when the layer does. Until then plain A is unbound on
-            // purpose and the near-miss names its neighbours.
+            // itself is Sprint 44 Track I's, wired here by the integration
+            // pass: neither track could do it from inside its own worktree,
+            // and a layer with no door is a complete feature nobody can reach.
+            case Keys.A:
+                EnterAudioLayer(onPan: false);
+                break;
+
             case Keys.P:
                 if (rig == null)
                     LeaderNoRadio();
@@ -3787,10 +3791,12 @@ public class KeyCommands
             // filter width and Shift+F the RX width until Sprint 44; both
             // readouts move INSIDE the layer, on its S key, and that freed
             // Shift+F for slice F (#504 — in the slice row below). The layer
-            // itself is Sprint 44 Track I's; its entry case lands here, in
-            // this gap, when the layer does. Until then plain F is unbound on
-            // purpose: the RX width still answers to the flat Ctrl+Alt+F, and
-            // the TX width to the Radio menu's Read TX Filter item.
+            // itself is Sprint 44 Track I's, wired here by the integration
+            // pass. The RX width still answers to the flat Ctrl+Alt+F as well,
+            // and the TX width to the Radio menu's Read TX Filter item.
+            case Keys.F:
+                EnterFilterLayer();
+                break;
 
             // Tuning debounce toggle
             case Keys.D:

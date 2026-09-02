@@ -44,6 +44,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 
 ## Audio and Transmit
 
+- **A** — Enter the audio layer — pick a target with one letter (`Ctrl+H` headphone, `P` PC output, `M` mic, `L` line out, `C` compander, `S` processor, `Ctrl+P` pan), ride Up and Down, Enter keeps it, Escape puts back everything you moved. Plain `H` lists the layer’s keys. The full walk is on the Keyboard Reference page
 - **V** — Enter the audio layer — pick a target with one letter (`Ctrl+H` headphone, `P` PC output, `M` mic, `L` line out, `C` compander, `S` processor, `Ctrl+P` pan), ride Up and Down, Enter keeps it, Escape puts back everything you moved. Plain `H` lists the layer's keys. The full walk is on the Keyboard Reference page
 - **Alt+P** — Enter the audio layer with pan already picked — Left and Right, or Up and Down, place the slice you're on in the stereo field, Shift moves by one, Home centers, Enter keeps it, Escape puts it back. Speaks positions in words at chatty verbosity and numbers at terse
 - **K** — Mic check — speak your mic-audio verdict and level, nothing else
@@ -55,6 +56,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 
 ## Filter Information
 
+- **F** — Enter the filter layer — hold Left Shift for the low edge or Right Shift for the high edge, the arrows move it, `T` and `R` switch between the transmit and receive filters, and `S` speaks it. Plain `H` lists the layer’s keys
 - **Ctrl+F** — Open the direct frequency-entry box
 
 The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F` is the filter layer's door now and `Shift+F` is slice F, so both readouts have moved inside the filter layer. The receive width still answers to the flat `Ctrl+Alt+F`.

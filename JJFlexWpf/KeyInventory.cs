@@ -501,6 +501,14 @@ public static class KeyInventory
             new[] { "anf", "auto", "notch", "carrier", "heterodyne", "tone", "leader", "toggle" }, "Radio", "DSP"),
         new("Leader", "JJ key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
             new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
+        // JJ key A — the audio layer's door under the four-tier grammar (#515):
+        // a plain letter opens a layer, and A is ruled for audio. Wired by the
+        // Sprint 44 integration pass; Track I built the layer and Track J freed
+        // the letter (Auto Notch moved to Ctrl+A), and neither could reach the
+        // other's worktree to join them.
+        new("Leader", "JJ key", "Ctrl+J, A", "Enter the audio layer: a letter picks what to adjust, arrows adjust, Enter keeps it, Escape puts it back",
+            new[] { "audio", "layer", "volume", "level", "pc", "output", "headphone", "mic", "pan", "compander", "processor", "adjust", "leader" }, "Radio", "Audio")
+            { OpensLayer = AudioLayerContext },
         // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
         // Sprint 44 Track I (#514): volume mode and pan mode became ONE audio
         // layer on the value sub-layer engine. V still opens it; the letter
@@ -547,8 +555,11 @@ public static class KeyInventory
         // Plain F and Shift+F spoke the TX and RX filter widths until Sprint
         // 44. Plain F is the filter layer's door now (#512) and both readouts
         // live inside it; Shift+F is slice F, per the Shift tier (#504). The
-        // RX readout keeps its flat Ctrl+Alt+F, and the TX one is on the Radio
-        // menu until the layer lands.
+        // RX readout keeps its flat Ctrl+Alt+F as well, and the TX one is also
+        // on the Radio menu. Wired by the Sprint 44 integration pass.
+        new("Leader", "JJ key", "Ctrl+J, F", "Enter the filter layer: hold Left Shift for the low edge or Right Shift for the high edge, arrows move it, S speaks it",
+            new[] { "filter", "layer", "width", "bandwidth", "edge", "low", "high", "narrow", "wide", "passband", "transmit", "receive", "leader" }, "Radio", "DSP")
+            { OpensLayer = FilterLayerContext },
         new("Leader", "JJ key", "Ctrl+J, Ctrl+F", "Enter a frequency",
             new[] { "frequency", "enter", "leader" }, "Radio", "General"),
         new("Leader", "JJ key", "Ctrl+J, D", "Toggle tuning speech debounce",
