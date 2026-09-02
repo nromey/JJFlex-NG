@@ -1185,11 +1185,15 @@ public class KeyCommands
         _context.PCAudioToggle();
 
         bool actual = rig.PCAudio;
+        // Keyed pc-audio (#503): this outcome covers any earlier PC-audio
+        // line still unheard, and is itself covered only by the next one.
         Radios.ScreenReaderOutput.Speak(
             actual ? Radios.Lexicon.Get("audio.pc_audio.on")
             : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
             : Radios.Lexicon.Get("audio.pc_audio.off"),
-            Radios.VerbosityLevel.Terse);
+            Radios.Speech.SpeechIntent.Queue,
+            Radios.VerbosityLevel.Terse,
+            subject: Radios.Speech.SpeechSubject.PcAudio);
     }
     private void AudioSetupHandler() => _context.AudioSetup();
     private void ContextHelpHandler() => _context.GetMainWindow()?.ShowCommandFinder();

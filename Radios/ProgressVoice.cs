@@ -143,6 +143,23 @@ namespace Radios
             Tracing.TraceLine("ProgressVoice: stop '" + _what + "' after "
                 + ElapsedMs() + " ms, " + _repeats + " repeat(s)"
                 + (string.IsNullOrEmpty(reason) ? "" : " — " + reason), TraceLevel.Info);
+
+            // The operation is over, so its last "still working" line — if
+            // the reader never got to it — is worth nothing now, and the
+            // speech arbiter must not rescue it behind whatever interrupts
+            // next. Said explicitly because the thing that ends a wait is
+            // usually not a progress line: it is the dialog that answers it,
+            // or the connect completing (#503).
+            try
+            {
+                ScreenReaderOutput.Supersede(Speech.SpeechSubject.Progress,
+                    "the end of the wait for '" + _what + "'"
+                    + (string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")"));
+            }
+            catch
+            {
+                // A stop must never fail because the speech layer did.
+            }
         }
 
         private static void Tick(object state)
@@ -193,7 +210,11 @@ namespace Radios
             string text = (ScreenReaderOutput.CurrentVerbosity >= VerbosityLevel.Chatty
                            && !string.IsNullOrEmpty(chatty)) ? chatty : terse;
             if (string.IsNullOrEmpty(text)) return;
-            ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Queue, VerbosityLevel.Terse);
+            // Keyed as progress (#503): each line covers the one before it,
+            // and Stop covers the last. A stale "still looking" is worthless
+            // by construction and is never rescued past a newer one.
+            ScreenReaderOutput.Speak(text, Speech.SpeechIntent.Queue, VerbosityLevel.Terse,
+                subject: Speech.SpeechSubject.Progress);
         }
     }
 }

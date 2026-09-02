@@ -292,13 +292,55 @@ public partial class ValueFieldControl : UserControl
     }
 
     /// <summary>
+    /// What an announcement of this field's VALUE is about, for the speech
+    /// arbiter (#503): the committed value and the swept value carry it, so
+    /// a committed value still queued when a sweep starts is covered by the
+    /// sweep. It is also this field's Latest coalesce key; the two were
+    /// always the same identity and now have one spelling.
+    /// </summary>
+    private string ValueSubject => Radios.Speech.SpeechSubject.ValueField(_label);
+
+    /// <summary>
+    /// What a keystroke echo during number entry is about. Its own subject,
+    /// not <see cref="ValueSubject"/>: a digit must not supersede the digit
+    /// before it, or an interrupt mid-entry would re-speak a lone "5" over a
+    /// field that reads 15. The echoes are retired together when the entry
+    /// ends — see <see cref="EndEntryEchoes"/> — which is what makes a queued
+    /// "1" and "5" worthless once "Tune Power 15" has been handed over. On
+    /// 2026-09-01 that pair was dropped fifteen times, correctly, by luck of
+    /// arithmetic against a 1,600 ms bound; now it is dropped because the
+    /// value covers it, whatever the clock says.
+    /// </summary>
+    private string EntrySubject => Radios.Speech.SpeechSubject.ValueEntry(_label);
+
+    /// <summary>
+    /// Echo a keystroke the operator just made while typing a value.
+    /// Queued behind whatever is speaking, and past the verbosity gate on
+    /// purpose — the same rule the S-meter replay follows: the operator asked
+    /// for this by pressing a key, so the setting that governs how much the
+    /// application volunteers has no bearing on it. (This was the legacy
+    /// ungated form before #503; the level here keeps that exactly.)
+    /// </summary>
+    private void EchoEntryKey(string text) =>
+        ScreenReaderOutput.Speak(text, Radios.Speech.SpeechIntent.Queue,
+            VerbosityLevel.Critical, subject: EntrySubject, additive: true);
+
+    /// <summary>
+    /// The entry is over — committed, rejected or cancelled — so every
+    /// keystroke echo still unheard describes typing that no longer exists.
+    /// Said to the arbiter in words, so the trace can name what ended it.
+    /// </summary>
+    private void EndEntryEchoes(string how) =>
+        ScreenReaderOutput.Supersede(EntrySubject, how);
+
+    /// <summary>
     /// Toggle the pending typed value's sign (Track A's seam name; one copy
     /// survives the merge).
     /// </summary>
     private void ToggleBufferSign()
     {
         _numberNegative = !_numberNegative;
-        ScreenReaderOutput.Speak(Lexicon.Get(
+        EchoEntryKey(Lexicon.Get(
             _numberNegative ? "audio.field.minus" : "audio.field.minus_removed"));
         UpdateNumberEntryDisplay();
     }
@@ -344,7 +386,7 @@ public partial class ValueFieldControl : UserControl
                 return true;
             }
             _numberBuffer += '.';
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.point"));
+            EchoEntryKey(Lexicon.Get("audio.field.point"));
             UpdateNumberEntryDisplay();
             return true;
         }
@@ -354,7 +396,7 @@ public partial class ValueFieldControl : UserControl
         {
             char digit = (char)('0' + (key - Key.D0));
             _numberBuffer += digit;
-            ScreenReaderOutput.Speak(digit.ToString());
+            EchoEntryKey(digit.ToString());
             UpdateNumberEntryDisplay();
             return true;
         }
@@ -364,7 +406,7 @@ public partial class ValueFieldControl : UserControl
         {
             char digit = (char)('0' + (key - Key.NumPad0));
             _numberBuffer += digit;
-            ScreenReaderOutput.Speak(digit.ToString());
+            EchoEntryKey(digit.ToString());
             UpdateNumberEntryDisplay();
             return true;
         }
@@ -373,7 +415,7 @@ public partial class ValueFieldControl : UserControl
         if (key == Key.Back && _numberBuffer.Length > 0)
         {
             _numberBuffer = _numberBuffer.Substring(0, _numberBuffer.Length - 1);
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.delete"));
+            EchoEntryKey(Lexicon.Get("audio.field.delete"));
             UpdateNumberEntryDisplay();
             return true;
         }
@@ -391,6 +433,7 @@ public partial class ValueFieldControl : UserControl
             _numberEntryMode = false;
             _numberBuffer = "";
             _numberNegative = false;
+            EndEntryEchoes("the entry being cancelled");
             ScreenReaderOutput.Speak(Lexicon.Get("audio.field.cancelled"), VerbosityLevel.Terse);
             UpdateDisplay();
             return true;
@@ -433,16 +476,25 @@ public partial class ValueFieldControl : UserControl
             if (!_suppressEvents)
             {
                 ValueChanged?.Invoke(this, _value);
+                // The committed value covers every digit that built it: a
+                // queued "1" and "5" are worthless once "Tune Power 15" has
+                // been handed over, and the arbiter will not re-speak them.
+                string spoken = Lexicon.Get("audio.field.spoken_value",
+                    ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix));
+                EndEntryEchoes("the entry ending as '" + spoken + "'");
                 ScreenReaderOutput.Speak(
-                    Lexicon.Get("audio.field.spoken_value",
-                        ("label", _label), ("value", FormatValue(_value)), ("unit", UnitSuffix)),
-                    VerbosityLevel.Terse);
+                    spoken,
+                    Radios.Speech.SpeechIntent.Queue,
+                    VerbosityLevel.Terse,
+                    subject: ValueSubject);
                 EarconPlayer.ConfirmTone();
             }
         }
         else
         {
-            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.invalid_cancelled"), VerbosityLevel.Terse);
+            EndEntryEchoes("the entry being rejected as not a number");
+            ScreenReaderOutput.Speak(Lexicon.Get("audio.field.invalid_cancelled"),
+                Radios.Speech.SpeechIntent.Queue, VerbosityLevel.Terse, subject: ValueSubject);
             UpdateDisplay();
         }
         _numberBuffer = "";
@@ -637,7 +689,7 @@ public partial class ValueFieldControl : UserControl
             text,
             Radios.Speech.SpeechIntent.Latest,
             VerbosityLevel.Terse,
-            coalesceKey: $"value-field:{_label}");
+            coalesceKey: ValueSubject);
     }
     /// Hide child TextBlock from UIA tree so NVDA reads only AutomationProperties.Name,
     /// not the TextBlock content as well (which causes double-speak).
