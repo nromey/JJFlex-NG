@@ -1,0 +1,23 @@
+<local:JJFlexDialog x:Class="JJFlexWpf.Dialogs.ContextHelpDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:JJFlexWpf"
+        Title="Explain this"
+        Width="540" Height="380"
+        ResizeMode="CanResizeWithGrip">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="_Close" IsCancel="True" MinWidth="80" Height="28"
+                    AutomationProperties.Name="Close"
+                    AutomationProperties.AccessKey="Alt+C"
+                    AutomationProperties.AcceleratorKey="Alt+C" />
+        </StackPanel>
+        <TextBox x:Name="BodyText"
+                 IsReadOnly="True"
+                 TextWrapping="Wrap"
+                 AcceptsReturn="True"
+                 VerticalScrollBarVisibility="Auto"
+                 AutomationProperties.Name="Explanation" />
+    </DockPanel>
+</local:JJFlexDialog>

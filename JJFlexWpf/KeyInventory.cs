@@ -103,6 +103,33 @@ public static class KeyInventory
         /// </summary>
         public string[] ExcludedKeys { get; init; } = Array.Empty<string>();
 
+        /// <summary>
+        /// The inventory Context this chord OPENS, when pressing it enters a
+        /// layer of its own ("VolumeMode" on the Ctrl+J, V row). Empty for a
+        /// chord that does one thing and returns.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Sprint 44 Track K (#158, #519). The JJ key tree explorer derives its
+        /// structure from this table — a tier, then a chord, then the keys
+        /// that only mean something after that chord — and it has to know
+        /// which chords are doors. Two rows can say so without this field:
+        /// volume mode's rows are written "Ctrl+J, V, H", so the chord prefix
+        /// links them to "Ctrl+J, V" on its own (see
+        /// <see cref="KeyTree"/>). Pan mode's rows are written "Left / Right",
+        /// which no prefix can link to "Ctrl+J, Alt+P" — and the only other
+        /// way to find the parent is to read "Enter pan mode" out of the
+        /// Description, which is the prose-parsing this file already refused
+        /// once (<see cref="ExcludedKeys"/>).
+        /// </para>
+        /// <para>
+        /// So the link is data. A layer whose rows carry the full chord prefix
+        /// needs nothing here; a layer whose rows are written as bare keys
+        /// sets this on its opening chord. Either way the explorer follows.
+        /// </para>
+        /// </remarks>
+        public string OpensLayer { get; init; } = "";
+
         public FixedKeyEntry() { }
         public FixedKeyEntry(string context, string contextLabel, string key,
             string description, string[] keywords, string scope = "Radio", string group = "FieldKeys")
@@ -456,7 +483,8 @@ public static class KeyInventory
             new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
         // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
         new("Leader", "Leader key", "Ctrl+J, V", "Enter volume mode: pick a target letter, arrows adjust, Escape exits",
-            new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "adjust", "mode", "leader" }, "Radio", "Audio"),
+            new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "adjust", "mode", "leader" }, "Radio", "Audio")
+            { OpensLayer = "VolumeMode" },
         // Sprint 37 Track C (#304) — the fine stereo-pan control, as a value
         // sub-layer (#305). Alt+P: plain P is APF, Shift+P the Speech
         // Processor, and Ctrl+P is skipped on purpose — flat Ctrl+P is the
@@ -466,7 +494,8 @@ public static class KeyInventory
             "Enter pan mode: left and right arrows place the slice in the stereo field, Enter keeps it, Escape puts it back",
             new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
                     "placement", "position", "field", "audio", "slice", "separate", "separation",
-                    "apart", "ear", "mode", "leader" }, "Radio", "Audio"),
+                    "apart", "ear", "mode", "leader" }, "Radio", "Audio")
+            { OpensLayer = "PanMode" },
         // Audio Arc Keys Track (2026-08-11) — the mic check and the tone generator.
         new("Leader", "Leader key", "Ctrl+J, K", "Mic check: speak your mic-audio verdict and level, nothing else",
             new[] { "mic", "check", "microphone", "audio", "level", "verdict", "gain", "query",
