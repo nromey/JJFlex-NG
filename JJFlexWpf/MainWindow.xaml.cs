@@ -1338,6 +1338,22 @@ public partial class MainWindow : UserControl
     /// </remarks>
     private void ReportHomePanelsMissing()
     {
+        // Wrapped because this sits on the connect path. An instrument that can
+        // take down the thing it is watching is worse than no instrument, and
+        // this one runs inside ExitRescueMode, which OnRadioStarted calls before
+        // the rest of the radio is wired up.
+        try
+        {
+            ReportHomePanelsMissingCore();
+        }
+        catch (Exception ex)
+        {
+            Tracing.TraceLine("ReportHomePanelsMissing: " + ex.Message, TraceLevel.Warning);
+        }
+    }
+
+    private void ReportHomePanelsMissingCore()
+    {
         if (!HomePanelsCollapsedWithRadio) return;
 
         Tracing.TraceLine(
