@@ -78,7 +78,7 @@ Two of these come in on-radio and PC flavours, and the names now say so. "On-Rad
 
 ## Help
 
-- **? or H** — List all JJ Command layer commands aloud
+- **? or H** — Open the list of JJ Command layer commands, one per row, to read at your own pace
 - **Escape** — Close the JJ Command layer
 
 <!-- END LEADER-KEY-TABLE -->
@@ -89,7 +89,13 @@ Press `Ctrl+J` and then something the layer has no command for, and you'll hear 
 
 Here's the part that matters, because it used to be a small lie. That sentence tells you to press `H` — and until now, by the time it finished saying so, the layer had already closed behind you. `H` did whatever `H` does wherever you happened to be standing. You were told to do the one thing that couldn't work.
 
-Now the layer waits. After an unknown key it stays open for exactly three keys: `H` and `Shift slash`, which both read you the command list, and `Escape`, which closes it. Press any other key and the layer is already gone — that key does the ordinary thing it always does, nothing swallowed, nothing surprising.
+Now the layer waits. After an unknown key it stays open for exactly three keys: `H` and `Shift slash`, which both open the command list, and `Escape`, which closes it. Press any other key and the layer is already gone — that key does the ordinary thing it always does, nothing swallowed, nothing surprising.
+
+## Reading the list at your own pace
+
+`H` used to read you every command in the layer in one go — thirty-odd of them, most of a minute, and if the one you wanted went past, you started again from the top. Speech is the right medium for an answer you already know you want; it's the wrong one for looking for something. So `H` now opens a list instead. It says how many commands there are first, so you know what you're getting, then puts one command per row in a window you can arrow through: hear each one on its own, go back to the one you missed, type a letter to jump to that key, and press Escape when you're done. A short layer stays spoken — volume mode's six targets are one sentence, and a window would just be in the way.
+
+From the list, **Explore the JJ key** (`Alt+X`) opens the explorer: the whole layer as a tree. The top branches are the kinds of key — plain letters, Shift letters, Control letters, Alt letters, and help — and under a chord that opens a mode of its own, such as `V` for volume mode, sit the keys that only work once you're in it. Right arrow opens a branch, Left closes it, Enter does either, and a letter jumps to the next key that starts with it. It's the same table the list reads from, so the two can't disagree.
 
 Three keys and no more, on purpose. A layer that keeps hold of your keyboard without saying so is a trap, and you can't see whether you're still in one. These three all lead *out*: two to the list, one to the door. There's no way to get stuck, and the layer only ever lingers right after it has told you it's doing so.
 

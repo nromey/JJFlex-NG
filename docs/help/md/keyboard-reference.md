@@ -102,16 +102,18 @@ Press `Ctrl+J` and then release it to enter the JJ Command layer. You'll hear a 
 
 ### Help
 
-- **? or H** — List all JJ Command layer commands
+- **? or H** — Open the list of JJ Command layer commands, one per row, to arrow through at your own pace
 - **Escape** — Close the JJ Command layer
 
 <!-- END LEADER-KEY-TABLE -->
 
 Don't worry if you press the JJ key by accident or if you simply don't want to access the command layer. Press Escape to leave the JJ Command layer — you'll hear a little descending tone, and you can go back to whatever you were doing previously in JJ Flexible Radio. The layer waits patiently until you press a key or cancel; there's no timer sneaking you out of it.
 
-Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for those three keys only: `H` and `Shift slash` read you the command list, `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. The full story is on the JJ Key Commands page.
+Press a key the layer doesn't know and it now says "Unknown key. H for the list, Escape to cancel." — and then it actually waits for you. After an unknown key the layer stays open for those three keys only: `H` and `Shift slash` open the command list, `Escape` closes it. Any other key and the layer has already let go, so that key does its ordinary job. The full story is on the JJ Key Commands page.
 
-One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `Shift slash`) reads you every command in the JJ Command layer, top to bottom. If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder. The JJ help announcement now ends by pointing you at both.
+One more thing worth knowing: the JJ key's built-in help (`Ctrl+J` then `H` or `Shift slash`) used to read you every command in the layer in one breath — thirty-odd of them, the better part of a minute, with no way to go back to the one you missed. It's a list now. It tells you how many commands there are first, then opens a window with one command per row: arrow up and down, hear each one by itself, and type a letter to jump straight to that key. Escape closes it and you're back exactly where you were. A short layer — volume mode, with its handful of targets — is still simply spoken, because six things are a sentence and a window would be more trouble than the answer. The list has an **Explore the JJ key** button (`Alt+X`) that opens the JJ key explorer, a tree of the whole layer: plain letters, Shift letters, Control letters, Alt letters, then help — and under any chord that opens a mode of its own, the keys that only work inside it. Right arrow opens a branch, Left closes it, and a letter jumps to that key.
+
+If what you actually want is help for the control you're sitting on, that's Ctrl+F1 — F1 on its own opens this file. If you want to search every command in the app by name, that's `Ctrl+/` for the Command Finder.
 
 ### Volume mode — Ctrl+J, then V
 

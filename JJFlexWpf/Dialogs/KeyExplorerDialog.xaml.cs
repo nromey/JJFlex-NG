@@ -114,17 +114,28 @@ namespace JJFlexWpf.Dialogs
 
             var landing = LandingItem(rootItem);
             landing.IsSelected = true;
-            landing.BringIntoView();
-            landing.Focus();
+            FocusFirstControl();
         }
 
         protected override void FocusFirstControl()
         {
             // The tree, always: the base class's first-focusable walk would
             // otherwise land on the hint or the Close button depending on
-            // layout, and the hint is not a place to arrive.
-            if (Tree.SelectedItem is TreeViewItem selected) selected.Focus();
-            else Tree.Focus();
+            // layout, and the hint is not a place to arrive. Items added
+            // during Loaded are not laid out yet, so a refused focus is
+            // retried once layout has run — and the base class asks again at
+            // ContentRendered in any case.
+            if (Tree.SelectedItem is TreeViewItem selected)
+            {
+                selected.BringIntoView();
+                if (!selected.Focus())
+                    Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+                        new System.Action(() => selected.Focus()));
+            }
+            else
+            {
+                Tree.Focus();
+            }
         }
 
         private static TreeViewItem Subtree(KeyTreeNode node)
