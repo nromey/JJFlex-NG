@@ -271,10 +271,12 @@ namespace JJPortaudio
             // the callback keeps running until PortAudio notices. Every callback
             // in that window found an empty queue and recorded a starvation —
             // which is why every receive stream captured on 2026-09-01 ended
-            // with "4 starvation(s) in the final partial second" and similar,
-            // four to five of a stream's six-to-nine total starvations
-            // manufactured by its own teardown. Nothing was audible; the meter
-            // was reporting the shutdown.
+            // with a line of the form "N starvation(s) in the final partial
+            // second". Across the five streams whose totals were logged that
+            // evening it was 4 of 6, 4 of 9, 4 of 8, 2 of 8 and 5 of 7 —
+            // between a quarter and two thirds of every stream's starvation
+            // count, manufactured by its own teardown. Nothing was audible; the
+            // meter was reporting the shutdown.
             //
             // Nothing is lost by moving it: workItems.start clears the queue
             // again on the way in, so a restart still cannot play stale audio.
