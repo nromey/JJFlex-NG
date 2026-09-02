@@ -55,7 +55,7 @@ namespace JJFlexWpf.Dialogs
         private bool _skipped;
 
         /// <param name="lead">
-        /// Something to say BEFORE "Discovering radios" - typically what just
+        /// Something to say BEFORE "Searching for radios" - typically what just
         /// happened, such as a disconnect.
         ///
         /// It has to be carried by this window rather than spoken before it,
@@ -77,8 +77,8 @@ namespace JJFlexWpf.Dialogs
             // body text. A window that exists for one second to say one thing
             // should say that thing in its name.
             Title = string.IsNullOrWhiteSpace(lead)
-                ? "Discovering radios"
-                : lead + ". Discovering radios";
+                ? "Searching for radios"
+                : lead + ". Searching for radios";
             SizeToContent = SizeToContent.WidthAndHeight;
             ResizeMode = ResizeMode.NoResize;
             ShowInTaskbar = false;
@@ -89,7 +89,7 @@ namespace JJFlexWpf.Dialogs
             // open, so a plain TextBlock here would say it a second time.
             Content = new Controls.DecorativeText
             {
-                Text = "Discovering radios",
+                Text = "Searching for radios",
                 Margin = new Thickness(24, 18, 24, 18),
                 FontSize = 14,
             };
