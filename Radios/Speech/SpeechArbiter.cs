@@ -73,6 +73,25 @@ namespace Radios.Speech
     /// utterances that declared nothing, because for those there is no honest
     /// alternative — see <see cref="SalvageAgeMultiple"/>.
     ///
+    /// **And the train is HELD through a settle window before it is handed
+    /// over (#507).** Until 2026-09-02 the backlog was re-queued inside the
+    /// interrupt's own call, which put it immediately behind the interrupter
+    /// — and the interrupter is the LEAD of an action whose real answer is
+    /// queued a moment later by the same handler. So at 202636 @65323 the
+    /// operator pressed Tune, heard "Tune on", then a sixty-character warning
+    /// about profile saving, then "Tune Power 5", and only then did the radio
+    /// act; and at 213210 @4015266 every Tab press re-delivered the same
+    /// stale warning, each press spending one of its two rescues. The queue
+    /// order was correct and the defect was placement. Supersession (#503)
+    /// removes the WORTHLESS occupants of that gap and cannot remove the true
+    /// ones: the receipt was keyed, unsuperseded and still worth hearing. So
+    /// the survivors of an interrupt now wait in a held set for
+    /// <see cref="SalvageSettleMs"/>; anything queued meanwhile goes to the
+    /// reader at once, ahead of them; a further interrupt inside the window
+    /// keeps them held without spending a rescue; and the release hands them
+    /// over behind the action's own follow-ups. HOLD, never discard —
+    /// discarding is "an interrupt burns the queue" in a new coat.
+    ///
     /// **Why estimates, not truth.** Asking the backend whether it is still
     /// speaking is a per-backend feature bit; a design that polls it works
     /// under one screen reader and silently stalls under another (the
@@ -307,6 +326,59 @@ namespace Radios.Speech
         /// </summary>
         internal const int SalvageCeilingMs = 15000;
 
+        // ── The salvage settle window (#507) ──
+
+        /// <summary>
+        /// How long an interrupt's salvage train is held before it is handed
+        /// to the reader, so that the interrupting action's OWN follow-ups
+        /// go first. Measured from the LAST interrupt: a further interrupt
+        /// inside the window re-arms it and keeps the train held.
+        ///
+        /// **Derived from the 2026-09-01 captures, not chosen.** Three
+        /// measurements bracket it, and the bracket is pinned in
+        /// SalvageSettleWindowTests so the number cannot drift out of it
+        /// without a test saying so.
+        ///
+        /// **What must fit inside: an action's own follow-ups.** Across the
+        /// six Verbose captures, 18 of the 24 queued follow-ups that belong
+        /// to the action whose lead interrupted were handed over 0 to 2 ms
+        /// after it — "SWR 1.1" behind "Tune off", seven times; the discovery
+        /// line behind the Home arrival — three at 48 to 50 ms (the slice
+        /// census and the receipt behind "Slice A, first slice", from a
+        /// worker thread), and the slowest at 209 and 264 ms ("PC audio on"
+        /// behind the Home arrival, from the audio thread). Anything past
+        /// 300 ms already catches every follow-up seen.
+        ///
+        /// **What it is also asked to absorb: a burst of deliberate presses**,
+        /// so the train is handed over once at the end rather than once per
+        /// press with each hand-over spending a rescue. Measured: a Left-arrow
+        /// walk across Home at 176 to 264 ms per press, and five Tab bursts at
+        /// 408 to 552 ms per press — the #507 case is two Tabs 504 ms apart
+        /// consuming both rescues (213210 @4015266, @4015770). So the window
+        /// must exceed 552.
+        ///
+        /// **What bounds it above: the reader must still be speaking when the
+        /// train arrives**, or the hold becomes an audible pause — which is
+        /// exactly "a delay the operator feels". <see cref="GapFloorMs"/> is
+        /// this class's own floor on how long the reader is busy with its
+        /// SHORTEST utterance, the err-short estimate the anti-clip gap already
+        /// stakes clipping on; releasing inside it means the train queues
+        /// behind an utterance still being spoken, and the hand-over is
+        /// inaudible by the same estimate. The shortest SEPARATE phase of one
+        /// operation — "Disconnected from …" behind "Disconnecting from …" at
+        /// +1,097 ms, "Connected to K5NER. Waiting for slice..." behind the
+        /// connect line at +1,914 ms — lies well beyond the floor and correctly
+        /// falls outside the window: those are acts of their own, and the
+        /// backlog belongs between them.
+        ///
+        /// 600 sits inside that bracket: 48 ms above the slowest measured
+        /// burst press, 100 ms below the floor. The responsive path is not
+        /// touched by it at all — a lead, a settle, a query's answer and every
+        /// queued follow-up reach the reader at exactly the instants they did
+        /// before; only the backlog moves, and it moves later.
+        /// </summary>
+        internal const int SalvageSettleMs = 600;
+
         // ── State ──
 
         private sealed class PendingUtterance
@@ -360,7 +432,14 @@ namespace Radios.Speech
             /// </summary>
             public DateTime FirstEmittedUtc;
 
-            /// <summary>How many times an interrupt has already rescued this one.</summary>
+            /// <summary>
+            /// How many times a release has handed this one back to the
+            /// reader. Being HELD is not a rescue: a burst of interrupts
+            /// inside one settle window keeps the entry held and moves this
+            /// not at all, because nothing was handed over and so nothing was
+            /// rescued (#507). It counts hand-overs, which is what the cap
+            /// was always bounding — repeats the operator may actually hear.
+            /// </summary>
             public int SalvageCount;
         }
 
@@ -392,6 +471,50 @@ namespace Radios.Speech
         /// the reader resets it (everything before it is gone).
         /// </summary>
         private DateTime _readerBusyUntilUtc = DateTime.MinValue;
+
+        /// <summary>
+        /// The salvage train: entries an interrupt rescued from the ledger
+        /// and has not yet handed to the reader (#507). Not in
+        /// <see cref="_believedQueued"/>, because the reader does not have
+        /// them; not spoken, because the settle window has not closed. Kept
+        /// in arrival order, which is the order the reader had them in: the
+        /// ledger is ordered by entry (a rescued entry re-enters behind what
+        /// was queued while it waited, exactly as it re-entered the reader's
+        /// queue), and a later interrupt in the same window only ever
+        /// appends newer material behind what was already held.
+        /// </summary>
+        private readonly List<BelievedQueued> _held = new List<BelievedQueued>();
+
+        /// <summary>The settle timer for the current hold; null when nothing is held.</summary>
+        private ISpeechTimer? _holdTimer;
+
+        /// <summary>
+        /// Bumped every time the hold is armed, re-armed or ended. A release
+        /// callback carries the generation it was armed with; one that
+        /// arrives carrying an older number was overtaken — re-armed by a
+        /// later interrupt, or cleared — and its window is not the one that
+        /// closed. This is what makes "a timer fired while the lock was held
+        /// by the interrupt that re-armed it" a no-op rather than an early
+        /// release.
+        /// </summary>
+        private int _holdGeneration;
+
+        /// <summary>When the CURRENT hold began — the first interrupt of a burst, not the latest.</summary>
+        private DateTime _holdStartedUtc;
+
+        /// <summary>The interrupter the hold is currently armed behind, for the trace.</summary>
+        private string _holdBehind = string.Empty;
+
+        /// <summary>How many interrupts have kept the current hold held — a burst's size.</summary>
+        private int _holdInterrupts;
+
+        /// <summary>
+        /// Queued utterances the reader was given while the hold was open —
+        /// the action's own follow-ups, which is what the hold exists to let
+        /// through first. Named in the release trace so the record says not
+        /// only that a hold happened and how long, but what went ahead.
+        /// </summary>
+        private readonly List<string> _wentFirst = new List<string>();
 
         private readonly object _lock = new object();
 
@@ -632,7 +755,7 @@ namespace Radios.Speech
         {
             lock (_lock)
             {
-                DiscardAllLocked();
+                DiscardAllLocked("an urgent warning discards everything queued");
                 try { _silenceBackend(); } catch { }
                 EmitLocked(message, interrupt: true, SpeechIntent.Urgent, level, origin, subject: null);
             }
@@ -644,7 +767,9 @@ namespace Radios.Speech
         /// shut up would defy them. Pending coalesced values are deliberately
         /// left alone — a settle that fires afterwards carries the CURRENT
         /// value of a control the operator was actively sweeping, which is not
-        /// the chatter they silenced.
+        /// the chatter they silenced. A train still held goes too, and the
+        /// trace says so: it was the same backlog, one stage further from the
+        /// reader.
         /// </summary>
         public void OnSilenced()
         {
@@ -652,6 +777,7 @@ namespace Radios.Speech
             {
                 _believedQueued.Clear();
                 _readerBusyUntilUtc = DateTime.MinValue;
+                EndHoldLocked("the operator silenced speech");
             }
         }
 
@@ -660,7 +786,7 @@ namespace Radios.Speech
         {
             lock (_lock)
             {
-                DiscardAllLocked();
+                DiscardAllLocked("all speech state discarded");
             }
         }
 
@@ -688,6 +814,11 @@ namespace Radios.Speech
                     // restate it.
                     if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
                     LedgerAddLocked(message, intent, level, origin, subject, now);
+
+                    // Given to the reader while a train is held: this is one
+                    // of the follow-ups the hold exists to let through first,
+                    // and the release trace will name it.
+                    if (_holdTimer != null) _wentFirst.Add(message);
                 }
                 return;
             }
@@ -701,57 +832,320 @@ namespace Radios.Speech
             }
 
             // The interrupt flushed the reader. Everything believed unspoken
-            // is gone from its queue; re-queue it, in order, behind the
-            // interrupter. Urgent skips this on purpose (ledger already
-            // cleared by DiscardAllLocked, but the check keeps the policy
-            // explicit rather than an artifact of call order).
+            // is gone from its queue and must be re-queued, in order, behind
+            // the interrupter — but NOT in this call (#507). The interrupter
+            // is the lead of an action whose own follow-ups are about to be
+            // queued by the same handler, and the backlog belongs behind
+            // those. It is judged now, held through the settle window, and
+            // handed over by ReleaseHeld. Urgent skips all of it on purpose
+            // (ledger and held set already cleared by DiscardAllLocked, but
+            // the check keeps the policy explicit rather than an artifact of
+            // call order).
             _readerBusyUntilUtc = now.AddMilliseconds(EstimateSpokenMs(message));
 
-            if (intent == SpeechIntent.Urgent || _believedQueued.Count == 0)
+            if (intent == SpeechIntent.Urgent)
             {
                 _believedQueued.Clear();
                 return;
             }
 
+            if (_believedQueued.Count == 0 && _held.Count == 0) return;
+
             // The interrupter may itself be the newer statement on a pending
             // entry's subject — a sweep over a field whose typed value is
             // still queued. Marked before the pass so the pass drops it and
-            // the trace names the interrupter as what covered it.
+            // the trace names the interrupter as what covered it. The mark
+            // walks the held set too: a burst's second press can cover what
+            // its first press rescued.
             if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
+
+            // A burst: whatever an earlier interrupt in this window already
+            // holds is judged again — something may have covered it since —
+            // and stays held. Its rescue count does not move, because nothing
+            // was handed over and so nothing was rescued. That is what stops
+            // two Tabs half a second apart spending both of an utterance's
+            // rescues (213210 @4015266, @4015770, @4016234: capped on the
+            // third press under the old contract).
+            int carried = ReviewHeldLocked(now);
 
             var salvage = _believedQueued.ToArray();
             _believedQueued.Clear();
+            int added = 0;
             foreach (var s in salvage)
             {
-                string? refusal = SalvageRefusalLocked(s, now);
+                string? refusal = SalvageRefusalLocked(s, now, atRescue: true);
                 if (refusal != null)
                 {
-                    // A salvage that gives up SILENTLY is the same defect class
-                    // as the one this bound exists to fix: speech that vanishes
-                    // while the record says everything is fine. Say which bound
-                    // was hit and what it was measured against — and, for a
-                    // supersession, WHAT covered it. That line is the only
-                    // reason #503 was ever found.
-                    Tracing.TraceLine(
-                        $"SpeechArbiter: dropped a salvage ({refusal}) after "
-                        + $"{s.SalvageCount} rescue(s), "
-                        + $"{(int)(now - s.FirstEmittedUtc).TotalMilliseconds} ms after first "
-                        + $"emission: '{s.Message}'"
-                        + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
-                        TraceLevel.Warning);
+                    TraceDropLocked(s, refusal, now);
                     continue;
                 }
-
-                bool requeued = _sink(s.Message, false, s.Intent, s.Level, s.Origin, salvaged: true);
-                // Re-enter the ledger so a SECOND interrupt cannot destroy
-                // what the first one already had to salvage — bounded, now, by
-                // the count it carries with it.
-                if (requeued)
-                {
-                    s.SalvageCount++;
-                    LedgerEnterLocked(s, _clock.UtcNow);
-                }
+                HoldLocked(s);
+                added++;
             }
+
+            if (_held.Count == 0)
+            {
+                // Everything was refused, each with its reason above. There
+                // is nothing to wait for, and a hold that was open ends here.
+                EndHoldLocked(null);
+                return;
+            }
+
+            ArmHoldLocked(now, message, carried, added);
+        }
+
+        /// <summary>
+        /// Put a rescued entry into the held set. The same cap as the ledger,
+        /// for the same reason: purely defensive, and a train this deep is
+        /// itself the bug the #197 transcript rule exists to catch. Overflow
+        /// drops the OLDEST — the one most likely to have been heard — and
+        /// says so.
+        /// </summary>
+        private void HoldLocked(BelievedQueued entry)
+        {
+            if (_held.Count >= LedgerCap)
+            {
+                var oldest = _held[0];
+                _held.RemoveAt(0);
+                Tracing.TraceLine(
+                    $"SpeechArbiter: dropped a salvage (held set full at {LedgerCap}, oldest first) "
+                    + $"after {oldest.SalvageCount} rescue(s): '{oldest.Message}'",
+                    TraceLevel.Warning);
+            }
+            _held.Add(entry);
+        }
+
+        /// <summary>
+        /// Judge every held entry again, now, and drop — with the reason —
+        /// anything that no longer qualifies: a subject covered since it was
+        /// held, or the ceiling crossed while it waited. Returns how many
+        /// remain. The same function judges an entry at the interrupt and
+        /// here, so a refusal reads the same in both places; the cap cannot
+        /// change while held, and the word-count bound is deliberately not
+        /// asked again — see <see cref="SalvageRefusalLocked"/>.
+        /// </summary>
+        private int ReviewHeldLocked(DateTime now)
+        {
+            for (int i = _held.Count - 1; i >= 0; i--)
+            {
+                string? refusal = SalvageRefusalLocked(_held[i], now, atRescue: false);
+                if (refusal == null) continue;
+                TraceDropLocked(_held[i], refusal, now);
+                _held.RemoveAt(i);
+            }
+            return _held.Count;
+        }
+
+        /// <summary>
+        /// Open the settle window, or re-arm it for a further interrupt
+        /// inside it. The hold's start, its interrupt count and the list of
+        /// what went first survive a re-arm — they describe the hold as a
+        /// whole, which is what the release trace reports.
+        /// </summary>
+        private void ArmHoldLocked(DateTime now, string behind, int carried, int added)
+        {
+            bool fresh = _holdTimer == null;
+            if (fresh)
+            {
+                _holdStartedUtc = now;
+                _holdInterrupts = 0;
+                _wentFirst.Clear();
+            }
+            _holdInterrupts++;
+            _holdBehind = behind;
+            StartHoldTimerLocked();
+
+            if (fresh)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: holding {_held.Count} salvage(s) for {SalvageSettleMs} ms behind "
+                    + $"'{behind}' so its own follow-ups go first: {Quote(_held)}",
+                    TraceLevel.Info);
+            }
+            else
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: still holding {_held.Count} salvage(s) behind '{behind}' — "
+                    + $"interrupt {_holdInterrupts} inside the window, {carried} carried and {added} added, "
+                    + $"{(int)(now - _holdStartedUtc).TotalMilliseconds} ms since the hold began; "
+                    + $"re-armed for {SalvageSettleMs} ms",
+                    TraceLevel.Info);
+            }
+        }
+
+        /// <summary>
+        /// A fresh timer per arm rather than Change on the old one, so the
+        /// callback captures the generation it belongs to. A callback already
+        /// on its way to the lock when a later interrupt re-arms would
+        /// otherwise release a window that had just been extended.
+        /// </summary>
+        private void StartHoldTimerLocked()
+        {
+            _holdTimer?.Dispose();
+            int generation = ++_holdGeneration;
+            _holdTimer = _clock.StartTimer(SalvageSettleMs, () => ReleaseHeld(generation));
+        }
+
+        /// <summary>
+        /// The settle window closed: hand the train to the reader, in order,
+        /// behind whatever the action queued meanwhile — or refuse each entry
+        /// for a stated reason. Nothing leaves this method silently.
+        /// </summary>
+        private void ReleaseHeld(int generation)
+        {
+            lock (_lock)
+            {
+                // Overtaken: re-armed by a later interrupt, or cleared. The
+                // window this callback was armed for is not the one closing.
+                if (generation != _holdGeneration || _holdTimer == null) return;
+
+                var now = _clock.UtcNow;
+                int heldMs = (int)(now - _holdStartedUtc).TotalMilliseconds;
+
+                if (_pending.Count > 0 && heldMs < SalvageCeilingMs)
+                {
+                    // A value is still sweeping, or a query is waiting out its
+                    // gap. Its settle is an interrupt due within the anti-clip
+                    // gap, and releasing now would put the train in front of
+                    // it only to be flushed straight back into the ledger —
+                    // a rescue spent on a few syllables, which is the clicks-
+                    // and-ticks defect in a new place. Keep holding: the
+                    // settle re-arms the window as any interrupt does, and
+                    // the train lands once, after the sweep. Bounded by the
+                    // ceiling so a pending entry that never flushes cannot
+                    // hold the train forever.
+                    Tracing.TraceLine(
+                        $"SpeechArbiter: hold kept at {heldMs} ms, a value is still sweeping and its "
+                        + $"settle would flush the train; re-armed for {SalvageSettleMs} ms",
+                        TraceLevel.Info);
+                    StartHoldTimerLocked();
+                    return;
+                }
+
+                _holdTimer.Dispose();
+                _holdTimer = null;
+
+                var train = _held.ToArray();
+                _held.Clear();
+                int handed = 0;
+                foreach (var s in train)
+                {
+                    string? refusal = SalvageRefusalLocked(s, now, atRescue: false);
+                    if (refusal != null)
+                    {
+                        TraceDropLocked(s, refusal, now);
+                        continue;
+                    }
+
+                    bool requeued = _sink(s.Message, false, s.Intent, s.Level, s.Origin, salvaged: true);
+                    if (!requeued)
+                    {
+                        // Suppressed, or the backend went away while the
+                        // train waited. Not re-entered, because it occupies
+                        // nothing — but said, because silence here is the
+                        // original sin.
+                        Tracing.TraceLine(
+                            $"SpeechArbiter: the reader did not take a salvage (suppressed or no backend) "
+                            + $"after {s.SalvageCount} rescue(s): '{s.Message}'",
+                            TraceLevel.Warning);
+                        continue;
+                    }
+
+                    // Re-enter the ledger so a SECOND interrupt cannot destroy
+                    // what the first one already had to salvage — bounded, now,
+                    // by the count it carries with it.
+                    s.SalvageCount++;
+                    LedgerEnterLocked(s, now);
+                    handed++;
+                }
+
+                Tracing.TraceLine(
+                    $"SpeechArbiter: released {handed} of {train.Length} held salvage(s) {heldMs} ms after "
+                    + $"'{_holdBehind}' ({_holdInterrupts} interrupt(s) in the window); "
+                    + (_wentFirst.Count == 0
+                        ? "nothing went first"
+                        : $"{_wentFirst.Count} went first: {Quote(_wentFirst)}"),
+                    TraceLevel.Info);
+
+                _wentFirst.Clear();
+                _holdInterrupts = 0;
+                _holdBehind = string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// Close the hold without handing anything over. With a reason, the
+        /// held entries are let go and the trace names them and it; with
+        /// none, the caller has already refused each entry with its own line
+        /// and only the empty hold is being tidied away.
+        /// </summary>
+        private void EndHoldLocked(string? letGoReason)
+        {
+            bool wasHolding = _holdTimer != null;
+            _holdTimer?.Dispose();
+            _holdTimer = null;
+            if (wasHolding) _holdGeneration++;
+
+            if (_held.Count > 0)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: let go of {_held.Count} held salvage(s) unspoken, "
+                    + $"{letGoReason ?? "no reason given"}: {Quote(_held)}",
+                    TraceLevel.Info);
+                _held.Clear();
+            }
+            else if (wasHolding)
+            {
+                Tracing.TraceLine(
+                    $"SpeechArbiter: hold behind '{_holdBehind}' ended with nothing left to hand over; "
+                    + "everything it held was refused, each with its reason above",
+                    TraceLevel.Info);
+            }
+
+            _wentFirst.Clear();
+            _holdInterrupts = 0;
+            _holdBehind = string.Empty;
+        }
+
+        /// <summary>
+        /// The drop line, in one place now that an entry can be refused at
+        /// the interrupt, at a re-arm, or at the release. A salvage that
+        /// gives up SILENTLY is the same defect class as the one every bound
+        /// here exists to fix: speech that vanishes while the record says
+        /// everything is fine. Say which bound was hit and what it was
+        /// measured against — and, for a supersession, WHAT covered it. That
+        /// line is the only reason #503 was ever found.
+        /// </summary>
+        private static void TraceDropLocked(BelievedQueued s, string refusal, DateTime now)
+        {
+            Tracing.TraceLine(
+                $"SpeechArbiter: dropped a salvage ({refusal}) after "
+                + $"{s.SalvageCount} rescue(s), "
+                + $"{(int)(now - s.FirstEmittedUtc).TotalMilliseconds} ms after first "
+                + $"emission: '{s.Message}'"
+                + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
+                TraceLevel.Warning);
+        }
+
+        /// <summary>A short quoted list for the hold traces: the first three, each clipped, and a count of the rest.</summary>
+        private static string Quote(IReadOnlyList<BelievedQueued> entries)
+        {
+            var names = new List<string>(entries.Count);
+            foreach (var e in entries) names.Add(e.Message);
+            return Quote(names);
+        }
+
+        private static string Quote(IReadOnlyList<string> messages)
+        {
+            const int show = 3, clip = 60;
+            var parts = new List<string>(show);
+            for (int i = 0; i < messages.Count && i < show; i++)
+            {
+                string m = messages[i];
+                parts.Add("'" + (m.Length > clip ? m.Substring(0, clip) + "…" : m) + "'");
+            }
+            string joined = string.Join(", ", parts);
+            return messages.Count > show ? $"{joined} and {messages.Count - show} more" : joined;
         }
 
         /// <summary>
@@ -766,8 +1160,23 @@ namespace Radios.Speech
         /// emitter declared no subject — for a keyed entry, age below the
         /// ceiling is not a reason. "SWR 1.7" at 3,863 ms is not stale; it is
         /// the answer to the last tune, and nothing has said otherwise.
+        ///
+        /// **The word-count bound is judged ONCE, at the interrupt that
+        /// rescues the entry (#507).** Supersession and the ceiling are facts
+        /// about now — something newer covers it, or it is fifteen seconds
+        /// gone — and are asked again at every re-arm and at the release. The
+        /// word-count bound is a heuristic about an entry the arbiter knows
+        /// nothing about, and the settle window is the arbiter's OWN delay:
+        /// charging the entry for it produced, in the first cut of this
+        /// change, an unkeyed "SWR 1.7" that was fine at the interrupt and
+        /// refused at the release for being fifteen milliseconds too old —
+        /// a self-inflicted drop of exactly the class #503 exists to end.
         /// </summary>
-        private string? SalvageRefusalLocked(BelievedQueued entry, DateTime now)
+        /// <param name="atRescue">
+        /// True when judging at the interrupt that lifts the entry out of the
+        /// ledger; false at a re-judge of the held set.
+        /// </param>
+        private string? SalvageRefusalLocked(BelievedQueued entry, DateTime now, bool atRescue)
         {
             int ageMs = (int)(now - entry.FirstEmittedUtc).TotalMilliseconds;
 
@@ -787,7 +1196,7 @@ namespace Radios.Speech
                 return $"ceiling: {ageMs} ms old against the {SalvageCeilingMs} ms lifetime"
                     + (entry.Subject != null ? ", never superseded" : string.Empty);
 
-            if (entry.Subject == null)
+            if (atRescue && entry.Subject == null)
             {
                 int boundMs = EstimateSpokenMs(entry.Message) * SalvageAgeMultiple;
                 if (ageMs > boundMs)
@@ -807,7 +1216,17 @@ namespace Radios.Speech
         private void MarkSupersededLocked(string? subject, string by, string? origin, DateTime now)
         {
             if (string.IsNullOrEmpty(subject)) return;
-            foreach (var e in _believedQueued)
+            MarkSupersededIn(_believedQueued, subject!, by, origin, now);
+            // The held set is the same backlog one stage further from the
+            // reader: "XIT +0" queued a millisecond after "RIT off" must
+            // retire a held "XIT +100" exactly as it would a ledgered one.
+            MarkSupersededIn(_held, subject!, by, origin, now);
+        }
+
+        private static void MarkSupersededIn(List<BelievedQueued> entries,
+            string subject, string by, string? origin, DateTime now)
+        {
+            foreach (var e in entries)
             {
                 if (e.SupersededBy != null) continue;
                 if (!string.Equals(e.Subject, subject, StringComparison.Ordinal)) continue;
@@ -943,7 +1362,7 @@ namespace Radios.Speech
             return remaining <= 0 ? 0 : (int)Math.Ceiling(remaining);
         }
 
-        private void DiscardAllLocked()
+        private void DiscardAllLocked(string reason)
         {
             foreach (var entry in _pending.Values) entry.Timer?.Dispose();
             _pending.Clear();
@@ -955,6 +1374,7 @@ namespace Radios.Speech
 
             _believedQueued.Clear();
             _readerBusyUntilUtc = DateTime.MinValue;
+            EndHoldLocked(reason);
         }
     }
 }
