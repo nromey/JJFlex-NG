@@ -455,18 +455,22 @@ public static class KeyInventory
         new("Leader", "Leader key", "Ctrl+J, P", "Toggle Audio Peak Filter (CW only)",
             new[] { "apf", "audio", "peak", "filter", "cw", "leader" }, "Radio", "DSP"),
         // Audio Arc Track A (2026-08-11) — "adjust how I sound and what I hear".
-        new("Leader", "Leader key", "Ctrl+J, V", "Enter volume mode: pick a target letter, arrows adjust, Escape exits",
-            new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "adjust", "mode", "leader" }, "Radio", "Audio"),
+        // Sprint 44 Track I (#514): volume mode and pan mode became ONE audio
+        // layer on the value sub-layer engine. V still opens it; the letter
+        // itself is Track J's under the four-tier allocation (#515).
+        new("Leader", "Leader key", "Ctrl+J, V", "Enter the audio layer: a letter picks what to adjust, arrows adjust, Enter keeps it, Escape puts it back",
+            new[] { "volume", "audio", "level", "pc", "output", "headphone", "mic", "pan", "adjust", "mode", "layer", "leader" }, "Radio", "Audio"),
         // Sprint 37 Track C (#304) — the fine stereo-pan control, as a value
         // sub-layer (#305). Alt+P: plain P is APF, Shift+P the Speech
         // Processor, and Ctrl+P is skipped on purpose — flat Ctrl+P is the
         // FREQUENCY panning field, which shares a word with stereo pan and
-        // nothing else.
+        // nothing else. Since Sprint 44 Track I this opens the audio layer
+        // with pan already picked.
         new("Leader", "Leader key", "Ctrl+J, Alt+P",
-            "Enter pan mode: left and right arrows place the slice in the stereo field, Enter keeps it, Escape puts it back",
+            "Enter the audio layer on pan: arrows place the slice in the stereo field, Enter keeps it, Escape puts it back",
             new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
                     "placement", "position", "field", "audio", "slice", "separate", "separation",
-                    "apart", "ear", "mode", "leader" }, "Radio", "Audio"),
+                    "apart", "ear", "mode", "layer", "leader" }, "Radio", "Audio"),
         // Audio Arc Keys Track (2026-08-11) — the mic check and the tone generator.
         new("Leader", "Leader key", "Ctrl+J, K", "Mic check: speak your mic-audio verdict and level, nothing else",
             new[] { "mic", "check", "microphone", "audio", "level", "verdict", "gain", "query",
@@ -641,46 +645,125 @@ public static class KeyInventory
     }
 
     // ────────────────────────────────────────────────────────────────
-    //  Volume mode targets (Ctrl+J, V, then a target letter; arrows adjust;
-    //  the mode persists until Escape). Truth source:
-    //  KeyCommands.DoVolumeModeKey. Audio Arc Track A, 2026-08-11.
+    //  The audio layer (Sprint 44 Track I, #514) — pan and volume, one
+    //  layer on the value sub-layer engine. Opened by Ctrl+J, V, and by
+    //  Ctrl+J, Alt+P with pan already picked, until Track J's four-tier
+    //  allocation (#515) gives it JJ key A. Truth source:
+    //  Radios.ValueSubLayer.HandleKey plus the definition in
+    //  KeyCommands.EnterAudioLayer; the engine is unit-tested in
+    //  Radios.Tests and the H list is generated from THIS table, so a key
+    //  missing here is missing from the layer's own help.
+    //
+    //  Letters pick the target and Up/Down adjust everything; Left/Right
+    //  ALSO adjust pan, because for that one target direction means
+    //  something real. Plain H is help in every layer (#514), so
+    //  headphone wears Ctrl; plain P is PC output, so pan wears Ctrl too.
+    //  Shift+letter jumps to a slice from inside the layer (#515) — the
+    //  layer never spends A-F on slices.
     // ────────────────────────────────────────────────────────────────
-    private static readonly FixedKeyEntry[] VolumeModeCommands =
+    public const string AudioLayerContext = "AudioLayer";
+    public const string FilterLayerContext = "FilterLayer";
+
+    private static readonly FixedKeyEntry[] AudioLayerCommands =
     {
-        new("VolumeMode", "Volume mode", "Ctrl+J, V, H", "On-radio headphone volume — the radio's own headphone jack; arrows adjust",
-            new[] { "headphone", "volume", "on-radio", "jack", "level" }, "Radio", "Audio"),
-        new("VolumeMode", "Volume mode", "Ctrl+J, V, P", "PC output volume in dB — how loud radio audio plays through this computer; arrows adjust",
+        new(AudioLayerContext, "Audio layer", "Ctrl+H", "On-radio headphone volume — the radio's own headphone jack; Up and Down adjust",
+            new[] { "headphone", "headphones", "earphones", "volume", "on-radio", "jack", "level" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "P", "PC output volume in dB — how loud radio audio plays through this computer; Up and Down adjust",
             new[] { "pc", "output", "volume", "computer", "playback", "boost", "db", "remote", "audio", "level" }, "Radio", "Audio"),
-        new("VolumeMode", "Volume mode", "Ctrl+J, V, M", "Mic level — your transmit audio level, PC audio included; arrows adjust",
+        new(AudioLayerContext, "Audio layer", "M", "Mic level — your transmit audio level, PC audio included; Up and Down adjust",
             new[] { "mic", "microphone", "level", "gain", "transmit", "audio" }, "Radio", "Audio"),
-        new("VolumeMode", "Volume mode", "Ctrl+J, V, L", "On-radio line out volume — the radio's own line out jack; arrows adjust",
+        new(AudioLayerContext, "Audio layer", "L", "On-radio line out volume — the radio's own line out jack; Up and Down adjust",
             new[] { "line", "out", "lineout", "volume", "on-radio", "jack", "level" }, "Radio", "Audio"),
-        new("VolumeMode", "Volume mode", "Ctrl+J, V, C", "Compander level; arrows adjust",
+        new(AudioLayerContext, "Audio layer", "C", "Compander level; Up and Down adjust",
             new[] { "compander", "level", "compression", "transmit" }, "Radio", "Transmit"),
-        new("VolumeMode", "Volume mode", "Ctrl+J, V, S", "Speech processor mode: Normal, DX, DX plus; arrows step",
+        new(AudioLayerContext, "Audio layer", "S", "Speech processor mode: Normal, DX, DX plus; Up and Down step",
             new[] { "speech", "processor", "proc", "mode", "dx", "transmit" }, "Radio", "Transmit"),
-        new("VolumeMode", "Volume mode", "Escape", "Leave volume mode",
-            new[] { "volume", "mode", "escape", "exit", "cancel" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "Ctrl+P", "Pan for the slice you're on — Left and Right, or Up and Down, place it in the stereo field; Shift moves by one, Home centers",
+            new[] { "pan", "stereo", "balance", "left", "right", "center", "centre", "place",
+                    "placement", "position", "field", "slice", "separate", "separation", "apart", "ear" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "Up / Down", "Adjust the picked target; Shift moves by one",
+            new[] { "adjust", "up", "down", "fine", "shift" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer — pan follows you to it",
+            new[] { "slice", "jump", "letter" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "Enter", "Keep every change and leave the audio layer",
+            new[] { "keep", "confirm", "enter", "exit" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "Escape", "Put back everything you moved and leave the audio layer",
+            new[] { "cancel", "restore", "undo", "back", "escape", "exit" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "H", "List the audio layer's keys",
+            new[] { "help", "list", "keys" }, "Radio", "help"),
+        new(AudioLayerContext, "Audio layer", "?", "Explore this layer's keys (the same list as H until the JJ key explorer lands)",
+            new[] { "help", "explore", "explorer", "tree", "question", "shift slash" }, "Radio", "help")
+            { KeySpoken = "Shift slash" },
     };
 
     // ────────────────────────────────────────────────────────────────
-    //  Pan mode keys (Ctrl+J, Alt+P, then these; the layer persists until
-    //  a closing key). Truth source: Radios.ValueSubLayer.HandleKey plus
-    //  the pan definition in KeyCommands.EnterPanMode — and the engine's
-    //  behaviour is unit-tested directly in Radios.Tests, which the
-    //  DoVolumeModeKey switch never was. Sprint 37 Track C, #304/#305.
+    //  The filter layer (Sprint 44 Track I, #516) — JJ key F once Track J
+    //  wires the door. The modifier picks the TARGET and the key picks the
+    //  VERB: Left Shift is the low edge, Right Shift the high edge, no
+    //  modifier the whole filter. Truth source: Radios.ValueSubLayer with
+    //  the definition in KeyCommands.EnterFilterLayer. The bracket chords
+    //  above are NOT removed — Don has learned them; this is a second door.
     // ────────────────────────────────────────────────────────────────
-    private static readonly FixedKeyEntry[] PanModeCommands =
+    private static readonly FixedKeyEntry[] FilterLayerCommands =
     {
-        new("PanMode", "Pan mode", "Left / Right", "Nudge the slice through the stereo field; Shift moves by one",
-            new[] { "pan", "stereo", "nudge", "left", "right", "fine", "place", "position" }, "Radio", "Audio"),
-        new("PanMode", "Pan mode", "Home or C", "Center the pan",
-            new[] { "pan", "center", "centre", "middle", "home" }, "Radio", "Audio"),
-        new("PanMode", "Pan mode", "Enter", "Keep the new pan and leave pan mode",
-            new[] { "pan", "keep", "confirm", "enter", "exit" }, "Radio", "Audio"),
-        new("PanMode", "Pan mode", "Escape", "Put the pan back where it was and leave pan mode",
-            new[] { "pan", "cancel", "restore", "undo", "back", "escape", "exit" }, "Radio", "Audio"),
+        new(FilterLayerContext, "Filter layer", "Left Shift + Left / Right", "Walk the low edge of the filter",
+            new[] { "filter", "low", "edge", "lower", "walk", "left shift" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Right Shift + Left / Right", "Walk the high edge of the filter",
+            new[] { "filter", "high", "edge", "upper", "walk", "right shift" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Left / Right", "Slide the whole filter down or up, width intact",
+            new[] { "filter", "slide", "passband", "shift", "move", "whole" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Up / Down", "Slide the whole filter up or down, width intact",
+            new[] { "filter", "slide", "passband", "shift", "move", "whole" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Ctrl+Up / Ctrl+Down", "Widen or narrow the filter about its center",
+            new[] { "filter", "width", "widen", "narrow", "wider", "narrower", "bandwidth", "center" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "S", "Speak the whole filter",
+            new[] { "filter", "speak", "read", "width", "edges" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Left Shift + S", "Speak the low edge",
+            new[] { "filter", "speak", "read", "low", "edge" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Right Shift + S", "Speak the high edge",
+            new[] { "filter", "speak", "read", "high", "edge" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "T", "Work on the transmit filter — one for the whole radio",
+            new[] { "filter", "transmit", "tx" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "R", "Work on the receive filter of the slice you're on — where the layer starts",
+            new[] { "filter", "receive", "rx" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer — the receive filter follows you to it",
+            new[] { "slice", "jump", "letter" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Enter", "Keep every change and leave the filter layer",
+            new[] { "keep", "confirm", "enter", "exit" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "Escape", "Put back everything you moved and leave the filter layer",
+            new[] { "cancel", "restore", "undo", "back", "escape", "exit" }, "Radio", "Filter"),
+        new(FilterLayerContext, "Filter layer", "H", "List the filter layer's keys",
+            new[] { "help", "list", "keys" }, "Radio", "help"),
+        new(FilterLayerContext, "Filter layer", "?", "Explore this layer's keys (the same list as H until the JJ key explorer lands)",
+            new[] { "help", "explore", "explorer", "tree", "question", "shift slash" }, "Radio", "help")
+            { KeySpoken = "Shift slash" },
     };
+
+    /// <summary>
+    /// The rows of one layer, in presentation order — what H lists and what
+    /// the tree explorer describes. A layer whose context is unknown here is
+    /// invisible to both, so a new layer registers its table above and
+    /// yields it from <see cref="All"/>.
+    /// </summary>
+    public static IReadOnlyList<FixedKeyEntry> LayerCommands(string context)
+        => All().Where(e => e.Context == context).ToList();
+
+    /// <summary>
+    /// The spoken fallback for a layer's H, generated from its table so it
+    /// cannot drift from the layer: the headline the host supplies (the
+    /// layer's name and where it stands), then the COUNT, then the keys.
+    /// Count first (#519) so the operator knows at once what they are
+    /// getting and never waits through a recitation wondering when it
+    /// ends. SpokenKey throughout — this goes straight to a screen reader.
+    /// </summary>
+    public static string LayerHelpSpeech(string context, string headline)
+    {
+        var rows = LayerCommands(context);
+        string keys = string.Join("; ", rows.Select(r =>
+            Radios.Lexicon.Get("leader.layer_help_item", ("key", r.SpokenKey), ("description", r.Description))));
+        return Radios.Lexicon.Get("leader.layer_help",
+            ("headline", headline), ("count", rows.Count), ("keys", keys));
+    }
 
     // ────────────────────────────────────────────────────────────────
     //  Audio Workshop local keys (Threads Track, 2026-08-12). These are
@@ -908,8 +991,8 @@ public static class KeyInventory
         foreach (var e in ValueField) yield return e;
         foreach (var e in FilterChords) yield return e;
         foreach (var e in LeaderCommands) yield return e;
-        foreach (var e in VolumeModeCommands) yield return e;
-        foreach (var e in PanModeCommands) yield return e;
+        foreach (var e in AudioLayerCommands) yield return e;
+        foreach (var e in FilterLayerCommands) yield return e;
         foreach (var e in AudioWorkshopKeys) yield return e;
         foreach (var e in CategoryNavigationKeys) yield return e;
         foreach (var e in OtherKeys) yield return e;

@@ -48,33 +48,15 @@ public class KeyCommands
     // cancels, so there is no way to be held.
     private bool _leaderHelpArmed;
 
-    // ── Volume mode state (Ctrl+J, V — Audio Arc Track A, 2026-08-11). ──
-    // A mode WITHIN the leader: pick a target letter, ride Up/Down, switch
-    // targets freely, Escape exits. It persists across adjustments —
-    // JAWS/NVDA layered-keystroke muscle memory, not a three-key one-shot.
-    private bool _volumeModeActive;
-    private VolumeTarget _volumeTarget = VolumeTarget.None;
-    // True once a PC-volume adjustment happened this volume-mode session, so
-    // exit persists the app-level setting exactly once.
-    private bool _volumeModePcDirty;
-
-    // ── Value sub-layer state (Sprint 37 Track C, #305 — pan is the first
-    // consumer, #304). The ENGINE (Radios.ValueSubLayer) owns the pattern's
-    // decisions — exits, cancel-restores, words-or-numbers under verbosity,
-    // the coalesced move speech; this class only routes keys to it and wires
-    // the earcons. Null when no layer is live. ──
+    // ── Value sub-layer state (Sprint 37 Track C, #305 — pan was the first
+    // consumer, #304; Sprint 44 Track I put the audio layer (#514) and the
+    // filter layer (#516) on it too, and retired the hand-rolled volume
+    // mode that lived beside it). The ENGINE (Radios.ValueSubLayer) owns
+    // the pattern's decisions — exits, cancel-restores, words-or-numbers
+    // under verbosity, the coalesced move speech; this class only builds
+    // definitions, routes keys to the live layer and wires the earcons.
+    // Null when no layer is live. ──
     private Radios.ValueSubLayer? _valueLayer;
-
-    private enum VolumeTarget
-    {
-        None,
-        Headphone,      // H — on-radio headphone jack
-        PcOutput,       // P — PC output volume (dB)
-        MicLevel,       // M — mic level (radio mic gain, PC audio included)
-        Lineout,        // L — on-radio line out
-        CompanderLevel, // C — compander level
-        ProcessorMode,  // S — speech processor setting (Normal/DX/DX+)
-    }
 
     // ── Command ID tracking — handlers can read this to know which command triggered them. ──
     public CommandValues CommandId { get; set; }
@@ -2902,9 +2884,10 @@ public class KeyCommands
             theKey == (int)Keys.ShiftKey || theKey == 0)
             return rv;
 
-        // === VALUE SUB-LAYER DISPATCH (#305 pattern — pan today) ===
-        // Ahead of the one-shot leader, like volume mode: the layer stays
-        // live across keys. The engine decides; this block only routes.
+        // === VALUE SUB-LAYER DISPATCH (#305 pattern — the audio and filter
+        // layers today) ===
+        // Ahead of the one-shot leader: the layer stays live across keys.
+        // The engine decides; this block only routes.
         if (_valueLayer != null)
         {
             switch (DoValueLayerKey(k))
@@ -2928,14 +2911,6 @@ public class KeyCommands
                 default:
                     return true; // consumed — handled, closed, or handed off
             }
-        }
-
-        // === VOLUME MODE DISPATCH (Ctrl+J, V sub-mode) ===
-        // Checked before the one-shot leader dispatch: unlike the leader, this
-        // mode stays active across keys until Escape ends it.
-        if (_volumeModeActive)
-        {
-            return DoVolumeModeKey(k);
         }
 
         // === LEADER KEY DISPATCH ===
@@ -3125,28 +3100,30 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// Preview (tunnel) phase: active ONLY while a leader or volume mode is
-    /// armed. Then every key routes through DoCommand ahead of the dialog's
-    /// own handling — exact parity with the main window, where
+    /// Preview (tunnel) phase: active ONLY while a leader or a value layer
+    /// is armed. Then every key routes through DoCommand ahead of the
+    /// dialog's own handling — exact parity with the main window, where
     /// ProcessCmdKey feeds an armed mode before any control sees the key.
-    /// Without this, a focused TextBox or list would eat volume mode's
-    /// arrows at its own KeyDown, and a leader follow-on letter could both
+    /// Without this, a focused TextBox or list would eat a layer's arrows
+    /// at its own KeyDown, and a leader follow-on letter could both
     /// dispatch AND type into the field. The modes stay polite on their
-    /// own: DoVolumeModeKey passes Alt chords and F1 through untouched, and
+    /// own: the value layer passes Alt chords and F1 through untouched, and
     /// bare modifier presses fall out of DoCommand unhandled.
     /// </summary>
     private static void AnyWindowPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         var kc = _globalRoutingOwner;
         if (kc == null || e.Handled) return;
-        if (!kc._leaderKeyActive && !kc._volumeModeActive && kc._valueLayer == null)
+        if (!kc._leaderKeyActive && kc._valueLayer == null)
         {
-            // THREE live modes now, not two: the leader itself, volume mode, and
-            // a value sub-layer (#305 — pan and whatever follows it). Any of the
-            // three falls through to be handled; only when NONE is live do we
-            // reach the help-armed question below. Sprint 37 merged Track C's
-            // value-layer condition with Track D's help-armed block — each was
-            // correct alone and neither was sufficient.
+            // TWO live modes: the leader itself and a value sub-layer (#305 —
+            // the audio and filter layers, and whatever follows them; volume
+            // mode was the third until Sprint 44 Track I folded it into the
+            // audio layer). Either falls through to be handled; only when
+            // NEITHER is live do we reach the help-armed question below.
+            // Sprint 37 merged Track C's value-layer condition with Track D's
+            // help-armed block — each was correct alone and neither was
+            // sufficient.
             //
             // Help-armed (#303) is a much thinner claim on the keyboard than a
             // fully armed leader: only the three keys that lead OUT of the
@@ -3174,7 +3151,6 @@ public class KeyCommands
             {
                 kc._leaderKeyActive = false;
                 kc._leaderHelpArmed = false;
-                if (kc._volumeModeActive) kc.ExitVolumeMode(speak: false);
                 // A forced drop KEEPS the value, never restores: a restore is
                 // a write, and mid-transmit is no time to write (the same
                 // rule #187's power layer will lean on).
@@ -3222,7 +3198,7 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// The dialog-side dispatch core. Consumes: leader/volume-mode keys
+    /// The dialog-side dispatch core. Consumes: leader and value-layer keys
     /// while armed, the Ctrl+J trigger, and chords bound to a Global-scope
     /// registry command (CW message keys excluded — see region comment).
     /// Returns false for everything else so the key stays with the dialog.
@@ -3238,7 +3214,7 @@ public class KeyCommands
         // Armed modes own their follow-on keys wherever focus lives —
         // this is what makes the Ctrl+J mic check usable from inside the
         // Audio Workshop, precisely where an operator rides mic gain.
-        if (_volumeModeActive || _leaderKeyActive || _valueLayer != null)
+        if (_leaderKeyActive || _valueLayer != null)
             return DoCommand(k, fromDialog: true);
 
         // Help-armed (#303) claims only the three keys that lead out of the
@@ -4021,222 +3997,29 @@ public class KeyCommands
     }
 
     // ────────────────────────────────────────────────────────────────
-    //  Volume mode (Ctrl+J, V) — Audio Arc Track A, 2026-08-11.
-    //  A persistent sub-mode: target letter picks what the arrows adjust,
-    //  targets switch freely, every adjustment speaks, Escape exits.
+    //  The audio layer — Sprint 44 Track I, #514. Pan (Sprint 37 Track C,
+    //  #304) and volume mode (Audio Arc Track A, 2026-08-11) were two
+    //  modes: one on the value sub-layer engine, one hand-rolled beside
+    //  it, which #305's closing note recorded as debt. They are ONE layer
+    //  now, on the engine (Radios.ValueSubLayer), which owns every pattern
+    //  decision — exits, cancel-restores, words-or-numbers under
+    //  verbosity, the coalesced move speech. This class builds the
+    //  definition, wires the earcons and routes keys.
+    //
+    //  Letters pick the target and Up/Down adjust everything; Left/Right
+    //  ALSO adjust pan, because for that one target direction means
+    //  something real. Plain H is help in every layer, so headphone wears
+    //  Ctrl; plain P is PC output, so pan wears Ctrl too — the #515 rule
+    //  for a letter already spoken for. Shift+letter jumps to a slice
+    //  from inside the layer and pan follows; the layer never spends A-F
+    //  on slices.
+    //
+    //  Doors: Ctrl+J, V opens it with nothing picked; Ctrl+J, Alt+P opens
+    //  it with pan picked — the chords an operator's fingers know. The
+    //  four-tier allocation (#515) gives the audio layer JJ key A; that
+    //  letter, and what V becomes, are Track J's. EnterAudioLayer is the
+    //  method to wire.
     // ────────────────────────────────────────────────────────────────
-
-    // Local shadow of the selected target's value. The FlexBase radio setters
-    // enqueue asynchronously, so reading a property straight back after a set
-    // announces the stale value — and under key repeat it would announce the
-    // SAME stale value over and over. The shadow is seeded when a target is
-    // selected and stepped locally, so ramps are monotonic and honest.
-    private int _volumeShadow;
-
-    private void EnterVolumeMode()
-    {
-        _volumeModeActive = true;
-        _volumeTarget = VolumeTarget.None;
-        _volumeModePcDirty = false;
-        EarconPlayer.LeaderEnterTone();
-        Radios.ScreenReaderOutput.Speak(
-            Radios.Lexicon.Get("audio.volume_mode.entered"),
-            Radios.VerbosityLevel.Terse, true);
-    }
-
-    private void ExitVolumeMode(bool speak)
-    {
-        _volumeModeActive = false;
-        _volumeTarget = VolumeTarget.None;
-        if (_volumeModePcDirty)
-        {
-            _volumeModePcDirty = false;
-            _context.GetMainWindow()?.PersistPcOutputVolume();
-        }
-        if (speak)
-        {
-            EarconPlayer.LeaderCancelTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.closed"), Radios.VerbosityLevel.Terse, true);
-        }
-    }
-
-    private bool DoVolumeModeKey(Keys k)
-    {
-        // Never trap system-level chords: Alt combos (Alt+F4, menu
-        // accelerators) and F1 help pass through untouched. The mode stays
-        // active — it has no timeout, so it is still there afterwards.
-        if ((k & Keys.Alt) != 0 || (k & Keys.KeyCode) == Keys.F1)
-            return false;
-
-        // Escape ends the mode — the one guaranteed exit, per house rule.
-        if (k == Keys.Escape)
-        {
-            ExitVolumeMode(speak: true);
-            return true;
-        }
-
-        // Ctrl+J hands off to a fresh leader chord instead of stranding the
-        // operator: volume mode closes (persisting any PC-volume change) and
-        // the leader arms exactly as if pressed from anywhere else.
-        if (k == (Keys.J | Keys.Control))
-        {
-            ExitVolumeMode(speak: false);
-            _leaderKeyActive = true;
-            EarconPlayer.LeaderEnterTone();
-            Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("leader.armed"), Radios.VerbosityLevel.Terse, true);
-            return true;
-        }
-
-        var rig = _context.GetRigControl();
-        if (rig == null)
-        {
-            // Radio went away under the mode — close it out loud.
-            ExitVolumeMode(speak: false);
-            LeaderNoRadio();
-            return true;
-        }
-
-        switch (k)
-        {
-            case Keys.H: SelectVolumeTarget(rig, VolumeTarget.Headphone); return true;
-            case Keys.P: SelectVolumeTarget(rig, VolumeTarget.PcOutput); return true;
-            case Keys.M: SelectVolumeTarget(rig, VolumeTarget.MicLevel); return true;
-            case Keys.L: SelectVolumeTarget(rig, VolumeTarget.Lineout); return true;
-            case Keys.C: SelectVolumeTarget(rig, VolumeTarget.CompanderLevel); return true;
-            case Keys.S: SelectVolumeTarget(rig, VolumeTarget.ProcessorMode); return true;
-
-            case Keys.Up: AdjustVolumeTarget(rig, +1); return true;
-            case Keys.Down: AdjustVolumeTarget(rig, -1); return true;
-
-            // Both forms — "?" is Shift+/ and arrives with the Shift bit set,
-            // so the bare case alone never fired. Same defect as the leader
-            // help case above.
-            case Keys.Oem2:
-            case Keys.Oem2 | Keys.Shift: // ? — help without stealing H from headphone
-                EarconPlayer.LeaderHelpTone();
-                Radios.ScreenReaderOutput.Speak(
-                    Radios.Lexicon.Get("audio.volume_mode.help"),
-                    Radios.VerbosityLevel.Terse, true);
-                return true;
-
-            default:
-                EarconPlayer.LeaderInvalidTone();
-                Radios.ScreenReaderOutput.Speak(
-                    Radios.Lexicon.Get("audio.volume_mode.unknown_key"),
-                    Radios.VerbosityLevel.Terse, true);
-                return true;
-        }
-    }
-
-    private void SelectVolumeTarget(Radios.FlexBase rig, VolumeTarget target)
-    {
-        _volumeTarget = target;
-        string announce;
-        switch (target)
-        {
-            case VolumeTarget.Headphone:
-                _volumeShadow = rig.HeadphoneGain;
-                announce = Radios.Lexicon.Get("audio.volume_mode.headphone_selected", ("value", _volumeShadow));
-                break;
-            case VolumeTarget.PcOutput:
-                _volumeShadow = rig.PcOutputVolumeDb;
-                announce = Radios.Lexicon.Get("audio.volume_mode.pc_output_selected", ("value", _volumeShadow));
-                break;
-            case VolumeTarget.MicLevel:
-                _volumeShadow = rig.MicGain;
-                announce = Radios.Lexicon.Get("audio.volume_mode.mic_selected", ("value", _volumeShadow));
-                break;
-            case VolumeTarget.Lineout:
-                _volumeShadow = rig.LineoutGain;
-                announce = Radios.Lexicon.Get("audio.volume_mode.lineout_selected", ("value", _volumeShadow));
-                break;
-            case VolumeTarget.CompanderLevel:
-                _volumeShadow = rig.CompanderLevel;
-                announce = Radios.Lexicon.Get("audio.volume_mode.compander_selected", ("value", _volumeShadow));
-                if (rig.Compander != FlexBase.OffOnValues.on)
-                    announce += Radios.Lexicon.Get("audio.volume_mode.compander_is_off_suffix");
-                break;
-            case VolumeTarget.ProcessorMode:
-                _volumeShadow = (int)rig.ProcessorSetting;
-                announce = Radios.Lexicon.Get("audio.volume_mode.processor_selected",
-                    ("name", ProcessorSettingName(_volumeShadow)));
-                if (rig.ProcessorOn != FlexBase.OffOnValues.on)
-                    announce += Radios.Lexicon.Get("audio.volume_mode.processor_is_off_suffix");
-                break;
-            default:
-                return;
-        }
-        EarconPlayer.ConfirmTone();
-        // LATEST, keyed per target. This one line announces every Ctrl+J volume
-        // target, and every one of them is ridden with a held key - which under
-        // the old interrupt flag meant a stutter of half-spoken levels that
-        // never finished saying where the operator stopped.
-        //
-        // Keyed by target so switching from headphone to mic level does not
-        // silence the headphone reading the operator was still waiting on.
-        Radios.ScreenReaderOutput.Speak(
-            announce,
-            Radios.Speech.SpeechIntent.Latest,
-            Radios.VerbosityLevel.Terse,
-            coalesceKey: $"volume:{target}");
-    }
-
-    private void AdjustVolumeTarget(Radios.FlexBase rig, int direction)
-    {
-        if (_volumeTarget == VolumeTarget.None)
-        {
-            EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("audio.volume_mode.pick_target_first"),
-                Radios.VerbosityLevel.Terse, true);
-            return;
-        }
-
-        switch (_volumeTarget)
-        {
-            case VolumeTarget.Headphone:
-                _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
-                rig.HeadphoneGain = _volumeShadow;
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.headphone_adjusted",
-                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
-                break;
-            case VolumeTarget.PcOutput:
-                _volumeShadow = Math.Clamp(_volumeShadow + direction,
-                    Radios.FlexBase.PcOutputVolumeDbMin, Radios.FlexBase.PcOutputVolumeDbMax);
-                rig.PcOutputVolumeDb = _volumeShadow;
-                _volumeModePcDirty = true;
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.pc_output_selected",
-                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
-                break;
-            case VolumeTarget.MicLevel:
-                _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
-                rig.MicGain = _volumeShadow;
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.mic_selected",
-                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
-                break;
-            case VolumeTarget.Lineout:
-                _volumeShadow = Math.Clamp(_volumeShadow + direction * 5, 0, 100);
-                rig.LineoutGain = _volumeShadow;
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.lineout_adjusted",
-                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
-                break;
-            case VolumeTarget.CompanderLevel:
-                _volumeShadow = Math.Clamp(_volumeShadow + direction * FlexBase.CompanderLevelIncrement,
-                    FlexBase.CompanderLevelMin, FlexBase.CompanderLevelMax);
-                rig.CompanderLevel = _volumeShadow;
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.compander_selected",
-                    ("value", _volumeShadow)), Radios.VerbosityLevel.Terse, true);
-                break;
-            case VolumeTarget.ProcessorMode:
-                // Up = stronger (Normal → DX → DX+), Down = gentler. Clamps at
-                // the ends — wrapping on an arrow key is disorienting speech.
-                _volumeShadow = Math.Clamp(_volumeShadow + direction, 0, 2);
-                rig.ProcessorSetting = (FlexBase.ProcessorSettings)_volumeShadow;
-                Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.volume_mode.processor_selected",
-                    ("name", ProcessorSettingName(_volumeShadow))), Radios.VerbosityLevel.Terse, true);
-                break;
-        }
-    }
 
     private static string ProcessorSettingName(int setting) => setting switch
     {
@@ -4245,77 +4028,168 @@ public class KeyCommands
         _ => Radios.Lexicon.Get("audio.processor.name_normal"),
     };
 
-    // ────────────────────────────────────────────────────────────────
-    //  Pan mode (Ctrl+J, Alt+P) — Sprint 37 Track C, #304, the first
-    //  consumer of the value sub-layer pattern (#305). The engine
-    //  (Radios.ValueSubLayer) owns every pattern decision; this class
-    //  builds pan's definition and routes keys. #187 (transmit power)
-    //  and #200 (the knob) extend the same engine — build a definition,
-    //  do not build a second mechanism.
-    // ────────────────────────────────────────────────────────────────
+    /// <summary>The door Ctrl+J, V opens. Kept under its old name so the
+    /// leader switch is untouched; what it opens is the audio layer.</summary>
+    private void EnterVolumeMode() => EnterAudioLayer(onPan: false);
+
+    /// <summary>The door Ctrl+J, Alt+P opens: the audio layer with pan
+    /// already picked, so "pan mode" is one keystroke shorter than it was
+    /// rather than gone.</summary>
+    private void EnterPanMode() => EnterAudioLayer(onPan: true);
 
     /// <summary>
-    /// Enter pan mode for the active slice: left and right arrows walk the
-    /// slice through the stereo field (Shift moves by one), Home or C
-    /// centres, Enter keeps the new pan, Escape puts the entry value back.
-    /// At Chatty verbosity it speaks positions in words ("slightly left");
-    /// at Terse it speaks the number ("Pan 40") — Noel's words-or-numbers
-    /// ruling, 2026-08-27. The layer binds to the slice that is active at
-    /// entry; the coarse Slice-field keys (Page Up / Home / Page Down) are
-    /// untouched — this is the fine control beside them, not a replacement.
+    /// Enter the audio layer. Targets: on-radio headphone (Ctrl+H), PC
+    /// output (P), mic level (M), on-radio line out (L), compander level
+    /// (C), speech processor mode (S) — all radio-wide or app-wide — and
+    /// pan (Ctrl+P), which is per slice and follows a Shift+letter jump.
+    /// Up and Down adjust the picked target (Shift by one); Left and Right
+    /// also adjust pan; Home centres pan. Enter keeps everything, Escape
+    /// puts back everything that moved, out loud.
     /// </summary>
-    private void EnterPanMode()
+    internal void EnterAudioLayer(bool onPan)
     {
         var rig = _context.GetRigControl();
         if (rig == null) { LeaderNoRadio(); return; }
 
-        int vfo = rig.RXVFO;
-        if (!rig.ValidVFO(vfo))
+        // The PC output volume is app-level state, persisted by the main
+        // window; it is written exactly once, on ANY exit, if it moved —
+        // the volume-mode behaviour, now on the engine's exit hook.
+        bool pcTouched = false;
+        int centre = (FlexBase.MaxPan - FlexBase.MinPan) / 2;
+
+        Radios.ValueTarget Level(string id, string nameKey, Keys select,
+            Func<int> read, Action<int> apply, int min, int max, int step,
+            string numberKey, string? selectedKey = null, Func<string>? note = null)
         {
-            EarconPlayer.LeaderInvalidTone();
-            Radios.ScreenReaderOutput.Speak(
-                Radios.Lexicon.Get("audio.pan_mode.no_slice"),
-                Radios.VerbosityLevel.Critical, true);
-            return;
+            string name = Radios.Lexicon.Get(nameKey);
+            return new Radios.ValueTarget
+            {
+                Id = id,
+                Name = name,
+                SelectKey = select,
+                Read = read,
+                Apply = apply,
+                Min = min,
+                Max = max,
+                Step = step,
+                FineStep = 1,
+                Axes = Radios.ValueLayerAxes.UpDown,
+                Number = v => Radios.Lexicon.Get(numberKey, ("value", v)),
+                DescribeSelected = selectedKey == null
+                    ? null
+                    : v => Radios.Lexicon.Get(selectedKey, ("value", v)),
+                Note = note,
+                WrongAxisHint = () => Radios.Lexicon.Get("audio.audio_layer.uses_up_down", ("target", name)),
+            };
         }
 
-        string letter = rig.VFOToLetter(vfo);
+        var headphone = Level("headphone", "audio.audio_layer.name_headphone", Keys.H | Keys.Control,
+            () => rig.HeadphoneGain, v => rig.HeadphoneGain = v, 0, 100, 5,
+            "audio.audio_layer.headphone", "audio.audio_layer.headphone_selected");
+        var pcOutput = Level("pc-output", "audio.audio_layer.name_pc_output", Keys.P,
+            () => rig.PcOutputVolumeDb, v => { rig.PcOutputVolumeDb = v; pcTouched = true; },
+            FlexBase.PcOutputVolumeDbMin, FlexBase.PcOutputVolumeDbMax, 1,
+            "audio.audio_layer.pc_output");
+        var mic = Level("mic", "audio.audio_layer.name_mic", Keys.M,
+            () => rig.MicGain, v => rig.MicGain = v, FlexBase.MicGainMin, FlexBase.MicGainMax, 5,
+            "audio.audio_layer.mic");
+        var lineout = Level("lineout", "audio.audio_layer.name_lineout", Keys.L,
+            () => rig.LineoutGain, v => rig.LineoutGain = v, 0, 100, 5,
+            "audio.audio_layer.lineout", "audio.audio_layer.lineout_selected");
+        var compander = Level("compander", "audio.audio_layer.name_compander", Keys.C,
+            () => rig.CompanderLevel, v => rig.CompanderLevel = v,
+            FlexBase.CompanderLevelMin, FlexBase.CompanderLevelMax, FlexBase.CompanderLevelIncrement,
+            "audio.audio_layer.compander",
+            note: () => rig.Compander == FlexBase.OffOnValues.on
+                ? "" : Radios.Lexicon.Get("audio.audio_layer.compander_is_off_suffix"));
 
-        var def = new Radios.ValueSubLayerDefinition
+        // Up = stronger (Normal → DX → DX+), Down = gentler. Clamps at the
+        // ends — wrapping on an arrow key is disorienting speech.
+        string processorName = Radios.Lexicon.Get("audio.audio_layer.name_processor");
+        var processor = new Radios.ValueTarget
+        {
+            Id = "processor",
+            Name = processorName,
+            SelectKey = Keys.S,
+            Read = () => (int)rig.ProcessorSetting,
+            Apply = v => rig.ProcessorSetting = (FlexBase.ProcessorSettings)v,
+            Min = 0,
+            Max = 2,
+            Step = 1,
+            FineStep = 1,
+            Axes = Radios.ValueLayerAxes.UpDown,
+            Number = v => Radios.Lexicon.Get("audio.audio_layer.processor", ("name", ProcessorSettingName(v))),
+            Note = () => rig.ProcessorOn == FlexBase.OffOnValues.on
+                ? "" : Radios.Lexicon.Get("audio.audio_layer.processor_is_off_suffix"),
+            WrongAxisHint = () => Radios.Lexicon.Get("audio.audio_layer.uses_up_down", ("target", processorName)),
+        };
+
+        // Pan binds to whichever slice is active AT EACH PRESS, so a
+        // Shift+letter jump inside the layer moves it to the new slice;
+        // the engine re-seeds it after the jump (PerSlice). The number
+        // form is the SAME string the Slice Operations field speaks for
+        // its incremental pan — one vocabulary.
+        var pan = new Radios.ValueTarget
         {
             Id = "pan",
-            Read = () => rig.GetVFOPan(vfo),
-            Apply = v => rig.SetVFOPan(vfo, v),
+            Name = "",
+            SelectKey = Keys.P | Keys.Control,
+            PerSlice = true,
+            Read = () => { int vfo = rig.RXVFO; return rig.ValidVFO(vfo) ? rig.GetVFOPan(vfo) : centre; },
+            Apply = v => { int vfo = rig.RXVFO; if (rig.ValidVFO(vfo)) rig.SetVFOPan(vfo, v); },
             Min = FlexBase.MinPan,
             Max = FlexBase.MaxPan,
             Step = 5,
             FineStep = 1,
-            Axis = Radios.ValueLayerAxis.LeftRight,
-            Anchor = (FlexBase.MaxPan - FlexBase.MinPan) / 2,
-            AnchorKeys = new[] { Keys.C },
-            // The number form is the SAME string the Slice Operations field
-            // already speaks for its incremental pan — one vocabulary.
+            Axes = Radios.ValueLayerAxes.Both,
+            Anchor = centre,
             Number = v => Radios.Lexicon.Get("settings.pan.level", ("level", v)),
             Words = Radios.PanPhrase.Words,
-            DescribeEntry = (cur, entry) => Radios.Lexicon.Get(
-                "audio.pan_mode.entered", Radios.ScreenReaderOutput.CurrentVerbosity,
-                ("letter", letter), ("level", cur),
-                ("position", Radios.PanPhrase.Words(cur))),
-            DescribeHelp = (cur, entry) => Radios.Lexicon.Get(
-                "audio.pan_mode.help", Radios.ScreenReaderOutput.CurrentVerbosity,
-                ("letter", letter), ("level", cur),
-                ("position", Radios.PanPhrase.Words(cur)),
-                ("entryLevel", entry),
-                ("entryPosition", Radios.PanPhrase.Words(entry))),
-            DescribeClosed = () => Radios.Lexicon.Get("audio.pan_mode.closed"),
-            DescribeRestored = v => Radios.Lexicon.Get(
-                "audio.pan_mode.restored", Radios.ScreenReaderOutput.CurrentVerbosity,
-                ("level", v), ("position", Radios.PanPhrase.Words(v))),
-            WrongAxisHint = () => Radios.Lexicon.Get("audio.pan_mode.wrong_axis"),
+            DescribeSelected = v =>
+            {
+                int vfo = rig.RXVFO;
+                if (!rig.ValidVFO(vfo)) return Radios.Lexicon.Get("audio.audio_layer.pan_no_slice");
+                return Radios.Lexicon.Get("audio.audio_layer.pan_selected",
+                    Radios.ScreenReaderOutput.CurrentVerbosity,
+                    ("letter", rig.VFOToLetter(vfo)), ("level", v),
+                    ("position", Radios.PanPhrase.Words(v)));
+            },
+        };
+
+        var def = new Radios.ValueSubLayerDefinition
+        {
+            Id = "audio",
+            Selection = Radios.ValueLayerSelection.ByLetter,
+            Targets = new List<Radios.ValueTarget> { headphone, pcOutput, mic, lineout, compander, processor, pan },
+            InitialTarget = onPan ? 6 : -1,
+            DescribeLayerEntry = layer => layer.CurrentTarget == pan
+                ? Radios.Lexicon.Get("audio.audio_layer.entered_on_pan",
+                    Radios.ScreenReaderOutput.CurrentVerbosity, ("target", layer.DescribeTarget(pan)))
+                : Radios.Lexicon.Get("audio.audio_layer.entered", Radios.ScreenReaderOutput.CurrentVerbosity),
+            DescribeLayerHelp = layer => KeyInventory.LayerHelpSpeech(
+                KeyInventory.AudioLayerContext,
+                Radios.Lexicon.Get("audio.audio_layer.name") + ", "
+                + (layer.CurrentTarget != null
+                    ? layer.DescribeTarget(layer.CurrentTarget)
+                    : Radios.Lexicon.Get("audio.audio_layer.help_no_target"))),
+            DescribeClosed = () => Radios.Lexicon.Get("audio.audio_layer.closed"),
+            DescribeLayerRestored = (layer, restored) => restored.Count == 0
+                ? Radios.Lexicon.Get("audio.audio_layer.restored_nothing")
+                : Radios.Lexicon.Get("audio.audio_layer.restored", ("list", string.Join(", ",
+                    restored.Select(r => r.Target == pan
+                        ? Radios.Lexicon.Get("audio.audio_layer.pan_restore_item",
+                            Radios.ScreenReaderOutput.CurrentVerbosity,
+                            ("level", r.RestoredTo), ("position", Radios.PanPhrase.Words(r.RestoredTo)))
+                        : layer.FormOf(r.Target, r.RestoredTo))))),
+            PickTargetHint = () => Radios.Lexicon.Get("audio.audio_layer.pick_target_first"),
             // The verbosity cycle travels through the live layer, looked up
             // from the registry so a remapped chord is still honoured — an
             // operator can flip words-versus-numbers mid-hunt.
             PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
+            HostKeys = LayerSliceJump,
+            ListCommands = () => TryShowLayerCommandList(KeyInventory.AudioLayerContext),
+            OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.AudioLayerContext),
+            Exited = why => { if (pcTouched) _context.GetMainWindow()?.PersistPcOutputVolume(); },
             Cues = new Radios.ValueLayerCues
             {
                 Entered = EarconPlayer.LeaderEnterTone,
@@ -4326,6 +4200,399 @@ public class KeyCommands
         };
 
         _valueLayer = Radios.ValueSubLayer.Enter(def);
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  The filter layer — Sprint 44 Track I, #516. JJ key F once Track J
+    //  wires the door; EnterFilterLayer is the method to wire.
+    //
+    //  The modifier picks the TARGET and the key picks the VERB: Left
+    //  Shift is the low edge, Right Shift the high edge, no modifier the
+    //  whole filter. Left and Right walk the addressed target; Up and Down
+    //  slide the whole filter; Ctrl+Up and Ctrl+Down widen and narrow it
+    //  about its centre; S speaks the addressed target; T and R switch
+    //  between the transmit filter (radio-wide) and the receive filter
+    //  (per slice, where the layer lands). The edges step explicitly and
+    //  never accelerate — an edge is placed by number, and the ear will not
+    //  say when 2,700 hertz has been reached.
+    //
+    //  The four targets on each side are COORDINATES on one low/high pair
+    //  the host holds (FilterBank), so they are Linked: the engine re-reads
+    //  each before stepping, and Escape restores through one snapshot of
+    //  both pairs rather than coordinate by coordinate. The receive rails
+    //  and step are the bracket chords' own (FreqOutHandlers), so the two
+    //  doors into the same filter step by one rule; the transmit rails are
+    //  the radio's (TXFilterLowMax = TXFilterHigh - 50), and a rail is said
+    //  out loud because a control that silently refuses to move is
+    //  indistinguishable from a broken one.
+    //
+    //  Not removed: the bracket chords and the double-tap edge grab. Don
+    //  has learned them and they work; this is a second door. Not built:
+    //  transmit presets — FilterPresets is driven from the slice's receive
+    //  filter and has nothing to offer the transmit side (reported, not
+    //  invented).
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// One side's low/high pair as the layer holds it — the shadow the
+    /// four coordinate targets read and write, and the entry pair Escape
+    /// puts back. Seeded from the radio once, at entry (and again for the
+    /// receive side after a slice jump), then stepped locally.
+    /// </summary>
+    private sealed class FilterBank
+    {
+        public int Low, High, EntryLow, EntryHigh;
+        public bool Touched;
+        public int Width => High - Low;
+        public void Seed(int low, int high)
+        {
+            Low = EntryLow = low;
+            High = EntryHigh = high;
+            Touched = false;
+        }
+    }
+
+    /// <summary>Everything one side (receive or transmit) contributes.</summary>
+    private sealed class FilterSide
+    {
+        public string Group = "";
+        public string IdPrefix = "";
+        public bool PerSlice;
+        public FilterBank Bank = new FilterBank();
+        public Func<int> LowMin = () => 0;
+        public Func<int> HighMax = () => 0;
+        public int MinWidth = 50;
+        public Func<int> StepNow = () => 50;
+        public Action<int, int> Apply = (l, h) => { };
+        public Func<int, string> LowEdge = v => v.ToString();
+        public Func<int, string> HighEdge = v => v.ToString();
+        public Func<string> Range = () => "";
+        public Func<string> Width = () => "";
+        public Func<string> Report = () => "";
+    }
+
+    private FilterSide? _filterRx;
+
+    private static int ClampSafe(int value, int min, int max)
+        => max < min ? min : Math.Clamp(value, min, max);
+
+    private static string AtLimit(string what)
+        => Radios.Lexicon.Get("audio.filter_layer.at_limit", ("what", what));
+
+    /// <summary>
+    /// The edges a width would land on about the current centre, kept
+    /// inside the side's bounds and never narrower than its minimum.
+    /// </summary>
+    private static (int low, int high) EdgesForWidth(FilterSide s, int width)
+    {
+        int centre = (s.Bank.Low + s.Bank.High) / 2;
+        int half = width / 2;
+        int low = centre - half;
+        int high = centre + (width - half);
+        int lowMin = s.LowMin(), highMax = s.HighMax();
+        if (low < lowMin) low = lowMin;
+        if (high > highMax) high = highMax;
+        if (high - low < s.MinWidth)
+        {
+            high = low + s.MinWidth;
+            if (high > highMax) { high = highMax; low = high - s.MinWidth; }
+        }
+        return (low, high);
+    }
+
+    /// <summary>The four coordinates of one side: low edge, high edge, whole, width.</summary>
+    private static IEnumerable<Radios.ValueTarget> FilterTargetsFor(FilterSide s)
+    {
+        const int outer = 24000;
+        yield return new Radios.ValueTarget
+        {
+            Id = s.IdPrefix + "-low",
+            Group = s.Group,
+            PerSlice = s.PerSlice,
+            Linked = true,
+            Axes = Radios.ValueLayerAxes.LeftRight,
+            Shift = Radios.ShiftSide.Left,
+            Min = -outer,
+            Max = outer,
+            StepNow = s.StepNow,
+            Read = () => s.Bank.Low,
+            Constrain = v => ClampSafe(v, s.LowMin(), s.Bank.High - s.MinWidth),
+            Apply = v => s.Apply(v, s.Bank.High),
+            Number = s.LowEdge,
+            DescribeSelected = s.LowEdge,
+            DescribeRail = v => AtLimit(s.LowEdge(v)),
+        };
+        yield return new Radios.ValueTarget
+        {
+            Id = s.IdPrefix + "-high",
+            Group = s.Group,
+            PerSlice = s.PerSlice,
+            Linked = true,
+            Axes = Radios.ValueLayerAxes.LeftRight,
+            Shift = Radios.ShiftSide.Right,
+            Min = -outer,
+            Max = outer,
+            StepNow = s.StepNow,
+            Read = () => s.Bank.High,
+            Constrain = v => ClampSafe(v, s.Bank.Low + s.MinWidth, s.HighMax()),
+            Apply = v => s.Apply(s.Bank.Low, v),
+            Number = s.HighEdge,
+            DescribeSelected = s.HighEdge,
+            DescribeRail = v => AtLimit(s.HighEdge(v)),
+        };
+        // The whole filter, positioned by its low edge with the width
+        // carried along. Left/Right and Up/Down both slide it — no
+        // modifier means the whole filter, whichever pair the hand is on.
+        yield return new Radios.ValueTarget
+        {
+            Id = s.IdPrefix + "-filter",
+            Group = s.Group,
+            PerSlice = s.PerSlice,
+            Linked = true,
+            Axes = Radios.ValueLayerAxes.Both,
+            Shift = Radios.ShiftSide.None,
+            Min = -outer,
+            Max = outer,
+            StepNow = s.StepNow,
+            Read = () => s.Bank.Low,
+            Constrain = v => ClampSafe(v, s.LowMin(), s.HighMax() - s.Bank.Width),
+            Apply = v => s.Apply(v, v + s.Bank.Width),
+            Number = _ => s.Range(),
+            DescribeSelected = _ => s.Report(),
+            DescribeRail = _ => AtLimit(s.Range()),
+        };
+        // Width about the centre: one step on each side per press.
+        yield return new Radios.ValueTarget
+        {
+            Id = s.IdPrefix + "-width",
+            Group = s.Group,
+            PerSlice = s.PerSlice,
+            Linked = true,
+            Axes = Radios.ValueLayerAxes.UpDown,
+            Ctrl = true,
+            Min = s.MinWidth,
+            Max = outer,
+            StepNow = () => 2 * s.StepNow(),
+            Read = () => s.Bank.Width,
+            Constrain = v => { var (l, h) = EdgesForWidth(s, v); return h - l; },
+            Apply = v => { var (l, h) = EdgesForWidth(s, v); s.Apply(l, h); },
+            Number = _ => s.Width(),
+            DescribeSelected = _ => s.Width(),
+            DescribeRail = _ => AtLimit(s.Width()),
+        };
+    }
+
+    /// <summary>
+    /// Write a transmit pair through the two radio setters. They queue in
+    /// order and FlexLib clamps each edge against the OTHER edge's current
+    /// value, so the edge that opens the gap goes first; an edge that has
+    /// not moved is not written.
+    /// </summary>
+    private static void ApplyTxFilter(Radios.FlexBase rig, FilterBank tx, int low, int high)
+    {
+        bool lowMoves = low != tx.Low, highMoves = high != tx.High;
+        if (low < tx.Low)
+        {
+            if (lowMoves) rig.TXFilterLow = low;
+            if (highMoves) rig.TXFilterHigh = high;
+        }
+        else
+        {
+            if (highMoves) rig.TXFilterHigh = high;
+            if (lowMoves) rig.TXFilterLow = low;
+        }
+        tx.Low = low;
+        tx.High = high;
+        tx.Touched = true;
+    }
+
+    /// <summary>
+    /// The filter report — low, high, width in kilohertz — in the one
+    /// wording both the layer and the Ctrl+J readouts use, so two doors
+    /// into the same fact say the same sentence.
+    /// </summary>
+    private static string FilterReport(string key, int low, int high)
+        => Radios.Lexicon.Get(key, ("low", low), ("high", high),
+            ("widthKHz", ((high - low) / 1000.0).ToString("F1")));
+
+    /// <summary>
+    /// Enter the filter layer on the active slice's receive filter. See the
+    /// region comment for the grammar.
+    /// </summary>
+    internal void EnterFilterLayer()
+    {
+        var rig = _context.GetRigControl();
+        if (rig == null) { LeaderNoRadio(); return; }
+        if (!rig.ValidVFO(rig.RXVFO))
+        {
+            EarconPlayer.LeaderInvalidTone();
+            Radios.ScreenReaderOutput.Speak(
+                Radios.Lexicon.Get("audio.filter_layer.no_slice"),
+                Radios.VerbosityLevel.Critical, true);
+            return;
+        }
+
+        var rx = new FilterSide
+        {
+            Group = "receive",
+            IdPrefix = "rx",
+            PerSlice = true,
+            LowMin = () => FreqOutHandlers.FilterBoundsForMode(rig.Mode).lowMin,
+            HighMax = () => FreqOutHandlers.FilterBoundsForMode(rig.Mode).highMax,
+            MinWidth = FreqOutHandlers.MinFilterWidthHz,
+        };
+        rx.StepNow = () => FreqOutHandlers.GetAdaptiveFilterStep(rx.Bank.Low, rx.Bank.High);
+        rx.Apply = (l, h) => { rx.Bank.Low = l; rx.Bank.High = h; rx.Bank.Touched = true; rig.SetFilter(l, h); };
+        rx.LowEdge = v => Radios.Lexicon.Get("audio.filter.low_edge", ("low", v));
+        rx.HighEdge = v => Radios.Lexicon.Get("audio.filter.high_edge", ("high", v));
+        rx.Range = () => Radios.Lexicon.Get("audio.filter.range", ("low", rx.Bank.Low), ("high", rx.Bank.High));
+        rx.Width = () => Radios.Lexicon.Get("audio.filter_layer.width",
+            ("width", rx.Bank.Width), ("low", rx.Bank.Low), ("high", rx.Bank.High));
+        rx.Report = () => FilterReport("audio.filter.rx_report", rx.Bank.Low, rx.Bank.High);
+
+        var tx = new FilterSide
+        {
+            Group = "transmit",
+            IdPrefix = "tx",
+            PerSlice = false,
+            LowMin = () => rig.TXFilterLowMin,
+            HighMax = () => rig.TXFilterHighMax,
+            MinWidth = rig.TXFilterLowIncrement,
+            StepNow = () => rig.TXFilterLowIncrement,
+        };
+        tx.Apply = (l, h) => ApplyTxFilter(rig, tx.Bank, l, h);
+        tx.LowEdge = v => Radios.Lexicon.Get("audio.tx.filter_low", ("value", v));
+        tx.HighEdge = v => Radios.Lexicon.Get("audio.tx.filter_high", ("value", v));
+        tx.Range = () => Radios.Lexicon.Get("audio.tx_filter.range", ("low", tx.Bank.Low), ("high", tx.Bank.High));
+        tx.Width = () => Radios.Lexicon.Get("audio.filter_layer.tx_width",
+            ("width", tx.Bank.Width), ("low", tx.Bank.Low), ("high", tx.Bank.High));
+        tx.Report = () => FilterReport("audio.filter.tx_report", tx.Bank.Low, tx.Bank.High);
+
+        _filterRx = rx;
+
+        var def = new Radios.ValueSubLayerDefinition
+        {
+            Id = "filter",
+            Selection = Radios.ValueLayerSelection.ByModifier,
+            Targets = FilterTargetsFor(rx).Concat(FilterTargetsFor(tx)).ToList(),
+            GroupKeys = new Dictionary<Keys, string> { [Keys.R] = "receive", [Keys.T] = "transmit" },
+            InitialGroup = "receive",
+            DescribeGroup = g => g == "transmit" ? tx.Report() : rx.Report(),
+            SpeakKey = Keys.S,
+            ShiftSideNow = PhysicalKeys.ShiftSideNow,
+            // Seeded from the radio ONCE, here, at entry; the restore puts
+            // back only the side that moved.
+            Snapshot = () =>
+            {
+                rx.Bank.Seed(rig.FilterLow, rig.FilterHigh);
+                tx.Bank.Seed(rig.TXFilterLow, rig.TXFilterHigh);
+                return () =>
+                {
+                    if (rx.Bank.Touched) rig.SetFilter(rx.Bank.EntryLow, rx.Bank.EntryHigh);
+                    if (tx.Bank.Touched) ApplyTxFilter(rig, tx.Bank, tx.Bank.EntryLow, tx.Bank.EntryHigh);
+                };
+            },
+            DescribeLayerEntry = layer => Radios.Lexicon.Get("audio.filter_layer.entered",
+                Radios.ScreenReaderOutput.CurrentVerbosity, ("filter", rx.Report())),
+            DescribeLayerHelp = layer => KeyInventory.LayerHelpSpeech(
+                KeyInventory.FilterLayerContext,
+                Radios.Lexicon.Get("audio.filter_layer.name") + ", "
+                + (layer.CurrentGroup == "transmit" ? tx.Report() : rx.Report())),
+            DescribeClosed = () => Radios.Lexicon.Get("audio.filter_layer.closed"),
+            DescribeLayerRestored = (layer, restored) =>
+            {
+                var parts = new List<string>();
+                if (rx.Bank.Touched)
+                    parts.Add(Radios.Lexicon.Get("audio.filter_layer.restored_receive",
+                        ("low", rx.Bank.EntryLow), ("high", rx.Bank.EntryHigh)));
+                if (tx.Bank.Touched)
+                    parts.Add(Radios.Lexicon.Get("audio.filter_layer.restored_transmit",
+                        ("low", tx.Bank.EntryLow), ("high", tx.Bank.EntryHigh)));
+                return parts.Count == 0
+                    ? Radios.Lexicon.Get("audio.filter_layer.restored_nothing")
+                    : Radios.Lexicon.Get("audio.filter_layer.restored", ("list", string.Join(", ", parts)));
+            },
+            WhichShiftHint = () => Radios.Lexicon.Get("audio.filter_layer.which_shift"),
+            NoVerbHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),
+            WrongAxisHint = () => Radios.Lexicon.Get("audio.filter_layer.no_verb"),
+            PassThroughKeys = key => Lookup(key)?.KeyDef.Id == CommandValues.CycleVerbosity,
+            HostKeys = LayerSliceJump,
+            ListCommands = () => TryShowLayerCommandList(KeyInventory.FilterLayerContext),
+            OpenExplorer = () => TryOpenLayerExplorer(KeyInventory.FilterLayerContext),
+            Exited = why => { _filterRx = null; },
+            Cues = new Radios.ValueLayerCues
+            {
+                Entered = EarconPlayer.LeaderEnterTone,
+                Closed = EarconPlayer.LeaderCancelTone,
+                Invalid = EarconPlayer.LeaderInvalidTone,
+                Help = EarconPlayer.LeaderHelpTone,
+            },
+        };
+
+        _valueLayer = Radios.ValueSubLayer.Enter(def);
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Hooks every layer shares
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The universal slice jump from inside a layer (#515): Shift+A through
+    /// Shift+H jump to that slice and the layer stays live. Per-slice
+    /// targets re-bind to the new slice — pan re-seeds and is announced
+    /// again; the filter layer's receive side re-seeds from the new slice's
+    /// filter and, if the receive side is what the operator is working on,
+    /// says so. What was done on the old slice is kept, not restored: the
+    /// operator confirmed it by leaving. The transmit filter is radio-wide,
+    /// so on that side the jump changes the slice and nothing else.
+    /// </summary>
+    private bool LayerSliceJump(Keys k)
+    {
+        if ((k & Keys.Modifiers) != Keys.Shift) return false;
+        Keys code = k & Keys.KeyCode;
+        if (code < Keys.A || code > Keys.H) return false;
+
+        var rig = _context.GetRigControl();
+        int before = rig?.RXVFO ?? -1;
+        JumpToSlice(code - Keys.A);
+        if (rig == null || rig.RXVFO == before || _valueLayer == null) return true;
+
+        if (_filterRx != null)
+        {
+            _filterRx.Bank.Seed(rig.FilterLow, rig.FilterHigh);
+            _valueLayer.Rebind(t => t.PerSlice);
+            if (_valueLayer.CurrentGroup == "receive") _valueLayer.SwitchGroup("receive");
+        }
+        else
+        {
+            _valueLayer.Rebind(t => t.PerSlice);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// H inside a layer: show its commands as a NAVIGABLE LIST (#519).
+    /// Returns false until Track K's list surface lands, and the engine
+    /// then speaks the same rows, count first. MERGE POINT for Track K:
+    /// call the list surface here with KeyInventory.LayerCommands(context)
+    /// and return true once it is showing.
+    /// </summary>
+    private bool TryShowLayerCommandList(string context)
+    {
+        _context.Trace("Layer help list requested: " + context);
+        return false;
+    }
+
+    /// <summary>
+    /// Shift+slash inside a layer: open the JJ key tree explorer on this
+    /// layer (#519). Returns false until Track K's explorer lands, and the
+    /// engine then speaks the same rows, count first — Shift+slash stays
+    /// help in every layer (#158). MERGE POINT for Track K.
+    /// </summary>
+    private bool TryOpenLayerExplorer(string context)
+    {
+        _context.Trace("Layer explorer requested: " + context);
+        return false;
     }
 
     /// <summary>
@@ -4546,12 +4813,9 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical);
             return;
         }
-        int low = rig.FilterLow;
-        int high = rig.FilterHigh;
-        int width = high - low;
-        string widthKHz = (width / 1000.0).ToString("F1");
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.filter.rx_report",
-            ("low", low), ("high", high), ("widthKHz", widthKHz)), Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(
+            FilterReport("audio.filter.rx_report", rig.FilterLow, rig.FilterHigh),
+            Radios.VerbosityLevel.Terse);
     }
 
     private void SpeakTXFilterWidth()
@@ -4562,12 +4826,9 @@ public class KeyCommands
             Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("connect.command_needs_radio"), Radios.VerbosityLevel.Critical);
             return;
         }
-        int low = rig.TXFilterLow;
-        int high = rig.TXFilterHigh;
-        int width = high - low;
-        string widthKHz = (width / 1000.0).ToString("F1");
-        Radios.ScreenReaderOutput.Speak(Radios.Lexicon.Get("audio.filter.tx_report",
-            ("low", low), ("high", high), ("widthKHz", widthKHz)), Radios.VerbosityLevel.Terse);
+        Radios.ScreenReaderOutput.Speak(
+            FilterReport("audio.filter.tx_report", rig.TXFilterLow, rig.TXFilterHigh),
+            Radios.VerbosityLevel.Terse);
     }
 
     /// <summary>
