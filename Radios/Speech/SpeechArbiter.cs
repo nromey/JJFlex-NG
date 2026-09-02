@@ -57,6 +57,22 @@ namespace Radios.Speech
     /// capture started" a minute later does not merely annoy, it says
     /// "started" about something that started long ago.
     ///
+    /// **And a rescue is refused by SUPERSESSION, not by age (#503).** Until
+    /// 2026-09-02 the age bound was twice the utterance's own word-count
+    /// estimate, which made lifetime a function of length — and length runs
+    /// the wrong way. Measured across 2026-09-01: 89 drops, 52 never re-spoken
+    /// even once; "SWR 1.7" was binned 3.9 s after a tune against a 1.6 s
+    /// bound, by the operator pressing Tune AGAIN because they had heard
+    /// nothing. Nothing expires on its own clock here — an entry is judged
+    /// only when the next interrupt arrives — so the retry a lost answer
+    /// provokes was the very event that destroyed the answer. An emitter now
+    /// declares what its utterance is ABOUT (<see cref="SpeechSubject"/>); a
+    /// newer statement on the same subject, or an explicit
+    /// <see cref="Supersede"/>, is what retires it, under an absolute
+    /// <see cref="SalvageCeilingMs"/>. The word-count bound survives only for
+    /// utterances that declared nothing, because for those there is no honest
+    /// alternative — see <see cref="SalvageAgeMultiple"/>.
+    ///
     /// **Why estimates, not truth.** Asking the backend whether it is still
     /// speaking is a per-backend feature bit; a design that polls it works
     /// under one screen reader and silently stalls under another (the
@@ -265,8 +281,31 @@ namespace Radios.Speech
         /// 2026-08-25 capture measured 670 ms of exactly that). Past two, the
         /// utterance is describing a moment that has gone. "Detailed capture
         /// started" re-spoken a minute later does not merely annoy, it LIES.
+        ///
+        /// **Applies only to utterances that declared no subject (#503).** A
+        /// bound derived from word count makes lifetime a function of LENGTH,
+        /// and length runs the wrong way: seven-character state facts like
+        /// "SWR 1.7" got 1.6 s while a 300-character courtesy got thirty.
+        /// A keyed utterance is instead retired by SUPERSESSION — something
+        /// newer on the same subject — bounded by <see cref="SalvageCeilingMs"/>.
+        /// The word-count bound stays for unkeyed utterances because for them
+        /// the arbiter cannot know what would supersede them, and keeping
+        /// everything for fifteen seconds would resurrect stale toggles and
+        /// progress chatter. See <see cref="SpeechSubject"/>.
         /// </summary>
         internal const int SalvageAgeMultiple = 2;
+
+        /// <summary>
+        /// Absolute lifetime of any ledger entry, keyed or not, measured from
+        /// first emission. Supersession alone would let a subject nobody
+        /// revisits live forever — a "PC audio on." that nothing ever covers
+        /// would still be rescued a minute later, describing a moment long
+        /// gone. Fifteen seconds is also <see cref="SalvageCapMs"/>, and the
+        /// equality is deliberate: the longest anything is estimated to take
+        /// to say is also the longest anything may wait to be said about
+        /// "now". The old policy let a long paragraph live twice that.
+        /// </summary>
+        internal const int SalvageCeilingMs = 15000;
 
         // ── State ──
 
@@ -279,6 +318,8 @@ namespace Radios.Speech
             public SpeechCoalesceKind Kind;
             /// <summary>Call site of the newest value, for the transcript.</summary>
             public string? Origin;
+            /// <summary>The ledger subject a flushed value carries — its coalesce key, unless the caller said otherwise.</summary>
+            public string? Subject;
             public ISpeechTimer? Timer;
         }
 
@@ -288,6 +329,25 @@ namespace Radios.Speech
             public SpeechIntent? Intent;
             public VerbosityLevel? Level;
             public string? Origin;
+
+            /// <summary>
+            /// What this utterance is about, as declared by its emitter — see
+            /// <see cref="SpeechSubject"/>. Null when the emitter declared
+            /// nothing, in which case only the word-count bound and the
+            /// ceiling can retire it.
+            /// </summary>
+            public string? Subject;
+
+            /// <summary>
+            /// Set when something newer covered this entry's subject: the
+            /// newer message, quoted, or an emitter's stated reason. A
+            /// superseded entry is never rescued, and the drop trace names
+            /// this so the record says what made the words worthless.
+            /// </summary>
+            public string? SupersededBy;
+            public string? SupersededByOrigin;
+            public DateTime SupersededAtUtc;
+
             /// <summary>When the reader is estimated to have finished saying it.</summary>
             public DateTime EstFinishUtc;
 
@@ -391,12 +451,52 @@ namespace Radios.Speech
         /// the legacy bool overloads. Ledger accounting and interrupt salvage
         /// happen here, so no overload can bypass the protection policy.
         /// </summary>
+        /// <param name="subject">
+        /// What the utterance is about (<see cref="SpeechSubject"/>), or null
+        /// when the emitter declares nothing. A subject is what lets a later
+        /// announcement retire this one by covering it, instead of a timer
+        /// derived from its word count.
+        /// </param>
+        /// <param name="additive">
+        /// True when this utterance ADDS to its subject rather than restating
+        /// it — the "5" echoed after a "1" while a value is being typed. An
+        /// additive utterance can be retired by a later restating one, or by
+        /// <see cref="Supersede"/>, but it retires nothing itself: interrupted
+        /// mid-entry, the operator must hear "1, 5" again, not a lone "5"
+        /// over a field that reads 15. Almost everything is a restatement,
+        /// so this defaults to false.
+        /// </param>
         public void Emit(string message, bool interrupt,
-            SpeechIntent? intent, VerbosityLevel? level, string? origin)
+            SpeechIntent? intent, VerbosityLevel? level, string? origin,
+            string? subject = null, bool additive = false)
         {
             lock (_lock)
             {
-                EmitLocked(message, interrupt, intent, level, origin);
+                EmitLocked(message, interrupt, intent, level, origin, subject, additive);
+            }
+        }
+
+        /// <summary>
+        /// The emitter declares that <paramref name="subject"/> is covered:
+        /// the operation it narrated has ended, the state it described has
+        /// been replaced by something spoken elsewhere. Anything still
+        /// believed unheard on that subject will not be rescued by the next
+        /// interrupt, and the drop trace will say why in the caller's words.
+        ///
+        /// This exists because supersession is not always an utterance. A
+        /// progress voice's last "still looking" is made worthless by the
+        /// dialog that answers it — and that dialog's title is not a progress
+        /// line, so it cannot carry the subject itself.
+        /// </summary>
+        /// <param name="by">
+        /// Plain prose naming what covered the subject, as it should read in
+        /// the trace after "superseded … by".
+        /// </param>
+        public void Supersede(string subject, string by, string? origin)
+        {
+            lock (_lock)
+            {
+                MarkSupersededLocked(subject, by, origin, _clock.UtcNow);
             }
         }
 
@@ -442,9 +542,17 @@ namespace Radios.Speech
         /// measurement on Ctrl+S and degraded every sweep that constant exists
         /// for. The window is untouched.
         /// </summary>
+        /// <param name="subject">
+        /// Ledger subject for the emission. Defaults to <paramref name="key"/>:
+        /// a coalesce key already says "utterances sharing this replace one
+        /// another", which is exactly what a subject says, one stage later.
+        /// So a sweep over a field supersedes that field's queued typed value
+        /// without anybody having to say so twice.
+        /// </param>
         public void Latest(string key, string message, VerbosityLevel level,
-            SpeechCoalesceKind kind, string? origin)
+            SpeechCoalesceKind kind, string? origin, string? subject = null)
         {
+            subject ??= key;
             lock (_lock)
             {
                 if (_pending.TryGetValue(key, out var existing))
@@ -453,6 +561,7 @@ namespace Radios.Speech
                     existing.Level = level;
                     existing.Kind = kind;
                     existing.Origin = origin;
+                    existing.Subject = subject;
 
                     // A query must NOT have its timer pushed out by the next
                     // press: the operator is asking again, so restarting the
@@ -487,7 +596,7 @@ namespace Radios.Speech
                 if (!sweeping && gapWait == 0)
                 {
                     _lastByKey[key] = (message, now, AntiClipGapMs(message));
-                    EmitLocked(message, interrupt: true, SpeechIntent.Latest, level, origin);
+                    EmitLocked(message, interrupt: true, SpeechIntent.Latest, level, origin, subject);
                     return;
                 }
 
@@ -507,6 +616,7 @@ namespace Radios.Speech
                     Level = level,
                     Kind = kind,
                     Origin = origin,
+                    Subject = subject,
                 };
                 _pending[key] = entry;
                 entry.Timer = _clock.StartTimer(dueMs, () => FlushCoalesced(key));
@@ -524,7 +634,7 @@ namespace Radios.Speech
             {
                 DiscardAllLocked();
                 try { _silenceBackend(); } catch { }
-                EmitLocked(message, interrupt: true, SpeechIntent.Urgent, level, origin);
+                EmitLocked(message, interrupt: true, SpeechIntent.Urgent, level, origin, subject: null);
             }
         }
 
@@ -557,7 +667,8 @@ namespace Radios.Speech
         // ── Internals ──
 
         private void EmitLocked(string message, bool interrupt,
-            SpeechIntent? intent, VerbosityLevel? level, string? origin)
+            SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject,
+            bool additive = false)
         {
             var now = _clock.UtcNow;
             PruneLedgerLocked(now);
@@ -565,7 +676,19 @@ namespace Radios.Speech
             if (!interrupt)
             {
                 bool reached = _sink(message, false, intent, level, origin, salvaged: false);
-                if (reached) LedgerAddLocked(message, intent, level, origin, now);
+                if (reached)
+                {
+                    // A newer statement on the same subject reached the reader.
+                    // Whatever earlier statement is still believed unheard is
+                    // no longer worth rescuing: the reader will still say it in
+                    // turn (text cannot be taken back), but an interrupt must
+                    // not resurrect it. Marked BEFORE this one enters, so an
+                    // utterance never supersedes itself. An ADDITIVE utterance
+                    // marks nothing — it extends its subject, it does not
+                    // restate it.
+                    if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
+                    LedgerAddLocked(message, intent, level, origin, subject, now);
+                }
                 return;
             }
 
@@ -590,6 +713,12 @@ namespace Radios.Speech
                 return;
             }
 
+            // The interrupter may itself be the newer statement on a pending
+            // entry's subject — a sweep over a field whose typed value is
+            // still queued. Marked before the pass so the pass drops it and
+            // the trace names the interrupter as what covered it.
+            if (!additive) MarkSupersededLocked(subject, $"'{message}'", origin, now);
+
             var salvage = _believedQueued.ToArray();
             _believedQueued.Clear();
             foreach (var s in salvage)
@@ -600,12 +729,15 @@ namespace Radios.Speech
                     // A salvage that gives up SILENTLY is the same defect class
                     // as the one this bound exists to fix: speech that vanishes
                     // while the record says everything is fine. Say which bound
-                    // was hit and what it was measured against.
+                    // was hit and what it was measured against — and, for a
+                    // supersession, WHAT covered it. That line is the only
+                    // reason #503 was ever found.
                     Tracing.TraceLine(
                         $"SpeechArbiter: dropped a salvage ({refusal}) after "
                         + $"{s.SalvageCount} rescue(s), "
                         + $"{(int)(now - s.FirstEmittedUtc).TotalMilliseconds} ms after first "
-                        + $"emission: '{s.Message}'",
+                        + $"emission: '{s.Message}'"
+                        + (s.Subject != null ? $" [subject '{s.Subject}']" : string.Empty),
                         TraceLevel.Warning);
                     continue;
                 }
@@ -626,23 +758,68 @@ namespace Radios.Speech
         /// Why this utterance may NOT be salvaged again, or null when it may.
         /// The returned phrase goes straight into the trace, so it names the
         /// bound and the measurement rather than merely reporting a refusal.
+        ///
+        /// **The order is the policy (#503).** Supersession is asked first
+        /// because it is the only refusal that says what made the words
+        /// worthless; the cap and the ceiling are safety bounds and say so.
+        /// The word-count bound comes last and only for an entry whose
+        /// emitter declared no subject — for a keyed entry, age below the
+        /// ceiling is not a reason. "SWR 1.7" at 3,863 ms is not stale; it is
+        /// the answer to the last tune, and nothing has said otherwise.
         /// </summary>
         private string? SalvageRefusalLocked(BelievedQueued entry, DateTime now)
         {
+            int ageMs = (int)(now - entry.FirstEmittedUtc).TotalMilliseconds;
+
+            if (entry.SupersededBy != null)
+            {
+                int laterMs = (int)(entry.SupersededAtUtc - entry.FirstEmittedUtc).TotalMilliseconds;
+                return $"superseded {laterMs} ms after it by {entry.SupersededBy}"
+                    + (string.IsNullOrEmpty(entry.SupersededByOrigin)
+                        ? string.Empty
+                        : $" from {entry.SupersededByOrigin}");
+            }
+
             if (entry.SalvageCount >= MaxSalvages)
                 return $"salvage cap: already rescued {entry.SalvageCount} times, limit {MaxSalvages}";
 
-            int ageMs = (int)(now - entry.FirstEmittedUtc).TotalMilliseconds;
-            int boundMs = EstimateSpokenMs(entry.Message) * SalvageAgeMultiple;
-            if (ageMs > boundMs)
-                return $"stale: {ageMs} ms old against a {boundMs} ms bound";
+            if (ageMs > SalvageCeilingMs)
+                return $"ceiling: {ageMs} ms old against the {SalvageCeilingMs} ms lifetime"
+                    + (entry.Subject != null ? ", never superseded" : string.Empty);
+
+            if (entry.Subject == null)
+            {
+                int boundMs = EstimateSpokenMs(entry.Message) * SalvageAgeMultiple;
+                if (ageMs > boundMs)
+                    return $"stale: {ageMs} ms old against a {boundMs} ms bound; "
+                        + "no subject declared, so only its word count could expire it";
+            }
 
             return null;
         }
 
+        /// <summary>
+        /// Record that something newer covers <paramref name="subject"/>, on
+        /// every pending entry that declared it. Idempotent per entry: the
+        /// FIRST thing to cover it is what the trace names, because that is
+        /// the moment the words stopped being worth hearing.
+        /// </summary>
+        private void MarkSupersededLocked(string? subject, string by, string? origin, DateTime now)
+        {
+            if (string.IsNullOrEmpty(subject)) return;
+            foreach (var e in _believedQueued)
+            {
+                if (e.SupersededBy != null) continue;
+                if (!string.Equals(e.Subject, subject, StringComparison.Ordinal)) continue;
+                e.SupersededBy = by;
+                e.SupersededByOrigin = origin;
+                e.SupersededAtUtc = now;
+            }
+        }
+
         /// <summary>A first entry into the ledger: this is emission number one.</summary>
         private void LedgerAddLocked(string message,
-            SpeechIntent? intent, VerbosityLevel? level, string? origin, DateTime now)
+            SpeechIntent? intent, VerbosityLevel? level, string? origin, string? subject, DateTime now)
         {
             LedgerEnterLocked(new BelievedQueued
             {
@@ -650,6 +827,7 @@ namespace Radios.Speech
                 Intent = intent,
                 Level = level,
                 Origin = origin,
+                Subject = subject,
                 FirstEmittedUtc = now,
                 SalvageCount = 0,
             }, now);
@@ -738,7 +916,7 @@ namespace Radios.Speech
                 if ((int)entry.Level <= (int)_verbosity())
                 {
                     EmitLocked(entry.Message, interrupt: true, SpeechIntent.Latest,
-                        entry.Level, entry.Origin);
+                        entry.Level, entry.Origin, entry.Subject);
                 }
                 else
                 {
