@@ -301,6 +301,48 @@ namespace Radios
             return false;
         }
 
+        /// <summary>
+        /// Processes the foreground watchdog must never take from, by
+        /// executable base name: the lock screen and the logon UI, which a
+        /// policy timeout raises with no operator input at all — exactly the
+        /// shape a theft has — and the UAC consent host. Case-insensitive.
+        /// </summary>
+        public static readonly IReadOnlyList<string> ProtectedForegroundProcesses = new[]
+        {
+            "LockApp",
+            "LogonUI",
+            "consent",
+        };
+
+        public static bool IsProtectedForegroundProcess(string? processName)
+        {
+            if (string.IsNullOrEmpty(processName)) return false;
+            foreach (var p in ProtectedForegroundProcesses)
+                if (string.Equals(p, processName, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// The one question the watchdog asks of a foreign foreground before
+        /// it may act: is this a window we must leave alone, by class or by
+        /// owning process? Never throws.
+        /// </summary>
+        public static bool IsProtectedForegroundWindow(nint hwnd)
+        {
+            if (hwnd == 0) return false;
+            try
+            {
+                if (IsProtectedForegroundClass(ClassNameOf(hwnd))) return true;
+                return IsProtectedForegroundProcess(Describe(hwnd).ProcessName);
+            }
+            catch
+            {
+                // Unsure means protected: the cost of a missed reclaim is a
+                // few seconds; the cost of a wrong one is a stolen prompt.
+                return true;
+            }
+        }
+
         // ────────────────────────────────────────────────────────────────
         //  Pure: naming a program in plain language
         // ────────────────────────────────────────────────────────────────

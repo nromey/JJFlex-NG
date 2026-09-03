@@ -116,6 +116,20 @@ namespace Radios.Tests
         }
 
         [Fact]
+        public void TheLockScreenAndLogonUiAreProtectedByProcessName()
+        {
+            // A policy lock arrives with no operator input, which is exactly
+            // the shape of a theft; it must never be "taken back" from.
+            Assert.True(DesktopWindowCensus.IsProtectedForegroundProcess("LockApp"));
+            Assert.True(DesktopWindowCensus.IsProtectedForegroundProcess("lockapp"));
+            Assert.True(DesktopWindowCensus.IsProtectedForegroundProcess("LogonUI"));
+            Assert.True(DesktopWindowCensus.IsProtectedForegroundProcess("consent"));
+            Assert.False(DesktopWindowCensus.IsProtectedForegroundProcess("explorer"));
+            Assert.False(DesktopWindowCensus.IsProtectedForegroundProcess(""));
+            Assert.False(DesktopWindowCensus.IsProtectedForegroundProcess(null));
+        }
+
+        [Fact]
         public void OrdinaryClassesAreNotProtected()
         {
             Assert.False(DesktopWindowCensus.IsProtectedForegroundClass("HwndWrapper[jjflexible;;x]"));

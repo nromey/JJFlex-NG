@@ -423,11 +423,12 @@ namespace JJFlexWpf
             if (observation == Radios.StrandedFocusSentinel.Observation.ForeignForeground)
             {
                 // A sign-in flow of ours legitimately hands the keyboard to
-                // a browser or a credential prompt; and the system prompt
-                // classes are never ours to take from, whoever raised them.
+                // a browser or a credential prompt; and the system prompts —
+                // by window class or by owning process (the lock screen
+                // arrives with no input at all) — are never ours to take
+                // from, whoever raised them.
                 foreignIsProtected = Radios.WindowFocusForcer.SignInWindowOpen
-                    || Radios.DesktopWindowCensus.IsProtectedForegroundClass(
-                        Radios.DesktopWindowCensus.ClassNameOf(fg));
+                    || Radios.DesktopWindowCensus.IsProtectedForegroundWindow(fg);
             }
 
             return new Radios.StrandedFocusSentinel.Sample(
