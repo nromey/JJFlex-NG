@@ -88,16 +88,19 @@ namespace JJFlexWpf.Tests
         }
 
         [Fact]
-        public void Volume_mode_rows_sit_under_the_V_chord_by_their_own_prefix()
+        public void Audio_layer_rows_sit_under_the_V_chord_by_the_declared_link()
         {
-            // The structural link: "Ctrl+J, V, H" belongs to "Ctrl+J, V".
+            // Written for "VolumeMode" and its "Ctrl+J, V, H" prefix rows;
+            // Track I folded volume mode into the audio layer, whose rows are
+            // bare keys ("Ctrl+H", "V") that no prefix can attach to the
+            // chord. OpensLayer carries the link now (Sprint 44 Track N, #524).
             var root = KeyTree.Build();
             var v = Chords(root).Single(c => c.Entry!.KeyDisplay == "Ctrl+J, V");
-            var volumeRows = KeyInventory.All().Where(e => e.Context == "VolumeMode").ToList();
+            var audioRows = KeyInventory.All().Where(e => e.Context == KeyInventory.AudioLayerContext).ToList();
 
-            Assert.True(v.HasChildren, "Ctrl+J, V opens volume mode and must have children");
-            Assert.Equal(volumeRows.Count, v.Children.Count);
-            Assert.Equal("VolumeMode", v.LayerContext);
+            Assert.True(v.HasChildren, "Ctrl+J, V opens the audio layer and must have children");
+            Assert.Equal(audioRows.Count, v.Children.Count);
+            Assert.Equal(KeyInventory.AudioLayerContext, v.LayerContext);
             // Inside the layer the keys are spoken as themselves, not as the
             // whole three-key chord: "H", not "Ctrl+J, V, H".
             Assert.Contains(v.Children, c => c.Key == "H");
@@ -105,18 +108,19 @@ namespace JJFlexWpf.Tests
         }
 
         [Fact]
-        public void Pan_mode_rows_sit_under_Alt_P_by_the_declared_link()
+        public void Alt_P_opens_the_same_audio_layer_as_V_does()
         {
-            // The declared link: pan's rows are written "Left / Right", which
-            // no prefix can attach to "Ctrl+J, Alt+P". OpensLayer does it.
+            // Three doors, one room: Ctrl+J, A; Ctrl+J, V; and Ctrl+J, Alt+P
+            // (which lands on pan) all declare the audio layer, so the tree
+            // shows the same branch under each.
             var root = KeyTree.Build();
             var pan = Chords(root).Single(c => c.Entry!.KeyDisplay == "Ctrl+J, Alt+P");
-            var panRows = KeyInventory.All().Where(e => e.Context == "PanMode").ToList();
+            var v = Chords(root).Single(c => c.Entry!.KeyDisplay == "Ctrl+J, V");
 
             Assert.True(pan.HasChildren);
-            Assert.Equal(panRows.Count, pan.Children.Count);
-            Assert.Equal("PanMode", pan.LayerContext);
-            Assert.Contains(pan.Children, c => c.Key == "Left / Right");
+            Assert.Equal(KeyInventory.AudioLayerContext, pan.LayerContext);
+            Assert.Equal(v.Children.Select(c => c.Key), pan.Children.Select(c => c.Key));
+            Assert.Contains(pan.Children, c => c.Key == "Ctrl+P");
         }
 
         [Fact]
@@ -181,8 +185,8 @@ namespace JJFlexWpf.Tests
         {
             var root = KeyTree.Build();
             Assert.Same(root, KeyTree.FindLayer(root, KeyTree.LeaderContext));
-            Assert.NotNull(KeyTree.FindLayer(root, "VolumeMode"));
-            Assert.NotNull(KeyTree.FindLayer(root, "PanMode"));
+            Assert.NotNull(KeyTree.FindLayer(root, KeyInventory.AudioLayerContext));
+            Assert.NotNull(KeyTree.FindLayer(root, KeyInventory.FilterLayerContext));
             Assert.Null(KeyTree.FindLayer(root, "NoSuchLayer"));
         }
 
@@ -201,13 +205,15 @@ namespace JJFlexWpf.Tests
             var leader = KeyTree.LayerRows(KeyTree.LeaderContext);
             Assert.Equal(KeyInventory.All().Count(e => e.Context == KeyTree.LeaderContext), leader.Count);
 
-            var volume = KeyTree.LayerRows("VolumeMode");
-            Assert.Equal(KeyInventory.All().Count(e => e.Context == "VolumeMode"), volume.Count);
-            Assert.All(volume, r => Assert.Equal("VolumeMode", r.Context));
+            var audio = KeyTree.LayerRows(KeyInventory.AudioLayerContext);
+            Assert.Equal(KeyInventory.All().Count(e => e.Context == KeyInventory.AudioLayerContext), audio.Count);
+            Assert.All(audio, r => Assert.Equal(KeyInventory.AudioLayerContext, r.Context));
 
-            Assert.NotNull(KeyTree.OpenerOf("VolumeMode"));
-            Assert.Equal("Ctrl+J, V", KeyTree.OpenerOf("VolumeMode")!.KeyDisplay);
-            Assert.Equal("Ctrl+J, Alt+P", KeyTree.OpenerOf("PanMode")!.KeyDisplay);
+            // The audio layer has three doors; the first declared one is its
+            // opener, and under the four-tier grammar that is JJ key A.
+            Assert.NotNull(KeyTree.OpenerOf(KeyInventory.AudioLayerContext));
+            Assert.Equal("Ctrl+J, A", KeyTree.OpenerOf(KeyInventory.AudioLayerContext)!.KeyDisplay);
+            Assert.Equal("Ctrl+J, F", KeyTree.OpenerOf(KeyInventory.FilterLayerContext)!.KeyDisplay);
             Assert.Null(KeyTree.OpenerOf(KeyTree.LeaderContext));
         }
 

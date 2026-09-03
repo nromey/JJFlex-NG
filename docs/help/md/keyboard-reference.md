@@ -124,8 +124,11 @@ If what you actually want is help for the control you're sitting on, that's Ctrl
 
 Volume mode and pan mode were two doors into the same room, so they're one layer now. Press `Ctrl+J`, then `V`, and you're in the audio layer: pick a target with a letter, then ride Up and Down. Every press speaks the new value. The layer stays put while you adjust and while you switch targets — set your mic, hop to PC output, nudge it, hop back — and Enter or Escape ends it. If you're a JAWS or NVDA user this layered-keystroke pattern will feel like home.
 
-The targets:
+Entering it tells you where you are and what's picked, and stops there. `H` does the rest: it opens the layer's keys as a list you can arrow through, count first.
 
+The levels — pick one, then ride Up and Down:
+
+- **V** — slice volume, for the slice you're on: how loud that slice sits in the mix, 0 to 100. This is the volume most people mean, and it is *not* the PC output volume below — one is the slice, the other is your computer. It follows you when you jump slices.
 - **Ctrl+H** — on-radio headphone volume. The headphone jack on the radio itself. Plain `H` is help in this layer and in every layer, so headphone wears Ctrl.
 - **P** — PC output volume, in dB of boost. This is how loud radio audio plays *through your computer* — the one remote operators actually want. Ranges 0 to 24 dB; the long-time default is 12 dB.
 - **M** — mic level, your transmit audio level. Applies to PC audio too.
@@ -134,13 +137,19 @@ The targets:
 - **S** — speech processor mode: Up and Down step through Normal, DX, and DX plus. (Toggle the processor with `Ctrl+J`, `Shift+P`.)
 - **Ctrl+P** — pan, for the slice you're on. Plain `P` is PC output, so pan wears Ctrl. Left and Right move it too — for pan, direction means something real — and Home snaps it to center.
 
+The switches — one press flips it, and it tells you which way it went:
+
+- **Ctrl+M** — mute or unmute the slice you're on. The same mute as `M` on Home, reachable from in here.
+- **Ctrl+A** — PC audio on or off: whether radio audio plays through this computer at all. `P` above sets how loud; this is the switch. It reads the radio back before answering, so if turning it on couldn't find a sound device it tells you that rather than claiming success.
+- **Ctrl+B** — binaural receive on or off, the radio's own stereo widening of what you hear. There used to be a control for this and it went missing in the move; this is it, back.
+
 And the keys that work on whatever you've picked:
 
 - **Up and Down** — adjust it. Shift moves by one. Hold an arrow and it sweeps.
-- **Shift+A through Shift+H** — jump to that slice without leaving the layer. Pan follows you to it; whatever you'd already done on the old slice stays done.
+- **Shift+A through Shift+H** — jump to that slice without leaving the layer. Slice volume, mute and pan follow you to it; whatever you'd already done on the old slice stays done.
 - **Enter** — keep everything and leave.
-- **Escape** — put back *everything* you moved in the layer, out loud, and leave. Overshot three things? One key.
-- **H** — list the layer's keys, count first. `Shift slash` does the same for now; it opens the JJ key explorer once that exists.
+- **Escape** — put back *everything* you moved in the layer — the switches too — out loud, and leave. Overshot three things? One key.
+- **H** — the layer's keys as a list you can arrow through, count first. `Shift slash` opens the JJ key explorer instead: the whole map as a tree, with this layer's branch already open.
 - Any other key keeps your changes, announces the layer closed, and then does its normal job — you can't get stuck in here.
 
 `Ctrl+J`, then `Alt+P` opens the same layer with pan already picked, so the old pan mode is one keystroke shorter rather than gone. Stereo placement is how you keep two signals apart — slice A a little left, slice B a little right, and a pileup turns into two conversations instead of one mush. Hard left and hard right aren't separation, they're exile; what you want is *slightly* off center, and that's what the fine control is for. It speaks in positions at chatty verbosity — "slightly left", "center", "hard right" — and in numbers at terse: "Pan 40" on a 0-to-100 scale where 0 is hard left, 50 is center, and 100 is hard right, precise enough to jot down and dial in again tomorrow. Cycle verbosity with `Ctrl+Shift+V` inside the layer and the very next nudge speaks in the other form.

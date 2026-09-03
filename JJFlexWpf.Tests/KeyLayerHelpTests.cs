@@ -8,8 +8,20 @@ namespace JJFlexWpf.Tests
     /// Sprint 44 Track K (#158, #519). Pure data — no window is opened; the
     /// long case's dialog is swept by the Tier 1 suite like every other.
     /// </summary>
+    /// <remarks>
+    /// Written against "VolumeMode" and "PanMode", which Track I folded into
+    /// one audio layer on a sibling branch the same day; the contexts no
+    /// longer existed by the merge, and every assertion about them was
+    /// either vacuous (an unknown context has zero rows, and zero is
+    /// "short") or red. Re-pointed at the audio and filter layers by Sprint
+    /// 44 Track N (#524), which is also when the answer changed: both real
+    /// layers are LONG, so H opens the list for them.
+    /// </remarks>
     public class KeyLayerHelpTests
     {
+        private static readonly string Audio = KeyInventory.AudioLayerContext;
+        private static readonly string Filter = KeyInventory.FilterLayerContext;
+
         [Fact]
         public void Short_layers_speak_and_long_layers_list()
         {
@@ -21,31 +33,33 @@ namespace JJFlexWpf.Tests
         }
 
         [Fact]
-        public void The_top_level_is_long_and_the_two_sub_layers_are_short()
+        public void The_top_level_and_both_layers_are_long_and_list()
         {
             // The measurement #158 was built on: the JJ key layer is the one
-            // that took 51 to 85 seconds to recite. It must open the list.
+            // that took 51 to 85 seconds to recite. It must open the list —
+            // and so must the audio layer, which recited 1,100 characters in
+            // one breath until #524.
             Assert.False(KeyLayerHelp.IsShort(KeyLayerHelp.Rows(KeyLayerHelp.LeaderContext).Count));
-            Assert.True(KeyLayerHelp.IsShort(KeyLayerHelp.Rows("VolumeMode").Count));
-            Assert.True(KeyLayerHelp.IsShort(KeyLayerHelp.Rows("PanMode").Count));
+            Assert.False(KeyLayerHelp.IsShort(KeyLayerHelp.Rows(Audio).Count));
+            Assert.False(KeyLayerHelp.IsShort(KeyLayerHelp.Rows(Filter).Count));
         }
 
         [Fact]
         public void The_spoken_form_leads_with_the_count()
         {
-            int count = KeyLayerHelp.Rows("VolumeMode").Count;
-            string spoken = KeyLayerHelp.SpokenList("VolumeMode");
+            int count = KeyLayerHelp.Rows(Audio).Count;
+            string spoken = KeyLayerHelp.SpokenList(Audio);
 
             Assert.StartsWith(count.ToString(), spoken);
             Assert.Contains("keys in", spoken);
-            Assert.Contains("Volume mode", spoken);
+            Assert.Contains("Audio layer", spoken);
         }
 
         [Fact]
         public void The_spoken_form_names_every_row_by_its_in_layer_key()
         {
-            string spoken = KeyLayerHelp.SpokenList("VolumeMode");
-            foreach (var (key, description) in KeyLayerHelp.Rows("VolumeMode"))
+            string spoken = KeyLayerHelp.SpokenList(Audio);
+            foreach (var (key, description) in KeyLayerHelp.Rows(Audio))
             {
                 Assert.Contains(key + ", " + description, spoken);
                 Assert.False(key.StartsWith("Ctrl+J", System.StringComparison.Ordinal),
@@ -56,14 +70,21 @@ namespace JJFlexWpf.Tests
         [Fact]
         public void The_words_name_keystrokes_not_glyphs()
         {
-            // #303. The top level carries "H or ?" and the spoken form must
-            // say "Shift slash", never the glyph.
-            string spoken = KeyLayerHelp.SpokenList(KeyLayerHelp.LeaderContext);
-            Assert.DoesNotContain("?", spoken);
-            Assert.Contains("Shift slash", spoken);
+            // #303. Every layer's "?" row must be spoken as "Shift slash",
+            // never as the glyph. This was pinned on the top level's "H or ?"
+            // row; Track J made JJ key slash the explorer (#519), so the top
+            // level no longer has a "?" at all and the layers are where the
+            // glyph lives now.
+            foreach (var context in new[] { Audio, Filter })
+            {
+                string spoken = KeyLayerHelp.SpokenList(context);
+                Assert.DoesNotContain("?", spoken);
+                Assert.Contains("Shift slash", spoken);
+            }
 
-            foreach (var (key, _) in KeyLayerHelp.Rows(KeyLayerHelp.LeaderContext))
-                Assert.DoesNotContain("?", key);
+            foreach (var context in new[] { KeyLayerHelp.LeaderContext, Audio, Filter })
+                foreach (var (key, _) in KeyLayerHelp.Rows(context))
+                    Assert.DoesNotContain("?", key);
         }
 
         [Fact]
@@ -82,14 +103,14 @@ namespace JJFlexWpf.Tests
         {
             Assert.Equal("the JJ key layer", KeyLayerHelp.LayerName(KeyLayerHelp.LeaderContext));
             Assert.Equal("JJ key layer", KeyLayerHelp.LayerTitle(KeyLayerHelp.LeaderContext));
-            Assert.Equal("Volume mode", KeyLayerHelp.LayerName("VolumeMode"));
-            Assert.Equal("Pan mode", KeyLayerHelp.LayerTitle("PanMode"));
+            Assert.Equal("Audio layer", KeyLayerHelp.LayerName(Audio));
+            Assert.Equal("Filter layer", KeyLayerHelp.LayerTitle(Filter));
         }
 
         [Fact]
         public void Every_row_has_a_key_and_a_description()
         {
-            foreach (var context in new[] { KeyLayerHelp.LeaderContext, "VolumeMode", "PanMode" })
+            foreach (var context in new[] { KeyLayerHelp.LeaderContext, Audio, Filter })
             {
                 var rows = KeyLayerHelp.Rows(context);
                 Assert.NotEmpty(rows);
@@ -105,10 +126,10 @@ namespace JJFlexWpf.Tests
         public void The_list_rows_are_the_tree_rows()
         {
             // One table, two surfaces: what the explorer shows under V is what
-            // volume mode's H lists, key for key and word for word.
+            // the audio layer's H lists, key for key and word for word.
             var root = KeyTree.Build();
             var v = KeyTree.Flatten(root).Single(n => n.Entry?.KeyDisplay == "Ctrl+J, V");
-            var listed = KeyLayerHelp.Rows("VolumeMode");
+            var listed = KeyLayerHelp.Rows(Audio);
 
             Assert.Equal(v.Children.Select(c => c.Key).ToArray(), listed.Select(r => r.key).ToArray());
             Assert.Equal(v.Children.Select(c => c.Entry!.Description).ToArray(), listed.Select(r => r.description).ToArray());

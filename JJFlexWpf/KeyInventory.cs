@@ -735,8 +735,14 @@ public static class KeyInventory
     public const string AudioLayerContext = "AudioLayer";
     public const string FilterLayerContext = "FilterLayer";
 
+    // Sprint 44 Track N (#524): V, Ctrl+M, Ctrl+A and Ctrl+B are PROVISIONAL
+    // letters — Noel has not ruled the map. They sit on keys that were free
+    // so nothing that had a letter moved; see the region comment above
+    // KeyCommands.EnterAudioLayer.
     private static readonly FixedKeyEntry[] AudioLayerCommands =
     {
+        new(AudioLayerContext, "Audio layer", "V", "Slice volume — how loud the slice you're on sits in the mix, 0 to 100; Up and Down adjust; follows a slice jump",
+            new[] { "volume", "slice", "level", "loud", "gain", "audio", "mix", "quiet" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "Ctrl+H", "On-radio headphone volume — the radio's own headphone jack; Up and Down adjust",
             new[] { "headphone", "headphones", "earphones", "volume", "on-radio", "jack", "level" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "P", "PC output volume in dB — how loud radio audio plays through this computer; Up and Down adjust",
@@ -754,7 +760,13 @@ public static class KeyInventory
                     "placement", "position", "field", "slice", "separate", "separation", "apart", "ear" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "Up / Down", "Adjust the picked target; Shift moves by one",
             new[] { "adjust", "up", "down", "fine", "shift" }, "Radio", "Audio"),
-        new(AudioLayerContext, "Audio layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer — pan follows you to it",
+        new(AudioLayerContext, "Audio layer", "Ctrl+M", "Mute or unmute the slice you're on — one press, the same mute as M on Home",
+            new[] { "mute", "unmute", "silence", "quiet", "slice", "toggle", "switch" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "Ctrl+A", "Turn PC audio on or off — whether radio audio plays through this computer at all; P sets how loud",
+            new[] { "pc", "audio", "on", "off", "toggle", "switch", "computer", "playback", "hear", "remote", "sound" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "Ctrl+B", "Binaural receive on or off — the radio's own stereo widening of what you hear",
+            new[] { "binaural", "stereo", "wide", "widening", "receive", "toggle", "switch", "ears", "headphones" }, "Radio", "Audio"),
+        new(AudioLayerContext, "Audio layer", "Shift+A through Shift+H", "Jump to that slice without leaving the layer — slice volume, mute and pan follow you to it",
             new[] { "slice", "jump", "letter" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "Enter", "Keep every change and leave the audio layer",
             new[] { "keep", "confirm", "enter", "exit" }, "Radio", "Audio"),
@@ -762,7 +774,7 @@ public static class KeyInventory
             new[] { "cancel", "restore", "undo", "back", "escape", "exit" }, "Radio", "Audio"),
         new(AudioLayerContext, "Audio layer", "H", "List the audio layer's keys",
             new[] { "help", "list", "keys" }, "Radio", "help"),
-        new(AudioLayerContext, "Audio layer", "?", "Explore this layer's keys (the same list as H until the JJ key explorer lands)",
+        new(AudioLayerContext, "Audio layer", "?", "Open the JJ key explorer on this layer — the whole map as a tree, this branch open",
             new[] { "help", "explore", "explorer", "tree", "question", "shift slash" }, "Radio", "help")
             { KeySpoken = "Shift slash" },
     };
@@ -805,7 +817,7 @@ public static class KeyInventory
             new[] { "cancel", "restore", "undo", "back", "escape", "exit" }, "Radio", "Filter"),
         new(FilterLayerContext, "Filter layer", "H", "List the filter layer's keys",
             new[] { "help", "list", "keys" }, "Radio", "help"),
-        new(FilterLayerContext, "Filter layer", "?", "Explore this layer's keys (the same list as H until the JJ key explorer lands)",
+        new(FilterLayerContext, "Filter layer", "?", "Open the JJ key explorer on this layer — the whole map as a tree, this branch open",
             new[] { "help", "explore", "explorer", "tree", "question", "shift slash" }, "Radio", "help")
             { KeySpoken = "Shift slash" },
     };
@@ -819,22 +831,13 @@ public static class KeyInventory
     public static IReadOnlyList<FixedKeyEntry> LayerCommands(string context)
         => All().Where(e => e.Context == context).ToList();
 
-    /// <summary>
-    /// The spoken fallback for a layer's H, generated from its table so it
-    /// cannot drift from the layer: the headline the host supplies (the
-    /// layer's name and where it stands), then the COUNT, then the keys.
-    /// Count first (#519) so the operator knows at once what they are
-    /// getting and never waits through a recitation wondering when it
-    /// ends. SpokenKey throughout — this goes straight to a screen reader.
-    /// </summary>
-    public static string LayerHelpSpeech(string context, string headline)
-    {
-        var rows = LayerCommands(context);
-        string keys = string.Join("; ", rows.Select(r =>
-            Radios.Lexicon.Get("leader.layer_help_item", ("key", r.SpokenKey), ("description", r.Description))));
-        return Radios.Lexicon.Get("leader.layer_help",
-            ("headline", headline), ("count", rows.Count), ("keys", keys));
-    }
+    // A LayerHelpSpeech method, taking a context and a headline, lived here
+    // from Sprint 44 Track I until Track N: a second builder of "this
+    // layer's keys, spoken", beside
+    // KeyLayerHelp, which Track K had already published for exactly that.
+    // Both worked, they merged with zero conflict, and the operator got the
+    // worse one — 1,100 characters in one breath (#524). The layers call
+    // KeyLayerHelp.Present now, and its SpokenList is the one spoken form.
 
     // ────────────────────────────────────────────────────────────────
     //  Audio Workshop local keys (Threads Track, 2026-08-12). These are

@@ -9,18 +9,17 @@
   "audio.audio_layer.compander": "Compander {value}",
   "audio.audio_layer.compander_is_off_suffix": ", compander is off",
   "audio.audio_layer.entered": {
-    "critical": "Audio layer. Ctrl+H, P, M, L, C, S, or Ctrl+P picks a target.",
-    "terse": "Audio layer. Ctrl+H, P, M, L, C, S, or Ctrl+P picks a target.",
-    "chatty": "Audio layer. Ctrl+H headphone, P PC output, M mic, L line out, C compander, S processor, Ctrl+P pan. Up and down adjust. Enter keeps it, Escape puts it back, H lists the keys."
+    "critical": "Audio layer, nothing picked.",
+    "terse": "Audio layer, nothing picked.",
+    "chatty": "Audio layer, nothing picked."
   },
   "audio.audio_layer.entered_on_pan": {
     "critical": "Audio layer. {target}.",
     "terse": "Audio layer. {target}.",
-    "chatty": "Audio layer. {target}. Left and right or up and down adjust, Shift moves by one, Home centers. Enter keeps it, Escape puts it back, H lists the keys."
+    "chatty": "Audio layer. {target}."
   },
   "audio.audio_layer.headphone": "Headphone {value}",
   "audio.audio_layer.headphone_selected": "On-radio headphone {value}",
-  "audio.audio_layer.help_no_target": "no target picked",
   "audio.audio_layer.lineout": "Line out {value}",
   "audio.audio_layer.lineout_selected": "On-radio line out {value}",
   "audio.audio_layer.mic": "Mic level {value}",
@@ -31,6 +30,7 @@
   "audio.audio_layer.name_mic": "Mic level",
   "audio.audio_layer.name_pc_output": "PC volume",
   "audio.audio_layer.name_processor": "Processor",
+  "audio.audio_layer.name_slice_volume": "Slice volume",
   "audio.audio_layer.pan_no_slice": "Pan, no slice",
   "audio.audio_layer.pan_restore_item": {
     "critical": "pan {level}",
@@ -43,12 +43,17 @@
     "chatty": "Pan, slice {letter}, {position}"
   },
   "audio.audio_layer.pc_output": "PC volume {value} dB",
-  "audio.audio_layer.pick_target_first": "Pick a target first: Ctrl+H, P, M, L, C, S, or Ctrl+P.",
+  "audio.audio_layer.pick_target_first": "Pick a target first: V, Ctrl+H, P, M, L, C, S, or Ctrl+P.",
   "audio.audio_layer.processor": "Processor {name}",
   "audio.audio_layer.processor_is_off_suffix": ", processor is off",
   "audio.audio_layer.restored": "Put back {list}. Audio layer closed",
   "audio.audio_layer.restored_nothing": "Nothing moved. Audio layer closed",
+  "audio.audio_layer.slice_volume": "Volume {value}",
+  "audio.audio_layer.slice_volume_no_slice": "Volume, no slice",
+  "audio.audio_layer.slice_volume_selected": "Slice {letter} volume {value}",
   "audio.audio_layer.uses_up_down": "{target} uses up and down",
+  "audio.binaural.off": "Binaural off",
+  "audio.binaural.on": "Binaural on",
   "audio.check.buffer_nearly_full": "Recording buffer nearly full; oldest audio will drop off.",
   "audio.check.could_not_start": "Audio check could not start.",
   "audio.check.dummy_load_released": "Dummy load released, power back to {watts} watts.",

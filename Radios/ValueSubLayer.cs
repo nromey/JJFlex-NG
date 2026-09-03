@@ -182,6 +182,22 @@ namespace Radios
         /// </summary>
         public Keys SelectKey = Keys.None;
 
+        /// <summary>
+        /// The exact chord that FLIPS this target rather than picking it —
+        /// the Ctrl tier of the four-tier grammar (#515): a plain letter
+        /// picks a level, Ctrl+letter toggles a switch. A toggle holds
+        /// <see cref="Min"/> (off) or <see cref="Max"/> (on), is never the
+        /// current target — the pick is untouched and the arrows still move
+        /// what was picked — and joins the touched list like any other
+        /// target, so Escape puts it back and the restore sentence names it
+        /// (#524: slice mute, PC audio, binaural). Keys.None for a target
+        /// that is adjusted rather than switched.
+        /// </summary>
+        public Keys ToggleKey = Keys.None;
+
+        /// <summary>Reached by <see cref="ToggleKey"/>, never picked and nudged.</summary>
+        public bool IsToggle => ToggleKey != Keys.None;
+
         /// <summary>Reads the live value, to seed the shadow when the target is
         /// first reached — and before every step when <see cref="Linked"/>.</summary>
         public Func<int>? Read;
@@ -558,7 +574,15 @@ namespace Radios
     /// closing path announce themselves, entry and close carry earcons, and
     /// the in-layer help — plain H in every layer, Shift+slash too — lists
     /// the keys, count first, without changing anything. Where the host has
-    /// a navigable surface (#519) H opens it; otherwise the list is spoken.</para>
+    /// a navigable surface (#519) H opens it; otherwise the list is spoken.
+    /// The help cue plays BEFORE the surface opens: the surface is modal and
+    /// a cue after it closes is a cue for nothing.</para>
+    ///
+    /// <para><b>A switch is one press.</b> A target with a
+    /// <see cref="ValueTarget.ToggleKey"/> flips on that exact chord — the
+    /// Ctrl tier of the four-tier grammar (#515) — says its new state, and
+    /// leaves the pick alone. It is restored by Escape like anything else
+    /// the layer moved, so "everything you moved" stays true (#524).</para>
     ///
     /// <para><b>If the value changes underneath</b> (another client, the front
     /// panel): two hands on one knob means last writer wins. The layer speaks
@@ -894,21 +918,34 @@ namespace Radios
                 }
             }
 
+            // Toggles: the exact chord flips the target and says so, and the
+            // pick is untouched — Ctrl is the toggle tier (#515), so a switch
+            // inside a layer is one press, never "pick it, then arrow".
+            var flip = _slots.FirstOrDefault(s => InGroup(s) && s.Def.IsToggle && s.Def.ToggleKey == k);
+            if (flip != null)
+            {
+                ToggleSlot(flip);
+                return ValueLayerKeyResult.Handled;
+            }
+
             // Help: plain H lists this layer's commands, as a navigable list
             // where the host has one (#519) and spoken otherwise. Shift+slash
             // opens the tree explorer where the host has one and is help
             // otherwise (#158) — both Oem2 forms, because the bare case alone
-            // never fires for "?", the #183 lesson.
+            // never fires for "?", the #183 lesson. The cue plays FIRST: the
+            // host's surface is modal, and a cue sounded after it closes is
+            // the cue for nothing — an operator has already arrowed through
+            // the list by then (#524).
             if (k == Keys.H)
             {
-                if (_def.ListCommands?.Invoke() == true) { _def.Cues.Help?.Invoke(); return ValueLayerKeyResult.Handled; }
-                SpeakHelp();
+                _def.Cues.Help?.Invoke();
+                if (_def.ListCommands?.Invoke() != true) SpeakHelpSentence();
                 return ValueLayerKeyResult.Handled;
             }
             if (code == Keys.Oem2 && (mods & Keys.Control) == 0)
             {
-                if (_def.OpenExplorer?.Invoke() == true) { _def.Cues.Help?.Invoke(); return ValueLayerKeyResult.Handled; }
-                SpeakHelp();
+                _def.Cues.Help?.Invoke();
+                if (_def.OpenExplorer?.Invoke() != true) SpeakHelpSentence();
                 return ValueLayerKeyResult.Handled;
             }
 
@@ -1037,7 +1074,9 @@ namespace Radios
         public void SelectNext(int direction)
         {
             if (!_live || _slots.Count == 0) return;
-            var visible = _slots.Where(InGroup).ToList();
+            // A toggle is flipped by its chord, never stepped onto: it has
+            // no arrows to offer once selected.
+            var visible = _slots.Where(s => InGroup(s) && !s.Def.IsToggle).ToList();
             if (visible.Count == 0) return;
             int index = _current == null ? -1 : visible.IndexOf(_current);
             int next = Math.Clamp(index + direction, 0, visible.Count - 1);
@@ -1078,6 +1117,25 @@ namespace Radios
         {
             if (!_live) return;
             _def.Cues.Help?.Invoke();
+            SpeakHelpSentence();
+        }
+
+        /// <summary>
+        /// Flip a toggle target and speak its new state, as its chord would
+        /// (#200). A target without a <see cref="ValueTarget.ToggleKey"/> is
+        /// not a switch and is left alone.
+        /// </summary>
+        public void Toggle(ValueTarget target)
+        {
+            if (!_live) return;
+            var slot = SlotOf(target);
+            if (slot != null && slot.Def.IsToggle) ToggleSlot(slot);
+        }
+
+        /// <summary>The spoken help, with no cue — the keyboard face plays the
+        /// cue itself, ahead of whatever surface the host opens.</summary>
+        private void SpeakHelpSentence()
+        {
             if (_def.DescribeLayerHelp != null)
                 EmitSay(_def.DescribeLayerHelp(this));
             else if (_def.DescribeHelp != null && _current != null)
@@ -1310,6 +1368,21 @@ namespace Radios
             // repeat — unless the target has a rail sentence, which says why.
             _def.Cues.Rail?.Invoke();
             EmitMove(s.Def.DescribeRail?.Invoke(next) ?? FormOf(s, next), SubjectOf(s));
+        }
+
+        private void ToggleSlot(Slot s)
+        {
+            EnsureSeeded(s);
+            if (s.Def.Linked) s.Shadow = s.Def.Read!();
+            // Off is Min, on is Max; a seed that clamped to anything else
+            // reads as on, so the first press turns it off.
+            s.Shadow = s.Shadow == s.Def.Min ? s.Def.Max : s.Def.Min;
+            s.Def.Apply!(s.Shadow);
+            Touch(s);
+            Tracing.TraceLine("ValueSubLayer(" + Tag(s) + "): toggled to " + s.Shadow, TraceLevel.Info);
+            // A flip is a question answered now, not a sweep: two presses in
+            // a row are two states, and both are heard.
+            EmitAnswer(DescribeSelection(s), SubjectOf(s));
         }
 
         private void SpeakAddressed(Keys mods)
