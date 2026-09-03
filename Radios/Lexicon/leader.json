@@ -2,7 +2,11 @@
   "_comment": "This file holds what JJ Flexible says for the JJ key layer - the commands you reach by pressing Ctrl+J and then a second key. It used to live in settings.json, which was never right: the JJ layer is a way of driving the whole application, not a Settings feature. EDITING: change the text on the right of the colon; never change the key on the left, and never change anything inside curly braces such as {pressed} - those are filled in at run time with the key you actually pressed. If an argument goes missing the placeholder is left standing rather than blanked, so you would hear the word pressed in braces spoken aloud - that is a bug worth reporting, not something you caused. A key with no text is spoken as the key itself, so if you hear something like leader.cancelled read out literally, that key needs text. LADDERS: a few keys hold several tiers instead of one string - critical, terse, chatty and sometimes diagnostic - which is how one message gets shorter as you turn verbosity down. Edit the tier you want; leave the others alone. NAME THE KEYSTROKE, NOT THE GLYPH: say 'Shift slash' rather than '?' anywhere you tell somebody which key to press. A bare question mark may not be spoken at all when your screen reader's punctuation level is low, so an instruction can silently lose the very key it is naming - and 'Shift slash' is what your hands do anyway. YOUR OWN COPY: put a file of this same name in the lexicon folder beside your settings and it layers on top of this one, key by key - you only need the keys you want to change, and everything else keeps working. If your file has a typo in it, it is ignored and this one is used, so a mistake can never stop the program. See docs/planning/active/string-store-contract.md.",
   "leader.armed": "JJ",
   "leader.cancelled": "Cancelled",
-  "leader.near_miss": "{pressed} is not a command. {alt}: {what}",
+  "leader.near_miss": {
+    "critical": "{pressed} is not a command.",
+    "terse": "{pressed} is not a command.",
+    "chatty": "{pressed} is not a command. {alt}: {what}"
+  },
   "leader.unknown_key": {
     "critical": "Unknown key. H for the list, Escape to cancel.",
     "terse": "Unknown key. H for the list, Escape to cancel.",

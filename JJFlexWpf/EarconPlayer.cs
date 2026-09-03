@@ -100,6 +100,19 @@ namespace JJFlexWpf
         private static bool On(EarconCategory category) =>
             EarconsEnabled && _categoryEnabled[(int)category];
 
+        /// <summary>
+        /// Whether the operator's switches — master and category — let a
+        /// sound in this category through. The same answer <see cref="On"/>
+        /// gives the sounds themselves, published for a caller that has to
+        /// decide what to SAY beside a tone (#528): below Chatty a refusal is
+        /// the invalid tone alone, so the caller needs to know the tone will
+        /// be heard before it lets the words go. Deliberately the switches
+        /// only, not whether the alert device is open: a dead device is a
+        /// fault to report, not a setting, and the #171 diverted channel runs
+        /// production policy with no device at all.
+        /// </summary>
+        public static bool IsOn(EarconCategory category) => On(category);
+
         // Continuous tone providers registered with the meter channel mixer
         private static readonly List<ISampleProvider> _continuousProviders = new();
 
