@@ -491,8 +491,7 @@ public class NativeMenuBar : IDisposable
     /// mid-rung value and <see cref="AdjustValue"/> refuses a moment later,
     /// which is where the no-radio sentence belongs.
     /// </remarks>
-    private int TxFilterStep()
-        => Rig == null ? 50 : FreqOutHandlers.GetAdaptiveFilterStep(Rig.TXFilterLow, Rig.TXFilterHigh);
+    private int TxFilterStep() => Rig == null ? 50 : FreqOutHandlers.TxFilterStep(Rig);
 
     private void SpeakNoRadio()
     {

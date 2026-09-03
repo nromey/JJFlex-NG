@@ -2895,6 +2895,21 @@ public class FreqOutHandlers
     }
 
     /// <summary>
+    /// How far one press moves a TRANSMIT filter edge, for every door that
+    /// reads the edges off the radio: the flat Ctrl+Shift and Ctrl+Alt
+    /// bracket chords and the Radio menu's TX Filter submenu (#527).
+    /// </summary>
+    /// <remarks>
+    /// The filter layer does NOT call this — while it is live its own shadow
+    /// of the pair is authoritative, not a radio read-back, so it asks
+    /// <see cref="GetAdaptiveFilterStep"/> about that shadow. Same rule,
+    /// different source for the two numbers, which is the whole reason the
+    /// rule takes them as arguments.
+    /// </remarks>
+    internal static int TxFilterStep(Radios.FlexBase rig)
+        => GetAdaptiveFilterStep(rig.TXFilterLow, rig.TXFilterHigh);
+
+    /// <summary>
     /// Handle bracket keys for filter adjustment.
     /// Sprint 15 key scheme:
     ///   [ = low edge down (expand low side)

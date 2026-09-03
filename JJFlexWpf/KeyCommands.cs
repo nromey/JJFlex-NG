@@ -1019,11 +1019,19 @@ public class KeyCommands
 
     #region TX Filter Handlers
 
+    // These four flat chords are a DOOR onto the transmit edges, and since
+    // #527 they walk by the same width-adaptive ladder the filter layer and
+    // the bracket chords do — so an edge moves the same distance whichever
+    // door the operator came in by. They stepped by a hard-coded 50, which
+    // the register's count of "three step rules" had missed; it was a
+    // fourth. The 50s that remain below are the RAIL — the radio's minimum
+    // transmit width — and that is a different number that happens to match.
+
     private void TXFilterLowDownHandler()
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        int newLow = Math.Max(0, rig.TXFilterLow - 50);
+        int newLow = Math.Max(0, rig.TXFilterLow - FreqOutHandlers.TxFilterStep(rig));
         rig.TXFilterLow = newLow;
         EarconPlayer.FilterEdgeMoveTone(true);
         int width = rig.TXFilterHigh - newLow;
@@ -1035,7 +1043,7 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        int newLow = rig.TXFilterLow + 50;
+        int newLow = rig.TXFilterLow + FreqOutHandlers.TxFilterStep(rig);
         if (newLow >= rig.TXFilterHigh - 50)
         {
             newLow = rig.TXFilterHigh - 50;
@@ -1055,7 +1063,7 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        int newHigh = rig.TXFilterHigh - 50;
+        int newHigh = rig.TXFilterHigh - FreqOutHandlers.TxFilterStep(rig);
         if (newHigh <= rig.TXFilterLow + 50)
         {
             newHigh = rig.TXFilterLow + 50;
@@ -1075,7 +1083,7 @@ public class KeyCommands
     {
         var rig = _context.GetRigControl();
         if (rig == null) return;
-        int newHigh = Math.Min(10000, rig.TXFilterHigh + 50);
+        int newHigh = Math.Min(10000, rig.TXFilterHigh + FreqOutHandlers.TxFilterStep(rig));
         rig.TXFilterHigh = newHigh;
         EarconPlayer.FilterEdgeMoveTone(false);
         int width = newHigh - rig.TXFilterLow;

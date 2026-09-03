@@ -1617,8 +1617,23 @@ namespace Radios.Tests
             Assert.DoesNotContain("StepNow = () => rig.TXFilterLowIncrement", source);
 
             string menu = ReadSource("JJFlexWpf/NativeMenuBar.cs");
-            Assert.Contains("FreqOutHandlers.GetAdaptiveFilterStep(Rig.TXFilterLow, Rig.TXFilterHigh)", menu);
-            Assert.DoesNotContain("txFilterStep", menu);
+            Assert.Contains("FreqOutHandlers.TxFilterStep(Rig)", menu);
+            Assert.DoesNotContain("const int txFilterStep", menu);
+
+            // The FOURTH door the register's count of three had missed: the
+            // flat Ctrl+Shift and Ctrl+Alt bracket chords, which moved a
+            // transmit edge by a hard-coded 50 of their own. Every remaining
+            // 50 in those four handlers is the RAIL, and each is written
+            // against the OTHER edge, which is what tells them apart.
+            var handlers = Regex.Match(source,
+                @"#region TX Filter Handlers.*?#endregion", RegexOptions.Singleline);
+            Assert.True(handlers.Success, "the TX Filter Handlers region was not found in KeyCommands.cs");
+            Assert.Equal(4, Regex.Matches(handlers.Value, @"FreqOutHandlers\.TxFilterStep\(rig\)").Count);
+            foreach (Match m in Regex.Matches(handlers.Value, @"[-+] 50\b"))
+            {
+                Assert.Contains("TXFilter", handlers.Value.Substring(
+                    Math.Max(0, m.Index - 40), Math.Min(40, m.Index)));
+            }
 
             foreach (string key in new[]
             {
