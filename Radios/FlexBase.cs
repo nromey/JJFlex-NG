@@ -12448,8 +12448,11 @@ namespace Radios
             return released;
         }
 
-        internal const int AudioGainMinValue = 0;
-        internal const int AudioGainMaxValue = 100;
+        // Public since Sprint 44 Track N: the audio layer's slice-volume
+        // target (JJFlexWpf) reads its rails from here rather than repeating
+        // the numbers (#524).
+        public const int AudioGainMinValue = 0;
+        public const int AudioGainMaxValue = 100;
         public int AudioGain
         {
             get
@@ -14304,9 +14307,16 @@ namespace Radios
             }
         }
 
-        internal OffOnValues Binaural
+        /// <summary>
+        /// Binaural receive — the radio's own stereo widening of the slice
+        /// audio (FlexLib <c>BinauralRX</c>). Jim had a BinauralControl for
+        /// it; the control did not survive the WPF migration and the
+        /// capability did (#524). Public since Sprint 44 Track N: the audio
+        /// layer's Ctrl+B toggle is its operator surface.
+        /// </summary>
+        public OffOnValues Binaural
         {
-            get { return (theRadio.BinauralRX) ? OffOnValues.on : OffOnValues.off; }
+            get { return (theRadio?.BinauralRX == true) ? OffOnValues.on : OffOnValues.off; }
             set
             {
                 bool val = (value == OffOnValues.on) ? true : false;

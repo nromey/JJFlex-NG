@@ -4101,6 +4101,27 @@ public class KeyCommands
     //  from inside the layer and pan follows; the layer never spends A-F
     //  on slices.
     //
+    //  Sprint 44 Track N (#524) — Noel pressed it at the radio and called
+    //  it thin, and everything he named already existed in FlexBase:
+    //  slice volume (AudioGain — NOT the PC output volume; one is how loud
+    //  the slice sits in the mix, the other how loud this computer plays),
+    //  slice mute (SliceMute), PC audio on/off (PCAudio, until now only
+    //  reachable as Ctrl+J, Ctrl+P, outside the layer whose P sets its
+    //  level) and binaural receive (Binaural, whose control did not survive
+    //  the WPF migration). The three switches are toggle targets — the Ctrl
+    //  tier of #515, one press each, restored by Escape like everything
+    //  else the layer moved.
+    //
+    //  THE LETTERS OF THE FOUR NEW TARGETS ARE PROVISIONAL. Noel has not
+    //  ruled them (#524: "P for PC output is not intuitive", and four new
+    //  targets make the whole set worse). Nothing that had a letter has
+    //  moved; the new ones sit on keys that were free — V, Ctrl+M, Ctrl+A
+    //  (the chord that WAS PC audio for months, #513), Ctrl+B — so they can
+    //  be pressed tonight. The proposal for the whole map is in Track N's
+    //  completion report; when it is ruled, the letters change here, in
+    //  KeyInventory.AudioLayerCommands, in audio.json's pick_target_first
+    //  and in the two help pages, and nowhere else.
+    //
     //  Doors: Ctrl+J, V opens it with nothing picked; Ctrl+J, Alt+P opens
     //  it with pan picked — the chords an operator's fingers know. The
     //  four-tier allocation (#515) gives the audio layer JJ key A; that
@@ -4125,20 +4146,24 @@ public class KeyCommands
     private void EnterPanMode() => EnterAudioLayer(onPan: true);
 
     /// <summary>
-    /// Enter the audio layer. Targets: on-radio headphone (Ctrl+H), PC
-    /// output (P), mic level (M), on-radio line out (L), compander level
-    /// (C), speech processor mode (S) — all radio-wide or app-wide — and
-    /// pan (Ctrl+P), which is per slice and follows a Shift+letter jump.
-    /// Up and Down adjust the picked target (Shift by one); Left and Right
-    /// also adjust pan; Home, End and 0 place it at its minimum, maximum or
+    /// Enter the audio layer. Levels: slice volume (V, per slice), on-radio
+    /// headphone (Ctrl+H), PC output (P), mic level (M), on-radio line out
+    /// (L), compander level (C), speech processor mode (S), and pan
+    /// (Ctrl+P, per slice). Switches, one press each: slice mute (Ctrl+M,
+    /// per slice), PC audio on or off (Ctrl+A) and binaural receive
+    /// (Ctrl+B). The per-slice targets follow a Shift+letter jump. Up and
+    /// Down adjust the picked level (Shift by one); Left and Right also
+    /// adjust pan; Home, End and 0 place it at its minimum, maximum or
     /// centre (#522) — the engine's, on every target, so nothing here
     /// declares them. Enter keeps everything, Escape puts back everything
-    /// that moved, out loud.
+    /// that moved — switches included — out loud.
     /// </summary>
     internal void EnterAudioLayer(bool onPan)
     {
         var rig = _context.GetRigControl();
         if (rig == null) { LeaderNoRadio(); return; }
+
+        string LetterNow() => rig.VFOToLetter(rig.RXVFO);
 
         // The PC output volume is app-level state, persisted by the main
         // window; it is written exactly once, on ANY exit, if it moved —
@@ -4171,6 +4196,57 @@ public class KeyCommands
                 WrongAxisHint = () => Radios.Lexicon.Get("audio.audio_layer.uses_up_down", ("target", name)),
             };
         }
+
+        // A switch: on is Max, off is Min, the chord flips it and the pick
+        // is untouched. Speech reads the shadow like every other target —
+        // except where the host can say the OUTCOME differs from the wish,
+        // which is what `describe` is for.
+        Radios.ValueTarget Switch(string id, Keys chord, Func<bool> read, Action<bool> apply,
+            Func<bool, string> say, bool perSlice = false, Func<bool, string>? describe = null)
+        {
+            return new Radios.ValueTarget
+            {
+                Id = id,
+                Name = "",
+                ToggleKey = chord,
+                PerSlice = perSlice,
+                Read = () => read() ? 1 : 0,
+                Apply = v => apply(v == 1),
+                Min = 0,
+                Max = 1,
+                Step = 1,
+                FineStep = 1,
+                Axes = Radios.ValueLayerAxes.None,
+                Number = v => say(v == 1),
+                DescribeSelected = describe == null ? null : v => describe(v == 1),
+            };
+        }
+
+        // Slice volume — how loud the slice you're on sits in the mix, 0 to
+        // 100. NOT the PC output volume below: that is how loud this
+        // computer plays, and conflating the two is why the layer felt
+        // wrong (#524). Per slice, so a Shift+letter jump re-binds it and
+        // the engine announces it again on the new slice.
+        string sliceVolumeName = Radios.Lexicon.Get("audio.audio_layer.name_slice_volume");
+        var sliceVolume = new Radios.ValueTarget
+        {
+            Id = "slice-volume",
+            Name = sliceVolumeName,
+            SelectKey = Keys.V,
+            PerSlice = true,
+            Read = () => rig.AudioGain,
+            Apply = v => rig.AudioGain = v,
+            Min = FlexBase.AudioGainMinValue,
+            Max = FlexBase.AudioGainMaxValue,
+            Step = 5,
+            FineStep = 1,
+            Axes = Radios.ValueLayerAxes.UpDown,
+            Number = v => Radios.Lexicon.Get("audio.audio_layer.slice_volume", ("value", v)),
+            DescribeSelected = v => rig.ValidVFO(rig.RXVFO)
+                ? Radios.Lexicon.Get("audio.audio_layer.slice_volume_selected", ("letter", LetterNow()), ("value", v))
+                : Radios.Lexicon.Get("audio.audio_layer.slice_volume_no_slice"),
+            WrongAxisHint = () => Radios.Lexicon.Get("audio.audio_layer.uses_up_down", ("target", sliceVolumeName)),
+        };
 
         var headphone = Level("headphone", "audio.audio_layer.name_headphone", Keys.H | Keys.Control,
             () => rig.HeadphoneGain, v => rig.HeadphoneGain = v, 0, 100, 5,
@@ -4245,22 +4321,68 @@ public class KeyCommands
             },
         };
 
+        // Mute — the SAME words the M key on any Home field says, so the two
+        // doors into one fact say one sentence. Per slice, like pan.
+        var mute = Switch("mute", Keys.M | Keys.Control,
+            () => rig.SliceMute,
+            on =>
+            {
+                rig.SliceMute = on;
+                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            },
+            on => Radios.Lexicon.Get(on ? "audio.mute.slice_muted" : "audio.mute.slice_unmuted", ("letter", LetterNow())),
+            perSlice: true);
+
+        // PC audio on or off — the switch beside the level, closing #524's
+        // seam (a layer that sets how loud PC audio plays but cannot turn it
+        // on). The state change and its tone live in PCAudioToggle
+        // (globals.vb), the road the JJ key Ctrl+P and the menu take; it is
+        // asked for only when the wanted state differs, so a restore that
+        // lands on the current state is silent. Turning it on can FAIL (no
+        // usable sound device), so the answer reads the OUTCOME off the rig
+        // rather than the wish — PCAudioHandler's rule, kept here.
+        var pcAudio = Switch("pc-audio", Keys.A | Keys.Control,
+            () => rig.PCAudio,
+            on => { if (rig.PCAudio != on) _context.PCAudioToggle(); },
+            on => Radios.Lexicon.Get(on ? "audio.pc_audio.on" : "audio.pc_audio.off"),
+            describe: wanted => rig.PCAudio ? Radios.Lexicon.Get("audio.pc_audio.on")
+                : wanted ? Radios.Lexicon.Get("audio.pc_audio.could_not_start")
+                : Radios.Lexicon.Get("audio.pc_audio.off"));
+
+        // Binaural receive — radio-wide, a toggle with no level beside it.
+        var binaural = Switch("binaural", Keys.B | Keys.Control,
+            () => rig.Binaural == FlexBase.OffOnValues.on,
+            on =>
+            {
+                rig.Binaural = on ? FlexBase.OffOnValues.on : FlexBase.OffOnValues.off;
+                if (on) EarconPlayer.FeatureOnTone(); else EarconPlayer.FeatureOffTone();
+            },
+            on => Radios.Lexicon.Get(on ? "audio.binaural.on" : "audio.binaural.off"));
+
+        var targets = new List<Radios.ValueTarget>
+        {
+            sliceVolume, headphone, pcOutput, mic, lineout, compander, processor, pan,
+            mute, pcAudio, binaural,
+        };
+
         var def = new Radios.ValueSubLayerDefinition
         {
             Id = "audio",
             Selection = Radios.ValueLayerSelection.ByLetter,
-            Targets = new List<Radios.ValueTarget> { headphone, pcOutput, mic, lineout, compander, processor, pan },
-            InitialTarget = onPan ? 6 : -1,
+            Targets = targets,
+            InitialTarget = onPan ? targets.IndexOf(pan) : -1,
+            // Entry says where you are and what is picked, and stops: H
+            // does the rest (#519, #524). Track P owns how this scales with
+            // verbosity; the strings are short at every tier on purpose.
             DescribeLayerEntry = layer => layer.CurrentTarget == pan
                 ? Radios.Lexicon.Get("audio.audio_layer.entered_on_pan",
                     Radios.ScreenReaderOutput.CurrentVerbosity, ("target", layer.DescribeTarget(pan)))
                 : Radios.Lexicon.Get("audio.audio_layer.entered", Radios.ScreenReaderOutput.CurrentVerbosity),
-            DescribeLayerHelp = layer => KeyInventory.LayerHelpSpeech(
-                KeyInventory.AudioLayerContext,
-                Radios.Lexicon.Get("audio.audio_layer.name") + ", "
-                + (layer.CurrentTarget != null
-                    ? layer.DescribeTarget(layer.CurrentTarget)
-                    : Radios.Lexicon.Get("audio.audio_layer.help_no_target"))),
+            // The spoken fallback, reached only by a host with no surface
+            // (#200's knob): Track K's sentence, count first, from the same
+            // rows the list shows. The keyboard never gets here — H opens
+            // the list through ListCommands below.
+            DescribeLayerHelp = layer => KeyLayerHelp.SpokenList(KeyInventory.AudioLayerContext),
             DescribeClosed = () => Radios.Lexicon.Get("audio.audio_layer.closed"),
             DescribeLayerRestored = (layer, restored) => restored.Count == 0
                 ? Radios.Lexicon.Get("audio.audio_layer.restored_nothing")
@@ -4599,10 +4721,9 @@ public class KeyCommands
             },
             DescribeLayerEntry = layer => Radios.Lexicon.Get("audio.filter_layer.entered",
                 Radios.ScreenReaderOutput.CurrentVerbosity, ("filter", rx.Report())),
-            DescribeLayerHelp = layer => KeyInventory.LayerHelpSpeech(
-                KeyInventory.FilterLayerContext,
-                Radios.Lexicon.Get("audio.filter_layer.name") + ", "
-                + (layer.CurrentGroup == "transmit" ? tx.Report() : rx.Report())),
+            // The spoken fallback for a host with no surface (#200); the
+            // keyboard's H opens Track K's list through ListCommands.
+            DescribeLayerHelp = layer => KeyLayerHelp.SpokenList(KeyInventory.FilterLayerContext),
             DescribeClosed = () => Radios.Lexicon.Get("audio.filter_layer.closed"),
             DescribeLayerRestored = (layer, restored) =>
             {
@@ -4676,28 +4797,51 @@ public class KeyCommands
     }
 
     /// <summary>
-    /// H inside a layer: show its commands as a NAVIGABLE LIST (#519).
-    /// Returns false until Track K's list surface lands, and the engine
-    /// then speaks the same rows, count first. MERGE POINT for Track K:
-    /// call the list surface here with KeyInventory.LayerCommands(context)
-    /// and return true once it is showing.
+    /// H inside a layer: this layer's keys as Track K's surface presents
+    /// them (#519) — the count first, spoken when the layer is short, a
+    /// navigable list when it is long. Both layers are long.
     /// </summary>
+    /// <remarks>
+    /// Until Sprint 44 Track N this returned false, and the engine fell back
+    /// to <c>KeyInventory.LayerHelpSpeech</c>: 1,100 characters as ONE
+    /// utterance, about ninety seconds of speech with no way back — a second
+    /// implementation of the idea <see cref="KeyLayerHelp"/> had already
+    /// built, in a disjoint file, merged with zero conflict (#524). That
+    /// duplicate is deleted; this is the one door. Marshalled onto the main
+    /// window's dispatcher the way <see cref="LeaderKeyHelp"/> is, because a
+    /// layer key can arrive from a dialog's handler. The list owns the
+    /// keyboard while it is up (<see cref="KeyHelpSurfaces"/>) and the layer
+    /// is still live when it closes; the engine has already played the help
+    /// cue by the time this runs.
+    /// </remarks>
     private bool TryShowLayerCommandList(string context)
     {
-        _context.Trace("Layer help list requested: " + context);
-        return false;
+        _context.Trace("Layer help list: " + context);
+        OnMainDispatcher(() => KeyLayerHelp.Present(context));
+        return true;
     }
 
     /// <summary>
-    /// Shift+slash inside a layer: open the JJ key tree explorer on this
-    /// layer (#519). Returns false until Track K's explorer lands, and the
-    /// engine then speaks the same rows, count first — Shift+slash stays
-    /// help in every layer (#158). MERGE POINT for Track K.
+    /// Shift+slash inside a layer: the JJ key tree explorer, landed on this
+    /// layer (#519) — the same door the top-level slash opens, from inside.
     /// </summary>
     private bool TryOpenLayerExplorer(string context)
     {
-        _context.Trace("Layer explorer requested: " + context);
-        return false;
+        _context.Trace("Layer explorer: " + context);
+        OnMainDispatcher(() => Dialogs.KeyExplorerDialog.Open(context));
+        return true;
+    }
+
+    /// <summary>
+    /// Run a surface on the main window's dispatcher — a key can reach the
+    /// leader or a layer from any window's handler — or directly when there
+    /// is no main window to marshal onto.
+    /// </summary>
+    private void OnMainDispatcher(Action action)
+    {
+        var mw = _context.GetMainWindow();
+        if (mw != null) mw.Dispatcher.Invoke(action);
+        else action();
     }
 
     /// <summary>
@@ -5161,11 +5305,7 @@ public class KeyCommands
         // the count first, speaks a short layer and lists a long one. This
         // layer is long. The tone stays here: it is this chord's cue, and a
         // layer's own H plays its own.
-        var mw = _context.GetMainWindow();
-        if (mw != null)
-            mw.Dispatcher.Invoke(() => KeyLayerHelp.Present(KeyLayerHelp.LeaderContext));
-        else
-            KeyLayerHelp.Present(KeyLayerHelp.LeaderContext);
+        OnMainDispatcher(() => KeyLayerHelp.Present(KeyLayerHelp.LeaderContext));
     }
 
     // ────────────────────────────────────────────────────────────────
