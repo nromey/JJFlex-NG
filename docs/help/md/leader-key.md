@@ -76,6 +76,7 @@ The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F`
 - **Ctrl+C** — Copy the message the history walk is sitting on to the clipboard. Walk to the one you want first with `Ctrl+F4` (back) and `Ctrl+F5` (forward), or press it straight away to copy the most recent thing said. Works with no radio connected — the moment you most want to paste an error is usually just after the radio has gone away
 - **Ctrl+R** — Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement
 - **Alt+V** — Speak the version, the build type and the date this copy was built. The answer to "which build are you on?" without leaving what you are doing
+- **Alt+W** — Open a list of every window on your screen: the one that has the keyboard first, then JJ Flexible Radio's own windows, then everything else. Each row names the program that owns the window, says whether that program is still running and answering, and whether the window is a dialog blocking the rest of its program. W for Windows. Works with no radio connected, and from inside any dialog
 - **L** — Speak log statistics
 - **M** — Display Flex memory list
 - **Shift+A through Shift+H** — Jump straight to that slice from anywhere, even from inside a layer — the letter is the slice, all eight of them

@@ -148,6 +148,18 @@ namespace Radios.Speech
         /// </summary>
         public const string RunningInstrumentation = "running-instrumentation";
 
+        /// <summary>
+        /// The foreground watchdog's explanation after it takes the keyboard
+        /// back from another program (#529): "Microsoft Teams had taken the
+        /// keyboard. You are back in Select Radio." Only the newest is worth
+        /// hearing — a second reclaim's sentence covers the first — and
+        /// nothing else covers it, because nothing else tells the operator
+        /// why their dialog just announced itself again. Spoken a beat after
+        /// the grab, deliberately, so the reader's own window announcement
+        /// cannot flush it (see <see cref="StrandedFocusSentinel.ReclaimAnnounceDelayMs"/>).
+        /// </summary>
+        public const string KeyboardReclaimed = "keyboard-reclaimed";
+
         /// What the JJ key offers from here — the command list behind
         /// <c>JJ key H</c>, the explorer behind <c>JJ key slash</c>, and the
         /// layer's own answers to a key it did not know (the near miss, the

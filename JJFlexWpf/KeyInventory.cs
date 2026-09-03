@@ -446,6 +446,17 @@ public static class KeyInventory
         new("Leader", "JJ key", "Ctrl+J, Ctrl+C", "Copy the message the history walk is sitting on",
             new[] { "copy", "clipboard", "paste", "spoken", "speech", "message", "report",
                     "text", "share", "leader" }, "Global", "General"),
+        // Sprint 44 Track Q (#154): the window census, in the operator's
+        // hands. W for Windows, on the Alt tier because it is an action
+        // (#515); plain W is the Wideband NB toggle. Global: it answers "what
+        // is on my screen" whether or not a radio is talking to us, and the
+        // time you ask is usually when nothing is.
+        new("Leader", "JJ key", "Ctrl+J, Alt+W",
+            "List every window on your screen — which one has the keyboard, which program owns each, and whether that program is still running",
+            new[] { "windows", "window", "screen", "foreground", "focus", "keyboard", "stuck", "frozen",
+                    "hung", "dialog", "which", "what", "where", "program", "process", "alive", "dead",
+                    "responding", "lost", "invisible", "orphan", "census", "on", "my", "leader" },
+            "Global", "General"),
         new("Leader", "JJ key", "Ctrl+J, N", "Toggle legacy Noise Reduction",
             new[] { "nr", "noise", "reduction", "leader", "toggle" }, "Radio", "DSP"),
         new("Leader", "JJ key", "Ctrl+J, B", "Toggle Noise Blanker",
