@@ -1496,6 +1496,23 @@ public class KeyCommands
         Radios.ScreenReaderOutput.Speak(text, Radios.VerbosityLevel.Critical);
     }
 
+    /// <summary>
+    /// JJ key Alt+W (#154): the window census, as a list. The snapshot is
+    /// taken inside the dialog's constructor, before the dialog is shown, so
+    /// the list describes the screen as it was when the key was pressed.
+    /// Same dispatcher hand-off as the key help: the chord can arrive on a
+    /// thread that is not the main window's.
+    /// </summary>
+    private void ShowWhatIsOnMyScreen()
+    {
+        _context.Trace("Leader:what is on my screen");
+        var mw = _context.GetMainWindow();
+        if (mw != null)
+            mw.Dispatcher.Invoke(() => Dialogs.WhatIsOnMyScreenDialog.Present());
+        else
+            Dialogs.WhatIsOnMyScreenDialog.Present();
+    }
+
     private void CycleVerbosityHandler()
     {
         var newLevel = Radios.ScreenReaderOutput.CycleVerbosity();
@@ -3909,6 +3926,15 @@ public class KeyCommands
             // Static verification is necessary and not sufficient: press it.
             case Keys.V | Keys.Alt:
                 SpeakVersionHandler();
+                break;
+
+            // Sprint 44 Track Q (#154): W for Windows — every window on the
+            // screen, the one with the keyboard first. Alt because it is an
+            // action under the four-tier grammar (#515); plain W is the
+            // Wideband NB toggle. Works with no radio on purpose: the moment
+            // you need it is precisely when nothing is answering you.
+            case Keys.W | Keys.Alt:
+                ShowWhatIsOnMyScreen();
                 break;
 
             // The two help doors every layer has (#514, #519): H lists this

@@ -100,6 +100,7 @@ The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F`
 - **Ctrl+D** — Start or stop a detailed capture of what the app is doing — works with no radio connected, and from inside any dialog. Stopping saves the capture as its own session in Saved Diagnostic Logs
 - **Ctrl+R** — Read the problems recorded this session — everything that has gone wrong since you started, in case you missed an announcement
 - **Alt+V** — Speak the version, the build type and the date this copy was built (see "Which build am I on" below)
+- **Alt+W** — Open a list of every window on your screen — the one with the keyboard first, then this program's own windows, then the rest — with the program that owns each and whether it is still running (see "What is on my screen" below)
 - **L** — Speak log statistics
 - **M** — Open the memories dialog
 - **Shift+A through Shift+H** — Jump to that slice from anywhere, even from inside a layer — the letter is the slice, all eight of them
@@ -278,6 +279,16 @@ The build date matters more than you'd think. File dates lie: by the time a test
 If you want the whole picture — every component version, the exact commit, where your trace file lives — that's still Help, About, and it's still the right place for it.
 
 One more thing about the JJ layer: it works inside dialogs now. Press `Ctrl+J` in the Audio Workshop — or any other dialog — and the layer answers exactly as it does from Home. The mic check was built with that in mind, since the workshop is precisely where you sit while adjusting mic gain.
+
+### What is on my screen — Ctrl+J, then Alt+W
+
+W for Windows, with Alt on it because plain `W` is the Wideband Noise Blanker.
+
+Press `Ctrl+J` then `Alt+W` and JJ Flexible Radio opens a list of every window on your screen as it was the moment you pressed the key. It tells you how many there are first, then one window per row, and the rows are in the order you'd want them: the window that has the keyboard first, JJ Flexible Radio's own windows next, then everything else. Each row gives the window's title, the program that owns it in plain words where we know it ("Windows File Explorer", "NVDA, your screen reader", "JJ Flexible Radio Access, this program"), and anything worth knowing about its state: that it has the keyboard, that it's a dialog holding the rest of its program until you answer it, that it's waiting behind a dialog of its own, that its program isn't responding, or — the one that deserves its own sentence — that its program has exited and the window is still sitting there anyway. Arrow through it at your own pace, press `F5` or the Refresh button to look again, and Escape when you're done. It changes nothing; it only tells you what's there.
+
+This exists because sighted operators get the answer by looking. Two Explorer windows and a security prompt, and they know instantly which one is talking to them and whether any of it belongs to the program they're using. Your screen reader tells you about the control you're on, which is true and useless for that question — it says "list" or "OK button" and not which window, which program, or whether that program is even still alive. I sat one keystroke away from answering an unidentified file dialog once, and another time I sat in a perfectly healthy Select Radio dialog for minutes convinced the app had frozen, when the truth was that another program had quietly taken the keyboard. A key that answers "what is actually in front of me?" is the missing piece, and it's most useful precisely when something unexpected has appeared and you need to know what it is before you press anything.
+
+About that second story, because it's fixed too and it isn't a key. If one of JJ Flexible Radio's dialogs is up waiting on you, and another program takes the keyboard while you weren't touching anything — no Alt+Tab, no click, nothing; Windows allows this once you've been idle for a few minutes — the app now notices within a few seconds, takes the keyboard back, and tells you what happened: "Another program had taken the keyboard. You are back in Select Radio" — naming the program when it can. It only does this when you were idle. If you went to your email on purpose, it leaves you there, always. It never takes the keyboard away from a password, security or permission prompt. And if something keeps grabbing it back, it stops after two tries rather than fighting all evening — and the window list above will tell you who it was, and when.
 
 ## Band Jumping
 

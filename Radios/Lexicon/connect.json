@@ -75,6 +75,8 @@
   "connect.dialog.dont_show_again": "_Don't show this again",
   "connect.dialog.error_header": "Error",
   "connect.dialog.exception_header": "Exception",
+  "connect.dialog.keyboard_reclaimed": "Another program had taken the keyboard. You are back in {title}.",
+  "connect.dialog.keyboard_reclaimed_from": "{program} had taken the keyboard. You are back in {title}.",
   "connect.dialog.message_header": "Message",
   "connect.dialog.message_label": "Message",
   "connect.dialog.ok": "_OK",

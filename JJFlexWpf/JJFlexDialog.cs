@@ -186,6 +186,12 @@ namespace JJFlexWpf
             // on whatever WPF fell back to, which in the reported case was the
             // network identity card at the BOTTOM of the dialog.
             FocusFirstControl();
+
+            // Bank the sentinel's baseline now, not two seconds from now.
+            // The #529 reclaim rule only fires for a foreground that was
+            // verifiably ours earlier in this dialog's life; a theft in the
+            // first interval would otherwise look like "never had it".
+            StrandedFocusTick();
         }
 
         /// <summary>
@@ -228,12 +234,29 @@ namespace JJFlexWpf
         // So: while a dialog is open, look every couple of seconds. The
         // DECISION lives in Radios.StrandedFocusSentinel, pure and pinned by
         // Radios.Tests — most importantly the rule that a FOREIGN foreground
-        // is never repaired over: an operator reading email while the picker
-        // waits is a choice, and stealing the foreground back on a timer
-        // would be worse than the outage. Only the two provable black holes
-        // are repaired — no foreground window anywhere, or a foreground of
-        // our own process whose thread has no focus window — and the repair
-        // is to reactivate THIS dialog, the thing the operator left open.
+        // is never repaired over ON ITS OWN: an operator reading email while
+        // the picker waits is a choice, and stealing the foreground back on
+        // a timer would be worse than the outage. The two provable black
+        // holes are repaired — no foreground window anywhere, or a foreground
+        // of our own process whose thread has no focus window — and the
+        // repair is to reactivate THIS dialog, the thing the operator left
+        // open.
+        //
+        // Sprint 44 Track Q (#529) added the one foreign case that is NOT a
+        // choice. On 2026-09-02 the Select Radio dialog sat open, idle, and
+        // the foreground went to another process with no keystroke and no
+        // click from the operator — Windows lets any process take it once
+        // the foreground has been idle past the lock timeout — and this
+        // sentinel watched it happen for the whole outage and, correctly
+        // under its own rule, did nothing. The sample now carries the OS's
+        // last-input time, and only a foreign foreground that arrived while
+        // the operator was idle, over a MODAL of ours, from a window that is
+        // not a security prompt, is taken back — and taken back with an
+        // explanation spoken a beat later, because a silent recovery leaves
+        // a blind operator with an unexplained outage and an unexplained
+        // outage reads as a crash. That is the whole difference between this
+        // and the 2026-08-30 stranded-keyboard class: same tick, same
+        // debounce, one more piece of evidence.
         //
         // Per-instance on purpose: dialogs live on more than one thread (the
         // Connecting window pumps its own), so a shared static timer would
@@ -277,16 +300,35 @@ namespace JJFlexWpf
                 // the operator, and its own sentinel is the one on watch.
                 if (!NativeFocusProbe.IsWindowEnabled(own)) return;
 
-                if (!_strandedFocus.NoteAndDecide(ObserveDesktopFocus())) return;
+                var fg = NativeFocusProbe.GetForegroundWindow();
+                var sample = SampleDesktop(fg);
+                switch (_strandedFocus.Decide(sample))
+                {
+                    case Radios.StrandedFocusSentinel.Verdict.ReactivateOverBlackHole:
+                        JJTrace.Tracing.TraceLine(
+                            $"JJFlexDialog: keyboard focus is stranded (no window taking input) "
+                            + $"while '{Title}' sits open - reactivating it (#395 sentinel)",
+                            System.Diagnostics.TraceLevel.Warning);
+                        Reactivate(own);
+                        break;
 
-                JJTrace.Tracing.TraceLine(
-                    $"JJFlexDialog: keyboard focus is stranded (no window taking input) "
-                    + $"while '{Title}' sits open - reactivating it (#395 sentinel)",
-                    System.Diagnostics.TraceLevel.Warning);
+                    case Radios.StrandedFocusSentinel.Verdict.ReclaimFromForeignThief:
+                        ReclaimFromThief(own, fg, sample);
+                        break;
 
-                Radios.WindowActivation.EnsureForeground(own);
-                try { Activate(); } catch { /* best effort */ }
-                if (!IsKeyboardFocusWithin) FocusFirstControl();
+                    case Radios.StrandedFocusSentinel.Verdict.StandDownThiefPersists:
+                        {
+                            var thief = Radios.DesktopWindowCensus.Describe(fg);
+                            JJTrace.Tracing.TraceLine(
+                                $"JJFlexDialog: '{thief.ProcessName}' (class {thief.ClassName}, "
+                                + $"'{thief.Title}') keeps taking the foreground from '{Title}' and "
+                                + $"the operator has not touched anything since the last reclaim - "
+                                + $"standing down until they do (#529 watchdog, "
+                                + $"cap {Radios.StrandedFocusSentinel.MaxReclaimsPerIdleStretch})",
+                                System.Diagnostics.TraceLevel.Warning);
+                        }
+                        break;
+                }
             }
             catch (System.Exception ex)
             {
@@ -296,15 +338,128 @@ namespace JJFlexWpf
             }
         }
 
+        private void Reactivate(nint own)
+        {
+            Radios.WindowActivation.EnsureForeground(own);
+            try { Activate(); } catch { /* best effort */ }
+            if (!IsKeyboardFocusWithin) FocusFirstControl();
+        }
+
+        /// <summary>
+        /// The #529 repair: take the foreground back from another process
+        /// that took it from an idle operator, record who it was, and
+        /// explain — after the reader has announced the window it landed on.
+        /// </summary>
+        private void ReclaimFromThief(nint own, nint fg, in Radios.StrandedFocusSentinel.Sample sample)
+        {
+            var thief = Radios.DesktopWindowCensus.Describe(fg);
+            long idleMs = sample.NowMs - sample.LastInputMs;
+            long heldAgoMs = sample.NowMs - _strandedFocus.LastOursMs;
+            JJTrace.Tracing.TraceLine(
+                $"JJFlexDialog: the foreground was TAKEN from '{Title}' by pid {thief.ProcessId} "
+                + $"'{thief.ProcessName}' (class {thief.ClassName}, title '{thief.Title}') - "
+                + $"operator idle {idleMs / 1000}s, we last held it {heldAgoMs / 1000}s ago, "
+                + $"our modal is up - reclaiming and announcing (#529 watchdog)",
+                System.Diagnostics.TraceLevel.Warning);
+
+            Radios.DesktopWindowCensus.NoteTheft(
+                new Radios.ForegroundTheft(System.DateTime.Now, thief, Title ?? ""));
+
+            Reactivate(own);
+            ScheduleReclaimAnnouncement(thief);
+        }
+
+        private System.Windows.Threading.DispatcherTimer? _reclaimAnnounce;
+
+        /// <summary>
+        /// Speak the explanation a beat AFTER the grab. A screen reader
+        /// flushes its queue on a foreground change and then announces the
+        /// new window itself; a sentence spoken at the moment of the grab is
+        /// destroyed by it (see memory: speech flushes on window change).
+        /// Queued and Critical: it must follow the reader's own announcement
+        /// in order, and it must be heard at any verbosity — the operator has
+        /// just lived through an outage nothing explained.
+        /// </summary>
+        private void ScheduleReclaimAnnouncement(Radios.DesktopWindowRecord thief)
+        {
+            string text = Radios.DesktopWindowCensusSpeech.ReclaimAnnouncement(thief, Title ?? "");
+            if (_reclaimAnnounce == null)
+            {
+                _reclaimAnnounce = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = System.TimeSpan.FromMilliseconds(
+                        Radios.StrandedFocusSentinel.ReclaimAnnounceDelayMs)
+                };
+            }
+            var timer = _reclaimAnnounce;
+            timer.Stop();
+            System.EventHandler? handler = null;
+            handler = (_, _) =>
+            {
+                timer.Stop();
+                timer.Tick -= handler;
+                Radios.ScreenReaderOutput.Speak(text,
+                    Radios.Speech.SpeechIntent.Queue,
+                    Radios.VerbosityLevel.Critical,
+                    subject: Radios.Speech.SpeechSubject.KeyboardReclaimed);
+            };
+            timer.Tick += handler;
+            timer.Start();
+        }
+
+        /// <summary>
+        /// Everything one tick knows, for <see cref="Radios.StrandedFocusSentinel.Decide"/>.
+        /// The input clock and the tick clock are both milliseconds since
+        /// boot, so "last input" lands on the same line as "now".
+        /// </summary>
+        private Radios.StrandedFocusSentinel.Sample SampleDesktop(nint fg)
+        {
+            var observation = ObserveDesktopFocus(fg);
+            long now = System.Environment.TickCount64;
+            int idle = Radios.DesktopWindowCensus.MillisecondsSinceLastInput();
+            bool known = idle >= 0;
+
+            bool foreignIsProtected = false;
+            if (observation == Radios.StrandedFocusSentinel.Observation.ForeignForeground)
+            {
+                // A sign-in flow of ours legitimately hands the keyboard to
+                // a browser or a credential prompt; and the system prompt
+                // classes are never ours to take from, whoever raised them.
+                foreignIsProtected = Radios.WindowFocusForcer.SignInWindowOpen
+                    || Radios.DesktopWindowCensus.IsProtectedForegroundClass(
+                        Radios.DesktopWindowCensus.ClassNameOf(fg));
+            }
+
+            return new Radios.StrandedFocusSentinel.Sample(
+                observation,
+                NowMs: now,
+                LastInputMs: known ? now - idle : 0,
+                InputEvidenceKnown: known,
+                OurModalIsUp: OurModalIsUp(),
+                ForeignIsProtected: foreignIsProtected);
+        }
+
+        /// <summary>
+        /// True when this dialog is modal in Windows' own terms: its owner is
+        /// disabled. That is the exact picture measured on 2026-09-02 — the
+        /// selector enabled, the shell behind it enabled=False — and it is
+        /// what makes a reclaim defensible: the operator has nothing else of
+        /// ours to be using while this window is up.
+        /// </summary>
+        private bool OurModalIsUp()
+        {
+            var owner = new WindowInteropHelper(this).Owner;
+            return owner != nint.Zero && !NativeFocusProbe.IsWindowEnabled(owner);
+        }
+
         /// <summary>
         /// One look at the desktop, classified for the sentinel. Cross-thread
         /// correct: the focus question is asked of the FOREGROUND window's
         /// thread via GetGUIThreadInfo, not of whichever thread this dialog
         /// happens to run on.
         /// </summary>
-        private static Radios.StrandedFocusSentinel.Observation ObserveDesktopFocus()
+        private static Radios.StrandedFocusSentinel.Observation ObserveDesktopFocus(nint fg)
         {
-            var fg = NativeFocusProbe.GetForegroundWindow();
             if (fg == nint.Zero)
                 return Radios.StrandedFocusSentinel.Observation.NoForegroundAnywhere;
 
