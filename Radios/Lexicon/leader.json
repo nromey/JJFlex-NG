@@ -4,7 +4,11 @@
   "leader.cancelled": "Cancelled",
   "leader.layer_help": "{headline}. {count} keys: {keys}.",
   "leader.layer_help_item": "{key}, {description}",
-  "leader.near_miss": "{pressed} is not a command. {alt}: {what}",
+  "leader.near_miss": {
+    "critical": "{pressed} is not a command.",
+    "terse": "{pressed} is not a command.",
+    "chatty": "{pressed} is not a command. {alt}: {what}"
+  },
   "leader.unknown_key": {
     "critical": "Unknown key. H for the list, Escape to cancel.",
     "terse": "Unknown key. H for the list, Escape to cancel.",

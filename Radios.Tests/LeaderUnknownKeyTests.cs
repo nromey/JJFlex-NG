@@ -125,9 +125,13 @@ namespace Radios.Tests
         [Fact]
         public void Every_tier_names_both_ways_out()
         {
-            // The sentence is the only thing telling an operator the layer is
-            // still listening. A tier that dropped Escape would leave them in a
-            // mode with no stated exit — the stuck-modal shape exactly.
+            // When the sentence is spoken it is the only thing telling an
+            // operator the layer is still listening. A tier that dropped
+            // Escape would leave them in a mode with no stated exit — the
+            // stuck-modal shape exactly. Since #528 the sentence is spoken
+            // at Chatty, and below Chatty only when the thunk cannot sound
+            // (earcons off) — so the lower tiers are not dead text, they are
+            // the fallback, and they must still name both doors.
             Lexicon.Forget();
             Lexicon.Load(Lexicon.Partitions);
 
@@ -206,6 +210,75 @@ namespace Radios.Tests
                 "the layer is armed in the near-miss branch, which never mentions help");
             Assert.True(armAt < unknownAt,
                 "the layer must be armed before the unknown-key message is spoken, in that branch");
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  #528 — below Chatty the thunk is the answer; the words are the
+        //  fallback for when it cannot sound. Ruled by Noel 2026-09-02.
+        // ────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void The_near_miss_is_a_ladder_and_only_chatty_names_the_alternative()
+        {
+            // Naming what to press instead is a hint. Terse is values and
+            // transitions, not hints — so the fallback tiers say only that
+            // the chord is not a command, and the recovery lives at Chatty.
+            Lexicon.Forget();
+            Lexicon.Load(Lexicon.Partitions);
+
+            var args = new (string, object?)[] { ("pressed", "Ctrl+G"), ("alt", "G"), ("what", "Arm or disarm the TX test tone") };
+            Assert.Equal("Ctrl+G is not a command. G: Arm or disarm the TX test tone",
+                Lexicon.Get("leader.near_miss", VerbosityLevel.Chatty, args));
+            Assert.Equal("Ctrl+G is not a command.",
+                Lexicon.Get("leader.near_miss", VerbosityLevel.Terse, args));
+            Assert.Equal(
+                Lexicon.Get("leader.near_miss", VerbosityLevel.Terse, args),
+                Lexicon.Get("leader.near_miss", VerbosityLevel.Critical, args));
+        }
+
+        [Fact]
+        public void Below_chatty_the_thunk_gates_both_sentences_and_neither_gates_the_arm()
+        {
+            // Read the dispatcher rather than trusting the description of it.
+            // Three things must be true of the default arm, and each is the
+            // kind that a tidy-up could break without a compile error:
+            //  - the gate is asked ONCE, from the shared rule, so the two
+            //    branches cannot drift into two verbosity policies;
+            //  - both sentences sit behind it;
+            //  - the arming does NOT — verbosity changes what is said, never
+            //    what happens, or H after a thunk would mean one thing at
+            //    Chatty and another at Terse.
+            string body = MethodBody(Source(KeyCommandsFile), "private bool DoLeaderCommand(Keys k)");
+            string code = Code(body);
+
+            Assert.Equal(1, Occurrences(code, "RefusalVoice.ToneStandsAlone("));
+            Assert.Contains("EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations)", code);
+
+            int gateAt = code.IndexOf("RefusalVoice.ToneStandsAlone(", StringComparison.Ordinal);
+            int nearMissAt = code.IndexOf("TryFindLeaderNearMiss", StringComparison.Ordinal);
+            Assert.True(gateAt < nearMissAt, "the gate must be computed before the branches that use it");
+
+            // Two guarded Speak calls, one per branch, and the arm between
+            // them is not inside either guard: it precedes the second guard
+            // and follows the first branch's guard.
+            int firstGuard = code.IndexOf("if (!toneStandsAlone)", gateAt, StringComparison.Ordinal);
+            int armAt = code.IndexOf("_leaderHelpArmed = true", StringComparison.Ordinal);
+            int secondGuard = code.IndexOf("if (!toneStandsAlone)", armAt, StringComparison.Ordinal);
+            Assert.True(firstGuard > gateAt && firstGuard < armAt, "the near-miss sentence must be behind the gate");
+            Assert.True(secondGuard > armAt, "the unknown-key sentence must be behind the gate, after the arm");
+            Assert.Equal(2, Occurrences(code, "if (!toneStandsAlone)"));
+        }
+
+        [Fact]
+        public void The_help_page_says_the_thunk_is_the_answer_below_chatty()
+        {
+            // The behaviour is only discoverable if the help says so — an
+            // operator at Terse who hears a thunk and nothing else must be
+            // able to read why. Drift here is the project's dominant defect.
+            string page = Source("docs/help/md/leader-key.md");
+            Assert.Contains("Terse", page);
+            Assert.Contains("H for the list, Escape to cancel", page);
+            Assert.Contains("earcons", page, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]

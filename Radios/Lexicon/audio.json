@@ -9,8 +9,8 @@
   "audio.audio_layer.compander": "Compander {value}",
   "audio.audio_layer.compander_is_off_suffix": ", compander is off",
   "audio.audio_layer.entered": {
-    "critical": "Audio layer. Ctrl+H, P, M, L, C, S, or Ctrl+P picks a target.",
-    "terse": "Audio layer. Ctrl+H, P, M, L, C, S, or Ctrl+P picks a target.",
+    "critical": "Audio layer.",
+    "terse": "Audio layer.",
     "chatty": "Audio layer. Ctrl+H headphone, P PC output, M mic, L line out, C compander, S processor, Ctrl+P pan. Up and down adjust. Enter keeps it, Escape puts it back, H lists the keys."
   },
   "audio.audio_layer.entered_on_pan": {

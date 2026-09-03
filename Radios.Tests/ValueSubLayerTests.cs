@@ -328,7 +328,8 @@ namespace Radios.Tests
             public readonly List<string> Jumps = new();
         }
 
-        private static (Harness h, AudioRig rig) OpenAudio(VerbosityLevel verbosity, bool onPan = false)
+        private static (Harness h, AudioRig rig) OpenAudio(VerbosityLevel verbosity, bool onPan = false,
+            ValueLayerCues? cues = null)
         {
             var h = new Harness { Verbosity = verbosity };
             var rig = new AudioRig();
@@ -423,6 +424,7 @@ namespace Radios.Tests
                     return true;
                 },
                 Exited = why => { if (pcTouched) rig.Persisted++; },
+                Cues = cues ?? new ValueLayerCues(),
             };
             h.Open(def);
             return (h, rig);
@@ -440,10 +442,31 @@ namespace Radios.Tests
         }
 
         [Fact]
-        public void Audio_entry_at_terse_names_the_letters_only()
+        public void Audio_entry_at_terse_says_where_you_are_and_no_more()
         {
+            // #528: Terse is values and transitions, not hints. Entering a
+            // layer is a transition, so Terse says where you are and what is
+            // picked — nothing is picked yet, so it is the name alone. Which
+            // letters pick a target is the lesson H exists to give; until
+            // this it was recited on every entry at every verbosity, and
+            // Track I's own transcript at "Terse" still named every letter.
             var (h, _) = OpenAudio(VerbosityLevel.Terse);
-            Assert.Equal("Audio layer. Ctrl+H, P, M, L, C, S, or Ctrl+P picks a target.", Assert.Single(h.Said));
+            Assert.Equal("Audio layer.", Assert.Single(h.Said));
+        }
+
+        [Fact]
+        public void Audio_entry_at_off_would_say_the_same_as_terse_if_it_spoke_at_all()
+        {
+            // A level must never say more than the level above it. The entry
+            // is emitted at Terse, so at Off the speech gate drops it and the
+            // enter tone is the whole answer; the tier text is pinned anyway
+            // so a future ladder edit cannot make Off wordier than Terse.
+            Assert.Equal(
+                Lexicon.Get("audio.audio_layer.entered", VerbosityLevel.Terse),
+                Lexicon.Get("audio.audio_layer.entered", VerbosityLevel.Critical));
+            Assert.Equal(
+                Lexicon.Get("audio.filter_layer.entered", VerbosityLevel.Terse),
+                Lexicon.Get("audio.filter_layer.entered", VerbosityLevel.Critical));
         }
 
         [Fact]
@@ -468,7 +491,7 @@ namespace Radios.Tests
 
             Assert.Equal(new[]
             {
-                "Audio layer. Ctrl+H, P, M, L, C, S, or Ctrl+P picks a target.",
+                "Audio layer.",
                 "On-radio headphone 40",
                 "Headphone 45",
                 "Audio layer closed",
@@ -492,11 +515,116 @@ namespace Radios.Tests
         [Fact]
         public void Audio_left_and_right_hint_on_a_target_that_only_takes_up_and_down()
         {
+            // No tone is wired in this harness, so the words are the only
+            // feedback and are spoken at every level — the never-silent half
+            // of #528. The tone-wired half is the block that follows.
             var (h, rig) = OpenAudio(VerbosityLevel.Terse);
             h.Layer.HandleKey(Keys.M);
             Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Left));
             Assert.Equal("Mic level uses up and down", h.LastSaid);
             Assert.Empty(rig.Writes);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        //  #528 — a refusal scales by VERBOSITY, never by experience. The
+        //  invalid tone always; the teaching sentence only at Chatty, unless
+        //  the tone cannot sound, in which case the words stand in at every
+        //  level. What HAPPENS never changes: the layer stays open, nothing
+        //  is written. Ruled by Noel 2026-09-02.
+        // ────────────────────────────────────────────────────────────────
+
+        private sealed class ToneCounter
+        {
+            public int Invalid;
+            public bool Audible = true;
+            public ValueLayerCues Cues => new ValueLayerCues
+            {
+                Invalid = () => Invalid++,
+                Audible = () => Audible,
+            };
+        }
+
+        [Fact]
+        public void Refusal_at_chatty_is_the_tone_and_the_sentence()
+        {
+            var tones = new ToneCounter();
+            var (h, rig) = OpenAudio(VerbosityLevel.Chatty, cues: tones.Cues);
+            int saidBefore = h.Said.Count;
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
+
+            Assert.Equal(1, tones.Invalid);
+            Assert.Equal("Pick a target first: Ctrl+H, P, M, L, C, S, or Ctrl+P.", h.LastSaid);
+            Assert.Equal(saidBefore + 1, h.Said.Count);
+            Assert.True(h.Layer.IsLive);
+            Assert.Empty(rig.Writes);
+        }
+
+        [Theory]
+        [InlineData(VerbosityLevel.Terse)]
+        [InlineData(VerbosityLevel.Critical)]
+        public void Refusal_below_chatty_is_the_tone_alone(VerbosityLevel level)
+        {
+            // Noel: "after a while, people will know that they need to press
+            // H or slash to get info." The mechanism for "after a while" is
+            // the operator turning verbosity down, not the app guessing.
+            var tones = new ToneCounter();
+            var (h, rig) = OpenAudio(level, cues: tones.Cues);
+            int saidBefore = h.Said.Count;
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
+            h.Layer.HandleKey(Keys.M);
+            saidBefore = h.Said.Count;   // picking M spoke the mic level; that is a value, not a refusal
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Left));
+
+            Assert.Equal(2, tones.Invalid);
+            Assert.Equal(saidBefore, h.Said.Count);
+            Assert.DoesNotContain(h.Said, s => s.StartsWith("Pick a target", StringComparison.Ordinal));
+            Assert.DoesNotContain(h.Said, s => s.EndsWith("uses up and down", StringComparison.Ordinal));
+            Assert.True(h.Layer.IsLive);
+            Assert.Empty(rig.Writes);
+        }
+
+        [Theory]
+        [InlineData(VerbosityLevel.Terse)]
+        [InlineData(VerbosityLevel.Critical)]
+        public void Refusal_below_chatty_speaks_when_the_tone_cannot_sound(VerbosityLevel level)
+        {
+            // Earcons off, or their category off: the tone is wired but will
+            // not be heard, so the words come back. A refused key that
+            // produces nothing is the invisible failure — a key that
+            // registered and a key that did not sound identical.
+            var tones = new ToneCounter { Audible = false };
+            var (h, rig) = OpenAudio(level, cues: tones.Cues);
+
+            Assert.Equal(ValueLayerKeyResult.Handled, h.Layer.HandleKey(Keys.Up));
+
+            Assert.Equal(1, tones.Invalid);   // still invoked; the player itself is what is gated
+            Assert.Equal("Pick a target first: Ctrl+H, P, M, L, C, S, or Ctrl+P.", h.LastSaid);
+            Assert.True(h.Layer.IsLive);
+            Assert.Empty(rig.Writes);
+        }
+
+        [Fact]
+        public void Refusal_never_says_more_at_a_lower_level_than_at_a_higher_one()
+        {
+            // The monotonic property the whole control rests on: turning
+            // verbosity DOWN must never make the app say MORE. Measured as
+            // words spoken by one refusal at each level, tone audible.
+            int SaidBy(VerbosityLevel level)
+            {
+                var tones = new ToneCounter();
+                var (h, _) = OpenAudio(level, cues: tones.Cues);
+                int before = h.Said.Count;
+                h.Layer.HandleKey(Keys.Up);
+                return h.Said.Skip(before).Sum(s => s.Length);
+            }
+
+            int chatty = SaidBy(VerbosityLevel.Chatty);
+            int terse = SaidBy(VerbosityLevel.Terse);
+            int off = SaidBy(VerbosityLevel.Critical);
+            Assert.True(chatty > terse, $"chatty {chatty} should exceed terse {terse}");
+            Assert.True(terse >= off, $"terse {terse} should not be shorter than off {off}");
         }
 
         [Fact]
@@ -1233,6 +1361,14 @@ namespace Radios.Tests
             Assert.Contains("HostKeys = LayerSliceJump", source);
             Assert.Contains("PersistPcOutputVolume()", source);
             Assert.Contains("KeyInventory.LayerHelpSpeech(", source);
+
+            // #528: the shipped layer tells the engine whether its tones can
+            // be heard, so a refusal at Terse is the thunk alone only when
+            // the thunk will sound. Both shipped layers wire it; a layer
+            // that forgot would speak every hint at every level, which is
+            // safe and wrong.
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(
+                source, @"Audible = \(\) => EarconPlayer\.IsOn\(EarconPlayer\.EarconCategory\.CommandsAndConfirmations\)").Count);
 
             foreach (string key in new[]
             {

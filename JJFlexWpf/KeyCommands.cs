@@ -2933,10 +2933,13 @@ public class KeyCommands
         }
 
         // === LEADER HELP-ARMED DISPATCH (#303) ===
-        // Reached only after the unknown-key message, which is the message
-        // that TELLS the operator H and Escape are still live. The layer is
-        // never silently sticky: it stays armed exactly when it has just said
-        // so, and for nothing but the keys it named.
+        // Reached only after the unknown-key answer, which is the answer that
+        // TELLS the operator H and Escape are still live: at Chatty the
+        // sentence that names them, below Chatty the invalid tone that the
+        // sentence taught them (#528). The layer is never silently sticky: it
+        // stays armed exactly when it has just said so, and for nothing but
+        // the keys it named. The arming is the same at every verbosity —
+        // verbosity changes what is said, never what happens.
         if (_leaderHelpArmed)
         {
             _leaderHelpArmed = false;
@@ -3957,6 +3960,19 @@ public class KeyCommands
             default:
                 _context.Trace("Leader:no command for " + k);
                 EarconPlayer.LeaderInvalidTone();
+
+                // #528: below Chatty the thunk IS the answer and the sentence
+                // that follows it at Chatty stays unspoken — the operator who
+                // knows what the thunk means turns verbosity down and stops
+                // hearing the lesson. The words come back at every level if
+                // the thunk cannot sound (earcons off), because a refused key
+                // that produces nothing at all is the invisible failure. Only
+                // what is SAID changes below: the disarm on a near miss and
+                // the arm on an unknown key are the same at every verbosity.
+                bool toneStandsAlone = Radios.Speech.RefusalVoice.ToneStandsAlone(
+                    Radios.ScreenReaderOutput.CurrentVerbosity,
+                    EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations));
+
                 // #206: a near-miss gets named instead of a dead end. The
                 // layer mixes bare, Shift and Ctrl tiers on the same letters
                 // (D vs Ctrl+D, Q vs Ctrl+Q), so a slipped modifier is the
@@ -3966,17 +3982,24 @@ public class KeyCommands
                 // re-enter-and-hunt into a one-chord retry, and teaches the
                 // layer while the operator is standing in it. One alternative
                 // at most, bare form first. The layer still disarms — this
-                // changes what is SAID, not what happens.
+                // changes what is SAID, not what happens. The alternative is
+                // the Chatty tier; the fallback tiers say only that the chord
+                // is not a command, because naming what to press instead is a
+                // hint, and Terse is values and transitions, not hints.
                 if (KeyInventory.TryFindLeaderNearMiss(k, out string nearKey, out string nearWhat))
                 {
-                    Radios.ScreenReaderOutput.Speak(
-                        Radios.Lexicon.Get("leader.near_miss",
-                            ("pressed", KeyManifest.FormatKey(k)),
-                            ("alt", nearKey),
-                            ("what", nearWhat)),
-                        Radios.Speech.SpeechIntent.Interrupt,
-                        Radios.VerbosityLevel.Critical,
-                        subject: Radios.Speech.SpeechSubject.JjKeyHelp);
+                    if (!toneStandsAlone)
+                    {
+                        Radios.ScreenReaderOutput.Speak(
+                            Radios.Lexicon.Get("leader.near_miss",
+                                Radios.ScreenReaderOutput.CurrentVerbosity,
+                                ("pressed", KeyManifest.FormatKey(k)),
+                                ("alt", nearKey),
+                                ("what", nearWhat)),
+                            Radios.Speech.SpeechIntent.Interrupt,
+                            Radios.VerbosityLevel.Critical,
+                            subject: Radios.Speech.SpeechSubject.JjKeyHelp);
+                    }
                 }
                 else
                 {
@@ -3986,7 +4009,9 @@ public class KeyCommands
                     // to retry and says nothing about help, so leaving the
                     // layer armed there would be a mode the operator was never
                     // told they were in. Two situations, two vocabularies, and
-                    // stickiness follows the sentence that earns it.
+                    // stickiness follows the sentence that earns it — and,
+                    // below Chatty, the thunk that sentence taught (#528).
+                    // The arm is deliberately OUTSIDE the verbosity gate.
                     _leaderHelpArmed = true;
 
                     // Verbosity picks the wording. Terse: "H for the list."
@@ -3994,12 +4019,18 @@ public class KeyCommands
                     // the KEYSTROKE and never the glyph — a literal "?" may
                     // not be voiced at all with punctuation set low, which
                     // would silently drop the very key being recommended.
-                    Radios.ScreenReaderOutput.Speak(
-                        Radios.Lexicon.Get("leader.unknown_key",
-                            Radios.ScreenReaderOutput.CurrentVerbosity),
-                        Radios.Speech.SpeechIntent.Interrupt,
-                        Radios.VerbosityLevel.Critical,
-                        subject: Radios.Speech.SpeechSubject.JjKeyHelp);
+                    // Tagged Critical on purpose: when this speaks at all it
+                    // is because the thunk could not, and a sticky mode with
+                    // no stated exit is the trap #303 exists to close.
+                    if (!toneStandsAlone)
+                    {
+                        Radios.ScreenReaderOutput.Speak(
+                            Radios.Lexicon.Get("leader.unknown_key",
+                                Radios.ScreenReaderOutput.CurrentVerbosity),
+                            Radios.Speech.SpeechIntent.Interrupt,
+                            Radios.VerbosityLevel.Critical,
+                            subject: Radios.Speech.SpeechSubject.JjKeyHelp);
+                    }
                 }
                 break;
         }
@@ -4275,6 +4306,9 @@ public class KeyCommands
                 Closed = EarconPlayer.LeaderCancelTone,
                 Invalid = EarconPlayer.LeaderInvalidTone,
                 Help = EarconPlayer.LeaderHelpTone,
+                // #528: below Chatty a refused key is the thunk alone, so the
+                // engine must know whether the thunk will be heard.
+                Audible = () => EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations),
             },
         };
 
@@ -4605,6 +4639,9 @@ public class KeyCommands
                 Closed = EarconPlayer.LeaderCancelTone,
                 Invalid = EarconPlayer.LeaderInvalidTone,
                 Help = EarconPlayer.LeaderHelpTone,
+                // #528: below Chatty a refused key is the thunk alone, so the
+                // engine must know whether the thunk will be heard.
+                Audible = () => EarconPlayer.IsOn(EarconPlayer.EarconCategory.CommandsAndConfirmations),
             },
         };
 

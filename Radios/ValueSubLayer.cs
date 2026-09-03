@@ -148,6 +148,20 @@ namespace Radios
         /// <summary>A key was refused but the layer stays (LeaderInvalidTone).</summary>
         public Action? Invalid;
 
+        /// <summary>
+        /// Whether the cues above will actually be HEARD right now — false
+        /// when the operator has switched earcons off, as a whole or for the
+        /// category these tones belong to. Null means yes.
+        ///
+        /// Read when a key is refused (#528): below Chatty the
+        /// <see cref="Invalid"/> tone is the whole answer and the hint stays
+        /// unspoken, so if the tone cannot sound the hint is spoken instead.
+        /// A refusal is never silent. The engine cannot read the earcon
+        /// switches itself — they live in the host above it — so the host
+        /// says. See <see cref="Speech.RefusalVoice"/> for the rule.
+        /// </summary>
+        public Func<bool>? Audible;
+
         /// <summary>The in-layer help spoke or opened (LeaderHelpTone).</summary>
         public Action? Help;
 
@@ -990,10 +1004,23 @@ namespace Radios
             }
         }
 
+        /// <summary>
+        /// Answer a key the layer did not accept: the invalid tone, always,
+        /// and the hint only where verbosity asks for hints (#528). Below
+        /// Chatty the tone is the whole answer — unless the host says the
+        /// tone cannot sound, in which case the hint is spoken at every level
+        /// so the refusal is never silent. A layer that wires no tone at all
+        /// gets the words at every level for the same reason. The layer stays
+        /// open either way; verbosity changes what is said, never what
+        /// happens.
+        /// </summary>
         private void Refuse(string? hint)
         {
+            bool toneWillSound = _def.Cues.Invalid != null && (_def.Cues.Audible?.Invoke() ?? true);
             _def.Cues.Invalid?.Invoke();
-            if (!string.IsNullOrEmpty(hint)) EmitSay(hint!);
+            if (string.IsNullOrEmpty(hint)) return;
+            if (Speech.RefusalVoice.ToneStandsAlone(VerbosityNow(), toneWillSound)) return;
+            EmitSay(hint!);
         }
 
         private string? HintFor(Slot? s)

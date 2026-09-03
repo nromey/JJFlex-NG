@@ -90,7 +90,9 @@ The two filter-width readouts used to live here, on `F` and `Shift+F`. Plain `F`
 
 ## When the JJ layer doesn't know the key you pressed
 
-Press `Ctrl+J` and then something the layer has no command for, and you'll hear a buzz followed by "Unknown key. H for the list, Escape to cancel." Turn verbosity up and it spells the whole thing out: "Unknown key. Press H for the list of JJ key commands, or slash for the JJ key explorer. Escape to cancel."
+Press `Ctrl+J` and then something the layer has no command for, and you'll hear a low thunk. What comes after it depends on your speech verbosity (`Ctrl+Shift+V` cycles it). On Chatty, the thunk is followed by the whole lesson: "Unknown key. Press H for the list of JJ key commands, or slash for the JJ key explorer. Escape to cancel." On Terse, and on Off, the thunk is the whole answer — after a while you know what it means, and you know `H` is where the list lives, so the app stops telling you. The same goes for a near miss, where the layer knows which key you probably meant: Chatty says "Ctrl+G is not a command. G: Arm or disarm the TX test tone," and Terse just thunks.
+
+Turning verbosity down never leaves you with nothing, though. If you've switched earcons off — all of them, or just the command tones — there's no thunk to hear, so the app speaks the short form instead at every level: "Unknown key. H for the list, Escape to cancel." A key you pressed always answers somehow. And the level only changes what the app *says*, never what it *does*: the three waiting keys below are the same on Terse as on Chatty.
 
 Here's the part that matters, because it used to be a small lie. That sentence tells you to press `H` — and until now, by the time it finished saying so, the layer had already closed behind you. `H` did whatever `H` does wherever you happened to be standing. You were told to do the one thing that couldn't work.
 
@@ -102,7 +104,7 @@ Now the layer waits. After an unknown key it stays open for exactly three keys: 
 
 From the list, **Explore the JJ key** (`Alt+X`) opens the explorer: the whole layer as a tree. The top branches are the kinds of key — plain letters, Shift letters, Control letters, Alt letters, and help — and under a chord that opens a mode of its own, such as `V` for volume mode, sit the keys that only work once you're in it. Right arrow opens a branch, Left closes it, Enter does either, and a letter jumps to the next key that starts with it. It's the same table the list reads from, so the two can't disagree.
 
-Three keys and no more, on purpose. A layer that keeps hold of your keyboard without saying so is a trap, and you can't see whether you're still in one. These three all lead *out*: two to help, one to the door. There's no way to get stuck, and the layer only ever lingers right after it has told you it's doing so.
+Three keys and no more, on purpose. A layer that keeps hold of your keyboard without saying so is a trap, and you can't see whether you're still in one. These three all lead *out*: two to help, one to the door. There's no way to get stuck, and the layer only ever lingers right after it has told you it's doing so — in words on Chatty, and with the thunk those words taught you on Terse.
 
 A note on how these keys get spoken. You'll notice the app says "slash" or "Shift slash" rather than "question mark" or a bare `?` character. That's deliberate. If your screen reader's punctuation level is set low, a lone `?` may not be spoken at all — so an instruction can quietly lose the very key it's naming. Naming the key also just describes what your hands do, which is the whole job of an instruction. You'll see the same wording anywhere the app asks you to press a punctuation key.
 
@@ -113,7 +115,7 @@ Every JJ key action has its own audio feedback:
 - **Feature toggled on** — a two-step rising tone (bonk-bink), then speech confirming the new state: for example, "On-Radio Neural NR on."
 - **Feature toggled off** — a two-step falling tone (bink-bonk), then speech: "On-Radio Neural NR off."
 - **Information spoken** — no earcon, just speech with the requested information.
-- **Invalid or unavailable key** — a dull buzz, then speech: for example, "Audio Peak Filter is CW only" or "On-Radio Neural NR not available on this radio."
+- **Invalid or unavailable key** — a dull buzz (the thunk), then speech: for example, "Audio Peak Filter is CW only" or "On-Radio Neural NR not available on this radio." Those reasons are about your radio and are always spoken. A key the layer simply doesn't know, or a wrong arrow inside the audio or filter layer, is different: on Chatty the thunk is followed by the lesson, on Terse the thunk is the answer. See "When the JJ layer doesn't know the key you pressed" above.
 - **Cancelled** — a soft descending tone.
 
 ## Why a JJ Key?
