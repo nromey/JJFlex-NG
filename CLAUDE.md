@@ -451,7 +451,18 @@ Content flows forward: nightly → stable → public. Nothing skips tiers. See `
 - **The Dropbox root is machine-dependent** — `D:\Dropbox` on the ms-02 (the old hardcoded default, `C:\Users\nrome\Dropbox`, is wrong there). Resolve it from `%LOCALAPPDATA%\Dropbox\info.json` (`personal.path`) before any hand-drop; `build-debug.bat` and `publish-nightly-to-dropbox.ps1` do this themselves as of 2026-08-06. A hardcoded C:\ path on the ms-02 writes to an unsynced dead folder that looks like success.
 - `<DropboxRoot>\JJFlexRadio\` — stable installers AND the latest end-of-day "nightly" debug zip (top level)
 - `...\debug\` — shared debug nightlies + NOTES-YYYYMMDD.txt (all private testers read from here)
-- `...\don\` — Don-specific artifacts (his crash dumps, custom builds, saved configs)
+- `...\don\` — Don-specific artifacts (his crash dumps, custom builds, saved
+  configs) **and the note channel.** Notes to Don are plain-text files named
+  `READ-ME-FIRST-YYYY-MM-DD.txt`, sitting beside whatever they describe. This
+  is a REGULAR channel, not an exception — Noel and Don correspond this way
+  often, and only with Don. **Match the house style**, which the existing
+  notes establish: plain ASCII (no em dashes or smart quotes), ALL-CAPS
+  section headings underlined with hyphens, wrapped near 70 columns, and a
+  `WHAT IS IN THIS FOLDER` section first. The voice is Noel's, first person,
+  ham to ham, and it tells Don plainly when he can ignore something.
+  **Claude may write these when asked; Claude never sends anything else to a
+  tester** — the standing rule that Noel handles tester communication is
+  unchanged, and this folder is the one place he delegates the drafting.
 - `...\justin\` — Justin-specific artifacts (as he comes online as a tester)
 - `...\old\` — archived previous stables (for rollback)
 - `...\crash\` — user-submitted crash dumps
