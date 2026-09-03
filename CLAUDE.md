@@ -1074,6 +1074,30 @@ As tracks complete, Claude Desktop handles merges and keeps the user informed:
    **Do not delegate this to the tracks.** Each track's brief is correct and
    local; the defect is precisely that none of them can see the others. This
    is a separate job with the whole merged tree in front of it.
+   **RUN `JJFlexWpf.Tests`, FILTERED. It is otherwise never run at merge time
+   at all.** `DeskGuard` refuses the project on a live desk, so every merge
+   verification covers `Radios.Tests` and nothing else — and a guard that makes
+   a project unrunnable also makes it unwatched. Four `KeyTreeTests` sat red
+   across three Sprint 44 merges because of this; two separate tracks found it
+   independently, days later, by stashing and re-running.
+
+   Filtering to classes that construct no window is safe on a live desk:
+
+   ```bash
+   dotnet test JJFlexWpf.Tests/JJFlexWpf.Tests.csproj -c Debug -p:Platform=x64      --filter "FullyQualifiedName~KeyTreeTests|FullyQualifiedName~LayerHelpRowsTests|FullyQualifiedName~KeyLayerHelpTests|FullyQualifiedName~LeaderNearMissTests"
+   ```
+
+   **Say which classes the run covered**, because the set grows and a class
+   nobody names silently drops out of coverage the day it is added. See #531.
+
+   **And a merge note with two clauses needs two ticks.** Sprint 44's Track J
+   wrote "take K's `LeaderKeyHelp` body, AND replace `OpenKeyExplorer()`'s body
+   with `KeyExplorerDialog.Open()`". The merge verified the first, found it
+   correct, and stopped — so `JJ key slash` opened the LIST for the whole
+   sprint and Track K's tree explorer never ran once. Nothing caught it: both
+   chords were bound, both documented, both opened something navigable. The
+   consistency tests check that a key HAS a meaning, not that it has the RIGHT
+   one.
 5. **Status updates** — Claude tells the user after each merge completes (e.g., "Track B merged into A, build clean. Waiting for Track C.")
 6. **Final merge to main:**
    ```batch
